@@ -1,0 +1,368 @@
+/**
+ * v2 接收侧状态与传输历史
+ *
+ * 数据源：WASM 全量快照事件（batches-changed / receiving-changed /
+ * history-changed）+ 初始拉取命令（list-batches / list-receiving /
+ * list-history），与 useTasks 同模式：整表替换避免状态漂移。
+ *
+ * toast（接收中提醒）：宿主无现成 toast API，插件内自绘轻量 toast 队列；
+ * mode=batch 立即弹一条；mode=per-file 进入 3 秒合并窗口——窗口内新文件
+ * 只更新计数不重复弹（spec §14.4）。
+ */
+import { ref, type Ref } from 'vue'
+import type {
+  Disposable,
+  PluginContext,
+  PluginDialogHandle,
+} from '@binblink/wasmnest-plugin-sdk-desktop'
+import {
+  isPermissionGranted,
+  requestPermission,
+  sendNotification,
+} from '@tauri-apps/plugin-notification'
+import type { HistoryEntry, PendingBatch, ReceivingTask } from '../types'
+import { formatBytes } from '../utils/format'
+
+/** per-file toast 合并窗口（毫秒） */
+const PER_FILE_TOAST_WINDOW_MS = 3000
+
+/** 接收中 toast 条目 */
+export interface TransferToast {
+  id: number
+  /** 对端名（空串时前端用占位文案） */
+  name: string
+  /** 文件数（per-file 窗口内累加） */
+  count: number
+  /** 批级总大小（仅 batch 模式） */
+  totalSize?: number
+  mode: 'batch' | 'per-file'
+}
+
+/** 展示名：首文件名（多文件追加 +N） */
+function displayName(files: unknown): string {
+  const arr = Array.isArray(files) ? files : []
+  const first = arr[0]?.path ?? arr[0]?.relativePath ?? 'file'
+  const name = String(first).split('/').pop() ?? String(first)
+  const extra = Math.max(0, arr.length - 1)
+  return extra > 0 ? `${name} +${extra}` : name
+}
+
+/** 首文件相对落盘路径（wire files[0].path / relativePath；缺失为 null） */
+function firstRelPath(files: unknown): string | null {
+  const arr = Array.isArray(files) ? files : []
+  const first = arr[0]
+  if (!first || typeof first !== 'object') return null
+  const p = (first as any).path ?? (first as any).relativePath
+  return typeof p === 'string' && p.length > 0 ? p : null
+}
+
+function mapPendingBatch(raw: any): PendingBatch {
+  const rawFiles = Array.isArray(raw.files) ? raw.files : []
+  return {
+    batchId: raw.batchId ?? '',
+    peerId: raw.nodeId ?? '',
+    peerName: raw.peerName ?? '',
+    // 自有存储条目文件项为 { path, size }（引擎形状），归一化为前端 relativePath 契约
+    files: rawFiles.map((f: any) => ({
+      relativePath: f.path ?? f.relativePath ?? '',
+      size: f.size ?? 0,
+    })),
+    totalSize: raw.totalBytes ?? 0,
+    createdAt: raw.createdAtMs ?? 0,
+  }
+}
+
+function mapReceivingTask(raw: any): ReceivingTask {
+  const status = String(raw.status ?? 'running')
+  return {
+    sessionId: raw.batchId ?? '',
+    batchId: raw.batchId ?? null,
+    remotePath: displayName(raw.files),
+    relPath: firstRelPath(raw.files),
+    size: raw.totalBytes ?? 0,
+    offset: raw.transferredBytes ?? 0,
+    // 速率随快照下发（接收卡缺失会导致下载方向无速度可显示）
+    rateBps: raw.rateBps ?? 0,
+    state: status === 'running' ? 'transferring' : status,
+    reason: raw.detail ?? null,
+    peerId: raw.nodeId ?? '',
+    peerName: raw.peerName || undefined,
+    createdAt: raw.createdAtMs ?? 0,
+    updatedAt: raw.updatedAtMs ?? 0,
+  }
+}
+
+function mapHistoryEntry(raw: any): HistoryEntry {
+  return {
+    id: raw.batchId ?? '',
+    direction: raw.direction === 'receive' ? 'download' : 'upload',
+    initiator: raw.direction === 'receive' ? 'peer' : 'me',
+    fileName: displayName(raw.files),
+    relPath: firstRelPath(raw.files),
+    size: raw.totalBytes ?? 0,
+    state: raw.status ?? 'failed',
+    reason: raw.detail ?? raw.rejectReason ?? null,
+    peerName: raw.peerName ?? '',
+    localPath: null,
+    // 发起方条目携带 retryMeta（历史重试按钮的判定依据）
+    retryable: raw.retryMeta != null,
+    createdAt: raw.createdAtMs ?? 0,
+    updatedAt: raw.updatedAtMs ?? 0,
+  }
+}
+
+export function useReceiving(context: PluginContext) {
+  /** pending 批（应答卡数据源） */
+  const batches = ref<PendingBatch[]>([]) as Ref<PendingBatch[]>
+  /** 接收中任务 */
+  const receiving = ref<ReceivingTask[]>([]) as Ref<ReceivingTask[]>
+  /** 传输历史（封顶 200，最新在前） */
+  const history = ref<HistoryEntry[]>([]) as Ref<HistoryEntry[]>
+  /** toast 队列（接收中提醒） */
+  const toasts = ref<TransferToast[]>([]) as Ref<TransferToast[]>
+
+  let dispBatches: Disposable | null = null
+  let dispReceiving: Disposable | null = null
+  let dispHistory: Disposable | null = null
+  let dispToast: Disposable | null = null
+  /** per-file 合并窗口内的 toast id（窗口内只更新计数） */
+  let perFileToastId: number | null = null
+  let toastSeq = 0
+  const dismissTimers = new Map<number, ReturnType<typeof setTimeout>>()
+
+  function applyBatches(list: any[]): void {
+    batches.value = (Array.isArray(list) ? list : []).map(mapPendingBatch)
+    // 最小化/后台时新 pending 批 → 系统通知「打开应用」（spec §12.3：桌面最小化
+    // 不提供通知内应答，仅提示；点击通知聚焦窗口）。前台横幅已足够，不发通知。
+    // 同批只通知一次；批消失后从集合移除，允许重新请求时再次提示
+    const ids = new Set(batches.value.map((b) => b.batchId))
+    for (const id of [...notifiedBatches]) {
+      if (!ids.has(id)) notifiedBatches.delete(id)
+    }
+    for (const batch of batches.value) void maybeNotifyPendingBatch(batch)
+  }
+  function applyReceiving(list: any[]): void {
+    receiving.value = (Array.isArray(list) ? list : []).map(mapReceivingTask)
+  }
+  function applyHistory(list: any[]): void {
+    history.value = (Array.isArray(list) ? list : []).map(mapHistoryEntry)
+  }
+
+  /** 移除 toast（自动消失或手动关闭） */
+  function dismissToast(id: number): void {
+    toasts.value = toasts.value.filter((t) => t.id !== id)
+    dismissTimers.delete(id)
+  }
+
+  // ==================== 系统通知（最小化/后台） ====================
+
+  /** 已发系统通知的批 ID（去重，见 applyBatches） */
+  const notifiedBatches = new Set<string>()
+  /** 通知权限是否已检查过（避免每次批到达都请求） */
+  let notifyPermissionChecked = false
+
+  /**
+   * 窗口不可见时发系统通知（best-effort，失败仅记日志）。
+   * 前台时全局弹窗已覆盖所有页面（宿主通用弹窗），无需通知。
+   */
+  async function maybeNotifyPendingBatch(batch: PendingBatch): Promise<void> {
+    if (!document.hidden || notifiedBatches.has(batch.batchId)) return
+    try {
+      if (!notifyPermissionChecked) {
+        notifyPermissionChecked = true
+        if (!(await isPermissionGranted())) await requestPermission()
+      }
+      sendNotification({
+        title: context.i18n.t('transfer.request.title'),
+        body: context.i18n.t('transfer.request.body', {
+          name: batch.peerName || context.i18n.t('transfer.peer.unknown'),
+          count: batch.files?.length ?? 1,
+          size: formatBytes(batch.totalSize),
+        }),
+      })
+      notifiedBatches.add(batch.batchId)
+    } catch (e) {
+      console.error('[File Transfer] notify pending batch failed:', e)
+    }
+  }
+
+  /** 入队 toast：batch 立即弹；per-file 3s 窗口合并去重 */
+  function pushToast(payload: any): void {
+    const mode: 'batch' | 'per-file' = payload?.mode === 'batch' ? 'batch' : 'per-file'
+    const name: string = payload?.name ?? ''
+    const count = Math.max(1, Number(payload?.count ?? 1))
+    const totalSize = Number(payload?.totalSize ?? 0)
+
+    if (mode === 'per-file' && perFileToastId !== null) {
+      // 窗口内：只更新计数，不重复弹（spec §14.4 3s 窗口合并）
+      const existing = toasts.value.find((t) => t.id === perFileToastId)
+      if (existing) {
+        existing.count += count
+        return
+      }
+      perFileToastId = null
+    }
+
+    const id = ++toastSeq
+    const toast: TransferToast = { id, name, count, totalSize, mode }
+    toasts.value = [...toasts.value, toast]
+    if (mode === 'per-file') perFileToastId = id
+    // 自动消失：5s（batch）/ 3s（per-file，与合并窗口同值 = 窗口结束即消失）
+    const timer = setTimeout(
+      () => {
+        dismissToast(id)
+        if (perFileToastId === id) perFileToastId = null
+      },
+      mode === 'batch' ? 5000 : PER_FILE_TOAST_WINDOW_MS,
+    )
+    dismissTimers.set(id, timer)
+  }
+
+  // ==================== 命令封装 ====================
+
+  async function refresh(): Promise<void> {
+    // 三个列表命令分别结算：单个失败不拖垮其余列表（部分成功也渲染）
+    const [b, r, h] = await Promise.allSettled([
+      context.commands.execute('file-transfer.list-batches', {}),
+      context.commands.execute('file-transfer.list-receiving', {}),
+      context.commands.execute('file-transfer.list-history', {}),
+    ])
+    if (b.status === 'fulfilled') applyBatches(Array.isArray(b.value) ? b.value : [])
+    if (r.status === 'fulfilled') applyReceiving(Array.isArray(r.value) ? r.value : [])
+    if (h.status === 'fulfilled') applyHistory(Array.isArray(h.value) ? h.value : [])
+    for (const [name, res] of [
+      ['list-batches', b],
+      ['list-receiving', r],
+      ['list-history', h],
+    ] as const) {
+      if (res.status === 'rejected') console.error(`[File Transfer] ${name} failed:`, res.reason)
+    }
+  }
+
+  /** 批准批请求：成功返回 true；失败记日志返回 false（调用方据此决定是否开队列） */
+  async function approveBatch(batchId: string): Promise<boolean> {
+    try {
+      await context.commands.execute('file-transfer.approve-batch', { batchId })
+      return true
+    } catch (e) {
+      console.error(`[File Transfer] approve-batch failed for "${batchId}":`, e)
+      return false
+    }
+  }
+  /** 拒绝批请求：成功返回 true；失败记日志返回 false */
+  async function rejectBatch(batchId: string): Promise<boolean> {
+    try {
+      await context.commands.execute('file-transfer.reject-batch', { batchId })
+      return true
+    } catch (e) {
+      console.error(`[File Transfer] reject-batch failed for "${batchId}":`, e)
+      return false
+    }
+  }
+  async function cancelReceiving(sessionId: string): Promise<void> {
+    await context.commands.execute('file-transfer.cancel-receiving', { sessionId })
+  }
+  /**
+   * 清空历史二次确认（宿主全局弹窗渲染）：返回是否确认。
+   *
+   * 破坏性且不可撤销 ⇒ 与移动端同构补确认（桌面先例：TrustedPeersSection
+   * 撤销确认）；遮罩/Escape 关闭等同取消。
+   */
+  function confirmClearHistory(): Promise<boolean> {
+    return new Promise<boolean>((resolve) => {
+      let handle: PluginDialogHandle | null = null
+      let settled = false
+      const finish = (confirmed: boolean): void => {
+        if (settled) return
+        settled = true
+        handle?.close()
+        handle = null
+        resolve(confirmed)
+      }
+      handle = context.ui.showDialog({
+        // 警告三角（Heroicons outline exclamation-triangle）
+        icon: 'M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z',
+        title: context.i18n.t('transfer.history.clearConfirmTitle'),
+        message: context.i18n.t('transfer.history.clearConfirmBody'),
+        actions: [
+          {
+            label: context.i18n.t('transfer.task.cancel'),
+            kind: 'default',
+            onClick: () => finish(false),
+          },
+          {
+            label: context.i18n.t('transfer.history.clear'),
+            kind: 'danger',
+            onClick: () => finish(true),
+          },
+        ],
+        onClose: () => finish(false),
+      })
+    })
+  }
+
+  /**
+   * 清空历史（破坏性操作，插件侧只删终态条目）
+   *
+   * 命令成功后本地重拉三列表：以插件持久层为准刷新 UI，不依赖单一事件送达
+   * （事件丢失/组件重挂会表现为「点了没反应」）。失败时记录并**向上抛**——
+   * 宿主全局 unhandledrejection 处理器会把原因写进 frontend 日志，避免静默。
+   */
+  async function clearHistory(): Promise<void> {
+    if (!(await confirmClearHistory())) return
+    try {
+      await context.commands.execute('file-transfer.clear-history', {})
+      await refresh()
+    } catch (e) {
+      console.error('[File Transfer] clear-history failed:', e)
+      throw e
+    }
+  }
+
+  // ==================== 生命周期 ====================
+
+  function start(): void {
+    stop()
+    dispBatches = context.events.on('plugin:file-transfer:batches-changed', (p: any) =>
+      applyBatches(Array.isArray(p) ? p : []),
+    )
+    dispReceiving = context.events.on('plugin:file-transfer:receiving-changed', (p: any) =>
+      applyReceiving(Array.isArray(p) ? p : []),
+    )
+    dispHistory = context.events.on('plugin:file-transfer:history-changed', (p: any) =>
+      applyHistory(Array.isArray(p) ? p : []),
+    )
+    dispToast = context.events.on('plugin:file-transfer:toast', pushToast)
+    void refresh()
+  }
+
+  function stop(): void {
+    dispBatches?.dispose()
+    dispBatches = null
+    dispReceiving?.dispose()
+    dispReceiving = null
+    dispHistory?.dispose()
+    dispHistory = null
+    dispToast?.dispose()
+    dispToast = null
+    perFileToastId = null
+    for (const t of dismissTimers.values()) clearTimeout(t)
+    dismissTimers.clear()
+    toasts.value = []
+  }
+
+  return {
+    batches,
+    receiving,
+    history,
+    toasts,
+    refresh,
+    approveBatch,
+    rejectBatch,
+    cancelReceiving,
+    clearHistory,
+    dismissToast,
+    start,
+    stop,
+  }
+}

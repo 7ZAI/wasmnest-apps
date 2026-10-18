@@ -1,0 +1,11 @@
+/* AI Chatbox app 基础样式（独立挂载包；桌面 UI 宿主修正 2026-10-17）
+ *
+ * Tailwind 工具类由本工程自编译；设计 token（var(--bg-page) 等）由宿主文档根
+ * 提供（app 只在宿主窗口内运行）；暗色模式跟随宿主 <html class="dark">。
+ */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* 这里**不写** :root token 兜底：挂载包 CSS 由 JS 在宿主 style.css 之后注入，
+   同特异性的 :root 会覆盖宿主的浅色 --bg-page（一挂载应用整窗变暗）。 */

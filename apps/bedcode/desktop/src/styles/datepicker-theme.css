@@ -1,0 +1,60 @@
+/*
+ * Datepicker 主题定制（旧插件入口的 DATEPICKER_THEME_OVERRIDES 字符串落为真实样式文件）
+ *
+ * 与宿主主题融合：跟随应用的设计变量（bg-card / border / primary 等），
+ * 深色模式由 Datepicker 的 dark prop 切换 .dp__theme_dark，此处覆盖其默认深色变量。
+ * app 形态下经 main.ts 普通 CSS 导入参与构建（旧 lib 模式的 ?inline 自注入退役）。
+ */
+
+/* 输入框与宿主控件保持一致（controlCls 同规格：高 32px、圆角 6px、跟随设计变量） */
+.dp__main {
+  width: 100%;
+}
+.dp__input_wrap {
+  width: 100%;
+}
+.dp__input {
+  height: 32px;
+  min-height: 32px;
+  font-size: 12px;
+  border-radius: 6px;
+  border-color: var(--border-input);
+  background: var(--bg-input);
+  color: var(--text-primary);
+}
+.dp__input:hover {
+  border-color: var(--border-input);
+}
+.dp__input:focus {
+  border-color: var(--color-primary);
+}
+.dp__input::placeholder {
+  color: var(--text-tertiary);
+}
+.dp__theme_dark {
+  --dp-background-color: var(--bg-card);
+  --dp-text-color: var(--text-primary);
+  --dp-hover-color: var(--bg-hover);
+  --dp-hover-text-color: var(--text-primary);
+  --dp-hover-icon-color: var(--text-primary);
+  --dp-border-color: var(--border);
+  --dp-border-color-hover: var(--border-input);
+  --dp-primary-color: var(--color-primary);
+  --dp-primary-disabled-color: var(--color-primary);
+  /* 底部操作按钮（确认/取消/现在）：文字色跟随主题对比色（深色下为深色文字），
+     避免浅色 primary 背景 + 白字导致按钮不可见 */
+  --dp-primary-text-color: var(--color-primary-contrast);
+  --dp-secondary-color: var(--text-tertiary);
+  --dp-success-color: var(--color-primary);
+  --dp-icon-color: var(--text-secondary);
+  --dp-disabled-color: var(--text-tertiary);
+  --dp-disabled-border-color: var(--border);
+  --dp-font-family: inherit;
+  --dp-border-radius: 6px;
+  --dp-font-size: 12px;
+  --dp-preview-font-size: 12px;
+  --dp-time-picker-height: 170px;
+}
+.dp__menu {
+  font-size: 12px;
+}

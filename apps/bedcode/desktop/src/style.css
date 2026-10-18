@@ -1,0 +1,15 @@
+/* bedcode app 基础样式（独立挂载包；桌面 UI 宿主修正 2026-10-17）
+ *
+ * - Tailwind 工具类由本工程自编译（tailwind.config.js content = 本 app src +
+ *   共享 SDK 组件）；宿主不再为 app 编译工具类。
+ * - 设计 token（var(--bg-page) 等）由宿主文档根 :root 提供（app 只在宿主窗口
+ *   内运行）；三仓拆分时应用仓需自持 token 副本（另立 tokens.css，见 spec）。
+ * - 暗色模式跟随宿主 <html class="dark">（tailwind darkMode: 'class'）。
+ */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* 这里**不写** :root token 兜底：挂载包 CSS 由 JS 在宿主 style.css 之后注入，
+   同特异性的 :root 会覆盖宿主的浅色 --bg-page（实测现象：浅色主题下一挂载应用
+   整窗变暗）。宿主/开发壳一定已提供 token，无需本地回退。 */

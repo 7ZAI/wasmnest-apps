@@ -1,0 +1,42 @@
+# 应用仓（wasmnest-apps）：各 app 保留独立 pnpm workspace（lock/依赖图各自维护），
+# 根只放编排脚本与共享 lint 配置。
+
+# 依赖与构建产物
+**/node_modules/
+**/dist/
+**/dist-ssr/
+**/target/
+**/coverage/
+**/.vite/
+*.tsbuildinfo
+.eslintcache
+.stylelintcache
+
+# 插件构建产物（index.js / plugin.json / wasm 由 build 脚本生成，不入库；
+# 平台仓宿主 resources 里的副本在平台仓 .gitignore 管辖）
+**/rust/target/
+
+# 日志与临时文件
+*.log
+logs/
+tmp/
+temp/
+*.tmp
+*.bak
+*.backup
+
+# IDE / OS
+.idea/
+*.swp
+*.swo
+*.sublime-workspace
+*.sublime-project
+*.iml
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 环境文件（绝不入库密钥）
+.env
+.env.*
+!.env.example

@@ -1,0 +1,37 @@
+{
+  "name": "@wasmnest/wasm-app-file-transfer",
+  "version": "0.0.1",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:frontend": "vite build",
+    "build:rust": "node scripts/build.js --rust-only",
+    "build": "node scripts/build.js",
+    "dev": "node scripts/build.js --watch",
+    "test:run": "vitest run",
+    "test": "vitest"
+  },
+  "dependencies": {
+    "@binblink/wasmnest-plugin-sdk-desktop": "file:../../../../wasmnest/wasmnest-desktop/packages/plugin-sdk-desktop",
+    "vue-i18n": "^9.14.0",
+    "@tauri-apps/api": "^2.11.0",
+    "vue-sonner": "^2.0.9"
+  },
+  "devDependencies": {
+    "@tauri-apps/plugin-notification": "^2.0.0",
+    "@vitejs/plugin-vue": "^6.0.0",
+    "vite": "^8.0.0",
+    "vue": "^3.4.0",
+    "vue-i18n": "^9.0.0",
+    "typescript": "^5.0.0",
+    "terser": "^5.0.0",
+    "tailwindcss": "^3.4.0",
+    "autoprefixer": "^10.4.0",
+    "vitest": "^3.2.7",
+    "vue-tsc": "^2.0.6",
+    "vite-plugin-css-injected-by-js": "^5.0.2",
+    "happy-dom": "^13.6.0",
+    "@vue/test-utils": "^2.4.5"
+  }
+}

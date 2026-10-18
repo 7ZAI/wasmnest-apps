@@ -1,0 +1,26 @@
+{
+  "name": "wasmnest-apps",
+  "version": "0.0.1",
+  "license": "MIT",
+  "private": true,
+  "packageManager": "pnpm@12.2.1",
+  "scripts": {
+    "prepare": "husky",
+    "test:run": "node scripts/run-apps.mjs test:run",
+    "build": "node scripts/run-apps.mjs build",
+    "lint": "eslint .",
+    "format": "prettier --write \"apps/**/src/**/*.{ts,vue,js,mjs}\""
+  },
+  "devDependencies": {
+    "@binblink/wasmnest-plugin-sdk-desktop": "file:../wasmnest/wasmnest-desktop/packages/plugin-sdk-desktop",
+    "@eslint/js": "^9.39.5",
+    "@vue/eslint-config-prettier": "^9.0.0",
+    "@vue/eslint-config-typescript": "^14.9.0",
+    "eslint": "^9.39.5",
+    "eslint-config-prettier": "^9.1.2",
+    "eslint-plugin-vue": "^9.33.0",
+    "husky": "^9.1.7",
+    "prettier": "^3.9.6",
+    "typescript": "^5.9.3"
+  }
+}
