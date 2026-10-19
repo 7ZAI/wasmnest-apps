@@ -16,6 +16,9 @@
 # 平台仓宿主 resources 里的副本在平台仓 .gitignore 管辖）
 **/rust/target/
 
+# AI agent
+*.codebuddy/
+
 # 日志与临时文件
 *.log
 logs/
