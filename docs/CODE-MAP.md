@@ -1,0 +1,186 @@
+# CODE-MAP —— 应用仓结构与文件导航
+
+> **本文件是「东西在哪」的导航，不是规则**。规则在 `AGENTS.md`（裁决与硬约束）、`docs/FRONTEND.md`（前端规范）、`docs/BACKEND.md`（后端规范）。
+>
+> **文档字面 ≠ 事实**：本文件的路径表按 2026-10-19 实测登记。引用任何路径前先 `ls` / `rg` 核对；与实际不符**先修本文件再继续**。
+
+---
+
+## 1. 三仓布局
+
+本仓（应用仓）是三仓里唯一的**业务主场**。四仓按 R1 同场布局互为兄弟目录：
+
+```text
+<dev-root>/
+├─ wasmnest/       平台仓：双端宿主 + 双端 SDK + 构建工具 + release-manifest.json
+├─ wasmnest-apps/  应用仓（本仓）：业务 wasm 应用
+├─ wasmnest-lib/   能力仓：应用无关引擎 / 契约（`contracts/`、`wasmnest-wasm-core/wit/`）
+└─ wasmnest-test/  跨端测试仓（`cross-end-tests/`）
+```
+
+跨仓路径**必须**经 resolver 解析，禁止在调用方硬编码：
+
+| 方向 | resolver | 环境变量覆盖 |
+| --- | --- | --- |
+| 应用 → 平台 | `scripts/platform-paths.mjs`（宿主 resources 落点 / 组件化工具 manifest） | `WASMNEST_PLATFORM_ROOT` |
+| 平台 → 应用 | `../wasmnest/scripts/app-paths.mjs`（读本仓源码；`app-script.mjs` 转发单 app 脚本） | `WASMNEST_APPS_ROOT` |
+
+两个 resolver 都 fail-visible：目录缺失**抛错**，不返回可能无效的路径。
+
+---
+
+## 2. 仓内结构（实测）
+
+```text
+wasmnest-apps/
+├─ apps/<slug>/desktop/            桌面端应用工程（挂载包形态）
+│   ├─ plugin.json                 应用清单（id / platform / pluginType / rustLibrary / permissions / contributes）
+│   ├─ src/entry.ts                挂载契约入口：mountApp(root, env)
+│   ├─ src/appContext.ts           AppMountEnv → PluginContext 适配层
+│   ├─ src/index.ts                dev-shell 兼容出口（仅导出 devMock；主宿主不加载）
+│   ├─ src/components|composables|utils|i18n|__tests__/
+│   ├─ rust/                       WASM 后端（file-transfer 例外：无本端 rust）
+│   ├─ scripts/build.js            vite → cargo → 复制产物到宿主 resources → injectWasmHash
+│   ├─ vite.config.ts / vitest.config.ts / tailwind.config.js / postcss.config.js
+│   ├─ package.json + pnpm-lock.yaml + pnpm-workspace.yaml    ← 独立 workspace
+│   └─ icon.svg
+├─ apps/<slug>/mobile/             移动端应用工程（宿主壳运行面）
+│   ├─ plugin.json
+│   ├─ src/index.ts                activate(context) / deactivate()
+│   ├─ src/<domain>/               按域组织（bedcode 尤其明显：app / host / terminal / task / settings）
+│   ├─ rust/ 或 wasmnest.sharedRustManifest（file-transfer）
+│   └─ vite.config.ts（经 SDK wasmnestPlugin()）
+├─ apps/file-transfer/rust/
+│   ├─ core/                       双端共享业务核（端口 trait + 纯逻辑，**不依赖任何 SDK**）
+│   └─ plugin/                     双端同构 wasm 产物源（宿主适配 + 命令面；不属于任何一端）
+├─ scripts/
+│   ├─ run-apps.mjs                仓编排：逐 app 串行跑同一条 package.json 脚本
+│   ├─ platform-paths.mjs          应用 → 平台 resolver
+│   ├─ plugin-wasm-config.mjs      桌面 wasip3 target / pinned nightly / 共享 target-dir
+│   ├─ package-plugins.mjs         两端口构建 + 按插件打 zip（发布用）
+│   └─ replace-console.mjs         console.* → 统一 logger 的机械化替换
+├─ .cargo/config.toml              共享 target-dir（target/wasm-apps）+ jobs=4 + sccache
+├─ .husky/pre-commit               暂存前端文件 eslint --quiet（error 阻断）
+├─ eslint.config.js                前端资源访问红线（双端共用一份）
+└─ docs/                           CODE-MAP.md / FRONTEND.md / BACKEND.md
+```
+
+**每个 app 保留独立 pnpm workspace**（各有 `pnpm-lock.yaml` 与 `pnpm-workspace.yaml`，不合并）；根 `package.json` 只做编排，根 `node_modules` 只服务 lint / husky。
+
+---
+
+## 3. 应用清单
+
+真源 = 各 `plugin.json`。下表的 `rustLibrary` 是**产物名**（`<rustLibrary>.wasm`）。
+
+| 目录 slug | 插件 id | 端 | 前端入口 | pluginType | rustLibrary | Rust crate（包名 / 位置） |
+| --- | --- | --- | --- | --- | --- | --- |
+| agent-hub | `com.wasmnest.agent-hub` | desktop | `desktop/src/entry.ts` | `rust-ts` | `wasmnest_plugin_agent_hub` | `wasmnest-plugin-agent-hub` @ `apps/agent-hub/desktop/rust` |
+| ai-chatbox | `com.wasmnest.ai-chatbox` | desktop + mobile | `entry.ts` / `index.ts` | 桌面 `rust-ts`；移动 `wasm` | `wasmnest_plugin_ai_chatbox`（两端同名） | `wasmnest-plugin-ai-chatbox` @ `desktop/rust`；`wasmnest_plugin_ai_chatbox` @ `mobile/rust` |
+| bedcode（显示名 BedCode） | `com.wasmnest.terminal-session` | desktop + mobile | `entry.ts` / `index.ts` | 桌面 `rust-ts`；移动 `wasm` | `bedcode_plugin_terminal_session`（两端同名） | `bedcode-plugin-terminal-session` @ `desktop/rust`；`bedcode_plugin_terminal_session` @ `mobile/rust` |
+| file-transfer | `com.wasmnest.file-transfer` | desktop + mobile（`platform: "both"`） | `entry.ts` / `index.ts` | 桌面 `rust-ts`；移动 `wasm` | `wasmnest_plugin_file_transfer`（两端同名） | 单产物 `wasmnest-plugin-file-transfer` @ `apps/file-transfer/rust/plugin`；共享核 `wasmnest-file-transfer-core` @ `apps/file-transfer/rust/core` |
+
+### 命名纪律
+
+- **目录 slug ≠ 插件 id**：`bedcode` 目录 → `com.wasmnest.terminal-session`。仅显示名 / rustLib 名 / 目录 slug 豁免，**id 不豁免**（ADR 0056）。新建应用一律 `com.wasmnest.<slug>`。
+- **`rustLibrary` = Cargo 包名的下划线归一化**：cargo 把包名里的 `-` 归一化成 `_` 生成产物。例：Cargo `bedcode-plugin-terminal-session` → 产物 `bedcode_plugin_terminal_session.wasm` → `rustLibrary` 填后者。**填连字符形式会找不到产物**。
+- 新增 / 改名应用时同步五处：`plugin.json`、`package.json`、Cargo 包名、`rustLibrary`、i18n 命名空间，外加平台仓 `release-manifest.json`。
+
+### file-transfer 双端单产物（ADR 0050）
+
+`apps/file-transfer/{desktop,mobile}` 下**只有前端**，Rust 全在应用级 `apps/file-transfer/rust/`：
+
+- `rust/core/` —— 共享业务核（端口 trait + 纯逻辑，零 SDK 依赖，可 native 单测）
+- `rust/plugin/` —— 双端同构 crate，**不属任何一端**；桌面 `desktop/scripts/build.js` 的 `--manifest-path ../rust/plugin/Cargo.toml` 与移动 `package.json` 的 `wasmnest.sharedRustManifest: "../rust/plugin/Cargo.toml"` 都指向它
+
+crate 内引用端侧文件按 `apps/file-transfer/rust/plugin/` 起算（**上溯三级**到应用根）：
+
+```rust
+// rust/plugin/src/lib.rs
+include_str!("../../../desktop/plugin.json")            // 内嵌桌面侧清单副本
+// rust/plugin/src/auth_center.rs
+#[plugin_api(manifest = "../../../bedcode/desktop/plugin.json")]   // 对侧清单，宏按 CARGO_MANIFEST_DIR 解析
+```
+
+> ⚠ 该 rust 层目录深度历史上变过两次（`desktop/rust` → `rust-plugin` → `rust/plugin`）。**移动这些目录时，上面两处相对路径必须同改**，且必须跑一次 wasm 目标构建才算验证（native `cargo test` 不展开 `#[plugin_api]` 宏）。
+
+---
+
+## 4. 产物流向
+
+```text
+apps/<slug>/<end>/ 源码
+   │ 前端：desktop = vite 单文件包（全依赖打包，无 externals）
+   │       mobile  = SDK vite 插件（vue / vue-i18n / pinia 外置为宿主全局 __WASMNEST_SHARED__）
+   │ 后端：desktop（一般应用）= wasm32-wasip3 直出 Component
+   │       mobile + file-transfer = wasm32-unknown-unknown + 平台组件化工具
+   ▼
+平台仓宿主资源（dev 期直接写入，宿主读同一目录）
+   desktop: ../wasmnest/wasmnest-desktop/src-tauri/resources/plugins/desktop/<id>/
+   mobile : ../wasmnest/wasmnest-mobile/src-tauri/resources/plugins/mobile/<id>/
+   ├─ index.js        前端入口（桌面宿主经 useAppMount 动态 import）
+   ├─ plugin.json     构建期填充 contributes/permissions，桌面另注入 wasmHash
+   ├─ icon.svg
+   └─ <rustLibrary>.wasm
+```
+
+桌面 app 的 `pnpm run build` 直接写平台宿主 resources；移动 app 的 `wasmnest-plugin build` 只产自身 `dist/`，**写进宿主 resources 由平台仓移动构建负责**（`wasmnest-mobile/scripts/plugin-build.js`；file-transfer/mobile 的 `build` 已直接指向该包装脚本）。
+
+共享 Cargo target 目录 = `<appsRoot>/target/wasm-apps`（`.cargo/config.toml` 的 `build.target-dir` + 各 `build.js` 显式 `--target-dir`，两处注释互相指认）。
+
+---
+
+## 5. 跨仓真源索引
+
+改任何跨仓语义前，去真源读，不要凭本仓推测。**以下路径均已实测存在**。
+
+### 平台仓 `../wasmnest`
+
+| 需求 | 路径 |
+| --- | --- |
+| 桌面挂载契约（宿主侧真源） | `wasmnest-desktop/src/shell/mount/useAppMount.ts`、`wasmnest-desktop/src/shell/mount/AppMountSlot.vue` |
+| 桌面应用 → 宿主路由表 | `wasmnest-desktop/src/shell/composables/useShellApps.ts`（`SURFACE_ROUTES`） |
+| 移动运行面契约（类型真源） | `wasmnest-mobile/packages/plugin-sdk-mobile/src/types.ts`（`UIRegistry`） |
+| 移动宿主注册表 | `wasmnest-mobile/src/shell/registry.ts` |
+| manifest 校验 / 生成 / wasmHash | `wasmnest-desktop/packages/plugin-sdk-desktop/bin/{manifest-validate.js,manifest-gen.js,wasm-hash.js}` |
+| 权限词汇真源 | `wasmnest-desktop/packages/plugin-sdk-desktop/rust/src/permission.rs`（生成物：同 SDK `bin/permission-vocabulary.json`） |
+| 跨仓版本 / 发布 | `release-manifest.json`、`scripts/check-release-manifest.mjs` |
+| wasip3 工具链 | `scripts/wasip3-toolchain.sh`（`WASIP3_NIGHTLY` 单一事实源） |
+| 构建 / dev 编排 | `wasmnest-desktop/scripts/{plugin-build.js,dev-run.js,plugin-watch.js}`、`wasmnest-mobile/scripts/plugin-build.js` |
+
+### 能力仓 `../wasmnest-lib`
+
+| 需求 | 路径 |
+| --- | --- |
+| 契约包名与版本真源 | `contracts/wasmnest-plugin-package.rs` |
+| 核心 WIT | `wasmnest-wasm-core/wit/core.wit`（各能力域另见 `wit/<domain>.wit`） |
+| 跨端互连测试 | `../wasmnest-test/cross-end-tests/` |
+
+### 平台仓锁（读本仓源码的测试；改本仓结构 / 文案前先看）
+
+| 锁 | 钉住什么 |
+| --- | --- |
+| `wasmnest-desktop/src/__tests__/hostAppBoundaryLock.test.ts` | 宿主零 app 源码 import、零 `__WASMNEST_SHARED__`、零旧贡献面；逐字校验**四个**桌面 `entry.ts` 的 `mountApp` 契约 |
+| `wasmnest-desktop/src/__tests__/i18nDriftLock.test.ts` | 宿主 `src/i18n/host-{zh-CN,en}.ts` ↔ `apps/bedcode/desktop/src/i18n/host-{zh-CN,en}.ts` **逐字一致** |
+| `wasmnest-desktop/src/__tests__/tailwindContentCoverage.test.ts` | 宿主 Tailwind content 不得残留 app 路径 |
+| 平台仓 `support/appPaths.ts` 派生的移动侧锁 | 经 `WASMNEST_APPS_ROOT` / `appPath(slug, end, ...)` 读本仓源码 |
+
+---
+
+## 6. 常用核对命令
+
+```bash
+# 全仓 crate 清单（排除 node_modules / target）
+find . -name Cargo.toml -not -path "*/node_modules/*" -not -path "*/target/*" | sort
+
+# 某 app 的脚本能力（不要凭记忆假设存在 dev / test:run）
+cat apps/<slug>/<end>/package.json | head -20
+
+# 共享 target-dir 是否生效（应输出 <appsRoot>/target/wasm-apps）
+cd apps/<slug>/<end>/rust && cargo metadata --no-deps --format-version 1 | grep target_directory
+
+# crate 内路径引用（file-transfer rust 层移动后必查）
+rg -n 'include_str!|plugin_api\(manifest' apps/file-transfer/rust
+```
+
+> 本文件若与代码 / 平台仓真源冲突，**以真源为准并回来修正本文件**。
