@@ -453,14 +453,16 @@ describe('C5 静态侧边栏菜单表与设置分组表（D3/D4）', () => {
     expect(sidebarMenuItems[3].labelKey).toBe('desktop.sidebar.settings')
   })
 
-  it('设置分组 = 静态表：业务两分组、order 升序、带标题 key（平台分组归宿主系统页）', () => {
+  it('设置分组 = 静态表：业务四分组、order 升序、带标题 key（平台分组归宿主系统页）', () => {
     const sorted = [...settingsSections].sort((a, b) => a.order - b.order)
-    expect(sorted.map((s) => s.key)).toEqual(['pairing', 'session'])
-    expect(sorted.map((s) => s.order)).toEqual([200, 400])
+    expect(sorted.map((s) => s.key)).toEqual(['appearance', 'pairing', 'linkCrypto', 'session'])
+    expect(sorted.map((s) => s.order)).toEqual([100, 200, 300, 400])
     // 业务分组携带标题 key（仅正文组件，外壳由设置页统一渲染）
-    expect(sorted[0].titleKey).toBe('com.wasmnest.terminal-session.pairing.settings.title')
-    expect(sorted[1].titleKey).toBe('com.wasmnest.terminal-session.session.settings.title')
-    expect(SECTION_ORDERS).toEqual({ pairing: 200, session: 400 })
+    expect(sorted[0].titleKey).toBe('com.wasmnest.terminal-session.appearance.settings.title')
+    expect(sorted[1].titleKey).toBe('com.wasmnest.terminal-session.pairing.settings.title')
+    expect(sorted[2].titleKey).toBe('settings.linkCrypto.title')
+    expect(sorted[3].titleKey).toBe('com.wasmnest.terminal-session.session.settings.title')
+    expect(SECTION_ORDERS).toEqual({ appearance: 100, pairing: 200, linkCrypto: 300, session: 400 })
   })
 })
 

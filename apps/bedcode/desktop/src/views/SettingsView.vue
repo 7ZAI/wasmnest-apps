@@ -28,7 +28,8 @@
       </div>
     </div>
 
-    <!-- 内容区：业务分组（配对 / 会话）静态表渲染；平台分组在宿主系统页 /sys/settings -->
+    <!-- 内容区：应用分组（外观 / 配对 / 链路加密 / 会话）静态表渲染；宿主平台分组
+         （深浅色 / 系统 / 日志 / 授权 / 关于）在宿主系统页 /sys/settings -->
     <div class="flex-1 overflow-auto px-6 py-6">
       <div class="max-w-3xl mx-auto space-y-6">
         <template v-for="section in sections" :key="section.key">
@@ -44,12 +45,14 @@
 
 <script setup lang="ts">
 /**
- * 设置视图 — 业务分组设置页（桌面 UI 宿主修正 2026-10-17）
+ * 设置视图 — 应用设置页（设置归属修正 2026-10-19）
  *
- * 桌面 UI 宿主修正后设置页拆分：平台分组（外观 / 链路加密 / 系统 / 日志 / 授权 /
- * 关于）归宿主系统页（/sys/settings，SysSettingsView 编排宿主 useSettingsSections）；
- * 本页只承载本 app 的**业务分组**（配对设置 / 会话设置，静态表渲染，组件经
- * inject('pluginContext') 取命令通道——appContext env 适配层零改写）。
+ * 归属切分：
+ * - 宿主系统页（/sys/settings）只留**壳的平台面**：深浅色（窗口级主题）、系统、
+ *   日志、授权、关于；
+ * - 本页承载应用自己的**样式主题与业务设置**：外观（主题色板）、配对设置、
+ *   会话设置、链路加密（静态表渲染，组件经 inject('pluginContext') / inject('appEnv')
+ *   取通道——appContext env 适配层零改写）。
  */
 import { useI18n } from 'vue-i18n'
 import { useSettingsSections } from '@/composables/useSettingsSections'

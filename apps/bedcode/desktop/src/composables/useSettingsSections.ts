@@ -1,23 +1,29 @@
 /**
- * 设置分组（业务面静态表；桌面 UI 宿主修正 2026-10-17）
+ * 设置分组（业务面静态表；设置归属修正 2026-10-19）
  *
- * 宿主系统页（/sys/settings）承载平台分组（外观 / 链路加密 / 系统 / 日志 / 授权 /
- * 关于）；本 app 设置页只承载**业务分组**：配对设置 / 会话设置（原经设置分组
- * 贡献面注册的 app 业务面，随 app 独立界面归位）。
+ * 宿主系统页（/sys/settings）只承载**平台分组**（壳外观深浅色 / 系统 / 日志 /
+ * 授权 / 关于）；本 app 设置页承载**业务分组**：
+ * - 外观（主题色板）——各 wasm-app 的样式主题独立，宿主不提供色板；
+ * - 配对设置 / 会话设置（原经设置分组贡献面注册的 app 业务面）；
+ * - 链路加密——终端业务数据面的设置（加密引擎仍是宿主平台原语）。
  *
- * 分组标题：业务分组只渲染正文（旧扩展点约定：外壳与标题由宿主统一渲染），
- * 本表为它们携带 titleKey（`com.wasmnest.terminal-session.*` 扁平 key），由
- * 设置页统一包外壳。
+ * 分组标题：分组只渲染正文（旧扩展点约定：外壳与标题由宿主统一渲染），
+ * 本表为它们携带 titleKey，由设置页统一包外壳。app 域 key 带扁平命名空间前缀，
+ * 宿主机制文案副本（host-zh-CN / host-en）的 key 直接取顶层。
  */
 
 import { computed, type ComputedRef } from 'vue'
 import { MESSAGE_NAMESPACE } from '@/i18n'
+import AppearanceSettingsSection from '@/components/AppearanceSettingsSection.vue'
+import LinkCryptoSettingsSection from '@/components/LinkCryptoSettingsSection.vue'
 import PairingSettingsSection from '@/components/PairingSettingsSection.vue'
 import SessionSettingsSection from '@/components/SessionSettingsSection.vue'
 
-/** 业务分组排序槽位（沿用旧贡献面槽位：配对 200 / 会话 400） */
+/** 业务分组排序槽位（沿用旧贡献面槽位：外观 100 / 配对 200 / 链路加密 300 / 会话 400） */
 export const SECTION_ORDERS = {
+  appearance: 100,
   pairing: 200,
+  linkCrypto: 300,
   session: 400,
 } as const
 
@@ -30,13 +36,26 @@ export interface SettingsSectionEntry {
   titleKey?: string
 }
 
-/** 设置分组静态表（单一事实源：业务两分组） */
+/** 设置分组静态表（单一事实源：应用业务四分组） */
 export const settingsSections: Omit<SettingsSectionEntry, 'props'>[] = [
+  {
+    key: 'appearance',
+    order: SECTION_ORDERS.appearance,
+    component: AppearanceSettingsSection,
+    titleKey: `${MESSAGE_NAMESPACE}.appearance.settings.title`,
+  },
   {
     key: 'pairing',
     order: SECTION_ORDERS.pairing,
     component: PairingSettingsSection,
     titleKey: `${MESSAGE_NAMESPACE}.pairing.settings.title`,
+  },
+  {
+    key: 'linkCrypto',
+    order: SECTION_ORDERS.linkCrypto,
+    component: LinkCryptoSettingsSection,
+    // 宿主机制文案副本里的平台文案（app 独立包已合并，无需重复定义）
+    titleKey: 'settings.linkCrypto.title',
   },
   {
     key: 'session',

@@ -419,4 +419,9 @@ export type MessageSchema = {
   'session.settings.defaultCommand': string
   'session.settings.saved': string
   'session.settings.saveFailed': string
+
+  // ==================== 设置页「外观」分组（主题色板归应用，设置归属修正 2026-10-19） ====================
+  'appearance.settings.title': string
+  'appearance.settings.hint': string
+  'appearance.settings.saveFailed': string
 }

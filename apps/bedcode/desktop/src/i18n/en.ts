@@ -401,6 +401,11 @@ const en: MessageSchema = {
   'session.settings.defaultCommand': 'Default command',
   'session.settings.saved': 'Saved',
   'session.settings.saveFailed': 'Save failed',
+
+  // ==================== Settings section "Appearance" (palette owned by the app; ownership fix 2026-10-19) ====================
+  'appearance.settings.title': 'Appearance',
+  'appearance.settings.hint': 'Applies to this app only; the host shell keeps its own light/dark mode',
+  'appearance.settings.saveFailed': 'Failed to save theme palette',
 }
 
 export default en

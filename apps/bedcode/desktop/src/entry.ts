@@ -114,6 +114,10 @@ export async function mountApp(root: HTMLElement, env: AppMountEnv): Promise<App
   // app 直连上下文：页面经 inject('pluginContext') 消费（env 适配层）
   const appCtx = createAppContext(env)
   app.provide('pluginContext', appCtx)
+  // 宿主面通道原样提供：业务设置里需要调宿主平台原语（链路加密配置 / 指纹）的
+  // 组件经 inject('appEnv') 取 env.invoke —— 不经 pluginContext 转手，避免把宿主
+  // 命令混进「本 app 命令通道」语义（appInvoke 是插件面，令牌已绑定本 app）
+  app.provide('appEnv', env)
 
   // 页面自报：接管本次挂载的上报出口（说明见模块级句柄注释）
   routeReporter = (path) => env.onEvent?.('route', { path })

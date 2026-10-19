@@ -13,3 +13,273 @@
 /* 这里**不写** :root token 兜底：挂载包 CSS 由 JS 在宿主 style.css 之后注入，
    同特异性的 :root 会覆盖宿主的浅色 --bg-page（实测现象：浅色主题下一挂载应用
    整窗变暗）。宿主/开发壳一定已提供 token，无需本地回退。 */
+
+/* ==================== 应用主题色板（设置归属修正 2026-10-19） ====================
+ *
+ * 色板是**本应用的样式主题**，不归宿主：变量只覆盖应用根容器 `.app-theme-root`
+ * （App.vue），宿主壳标题栏 / 系统页在容器外，不会被应用主题染色。
+ *
+ * - 默认色板 warm 直接用宿主 :root 的变量组，无需重复块；
+ * - 深浅色仍由宿主 :root.dark 决定，各色板只补“深色下的同名变量组”；
+ * - 改色板 = 在此加一组 `.app-theme-root[data-palette='x']` + useAppPalette 白名单。
+ */
+
+/* ==================== 色板：cool（冷灰调） ==================== */
+
+.app-theme-root[data-palette='cool'] {
+  --bg-page: #f3f5f7;
+  --bg-sidebar: #eceef2;
+  --bg-card: #fbfcfd;
+  --bg-hover: #e4e8ee;
+  --bg-input: #fbfcfd;
+
+  --text-primary: #1f2937;
+  --text-secondary: #545964;
+  --text-tertiary: #646c7b;
+
+  --border: #e2e6ec;
+  --border-strong: #c9d1dc;
+  --border-input: #c9d1dc;
+
+  --color-primary: #2563eb;
+  --color-primary-hover: #1d4ed8;
+  --color-primary-light: rgba(37, 99, 235, 0.1);
+  --color-primary-contrast: #ffffff;
+
+  --shadow-card: 0 1px 2px rgba(31, 41, 55, 0.04);
+  --shadow-card-hover: 0 4px 16px rgba(31, 41, 55, 0.08);
+  --shadow-input-focus: 0 0 0 3px rgba(37, 99, 235, 0.12);
+}
+
+.dark .app-theme-root[data-palette='cool'] {
+  --bg-page: #0f172a;
+  --bg-sidebar: #131c2e;
+  --bg-card: #1a2438;
+  --bg-hover: #26334d;
+  --bg-input: #1a2438;
+
+  --text-primary: #e2e8f0;
+  --text-secondary: #a8b4c5;
+  --text-tertiary: #8f9cae;
+
+  --border: #283548;
+  --border-strong: #3b4a63;
+  --border-input: #3b4a63;
+
+  --color-primary: #93c5fd;
+  --color-primary-hover: #bfdbfe;
+  --color-primary-light: rgba(147, 197, 253, 0.12);
+  --color-primary-contrast: #0f172a;
+
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.25);
+  --shadow-card-hover: 0 4px 16px rgba(0, 0, 0, 0.4);
+  --shadow-input-focus: 0 0 0 3px rgba(147, 197, 253, 0.15);
+}
+
+/* ==================== 色板：forest（森野绿） ==================== */
+
+.app-theme-root[data-palette='forest'] {
+  --bg-page: #f6f5ef;
+  --bg-sidebar: #efeee6;
+  --bg-card: #fdfcf7;
+  --bg-hover: #e8e6db;
+  --bg-input: #fdfcf7;
+
+  --text-primary: #23281f;
+  --text-secondary: #565a51;
+  --text-tertiary: #6a6e5f;
+
+  --border: #e2e1d6;
+  --border-strong: #cfd0c0;
+  --border-input: #cfd0c0;
+
+  --color-primary: #3e6b4f;
+  --color-primary-hover: #32583f;
+  --color-primary-light: rgba(62, 107, 79, 0.1);
+  --color-primary-contrast: #fdfcf7;
+
+  --shadow-card: 0 1px 2px rgba(35, 40, 31, 0.04);
+  --shadow-card-hover: 0 4px 16px rgba(35, 40, 31, 0.08);
+  --shadow-input-focus: 0 0 0 3px rgba(62, 107, 79, 0.12);
+}
+
+.dark .app-theme-root[data-palette='forest'] {
+  --bg-page: #101713;
+  --bg-sidebar: #141d18;
+  --bg-card: #1a241f;
+  --bg-hover: #243128;
+  --bg-input: #1a241f;
+
+  --text-primary: #e6ede4;
+  --text-secondary: #a3b0a9;
+  --text-tertiary: #899890;
+
+  --border: #27332c;
+  --border-strong: #37463d;
+  --border-input: #37463d;
+
+  --color-primary: #86c49b;
+  --color-primary-hover: #a3d6b4;
+  --color-primary-light: rgba(134, 196, 155, 0.12);
+  --color-primary-contrast: #101713;
+
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.25);
+  --shadow-card-hover: 0 4px 16px rgba(0, 0, 0, 0.4);
+  --shadow-input-focus: 0 0 0 3px rgba(134, 196, 155, 0.15);
+}
+
+/* ==================== 色板：ocean（海洋青） ==================== */
+
+.app-theme-root[data-palette='ocean'] {
+  --bg-page: #f2f7f9;
+  --bg-sidebar: #e9f0f4;
+  --bg-card: #fafcfd;
+  --bg-hover: #dfeaef;
+  --bg-input: #fafcfd;
+
+  --text-primary: #1b2b33;
+  --text-secondary: #4b5c65;
+  --text-tertiary: #5b707b;
+
+  --border: #dde6eb;
+  --border-strong: #c4d3db;
+  --border-input: #c4d3db;
+
+  --color-primary: #0e7490;
+  --color-primary-hover: #0b5e75;
+  --color-primary-light: rgba(14, 116, 144, 0.1);
+  --color-primary-contrast: #ffffff;
+
+  --shadow-card: 0 1px 2px rgba(27, 43, 51, 0.04);
+  --shadow-card-hover: 0 4px 16px rgba(27, 43, 51, 0.08);
+  --shadow-input-focus: 0 0 0 3px rgba(14, 116, 144, 0.12);
+}
+
+.dark .app-theme-root[data-palette='ocean'] {
+  --bg-page: #0b1620;
+  --bg-sidebar: #0f1d29;
+  --bg-card: #152430;
+  --bg-hover: #1e303f;
+  --bg-input: #152430;
+
+  --text-primary: #e2eef4;
+  --text-secondary: #9ab0bc;
+  --text-tertiary: #8198a7;
+
+  --border: #1f323f;
+  --border-strong: #2e4556;
+  --border-input: #2e4556;
+
+  --color-primary: #5fd0e8;
+  --color-primary-hover: #8adff0;
+  --color-primary-light: rgba(95, 208, 232, 0.12);
+  --color-primary-contrast: #0b1620;
+
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.25);
+  --shadow-card-hover: 0 4px 16px rgba(0, 0, 0, 0.4);
+  --shadow-input-focus: 0 0 0 3px rgba(95, 208, 232, 0.15);
+}
+
+/* ==================== 色板：sunset（落日晚霞） ==================== */
+
+.app-theme-root[data-palette='sunset'] {
+  --bg-page: #fbf5ef;
+  --bg-sidebar: #f6ece2;
+  --bg-card: #fefaf5;
+  --bg-hover: #f0e2d4;
+  --bg-input: #fefaf5;
+
+  --text-primary: #33281f;
+  --text-secondary: #66564a;
+  --text-tertiary: #7d6854;
+
+  --border: #ede2d6;
+  --border-strong: #dfcbb8;
+  --border-input: #dfcbb8;
+
+  --color-primary: #d9532a;
+  --color-primary-hover: #bc4520;
+  --color-primary-light: rgba(217, 83, 42, 0.1);
+  --color-primary-contrast: #fefaf5;
+
+  --shadow-card: 0 1px 2px rgba(51, 40, 31, 0.04);
+  --shadow-card-hover: 0 4px 16px rgba(51, 40, 31, 0.08);
+  --shadow-input-focus: 0 0 0 3px rgba(217, 83, 42, 0.12);
+}
+
+.dark .app-theme-root[data-palette='sunset'] {
+  --bg-page: #1b1210;
+  --bg-sidebar: #211613;
+  --bg-card: #2a1d18;
+  --bg-hover: #382722;
+  --bg-input: #2a1d18;
+
+  --text-primary: #f5e9e2;
+  --text-secondary: #bba49a;
+  --text-tertiary: #a68c80;
+
+  --border: #3a2b26;
+  --border-strong: #4e3a32;
+  --border-input: #4e3a32;
+
+  --color-primary: #f5a383;
+  --color-primary-hover: #f8bba2;
+  --color-primary-light: rgba(245, 163, 131, 0.12);
+  --color-primary-contrast: #1b1210;
+
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.25);
+  --shadow-card-hover: 0 4px 16px rgba(0, 0, 0, 0.4);
+  --shadow-input-focus: 0 0 0 3px rgba(245, 163, 131, 0.15);
+}
+
+/* ==================== 色板：violet（星空紫） ==================== */
+
+.app-theme-root[data-palette='violet'] {
+  --bg-page: #f7f5fb;
+  --bg-sidebar: #f0edf7;
+  --bg-card: #fcfbfe;
+  --bg-hover: #e9e4f4;
+  --bg-input: #fcfbfe;
+
+  --text-primary: #2a2533;
+  --text-secondary: #5c5768;
+  --text-tertiary: #726788;
+
+  --border: #e5e0ee;
+  --border-strong: #d3cce2;
+  --border-input: #d3cce2;
+
+  --color-primary: #6d4fc6;
+  --color-primary-hover: #5b3fae;
+  --color-primary-light: rgba(109, 79, 198, 0.1);
+  --color-primary-contrast: #fcfbfe;
+
+  --shadow-card: 0 1px 2px rgba(42, 37, 51, 0.04);
+  --shadow-card-hover: 0 4px 16px rgba(42, 37, 51, 0.08);
+  --shadow-input-focus: 0 0 0 3px rgba(109, 79, 198, 0.12);
+}
+
+.dark .app-theme-root[data-palette='violet'] {
+  --bg-page: #141020;
+  --bg-sidebar: #19132a;
+  --bg-card: #201936;
+  --bg-hover: #2c2247;
+  --bg-input: #201936;
+
+  --text-primary: #ece8f6;
+  --text-secondary: #aba0c5;
+  --text-tertiary: #928aa8;
+
+  --border: #2e2647;
+  --border-strong: #3e3560;
+  --border-input: #3e3560;
+
+  --color-primary: #b9a6f7;
+  --color-primary-hover: #cdbffa;
+  --color-primary-light: rgba(185, 166, 247, 0.12);
+  --color-primary-contrast: #141020;
+
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.25);
+  --shadow-card-hover: 0 4px 16px rgba(0, 0, 0, 0.4);
+  --shadow-input-focus: 0 0 0 3px rgba(185, 166, 247, 0.15);
+}

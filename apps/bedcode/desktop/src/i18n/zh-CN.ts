@@ -391,6 +391,11 @@ const zhCN: MessageSchema = {
   'session.settings.defaultCommand': '默认启动命令',
   'session.settings.saved': '已保存',
   'session.settings.saveFailed': '保存失败',
+
+  // ==================== 设置页「外观」分组（主题色板归应用，设置归属修正 2026-10-19） ====================
+  'appearance.settings.title': '外观',
+  'appearance.settings.hint': '仅影响本应用界面，宿主外壳保持自己的深浅色',
+  'appearance.settings.saveFailed': '主题色板保存失败',
 }
 
 export default zhCN

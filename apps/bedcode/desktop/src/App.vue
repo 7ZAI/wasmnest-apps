@@ -6,13 +6,16 @@
     壳 chrome（标题栏 / 启动画面 / Toaster / 主题 / 热区 / 授权弹窗 / 退出确认）由
     宿主壳承载——本应用只占壳标题栏以下的内容区。
   -->
-  <AppLayout />
+  <!-- 应用主题根：色板只作用于本容器（宿主壳在挂载槽之外，不被应用主题染色） -->
+  <div class="app-theme-root h-full" :data-palette="palette">
+    <AppLayout />
 
-  <!-- 任务队列弹窗（票 17：终端工具栏入口打开；fixed overlay 自覆盖视口） -->
-  <TaskQueueModal />
+    <!-- 任务队列弹窗（票 17：终端工具栏入口打开；fixed overlay 自覆盖视口） -->
+    <TaskQueueModal />
 
-  <!-- app 独立包自持 Toaster（宿主 Toaster 是另一 vue-sonner 副本，互不渲染） -->
-  <Toaster position="bottom-right" rich-colors expand :visible-toasts="4" />
+    <!-- app 独立包自持 Toaster（宿主 Toaster 是另一 vue-sonner 副本，互不渲染） -->
+    <Toaster position="bottom-right" rich-colors expand :visible-toasts="4" />
+  </div>
 </template>
 
 <script setup lang="ts">
@@ -23,15 +26,21 @@
  * 宿主 `wasmnest-desktop/src/`；本组件不再承载启动画面 / 授权弹窗 / 退出确认 /
  * 全局快捷键（宿主壳态处理），只保留工作台界面 + 业务弹窗 + 应用内快捷键。
  */
-import { computed, onMounted, onUnmounted } from 'vue'
+import { computed, inject, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Toaster } from 'vue-sonner'
+import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-desktop'
 import TaskQueueModal from '@/components/TaskQueueModal.vue'
 import AppLayout from '@/components/AppLayout.vue'
 import { useKeyboardShortcuts } from '@/composables/useKeyboardShortcuts'
+import { loadAppPalette, useAppPalette } from '@/composables/useAppPalette'
 
 const route = useRoute()
 const router = useRouter()
+
+// 主题色板：应用自持（宿主只下发深浅色）；首次挂载从本 app 的 KV 恢复
+const context = inject<PluginContext | null>('pluginContext', null)
+const { palette } = useAppPalette()
 
 // bareWindow 路由（终端独立窗口）：不套内容区外壳，直接渲染路由视图
 const isBareWindow = computed(() => route.meta.bareWindow === true)
@@ -51,6 +60,12 @@ useKeyboardShortcuts([
 
 onMounted(() => {
   // 独立窗口（终端窗口）由 TerminalWindowView 自管关闭确认，主窗口关闭守卫归宿主
+  if (context?.storage) {
+    void loadAppPalette({
+      get: (key) => context.storage.get(key),
+      set: (key, value) => context.storage.set(key, value),
+    })
+  }
 })
 
 onUnmounted(() => {
