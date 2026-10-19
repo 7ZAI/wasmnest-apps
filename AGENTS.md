@@ -11,8 +11,9 @@
 | 写或改前端（桌面挂载包 / 移动壳运行面 / i18n / 样式 / 红线 / 测试） | **`docs/FRONTEND.md`** |
 | 写或改 Rust 后端（crate / 命令面 / 权限 / 构建目标 / 日志错误 / 测试） | **`docs/BACKEND.md`** |
 | 判断优先级、安全红线、提交与完成定义 | 本文件 |
+| 通用规范：git 提交 / 注释命名 / 测试与验证 / 版本号管理 / issue 管理（四仓共享真源） | **`../wasmnest/docs/public/`**（`git.md` / `commenting.md` / `testing.md` / `versioning.md` / `issues.md`） |
 
-三份子文档与本文件同仓同级维护；**本文件的机制描述若与子文档或真源冲突，以真源为准并回来修正**。
+三份子文档与本文件同仓同级维护；**公共规范（`../wasmnest/docs/public/`）与各仓硬约束同级，通用内容不在本仓复制**；本文件的机制描述若与子文档或真源冲突，以真源为准并回来修正**。
 
 ---
 
@@ -51,6 +52,7 @@
 - 平台仓 `release-manifest.json` 是**跨仓版本唯一表达**：`repos.apps.tag` = 应用仓 HEAD 精确 tag（当前线 `apps-v0.0.x`），`apps` 段逐端列 `<rustLibrary>.wasm`。
 - 判据由平台仓 `pnpm run check:manifest` 校验。**新增 / 改名 / 停用应用或变更 `rustLibrary` 时**，除本仓提交外必须在平台仓同步更新该 manifest，否则装配红。
 - 应用仓独立打 tag：`apps-vX.Y.Z`（不与其他仓同号）。发布装配按该 tag 取应用仓；未打 tag 的本地改动不进发布。
+- **版本号只在发布时设置**（dev 日常不改）：bump 号段 / 各仓设置点 / 发布动作见 `../wasmnest/docs/public/versioning.md`；应用版本号仅作显示语义，装配不读它。
 
 ---
 
@@ -65,17 +67,18 @@
 
 ### 4.2 测试
 
-- 每 app 至少覆盖：契约（`mountApp` / `activate` 行为）、关键逻辑（纯函数 / composable）、边界与错误路径。**禁止**无断言 / 恒真断言 / 只测 mock / 快照替代行为断言。
+> **通用测试规范（两种形态 / 禁止交付 / 测试数据临时目录 / Seam 3 锁纪律 / 验证底线）真源 = `../wasmnest/docs/public/testing.md`**（不复制）。本段只保留本仓特有规则：
+
+- 每 app 至少覆盖：契约（`mountApp` / `activate` 行为）、关键逻辑（纯函数 / composable）、边界与错误路径（禁止交付类型见 public/testing.md §2）。
 - 运行位置与差异（含「哪些 app 没有哪些脚本」）见 `docs/FRONTEND.md` §6 与 `docs/BACKEND.md` §7。
 - native 测试不展开 `#[plugin_api]` 宏、不产 wasm 产物：涉及宏路径 / 互调面 / 构建目标的改动，必须补跑一次 wasm 目标构建才算验证。
 
 ### 4.3 注释、命名与提交
 
-- 注释解释**为什么**，中文（技术术语保留英文）；禁止用 spec / 票号引用替代自解释；改代码必须同步修正相关注释（含路径 / 符号名 / 计数声明）。
-- 组件 PascalCase、composable `use` 前缀 camelCase、文件名与导出一致。
-- Commit：conventional commits `<type>(<scope>): <subject>`；**禁止 AI 协作者标记**（Co-Authored-By 等）；分支 / 推送遵循各仓现有口径，**禁止 `--force` 覆盖远端**；开工先 `git status`，非本任务的在途改动一律不碰。
-- 只提交源码：`node_modules/`、`dist/`、`target/`、产物一律不入库（`.gitignore` 已覆盖）。
-- `Cargo.lock` / `pnpm-lock.yaml` **只经包管理器变更，禁止手编**。
+> **通用注释 / 命名规范真源 = `../wasmnest/docs/public/commenting.md`；通用 git 提交规范真源 = `../wasmnest/docs/public/git.md`**（不复制）。本段只保留本仓特有补充：
+
+- Commit scope 用 app slug（如 `(file-transfer)`）；commit 格式、禁止 AI 标记、--force 禁令、开工自检、在途改动不碰、只提交源码、锁文件只经包管理器变更等**全部通用于 `../wasmnest/docs/public/git.md`**。
+- 组件 PascalCase、composable `use` 前缀 camelCase、文件名与导出一致（命名通则见 public/commenting.md §2）。
 
 ---
 
@@ -150,7 +153,7 @@
 
 ## 7. 完成定义与验证
 
-**本仓当前无 CI**（CI 重建票明确不做）；验证 = 本地命令实跑 + 平台仓侧锁。**当前迁移期口径（用户 2026-10-18）**：不逐项跑集成 / 全量回归，收口后统一跑；日常改动至少跑针对性单测与所在 app 测试。以下为收口后的标准清单，按改动类型执行，**必须实际运行并贴出结果**，无法运行要说明原因与风险：
+**本仓当前无 CI**（CI 重建票明确不做）；验证 = 本地命令实跑 + 平台仓侧锁。（通用验证底线——实跑贴结果 / 钩子跳过 ≠ 通过 / 禁止假绿——见 `../wasmnest/docs/public/testing.md` §5。）**当前迁移期口径（用户 2026-10-18）**：不逐项跑集成 / 全量回归，收口后统一跑；日常改动至少跑针对性单测与所在 app 测试。以下为收口后的标准清单，按改动类型执行，**必须实际运行并贴出结果**，无法运行要说明原因与风险：
 
 - 改前端（任一 app）→ 该 app `pnpm run test:run` 全绿；应用仓根 `pnpm run lint`（0 error）；UI 改动至少在一个真实环境目验（桌面：平台 `tauri:dev`；移动：dev-shell 或 Android dev）。
 - 改 Rust 后端 → 该 crate `cargo test` 全绿；确认 `plugin.json` 命令 / 权限与实现一致；构建产物成功写出（`pnpm run build` 或平台 `plugins:build`）。
@@ -175,5 +178,6 @@
 | 移动运行面契约 | `../wasmnest/wasmnest-mobile/packages/plugin-sdk-mobile/src/types.ts`、`../wasmnest/wasmnest-mobile/src/shell/registry.ts` |
 | 权限词汇 / manifest 校验 | `../wasmnest/wasmnest-desktop/packages/plugin-sdk-desktop/rust/src/permission.rs`、同 SDK `bin/{manifest-gen.js,manifest-validate.js,wasm-hash.js}` |
 | 跨仓版本 / 发布 | `../wasmnest/release-manifest.json`、`../wasmnest/scripts/check-release-manifest.mjs` |
+| 四仓通用规范（git 提交 / 注释命名 / 测试验证 / 版本号管理 / issue 管理） | `../wasmnest/docs/public/{git,commenting,testing,versioning,issues}.md` |
 | 契约包名与版本真源 | `../wasmnest-lib/contracts/wasmnest-plugin-package.rs`、`../wasmnest-lib/wasmnest-wasm-core/wit/core.wit` |
 | 跨端互连测试 | `../wasmnest-test/cross-end-tests/` |
