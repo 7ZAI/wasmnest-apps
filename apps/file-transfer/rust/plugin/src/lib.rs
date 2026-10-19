@@ -128,8 +128,9 @@ impl WasmPlugin for FileTransferPlugin {
 
     fn manifest() -> PluginManifest {
         // 双端宿主均从**文件** plugin.json 读 manifest（本导出仅测试消费）；
-        // 内嵌的是桌面侧副本——移动侧 resources 的 plugin.json 才是加载真源
-        serde_json::from_str(include_str!("../../plugin.json"))
+        // 内嵌的是桌面侧副本——移动侧 resources 的 plugin.json 才是加载真源。
+        // 路径相对本文件（应用级 rust 层 `rust/plugin/src/`）上溯三级到应用根。
+        serde_json::from_str(include_str!("../../../desktop/plugin.json"))
             .expect("plugin.json must be valid PluginManifest")
     }
 

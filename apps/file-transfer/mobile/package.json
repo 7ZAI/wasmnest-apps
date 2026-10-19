@@ -9,7 +9,7 @@
     "dev": "wasmnest-plugin dev"
   },
   "wasmnest": {
-    "sharedRustManifest": "../desktop/rust/Cargo.toml"
+    "sharedRustManifest": "../rust/plugin/Cargo.toml"
   },
   "dependencies": {
     "@binblink/wasmnest-plugin-sdk-mobile": "file:../../../../wasmnest/wasmnest-mobile/packages/plugin-sdk-mobile"

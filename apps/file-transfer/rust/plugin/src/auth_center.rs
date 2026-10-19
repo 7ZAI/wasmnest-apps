@@ -118,7 +118,7 @@ pub(crate) struct ConsentDecision {
 // 对侧 manifest 目录 = 应用仓 apps/bedcode/desktop/（三仓拆分 §3 归并布局：
 // apps/<slug>/desktop；2026-10-17 downsink 改名：terminal-session → bedcode，
 // plugin id com.wasmnest.terminal-session 不变；ADR 0055）。路径相对本 crate 根
-// （apps/file-transfer/desktop/rust/）上溯三级到 apps/，再进 bedcode/desktop/。
+// （apps/file-transfer/rust/plugin/）上溯三级到 apps/，再进 bedcode/desktop/。
 #[plugin_api(manifest = "../../../bedcode/desktop/plugin.json")]
 // trait 自身不被运行引用（宏生成 Dispatcher/Client，Client 由 WasmAuthGateway 使用），
 // 方法名与 wire 上的 api 短名一一对应。

@@ -38,6 +38,18 @@ export function platformRoot() {
   return fallback
 }
 
+/** 桌面宿主工程目录（`<platform>/wasmnest-desktop`，dev-run.js 的所属工程） */
+export function desktopHostDir() {
+  const dir = join(platformRoot(), 'wasmnest-desktop')
+  if (!existsSync(dir)) {
+    throw new Error(
+      `[platform-paths] 桌面宿主工程缺失: ${dir}（平台仓布局非 R1 或未同步）；` +
+        `可用 WASMNEST_PLATFORM_ROOT 指向平台仓根。`,
+    )
+  }
+  return dir
+}
+
 /** 桌面宿主插件资源目录（`<platform>/wasmnest-desktop/src-tauri/resources/plugins/desktop`） */
 export function desktopHostResourcesDir() {
   return join(platformRoot(), 'wasmnest-desktop', 'src-tauri', 'resources', 'plugins', 'desktop')
