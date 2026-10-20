@@ -441,27 +441,33 @@ fn normalize_path_line(line: &str) -> Option<String> {
 }
 
 /// 从版本行提取语义版本 token，兼容 `codex-cli 0.153.4` / `2.1.263 (Claude Code)` /
-/// `0.85.1` 等形态（无 regex 依赖：取首个「至少两段、首段纯数字」的 token）
+/// `0.85.1` / `opencode v2.0.29` 等形态（无 regex 依赖：取首个「至少两段、首段
+/// 纯数字」的 token，允许前导 `v`/`V` 前缀——opencode 2.x 起 `--version` 输出
+/// `opencode v2.0.29`，无前缀规则会把 `v2` 当非数字段而漏掉整行，CLI 已装却
+/// 判未安装）
 fn extract_version(line: &str) -> Option<String> {
-    line.split_whitespace()
-        .find(|tok| {
-            let mut parts = tok.split('.');
-            let Some(first) = parts.next() else {
-                return false;
-            };
-            if first.is_empty() || !first.chars().all(|c| c.is_ascii_digit()) {
-                return false;
-            }
-            parts
-                .next()
-                .and_then(|p| p.chars().next())
-                .map(|c| c.is_ascii_digit())
-                .unwrap_or(false)
-        })
-        .map(|tok| {
-            tok.trim_matches(|c: char| c == '(' || c == ')' || c == ',')
+    line.split_whitespace().find_map(|tok| {
+        let core = tok
+            .strip_prefix('v')
+            .or_else(|| tok.strip_prefix('V'))
+            .unwrap_or(tok);
+        let mut parts = core.split('.');
+        let Some(first) = parts.next() else {
+            return None;
+        };
+        if first.is_empty() || !first.chars().all(|c| c.is_ascii_digit()) {
+            return None;
+        }
+        let ok = parts
+            .next()
+            .and_then(|p| p.chars().next())
+            .map(|c| c.is_ascii_digit())
+            .unwrap_or(false);
+        ok.then(|| {
+            core.trim_matches(|c: char| c == '(' || c == ')' || c == ',')
                 .to_string()
         })
+    })
 }
 
 /// 安装方式归类：以 PATH 首位（实际生效者）为准
@@ -668,6 +674,35 @@ mod tests {
         );
         // 单段数字不是版本
         assert_eq!(extract_version("some note 42"), None);
+    }
+
+    /// opencode 2.x 形态：`--version` 输出带 v 前缀（opencode v2.0.29），
+    /// 旧规则把 `v2` 当非数字段漏掉 → 已装判未安装（2026-10-20 实测回归）
+    #[test]
+    fn extract_version_opencode_v_prefix() {
+        assert_eq!(
+            extract_version("opencode v2.0.29"),
+            Some("2.0.29".to_string())
+        );
+        assert_eq!(extract_version("opencode V2.0.29"), Some("2.0.29".to_string()));
+        // 独立 v token 不干扰后续版本 token（v 2.0.29 形态：v 自身不匹配）
+        assert_eq!(extract_version("v 2.0.29"), Some("2.0.29".to_string()));
+        // 纯 v 不是版本；vv2.0 剥一前缀后首段仍非纯数字
+        assert_eq!(extract_version("v"), None);
+        assert_eq!(extract_version("vv2.0.29"), None);
+    }
+
+    /// opencode 2.x 全链路：PATH 命中 + v 前缀版本行 → installed=true、版本
+    /// 剥前缀（npm-global 归类不受影响，卸载仍走 npm）
+    #[test]
+    fn parse_cli_opencode_v2() {
+        let out = "== paths ==\n/home/u/.config/nvm/versions/node/v24.20.0/bin/opencode\n== version ==\nopencode v2.0.29\n";
+        let info = parse_cli("opencode", out);
+        assert_eq!(info["installed"], json!(true));
+        assert_eq!(info["status"], json!("ok"));
+        assert_eq!(info["version"], json!("2.0.29"));
+        assert_eq!(info["method"], json!("npm-global"));
+        assert_eq!(info["dual"], json!(false));
     }
 
     /// 环境解析：pnpm 报错行不算版本；registry 原样透传；新字段缺段时为 null

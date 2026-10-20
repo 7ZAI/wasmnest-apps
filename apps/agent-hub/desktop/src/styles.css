@@ -78,15 +78,16 @@
   --chart-c4: #bf69a2;
 
   /* 节奏热力图色阶（单色**顺序标度**，4 档 + 空格）：
-     空格用 --bg-hover（轨道底），四档是 c1 向卡片底色混出的 55/70/85/100%，
-     亮度单调递减、顶档 = c1 本身。低端两档对 --bg-card 低于 3:1 属**预期**
-     （顺序标度的低档本就该「若有若无」；WCAG 1.4.11 不适用于「数值另有文字
-     通道」的标度格），已在 styleGuards 里以豁免登记，判据换成「亮度单调 +
-     顶档 ≥ 3:1 + 每格有 title/aria 文字替代」。 */
-  --chart-heat-1: #afa392;
-  --chart-heat-2: #9a8b76;
-  --chart-heat-3: #847359;
-  --chart-heat-4: #6f5b3d;
+     空格用 --bg-hover（轨道底）；四档取 GitHub 提交节奏贡献图的经典绿阶
+     （浅色主题：9be9a8 → 40c463 → 30a14e → 216e39），亮度单调递减。
+     低端两档对 --bg-card 低于 3:1 属**预期**（顺序标度的低档本就该
+     「若有若无」；WCAG 1.4.11 不适用于「数值另有文字通道」的标度格），
+     已在 styleGuards 里以豁免登记，判据换成「亮度单调 + 顶档 ≥ 3:1 +
+     每格有 title/aria 文字替代」。 */
+  --chart-heat-1: #9be9a8;
+  --chart-heat-2: #40c463;
+  --chart-heat-3: #30a14e;
+  --chart-heat-4: #216e39;
 
   /* 自定义日志来源的字母徽标底色：6 档中性混色（--bg-hover 往 --text-primary
      方向按 6% 步进加深），既能按名字稳定取一档做视觉区分，又不引入
@@ -107,11 +108,12 @@
   --chart-c3: #359756;
   --chart-c4: #d770b4;
 
-  /* 热力色阶深色版（向深色卡底混出，顶档 = 深色下的 c1） */
-  --chart-heat-1: #55543b;
-  --chart-heat-2: #646345;
-  --chart-heat-3: #747350;
-  --chart-heat-4: #83835a;
+  /* 热力色阶深色版：GitHub 深色贡献图绿阶（0e4429 → 006d32 → 26a641 →
+     39d353；深色底上档次越高越亮，与浅色主题的「越深越多」同为单调标度） */
+  --chart-heat-1: #0e4429;
+  --chart-heat-2: #006d32;
+  --chart-heat-3: #26a641;
+  --chart-heat-4: #39d353;
 }
 
 /* ==================== 面板骨架 ==================== */
@@ -341,14 +343,25 @@
 
 /* ==================== 概览 · CLI 卡片网格 ==================== */
 
-/* align-items: start：默认行拉伸会让同排的短卡（无警告的 CLI 卡）
-   被双装警告卡撑出大片死白 */
+/* 卡片等高契约（2026-10-20）：align-items 默认 stretch，同排两卡等高；
+   卡内 flex 列 + 脚部贴底，未安装卡（无卸载脚）与已安装卡同高、底对齐。
+   旧实现 align-items: start 让短卡（未装/无警告）明显矮一截，同排高低不
+   一；双装警告等更长内容自然撑高整行，行内两卡仍等高。 */
 .ah-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  align-items: start;
+  align-items: stretch;
   gap: 12px;
   margin-top: 14px;
+}
+
+/* 卡内纵向布局：内容自上而下、脚部贴底。min-height 兜住「头 + meta + 脚」
+   的标准高（34 图标 + meta ≈32 + 脚 ≈57 + 内边距 30 ≈ 153，留余量），
+   未安装卡无脚也能与已安装卡保持同高（底部留白取代脚部）。 */
+.ah-grid .ah-card {
+  display: flex;
+  flex-direction: column;
+  min-height: 160px;
 }
 
 .ah-cli-head {
@@ -470,13 +483,15 @@
   word-break: break-all;
 }
 
-/* 卸载动作行：顶部分隔线 + 右对齐（破坏性动作与信息区视觉分离） */
+/* 卸载动作行：顶部分隔线 + 右对齐（破坏性动作与信息区视觉分离）。
+   margin-top: auto：等高卡中脚部贴卡底（未装卡无脚，底部留白取代），
+   脚与上方内容的弹性间距由卡 min-height 兜底（≥ 12px 时线距内容仍从容）。 */
 .ah-cli-foot {
   display: flex;
   align-items: center;
   justify-content: flex-end;
   gap: 8px;
-  margin-top: 12px;
+  margin-top: auto;
   padding-top: 12px;
   border-top: 1px solid var(--border);
 }
