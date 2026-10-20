@@ -293,12 +293,12 @@ export const AUDITED: Audited[] = [
   { sel: '.ah-lg-source-kind', surface: 'card', px: 11 },
 
   // ---------- 概览 / 安装 ----------
-  { sel: '.ah-env-label', surface: 'card', px: 13 },
+  { sel: '.ah-env-label', surface: 'card', px: 11 },
   { sel: '.ah-cli-meta', surface: 'card', px: 13 },
   { sel: '.ah-cli-path', surface: 'card', px: 13 },
-  { sel: '.ah-speed-text', surface: 'card', px: 13 },
-  { sel: '.ah-speed-url', surface: 'card', px: 13 },
-  { sel: '.ah-mirror-tmp', surface: 'card', px: 13 },
+  { sel: '.ah-speed-text', surface: 'card', px: 12 },
+  { sel: '.ah-speed-url', surface: 'card', px: 11 },
+  { sel: '.ah-mirror-tmp', surface: 'card', px: 12 },
   { sel: '.ah-inst-versions', surface: 'card', px: 11 },
   { sel: '.ah-inst-outdated', surface: 'card', px: 11, weight: 700 },
   { sel: '.ah-inst-hint', surface: 'card', px: 11 },
@@ -311,7 +311,7 @@ export const AUDITED: Audited[] = [
   { sel: '.ah-sk-raw-error', surface: 'card', px: 11 },
   { sel: '.ah-pv-label', surface: 'card', px: 12 },
   { sel: '.ah-pv-req', surface: 'card', px: 12 },
-  { sel: '.ah-pv-radio', surface: 'card', px: 13 },
+  { sel: '.ah-pv-radio', surface: 'card', px: 12 },
 
   // ---------- 使用统计看板 ----------
   { sel: '.ah-card-sub', surface: 'card', px: 11 },
@@ -348,7 +348,7 @@ export const AUDITED: Audited[] = [
   {
     sel: '.ah-st-empty',
     surface: 'card',
-    px: 13,
+    px: 12,
     exempt:
       '装饰级豁免（--text-tertiary）：空态整句是「无数据」的唯一线索，但不承载任何数值/时间/路径；' +
       '抬到数据级会让空态比有数据的行更抢眼。--text-tertiary 是宿主全局 token，改它影响面超出本插件。',
@@ -356,7 +356,7 @@ export const AUDITED: Audited[] = [
   {
     sel: '.ah-bars-name',
     surface: 'card',
-    px: 13,
+    px: 11,
     exempt:
       '豁免（--text-primary）：排行行名直接用主文字色，与表格行名一致；' +
       '在 --bg-card 上 --text-primary 的对比度远高于 AA 门禁，无需降档。',
@@ -387,6 +387,7 @@ export const AUDITED: Audited[] = [
   { sel: '.ah-lg-col-tokens', surface: 'card', px: 11 },
   { sel: '.ah-lg-pager-info', surface: 'card', px: 11 },
   { sel: '.ah-lg-cell-agent-name', surface: 'card', px: 11 },
+  { sel: '.ah-lg-detail-title', surface: 'card', px: 14, weight: 600 },
   { sel: '.ah-lg-cell-sub', surface: 'card', px: 11 },
   { sel: '.ah-lg-head-src', surface: 'card', px: 11 },
   { sel: '.ah-lg-head-meta', surface: 'card', px: 11 },
@@ -413,8 +414,8 @@ export const AUDITED: Audited[] = [
   // ---------- 导航 ----------
   { sel: '.ah-tab', surface: 'sidebar', px: 12 },
   { sel: '.ah-lg-tab', surface: 'sidebar', px: 11 },
-  { sel: '.ah-speed-name', surface: 'card', px: 13 },
-  { sel: '.ah-speed-ms', surface: 'card', px: 13 },
+  { sel: '.ah-speed-name', surface: 'card', px: 11 },
+  { sel: '.ah-speed-ms', surface: 'card', px: 11 },
 ]
 
 /**

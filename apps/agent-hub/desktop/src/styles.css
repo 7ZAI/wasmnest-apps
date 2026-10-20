@@ -116,6 +116,25 @@
   --chart-heat-4: #39d353;
 }
 
+/* ==================== 字号层级（本插件唯一口径） ====================
+ *
+ * L1 `--font-size-lg`   14px / 600  区块与卡片标题、KPI 读数、二级页标题
+ * L2 `--font-size-base` 12px        正文：说明条 / 结果行 / 表单标签 / 列表行标识 / 聊天气泡
+ * L3 `--font-size-tag`  11px        数据级：表头与表体、等宽值、标签、提示、筛选、按钮
+ * L4 `--font-size-sm`   10px        微型徽章（仅行内「当前」，16px 高）
+ *
+ * **不使用 `--font-size-body`(13px)**：它与 12 / 11 只差 1px，同一张卡里
+ * 读不出「高一级」；更糟的是「说明条」(13) 会比「字段标签」(12) 更大，层级倒挂。
+ * 历史上有 7 处引用了 body 档（banner / 结果行 / 测速行 / 开关行 / 单选项 /
+ * 空态 / 兜底表格），已一律归到正文档 12px。
+ *
+ * 同一行的**并列单元**必须同档（表头与表体、标签与值、行内各列）：
+ * `.ah-mono` 把等宽值固定成 11px，所以与它并列的标签/行名也要 11px，
+ * 否则一行里出现 11 / 12 两种字号（会话日志表格、环境条、测速表、
+ * 日志来源行、排行行的历史问题）。行内「主标识 + 说明」（如技能名 + 路径）
+ * 属同一单元的上下层，仍用 12 / 11 分层。
+ */
+
 /* ==================== 面板骨架 ==================== */
 
 .ah-view {
@@ -282,7 +301,7 @@
   border-radius: var(--radius-button);
   background: var(--color-warning-light);
   color: var(--text-primary);
-  font-size: var(--font-size-body);
+  font-size: var(--font-size-base);
 }
 
 .ah-banner-ic {
@@ -327,6 +346,9 @@
   display: flex;
   gap: 8px;
   min-width: 0;
+  /* 标签与值是同一行的并列单元：值恒为 `.ah-mono`(11px)，标签若继承正文
+     12px 就会在一行里出现两种字号 —— 行级统一到数据级，层级交给颜色 */
+  font-size: var(--font-size-tag);
 }
 
 .ah-env-label {
@@ -559,7 +581,7 @@
   min-width: 0;
   flex-wrap: wrap;
   color: var(--ah-text-data);
-  font-size: var(--font-size-body);
+  font-size: var(--font-size-base);
 }
 
 .ah-speed-tag {
@@ -620,6 +642,9 @@
   min-width: 0;
   padding: 4px 6px;
   border-radius: 6px;
+  /* 四列（源名 / 地址 / 测速 / 动作）是并列单元：地址与测速、动作按钮已是
+     11px，源名不能单独继承正文 12px */
+  font-size: var(--font-size-tag);
 }
 
 /* 当前生效源行高亮 */
@@ -752,7 +777,7 @@
   gap: 7px;
   margin-bottom: 10px;
   color: var(--ah-text-data);
-  font-size: var(--font-size-body);
+  font-size: var(--font-size-base);
   cursor: pointer;
   user-select: none;
 }
@@ -910,7 +935,7 @@
   border-radius: var(--radius-button);
   background: var(--color-success-light);
   color: var(--text-primary);
-  font-size: var(--font-size-body);
+  font-size: var(--font-size-base);
 }
 
 .ah-sk-result.err {
@@ -1219,7 +1244,8 @@
   align-items: center;
   gap: 7px;
   color: var(--ah-text-data);
-  font-size: var(--font-size-body);
+  /* 与同表单的 `.ah-pv-label`(12) 同档：同为字段标签，不能比标签还大 */
+  font-size: var(--font-size-base);
   cursor: pointer;
   user-select: none;
 }
@@ -2028,6 +2054,9 @@
   grid-template-columns: minmax(0, 1fr) 96px 62px;
   align-items: center;
   gap: 8px;
+  /* 名称 / 轨道 / 数值三列并列：副标与数值已 11px，名称统一到数据级
+     （与环图例 `.ah-donut-legend-row` 同口径） */
+  font-size: var(--font-size-tag);
 }
 
 .ah-bars-head {
@@ -2082,7 +2111,7 @@
 .ah-st-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: var(--font-size-body);
+  font-size: var(--font-size-base);
   margin-top: 8px;
 }
 
@@ -2117,7 +2146,7 @@
 .ah-st-empty {
   padding: 14px 4px;
   color: var(--text-tertiary);
-  font-size: var(--font-size-body);
+  font-size: var(--font-size-base);
 }
 
 /* ---------- 适配器降级行（票 07）：每行 = 数据源名徽章 + 原因文案 ----------
@@ -2252,6 +2281,8 @@
   align-items: center;
   gap: 8px;
   min-width: 0;
+  /* 名称与类型/形态/计数/动作同排并列：后四者都是 11px，名称不能单独 12px */
+  font-size: var(--font-size-tag);
 }
 
 /* 头部行右侧弹性空白：把操作按钮推到行尾 */
@@ -2508,8 +2539,13 @@
   overflow-y: auto;
 }
 
+/* 行内字号统一 `--font-size-tag`：表头、筛选标签、分页信息与时间/时长/Tokens
+   本来都是 tag，只有 Agent / 会话 / 项目三列继承到 `--font-size-base`，
+   同一张表里出现 11px 与 12px 两种字号、行文比表头还大（本页其余部分是
+   单一 tag 尺度）。层级仍由字重（会话标题 600）与颜色区分，不靠字号。 */
 .ah-lg-row {
   cursor: pointer;
+  font-size: var(--font-size-tag);
   transition: background-color 0.15s;
 }
 
@@ -2626,6 +2662,8 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  /* 二级页标题与 `.ah-section-title` 同档：原来继承正文 12px，比卡片标题还小 */
+  font-size: var(--font-size-lg);
   font-weight: 600;
   color: var(--text-primary);
 }
