@@ -6,8 +6,9 @@
  */
 
 import { execSync } from 'child_process'
-import { cpSync, mkdirSync, existsSync, rmSync } from 'fs'
-import { resolve, dirname } from 'path'
+import { cpSync, copyFileSync, mkdirSync, existsSync, mkdtempSync, rmSync } from 'fs'
+import { tmpdir } from 'os'
+import { resolve, dirname, basename, join, sep } from 'path'
 import { fileURLToPath } from 'url'
 import { startPluginWatch } from '../../../../../wasmnest/wasmnest-desktop/scripts/plugin-watch.js'
 import {
@@ -60,8 +61,44 @@ function buildRust() {
   )
 }
 
-function copyArtifacts() {
+function copyArtifacts(opts = {}) {
   console.log('\n[build] ====== Copying artifacts ======')
+
+  // **先解析 WASM 产物，再清空目标目录**：清空在前 + 后续失败 ⇒ 目标目录既没有新产物，
+  // 也没有上一份好产物（宿主随即装不上该 app，且 wasm 无处可回捞）。
+  //
+  // 候选顺序（`wasmRebuilt` = 本次是否真的重建了 wasm）：
+  //   1. 本次构建 profile 的产物
+  //   2. 另一 profile 的产物
+  //   3. **仅前端构建时**：复用上一份留在宿主 resources 里的产物 —— `--frontend-only`
+  //      的语义就是「只改前端，wasm 保持现状」；共享 wasm target 被 cargo clean 清掉
+  //      （平台仓 15G 阈值自动清理，见 wasmnest-desktop/scripts/check-target-size.js）
+  //      时这是唯一正确的来源。重建 wasm 请走完整构建（不加 --frontend-only）。
+  const candidates = [
+    resolve(ROOT, WASM_PROFILE_DIR, `${RUST_LIB_NAME}.wasm`),
+    resolve(
+      ROOT,
+      `${WASM_TARGET_DIR}/${WASM_TARGET}/${DEBUG_MODE ? 'release' : 'debug'}`,
+      `${RUST_LIB_NAME}.wasm`,
+    ),
+  ]
+  if (opts.wasmRebuilt === false) {
+    candidates.unshift(resolve(RESOURCES_DIR, `${RUST_LIB_NAME}.wasm`))
+  }
+  const wasmSource = candidates.find((p) => existsSync(p))
+  if (!wasmSource) {
+    console.error(`[build] ERROR: WASM file not found at ${candidates.join(' or ')}`)
+    process.exit(1)
+  }
+
+  // 源落在目标目录内（仅前端构建复用上一份产物）→ 先挪到临时位置，
+  // 否则下面「清空目标目录」会把源一起删掉。
+  let wasmKeep = wasmSource
+  if (wasmSource.startsWith(RESOURCES_DIR + sep)) {
+    const tmpDir = mkdtempSync(join(tmpdir(), 'wasmnest-wasm-keep-'))
+    wasmKeep = join(tmpDir, basename(wasmSource))
+    copyFileSync(wasmSource, wasmKeep)
+  }
 
   if (existsSync(RESOURCES_DIR)) {
     rmSync(RESOURCES_DIR, { recursive: true })
@@ -77,24 +114,8 @@ function copyArtifacts() {
     cpSync(iconSrc, resolve(RESOURCES_DIR, 'icon.svg'))
   }
 
-  const wasmPath = resolve(ROOT, WASM_PROFILE_DIR, `${RUST_LIB_NAME}.wasm`)
-  if (existsSync(wasmPath)) {
-    cpSync(wasmPath, resolve(RESOURCES_DIR, `${RUST_LIB_NAME}.wasm`))
-    console.log(`[build] Copied WASM (${WASM_PROFILE}): ${RUST_LIB_NAME}.wasm`)
-  } else {
-    const fallbackProfile = DEBUG_MODE ? 'release' : 'debug'
-    const fallbackWasmPath = resolve(
-      ROOT,
-      `${WASM_TARGET_DIR}/${WASM_TARGET}/${fallbackProfile}`,
-      `${RUST_LIB_NAME}.wasm`,
-    )
-    if (!existsSync(fallbackWasmPath)) {
-      console.error(`[build] ERROR: WASM file not found at ${wasmPath} or ${fallbackWasmPath}`)
-      process.exit(1)
-    }
-    cpSync(fallbackWasmPath, resolve(RESOURCES_DIR, `${RUST_LIB_NAME}.wasm`))
-    console.log(`[build] Copied WASM (${fallbackProfile} fallback): ${RUST_LIB_NAME}.wasm`)
-  }
+  cpSync(wasmKeep, resolve(RESOURCES_DIR, `${RUST_LIB_NAME}.wasm`))
+  console.log(`[build] Copied WASM: ${RUST_LIB_NAME}.wasm (from ${wasmSource})`)
 
   // WASM 内容摘要写进产物清单（票 14：只写产物，源 plugin.json 不带该键）
   injectWasmHash(RESOURCES_DIR, { log: (m) => console.log(`[build] ${m}`) })
@@ -118,7 +139,7 @@ if (watchMode) {
   })
 } else if (frontendOnly) {
   buildFrontend()
-  copyArtifacts()
+  copyArtifacts({ wasmRebuilt: false })
 } else if (rustOnly) {
   buildRust()
   copyArtifacts()
