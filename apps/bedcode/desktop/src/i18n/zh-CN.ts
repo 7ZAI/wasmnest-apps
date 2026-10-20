@@ -401,6 +401,17 @@ const zhCN: MessageSchema = {
   'appearance.settings.title': '外观',
   'appearance.settings.hint': '仅影响本应用界面，宿主外壳保持自己的深浅色',
   'appearance.settings.saveFailed': '主题色板保存失败',
+
+  // ==================== 多任务卡片只读预览面（mountPreview · 2026-10-20） ====================
+  'session.preview.eyebrow': '终端会话',
+  'session.preview.runningCount': '{count} 个运行中',
+  'session.preview.workspace': '工作区',
+  'session.preview.empty': '还没有终端会话',
+  'session.preview.emptyHint': '在会话中心启动一个会话',
+  'session.preview.unavailable': '预览暂不可用',
+  'session.preview.lastRoute': '上次停留：{path}',
+  'session.preview.status.idle': '空闲',
+  'session.preview.status.stopping': '停止中',
 }
 
 export default zhCN

@@ -19,6 +19,7 @@ import './components/task-queue-modal.css'
 import './styles/datepicker-theme.css'
 import './style.css'
 import App from './App.vue'
+import PreviewCard from './preview/PreviewCard.vue'
 import router from './router'
 import i18n from './i18n'
 import { initFrontendLogger, logger } from './utils/frontendLogger'
@@ -60,6 +61,36 @@ export interface AppMountHandle {
   setLocale?(locale: string): void
   setTheme?(theme: string): void
 }
+
+// ==================== 预览契约（宿主 useAppMount 同形声明；drift 锁 L5 钉住） ====================
+
+/**
+ * 应用预览环境（宿主注入；只读面）
+ *
+ * 与 {@link AppMountEnv} 的差异是**收窄**：无宿主面 `invoke`、无写 / 删存储、无
+ * 事件出口（navigate / route）。预览是卡片里的旁路展示——不能请求宿主导航、
+ * 不能写存储、不能上报路由；安全边界仍由 Rust 权限仲裁（预览没有新增权限）。
+ */
+export interface AppPreviewEnv {
+  appId: string
+  /** 应用上次自报的内部路径；无记录 = undefined（应用自行回落落地页） */
+  lastRoute?: string
+  /** 本 app 插件面命令（与主界面同一令牌 / 权限；预览侧只读使用） */
+  appInvoke: <T = unknown>(command: string, ...args: unknown[]) => Promise<T>
+  /** 本 app 插件 KV 只读访问 */
+  appStorageGet: <T = unknown>(key: string) => Promise<T | undefined>
+  locale: string
+  theme: string
+  platform?: string
+}
+
+/** 应用预览句柄（卸载卡片时宿主调用；与主实例生命周期独立） */
+export interface AppPreviewHandle {
+  unmount(): Promise<void>
+}
+
+/** entry.ts 可选导出；未导出 = 不支持预览 */
+export type MountPreview = (root: HTMLElement, env: AppPreviewEnv) => Promise<AppPreviewHandle>
 
 // ==================== 装载 ====================
 
@@ -167,6 +198,31 @@ export async function mountApp(root: HTMLElement, env: AppMountEnv): Promise<App
       if (locale === 'en' || locale === 'zh-CN') {
         i18n.global.locale.value = locale
       }
+    },
+  }
+}
+
+/**
+ * 多任务卡片只读预览面（宿主在卡片缩略区挂载；失败 / 3s 超时宿主回退品牌卡）
+ *
+ * **不等待数据**：只创建并挂载 PreviewCard 实例（组件内先出骨架，`onMounted`
+ * 里异步取一次数），立即返回 handle —— 慢命令不会把整张卡拖成宿主超时回退。
+ *
+ * 与主应用实例完全隔离：独立的 Vue 应用，不碰模块级 `vueApp` / 主 router /
+ * 主 pinia / 路由上报句柄。当前前台应用的卡片也会挂预览，此时主实例仍在遮罩后
+ * 运行——预览不得依赖任何模块级可变单例状态。
+ */
+export async function mountPreview(
+  root: HTMLElement,
+  env: AppPreviewEnv,
+): Promise<AppPreviewHandle> {
+  if (env.locale === 'en' || env.locale === 'zh-CN') i18n.global.locale.value = env.locale
+  const app = createApp(PreviewCard, { env })
+  app.use(i18n)
+  app.mount(root)
+  return {
+    async unmount() {
+      app.unmount()
     },
   }
 }

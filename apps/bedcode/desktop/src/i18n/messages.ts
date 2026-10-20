@@ -429,4 +429,15 @@ export type MessageSchema = {
   'appearance.settings.title': string
   'appearance.settings.hint': string
   'appearance.settings.saveFailed': string
+
+  // ==================== 多任务卡片只读预览面（mountPreview · 2026-10-20） ====================
+  'session.preview.eyebrow': string
+  'session.preview.runningCount': string
+  'session.preview.workspace': string
+  'session.preview.empty': string
+  'session.preview.emptyHint': string
+  'session.preview.unavailable': string
+  'session.preview.lastRoute': string
+  'session.preview.status.idle': string
+  'session.preview.status.stopping': string
 }

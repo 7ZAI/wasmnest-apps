@@ -411,6 +411,17 @@ const en: MessageSchema = {
   'appearance.settings.title': 'Appearance',
   'appearance.settings.hint': 'Applies to this app only; the host shell keeps its own light/dark mode',
   'appearance.settings.saveFailed': 'Failed to save theme palette',
+
+  // ==================== Read-only preview surface (mountPreview · 2026-10-20) ====================
+  'session.preview.eyebrow': 'Terminal sessions',
+  'session.preview.runningCount': '{count} running',
+  'session.preview.workspace': 'Workspace',
+  'session.preview.empty': 'No terminal sessions yet',
+  'session.preview.emptyHint': 'Start one from the session center',
+  'session.preview.unavailable': 'Preview unavailable',
+  'session.preview.lastRoute': 'Last page: {path}',
+  'session.preview.status.idle': 'Idle',
+  'session.preview.status.stopping': 'Stopping',
 }
 
 export default en
