@@ -31,10 +31,22 @@ const DEBUG_MODE = !!process.env.WASMNEST_PLUGIN_DEBUG
 const WASM_PROFILE = DEBUG_MODE ? 'debug' : 'release'
 const WASM_PROFILE_DIR = `${WASM_TARGET_DIR}/${WASM_TARGET}/${WASM_PROFILE}`
 
-// 产物目标目录
-// 宿主资源目录（平台仓）经集中 resolver 解析（三仓拆分 §5-E7）：dev 期产物直接写进
-// 平台仓宿主 resources，宿主读同一目录。
-const RESOURCES_DIR = resolve(desktopHostResourcesDir(), PLUGIN_ID)
+// ==================== 产物目标目录 ====================
+// 默认 = 平台仓宿主 resources（经集中 resolver 解析，三仓拆分 §5-E7）：dev 期产物直接
+// 写进平台仓宿主 resources，宿主读同一目录。
+//
+// `--out <dir>`（或 env WASMNEST_PLUGINS_DIR）：产物改写到**指定 plugins 目录**下的
+// `<dir>/<appId>/`。给「宿主以构建产物运行、不依赖平台仓源码」的形态用——宿主启动时
+// 用同一个目录作为 WASMNEST_PLUGINS_DIR 即可装载本 app（见 scripts/dev-host.js）。
+// 注意本脚本只写 `<dir>/<appId>/` 一层，同目录下可以有别的 app 的产物，互不覆盖。
+const argv = process.argv.slice(2)
+function flagValue(flag) {
+  const i = argv.indexOf(flag)
+  return i !== -1 && argv[i + 1] && !argv[i + 1].startsWith('--') ? argv[i + 1] : null
+}
+const OUT_DIR_ARG = flagValue('--out') || process.env.WASMNEST_PLUGINS_DIR || null
+const PLUGINS_DIR = OUT_DIR_ARG ? resolve(ROOT, OUT_DIR_ARG) : desktopHostResourcesDir()
+const RESOURCES_DIR = resolve(PLUGINS_DIR, PLUGIN_ID)
 
 function run(cmd, options = {}) {
   console.log(`[build] > ${cmd}`)
@@ -125,10 +137,9 @@ function copyArtifacts(opts = {}) {
 
 // ==================== Main ====================
 
-const args = process.argv.slice(2)
-const watchMode = args.includes('--watch')
-const frontendOnly = args.includes('--frontend-only')
-const rustOnly = args.includes('--rust-only')
+const watchMode = argv.includes('--watch')
+const frontendOnly = argv.includes('--frontend-only')
+const rustOnly = argv.includes('--rust-only')
 
 if (watchMode) {
   startPluginWatch({
