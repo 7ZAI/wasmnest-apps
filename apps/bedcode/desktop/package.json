@@ -7,6 +7,7 @@
   "scripts": {
     "build": "node scripts/build.js",
     "build:rust": "node scripts/build.js --rust-only",
+    "dev:host": "node scripts/dev-host.js",
     "test:rust": "cargo test --manifest-path rust/Cargo.toml",
     "build:frontend": "vite build",
     "test:run": "vitest run",
