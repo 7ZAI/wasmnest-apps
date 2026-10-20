@@ -362,7 +362,7 @@ export function useAiChat(
     // 以初始化点已完成窄化的别名传递非空引用
     const activeProvider: ApiProvider = provider
 
-    /** 限流重试参数（每次调度时重新读取，跟随宿主配置页实时修改） */
+    /** 限流重试参数（每次调度时重新读取，跟随设置页实时修改） */
     function rateLimitParams() {
       const pc = pluginConfig?.value ?? DEFAULT_PLUGIN_CONFIG
       return {

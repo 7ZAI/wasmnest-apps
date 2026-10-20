@@ -73,7 +73,7 @@ export type ThinkingMode = 'default' | 'enabled' | 'disabled'
 /** 推理强度（DeepSeek `reasoning_effort` 语义；仅 thinkingMode=enabled 时写入请求） */
 export type ReasoningEffort = 'low' | 'high' | 'max'
 
-/** 代码块行距（数字，范围 [MIN, MAX]；配置归一化与 plugin.json 保持一致） */
+/** 代码块行距（数字，范围 [MIN, MAX]；配置归一化边界与设置页取值域共用） */
 export type CodeLineHeight = number
 /** 行距可调范围与默认值 */
 export const CODE_LINE_HEIGHT_MIN = 0.5
@@ -84,22 +84,21 @@ export const DEFAULT_CODE_LINE_HEIGHT = 1.6
  * github-light/github-dark/dracula=具名风格主题（移动端 Shiki 主题包 / 桌面端 hljs 变量组） */
 export type CodeTheme = 'auto' | 'light' | 'dark' | 'github-light' | 'github-dark' | 'dracula'
 
-/** 代码块字体大小范围（px；配置归一化与 plugin.json 保持一致） */
+/** 代码块字体大小范围（px；配置归一化边界与设置页取值域共用） */
 export const CODE_FONT_SIZE_MIN = 11
 export const CODE_FONT_SIZE_MAX = 18
 
-/** 限流自动重试次数范围（0 = 关闭自动重试；配置归一化与 plugin.json 保持一致） */
+/** 限流自动重试次数范围（0 = 关闭自动重试；配置归一化边界与设置页取值域共用） */
 export const RATE_LIMIT_MAX_RETRIES_MIN = 0
 export const RATE_LIMIT_MAX_RETRIES_MAX = 10
-/** 限流重试初始等待范围（ms，首次重试前等待；配置归一化与 plugin.json 保持一致） */
+/** 限流重试初始等待范围（ms，首次重试前等待；配置归一化边界与设置页取值域共用） */
 export const RATE_LIMIT_INITIAL_DELAY_MS_MIN = 100
 export const RATE_LIMIT_INITIAL_DELAY_MS_MAX = 60000
-/** 限流重试等待上限范围（ms，指数退避封顶值；配置归一化与 plugin.json 保持一致） */
+/** 限流重试等待上限范围（ms，指数退避封顶值；配置归一化边界与设置页取值域共用） */
 export const RATE_LIMIT_MAX_DELAY_MS_MIN = 1000
 export const RATE_LIMIT_MAX_DELAY_MS_MAX = 300000
 
-/** 插件级全局配置（contributes.configuration，storage key `config`；
-    宿主配置页保存的值可能缺项，读取侧必须合并默认值） */
+/** 应用级全局配置（storage key `config`；设置页保存的值可能缺项，读取侧必须合并默认值） */
 export interface PluginConfig {
   thinkingMode: ThinkingMode
   reasoningEffort: ReasoningEffort
@@ -118,7 +117,7 @@ export interface PluginConfig {
   rateLimitMaxDelayMs: number
 }
 
-/** 配置默认值（与 plugin.json configuration 的 default 字段保持一致） */
+/** 配置默认值（真源；storage 缺项 / 非法值一律回退到这些值） */
 export const DEFAULT_PLUGIN_CONFIG: PluginConfig = {
   thinkingMode: 'default',
   reasoningEffort: 'high',

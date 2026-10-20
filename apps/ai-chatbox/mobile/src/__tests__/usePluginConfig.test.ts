@@ -1,7 +1,7 @@
 /**
  * usePluginConfig 单测（接缝 3）：storage 配置读取 + 默认值合并 + 非法值回退
  *
- * 宿主配置页保存的值可能缺项（旧版本无配置 / 手动改动 storage），
+ * 设置页保存的值可能缺项（旧版本无配置 / 手动改动 storage），
  * 读取侧必须逐字段归一化；坏数据不得流入请求构建。
  */
 import { describe, it, expect } from 'vitest'
@@ -22,7 +22,7 @@ describe('usePluginConfig', () => {
     expect(pluginConfig.config.value).toEqual(DEFAULT_PLUGIN_CONFIG)
   })
 
-  it('已存配置缺项：按默认值补齐（宿主配置页只保存改动过的字段）', async () => {
+  it('已存配置缺项：按默认值补齐（设置页只保存改动过的字段）', async () => {
     const { mock, pluginConfig } = setup()
     mock.storageMap.set('config', { thinkingMode: 'enabled' })
     await pluginConfig.loadConfig()

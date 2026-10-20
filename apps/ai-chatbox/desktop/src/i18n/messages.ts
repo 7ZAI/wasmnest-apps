@@ -75,4 +75,51 @@ export interface MessageSchema {
   rateLimitAborted: string
   /** 未分类 / 未知错误码的兜底文案（ADR 0030：界面永不显示错误码原文） */
   requestFailed: string
+
+  // ==================== 应用设置页（设置归属：wasm-app 自持，宿主无统一设置页） ====================
+  pluginSettings: string
+  configuredProviders: string
+  expandProviders: string
+  collapseProviders: string
+  noConfiguredProviders: string
+  codeRendering: string
+  codeFontSize: string
+  decrease: string
+  increase: string
+  codeLineHeight: string
+  codeTheme: string
+  codeThemeAuto: string
+  codeThemeLight: string
+  codeThemeDark: string
+  codeThemeGithubLight: string
+  codeThemeGithubDark: string
+  codeThemeDracula: string
+  thinking: string
+  thinkingMode: string
+  thinkingDefault: string
+  thinkingEnabled: string
+  thinkingDisabled: string
+  reasoningEffort: string
+  effortLow: string
+  effortHigh: string
+  effortMax: string
+  showReasoning: string
+  rateLimitGroup: string
+  rateLimitMaxRetries: string
+  rateLimitInitialDelay: string
+  rateLimitMaxDelay: string
+  rateLimitOff: string
+
+  // ==================== 多任务卡片只读预览面（mountPreview · apps 仓 spec 2026-10-20） ====================
+  previewRecentConversation: string
+  previewNoProvider: string
+  previewNoProviderHint: string
+  previewNoConversation: string
+  previewNoConversationHint: string
+  previewMessagesEmpty: string
+  previewUnavailable: string
+  previewRoleUser: string
+  previewRoleAssistant: string
+  previewRoleSystem: string
+  previewLastRoute: string
 }

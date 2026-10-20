@@ -1,6 +1,6 @@
 <template>
   <div class="h-full flex flex-col bg-[var(--bg-page)]">
-    <!-- 顶栏：标题随视图流转（列表/模板选择/表单）
+    <!-- 顶栏：标题随视图流转（设置页/模板选择/表单）
          标题**左对齐**紧跟返回按钮，与宿主「← 返回 X」及各 wasm 应用
          （agent-hub / terminal-session）的页头一致。原先用 justify-between +
          右侧 w-20 空洞做居中，标题实际只在左侧按钮恰好 80px 宽时才真居中——
@@ -21,7 +21,7 @@
           />
         </svg>
         {{
-          view === 'list'
+          view === 'settings'
             ? t('com.wasmnest.ai-chatbox.backToChat')
             : t('com.wasmnest.ai-chatbox.back')
         }}
@@ -29,78 +29,25 @@
       <h3 class="min-w-0 truncate text-sm font-medium text-[var(--text-primary)]">{{ headerTitle }}</h3>
     </header>
 
-    <!-- 视图切换：列表 / 模板选择 / 表单。page-swap 单独包一层并承接高度链：
+    <!-- 视图切换：设置页 / 模板选择 / 表单。page-swap 单独包一层并承接高度链：
          退场的绝对定位层需要以「顶栏以下的视图区」为定位上下文，直接标在视图根上
          会从顶栏行开始绘制。过渡类与效果变体由宿主 src/style.css 统一提供。 -->
     <div class="page-swap flex-1 flex flex-col min-h-0">
       <Transition name="page">
-        <!-- 视图一：已保存供应商实例列表 -->
-        <div v-if="view === 'list'" key="list" class="flex-1 overflow-y-auto p-4">
-          <!-- 添加按钮置顶 -->
-          <button
-            class="w-full h-10 flex items-center justify-center gap-1.5 text-sm rounded-btn bg-brand text-[var(--color-primary-contrast)] hover:opacity-90 transition-opacity"
-            @click="startAdd"
-          >
-            <svg
-              class="w-4 h-4"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-              stroke-width="2"
-            >
-              <path stroke-linecap="round" stroke-linejoin="round" d="M12 5v14M5 12h14" />
-            </svg>
-            {{ t('com.wasmnest.ai-chatbox.addProvider') }}
-          </button>
-
-          <div
-            v-if="providers.length === 0"
-            class="mt-8 text-center text-xs text-[var(--text-tertiary)]"
-          >
-            {{ t('com.wasmnest.ai-chatbox.noProvidersHint') }}
-          </div>
-
-          <!-- 供应商行：点击进编辑；hover 出现删除 -->
-          <div class="mt-3 space-y-1">
-            <div
-              v-for="p in providers"
-              :key="p.id"
-              class="group flex items-center gap-2.5 px-2.5 py-2 rounded-btn cursor-pointer hover:bg-[var(--bg-hover)] transition-colors"
-              role="button"
-              tabindex="0"
-              @click="startEdit(p.id)"
-              @keydown.enter="startEdit(p.id)"
-            >
-              <ProviderAvatar :preset-id="p.presetId" :name="p.name" :size="32" />
-              <span class="flex-1 min-w-0 truncate text-sm text-[var(--text-primary)]">{{
-                p.name
-              }}</span>
-              <!-- 激活圆点 -->
-              <span
-                v-if="activeProviderId === p.id"
-                class="w-2 h-2 rounded-full bg-brand flex-shrink-0"
-                :title="t('com.wasmnest.ai-chatbox.activeProvider')"
-              ></span>
-              <!-- hover 删除按钮（stop 阻止触发行进编辑） -->
-              <button
-                class="p-1.5 text-[var(--text-tertiary)] opacity-0 group-hover:opacity-100 hover:text-[var(--color-danger)] rounded transition-colors flex-shrink-0"
-                :title="t('com.wasmnest.ai-chatbox.deleteProvider')"
-                @click.stop="askDelete(p)"
-              >
-                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M6 18L18 6M6 6l12 12"
-                  />
-                </svg>
-              </button>
-            </div>
+        <!-- 视图一：设置页主页（供应商折叠摘要 + 应用设置；设置归属 wasm-app） -->
+        <div v-if="view === 'settings'" key="settings" class="flex-1 overflow-y-auto p-4">
+          <div class="max-w-3xl mx-auto space-y-5">
+            <ProviderSummarySection
+              :providers="providers"
+              :active-provider-id="activeProviderId"
+              @add="view = 'templates'"
+              @edit="startEdit"
+            />
+            <AppSettingsSection :config="props.pluginConfig" @change="onPluginConfigChange" />
           </div>
         </div>
 
-        <!-- 视图二：模板选择（4 预设 + 自定义） -->
+        <!-- 视图二：模板选择（添加供应商直达；4 预设 + 自定义） -->
         <div v-else-if="view === 'templates'" key="templates" class="flex-1 overflow-y-auto p-4">
           <p class="text-xs text-[var(--text-secondary)] mb-3">
             {{ t('com.wasmnest.ai-chatbox.selectTemplate') }}
@@ -158,32 +105,25 @@
       </Transition>
     </div>
 
-    <!-- 行删除确认（表单内删除走 ProviderForm 自己的弹窗） -->
-    <ConfirmDialog
-      v-if="deleteTarget"
-      :title="t('com.wasmnest.ai-chatbox.confirmDeleteTitle')"
-      :body="t('com.wasmnest.ai-chatbox.confirmDeleteBody', { name: deleteTarget.name })"
-      @confirm="confirmDelete"
-      @cancel="deleteTarget = null"
-    />
   </div>
 </template>
 
 <script setup lang="ts">
 /**
- * 供应商配置页 — 单一实例列表 + 两步添加流程
+ * 应用配置页 — 设置页主页（供应商摘要 + 应用设置）+ 供应商配置子流程
  *
- * 列表只展示已保存的配置实例（图标 + 名称 + 激活圆点 + hover 删除）；
- * "添加供应商"→ 模板选择（4 内置预设 + 自定义）→ 表单回填 → 保存回列表。
- * 预设是只读添加模板，不进列表、不可删除；删除统一走自绘确认弹窗。
+ * 设置页（默认视图）承载：已配置供应商折叠摘要（点行编辑 / 底部直接添加）+
+ * 应用级配置分区（代码渲染 / 思考 / 限流重试，设置归属 wasm-app）。
+ * 「添加供应商」直达模板选择 → 表单；供应商列表页已退役（摘要即索引）。
  */
 import { ref, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import ProviderForm from './ProviderForm.vue'
 import ProviderAvatar from './ProviderAvatar.vue'
-import ConfirmDialog from './ConfirmDialog.vue'
+import AppSettingsSection from './AppSettingsSection.vue'
+import ProviderSummarySection from './ProviderSummarySection.vue'
 import { PROVIDER_PRESETS } from '../types'
-import type { ApiProvider, ProviderPreset } from '../types'
+import type { ApiProvider, PluginConfig, ProviderPreset } from '../types'
 
 const props = defineProps<{
   providers: ApiProvider[]
@@ -192,6 +132,10 @@ const props = defineProps<{
   fetchModels: (provider: ApiProvider) => Promise<string[]>
   /** 测试连接（ChatView 注入 config.testConnection） */
   testConnection: (provider: ApiProvider) => Promise<string>
+  /** 应用级配置（设置归属 wasm-app；本页设置视图编辑，即改即存） */
+  pluginConfig: PluginConfig
+  /** 初始视图：默认设置页（主入口）；空态「配置模型」可直达模板选择 */
+  initialView?: 'settings' | 'templates'
 }>()
 
 const emit = defineEmits<{
@@ -199,17 +143,18 @@ const emit = defineEmits<{
   add: [provider: ApiProvider]
   update: [provider: ApiProvider]
   remove: [id: string]
+  /** 应用级配置整表变更（即改即存；ChatView 转 usePluginConfig.saveConfig 落 storage） */
+  changePluginConfig: [next: PluginConfig]
 }>()
 
 const { t } = useI18n()
 
-/** 页内视图流转：列表 → 模板选择 → 表单（添加/编辑） */
-const view = ref<'list' | 'templates' | 'form'>('list')
+/** 页内视图流转：设置页（主页，含供应商摘要）→ 模板选择 → 表单 */
+const view = ref<'settings' | 'templates' | 'form'>(props.initialView ?? 'settings')
 const editingMode = ref<'add' | 'edit'>('add')
 const editingId = ref('')
 const selectedPreset = ref<ProviderPreset | null>(null)
 const formKey = ref(0)
-const deleteTarget = ref<ApiProvider | null>(null)
 
 /** 编辑模式回填（edit 时才有值） */
 const editingProvider = computed(() =>
@@ -222,30 +167,29 @@ const existingNames = computed(() => props.providers.map((p) => p.name))
 
 /** 顶栏标题随视图与模式切换 */
 const headerTitle = computed(() => {
+  if (view.value === 'settings') return t('com.wasmnest.ai-chatbox.pluginSettings')
   if (view.value === 'templates') return t('com.wasmnest.ai-chatbox.selectTemplate')
-  if (view.value === 'form') {
-    return editingMode.value === 'edit'
-      ? t('com.wasmnest.ai-chatbox.editProvider')
-      : t('com.wasmnest.ai-chatbox.addProvider')
-  }
-  return t('com.wasmnest.ai-chatbox.providerConfig')
+  return editingMode.value === 'edit'
+    ? t('com.wasmnest.ai-chatbox.editProvider')
+    : t('com.wasmnest.ai-chatbox.addProvider')
 })
 
-/** 返回：表单（添加）→ 模板选择；表单（编辑）→ 列表；模板选择 → 列表；列表 → 聊天 */
+/** 返回：设置页 → 聊天；模板选择 → 设置页；表单（添加）→ 模板选择；表单（编辑）→ 设置页 */
 function goBack(): void {
-  if (view.value === 'form' && editingMode.value === 'add') {
-    view.value = 'templates'
-  } else if (view.value === 'templates') {
-    view.value = 'list'
-  } else if (view.value === 'form') {
-    view.value = 'list'
-  } else {
+  if (view.value === 'settings') {
     emit('back')
+  } else if (view.value === 'templates') {
+    view.value = 'settings'
+  } else if (editingMode.value === 'add') {
+    view.value = 'templates'
+  } else {
+    view.value = 'settings'
   }
 }
 
-function startAdd(): void {
-  view.value = 'templates'
+/** 应用设置分区变更：整表上抛（ChatView 即改即存落 storage） */
+function onPluginConfigChange(next: PluginConfig): void {
+  emit('changePluginConfig', next)
 }
 
 function choosePreset(preset: ProviderPreset): void {
@@ -272,37 +216,25 @@ function startEdit(id: string): void {
   view.value = 'form'
 }
 
-/** 保存：新增或更新后回到列表（新增不自动激活，首个自动激活逻辑在 useAiConfig） */
+/** 保存：新增或更新后回到设置页（新增不自动激活，首个自动激活逻辑在 useAiConfig） */
 function handleSave(provider: ApiProvider): void {
   if (editingMode.value === 'edit') {
     emit('update', provider)
   } else {
     emit('add', provider)
   }
-  view.value = 'list'
+  view.value = 'settings'
 }
 
-/** 表单内删除：确认后删除并回到列表 */
+/** 表单内删除：确认后删除并回到设置页（列表页已退役） */
 function handleDelete(id: string): void {
   emit('remove', id)
-  view.value = 'list'
-}
-
-/** 行删除：先弹确认再删除 */
-function askDelete(p: ApiProvider): void {
-  deleteTarget.value = p
-}
-
-function confirmDelete(): void {
-  if (deleteTarget.value) {
-    emit('remove', deleteTarget.value.id)
-    deleteTarget.value = null
-  }
+  view.value = 'settings'
 }
 </script>
 
 <style scoped>
-/* 视图切换（列表 → 模板选择 → 表单）已收归宿主页面过渡体系（src/style.css 的
+/* 视图切换（设置页 → 模板选择 → 表单）已收归宿主页面过渡体系（src/style.css 的
    .page-* / .page-swap）：名字恒为 `page`，时长/缓动/位移走 --motion-page-* token，
    效果变体由 <html data-page-fx> 选（全端唯一切换点 = 宿主
    src/utils/pageTransition.ts）。本文件不再自带 .view-slide-*。 */

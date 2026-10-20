@@ -11,10 +11,13 @@
         :active-provider-id="activeProviderId"
         :fetch-models="config.fetchModels"
         :test-connection="config.testConnection"
+        :plugin-config="pluginConfig.config.value"
+        :initial-view="configInitialView"
         @back="showConfigPage = false"
         @add="addProvider"
         @update="updateProvider"
         @remove="removeProvider"
+        @change-plugin-config="pluginConfig.saveConfig"
       />
 
       <!-- 聊天模式 -->
@@ -53,10 +56,9 @@
             </div>
             <div class="flex items-center gap-2">
               <button
-                v-if="hasProvider"
                 class="p-1.5 text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] rounded transition-colors flex-shrink-0"
-                :title="t('com.wasmnest.ai-chatbox.providerConfig')"
-                @click="showConfigPage = true"
+                :title="t('com.wasmnest.ai-chatbox.pluginSettings')"
+                @click="openConfigPage('settings')"
               >
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path
@@ -107,7 +109,7 @@
             </p>
             <button
               class="px-4 py-2 text-sm bg-brand text-[var(--color-primary-contrast)] hover:bg-brand-hover rounded-btn transition-colors"
-              @click="showConfigPage = true"
+              @click="openConfigPage('templates')"
             >
               {{ t('com.wasmnest.ai-chatbox.configureModel') }}
             </button>
@@ -265,7 +267,8 @@ const { t } = useI18n()
 const context = inject<PluginContext>('pluginContext')!
 
 const config = useAiConfig(context)
-// 插件级全局配置（P3：thinkingMode/reasoningEffort/showReasoning，宿主配置页 schema 渲染）
+// 应用级配置（P3：thinkingMode/reasoningEffort/showReasoning + 代码渲染 / 限流重试，
+// 由应用配置页（设置页）直接编辑，storage key `config`）
 const pluginConfig = usePluginConfig(context)
 const chat = useAiChat(context, config, undefined, pluginConfig.config)
 
@@ -305,7 +308,15 @@ const {
 
 const messagesContainer = ref<HTMLElement | null>(null)
 const showConfigPage = ref(false)
+/** 配置页初始视图：设置页（默认，含供应商摘要）/ 模板选择（空态直达添加） */
+const configInitialView = ref<'settings' | 'templates'>('settings')
 const dismissedError = ref('')
+
+/** 打开应用配置页（默认设置页；空态「配置模型」直达模板选择） */
+function openConfigPage(view: 'settings' | 'templates'): void {
+  configInitialView.value = view
+  showConfigPage.value = true
+}
 
 /** 对话列表折叠态（persist 到插件 storage，跨会话记忆） */
 const sidebarCollapsed = ref(false)

@@ -7,6 +7,11 @@ import type { MessageSchema } from './messages'
  */
 const zhCN: MessageSchema = {
   navTitle: 'AI',
+  settingsTitle: '设置',
+  configuredProviders: '已配置的供应商',
+  expandProviders: '展开已配置的供应商',
+  collapseProviders: '收起已配置的供应商',
+  noConfiguredProviders: '暂无已配置的供应商',
 }
 
 export default zhCN

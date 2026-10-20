@@ -1,7 +1,7 @@
 /**
  * usePluginConfig 单测（接缝 3）：storage 配置读取 + 默认值合并 + 非法值回退
  *
- * 宿主配置页保存的值可能缺项（旧版本无配置 / 手动改动 storage），
+ * 设置页保存的值可能缺项（旧版本无配置 / 手动改动 storage），
  * 读取侧必须逐字段归一化；坏数据不得流入请求构建。
  */
 import { describe, it, expect } from 'vitest'
@@ -22,7 +22,7 @@ describe('usePluginConfig', () => {
     expect(pluginConfig.config.value).toEqual(DEFAULT_PLUGIN_CONFIG)
   })
 
-  it('已存配置缺项：按默认值补齐（宿主配置页只保存改动过的字段）', async () => {
+  it('已存配置缺项：按默认值补齐（设置页只保存改动过的字段）', async () => {
     const { mock, pluginConfig } = setup()
     mock.storageMap.set('config', { thinkingMode: 'enabled' })
     await pluginConfig.loadConfig()
@@ -157,5 +157,28 @@ describe('usePluginConfig', () => {
   it('未加载时即为默认值（请求构建永远拿得到合法配置）', () => {
     const { pluginConfig } = setup()
     expect(pluginConfig.config.value).toEqual(DEFAULT_PLUGIN_CONFIG)
+  })
+
+  it('saveConfig：整表写入 storage key `config` 并立即生效（会话内无需重读）', async () => {
+    const { mock, pluginConfig } = setup()
+    const next = {
+      ...DEFAULT_PLUGIN_CONFIG,
+      thinkingMode: 'enabled' as const,
+      codeTheme: 'dracula' as const,
+      rateLimitMaxRetries: 7,
+    }
+    await pluginConfig.saveConfig(next)
+    expect(pluginConfig.config.value).toEqual(next)
+    expect(mock.storageMap.get('config')).toEqual(next)
+  })
+
+  it('saveConfig 持久化抛错：保留会话内已生效值不抛错（仅持久化丢失）', async () => {
+    const { mock, pluginConfig } = setup()
+    mock.context.storage.set = async () => {
+      throw new Error('storage unavailable')
+    }
+    const next = { ...DEFAULT_PLUGIN_CONFIG, showReasoning: false }
+    await expect(pluginConfig.saveConfig(next)).resolves.toBeUndefined()
+    expect(pluginConfig.config.value).toEqual(next)
   })
 })

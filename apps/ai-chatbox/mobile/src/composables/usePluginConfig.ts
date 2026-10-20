@@ -1,7 +1,7 @@
 /**
- * 插件级全局配置（P3 思考模式）
+ * 应用级全局配置（P3 思考模式）
  *
- * 读宿主 storage key `config` 并合并默认值——宿主配置页保存的值可能缺项
+ * 读宿主 storage key `config` 并合并默认值——设置页保存的值可能缺项
  * （旧版本无配置 / 手动改动 storage），必须逐字段归一化，非法枚举值回退默认，
  * 避免坏数据流入请求构建。
  *
@@ -26,7 +26,7 @@ import {
   RATE_LIMIT_MAX_RETRIES_MIN,
 } from '../types'
 
-/** 插件配置 storage key（与宿主配置页 pluginStorageGet 共用，见桌面 SDK 约定） */
+/** 应用配置 storage key（与桌面端设置页共用同一约定值，见桌面 SDK 约定） */
 const PLUGIN_CONFIG_STORAGE_KEY = 'config'
 
 const THINKING_MODES: ThinkingMode[] = ['default', 'enabled', 'disabled']
@@ -85,7 +85,7 @@ export function usePluginConfig(context: PluginContext) {
     }
   }
 
-  /** 整表保存（移动端配置弹层用；桌面端由宿主配置页 pluginStorageSet 落盘） */
+  /** 整表保存（app 设置页用；桌面端由 AppSettingsSection 同路径落盘） */
   async function saveConfig(next: PluginConfig): Promise<void> {
     config.value = { ...next }
     try {
@@ -110,7 +110,7 @@ function normalizeInt(value: unknown, min: number, max: number, fallback: number
   return Math.round(Math.min(Math.max(value, min), max))
 }
 
-/** 数字归一化：非有限数 / 超出 [MIN, MAX] 范围一律回退默认（桌面配置页可输入任意值） */
+/** 数字归一化：非有限数 / 超出 [MIN, MAX] 范围一律回退默认（设置页滑块的兜底防线） */
 function normalizeFontSize(value: unknown): number {
   return typeof value === 'number' &&
     Number.isFinite(value) &&

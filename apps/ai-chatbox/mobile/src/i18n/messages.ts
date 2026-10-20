@@ -8,4 +8,11 @@
 export interface MessageSchema {
   // ==================== 菜单/路由显示文本 ====================
   navTitle: string
+
+  // ==================== 设置页（与供应商配置同页；设置归属 wasm-app） ====================
+  settingsTitle: string
+  configuredProviders: string
+  expandProviders: string
+  collapseProviders: string
+  noConfiguredProviders: string
 }

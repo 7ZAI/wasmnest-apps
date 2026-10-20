@@ -36,7 +36,7 @@ export interface HttpRequestPayload {
   sseFormat: ''
 }
 
-/** 思考类全局配置（插件级 contributes.configuration；各方言适配器自行映射为
+/** 思考类全局配置（应用级，storage key `config`；各方言适配器自行映射为
     方言参数——openai 写 thinking，无法映射的方言忽略请求侧参数）。
     枚举复用插件类型域，避免与 PluginConfig 两处真源漂移 */
 export interface ThinkingOptions {

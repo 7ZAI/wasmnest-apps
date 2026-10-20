@@ -1,10 +1,10 @@
 /**
  * 插件级全局配置（P3 思考模式）
  *
- * 读宿主 storage key `config`（与宿主配置页 pluginStorageGet 共用同一 key，
- * 见 SDK PLUGIN_CONFIG_STORAGE_KEY 约定）并合并默认值——宿主配置页保存的
- * 值可能缺项（旧版本无配置 / 手动改动 storage），必须逐字段归一化，
- * 非法枚举值回退默认，避免坏数据流入请求构建。
+ * 读宿主 storage key `config`（宿主统一设置页已退役，配置由本 app 设置页自持，
+ * 与移动端设置弹层共用同一 key）并合并默认值——storage 里的值可能缺项
+ * （旧版本无配置 / 手动改动 storage），必须逐字段归一化，非法枚举值回退默认，
+ * 避免坏数据流入请求构建。
  */
 import { ref } from 'vue'
 import { PLUGIN_CONFIG_STORAGE_KEY } from '@binblink/wasmnest-plugin-sdk-desktop'
@@ -92,7 +92,18 @@ export function usePluginConfig(context: PluginContext) {
     }
   }
 
-  return { config, loading, loadConfig }
+  /** 整表保存（app 内设置页用；变更即改即存，写宿主 storage key `config`） */
+  async function saveConfig(next: PluginConfig): Promise<void> {
+    config.value = { ...next }
+    try {
+      await context.storage.set(PLUGIN_CONFIG_STORAGE_KEY, { ...next })
+    } catch (e) {
+      // 保存失败不阻断本次会话内生效（仅持久化丢失），记录日志
+      console.error('[AI Chatbox] Failed to save plugin config:', e)
+    }
+  }
+
+  return { config, loading, loadConfig, saveConfig }
 }
 
 /** 枚举值归一化：不在白名单内（含 undefined/类型不符）一律回退默认 */
@@ -106,7 +117,7 @@ function normalizeInt(value: unknown, min: number, max: number, fallback: number
   return Math.round(Math.min(Math.max(value, min), max))
 }
 
-/** 数字归一化：非有限数 / 超出 [MIN, MAX] 范围一律回退默认（桌面配置页可输入任意值） */
+/** 数字归一化：非有限数 / 超出 [MIN, MAX] 范围一律回退默认（设置页滑块的兜底防线） */
 function normalizeFontSize(value: unknown): number {
   return typeof value === 'number' &&
     Number.isFinite(value) &&

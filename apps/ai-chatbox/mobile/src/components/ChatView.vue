@@ -11,10 +11,13 @@
         :active-provider-id="activeProviderId"
         :fetch-models="config.fetchModels"
         :test-connection="config.testConnection"
+        :plugin-config="pluginConfig.config.value"
+        :initial-view="configInitialView"
         @back="showConfigPage = false"
         @add="addProvider"
         @update="updateProvider"
         @remove="removeProvider"
+        @change-plugin-config="pluginConfig.saveConfig"
       />
 
       <!-- 聊天模式 -->
@@ -50,18 +53,8 @@
           </button>
           <button
             class="w-11 h-11 flex items-center justify-center text-[var(--mobile-text-secondary)] active:opacity-80 rounded-xl transition-opacity"
-            :title="t('mobile.plugin.aiChatbox.pluginSettings')"
-            @click="showSettingsSheet = true"
-          >
-            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M21 4h-7M10 4H3M21 12h-9M8 12H3M21 20h-5M12 20H3" />
-              <path stroke-linecap="round" stroke-linejoin="round" d="M14 2v4M8 10v4M16 18v4" />
-            </svg>
-          </button>
-          <button
-            class="w-11 h-11 flex items-center justify-center text-[var(--mobile-text-secondary)] active:opacity-80 rounded-xl transition-opacity"
-            :title="t('mobile.plugin.aiChatbox.providerConfig')"
-            @click="showConfigPage = true"
+            :title="t('com.wasmnest.ai-chatbox.settingsTitle')"
+            @click="openConfigPage('settings')"
           >
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
               <path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
@@ -87,7 +80,7 @@
         <p class="text-xs text-[var(--mobile-text-muted)] mb-4">{{ t('mobile.plugin.aiChatbox.emptyHint') }}</p>
         <button
           class="h-12 px-5 text-[var(--font-size-base)] bg-[var(--mobile-accent)] text-[var(--mobile-text-on-accent)] active:opacity-80 rounded-xl transition-opacity"
-          @click="showConfigPage = true"
+          @click="openConfigPage('templates')"
         >
           {{ t('mobile.plugin.aiChatbox.configureModel') }}
         </button>
@@ -213,13 +206,7 @@
       </div>
     </Transition>
 
-    <!-- 插件级配置弹层（代码渲染 + 思考模式；即改即存写宿主 storage） -->
-    <PluginSettingsSheet
-      v-model="showSettingsSheet"
-      :config="pluginConfig.config.value"
-      :safe-area-bottom="safeAreaBottom"
-      @change="pluginConfig.saveConfig"
-    />
+    <!-- 设置页不单占弹层：已并入应用配置页（ProviderConfigPage，默认设置视图） -->
   </div>
 </template>
 
@@ -230,7 +217,7 @@
  * 对话列表为应用容器内左侧贴边面板（应用整体 div 之内，不 Teleport 不悬浮）：
  * 应用区域已在壳的安全区之内（壳补了顶部状态栏），面板只须在底部避让系统导航栏。
  *
- * 系统返回键：应用层接管（插件设置弹层 → 对话列表抽屉 → 供应商配置页逐级后退），
+ * 系统返回键：应用层接管（对话列表抽屉 → 供应商配置页逐级后退），
  * 回到聊天主页面后不再消费，交宿主壳兜底（见 ../utils/appBack.ts）。
  */
 import { ref, computed, watch, nextTick, onMounted, onUnmounted, inject } from 'vue'
@@ -240,7 +227,6 @@ import ChatMessage from './ChatMessage.vue'
 import ChatInput from './ChatInput.vue'
 import ConversationList from './ConversationList.vue'
 import ProviderConfigPage from './ProviderConfigPage.vue'
-import PluginSettingsSheet from './PluginSettingsSheet.vue'
 import { modelKey, useAiConfig } from '../composables/useAiConfig'
 import { useAiChat } from '../composables/useAiChat'
 import { usePluginConfig } from '../composables/usePluginConfig'
@@ -254,7 +240,7 @@ const { t } = useI18n()
 const context = inject<PluginContext>('pluginContext')!
 
 const config = useAiConfig(context)
-// 插件级全局配置（thinkingMode/reasoningEffort/showReasoning；移动宿主暂无配置页，
+// 应用级全局配置（thinkingMode/reasoningEffort/showReasoning；由应用配置页（设置页）直接编辑，
 // 读取 storage key `config` 合并默认值，缺失时全走默认）
 const pluginConfig = usePluginConfig(context)
 const chat = useAiChat(context, config, undefined, pluginConfig.config)
@@ -295,8 +281,15 @@ const {
 
 const messagesContainer = ref<HTMLElement | null>(null)
 const showConfigPage = ref(false)
+/** 配置页初始视图：设置页（默认，含供应商摘要）/ 模板选择（空态直达添加） */
+const configInitialView = ref<'settings' | 'templates'>('settings')
+
+/** 打开应用配置页（默认设置页；空态「配置模型」直达模板选择） */
+function openConfigPage(view: 'settings' | 'templates'): void {
+  configInitialView.value = view
+  showConfigPage.value = true
+}
 const showConversationDrawer = ref(false)
-const showSettingsSheet = ref(false)
 const dismissedError = ref('')
 
 /** 供应商配置页暴露的返回入口（ProviderConfigPage 的 defineExpose.goBack：内部视图逐级后退） */
@@ -432,13 +425,7 @@ onMounted(async () => {
   // 应用层返回处理（系统返回键）：二级页/浮层逐级收掉，回到聊天主页面；已在主页面时
   // 回调返回 false，交宿主壳兜底（退平台屏栈 / 在主屏则由系统退出应用）
   disposeBackPress = registerAppBack(context, [
-    // 优先级：插件设置弹层 → 对话列表抽屉 → 供应商配置页（内部视图再逐级后退）
-    {
-      canGoBack: () => showSettingsSheet.value,
-      goBack: () => {
-        showSettingsSheet.value = false
-      },
-    },
+    // 优先级：对话列表抽屉 → 供应商配置页（内部视图含应用设置，逐级后退）
     {
       canGoBack: () => showConversationDrawer.value,
       goBack: () => {
