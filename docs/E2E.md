@@ -88,6 +88,7 @@ node scripts/e2e.mjs --app agent-hub
 node scripts/e2e.mjs --app ai-chatbox
 node scripts/e2e.mjs --app bedcode
 node scripts/e2e.mjs --app file-transfer
+node scripts/e2e.mjs --app monitor
 
 # 全量（依次跑每个 app：每个 app 单独一次 wdio，宿主单实例故不能并行）
 node scripts/e2e.mjs

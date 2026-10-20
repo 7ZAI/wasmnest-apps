@@ -1,0 +1,210 @@
+/* Monitor app 基础样式（独立挂载包）
+ *
+ * Tailwind 工具类由本工程自编译；设计 token（var(--bg-page) 等）由宿主文档根
+ * 提供（app 只在宿主窗口内运行）；暗色模式跟随宿主 <html class="dark">。
+ */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* 这里**不写** :root token 兜底：挂载包 CSS 由 JS 在宿主 style.css 之后注入，
+   同特异性的 :root 会覆盖宿主的浅色 --bg-page（一挂载应用整窗变暗）。 */
+
+/* ==================== 页面原语（token-bound） ==================== */
+
+.mn-view :focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.mn-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+}
+
+.mn-section-title {
+  font-size: calc(12px * var(--ui-scale));
+  font-weight: 600;
+  color: var(--text-secondary);
+  letter-spacing: 0.01em;
+}
+
+.mn-label {
+  font-size: calc(10.5px * var(--ui-scale));
+  line-height: 1.4;
+  color: var(--text-tertiary);
+}
+
+.mn-mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.mn-kpi-value {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: calc(20px * var(--ui-scale));
+  line-height: 1.15;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+/* 修饰类放在基础类之后：utility 的 text-[var(...)] 与基础类同特异性，
+   会被后注入的 .mn-kpi-value 覆盖（Trap > 0 的高亮曾因此失效） */
+.mn-kpi-value.is-danger {
+  color: var(--color-danger-ink);
+}
+
+.mn-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  border-radius: var(--radius-tag);
+  font-size: calc(10px * var(--ui-scale));
+  line-height: 1.5;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.mn-chip-neutral {
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+}
+
+.mn-chip-success {
+  background: var(--color-success-light);
+  color: var(--color-success-ink);
+}
+
+.mn-chip-warning {
+  background: var(--color-warning-light);
+  color: var(--color-warning-ink);
+}
+
+.mn-chip-danger {
+  background: var(--color-danger-light);
+  color: var(--color-danger-ink);
+}
+
+.mn-chip-info {
+  background: var(--color-info-light);
+  color: var(--color-info-ink);
+}
+
+/* 按钮：扁平单色，按下 / hover 只改颜色（不位移布局） */
+.mn-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: calc(28px * var(--ui-scale));
+  padding: 0 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-button);
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  font-size: calc(11px * var(--ui-scale));
+  transition:
+    background-color 150ms ease,
+    color 150ms ease,
+    border-color 150ms ease;
+}
+
+.mn-btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.mn-btn:active:not(:disabled) {
+  background: var(--border);
+}
+
+.mn-btn:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+/* 内存 / 配额占用条 */
+.mn-track {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--bg-hover);
+  overflow: hidden;
+}
+
+.mn-track-fill {
+  width: 100%;
+  height: 100%;
+  border-radius: 999px;
+  transform-origin: left center;
+  transition: transform 300ms ease, background-color 200ms ease;
+}
+
+.mn-track-fill.is-ok {
+  background: var(--color-success);
+}
+
+.mn-track-fill.is-warn {
+  background: var(--color-warning);
+}
+
+.mn-track-fill.is-danger {
+  background: var(--color-danger);
+}
+
+.mn-state-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
+.mn-state-dot.is-running {
+  background: var(--color-success);
+}
+
+.mn-state-dot.is-degraded,
+.mn-state-dot.is-approval {
+  background: var(--color-warning);
+}
+
+.mn-state-dot.is-error {
+  background: var(--color-danger);
+}
+
+.mn-state-dot.is-dormant,
+.mn-state-dot.is-unknown {
+  background: var(--text-tertiary);
+}
+
+/* 首屏骨架：静态色块，不做 shimmer（reduced-motion 下同样成立） */
+.mn-skeleton {
+  background: var(--bg-hover);
+  border-radius: var(--radius-tag);
+}
+
+/* 实时状态点：仅 opacity 动画（不位移、不触发布局）；reduced-motion 下静止 */
+@keyframes mn-live-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.mn-live-dot {
+  animation: mn-live-pulse 1.6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mn-live-dot {
+    animation: none;
+  }
+
+  .mn-track-fill {
+    transition: none;
+  }
+}

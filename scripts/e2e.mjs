@@ -77,7 +77,7 @@ function usage() {
     [
       '用法：node scripts/e2e.mjs --app <slug> [选项]',
       '',
-      '  --app <slug>    被测 app 目录 slug（agent-hub / ai-chatbox / bedcode / file-transfer）',
+      '  --app <slug>    被测 app 目录 slug（agent-hub / ai-chatbox / bedcode / file-transfer / monitor）',
       '  --skip-build    不重建被测 app（复用现有产物）',
       '  --build-full    连 wasm 后端一起构建（默认只重建前端）',
       '  --spec <path>   透传给 wdio --spec',
