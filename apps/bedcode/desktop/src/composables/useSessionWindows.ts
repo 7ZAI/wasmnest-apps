@@ -64,7 +64,14 @@ async function initMainWindowListeners() {
  */
 export function useSessionWindows() {
   // 初始化事件监听（只执行一次）
-  initMainWindowListeners()
+  //
+  // appContext 在模块顶层调用本 composable，因此无 Tauri 运行时（happy-dom 单测 /
+  // dev-shell 预览）时 `getCurrentWindow()` 会抛 `__TAURI_INTERNALS__ undefined`，
+  // 且成为未处理的 rejection（vitest 会把它算作 run 级错误）。这里显式接住：
+  // 窗口事件监听只是多窗口联动增强，不可用时降级为 warn，不阻断挂载。
+  void initMainWindowListeners().catch((e) => {
+    logger.warn('[useSessionWindows] 窗口事件监听初始化失败（已降级，不阻断）:', e)
+  })
 
   /**
    * 为会话创建或聚焦终端窗口

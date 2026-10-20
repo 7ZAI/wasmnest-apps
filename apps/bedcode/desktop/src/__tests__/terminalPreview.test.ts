@@ -517,9 +517,12 @@ describe('TerminalPreview（插件版组装）', () => {
       attachTo: document.body,
     })
 
-    // 重试延迟（300ms）后裁决结果生效：弹窗出现即证明「失败 → 重试成功」链路走通
+    // 重试延迟（300ms）后裁决结果生效：弹窗出现即证明「失败 → 重试成功」链路走通。
+    // 弹窗 Teleport 到 body（D-03：固定层不被旧页残影层重锚），故查 document.body
+    // 而不是 wrapper.text()——Teleport 出去的内容不属于组件 wrapper 的 DOM。
     await vi.waitFor(
-      () => expect(wrapper!.text()).toContain('session.terminal.rendererOverrideTitle'),
+      () =>
+        expect(document.body.textContent).toContain('session.terminal.rendererOverrideTitle'),
       { timeout: 3000 },
     )
     // 首次失败后必然有后续成功调用（onResize 也可能追加，故断下界）
