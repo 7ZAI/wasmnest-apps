@@ -108,8 +108,8 @@
 | `pnpm run build` | 桌面 = `node scripts/build.js`；移动 = SDK CLI / 平台包装脚本 | `file-transfer/mobile` 的 build 直接指向 `wasmnest-mobile/scripts/plugin-build.js` |
 | `pnpm run build:frontend` / `build:rust` | 桌面分段构建 | `bedcode/desktop` 的 `build:rust` = `build.js --rust-only`；移动端无分段脚本 |
 | `pnpm run dev` | 桌面 = `build.js --watch`；移动 = SDK dev-shell（HMR） | **`bedcode/desktop` 无 dev 脚本**（前端最重，dev 期不参与 watch） |
-| `pnpm run dev:host`（`file-transfer/desktop`） | **应用工程内起真实桌面宿主**：默认用**宿主构建产物**（平台仓 `pnpm run host:pack` 产出，debug profile 二进制 + 已嵌入的宿主前端 dist），本 app 产物写 `--plugins-dir`（默认 `.dev-host/plugins`），经 `WASMNEST_PLUGINS_DIR` 递给宿主 → 宿主 watcher 触发前端热重载，**不依赖平台仓源码**。宿主产物缺失 fail-visible（提示先 `pnpm run host:pack`）；**无平台仓 dev-run 回退分支**（单路径） | 桌面其余 app 暂未装该脚本，需真宿主时到平台仓跑 `tauri:dev` |
-| `node scripts/build.js --out <dir>` | 产物目录参数化：写 `<dir>/<appId>/` 而非平台仓宿主 resources（也可用 env `WASMNEST_PLUGINS_DIR`）。默认行为不变 | 仅 `file-transfer/desktop` 支持 |
+| `pnpm run dev:host`（桌面各 app 工程内） | **应用工程内起真实桌面宿主**：默认用**宿主构建产物**（平台仓 `pnpm run host:pack` 产出，debug profile 二进制 + 已嵌入的宿主前端 dist），本 app 产物写 `--plugins-dir`（默认 `.dev-host/plugins`），经 `WASMNEST_PLUGINS_DIR` 递给宿主 → 宿主 watcher 触发前端热重载，**不依赖平台仓源码**。宿主产物缺失 fail-visible（提示先 `pnpm run host:pack`）；**无平台仓 dev-run 回退分支**（单路径） | **bedcode 例外**：前端不参与 watch（既有口径），dev:host 只预构建 + 起宿主，改前端需重跑 |
+| `node scripts/build.js --out <dir>` | 产物目录参数化：写 `<dir>/<appId>/` 而非平台仓宿主 resources（也可用 env `WASMNEST_PLUGINS_DIR`）。默认行为不变 | 桌面各 app 均支持 |
 | `cargo test --manifest-path <crate>/Cargo.toml` | 该 crate 的 Rust 单测（native） | `bedcode/desktop` 另有 `pnpm run test:rust` |
 
 > 桌面 app 的 `build` 直接把产物写平台宿主 resources；移动 app 的 `build` 默认只产出自身 `dist/`，**写进宿主 resources 以平台仓移动构建为准**。
