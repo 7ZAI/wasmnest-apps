@@ -101,9 +101,11 @@ $GITHUB_WORKSPACE/
 `scripts/ci/prepare-platform.mjs` 在构建前补齐两样**不入库**的东西：
 
 1. **WIT**：`node <platform>/scripts/compose-wit.mjs --all`（双端 `rust/wit/` 生成物）；
-2. **SDK `dist/`**：桌面 SDK 走 `wasmnest-desktop` workspace（`--filter wasmnest-desktop`，
-   由根工程提供 tsup 的 optional peer `typescript`）；移动 SDK 在自己的 workspace 里
-   `pnpm install && pnpm run build`。缺失时 app 构建会在 `import` 期炸，故这里 fail-visible。
+2. **SDK `dist/`**：桌面 SDK 走 `wasmnest-desktop` workspace，install 必须**同时选中两个工程**
+   （`--filter wasmnest-desktop --filter "@binblink/wasmnest-plugin-sdk-desktop..."`）：根工程提供
+   tsup 的 optional peer `typescript`，SDK 工程自带 `tsup`——只 filter 根工程会 `tsup: not found`。
+   移动 SDK 在自己的 workspace 里 `pnpm install && pnpm run build`。
+   缺失时 app 构建会在 `import` 期炸，故这里 fail-visible。
    已存在则跳过（CI 是 fresh checkout，dist 不入库，所以必然构建；本机跑时不想重建就自动跳过，
    `--force` 强制重建）。
 

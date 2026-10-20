@@ -110,9 +110,22 @@ function main() {
     ) {
       log('桌面 SDK dist 已存在，跳过（--force 重建）')
     } else {
-      // 只装 SDK 及其 workspace 依赖链中最少的一组：根工程（wasmnest-desktop）持有
-      // tsup 的 optional peer `typescript`，SDK 的 `build` 靠它出 d.ts。
-      run('pnpm', ['install', '--frozen-lockfile', '--filter', 'wasmnest-desktop'], workspace)
+      // 只装最少的一组，但**必须同时选中两个工程**（2026-10-20 CI 实测踩过）：
+      //  - `wasmnest-desktop`（workspace 根工程）持有 tsup 的 optional peer `typescript`；
+      //  - SDK 工程自身持有 `tsup`（devDependency）——只 filter 根工程时 SDK 的 devDeps
+      //    不会被安装，`pnpm run build` 会 `sh: 1: tsup: not found`。
+      run(
+        'pnpm',
+        [
+          'install',
+          '--frozen-lockfile',
+          '--filter',
+          'wasmnest-desktop',
+          '--filter',
+          '@binblink/wasmnest-plugin-sdk-desktop...',
+        ],
+        workspace,
+      )
       run('pnpm', ['--filter', '@binblink/wasmnest-plugin-sdk-desktop', 'run', 'build'], workspace)
     }
     verifyFiles(
