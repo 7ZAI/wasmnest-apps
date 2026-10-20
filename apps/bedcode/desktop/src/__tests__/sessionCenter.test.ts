@@ -292,6 +292,61 @@ describe('SessionCenterView（会话中心页面）', () => {
     expect(findButton(wrapper, 'session.button.save')).toBeUndefined()
   })
 
+  it('C11 新建校验：名称为空时不发 upsert，并在字段下显示必填提示', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+
+    const newBtn = findButton(wrapper, 'session.form.title.new')!
+    await newBtn.trigger('click')
+    await flushPromises()
+
+    const createBtn = findButton(wrapper, 'session.button.create')
+    expect(createBtn, '新建态弹窗底部按钮为「创建」').toBeTruthy()
+    await createBtn!.trigger('click')
+    await flushPromises()
+
+    // 前端拦截：空名称不再发往插件（避免 host.internal 通用错误）
+    expect(commandsTo('session.config.upsert')).toHaveLength(0)
+    expect(wrapper.text()).toContain('session.form.nameRequired')
+    // 弹窗保持打开，用户可继续填写
+    expect(findButton(wrapper, 'session.button.create')).toBeTruthy()
+  })
+
+  it('C12 新建保存：名称进入 upsert 草稿，成功后关闭弹窗并记住默认值', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+
+    await findButton(wrapper, 'session.form.title.new')!.trigger('click')
+    await flushPromises()
+
+    const nameInput = wrapper.find('input[placeholder="session.form.namePlaceholder"]')
+    expect(nameInput.exists()).toBe(true)
+    await nameInput.setValue('new-config')
+
+    await findButton(wrapper, 'session.button.create')!.trigger('click')
+    await flushPromises()
+
+    const [command, draft] = commandsTo('session.config.upsert')[0] as [
+      string,
+      Record<string, unknown>,
+    ]
+    expect(command).toBe('session.config.upsert')
+    expect(draft).toEqual({
+      id: undefined,
+      name: 'new-config',
+      environment: 'linux',
+      wslDistro: undefined,
+      workingDir: '/home/dev/project',
+      command: 'claude',
+      autoStart: false,
+    })
+    expect(storageSet).toHaveBeenCalledWith(
+      'session.formDefaults',
+      expect.objectContaining({ environment: 'linux', workingDir: '/home/dev/project', command: 'claude' }),
+    )
+    expect(findButton(wrapper, 'session.button.create')).toBeUndefined()
+  })
+
   it('C8 Tab 切换：「运行中的会话」只列非 stopped 会话', async () => {
     const wrapper = mountView()
     await flushPromises()

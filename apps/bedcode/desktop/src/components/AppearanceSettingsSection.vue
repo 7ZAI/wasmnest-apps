@@ -6,9 +6,6 @@
         <span class="text-[calc(13px*var(--ui-scale))] text-[var(--text-primary)]">{{
           t('settings.appearance.palette')
         }}</span>
-        <p class="text-xs text-[var(--text-tertiary)] mt-0.5">
-          {{ t('com.wasmnest.terminal-session.appearance.settings.hint') }}
-        </p>
       </div>
       <div class="flex items-start gap-2 flex-wrap justify-end">
         <button

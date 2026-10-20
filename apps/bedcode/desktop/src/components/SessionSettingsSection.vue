@@ -41,6 +41,20 @@
         @change="saveCommand(($event.target as HTMLInputElement).value)"
       />
     </div>
+
+    <!-- 默认端口：宿主服务器引擎配置（真源在宿主 AppConfig），控制面归本分组
+         （用户 2026-10-19 裁决：端口属终端会话/设备连接域，宿主设置页不再提供入口） -->
+    <div class="px-5 py-3.5 flex items-center justify-between gap-4">
+      <span class="text-[calc(13px*var(--ui-scale))] text-[var(--text-primary)]">{{
+        t('session.settings.defaultPort')
+      }}</span>
+      <input
+        type="number"
+        :value="serverPort"
+        class="h-8 w-28 px-2.5 rounded-[6px] wb-mono text-right bg-[var(--bg-page)] border border-[var(--border-strong)] text-[var(--text-primary)] outline-none focus:border-[var(--color-primary)]"
+        @change="savePort(($event.target as HTMLInputElement).value)"
+      />
+    </div>
   </div>
 </template>
 
@@ -67,6 +81,10 @@ import { computed, inject, onMounted, ref } from 'vue'
 import { toast } from 'vue-sonner'
 import { platform } from '@tauri-apps/plugin-os'
 import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-desktop'
+import type { AppMountEnv } from '@/entry'
+
+/** 宿主面 env（端口是宿主 AppConfig 真源，读写走宿主面命令而非插件面通道） */
+const env = inject<AppMountEnv | null>('appEnv', null)
 
 interface FormDefaults {
   environment?: string
@@ -117,6 +135,26 @@ const defaultEnvironment = computed(() => {
 
 const defaultCommand = computed(() => defaults.value.command ?? '')
 
+/** 默认端口：宿主 AppConfig `network.port`（服务器引擎配置，经宿主面命令读写） */
+const serverPort = ref(8765)
+
+/** 端口范围校验（1–65535）：越界不写入，提示后恢复显示值 */
+async function savePort(value: string): Promise<void> {
+  const port = Number(value)
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    toast.error(t('session.settings.portInvalid'))
+    return
+  }
+  try {
+    await env?.invoke('update_server_port', { port })
+    serverPort.value = port
+    toast.success(t('session.settings.saved'))
+  } catch (e) {
+    console.error('[Session Center] save server port failed:', e)
+    toast.error(t('session.settings.saveFailed'))
+  }
+}
+
 /** 写入一项默认值：读回合并后落插件存储（不抹掉 wslDistro / workingDir） */
 async function persist(patch: FormDefaults): Promise<void> {
   const next = { ...defaults.value, ...patch }
@@ -147,6 +185,13 @@ onMounted(async () => {
   } catch (e) {
     // 读取失败只影响预填，不阻断分组渲染
     console.warn('[Session Center] load session settings failed:', e)
+  }
+  // 端口读宿主配置面（host 面命令，非插件面命令通道）
+  try {
+    const cfg = await env?.invoke<{ port?: number }>('get_server_network_config')
+    if (typeof cfg?.port === 'number') serverPort.value = cfg.port
+  } catch (e) {
+    console.warn('[Session Center] load server network config failed:', e)
   }
 })
 </script>

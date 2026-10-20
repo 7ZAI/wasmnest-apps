@@ -9,9 +9,6 @@
         <span class="text-[calc(13px*var(--ui-scale))] text-[var(--text-primary)]">{{
           t('pairing.settings.qrValidity')
         }}</span>
-        <p class="text-xs text-[var(--text-tertiary)] mt-0.5">
-          {{ t('pairing.settings.qrValidityDesc') }}
-        </p>
       </div>
       <input
         type="number"
@@ -28,9 +25,6 @@
         <span class="text-[calc(13px*var(--ui-scale))] text-[var(--text-primary)]">{{
           t('pairing.settings.pairingCodeTtl')
         }}</span>
-        <p class="text-xs text-[var(--text-tertiary)] mt-0.5">
-          {{ t('pairing.settings.pairingCodeTtlDesc') }}
-        </p>
       </div>
       <input
         type="number"

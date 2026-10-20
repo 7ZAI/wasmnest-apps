@@ -130,6 +130,7 @@ export type MessageSchema = {
   'session.form.title.edit': string
   'session.form.name': string
   'session.form.namePlaceholder': string
+  'session.form.nameRequired': string
   'session.form.environment': string
   'session.form.wslDistro': string
   'session.form.wslDistroPlaceholder': string
@@ -137,7 +138,9 @@ export type MessageSchema = {
   'session.form.wslNotDetected': string
   'session.form.wslDetectFailed': string
   'session.form.workingDir': string
+  'session.form.workingDirRequired': string
   'session.form.command': string
+  'session.form.commandRequired': string
   'session.form.commandPlaceholder': string
   'session.form.commandHelp': string
   'session.form.customCommand': string
@@ -417,6 +420,8 @@ export type MessageSchema = {
   'session.settings.title': string
   'session.settings.defaultEnvironment': string
   'session.settings.defaultCommand': string
+  'session.settings.defaultPort': string
+  'session.settings.portInvalid': string
   'session.settings.saved': string
   'session.settings.saveFailed': string
 

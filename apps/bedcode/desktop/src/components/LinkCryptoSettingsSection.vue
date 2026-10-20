@@ -9,9 +9,6 @@
         <span class="text-[calc(13px*var(--ui-scale))] text-[var(--text-primary)]">{{
           t('settings.linkCrypto.master')
         }}</span>
-        <p class="text-xs text-[var(--text-tertiary)] mt-0.5">
-          {{ t('settings.linkCrypto.masterDesc') }}
-        </p>
       </div>
       <button
         class="relative w-10 h-5 rounded-[4px] border transition-colors flex-shrink-0"
@@ -46,9 +43,6 @@
         <span class="text-[calc(13px*var(--ui-scale))] text-[var(--text-primary)]">{{
           t(channel.labelKey)
         }}</span>
-        <p class="text-xs text-[var(--text-tertiary)] mt-0.5">
-          {{ t(channel.descKey) }}
-        </p>
       </div>
       <button
         class="relative w-10 h-5 rounded-[4px] border transition-colors flex-shrink-0 disabled:cursor-not-allowed"

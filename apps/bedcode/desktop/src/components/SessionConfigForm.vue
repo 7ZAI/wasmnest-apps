@@ -5,6 +5,7 @@
       v-model="form.name"
       :label="t('session.form.name')"
       :placeholder="t('session.form.namePlaceholder')"
+      :error="errors.name"
       required
     />
 
@@ -50,6 +51,7 @@
       v-model="form.workingDir"
       :label="t('session.form.workingDir')"
       placeholder="C:\Users\..."
+      :error="errors.workingDir"
       required
     >
       <template #suffix>
@@ -76,6 +78,7 @@
       v-model="form.command"
       :label="t('session.form.customCommand')"
       placeholder="claude"
+      :error="errors.command"
       required
       :help="t('session.form.commandHelp')"
     />
@@ -149,6 +152,13 @@ const form = ref<SessionConfigFormData>({
   command: 'claude',
   commandPreset: 'claude',
   autoStart: false,
+})
+
+/** 字段级必填提示（提交时写入；输入恢复非空后即时清除） */
+const errors = ref({
+  name: '',
+  workingDir: '',
+  command: '',
 })
 
 // ==================== 平台与执行环境选项 ====================
@@ -252,6 +262,7 @@ function presetForCommand(cmd: string): string {
 watch(
   () => props.config,
   (config) => {
+    errors.value = { name: '', workingDir: '', command: '' }
     if (config) {
       const command = config.command || ''
       // 编辑已有配置：原环境在当前平台不可用时归一化，避免保存后无法启动
@@ -292,6 +303,26 @@ watch(
   },
 )
 
+// 必填提示随输入即时消退，避免用户修正后仍看到红字
+watch(
+  () => form.value.name,
+  (value) => {
+    if (value.trim()) errors.value.name = ''
+  },
+)
+watch(
+  () => form.value.workingDir,
+  (value) => {
+    if (value.trim()) errors.value.workingDir = ''
+  },
+)
+watch(
+  () => form.value.command,
+  (value) => {
+    if (value.trim()) errors.value.command = ''
+  },
+)
+
 onMounted(() => {
   if (form.value.environment === 'wsl2') void loadWslDistros()
 })
@@ -313,12 +344,22 @@ async function browseDir(): Promise<void> {
   }
 }
 
+/** 提交前校验：必填项为空时在字段下显示提示并阻止提交 */
+function validate(): boolean {
+  errors.value = {
+    name: form.value.name.trim() ? '' : t('session.form.nameRequired'),
+    workingDir: form.value.workingDir.trim() ? '' : t('session.form.workingDirRequired'),
+    command: form.value.command.trim() ? '' : t('session.form.commandRequired'),
+  }
+  return !errors.value.name && !errors.value.workingDir && !errors.value.command
+}
+
 function handleSubmit(): void {
-  emit('save', form.value)
+  if (validate()) emit('save', form.value)
 }
 
 defineExpose({
   form,
-  validate: () => !!form.value.name && !!form.value.workingDir && !!form.value.command,
+  validate,
 })
 </script>

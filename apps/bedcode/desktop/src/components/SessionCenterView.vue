@@ -928,7 +928,12 @@ async function confirmDeleteConfigNow(): Promise<void> {
 }
 
 function submitForm(): void {
-  if (sessionFormRef.value) handleSaveConfig(sessionFormRef.value.form)
+  const formRef = sessionFormRef.value
+  if (!formRef) return
+  // 必填项为空时由表单内联提示并阻止提交——不再把空名称发给插件换回
+  // 无法解释的 host.internal 通用错误（业务校验消息不进错误信封）
+  if (!formRef.validate()) return
+  void handleSaveConfig(formRef.form)
 }
 
 async function handleSaveConfig(form: SessionConfigFormData): Promise<void> {
