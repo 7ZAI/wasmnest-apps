@@ -1,12 +1,16 @@
 <template>
-  <div class="h-full flex flex-col" style="background: var(--mobile-bg-primary)">
+  <div class="h-full flex flex-col" data-testid="mobile-devices-section" style="background: var(--mobile-bg-primary)">
     <!-- ==================== Header（旧 DevicesView 页头：标题 + 连接状态小字 + 扫描发现开关） ==================== -->
     <div class="page-header flex-shrink-0">
       <div class="page-header-row">
         <div class="min-w-0 flex-1">
           <h1 class="page-title truncate">{{ t('hub.title') }}</h1>
           <!-- 连接成功后标题下方仅显示「已连接」小字，未连接/连接中显示状态文字 -->
-          <p class="page-subtitle connection-status-subtitle">
+          <p
+            class="page-subtitle connection-status-subtitle"
+            data-testid="mobile-connection-status"
+            :data-connected="isConnected ? 'true' : 'false'"
+          >
             <template v-if="isConnected && currentDevice">
               <span class="inline-flex items-center gap-1.5">
                 <span class="status-dot dot-emerald"></span>
@@ -487,6 +491,7 @@
             style="background: var(--mobile-group-bg); color: var(--mobile-text-secondary); border: 1px solid var(--mobile-group-border)"
             :class="{ 'opacity-50': isConnecting }"
             :disabled="isConnecting"
+            data-testid="mobile-manual-connect"
             @click="showManualConnect = true"
           >
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

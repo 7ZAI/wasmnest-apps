@@ -231,7 +231,7 @@ function onClearCancel() {
 </script>
 
 <template>
-  <div>
+  <div data-testid="panel-stats">
     <!-- ==================== 页头：水位 + 时间窗 + 立即扫描 ==================== -->
     <div class="ah-st-head">
       <span class="ah-cli-tag" :class="{ ok: !syncing }">

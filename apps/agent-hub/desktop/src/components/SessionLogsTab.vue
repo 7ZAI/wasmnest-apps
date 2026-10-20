@@ -494,7 +494,7 @@ function toggleExpand(i: number) {
 </script>
 
 <template>
-  <div class="ah-lg">
+  <div class="ah-lg" data-testid="panel-logs">
     <!-- ==================== 一级：来源区 + 查询 + 分页表格 ==================== -->
     <template v-if="!opened">
       <!-- 日志来源（默认折叠；内置只读 + 自定义增删 + 扫描） -->
@@ -503,13 +503,14 @@ function toggleExpand(i: number) {
           type="button"
           class="ah-btn ah-btn-ghost ah-btn-sm ah-lg-sources-toggle"
           :aria-expanded="sourcesOpen"
+          data-testid="lg-sources-toggle"
           @click="sourcesOpen = !sourcesOpen"
         >
           <span class="ah-lg-sources-chev" :class="{ open: sourcesOpen }">▸</span>
           {{ t('hub.lg.sources.title') }}
           <span class="ah-lg-sources-count">{{ sources.length }}</span>
         </button>
-        <div v-if="sourcesOpen" class="ah-card ah-lg-sources-body">
+        <div v-if="sourcesOpen" class="ah-card ah-lg-sources-body" data-testid="lg-sources-body">
           <div v-for="s in sources" :key="s.name" class="ah-lg-source">
             <div class="ah-lg-source-row">
               <AgentIcon :adapter="s.name" :size="16" />

@@ -66,12 +66,12 @@ function onTimeoutBlur(e: Event): void {
 </script>
 
 <template>
-  <div class="ft-settings-backdrop">
+  <div class="ft-settings-backdrop" data-testid="ft-settings-panel">
     <div class="ft-settings">
       <div class="ft-topbar">
         <h2 class="ft-settings-title">{{ t('transfer.topbar.settings') }}</h2>
         <div class="ft-spacer"></div>
-        <button class="ft-btn" @click="emit('close')">
+        <button class="ft-btn" data-testid="ft-settings-close" @click="emit('close')">
           {{ t('transfer.topbar.closeSettings') }}
         </button>
       </div>

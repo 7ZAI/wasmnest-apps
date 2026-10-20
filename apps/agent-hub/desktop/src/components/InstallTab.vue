@@ -247,7 +247,7 @@ watch(
 </script>
 
 <template>
-  <div class="ah-inst">
+  <div class="ah-inst" data-testid="panel-install">
     <div v-if="!authGranted" class="ah-banner">
       <span class="ah-banner-ic">⚠</span>
       <span class="ah-banner-text">{{ t('hub.auth.banner') }}</span>

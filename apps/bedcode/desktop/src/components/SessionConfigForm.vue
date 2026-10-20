@@ -1,5 +1,5 @@
 <template>
-  <form class="space-y-5" @submit.prevent="handleSubmit">
+  <form class="space-y-5" data-testid="session-config-form" @submit.prevent="handleSubmit">
     <!-- Name -->
     <TextInput
       v-model="form.name"

@@ -5,6 +5,7 @@
       <button
         class="p-1.5 text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] rounded transition-colors"
         :title="t('com.wasmnest.ai-chatbox.expandConversations')"
+        data-testid="chat-toggle-sidebar"
         @click="$emit('toggle-collapse')"
       >
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -43,6 +44,7 @@
           <button
             class="p-1 text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] rounded transition-colors"
             :title="t('com.wasmnest.ai-chatbox.newConversation')"
+            data-testid="chat-new-conversation"
             @click="$emit('new')"
           >
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -57,6 +59,7 @@
           <button
             class="p-1 text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] rounded transition-colors"
             :title="t('com.wasmnest.ai-chatbox.collapseConversations')"
+            data-testid="chat-toggle-sidebar"
             @click="$emit('toggle-collapse')"
           >
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

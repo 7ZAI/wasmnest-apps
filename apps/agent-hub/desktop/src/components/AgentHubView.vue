@@ -107,8 +107,8 @@ const sessionStates = computed(() => {
 </script>
 
 <template>
-  <div class="ah-view">
-    <div class="ah-tabs" role="tablist">
+  <div class="ah-view" data-testid="hub-view">
+    <div class="ah-tabs" role="tablist" data-testid="hub-tabs">
       <button
         v-for="tab in tabs"
         :key="tab.id"
@@ -117,6 +117,7 @@ const sessionStates = computed(() => {
         :class="{ active: activeTab === tab.id }"
         role="tab"
         :aria-selected="activeTab === tab.id"
+        :data-testid="`hub-tab-${tab.id}`"
         @click="activeTab = tab.id"
       >
         {{ tab.label }}

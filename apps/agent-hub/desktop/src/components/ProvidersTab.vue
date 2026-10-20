@@ -412,7 +412,7 @@ function sourceTag(preset: ProviderPreset): string {
 </script>
 
 <template>
-  <div class="ah-pv">
+  <div class="ah-pv" data-testid="panel-providers">
     <div v-if="!authGranted" class="ah-banner">
       <span class="ah-banner-ic">⚠</span>
       <span class="ah-banner-text">{{ t('hub.auth.banner') }}</span>

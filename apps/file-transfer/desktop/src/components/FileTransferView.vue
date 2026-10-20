@@ -330,7 +330,7 @@ watch(
 </script>
 
 <template>
-  <div class="ft-view">
+  <div class="ft-view" data-testid="ft-view">
     <!-- 顶栏 -->
     <div class="ft-topbar">
       <div class="ft-peer-pill">
@@ -351,6 +351,7 @@ watch(
           class="ft-btn ft-peer-switch-btn"
           :class="{ 'ft-peer-switch-btn--open': devPanelOpen }"
           :title="t('transfer.peer.switchTitle')"
+          data-testid="ft-peer-switch"
           @click="devPanelOpen = !devPanelOpen"
         >
           <svg
@@ -373,6 +374,7 @@ watch(
             v-if="devPanelOpen"
             :rows="deviceRows"
             :scanning="deviceScanning"
+            data-testid="ft-peer-panel"
             @connect="handleConnectDevice"
             @disconnect="handleDisconnectDevice"
             @set-active="handleSetActiveDevice"
@@ -414,6 +416,7 @@ watch(
         class="ft-btn"
         :disabled="!peer.online"
         :title="t('transfer.topbar.refresh')"
+        data-testid="ft-refresh"
         @click="handleRefresh"
       >
         <svg class="ft-ico-btn" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -437,6 +440,7 @@ watch(
         class="ft-btn"
         :class="{ 'ft-btn--queue-open': queueVisible }"
         :title="t('transfer.queue.title')"
+        data-testid="ft-queue"
         @click="queueVisible = !queueVisible"
       >
         <svg class="ft-ico-btn" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -456,7 +460,12 @@ watch(
           {{ tasks.length }}
         </span>
       </button>
-      <button class="ft-btn" :title="t('transfer.topbar.settings')" @click="showSettings = true">
+      <button
+        class="ft-btn"
+        :title="t('transfer.topbar.settings')"
+        data-testid="ft-settings"
+        @click="showSettings = true"
+      >
         <svg class="ft-ico-btn" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path
             stroke-linecap="round"

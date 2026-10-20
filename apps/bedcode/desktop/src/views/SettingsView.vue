@@ -1,5 +1,5 @@
 <template>
-  <div class="h-full flex flex-col bg-[var(--bg-page)]">
+  <div class="h-full flex flex-col bg-[var(--bg-page)]" data-testid="settings-view">
     <!-- ==================== 工具栏页头 ==================== -->
     <div class="wb-toolbar">
       <div class="flex items-center gap-2.5">

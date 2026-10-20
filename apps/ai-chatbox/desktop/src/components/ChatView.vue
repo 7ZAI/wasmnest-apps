@@ -1,5 +1,5 @@
 <template>
-  <div class="page-swap h-full flex bg-[var(--bg-page)]">
+  <div class="page-swap h-full flex bg-[var(--bg-page)]" data-testid="chat-view">
     <!-- 配置页 / 聊天区切换：过渡类与效果变体由宿主 src/style.css 统一提供
          （名字恒为 `page`），本文件不再自带 .page-fade-* -->
     <Transition name="page">
@@ -26,6 +26,8 @@
         <div
           class="flex-shrink-0 overflow-hidden transition-[width] duration-200 ease-in-out"
           :class="sidebarCollapsed ? 'w-9' : 'w-52'"
+          data-testid="chat-sidebar"
+          :data-collapsed="sidebarCollapsed"
         >
           <ConversationList
             :conversations="conversations"
@@ -58,6 +60,7 @@
               <button
                 class="p-1.5 text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] rounded transition-colors flex-shrink-0"
                 :title="t('com.wasmnest.ai-chatbox.pluginSettings')"
+                data-testid="chat-settings"
                 @click="openConfigPage('settings')"
               >
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

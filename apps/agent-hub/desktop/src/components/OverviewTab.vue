@@ -109,22 +109,23 @@ const recommendMirror = computed(() => speed.value?.recommend === 'npmmirror')
 </script>
 
 <template>
-  <div>
+  <div data-testid="panel-overview">
     <div v-if="state && !state.authGranted" class="ah-banner">
       <span class="ah-banner-ic">⚠</span>
       <span class="ah-banner-text">{{ t('hub.auth.banner') }}</span>
-      <button type="button" class="ah-btn ah-btn-sm" @click="emit('auth')">
+      <button type="button" class="ah-btn ah-btn-sm" data-testid="overview-auth" @click="emit('auth')">
         {{ t('hub.auth.action') }}
       </button>
     </div>
 
-    <div class="ah-card">
+    <div class="ah-card" data-testid="overview-env">
       <div class="ah-env-head">
         <span class="ah-section-title">{{ t('hub.env.title') }}</span>
         <button
           type="button"
           class="ah-btn ah-btn-ghost ah-btn-sm"
           :disabled="detecting"
+          data-testid="overview-detect"
           @click="emit('detect')"
         >
           {{ detecting ? t('hub.env.detecting') : t('hub.env.detect') }}
@@ -153,6 +154,7 @@ const recommendMirror = computed(() => speed.value?.recommend === 'npmmirror')
             type="button"
             class="ah-btn ah-btn-ghost ah-btn-sm"
             :disabled="speedTesting"
+            data-testid="overview-speed"
             @click="emit('speed-test')"
           >
             {{ speedTesting ? t('hub.speed.testing') : t('hub.speed.action') }}
@@ -161,6 +163,7 @@ const recommendMirror = computed(() => speed.value?.recommend === 'npmmirror')
             v-if="recommendMirror"
             type="button"
             class="ah-btn ah-btn-ghost ah-btn-sm"
+            data-testid="overview-goto-install"
             @click="emit('goto-install')"
           >
             {{ t('hub.speed.goto') }}
@@ -169,7 +172,7 @@ const recommendMirror = computed(() => speed.value?.recommend === 'npmmirror')
       </div>
     </div>
 
-    <div class="ah-grid">
+    <div class="ah-grid" data-testid="overview-clis">
       <CliCard
         v-for="id in CLI_IDS"
         :key="id"

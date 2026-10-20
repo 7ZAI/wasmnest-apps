@@ -1,5 +1,5 @@
 <template>
-  <div class="h-full flex flex-col bg-[var(--bg-page)]">
+  <div class="h-full flex flex-col bg-[var(--bg-page)]" data-testid="pairing-view">
     <!-- ==================== 工具栏页头：左标题+IP:端口，右刷新/生成 ==================== -->
     <div class="wb-toolbar">
       <div class="flex items-center gap-3">
@@ -58,6 +58,7 @@
           "
           role="tab"
           :aria-selected="activeTab === tab.key"
+          :data-testid="`pairing-tab-${tab.key}`"
           @click="activeTab = tab.key"
         >
           {{ tab.label }}
@@ -197,6 +198,7 @@
               <template v-if="pairingCode">
                 <p
                   class="font-mono text-[calc(36px*var(--ui-scale))] font-bold tracking-[0.15em] text-[var(--text-primary)] select-all break-all text-center px-2 mb-4"
+                  data-testid="pairing-code"
                 >
                   {{ pairingCode.code }}
                 </p>
@@ -349,6 +351,7 @@
               <article
                 v-for="device in onlineDevices"
                 :key="device.id"
+                data-testid="paired-device-row"
                 class="px-4 py-3 rounded-[10px] border border-[var(--border)] bg-[var(--bg-card)] hover:shadow-sm transition-shadow"
               >
                 <div class="flex items-center gap-3 min-w-0">
@@ -420,6 +423,7 @@
               <article
                 v-for="device in offlineDevices"
                 :key="device.id"
+                data-testid="paired-device-row"
                 class="px-4 py-3 rounded-[10px] border border-[var(--border)] bg-[var(--bg-card)] hover:shadow-sm transition-shadow"
               >
                 <div class="flex items-center gap-3 min-w-0">

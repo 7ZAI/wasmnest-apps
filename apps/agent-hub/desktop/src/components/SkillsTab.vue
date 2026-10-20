@@ -144,8 +144,8 @@ function closeEditor() {
 </script>
 
 <template>
-  <div class="ah-sk" :class="{ 'ah-sk--editing': editingDir }">
-    <div v-if="!authGranted" class="ah-banner">
+  <div class="ah-sk" :class="{ 'ah-sk--editing': editingDir }" data-testid="panel-skills">
+    <div v-if="!authGranted" class="ah-banner" data-testid="skills-auth">
       <span class="ah-banner-ic">⚠</span>
       <span class="ah-banner-text">{{ t('hub.auth.banner') }}</span>
     </div>

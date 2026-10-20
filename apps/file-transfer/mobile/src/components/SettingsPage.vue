@@ -30,7 +30,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="ft-app ft-host-page">
+  <div class="ft-app ft-host-page" data-testid="mobile-ft-settings-page">
     <SettingsSection :settings-api="settingsApi" :t="t" />
   </div>
 </template>

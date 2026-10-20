@@ -7,7 +7,7 @@
     宿主壳承载——本应用只占壳标题栏以下的内容区。
   -->
   <!-- 应用主题根：色板只作用于本容器（宿主壳在挂载槽之外，不被应用主题染色） -->
-  <div class="app-theme-root h-full" :data-palette="palette">
+  <div class="app-theme-root h-full" :data-palette="palette" data-testid="bedcode-root">
     <AppLayout />
 
     <!-- 任务队列弹窗（票 17：终端工具栏入口打开；fixed overlay 自覆盖视口） -->

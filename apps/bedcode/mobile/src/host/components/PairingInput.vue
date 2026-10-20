@@ -9,7 +9,7 @@
         <div class="absolute inset-0 bg-[var(--mobile-overlay-heavy)]"></div>
 
         <!-- Panel - 居中显示，使用自带数字键盘 -->
-        <div class="pairing-panel">
+        <div class="pairing-panel" data-testid="mobile-pairing-dialog">
           <!-- Close button -->
           <button
             class="absolute top-4 right-4 p-2 text-[var(--mobile-text-muted)] hover:text-[var(--mobile-accent)] transition-colors"
@@ -34,6 +34,7 @@
               v-for="i in 6"
               :key="i"
               class="code-cell"
+              :data-testid="`mobile-pairing-cell-${i}`"
               :class="code[i - 1] ? 'code-cell--filled' : 'code-cell--empty'"
             >
               {{ code[i - 1] || '-' }}
@@ -42,13 +43,19 @@
 
           <!-- Numeric keypad - 自带键盘，不会被输入法遮挡 -->
           <div class="keypad">
-            <button v-for="key in 9" :key="key" class="key-btn" @click="pressKey(key.toString())">
+            <button
+              v-for="key in 9"
+              :key="key"
+              class="key-btn"
+              :data-testid="`mobile-pairing-key-${key}`"
+              @click="pressKey(key.toString())"
+            >
               {{ key }}
             </button>
             <button class="key-btn key-btn--small-text" @click="clearCode">
               {{ t('hub.pairingClear') }}
             </button>
-            <button class="key-btn" @click="pressKey('0')">0</button>
+            <button class="key-btn" data-testid="mobile-pairing-key-0" @click="pressKey('0')">0</button>
             <button class="key-btn key-btn--icon" @click="backspace">
               <svg class="key-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path
@@ -67,6 +74,7 @@
           <!-- Submit button -->
           <button
             class="submit-btn"
+            data-testid="mobile-pairing-submit"
             :class="{ 'opacity-50': code.length !== 6 || loading }"
             :disabled="code.length !== 6 || loading"
             @click="submit"

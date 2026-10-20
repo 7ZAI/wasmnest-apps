@@ -8,6 +8,7 @@
         <!-- Panel - 居中显示，避免被输入法遮挡 -->
         <div
           class="relative w-full max-w-sm bg-[var(--mobile-bg-card)] border border-[var(--mobile-border)] rounded-2xl p-6 shadow-xl modal-panel"
+          data-testid="mobile-manual-sheet"
         >
           <!-- Close button (loading 时禁用) -->
           <button
@@ -46,6 +47,7 @@
               ref="inputRef"
               v-model="inputValue"
               type="text"
+              data-testid="mobile-manual-input"
               :placeholder="placeholder"
               class="w-full bg-[var(--mobile-input-bg)] border border-[var(--mobile-input-border)] rounded-xl px-4 py-3 text-[var(--mobile-text-primary)] placeholder-[var(--mobile-text-muted)] focus:outline-none focus:border-[var(--mobile-input-focus)]"
               @keyup.enter="submit"
@@ -62,6 +64,7 @@
             </button>
             <button
               class="flex-1 bg-[var(--mobile-accent)] text-[var(--mobile-text-on-accent)] py-3 rounded-xl font-medium active:opacity-80"
+              data-testid="mobile-manual-confirm"
               :class="{ 'opacity-50': !inputValue }"
               :disabled="!inputValue"
               @click="submit"

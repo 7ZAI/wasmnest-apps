@@ -123,13 +123,13 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="ah-card">
+  <div class="ah-card" :data-testid="`cli-card-${cliId}`">
     <div class="ah-cli-head">
       <span class="ah-cli-name">
         <CliIcon :cli-id="cliId" />
-        <span class="ah-cli-name-text">{{ NAMES[cliId] }}</span>
+        <span class="ah-cli-name-text" :data-testid="`cli-name-${cliId}`">{{ NAMES[cliId] }}</span>
       </span>
-      <span class="ah-cli-tag" :class="badge.tone">
+      <span class="ah-cli-tag" :class="badge.tone" :data-testid="`cli-badge-${cliId}`">
         <span class="ah-cli-dot"></span>{{ badge.label }}
       </span>
     </div>
@@ -155,6 +155,7 @@ onUnmounted(() => {
         class="ah-btn ah-btn-ghost ah-btn-sm"
         :class="{ 'ah-btn-warn': armed }"
         :disabled="busy || uninstalling"
+        :data-testid="`cli-uninstall-${cliId}`"
         @click="onUninstall"
       >
         {{ uninstalling

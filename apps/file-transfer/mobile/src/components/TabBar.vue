@@ -51,6 +51,7 @@ const TABS: Array<{ key: MainTab; icon: string }> = [
         class="fv2-tab"
         :class="{ 'fv2-tab--active': modelValue === tab.key }"
         :aria-pressed="modelValue === tab.key"
+        :data-testid="`mobile-ft-tab-${tab.key}`"
         @click="$emit('update:modelValue', tab.key)"
       >
         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">

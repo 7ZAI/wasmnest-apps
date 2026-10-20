@@ -10,6 +10,7 @@
       class="w-full resize-none min-h-[32px] max-h-40 bg-transparent px-3 pt-2.5 pb-1 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] focus:outline-none"
       :placeholder="placeholder"
       :disabled="disabled"
+      data-testid="chat-input"
       @keydown.enter.exact.prevent="onEnter"
       @keydown.enter.shift.prevent="insertNewline"
     ></textarea>

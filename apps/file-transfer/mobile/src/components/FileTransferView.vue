@@ -303,7 +303,8 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="fv2-view mobile-ui ft-app">
+  <!-- data-testid：真机 E2E 锚点（移动端统一 mobile- 前缀，见 docs/E2E.md §10.5 / §11.5） -->
+  <div class="fv2-view mobile-ui ft-app" data-testid="mobile-ft-root">
 
     <!-- 顶栏：活跃对端 + 连接状态 + 设置入口 -->
     <PeerHeader

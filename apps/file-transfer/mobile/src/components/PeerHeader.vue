@@ -29,7 +29,7 @@ defineEmits<{
 <template>
   <div class="flex-shrink-0 flex items-center gap-2 px-4 pt-2.5 pb-2">
     <!-- 对端选择器：整块可点，展开设备列表 -->
-    <button class="fv2-peer-chip" @click="$emit('peer-tap')">
+    <button class="fv2-peer-chip" data-testid="mobile-ft-peer-chip" @click="$emit('peer-tap')">
       <svg class="w-4 h-4 flex-shrink-0 text-[var(--ft-text-muted)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path
           stroke-linecap="round"
@@ -44,8 +44,14 @@ defineEmits<{
       </svg>
     </button>
 
-    <!-- 连接状态胶囊（success tint / 中性底） -->
-    <span class="fv2-status-pill" :class="online ? 'fv2-status-pill--online' : 'fv2-status-pill--offline'">
+    <!-- 连接状态胶囊（success tint / 中性底）；data-online 是语言无关的状态位，
+         真机 E2E 断它（不断言文案：设备语言可能是 zh-CN / en） -->
+    <span
+      class="fv2-status-pill"
+      :class="online ? 'fv2-status-pill--online' : 'fv2-status-pill--offline'"
+      data-testid="mobile-ft-peer-status"
+      :data-online="online ? 'true' : 'false'"
+    >
       <span v-if="online" class="fv2-status-dot"></span>
       {{ online ? onlineLabel : offlineLabel }}
     </span>
@@ -60,6 +66,7 @@ defineEmits<{
       :disabled="uploadDisabled"
       :aria-label="uploadLabel"
       :title="uploadLabel"
+      data-testid="mobile-ft-upload"
       @click="$emit('upload')"
     >
       <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -73,7 +80,7 @@ defineEmits<{
     </button>
 
     <!-- 设置入口 -->
-    <button class="fv2-icon-btn" @click="$emit('settings')">
+    <button class="fv2-icon-btn" data-testid="mobile-ft-settings" @click="$emit('settings')">
       <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path
           stroke-linecap="round"

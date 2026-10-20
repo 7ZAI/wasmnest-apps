@@ -1,5 +1,5 @@
 <template>
-  <div class="h-full flex flex-col bg-[var(--bg-page)]">
+  <div class="h-full flex flex-col bg-[var(--bg-page)]" data-testid="chat-config-page">
     <!-- 顶栏：标题随视图流转（设置页/模板选择/表单）
          标题**左对齐**紧跟返回按钮，与宿主「← 返回 X」及各 wasm 应用
          （agent-hub / terminal-session）的页头一致。原先用 justify-between +
@@ -10,6 +10,7 @@
     >
       <button
         class="flex-shrink-0 flex items-center gap-1.5 text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] px-2 py-1 -ml-2 rounded-btn transition-colors"
+        data-testid="chat-config-back"
         @click="goBack"
       >
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -48,7 +49,12 @@
         </div>
 
         <!-- 视图二：模板选择（添加供应商直达；4 预设 + 自定义） -->
-        <div v-else-if="view === 'templates'" key="templates" class="flex-1 overflow-y-auto p-4">
+        <div
+          v-else-if="view === 'templates'"
+          key="templates"
+          class="flex-1 overflow-y-auto p-4"
+          data-testid="chat-config-templates"
+        >
           <p class="text-xs text-[var(--text-secondary)] mb-3">
             {{ t('com.wasmnest.ai-chatbox.selectTemplate') }}
           </p>

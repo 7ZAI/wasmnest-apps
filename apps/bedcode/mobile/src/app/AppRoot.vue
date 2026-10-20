@@ -1,6 +1,7 @@
 <template>
   <div
     class="app-root flex flex-col h-full min-h-0"
+    data-testid="mobile-bedcode-root"
     :data-palette="accentPalette"
   >
     <!-- 终端子页：整页沉浸（自带 Header / 输入栏 / 键盘避让），不进页签容器也不带导航 -->

@@ -20,6 +20,7 @@
           <router-link
             :to="item.path"
             class="flex items-center gap-2.5 h-9 rounded-md transition-colors duration-200"
+            :data-testid="`nav-${item.id}`"
             :class="[
               isActive(item)
                 ? 'bg-[var(--bg-card)] font-medium text-[var(--text-primary)] shadow-sm'

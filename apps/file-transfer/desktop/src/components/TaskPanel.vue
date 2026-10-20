@@ -238,7 +238,7 @@ function historyResult(entry: HistoryEntry): string {
 </script>
 
 <template>
-  <div class="ft-queue">
+  <div class="ft-queue" data-testid="ft-queue-panel">
     <div class="ft-queue-body">
       <!-- 面板头：传输队列 + 任务总数 + 收起按钮（右上角） -->
       <div class="ft-queue-head">

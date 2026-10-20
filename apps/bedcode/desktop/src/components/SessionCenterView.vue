@@ -1,5 +1,5 @@
 <template>
-  <div class="h-full flex flex-col bg-[var(--bg-page)]">
+  <div class="h-full flex flex-col bg-[var(--bg-page)]" data-testid="sessions-view">
     <!-- ==================== 工具栏页头：左标题，右刷新/新建 ==================== -->
     <div class="wb-toolbar">
       <div class="flex items-center gap-2.5">
@@ -21,7 +21,7 @@
         </h2>
       </div>
       <div class="flex items-center gap-2">
-        <button class="wb-btn-ghost" @click="refresh">
+        <button class="wb-btn-ghost" data-testid="sessions-refresh" @click="refresh">
           <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path
               stroke-linecap="round"
@@ -32,7 +32,7 @@
           </svg>
           {{ t('session.button.refresh') }}
         </button>
-        <button class="wb-btn-primary" @click="openCreateDialog">
+        <button class="wb-btn-primary" data-testid="sessions-create" @click="openCreateDialog">
           <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path
               stroke-linecap="round"
@@ -467,7 +467,7 @@
       />
       <template #footer>
         <div class="flex justify-end gap-3">
-          <button class="wb-btn-ghost" @click="showCreateDialog = false">
+          <button class="wb-btn-ghost" data-testid="session-config-cancel" @click="showCreateDialog = false">
             {{ t('session.button.cancel') }}
           </button>
           <button class="wb-btn-primary" @click="submitForm">

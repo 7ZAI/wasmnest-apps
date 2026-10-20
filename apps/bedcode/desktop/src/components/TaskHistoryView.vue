@@ -1120,7 +1120,7 @@ function onConfigQueueLiveChanged() {
 </script>
 
 <template>
-  <div class="h-full overflow-hidden flex flex-col bg-[var(--bg-page)]">
+  <div class="h-full overflow-hidden flex flex-col bg-[var(--bg-page)]" data-testid="tasks-view">
     <!-- Header + Tab 切换 -->
     <div class="px-4 py-3 border-b border-[var(--border)] flex-shrink-0">
       <h2 class="text-sm font-semibold text-[var(--text-primary)] mb-2">
