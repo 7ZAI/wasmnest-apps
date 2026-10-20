@@ -10,6 +10,7 @@
 | 找文件 / 目录 / 跨仓真源 / 应用清单 / 产物流向 | **`docs/CODE-MAP.md`** |
 | 写或改前端（桌面挂载包 / 移动壳运行面 / i18n / 样式 / 红线 / 测试） | **`docs/FRONTEND.md`** |
 | 写或改 Rust 后端（crate / 命令面 / 权限 / 构建目标 / 日志错误 / 测试） | **`docs/BACKEND.md`** |
+| 做桌面端 E2E（真实宿主内脚本点界面 / 加测试锚点 / 判据纪律） | **`docs/E2E.md`** |
 | 判断优先级、安全红线、提交与完成定义 | 本文件 |
 | 通用规范：git 提交 / 注释命名 / 测试与验证 / 版本号管理 / issue 管理（四仓共享真源） | **`../wasmnest/docs/public/`**（`git.md` / `commenting.md` / `testing.md` / `versioning.md` / `issues.md`） |
 
@@ -95,6 +96,9 @@
 | `pnpm run build` | 逐 app 串行跑 `build` |
 | `pnpm run lint` | 根 eslint（0 error 口径；warning 不阻断） |
 | `pnpm run format` | prettier 写 `apps/**/src/**` |
+| `node scripts/e2e.mjs --app <slug>` | 桌面端 E2E：真实宿主里挂载真实 wasm app，脚本点击界面做功能测试（说明与判据纪律见 `docs/E2E.md`；需宿主 debug 二进制 + tauri-driver + WebKitWebDriver） |
+| `node scripts/e2e-dual.mjs --app <slug>` | 双端 E2E：上一行 + USB 真机（adb 反向端口 + WebView CDP 触摸/断言）；需 debug APK，见 `docs/E2E.md` §10 |
+| `node scripts/e2e-mobile.mjs --app <slug>` | 真机单端 E2E：真机 + 真移动宿主（真 wasm / 真权限门），桌面不在场；需 debug APK，见 `docs/E2E.md` §11 |
 
 ### 单个 app（`apps/<slug>/<end>/` 内）
 
@@ -160,11 +164,12 @@
 **本仓 CI = GitHub Actions**（`.github/workflows/`：`ci.yml` = eslint + 各 app 单测；`app-build.yml` / `app-release.yml` / `app-build-reusable.yml` = 按 app 独立构建与发布，说明与排障见 `docs/CI.md`）。CI 不替代本地验证；验证 = 本地命令实跑 + 平台仓侧锁 + CI 绿。（通用验证底线——实跑贴结果 / 钩子跳过 ≠ 通过 / 禁止假绿——见 `../wasmnest/docs/public/testing.md` §5。）**当前迁移期口径（用户 2026-10-18）**：不逐项跑集成 / 全量回归，收口后统一跑；日常改动至少跑针对性单测与所在 app 测试。以下为收口后的标准清单，按改动类型执行，**必须实际运行并贴出结果**，无法运行要说明原因与风险：
 
 - 改前端（任一 app）→ 该 app `pnpm run test:run` 全绿；应用仓根 `pnpm run lint`（0 error）；UI 改动至少在一个真实环境目验（桌面：平台 `tauri:dev`；移动：dev-shell 或 Android dev）。
+- 改桌面 app 的**交互面**（分区 / 面板 / 弹窗 / 表单等用户可点的东西）→ 除单测外，跑该 app 的 E2E：`node scripts/e2e.mjs --app <slug>` 全绿（判据纪律见 `docs/E2E.md`；**改动交互面必须同步维护对应 `data-testid` 锚点**，锚点改名 = 用例红，需一起改）。
 - 改 Rust 后端 → 该 crate `cargo test` 全绿；确认 `plugin.json` 命令 / 权限与实现一致；构建产物成功写出（`pnpm run build` 或平台 `plugins:build`）。
 - 改 manifest / 权限 / 应用清单 → 构建链 `manifest --check` 通过；平台仓 `pnpm run check:manifest` 通过（涉及 id / rustLibrary / 端变化时）。
 - 改桌面 `entry.ts` / `appContext.ts` → 平台仓桌面测试全量（含 `hostAppBoundaryLock` / `i18nDriftLock`）；真实宿主装载目验。
 - 改桌面多任务预览面（`mountPreview` / `src/preview/**`）→ 该 app `pnpm run test:run` + `build:frontend`（证明预览被包含进单文件包）；平台仓桌面测试全量（含 **L5** 预览契约锁）；真实宿主从多任务层目验四张卡（预览 / 回退 / 布局不跳 / Esc 无残留）。预览只读且无副作用（不启动通知 / 轮询 / 连接 / 模型请求），不得为预览新增写命令或放宽权限。
-- 改移动运行面 / 壳交互 → 平台仓移动测试全量；Android dev 目验。
+- 改移动运行面 / 壳交互 → 平台仓移动测试全量；Android dev 目验；真机单端 E2E（`node scripts/e2e-mobile.mjs --app <slug>`，真宿主真 wasm，判据纪律见 `docs/E2E.md` §11；**移动端锚点统一 `mobile-` 前缀**，改名 = 用例红，需一起改）。
 - 改共享业务核（`apps/file-transfer/rust/core`）或双端同构 crate（`rust/plugin`）→ 该 crate `cargo test` + **双端 app 各自构建成功**（native 测试不覆盖宏路径）。
 - 新增 / 删除应用 → §6 对应跨仓清单逐项核对，并在平台仓跑对应测试。
 
@@ -179,6 +184,7 @@
 | 结构 / 导航 / 应用清单 / 产物流向 | 本仓 `docs/CODE-MAP.md` |
 | 前端规范（双端） | 本仓 `docs/FRONTEND.md` |
 | 后端规范（Rust / WASM） | 本仓 `docs/BACKEND.md` |
+| 桌面端 E2E（怎么跑 / 锚点约定 / 判据纪律 / 排障） | 本仓 `docs/E2E.md` |
 | CI / 按 app 独立构建与发布（触发方式 / tag / 跨仓装配 / 排障） | 本仓 `docs/CI.md`、`.github/workflows/`、`scripts/ci/` |
 | 桌面挂载契约（宿主侧真源） | `../wasmnest/wasmnest-desktop/src/shell/mount/useAppMount.ts`（`mountApp` + 可选 `mountPreview`）、`src/shell/mount/{AppMountSlot,AppPreviewTile}.vue`、`src/shell/composables/useShellApps.ts`；预览机制票 `../wasmnest/.scratch/2026-10-20-app-preview-contract/spec.md` |
 | 移动运行面契约 | `../wasmnest/wasmnest-mobile/packages/plugin-sdk-mobile/src/types.ts`、`../wasmnest/wasmnest-mobile/src/shell/registry.ts` |

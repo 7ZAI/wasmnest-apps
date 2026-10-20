@@ -56,6 +56,9 @@ wasmnest-apps/
 │   └─ plugin/                     双端同构 wasm 产物源（宿主适配 + 命令面；不属于任何一端）
 ├─ scripts/
 │   ├─ run-apps.mjs                仓编排：逐 app 串行跑同一条 package.json 脚本
+│   ├─ e2e.mjs                     桌面端 E2E 运行器（构建 → 隔离插件目录 → 起 dev server → 跑 wdio）
+│   ├─ e2e-dual.mjs                双端 E2E 运行器（桌面真宿主 + USB 真机；见 docs/E2E.md §10）
+│   ├─ e2e-mobile.mjs              真机单端 E2E 运行器（真机 + 真移动宿主；见 docs/E2E.md §11）
 │   ├─ platform-paths.mjs          应用 → 平台 resolver
 │   ├─ plugin-wasm-config.mjs      桌面 wasip3 target / pinned nightly / 共享 target-dir
 │   ├─ package-plugins.mjs         两端口构建 + 按插件打 zip（发布用）
@@ -66,6 +69,16 @@ wasmnest-apps/
 │       ├─ set-app-version.mjs     发布时写版本（plugin.json + package.json，全端同版本）
 │       ├─ fetch-cross-repo.mjs    按 R1 布局检出平台仓 / 能力仓（只新建，不覆盖）
 │       └─ prepare-platform.mjs    补齐 WIT 生成物 + 双端 SDK dist
+├─ e2e/                           E2E 三条 lane（真实宿主内挂载真实 wasm app，脚本点击界面）
+│   ├─ wdio.conf.ts                WDIO 配置（tauri-driver + WebKitWebDriver 驱动链）
+│   ├─ wdio.dual.conf.ts           双端 lane 的 WDIO 配置（spec 集切到 e2e/dual/**）
+│   ├─ harness/                    跨 app 通用层：driver.ts（桌面 DOM 原语）/ shell.ts（宿主壳）
+│   │                              / expect.ts（webdriverio 断言）/ adb.ts + cdp.ts + mobile.ts（真机）
+│   │                              / expect-node.ts（无浏览器会话的断言，真机 lane 用）
+│   ├─ pages/<slug>.ts             该 app 的页面对象（app 语义，不碰组件内部结构）
+│   ├─ specs/<slug>.spec.ts        桌面单端用例（一 app 一文件）
+│   ├─ dual/<slug>-<场景>.spec.ts  双端用例（桌面真宿主 + 真机，见 docs/E2E.md §10）
+│   └─ mobile/<slug>-<场景>.spec.ts 真机单端用例（真机 + 真移动宿主，见 docs/E2E.md §11）
 ├─ .github/workflows/
 │   ├─ ci.yml                      PR / push：eslint + 各 app 单测
 │   ├─ app-build-reusable.yml      可复用：单 app 单端装配 → 构建 → 打包 → 上传 artifact
@@ -74,7 +87,7 @@ wasmnest-apps/
 ├─ .cargo/config.toml              共享 target-dir（target/wasm-apps）+ jobs=4 + sccache
 ├─ .husky/pre-commit               暂存前端文件 eslint --quiet（error 阻断）
 ├─ eslint.config.js                前端资源访问红线（双端共用一份）
-└─ docs/                           CODE-MAP.md / FRONTEND.md / BACKEND.md
+└─ docs/                           CODE-MAP.md / FRONTEND.md / BACKEND.md / E2E.md / CI.md
 ```
 
 **每个 app 保留独立 pnpm workspace**（各有 `pnpm-lock.yaml` 与 `pnpm-workspace.yaml`，不合并）；根 `package.json` 只做编排，根 `node_modules` 只服务 lint / husky。

@@ -28,6 +28,9 @@ temp/
 *.bak
 *.backup
 
+# E2E 失败现场（截图 / logcat / 产物目录）：本地排查用，不入库
+e2e/artifacts/
+
 # IDE / OS
 .idea/
 *.swp

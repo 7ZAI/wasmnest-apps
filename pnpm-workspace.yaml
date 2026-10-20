@@ -1,0 +1,10 @@
+# 应用仓根 workspace 配置（只承载仓级编排与 lint 工具链；各 app 自有独立 workspace）
+#
+# pnpm 12 默认拒绝依赖的构建脚本（安全策略），这里显式声明白名单：
+# - esbuild：tsx / vite 的原生二进制（postinstall 落平台二进制），E2E 的 TS 加载器依赖它
+# - edgedriver / geckodriver：WebDriver 浏览器驱动，本仓 E2E 走 tauri-driver + WebKitWebDriver，
+#   不需要它们 → 显式 false（拒绝执行其安装脚本）
+allowBuilds:
+  edgedriver: false
+  esbuild: true
+  geckodriver: false

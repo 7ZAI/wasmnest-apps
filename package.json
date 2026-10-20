@@ -8,19 +8,34 @@
     "prepare": "husky",
     "test:run": "node scripts/run-apps.mjs test:run",
     "build": "node scripts/run-apps.mjs build",
+    "e2e": "node scripts/e2e.mjs",
+    "e2e:dual": "node scripts/e2e-dual.mjs",
+    "e2e:mobile": "node scripts/e2e-mobile.mjs",
     "lint": "eslint .",
     "format": "prettier --write \"apps/**/src/**/*.{ts,vue,js,mjs}\""
   },
   "devDependencies": {
     "@binblink/wasmnest-plugin-sdk-desktop": "file:../wasmnest/wasmnest-desktop/packages/plugin-sdk-desktop",
     "@eslint/js": "^9.39.5",
+    "@types/mocha": "^10.0.10",
     "@vue/eslint-config-prettier": "^9.0.0",
     "@vue/eslint-config-typescript": "^14.9.0",
+    "@wdio/cli": "^9.31.7",
+    "@wdio/globals": "^9.31.3",
+    "@wdio/local-runner": "^9.32.0",
+    "@wdio/mocha-framework": "^9.31.7",
+    "@wdio/spec-reporter": "^9.31.2",
+    "@wdio/tauri-service": "^1.4.0",
+    "@wdio/types": "^9.31.2",
     "eslint": "^9.39.5",
     "eslint-config-prettier": "^9.1.2",
     "eslint-plugin-vue": "^9.33.0",
+    "expect-webdriverio": "^6.1.0",
     "husky": "^9.1.7",
+    "mocha": "^10.8.2",
     "prettier": "^3.9.6",
-    "typescript": "^5.9.3"
+    "tsx": "^4.23.13",
+    "typescript": "^5.9.3",
+    "webdriverio": "^9.31.7"
   }
 }
