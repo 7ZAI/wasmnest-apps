@@ -199,6 +199,13 @@ export type MessageSchema = {
   'transfer.eta.minutes': string
   'transfer.eta.hours': string
 
+  // ==================== 多任务卡片预览面（mountPreview · 2026-10-20） ====================
+  'transfer.preview.peersTitle': string
+  'transfer.preview.noPeers': string
+  'transfer.preview.morePeers': string
+  'transfer.preview.tasksTitle': string
+  'transfer.preview.moreTasks': string
+
   // ==================== 全局通知（宿主 useGlobalNotifications 承接的对等连接） ====================
   'transfer.notification.peerConnected': string
   'transfer.notification.peerDisconnected': string

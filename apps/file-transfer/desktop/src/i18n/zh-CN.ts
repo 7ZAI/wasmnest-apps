@@ -192,6 +192,13 @@ const zhCN: MessageSchema = {
   'transfer.eta.minutes': '剩 {count} 分 {seconds} 秒',
   'transfer.eta.hours': '剩 {count} 小时 {minutes} 分',
 
+  // ==================== 多任务卡片预览面（mountPreview · 2026-10-20） ====================
+  'transfer.preview.peersTitle': '对端',
+  'transfer.preview.noPeers': '暂无对端',
+  'transfer.preview.morePeers': '还有 {count} 个对端',
+  'transfer.preview.tasksTitle': '当前任务',
+  'transfer.preview.moreTasks': '还有 {count} 项任务',
+
   // ==================== 全局通知（文案逐字取自宿主 `common.notification.*`） ====================
   'transfer.notification.peerConnected': '"{name}" 已建立连接',
   'transfer.notification.peerDisconnected': '"{name}" 已断开连接',

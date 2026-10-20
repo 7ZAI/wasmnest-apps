@@ -204,6 +204,13 @@ const en: MessageSchema = {
   'transfer.eta.minutes': '{count}m {seconds}s left',
   'transfer.eta.hours': '{count}h {minutes}m left',
 
+  // ==================== Multitask card preview (mountPreview · 2026-10-20) ====================
+  'transfer.preview.peersTitle': 'Peers',
+  'transfer.preview.noPeers': 'No peers',
+  'transfer.preview.morePeers': '{count} more peers',
+  'transfer.preview.tasksTitle': 'Current transfers',
+  'transfer.preview.moreTasks': '{count} more transfers',
+
   // ==================== Global notifications (wording taken verbatim from host `common.notification.*`) ====================
   'transfer.notification.peerConnected': '"{name}" connected',
   'transfer.notification.peerDisconnected': '"{name}" disconnected',

@@ -439,6 +439,20 @@ const zhCN: MessageSchema = {
   'hub.lg.role.assistant': '助手',
   'hub.lg.role.tool': '工具',
   'hub.lg.role.system': '系统',
+
+  // ==================== 多任务卡片只读预览面（mountPreview） ====================
+  'hub.preview.subtitle': 'CLI 检测概览',
+  'hub.preview.loading': '读取检测数据…',
+  'hub.preview.empty': '暂无检测数据',
+  'hub.preview.emptyHint': '打开 Agent Hub 完成一次检测后，这里会显示各 CLI 的安装与版本。',
+  'hub.preview.installedCount': '已装 {done} / {total}',
+  'hub.preview.sessionCount': '会话 {n}',
+  'hub.preview.sessionUnknown': '会话数据未同步',
+  'hub.preview.notInstalled': '未安装',
+  'hub.preview.detecting': '检测中…',
+  'hub.preview.error': '检测失败',
+  'hub.preview.idle': '未检测',
+  'hub.preview.lastRoute': '上次页面 {path}',
 }
 
 export default zhCN

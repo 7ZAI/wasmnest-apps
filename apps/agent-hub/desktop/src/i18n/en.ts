@@ -444,6 +444,20 @@ const en: MessageSchema = {
   'hub.lg.role.assistant': 'Assistant',
   'hub.lg.role.tool': 'Tool',
   'hub.lg.role.system': 'System',
+
+  // ==================== Multitask card read-only preview (mountPreview) ====================
+  'hub.preview.subtitle': 'CLI detection overview',
+  'hub.preview.loading': 'Reading detection data…',
+  'hub.preview.empty': 'No detection data',
+  'hub.preview.emptyHint': 'Open Agent Hub and run a detection to see each CLI install here.',
+  'hub.preview.installedCount': '{done} of {total} installed',
+  'hub.preview.sessionCount': '{n} sessions',
+  'hub.preview.sessionUnknown': 'Session data not synced',
+  'hub.preview.notInstalled': 'Not installed',
+  'hub.preview.detecting': 'Detecting…',
+  'hub.preview.error': 'Detection failed',
+  'hub.preview.idle': 'Not detected',
+  'hub.preview.lastRoute': 'Last page {path}',
 }
 
 export default en

@@ -458,4 +458,18 @@ export type MessageSchema = {
   'hub.lg.role.assistant': string
   'hub.lg.role.tool': string
   'hub.lg.role.system': string
+
+  // ==================== 多任务卡片只读预览面（mountPreview） ====================
+  'hub.preview.subtitle': string
+  'hub.preview.loading': string
+  'hub.preview.empty': string
+  'hub.preview.emptyHint': string
+  'hub.preview.installedCount': string
+  'hub.preview.sessionCount': string
+  'hub.preview.sessionUnknown': string
+  'hub.preview.notInstalled': string
+  'hub.preview.detecting': string
+  'hub.preview.error': string
+  'hub.preview.idle': string
+  'hub.preview.lastRoute': string
 }
