@@ -137,7 +137,7 @@
 
 | 任务 | 动手前必读 |
 | --- | --- |
-| 改桌面应用界面 / 交互 | `docs/FRONTEND.md` §1 + 该 app `entry.ts` / `appContext.ts` + 平台 `src/shell/mount/useAppMount.ts`；跑该 app vitest + 真实宿主目验 |
+| 改桌面应用界面 / 交互 | `docs/FRONTEND.md` §1 + 该 app `entry.ts` / `appContext.ts` + 平台 `src/shell/mount/useAppMount.ts`；多任务卡片预览面另读 `docs/FRONTEND.md` §1.2.1（可选 `mountPreview`，平台 L5 锁钉契约）；跑该 app vitest + 真实宿主目验 |
 | 改移动应用界面 / 运行面 | `docs/FRONTEND.md` §2 + 平台 `plugin-sdk-mobile/src/types.ts`（`UIRegistry`）+ `wasmnest-mobile/src/shell/registry.ts`；优先 dev-shell 预览 |
 | 写 / 改 Rust 后端 / 新增命令 | `docs/BACKEND.md`（尤其 §8 检查清单）+ 该 crate + SDK rust crate；命令面与 `plugin.json` 同步 |
 | 改 manifest / 权限 | `docs/BACKEND.md` §5 + SDK `rust/src/permission.rs`（唯一词汇真源）——**不得自造词汇表外的权限字符串** |
@@ -159,6 +159,7 @@
 - 改 Rust 后端 → 该 crate `cargo test` 全绿；确认 `plugin.json` 命令 / 权限与实现一致；构建产物成功写出（`pnpm run build` 或平台 `plugins:build`）。
 - 改 manifest / 权限 / 应用清单 → 构建链 `manifest --check` 通过；平台仓 `pnpm run check:manifest` 通过（涉及 id / rustLibrary / 端变化时）。
 - 改桌面 `entry.ts` / `appContext.ts` → 平台仓桌面测试全量（含 `hostAppBoundaryLock` / `i18nDriftLock`）；真实宿主装载目验。
+- 改桌面多任务预览面（`mountPreview` / `src/preview/**`）→ 该 app `pnpm run test:run` + `build:frontend`（证明预览被包含进单文件包）；平台仓桌面测试全量（含 **L5** 预览契约锁）；真实宿主从多任务层目验四张卡（预览 / 回退 / 布局不跳 / Esc 无残留）。预览只读且无副作用（不启动通知 / 轮询 / 连接 / 模型请求），不得为预览新增写命令或放宽权限。
 - 改移动运行面 / 壳交互 → 平台仓移动测试全量；Android dev 目验。
 - 改共享业务核（`apps/file-transfer/rust/core`）或双端同构 crate（`rust/plugin`）→ 该 crate `cargo test` + **双端 app 各自构建成功**（native 测试不覆盖宏路径）。
 - 新增 / 删除应用 → §6 对应跨仓清单逐项核对，并在平台仓跑对应测试。
@@ -174,7 +175,7 @@
 | 结构 / 导航 / 应用清单 / 产物流向 | 本仓 `docs/CODE-MAP.md` |
 | 前端规范（双端） | 本仓 `docs/FRONTEND.md` |
 | 后端规范（Rust / WASM） | 本仓 `docs/BACKEND.md` |
-| 桌面挂载契约（宿主侧真源） | `../wasmnest/wasmnest-desktop/src/shell/mount/useAppMount.ts`、`src/shell/mount/AppMountSlot.vue`、`src/shell/composables/useShellApps.ts` |
+| 桌面挂载契约（宿主侧真源） | `../wasmnest/wasmnest-desktop/src/shell/mount/useAppMount.ts`（`mountApp` + 可选 `mountPreview`）、`src/shell/mount/{AppMountSlot,AppPreviewTile}.vue`、`src/shell/composables/useShellApps.ts`；预览机制票 `../wasmnest/.scratch/2026-10-20-app-preview-contract/spec.md` |
 | 移动运行面契约 | `../wasmnest/wasmnest-mobile/packages/plugin-sdk-mobile/src/types.ts`、`../wasmnest/wasmnest-mobile/src/shell/registry.ts` |
 | 权限词汇 / manifest 校验 | `../wasmnest/wasmnest-desktop/packages/plugin-sdk-desktop/rust/src/permission.rs`、同 SDK `bin/{manifest-gen.js,manifest-validate.js,wasm-hash.js}` |
 | 跨仓版本 / 发布 | `../wasmnest/release-manifest.json`、`../wasmnest/scripts/check-release-manifest.mjs` |

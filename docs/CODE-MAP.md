@@ -35,7 +35,8 @@
 wasmnest-apps/
 ├─ apps/<slug>/desktop/            桌面端应用工程（挂载包形态）
 │   ├─ plugin.json                 应用清单（id / platform / pluginType / rustLibrary / permissions / contributes）
-│   ├─ src/entry.ts                挂载契约入口：mountApp(root, env)
+│   ├─ src/entry.ts                挂载契约入口：mountApp(root, env)（可选 mountPreview(root, env)）
+│   ├─ src/preview/                多任务卡片只读预览面（可选能力；见 FRONTEND.md §1.2.1）
 │   ├─ src/appContext.ts           AppMountEnv → PluginContext 适配层
 │   ├─ src/index.ts                dev-shell 兼容出口（仅导出 devMock；主宿主不加载）
 │   ├─ src/components|composables|utils|i18n|__tests__/
@@ -138,7 +139,7 @@ apps/<slug>/<end>/ 源码
 
 | 需求 | 路径 |
 | --- | --- |
-| 桌面挂载契约（宿主侧真源） | `wasmnest-desktop/src/shell/mount/useAppMount.ts`、`wasmnest-desktop/src/shell/mount/AppMountSlot.vue` |
+| 桌面挂载契约（宿主侧真源） | `wasmnest-desktop/src/shell/mount/useAppMount.ts`（`mountApp` + 可选 `mountPreview`）、`wasmnest-desktop/src/shell/mount/AppMountSlot.vue`；预览面装载 = 同目录 `AppPreviewTile.vue`；机制票 `.scratch/2026-10-20-app-preview-contract/spec.md` |
 | 桌面应用 → 宿主路由表 | `wasmnest-desktop/src/shell/composables/useShellApps.ts`（`SURFACE_ROUTES`） |
 | 移动运行面契约（类型真源） | `wasmnest-mobile/packages/plugin-sdk-mobile/src/types.ts`（`UIRegistry`） |
 | 移动宿主注册表 | `wasmnest-mobile/src/shell/registry.ts` |
@@ -160,7 +161,9 @@ apps/<slug>/<end>/ 源码
 
 | 锁 | 钉住什么 |
 | --- | --- |
-| `wasmnest-desktop/src/__tests__/hostAppBoundaryLock.test.ts` | 宿主零 app 源码 import、零 `__WASMNEST_SHARED__`、零旧贡献面；逐字校验**四个**桌面 `entry.ts` 的 `mountApp` 契约 |
+| `wasmnest-desktop/src/__tests__/hostAppBoundaryLock.test.ts` | 宿主零 app 源码 import、零 `__WASMNEST_SHARED__`、零旧贡献面；逐字校验**四个**桌面 `entry.ts` 的 `mountApp` 契约；**L5** 预览契约锁（四个 entry 必须导出 `mountPreview` + 关键字段；预览路径禁 `refreshChannelToken` / 写存储） |
+| `wasmnest-desktop/src/__tests__/shell/appPreviewTile.test.ts` | 多任务预览面行为（缺失 / 成功 / 抛错 / 超时 / 卸载 / 晚到结果 / 不换发令牌 / 装饰层属性） |
+| `wasmnest-desktop/src/__tests__/shell/recentsWiring.test.ts` | 多任务接线：app 卡用 `AppPreviewTile`、system 卡保留 glyph、预览不在动作按钮内 |
 | `wasmnest-desktop/src/__tests__/i18nDriftLock.test.ts` | 宿主 `src/i18n/host-{zh-CN,en}.ts` ↔ `apps/bedcode/desktop/src/i18n/host-{zh-CN,en}.ts` **逐字一致** |
 | `wasmnest-desktop/src/__tests__/tailwindContentCoverage.test.ts` | 宿主 Tailwind content 不得残留 app 路径 |
 | 平台仓 `support/appPaths.ts` 派生的移动侧锁 | 经 `WASMNEST_APPS_ROOT` / `appPath(slug, end, ...)` 读本仓源码 |

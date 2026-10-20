@@ -22,7 +22,7 @@
 
 | 文件 | 职责 | 禁止 |
 | --- | --- | --- |
-| `src/entry.ts` | 导出 `mountApp(root, env): Promise<AppMountHandle>`；建 Vue 实例、`app.provide('pluginContext', createAppContext(env))` | 放业务逻辑 |
+| `src/entry.ts` | 导出 `mountApp(root, env): Promise<AppMountHandle>`（+ 可选 `mountPreview(root, env): Promise<AppPreviewHandle>`）；建 Vue 实例、`app.provide('pluginContext', createAppContext(env))` | 放业务逻辑 |
 | `src/appContext.ts` | 把 `AppMountEnv` 适配成 `PluginContext` 形状 | 自己拼 `plugin_invoke` 通道、碰令牌 |
 | `src/index.ts` | **仅** dev-shell 兼容出口（导出 `devMock` 领域种子数据） | 加业务逻辑（主宿主不加载它） |
 
@@ -45,6 +45,33 @@
 | `onEvent?` | 宿主面事件出口：`navigate`（请求壳跳转）/ `route`（应用自报内部当前页） |
 
 `AppMountHandle`：`unmount()` 必选；`setRoute?` / `setLocale?` / `setTheme?` 可选。
+
+### 1.2.1 多任务卡片预览面（可选 `mountPreview`，2026-10-20）
+
+平台仓多任务卡片的缩略区由应用**自绘**一张只读、点时刻的预览面（**不是截图**：后台应用离开应用面即被卸载，没有 DOM 可抓）。契约与 `AppMountEnv` 逐字同形住 `useAppMount.ts`，平台 `hostAppBoundaryLock.test.ts` 的 **L5** 逐字校验四个内置桌面 `entry.ts`（`appId` / `lastRoute` / `appInvoke` / `appStorageGet` / `locale` / `theme` 关键字段）；第三方面向契约仍可选。
+
+`AppPreviewEnv`（**收窄面**）：
+
+| 字段 | 用途 |
+| --- | --- |
+| `appId` | 插件 id |
+| `lastRoute?` | 应用上次自报的内部路径（宿主 `appSession` 记忆）；无记录 = undefined |
+| `appInvoke(command, ...args)` | 插件面命令（与主界面同一令牌 / 权限）；**只读使用** |
+| `appStorageGet(key)` | 本 app KV 只读访问 |
+| `locale` / `theme` / `platform?` | 宿主事实快照 |
+
+`AppPreviewHandle`：`unmount()` 必选。
+
+应用侧义务（宿主无法运行期拦截，靠 code review + 各 app 测试）：
+
+- 只读：不写 / 删存储、不启动 / 停止插件、不发通知 / toast、不发起连接 / 传输 / 模型请求；
+- 不换发通道令牌（预览路径**禁止** `refreshChannelToken`）、不改身份绑定；
+- 预览面先挂骨架 / 空态并**立即返回 handle**，再异步取数（平台 3s 超时只覆盖 handle 返回，慢命令不得把卡打成 fallback）；
+- 预览 DOM **不得含可聚焦控件**（卡片本身是唯一动作层，预览是装饰层）；
+- 不挂主 `App.vue` / 主 router / 主 pinia / 主 stores / 模块级可变单例（当前前台应用的卡也会挂预览，主实例可能在遮罩后同时运行）；
+- 不留下活过 `unmount()` 的定时器 / 全局监听；数据拿不到时显示应用自己的诚实空态。
+
+内容建议（应用自决）：bedcode 会话 / 连接状态摘要、agent-hub CLI 检测概览、ai-chatbox 最近对话摘要、file-transfer 对端 + 传输任务摘要。机制与边界完整说明见平台仓 `.scratch/2026-10-20-app-preview-contract/spec.md`。
 
 ### 1.3 页面取数
 
@@ -150,6 +177,7 @@ node scripts/replace-console.mjs <desktop|mobile> [appDirName]
 
 - 运行位置：app 目录 `pnpm run test:run`（vitest + happy-dom + `@vue/test-utils`）。**禁止 `pnpm run test`**（watch 不退出）。
 - 每 app 至少覆盖：契约（`mountApp` / `activate` 行为）、关键逻辑（纯函数 / composable）、边界与错误路径。
+- 有预览面的桌面 app 另需覆盖：正常数据渲染、空态 / 命令失败、无副作用（不启动通知 / 轮询）、`unmount` 清理、预览 DOM 内无可聚焦控件。预览内容裁决归各 app owner；平台只钉契约与回退（L5 + `AppPreviewTile` 行为测试）。
 - **禁止**：无断言 / 恒真断言 / 只测 mock / 快照替代行为断言。
 - 现状：`file-transfer/mobile` **没有** `test:run`、没有 `vitest.config.ts`（只有 `build` 与 `dev`）。给它加测试时须同步补 `vitest.config.ts` 与 devDependencies。
 
