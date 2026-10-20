@@ -127,6 +127,10 @@
 | --- | --- |
 | `node scripts/package-plugins.mjs --list` | 打印解析后的插件清单（不构建不打包） |
 | `node scripts/package-plugins.mjs --target <desktop\|mobile\|all> [--plugin <id>] [--only/--exclude]` | 构建并收集产物、按插件打 zip |
+| `node scripts/ci/build-app.mjs --app <slug> --end <desktop\|mobile>` | 单 app 单端构建 + 打包到 `dist/release/<slug>-<end>-v<version>.zip`（+ 元数据 JSON；CI 与本机同一条链） |
+| `node scripts/ci/app-info.mjs --app <slug>` | 解析 app 的端 / 插件 id / 版本；双端版本不一致即失败（发布判据） |
+| `node scripts/ci/set-app-version.mjs <slug> <x.y.z>` | **发布时**写 app 版本（`plugin.json` + `package.json`，全端同版本） |
+| `node scripts/ci/fetch-cross-repo.mjs` / `node scripts/ci/prepare-platform.mjs` | CI 用：按 R1 布局检出平台仓 / 能力仓；补齐 WIT 生成物与双端 SDK `dist`（只新建，不覆盖既有检出） |
 | `node scripts/replace-console.mjs <desktop\|mobile> [appDirName]` | `console.*` → 统一 `logger`（仅处理自带 `src/utils/frontendLogger.ts` 的 app，当前只有 `bedcode/desktop`） |
 
 **构建环境约定**：`.cargo/config.toml` 强制 `rustc-wrapper = "sccache"`（未装则 cargo 直接失败，这是显性设计，不要绕过）；**绝不要设 `CARGO_INCREMENTAL=1`**（sccache 会拒绝执行，一切 cargo 命令成批失败）；全仓共享 `target/wasm-apps`（不要用 `cargo clean` 清平台仓目录）；`jobs = 4` 可用 `CARGO_BUILD_JOBS` 覆盖（内存吃紧时调小）。
@@ -146,14 +150,14 @@
 | 新增桌面应用 | 复制现有桌面 app 骨架（改五处命名，见 `docs/CODE-MAP.md` §3）→ 平台仓：`useShellApps.ts` 路由表 + `hostAppBoundaryLock.test.ts` 清单 + `plugin-build.js` 的 `PLUGINS` + `dev-run.js` 的 `PLUGIN_WATCH_CMDS` + `release-manifest.json` |
 | 新增移动应用 | 复制现有移动 app 骨架；平台移动构建脚本自动扫描 `apps/*/mobile` → 更新 `release-manifest.json` |
 | 跨应用互调 | `docs/BACKEND.md` §3（平台 `host-api-call` + 被调方 `plugin.json.api` 声明 + `#[plugin_api]`）；**禁止跨应用直接耦合源码** |
-| 发布 / 版本 | §3 + `scripts/package-plugins.mjs` |
+| 发布 / 版本 | §3 + `docs/CI.md`（按 app 独立发版：`<slug>-v<X.Y.Z>` tag / 手动构建）+ `scripts/package-plugins.mjs` |
 | 排查「改了没生效」/ 产物路径 | `docs/CODE-MAP.md` §4 + 平台 `scripts/app-paths.mjs`、`wasmnest-desktop/scripts/{dev-run.js,plugin-watch.js}`；确认产物是否真写进了平台宿主 resources |
 
 ---
 
 ## 7. 完成定义与验证
 
-**本仓当前无 CI**（CI 重建票明确不做）；验证 = 本地命令实跑 + 平台仓侧锁。（通用验证底线——实跑贴结果 / 钩子跳过 ≠ 通过 / 禁止假绿——见 `../wasmnest/docs/public/testing.md` §5。）**当前迁移期口径（用户 2026-10-18）**：不逐项跑集成 / 全量回归，收口后统一跑；日常改动至少跑针对性单测与所在 app 测试。以下为收口后的标准清单，按改动类型执行，**必须实际运行并贴出结果**，无法运行要说明原因与风险：
+**本仓 CI = GitHub Actions**（`.github/workflows/`：`ci.yml` = eslint + 各 app 单测；`app-build.yml` / `app-release.yml` / `app-build-reusable.yml` = 按 app 独立构建与发布，说明与排障见 `docs/CI.md`）。CI 不替代本地验证；验证 = 本地命令实跑 + 平台仓侧锁 + CI 绿。（通用验证底线——实跑贴结果 / 钩子跳过 ≠ 通过 / 禁止假绿——见 `../wasmnest/docs/public/testing.md` §5。）**当前迁移期口径（用户 2026-10-18）**：不逐项跑集成 / 全量回归，收口后统一跑；日常改动至少跑针对性单测与所在 app 测试。以下为收口后的标准清单，按改动类型执行，**必须实际运行并贴出结果**，无法运行要说明原因与风险：
 
 - 改前端（任一 app）→ 该 app `pnpm run test:run` 全绿；应用仓根 `pnpm run lint`（0 error）；UI 改动至少在一个真实环境目验（桌面：平台 `tauri:dev`；移动：dev-shell 或 Android dev）。
 - 改 Rust 后端 → 该 crate `cargo test` 全绿；确认 `plugin.json` 命令 / 权限与实现一致；构建产物成功写出（`pnpm run build` 或平台 `plugins:build`）。
@@ -175,6 +179,7 @@
 | 结构 / 导航 / 应用清单 / 产物流向 | 本仓 `docs/CODE-MAP.md` |
 | 前端规范（双端） | 本仓 `docs/FRONTEND.md` |
 | 后端规范（Rust / WASM） | 本仓 `docs/BACKEND.md` |
+| CI / 按 app 独立构建与发布（触发方式 / tag / 跨仓装配 / 排障） | 本仓 `docs/CI.md`、`.github/workflows/`、`scripts/ci/` |
 | 桌面挂载契约（宿主侧真源） | `../wasmnest/wasmnest-desktop/src/shell/mount/useAppMount.ts`（`mountApp` + 可选 `mountPreview`）、`src/shell/mount/{AppMountSlot,AppPreviewTile}.vue`、`src/shell/composables/useShellApps.ts`；预览机制票 `../wasmnest/.scratch/2026-10-20-app-preview-contract/spec.md` |
 | 移动运行面契约 | `../wasmnest/wasmnest-mobile/packages/plugin-sdk-mobile/src/types.ts`、`../wasmnest/wasmnest-mobile/src/shell/registry.ts` |
 | 权限词汇 / manifest 校验 | `../wasmnest/wasmnest-desktop/packages/plugin-sdk-desktop/rust/src/permission.rs`、同 SDK `bin/{manifest-gen.js,manifest-validate.js,wasm-hash.js}` |

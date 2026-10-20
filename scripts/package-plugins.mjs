@@ -416,7 +416,10 @@ function buildZip(entries) {
   const chunks = []
   const central = []
   let offset = 0
-  const now = new Date()
+  // 可复现构建：设了 SOURCE_DATE_EPOCH（通常取发布提交的 unix 时间）时固定 zip 条目时间戳，
+  // 同一源码两次打包得到同一份字节（发布产物 sha256 才有跨构建比较意义）；未设时沿用当前时间。
+  const epoch = Number(process.env.SOURCE_DATE_EPOCH)
+  const now = Number.isFinite(epoch) && epoch > 0 ? new Date(epoch * 1000) : new Date()
   const dosTime = (now.getHours() << 11) | (now.getMinutes() << 5) | (now.getSeconds() >> 1)
   const dosDate = ((now.getFullYear() - 1980) << 9) | ((now.getMonth() + 1) << 5) | now.getDate()
 

@@ -59,7 +59,18 @@ wasmnest-apps/
 │   ├─ platform-paths.mjs          应用 → 平台 resolver
 │   ├─ plugin-wasm-config.mjs      桌面 wasip3 target / pinned nightly / 共享 target-dir
 │   ├─ package-plugins.mjs         两端口构建 + 按插件打 zip（发布用）
-│   └─ replace-console.mjs         console.* → 统一 logger 的机械化替换
+│   ├─ replace-console.mjs         console.* → 统一 logger 的机械化替换
+│   └─ ci/                         CI / 按 app 发布脚本（见 docs/CI.md）
+│       ├─ app-info.mjs            解析 app 的端 / 插件 id / 版本（双端版本不一致即失败）
+│       ├─ build-app.mjs           单 app 单端构建 + 打包到 dist/release
+│       ├─ set-app-version.mjs     发布时写版本（plugin.json + package.json，全端同版本）
+│       ├─ fetch-cross-repo.mjs    按 R1 布局检出平台仓 / 能力仓（只新建，不覆盖）
+│       └─ prepare-platform.mjs    补齐 WIT 生成物 + 双端 SDK dist
+├─ .github/workflows/
+│   ├─ ci.yml                      PR / push：eslint + 各 app 单测
+│   ├─ app-build-reusable.yml      可复用：单 app 单端装配 → 构建 → 打包 → 上传 artifact
+│   ├─ app-build.yml               手动：按 app 触发构建（可勾选发布 tag + Release）
+│   └─ app-release.yml             推 tag `<slug>-v<X.Y.Z>`：该 app 全端构建 + Release
 ├─ .cargo/config.toml              共享 target-dir（target/wasm-apps）+ jobs=4 + sccache
 ├─ .husky/pre-commit               暂存前端文件 eslint --quiet（error 阻断）
 ├─ eslint.config.js                前端资源访问红线（双端共用一份）
@@ -126,6 +137,9 @@ apps/<slug>/<end>/ 源码
 ```
 
 桌面 app 的 `pnpm run build` 直接写平台宿主 resources；移动 app 的 `wasmnest-plugin build` 只产自身 `dist/`，**写进宿主 resources 由平台仓移动构建负责**（`wasmnest-mobile/scripts/plugin-build.js`；file-transfer/mobile 的 `build` 已直接指向该包装脚本）。
+
+**发布产物（CI）**：`scripts/ci/build-app.mjs` 在上述构建链之后经 `package-plugins.mjs --skip-build` 打包为
+`dist/release/<slug>-<end>-v<version>.zip` + 同名元数据 JSON（详见 `docs/CI.md` §5）。
 
 共享 Cargo target 目录 = `<appsRoot>/target/wasm-apps`（`.cargo/config.toml` 的 `build.target-dir` + 各 `build.js` 显式 `--target-dir`，两处注释互相指认）。
 

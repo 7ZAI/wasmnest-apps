@@ -1,0 +1,89 @@
+# ==============================================================================
+# 应用仓 CI：lint + 各 app 单测（不产出发布包；构建走 app-build / app-release）
+#
+# 为什么需要跨仓检出：应用仓的依赖图与构建脚本**不自足**——
+# `package.json` 的 `file:../../../../wasmnest/...`、WIT 生成物、SDK 的 `dist/`
+# 都来自平台仓 / 能力仓（详见 docs/CI.md）。
+#
+# ref 口径：CI 只做校验，默认跟平台仓 `vars.WASMNEST_PLATFORM_REF`（未设则 `dev`）、
+# 能力仓 `vars.WASMNEST_LIB_REF`（未设则 `dev`）。发布流程（app-build / app-release）
+# 才按 `release-manifest.json` 的精确 tag 钉住跨仓版本。
+# ==============================================================================
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [dev, main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: wasmnest-apps
+
+jobs:
+  verify:
+    name: lint + 单测
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: 检出应用仓
+        uses: actions/checkout@v4
+        with:
+          path: wasmnest-apps
+          fetch-depth: 1
+
+      - name: 装配跨仓依赖（平台仓 / 能力仓）
+        env:
+          CROSS_REPO_TOKEN: ${{ secrets.CROSS_REPO_TOKEN }}
+        run: |
+          node scripts/ci/fetch-cross-repo.mjs \
+            --platform-ref "${{ vars.WASMNEST_PLATFORM_REF || 'dev' }}" \
+            --lib-ref "${{ vars.WASMNEST_LIB_REF || 'dev' }}"
+
+      - name: 安装 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: 安装 pnpm（版本 = 应用仓 packageManager）
+        uses: pnpm/action-setup@v4
+        with:
+          package_json_file: wasmnest-apps/package.json
+
+      - name: 缓存 pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/share/pnpm/store
+          key: pnpm-store-${{ runner.os }}-${{ hashFiles('wasmnest-apps/**/pnpm-lock.yaml', 'wasmnest/**/pnpm-lock.yaml') }}
+          restore-keys: |
+            pnpm-store-${{ runner.os }}-
+
+      - name: 安装应用仓根依赖
+        run: pnpm install --frozen-lockfile
+
+      - name: 补齐平台侧生成物（WIT 拼装 + 双端 SDK dist）
+        run: node scripts/ci/prepare-platform.mjs --ends all
+
+      - name: 安装各 app 依赖（每个 app 独立 workspace）
+        run: |
+          set -euo pipefail
+          for pkg in apps/*/desktop/package.json apps/*/mobile/package.json; do
+            dir="$(dirname "$pkg")"
+            echo "::group::pnpm install $dir"
+            (cd "$dir" && pnpm install --frozen-lockfile)
+            echo "::endgroup::"
+          done
+
+      - name: eslint（0 error 口径）
+        run: pnpm run lint
+
+      - name: 各 app 单测（逐 app 串行，缺脚本打印 skip）
+        run: pnpm run test:run

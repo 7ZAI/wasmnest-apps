@@ -1,0 +1,163 @@
+# ==============================================================================
+# 单 app、单端构建（**可复用工作流**，不直接手动触发）
+#
+# 调用方：
+#   - `.github/workflows/app-build.yml`   手动按 app 触发（可不发布）
+#   - `.github/workflows/app-release.yml` 推 `<slug>-v<X.Y.Z>` tag 触发（构建 + Release）
+#
+# 口径（与 docs/CI.md 对应）：
+#   - 三仓 R1 兄弟布局：wasmnest-apps（本仓）+ wasmnest（平台）+ wasmnest-lib（能力）；
+#   - 跨仓依赖由 `scripts/ci/fetch-cross-repo.mjs` 检出（只新建，不覆盖既有检出）；
+#   - WIT 是生成物、双端 SDK dist 不入库 → `scripts/ci/prepare-platform.mjs` 先补齐；
+#   - 构建链复用各 app 自己的 `package.json` 脚本（见 `scripts/ci/build-app.mjs` 头注）；
+#   - 产物 = `dist/release/<slug>-<end>-v<version>.zip` + 同名元数据 JSON。
+#
+# 工具链：stable（wasm32-unknown-unknown）+ pinned nightly（wasm32-wasip3，桌面 non-file-transfer）。
+# `.cargo/config.toml` 强制 `rustc-wrapper = sccache`，因此 CI 必须装 sccache（不绕过）。
+# ==============================================================================
+name: build-app
+
+on:
+  workflow_call:
+    inputs:
+      app:
+        description: 应用目录 slug（apps/<slug>）
+        required: true
+        type: string
+      ends:
+        description: 要构建的端（JSON 数组，如 ["desktop","mobile"]）
+        required: true
+        type: string
+      version:
+        description: 期望版本（须与 plugin.json / package.json 一致；留空 = 用 app 当前版本）
+        required: false
+        type: string
+        default: ''
+      apps-ref:
+        description: 应用仓 ref（默认 = 触发本次运行的 commit）
+        required: false
+        type: string
+        default: ''
+      platform-ref:
+        description: 平台仓 ref（分支 / tag / SHA）
+        required: false
+        type: string
+        default: dev
+      lib-ref:
+        description: 能力仓 ref；auto = 读平台仓 release-manifest.json 的 repos.lib.tag
+        required: false
+        type: string
+        default: auto
+    secrets:
+      CROSS_REPO_TOKEN:
+        description: 跨仓读权限（PAT）。公开仓可匿名检出时留空。
+        required: false
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: wasmnest-apps
+
+jobs:
+  build:
+    name: ${{ inputs.app }} / ${{ matrix.end }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      SCCACHE_GHA_ENABLED: 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        end: ${{ fromJSON(inputs.ends) }}
+    steps:
+      - name: 检出应用仓
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ inputs.apps-ref || github.sha }}
+          path: wasmnest-apps
+          fetch-depth: 1
+
+      - name: 装配跨仓依赖（平台仓 / 能力仓）
+        env:
+          CROSS_REPO_TOKEN: ${{ secrets.CROSS_REPO_TOKEN }}
+        run: |
+          node scripts/ci/fetch-cross-repo.mjs \
+            --platform-ref "${{ inputs.platform-ref }}" \
+            --lib-ref "${{ inputs.lib-ref }}"
+
+      - name: 安装 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: 安装 pnpm（版本 = 应用仓 packageManager）
+        uses: pnpm/action-setup@v4
+        with:
+          package_json_file: wasmnest-apps/package.json
+
+      - name: 缓存 pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/share/pnpm/store
+          key: pnpm-store-${{ runner.os }}-${{ hashFiles('wasmnest-apps/**/pnpm-lock.yaml', 'wasmnest/**/pnpm-lock.yaml') }}
+          restore-keys: |
+            pnpm-store-${{ runner.os }}-
+
+      - name: 安装 sccache（.cargo/config.toml 的 rustc-wrapper 依赖）
+        uses: mozilla-actions/sccache-action@v0.0.9
+
+      - name: 解析 wasip3 pinned nightly
+        id: wasip3
+        run: |
+          nightly=$(node --input-type=module -e "import { WASIP3_NIGHTLY } from './scripts/plugin-wasm-config.mjs'; console.log(WASIP3_NIGHTLY)")
+          echo "nightly=$nightly" >> "$GITHUB_OUTPUT"
+
+      # 可复现打包：zip 条目时间戳取本次提交时间（package-plugins.mjs 识 SOURCE_DATE_EPOCH），
+      # 同一源码重跑得到同一份 zip 字节 → 发布说明里的 sha256 可被第三方复核。
+      - name: 固定打包时间戳
+        run: echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)" >> "$GITHUB_ENV"
+
+      # nightly 先装、stable 后装：dtolnay/rust-toolchain 会把最后安装的工具链设为默认。
+      # 桌面 wasip3 构建由各 build.js 注入 RUSTUP_TOOLCHAIN，不依赖默认工具链。
+      - name: 安装 Rust nightly（wasm32-wasip3）
+        if: matrix.end == 'desktop'
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.wasip3.outputs.nightly }}
+          targets: wasm32-wasip3
+
+      - name: 安装 Rust stable（wasm32-unknown-unknown）
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: 安装应用仓根依赖
+        run: pnpm install --frozen-lockfile
+
+      - name: 补齐平台侧生成物（WIT 拼装 + SDK dist）
+        run: node scripts/ci/prepare-platform.mjs --ends ${{ matrix.end }}
+
+      - name: 安装本端依赖
+        run: pnpm install --frozen-lockfile
+        working-directory: wasmnest-apps/apps/${{ inputs.app }}/${{ matrix.end }}
+
+      - name: 构建 + 打包
+        id: build
+        run: >-
+          node scripts/ci/build-app.mjs
+          --app "${{ inputs.app }}"
+          --end "${{ matrix.end }}"
+          --version "${{ inputs.version }}"
+
+      - name: 上传产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.build.outputs.artifact_name }}
+          path: |
+            wasmnest-apps/dist/release/${{ steps.build.outputs.artifact_name }}
+            wasmnest-apps/dist/release/${{ inputs.app }}-${{ matrix.end }}-v${{ steps.build.outputs.version }}.json
+          if-no-files-found: error
+          retention-days: 30

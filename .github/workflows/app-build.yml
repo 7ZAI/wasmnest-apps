@@ -1,0 +1,183 @@
+# ==============================================================================
+# 手动按 app 触发构建（每个 app 独立触发 / 独立版本，互不牵连）
+#
+# - 只构建、不发布：默认行为，产物作为 workflow artifact 保留 30 天；
+# - 勾选 publish：构建成功后创建 tag `<slug>-v<version>` 并发布 GitHub Release
+#   （tag 语义与 tag 触发的 `app-release.yml` 一致，两条入口产出同一形态的包）。
+#
+# 版本判据：`version` 要么留空（= app 当前版本），要么等于 `plugin.json` /
+# `package.json` 已提交的版本；**本工作流不写版本文件**。
+# 需要 bump 时先在本地跑 `node scripts/ci/set-app-version.mjs <slug> <x.y.z>` 并提交。
+# ==============================================================================
+name: app-build
+
+on:
+  workflow_dispatch:
+    inputs:
+      app:
+        description: 要构建的应用
+        type: choice
+        required: true
+        options:
+          - agent-hub
+          - ai-chatbox
+          - bedcode
+          - file-transfer
+      end:
+        description: 构建端
+        type: choice
+        required: true
+        default: all
+        options:
+          - all
+          - desktop
+          - mobile
+      version:
+        description: 期望版本（留空 = app 当前版本；必须与已提交清单一致）
+        type: string
+        required: false
+        default: ''
+      apps-ref:
+        description: 应用仓 ref（留空 = 触发本次运行的分支 / commit）
+        type: string
+        required: false
+        default: ''
+      platform-ref:
+        description: 平台仓 ref（tag 更可复现；默认 dev）
+        type: string
+        required: false
+        default: dev
+      lib-ref:
+        description: 能力仓 ref（auto = 平台仓 release-manifest.json 的 repos.lib.tag）
+        type: string
+        required: false
+        default: auto
+      publish:
+        description: 构建成功后创建 tag + GitHub Release
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: app-build-${{ inputs.app }}-${{ inputs.end }}-${{ inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    name: 解析 ${{ inputs.app }}（端 / 版本）
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      ends: ${{ steps.info.outputs.ends }}
+      version: ${{ steps.info.outputs.version }}
+    steps:
+      - name: 检出应用仓
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.apps-ref || github.sha }}
+          path: wasmnest-apps
+          fetch-depth: 1
+
+      - name: 安装 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: 解析端与版本（版本不一致即失败）
+        id: info
+        working-directory: wasmnest-apps
+        env:
+          APP: ${{ inputs.app }}
+          END: ${{ inputs.end }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [ -n "$VERSION" ]; then
+            node scripts/ci/app-info.mjs --app "$APP" --expect-version "$VERSION" > /dev/null
+          fi
+          if [ "$END" = "all" ]; then
+            ends=$(node scripts/ci/app-info.mjs --app "$APP" --field ends)
+          else
+            ends=$(node scripts/ci/app-info.mjs --app "$APP" --end "$END" --field ends)
+          fi
+          version=$(node scripts/ci/app-info.mjs --app "$APP" --field version)
+          echo "ends=$ends" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "构建范围: $APP / $ends / v$version"
+
+  build:
+    name: 构建
+    needs: resolve
+    uses: ./.github/workflows/app-build-reusable.yml
+    with:
+      app: ${{ inputs.app }}
+      ends: ${{ needs.resolve.outputs.ends }}
+      version: ${{ needs.resolve.outputs.version }}
+      apps-ref: ${{ inputs.apps-ref }}
+      platform-ref: ${{ inputs.platform-ref }}
+      lib-ref: ${{ inputs.lib-ref }}
+    secrets: inherit
+
+  publish:
+    name: 发布 Release
+    needs: [resolve, build]
+    if: inputs.publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: 下载构建产物
+        uses: actions/download-artifact@v4
+        with:
+          pattern: ${{ inputs.app }}-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: 校验 tag 未被占用
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.app }}-v${{ needs.resolve.outputs.version }}
+        run: |
+          set -euo pipefail
+          if gh api "repos/${{ github.repository }}/git/ref/tags/$TAG" > /dev/null 2>&1; then
+            echo "::error::tag $TAG 已存在；发布新版本请先 bump（node scripts/ci/set-app-version.mjs ${{ inputs.app }} <x.y.z>）"
+            exit 1
+          fi
+
+      - name: 生成发布说明
+        env:
+          APP: ${{ inputs.app }}
+          VERSION: ${{ needs.resolve.outputs.version }}
+        run: |
+          set -euo pipefail
+          {
+            echo "## ${APP} v${VERSION}"
+            echo
+            echo "| 端 | 产物 | 大小 | sha256 |"
+            echo "| --- | --- | --- | --- |"
+            for f in release-assets/*.json; do
+              jq -r '"| \(.end) | `\(.artifact.file)` | \(.artifact.bytes) B | `\(.artifact.sha256)` |"' "$f"
+            done
+            echo
+            echo "插件 id：$(jq -r '.plugin.id' release-assets/*.json | sort -u | paste -sd ', ' -)"
+            echo
+            echo "构建来源：应用仓 \`${{ inputs.apps-ref || github.sha }}\`，平台仓 \`${{ inputs.platform-ref }}\`，能力仓 \`${{ inputs.lib-ref }}\`。"
+          } > release-notes.md
+          cat release-notes.md
+
+      - name: 创建 tag + Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.app }}-v${{ needs.resolve.outputs.version }}
+          TARGET: ${{ inputs.apps-ref || github.sha }}
+        run: |
+          set -euo pipefail
+          gh release create "$TAG" \
+            --target "$TARGET" \
+            --title "${{ inputs.app }} v${{ needs.resolve.outputs.version }}" \
+            --notes-file release-notes.md \
+            release-assets/*.zip release-assets/*.json

@@ -1,0 +1,139 @@
+# ==============================================================================
+# 按 app 发布：推 tag `<slug>-v<X.Y.Z>`（如 `agent-hub-v0.0.2`）即触发该 app 的
+# 构建 + GitHub Release。每个 app 的 tag / 版本互相独立，互不阻塞。
+#
+# 与整仓 tag 的分工：
+#   - `<slug>-v<X.Y.Z>`  = **单个 app 的分发版本**（本工作流，产物是该 app 的插件 zip）；
+#   - `apps-v<X.Y.Z>`    = 应用仓整仓 tag（平台仓 release-manifest.json 的装配口径），
+#                          不触发本工作流。
+#
+# 前置（发布动作的一部分，见平台仓 docs/public/versioning.md §5）：
+#   1. 本地 bump：node scripts/ci/set-app-version.mjs <slug> <X.Y.Z>（写 plugin.json + package.json）；
+#   2. 与版本改动同批提交，然后打 tag 并推送：
+#        git tag <slug>-v<X.Y.Z> && git push origin <slug>-v<X.Y.Z>
+#   3. tag 版本与已提交清单不一致 → 本工作流在 resolve 阶段失败（不会发出错版本的包）。
+#
+# 跨仓 ref：默认 `vars.WASMNEST_PLATFORM_REF`（未设则 dev）+ 平台仓
+# release-manifest.json 里固定的能力仓 tag；需要严格可复现时把平台仓 ref 设为精确 tag。
+# ==============================================================================
+name: app-release
+
+on:
+  push:
+    tags:
+      - '*-v[0-9]*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: app-release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    name: 解析 tag
+    # 整仓 / 其他仓的 tag 不走 app 发布
+    if: >-
+      !startsWith(github.ref_name, 'apps-v') &&
+      !startsWith(github.ref_name, 'lib-v') &&
+      !startsWith(github.ref_name, 'test-v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      app: ${{ steps.info.outputs.app }}
+      version: ${{ steps.info.outputs.version }}
+      ends: ${{ steps.info.outputs.ends }}
+    steps:
+      - name: 检出应用仓（tag 指向的提交）
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: wasmnest-apps
+          fetch-depth: 1
+
+      - name: 安装 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: 解析 <slug>-v<X.Y.Z>（版本不符即失败）
+        id: info
+        working-directory: wasmnest-apps
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          if [[ ! "$tag" =~ ^([a-z0-9][a-z0-9-]+)-v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+            echo "::error::tag 形态非法: $tag（应为 <slug>-v<X.Y.Z>，如 agent-hub-v0.0.2）"
+            exit 1
+          fi
+          app="${BASH_REMATCH[1]}"
+          version="${BASH_REMATCH[2]}"
+          node scripts/ci/app-info.mjs --app "$app" --expect-version "$version" > /dev/null
+          ends=$(node scripts/ci/app-info.mjs --app "$app" --field ends)
+          echo "app=$app" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "ends=$ends" >> "$GITHUB_OUTPUT"
+          echo "发布范围: $app / $ends / v$version"
+
+  build:
+    name: 构建
+    needs: resolve
+    uses: ./.github/workflows/app-build-reusable.yml
+    with:
+      app: ${{ needs.resolve.outputs.app }}
+      ends: ${{ needs.resolve.outputs.ends }}
+      version: ${{ needs.resolve.outputs.version }}
+      apps-ref: ${{ github.sha }}
+      platform-ref: ${{ vars.WASMNEST_PLATFORM_REF || 'dev' }}
+      lib-ref: ${{ vars.WASMNEST_LIB_REF || 'auto' }}
+    secrets: inherit
+
+  release:
+    name: 发布 Release
+    needs: [resolve, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: 下载构建产物
+        uses: actions/download-artifact@v4
+        with:
+          pattern: ${{ needs.resolve.outputs.app }}-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: 生成发布说明
+        env:
+          APP: ${{ needs.resolve.outputs.app }}
+          VERSION: ${{ needs.resolve.outputs.version }}
+        run: |
+          set -euo pipefail
+          {
+            echo "## ${APP} v${VERSION}"
+            echo
+            echo "| 端 | 产物 | 大小 | sha256 |"
+            echo "| --- | --- | --- | --- |"
+            for f in release-assets/*.json; do
+              jq -r '"| \(.end) | `\(.artifact.file)` | \(.artifact.bytes) B | `\(.artifact.sha256)` |"' "$f"
+            done
+            echo
+            echo "插件 id：$(jq -r '.plugin.id' release-assets/*.json | sort -u | paste -sd ', ' -)"
+            echo
+            jq -r '"构建来源：应用仓 `\(.source.appsRef // "?")` @ `\((.source.appsCommit // "?" )[0:12])`，平台仓 `\(.source.platformRef // "?")` @ `\((.source.platformCommit // "?" )[0:12])`，能力仓 `\(.source.libRef // "?")`。"' \
+              "$(ls release-assets/*.json | head -1)"
+          } > release-notes.md
+          cat release-notes.md
+
+      - name: 创建 Release（tag 已存在）
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          gh release create "$TAG" \
+            --verify-tag \
+            --title "${{ needs.resolve.outputs.app }} v${{ needs.resolve.outputs.version }}" \
+            --notes-file release-notes.md \
+            release-assets/*.zip release-assets/*.json
