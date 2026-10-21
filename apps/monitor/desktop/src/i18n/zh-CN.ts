@@ -15,6 +15,10 @@ const zhCN: MessageSchema = {
   'monitor.self': '本应用',
   'monitor.hostInfoUnavailable': '宿主插件清单不可用，以下仅按指标里的 plugin_id 显示',
 
+  'monitor.role.basicService': '基础服务',
+  'monitor.role.internalBusiness': '内部业务',
+  'monitor.role.businessApp': '应用',
+
   'monitor.error.title': '指标读取失败',
   'monitor.error.hint':
     '请确认已授权「metrics:read」且宿主已装配指标快照源。页面不会用空表冒充正常运行。',
@@ -24,6 +28,7 @@ const zhCN: MessageSchema = {
 
   'monitor.kpi.plugins': '插件',
   'monitor.kpi.pluginsValue': '{running} / {total} 运行中',
+  'monitor.kpi.pluginsUnavailable': '另有 {n} 个未就绪',
   'monitor.kpi.calls': '调用总数',
   'monitor.kpi.inFlight': '在飞调用',
   'monitor.kpi.inFlightHint': '含本应用自身的指标调用',
@@ -130,8 +135,13 @@ const zhCN: MessageSchema = {
   'monitor.ledger.hint': '按状态排序。选择一行，查看该插件的完整指标。',
   'monitor.ledger.calls': '{n} 次调用',
   'monitor.ledger.select': '查看 {name} 的指标',
+  'monitor.ledger.roleSummary': '{apps} 应用 · {services} 服务',
+  'monitor.ledger.metricsUnavailable': '指标不可用',
   'monitor.inspector.usage': '占内存上限 {ratio}',
   'monitor.inspector.noTraps': '未记录 Trap',
+  'monitor.inspector.noMetricsTitle': '无运行时指标',
+  'monitor.inspector.noMetricsHint':
+    '该组件已登记在宿主，但尚未实例化或装载失败，因此没有 wasm Store 指标。',
   'monitor.host.hint': '宿主任务池的只读快照。',
   'monitor.footer.source': '数据来自 monitor.snapshot · 权限 metrics:read',
   'monitor.footer.session': '本次打开 · 关闭即失',

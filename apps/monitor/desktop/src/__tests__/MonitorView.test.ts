@@ -154,6 +154,53 @@ describe('MonitorView（桌面界面契约）', () => {
     expect(wrapper.find('[data-testid="monitor-error"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="monitor-plugin-list"]').exists()).toBe(true)
   })
+  it('服务角色可见：角色徽标 / 角色摘要，未就绪插件显示无运行时指标', async () => {
+    const execute = vi.fn(async () =>
+      snapshot({ 'com.wasmnest.monitor': metrics({ calls_total: 3 }) }),
+    )
+    const hostInvoke = vi.fn(async () => [
+      info({ id: 'com.wasmnest.monitor', name: 'Monitor', kind: 'business-app' }),
+      info({
+        id: 'com.wasmnest.terminal-session',
+        name: 'BedCode',
+        kind: 'internal-business',
+        pluginType: 'rust-ts',
+        state: { state: 'error', error: 'auth center not registered' },
+      }),
+    ])
+    const wrapper = mountView(makeContext(execute, hostInvoke))
+    await flushPromises()
+
+    // 运行中应用 ↑ 先于错误服务；错误服务不能被快照缺席吞掉
+    const serviceRow = wrapper.find('[data-testid="monitor-plugin-com.wasmnest.terminal-session"]')
+    expect(serviceRow.exists()).toBe(true)
+    expect(serviceRow.attributes('data-metrics-available')).toBe('false')
+    expect(
+      serviceRow.find('[data-testid="monitor-role-com.wasmnest.terminal-session"]').text(),
+    ).toBe('monitor.role.internalBusiness')
+    // 应用行不出服务徽标；摘要仍给出应用 / 服务口径
+    expect(wrapper.find('[data-testid="monitor-role-com.wasmnest.monitor"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="monitor-role-summary"]').text()).toBe(
+      'monitor.ledger.roleSummary(apps=1,services=1)',
+    )
+    expect(wrapper.find('[data-testid="monitor-kpi-unavailable"]').text()).toBe(
+      'monitor.kpi.pluginsUnavailable(n=1)',
+    )
+    expect(wrapper.find('#monitor-lead').text()).toContain('monitor.hero.attention(count=1)')
+
+    // 选中未就绪服务：明确无指标，不显示一排零值
+    await serviceRow.trigger('click')
+    await flushPromises()
+    expect(wrapper.find('[data-testid="monitor-inspector"]').attributes('data-plugin-id')).toBe(
+      'com.wasmnest.terminal-session',
+    )
+    expect(wrapper.find('[data-testid="monitor-metrics-unavailable"]').exists()).toBe(true)
+    expect(wrapper.text()).toContain('auth center not registered')
+    expect(
+      wrapper.find('[data-testid="monitor-inflight-com.wasmnest.terminal-session"]').exists(),
+    ).toBe(false)
+  })
+
   it('选择台账另一行：详情切换到该插件', async () => {
     const execute = vi.fn(async () =>
       snapshot({

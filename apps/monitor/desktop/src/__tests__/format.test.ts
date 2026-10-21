@@ -11,9 +11,12 @@ import {
   formatRatio,
   formatUnixTime,
   latestLifecycle,
+  isServiceKind,
   mergePluginRows,
   nonZeroEntries,
+  normalizePluginKind,
   normalizeSnapshot,
+  roleI18nKey,
   sumValues,
   summarize,
   usageRatio,
@@ -55,6 +58,28 @@ describe('displayStateOf（宿主状态 → 壳展示态）', () => {
     [undefined, 'unknown'],
   ])('%s → %s', (raw, expected) => {
     expect(displayStateOf(raw as string | undefined)).toBe(expected)
+  })
+})
+
+describe('normalizePluginKind（manifest 装配角色）', () => {
+  it.each([
+    ['basic-service', 'basic-service'],
+    ['system', 'basic-service'],
+    ['internal-business', 'internal-business'],
+    ['business-app', 'business-app'],
+    ['application', 'business-app'],
+    ['unknown-kind', 'unknown'],
+    [undefined, 'unknown'],
+  ])('%s → %s', (raw, expected) => {
+    expect(normalizePluginKind(raw)).toBe(expected)
+  })
+
+  it('服务角色有徽标，应用 / 未知不出服务徽标', () => {
+    expect(isServiceKind('basic-service')).toBe(true)
+    expect(isServiceKind('internal-business')).toBe(true)
+    expect(isServiceKind('business-app')).toBe(false)
+    expect(roleI18nKey('internal-business')).toBe('monitor.role.internalBusiness')
+    expect(roleI18nKey('unknown')).toBeNull()
   })
 })
 
@@ -107,6 +132,66 @@ describe('mergePluginRows（指标 + 宿主清单）', () => {
       info({ id: 'a', state: 'activated' }),
     ])
     expect(rows[0].state).toBe('running')
+  })
+
+  it('角色随清单透传：同状态下服务排在应用前', () => {
+    const rows = mergePluginRows(
+      snapshot({ app: metrics(), auth: metrics(), monitor: metrics() }),
+      [
+        info({ id: 'app', name: 'App', kind: 'business-app' }),
+        info({ id: 'auth', name: 'Auth Center', kind: 'internal-business' }),
+        info({ id: 'monitor', name: 'Monitor', kind: 'basic-service' }),
+      ],
+    )
+    expect(rows.map((row) => [row.id, row.kind])).toEqual([
+      ['monitor', 'basic-service'],
+      ['auth', 'internal-business'],
+      ['app', 'business-app'],
+    ])
+  })
+
+  it('宿主有、快照无的 wasm 插件补无指标行；ts-only 与正常未运行不补', () => {
+    const rows = mergePluginRows(snapshot({ live: metrics() }), [
+      info({ id: 'live', name: 'Live' }),
+      info({
+        id: 'auth',
+        name: 'Auth Center',
+        kind: 'internal-business',
+        pluginType: 'rust-ts',
+        state: { state: 'error', error: 'auth center not registered' },
+      }),
+      info({
+        id: 'ts',
+        name: 'TS only',
+        pluginType: 'ts-only',
+        state: { state: 'error', error: 'frontend failed' },
+      }),
+      info({
+        id: 'idle',
+        name: 'Idle app',
+        pluginType: 'rust-ts',
+        state: { state: 'deactivated' },
+      }),
+    ])
+
+    expect(rows.map((row) => row.id)).toEqual(['live', 'auth'])
+    expect(rows[1]).toMatchObject({
+      kind: 'internal-business',
+      state: 'error',
+      stateError: 'auth center not registered',
+      metricsAvailable: false,
+    })
+    // 无指标时给零值对象只用于类型占位，页面必须靠 metricsAvailable 隐藏
+    expect(rows[1].metrics.calls_total).toBe(0)
+  })
+
+  it('缺 pluginType 的老宿主只在异常态补行（故障优先可见）', () => {
+    const rows = mergePluginRows(snapshot({}), [
+      info({ id: 'legacy', pluginType: undefined, state: { state: 'error', error: 'boom' } }),
+      info({ id: 'legacy-idle', pluginType: undefined, state: { state: 'deactivated' } }),
+    ])
+    expect(rows.map((row) => row.id)).toEqual(['legacy'])
+    expect(rows[0].metricsAvailable).toBe(false)
   })
 })
 

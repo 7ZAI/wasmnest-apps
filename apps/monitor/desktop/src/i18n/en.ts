@@ -16,6 +16,10 @@ const en: MessageSchema = {
   'monitor.hostInfoUnavailable':
     'Host plugin list unavailable; showing plugin_id from metrics only',
 
+  'monitor.role.basicService': 'Basic service',
+  'monitor.role.internalBusiness': 'Internal business',
+  'monitor.role.businessApp': 'App',
+
   'monitor.error.title': 'Failed to read metrics',
   'monitor.error.hint':
     'Make sure "metrics:read" is granted and the host has wired a metrics snapshot source. The page will not fake an empty table.',
@@ -25,6 +29,7 @@ const en: MessageSchema = {
 
   'monitor.kpi.plugins': 'Plugins',
   'monitor.kpi.pluginsValue': '{running} / {total} running',
+  'monitor.kpi.pluginsUnavailable': '{n} not ready',
   'monitor.kpi.calls': 'Total calls',
   'monitor.kpi.inFlight': 'In flight',
   'monitor.kpi.inFlightHint': "Includes this app's own call",
@@ -132,8 +137,13 @@ const en: MessageSchema = {
   'monitor.ledger.hint': 'Sorted by state. Select a row to inspect its full metrics.',
   'monitor.ledger.calls': '{n} calls',
   'monitor.ledger.select': 'Inspect {name} metrics',
+  'monitor.ledger.roleSummary': '{apps} apps · {services} services',
+  'monitor.ledger.metricsUnavailable': 'Metrics unavailable',
   'monitor.inspector.usage': '{ratio} of memory limit',
   'monitor.inspector.noTraps': 'No traps recorded',
+  'monitor.inspector.noMetricsTitle': 'No runtime metrics',
+  'monitor.inspector.noMetricsHint':
+    'This component is registered in the host but has not been instantiated (or failed to load), so no wasm store metrics are available.',
   'monitor.host.hint': 'A read-only snapshot of the host task pool.',
   'monitor.footer.source': 'Data from monitor.snapshot · permission metrics:read',
   'monitor.footer.session': 'This session · cleared on close',

@@ -16,8 +16,10 @@ import {
   formatNumber,
   formatRatio,
   formatUnixTime,
+  isServiceKind,
   latestLifecycle,
   nonZeroEntries,
+  roleI18nKey,
   sumValues,
   usageRatio,
 } from '../utils/format'
@@ -63,6 +65,11 @@ const QUOTA_SPECS = [
 const metrics = computed(() => props.row.metrics)
 const localeTag = computed(() => (i18n.global.locale.value === 'en' ? 'en-US' : 'zh-CN'))
 const isSelf = computed(() => !!props.selfId && props.row.id === props.selfId)
+const roleText = computed(() => {
+  if (!isServiceKind(props.row.kind)) return ''
+  const key = roleI18nKey(props.row.kind)
+  return key ? t(key) : ''
+})
 
 const quotaMemory = computed(() => quotaValue('memory_bytes'))
 const memoryRatio = computed(() =>
@@ -184,227 +191,243 @@ function stateTone(state: PluginDisplayState): string {
           <span class="mn-state-dot" aria-hidden="true"></span>
           {{ t(`monitor.state.${row.state}`) }}
         </span>
+        <span v-if="roleText" class="mn-role" data-testid="monitor-inspector-role">{{
+          roleText
+        }}</span>
         <span v-if="isSelf" class="mn-tag">{{ t('monitor.self') }}</span>
       </div>
     </header>
 
     <p v-if="row.stateError" class="mn-inspector-error">{{ row.stateError }}</p>
 
-    <!-- 内存水位 -->
-    <section class="mn-inspector-memory" :aria-label="t('monitor.section.memory')">
-      <div class="mn-memory-head">
-        <p class="mn-memory-value">
-          {{ formatBytes(metrics.memory_current_bytes) }}
-          <span class="mn-memory-limit"
-            >/ {{ quotaMemory === null ? '—' : formatBytes(quotaMemory) }}</span
-          >
-        </p>
-        <span class="mn-memory-share" :data-testid="`monitor-memory-ratio-${row.id}`">
-          {{
-            memoryRatio === null
-              ? '—'
-              : t('monitor.inspector.usage', { ratio: formatRatio(memoryRatio) })
-          }}
-        </span>
-      </div>
-      <div
-        class="mn-waterline"
-        role="progressbar"
-        :aria-valuenow="memoryRatio === null ? undefined : Math.round(memoryPercent)"
-        aria-valuemin="0"
-        aria-valuemax="100"
-        :aria-label="t('monitor.metric.memoryUsage')"
-        :data-testid="`monitor-memory-${row.id}`"
-      >
-        <div
-          v-if="memoryRatio !== null"
-          class="mn-waterline-fill"
-          :class="`is-${memoryTone}`"
-          :style="{ transform: `scaleX(${memoryScale})` }"
-        ></div>
-      </div>
-      <div class="mn-memory-notes">
-        <span>{{ t('monitor.section.memory') }}</span>
-        <span
-          >{{ t('monitor.metric.memoryPeak') }} {{ formatBytes(metrics.memory_peak_bytes) }}</span
-        >
-        <span
-          >{{ t('monitor.metric.memoryLimit') }}
-          {{ quotaMemory === null ? '—' : formatBytes(quotaMemory) }}</span
-        >
-        <span v-if="growDeniedText" class="is-warning">{{ growDeniedText }}</span>
-      </div>
-    </section>
-
-    <!-- 调用 / 耗时 -->
-    <section class="mn-sheet" aria-labelledby="calls-label">
-      <div class="mn-sheet-head">
-        <h4 id="calls-label" class="mn-sheet-title">{{ t('monitor.section.calls') }}</h4>
-        <span class="mn-inflight">
-          {{ t('monitor.metric.inFlight') }}
-          <b :data-testid="`monitor-inflight-${row.id}`">{{ formatNumber(callsInFlight) }}</b>
-        </span>
-      </div>
-      <div class="mn-numbers">
-        <div class="mn-number is-lead">
-          <span class="mn-number-value">{{ formatNumber(metrics.calls_total) }}</span>
-          <span class="mn-number-label">{{ t('monitor.metric.callsTotal') }}</span>
-        </div>
-        <div class="mn-number">
-          <span class="mn-number-value">{{ formatDurationUs(avgCallUs) }}</span>
-          <span class="mn-number-label">{{ t('monitor.metric.avgDuration') }}</span>
-        </div>
-        <div class="mn-number">
-          <span class="mn-number-value">{{ formatDurationUs(metrics.call_duration_us_max) }}</span>
-          <span class="mn-number-label">{{ t('monitor.metric.maxDuration') }}</span>
-        </div>
-      </div>
-      <div class="mn-inline-notes">
-        <span>{{ t('monitor.metric.fuel') }} {{ formatNumber(metrics.fuel_consumed_total) }}</span>
-        <span
-          >{{ t('monitor.metric.activation') }}
-          {{ formatDurationUs(metrics.activation_us_total) }}</span
-        >
-        <span
-          >{{ t('monitor.metric.activationMax') }}
-          {{ formatDurationUs(metrics.activation_us_max) }}</span
-        >
-      </div>
-    </section>
-
-    <!-- 耗时分布 -->
-    <section class="mn-sheet" aria-labelledby="histogram-label">
-      <div class="mn-sheet-head">
-        <h4 id="histogram-label" class="mn-sheet-title">{{ t('monitor.section.histogram') }}</h4>
-        <span class="mn-sheet-aside">{{
-          t('monitor.ledger.calls', { n: formatNumber(bucketTotal) })
-        }}</span>
-      </div>
-      <div :data-testid="`monitor-histogram-${row.id}`">
-        <div v-if="bucketTotal > 0" class="mn-histogram" role="img" :aria-label="histogramLabel">
-          <span
-            v-for="segment in bucketSegments"
-            :key="segment.key"
-            class="mn-histogram-segment"
-            :style="{ width: `${segment.percent}%`, background: segment.color }"
-          ></span>
-        </div>
-        <p v-else class="mn-empty-line">—</p>
-        <div v-if="bucketSegments.length > 0" class="mn-histogram-legend">
-          <span v-for="segment in bucketSegments" :key="segment.key" class="mn-legend-item">
-            <span
-              class="mn-legend-dot"
-              :style="{ background: segment.color }"
-              aria-hidden="true"
-            ></span>
-            <span>{{ t(`monitor.bucket.${segment.key}`) }}</span>
-            <b>{{ formatNumber(segment.count) }}</b>
+    <template v-if="row.metricsAvailable">
+      <!-- 内存水位 -->
+      <section class="mn-inspector-memory" :aria-label="t('monitor.section.memory')">
+        <div class="mn-memory-head">
+          <p class="mn-memory-value">
+            {{ formatBytes(metrics.memory_current_bytes) }}
+            <span class="mn-memory-limit"
+              >/ {{ quotaMemory === null ? '—' : formatBytes(quotaMemory) }}</span
+            >
+          </p>
+          <span class="mn-memory-share" :data-testid="`monitor-memory-ratio-${row.id}`">
+            {{
+              memoryRatio === null
+                ? '—'
+                : t('monitor.inspector.usage', { ratio: formatRatio(memoryRatio) })
+            }}
           </span>
         </div>
-      </div>
-    </section>
-
-    <!-- Trap 原因 -->
-    <section class="mn-sheet" aria-labelledby="traps-label">
-      <div class="mn-sheet-head">
-        <h4 id="traps-label" class="mn-sheet-title">{{ t('monitor.section.traps') }}</h4>
-        <span class="mn-sheet-aside" :class="{ 'is-danger': trapTotal > 0 }">{{
-          formatNumber(trapTotal)
-        }}</span>
-      </div>
-      <div :data-testid="`monitor-traps-${row.id}`">
-        <ul v-if="trapEntries.length > 0" class="mn-trap-list">
-          <li v-for="trap in trapEntries" :key="trap.key">
-            <span>{{ trapLabel(trap.key) }}</span>
-            <b>{{ formatNumber(trap.value) }}</b>
-          </li>
-        </ul>
-        <p v-else class="mn-ok-line">
-          <span class="mn-state-dot is-success" aria-hidden="true"></span>
-          {{ t('monitor.inspector.noTraps') }}
-        </p>
-      </div>
-    </section>
-
-    <!-- 生命周期 -->
-    <section class="mn-sheet" aria-labelledby="lifecycle-label">
-      <div class="mn-sheet-head">
-        <h4 id="lifecycle-label" class="mn-sheet-title">{{ t('monitor.section.lifecycle') }}</h4>
-        <span v-if="latest" class="mn-sheet-aside">
-          {{
-            t('monitor.metric.lastEvent', {
-              event: lifecycleLabel(latest.key),
-              time: formatUnixTime(latest.unix, localeTag),
-            })
-          }}
-        </span>
-      </div>
-      <div class="mn-lifecycle">
-        <div v-for="key in LIFECYCLE_KEYS" :key="key" class="mn-lifecycle-item">
-          <span class="mn-number-value is-small">{{ formatNumber(lifecycleValue(key)) }}</span>
-          <span class="mn-number-label">{{ lifecycleLabel(key) }}</span>
+        <div
+          class="mn-waterline"
+          role="progressbar"
+          :aria-valuenow="memoryRatio === null ? undefined : Math.round(memoryPercent)"
+          aria-valuemin="0"
+          aria-valuemax="100"
+          :aria-label="t('monitor.metric.memoryUsage')"
+          :data-testid="`monitor-memory-${row.id}`"
+        >
+          <div
+            v-if="memoryRatio !== null"
+            class="mn-waterline-fill"
+            :class="`is-${memoryTone}`"
+            :style="{ transform: `scaleX(${memoryScale})` }"
+          ></div>
         </div>
-      </div>
-    </section>
-
-    <!-- 授权 / 总线 -->
-    <div class="mn-split">
-      <section class="mn-sheet" aria-labelledby="authz-label">
-        <h4 id="authz-label" class="mn-sheet-title">{{ t('monitor.section.authz') }}</h4>
-        <dl class="mn-kv">
-          <div>
-            <dt>{{ t('monitor.metric.authzAllow') }}</dt>
-            <dd>{{ formatNumber(authz.allow) }}</dd>
-          </div>
-          <div>
-            <dt>{{ t('monitor.metric.authzDeny') }}</dt>
-            <dd :class="{ 'is-danger': (authz.deny ?? 0) > 0 }">{{ formatNumber(authz.deny) }}</dd>
-          </div>
-          <div>
-            <dt>{{ t('monitor.metric.authzApproval') }}</dt>
-            <dd>{{ formatNumber(authz.require_approval) }}</dd>
-          </div>
-          <div>
-            <dt>{{ t('monitor.metric.authzDropped') }}</dt>
-            <dd :class="{ 'is-warning': (authz.records_dropped ?? 0) > 0 }">
-              {{ formatNumber(authz.records_dropped) }}
-            </dd>
-          </div>
-        </dl>
+        <div class="mn-memory-notes">
+          <span>{{ t('monitor.section.memory') }}</span>
+          <span
+            >{{ t('monitor.metric.memoryPeak') }} {{ formatBytes(metrics.memory_peak_bytes) }}</span
+          >
+          <span
+            >{{ t('monitor.metric.memoryLimit') }}
+            {{ quotaMemory === null ? '—' : formatBytes(quotaMemory) }}</span
+          >
+          <span v-if="growDeniedText" class="is-warning">{{ growDeniedText }}</span>
+        </div>
       </section>
-      <section class="mn-sheet" aria-labelledby="bus-label">
-        <h4 id="bus-label" class="mn-sheet-title">{{ t('monitor.section.bus') }}</h4>
-        <dl class="mn-kv">
-          <div>
-            <dt>{{ t('monitor.metric.busDropped') }}</dt>
-            <dd :class="{ 'is-warning': (bus.dropped ?? 0) > 0 }">
-              {{ formatNumber(bus.dropped) }}
-            </dd>
-          </div>
-          <div>
-            <dt>{{ t('monitor.metric.busFormatRejected') }}</dt>
-            <dd>{{ formatNumber(bus.format_rejected) }}</dd>
-          </div>
-        </dl>
-      </section>
-    </div>
 
-    <details class="mn-quota" :data-testid="`monitor-quota-${row.id}`">
-      <summary class="mn-quota-summary" :data-testid="`monitor-quota-toggle-${row.id}`">
-        <span>{{ t('monitor.section.quota') }}</span>
-        <span class="mn-chevron" aria-hidden="true"></span>
-      </summary>
-      <div class="mn-quota-body">
-        <div class="mn-quota-grid">
-          <div v-for="entry in quotaEntries" :key="entry.key" class="mn-kv-row">
-            <span>{{ entry.label }}</span>
-            <b>{{ entry.value }}</b>
+      <!-- 调用 / 耗时 -->
+      <section class="mn-sheet" aria-labelledby="calls-label">
+        <div class="mn-sheet-head">
+          <h4 id="calls-label" class="mn-sheet-title">{{ t('monitor.section.calls') }}</h4>
+          <span class="mn-inflight">
+            {{ t('monitor.metric.inFlight') }}
+            <b :data-testid="`monitor-inflight-${row.id}`">{{ formatNumber(callsInFlight) }}</b>
+          </span>
+        </div>
+        <div class="mn-numbers">
+          <div class="mn-number is-lead">
+            <span class="mn-number-value">{{ formatNumber(metrics.calls_total) }}</span>
+            <span class="mn-number-label">{{ t('monitor.metric.callsTotal') }}</span>
+          </div>
+          <div class="mn-number">
+            <span class="mn-number-value">{{ formatDurationUs(avgCallUs) }}</span>
+            <span class="mn-number-label">{{ t('monitor.metric.avgDuration') }}</span>
+          </div>
+          <div class="mn-number">
+            <span class="mn-number-value">{{
+              formatDurationUs(metrics.call_duration_us_max)
+            }}</span>
+            <span class="mn-number-label">{{ t('monitor.metric.maxDuration') }}</span>
           </div>
         </div>
-        <p class="mn-quota-note" :data-testid="`monitor-quota-note-${row.id}`">
-          {{ t('monitor.metric.quotaNote') }}
-        </p>
+        <div class="mn-inline-notes">
+          <span
+            >{{ t('monitor.metric.fuel') }} {{ formatNumber(metrics.fuel_consumed_total) }}</span
+          >
+          <span
+            >{{ t('monitor.metric.activation') }}
+            {{ formatDurationUs(metrics.activation_us_total) }}</span
+          >
+          <span
+            >{{ t('monitor.metric.activationMax') }}
+            {{ formatDurationUs(metrics.activation_us_max) }}</span
+          >
+        </div>
+      </section>
+
+      <!-- 耗时分布 -->
+      <section class="mn-sheet" aria-labelledby="histogram-label">
+        <div class="mn-sheet-head">
+          <h4 id="histogram-label" class="mn-sheet-title">{{ t('monitor.section.histogram') }}</h4>
+          <span class="mn-sheet-aside">{{
+            t('monitor.ledger.calls', { n: formatNumber(bucketTotal) })
+          }}</span>
+        </div>
+        <div :data-testid="`monitor-histogram-${row.id}`">
+          <div v-if="bucketTotal > 0" class="mn-histogram" role="img" :aria-label="histogramLabel">
+            <span
+              v-for="segment in bucketSegments"
+              :key="segment.key"
+              class="mn-histogram-segment"
+              :style="{ width: `${segment.percent}%`, background: segment.color }"
+            ></span>
+          </div>
+          <p v-else class="mn-empty-line">—</p>
+          <div v-if="bucketSegments.length > 0" class="mn-histogram-legend">
+            <span v-for="segment in bucketSegments" :key="segment.key" class="mn-legend-item">
+              <span
+                class="mn-legend-dot"
+                :style="{ background: segment.color }"
+                aria-hidden="true"
+              ></span>
+              <span>{{ t(`monitor.bucket.${segment.key}`) }}</span>
+              <b>{{ formatNumber(segment.count) }}</b>
+            </span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Trap 原因 -->
+      <section class="mn-sheet" aria-labelledby="traps-label">
+        <div class="mn-sheet-head">
+          <h4 id="traps-label" class="mn-sheet-title">{{ t('monitor.section.traps') }}</h4>
+          <span class="mn-sheet-aside" :class="{ 'is-danger': trapTotal > 0 }">{{
+            formatNumber(trapTotal)
+          }}</span>
+        </div>
+        <div :data-testid="`monitor-traps-${row.id}`">
+          <ul v-if="trapEntries.length > 0" class="mn-trap-list">
+            <li v-for="trap in trapEntries" :key="trap.key">
+              <span>{{ trapLabel(trap.key) }}</span>
+              <b>{{ formatNumber(trap.value) }}</b>
+            </li>
+          </ul>
+          <p v-else class="mn-ok-line">
+            <span class="mn-state-dot is-success" aria-hidden="true"></span>
+            {{ t('monitor.inspector.noTraps') }}
+          </p>
+        </div>
+      </section>
+
+      <!-- 生命周期 -->
+      <section class="mn-sheet" aria-labelledby="lifecycle-label">
+        <div class="mn-sheet-head">
+          <h4 id="lifecycle-label" class="mn-sheet-title">{{ t('monitor.section.lifecycle') }}</h4>
+          <span v-if="latest" class="mn-sheet-aside">
+            {{
+              t('monitor.metric.lastEvent', {
+                event: lifecycleLabel(latest.key),
+                time: formatUnixTime(latest.unix, localeTag),
+              })
+            }}
+          </span>
+        </div>
+        <div class="mn-lifecycle">
+          <div v-for="key in LIFECYCLE_KEYS" :key="key" class="mn-lifecycle-item">
+            <span class="mn-number-value is-small">{{ formatNumber(lifecycleValue(key)) }}</span>
+            <span class="mn-number-label">{{ lifecycleLabel(key) }}</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- 授权 / 总线 -->
+      <div class="mn-split">
+        <section class="mn-sheet" aria-labelledby="authz-label">
+          <h4 id="authz-label" class="mn-sheet-title">{{ t('monitor.section.authz') }}</h4>
+          <dl class="mn-kv">
+            <div>
+              <dt>{{ t('monitor.metric.authzAllow') }}</dt>
+              <dd>{{ formatNumber(authz.allow) }}</dd>
+            </div>
+            <div>
+              <dt>{{ t('monitor.metric.authzDeny') }}</dt>
+              <dd :class="{ 'is-danger': (authz.deny ?? 0) > 0 }">
+                {{ formatNumber(authz.deny) }}
+              </dd>
+            </div>
+            <div>
+              <dt>{{ t('monitor.metric.authzApproval') }}</dt>
+              <dd>{{ formatNumber(authz.require_approval) }}</dd>
+            </div>
+            <div>
+              <dt>{{ t('monitor.metric.authzDropped') }}</dt>
+              <dd :class="{ 'is-warning': (authz.records_dropped ?? 0) > 0 }">
+                {{ formatNumber(authz.records_dropped) }}
+              </dd>
+            </div>
+          </dl>
+        </section>
+        <section class="mn-sheet" aria-labelledby="bus-label">
+          <h4 id="bus-label" class="mn-sheet-title">{{ t('monitor.section.bus') }}</h4>
+          <dl class="mn-kv">
+            <div>
+              <dt>{{ t('monitor.metric.busDropped') }}</dt>
+              <dd :class="{ 'is-warning': (bus.dropped ?? 0) > 0 }">
+                {{ formatNumber(bus.dropped) }}
+              </dd>
+            </div>
+            <div>
+              <dt>{{ t('monitor.metric.busFormatRejected') }}</dt>
+              <dd>{{ formatNumber(bus.format_rejected) }}</dd>
+            </div>
+          </dl>
+        </section>
       </div>
-    </details>
+
+      <details class="mn-quota" :data-testid="`monitor-quota-${row.id}`">
+        <summary class="mn-quota-summary" :data-testid="`monitor-quota-toggle-${row.id}`">
+          <span>{{ t('monitor.section.quota') }}</span>
+          <span class="mn-chevron" aria-hidden="true"></span>
+        </summary>
+        <div class="mn-quota-body">
+          <div class="mn-quota-grid">
+            <div v-for="entry in quotaEntries" :key="entry.key" class="mn-kv-row">
+              <span>{{ entry.label }}</span>
+              <b>{{ entry.value }}</b>
+            </div>
+          </div>
+          <p class="mn-quota-note" :data-testid="`monitor-quota-note-${row.id}`">
+            {{ t('monitor.metric.quotaNote') }}
+          </p>
+        </div>
+      </details>
+    </template>
+
+    <section v-else class="mn-inspector-unavailable" data-testid="monitor-metrics-unavailable">
+      <h4 class="mn-sheet-title">{{ t('monitor.inspector.noMetricsTitle') }}</h4>
+      <p class="mn-empty-line">{{ t('monitor.inspector.noMetricsHint') }}</p>
+    </section>
   </article>
 </template>

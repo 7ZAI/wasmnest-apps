@@ -15,6 +15,8 @@ import {
   formatNumber,
   formatRatio,
   formatUnixTime,
+  isServiceKind,
+  roleI18nKey,
   sumValues,
   usageRatio,
 } from '../utils/format'
@@ -54,6 +56,15 @@ const runningText = computed(() =>
   rows.value.some((row) => row.state !== 'unknown') ? String(runningCount.value) : '—',
 )
 const statesKnown = computed(() => rows.value.some((row) => row.state !== 'unknown'))
+const serviceCount = computed(() => rows.value.filter((row) => isServiceKind(row.kind)).length)
+const appCount = computed(() => rows.value.filter((row) => row.kind === 'business-app').length)
+const roleSummaryVisible = computed(() => appCount.value + serviceCount.value > 0)
+const unavailableCount = computed(() => rows.value.filter((row) => !row.metricsAvailable).length)
+
+function serviceRoleText(row: PluginRow): string {
+  const key = isServiceKind(row.kind) ? roleI18nKey(row.kind) : null
+  return key ? t(key) : ''
+}
 
 const attentionRows = computed(() =>
   rows.value.filter((row) => {
@@ -219,6 +230,13 @@ onBeforeUnmount(stop)
                 t('monitor.kpi.pluginsValue', { running: runningText, total: summary.pluginCount })
               }}
             </span>
+            <span
+              v-if="unavailableCount > 0"
+              class="mn-vital-note is-warning"
+              data-testid="monitor-kpi-unavailable"
+            >
+              {{ t('monitor.kpi.pluginsUnavailable', { n: unavailableCount }) }}
+            </span>
           </div>
           <div class="mn-vital" data-testid="monitor-kpi-calls">
             <span class="mn-vital-value">{{ formatNumber(summary.callsTotal) }}</span>
@@ -269,6 +287,9 @@ onBeforeUnmount(stop)
         <div>
           <h2 id="plugins-title" class="mn-section-title">{{ t('monitor.ledger.title') }}</h2>
           <p class="mn-section-hint">{{ t('monitor.ledger.hint') }}</p>
+          <p v-if="roleSummaryVisible" class="mn-role-summary" data-testid="monitor-role-summary">
+            {{ t('monitor.ledger.roleSummary', { apps: appCount, services: serviceCount }) }}
+          </p>
         </div>
         <p
           v-if="hostInfoWarning && !error"
@@ -292,6 +313,7 @@ onBeforeUnmount(stop)
             :data-testid="`monitor-plugin-${row.id}`"
             :data-plugin-id="row.id"
             :data-state="row.state"
+            :data-metrics-available="row.metricsAvailable"
             :aria-current="row.id === selectedId ? 'true' : undefined"
             aria-controls="monitor-inspector"
             @click="selectedId = row.id"
@@ -300,6 +322,12 @@ onBeforeUnmount(stop)
               <span class="mn-state-dot" :class="`is-${row.state}`" aria-hidden="true"></span>
               <span class="mn-ledger-name">{{ row.name }}</span>
               <span v-if="row.version" class="mn-ledger-version">{{ row.version }}</span>
+              <span
+                v-if="serviceRoleText(row)"
+                class="mn-role"
+                :data-testid="`monitor-role-${row.id}`"
+                >{{ serviceRoleText(row) }}</span
+              >
               <span v-if="row.id === context.id" class="mn-tag">{{ t('monitor.self') }}</span>
               <span class="mn-ledger-state" :data-testid="`monitor-state-${row.id}`">
                 {{ t(`monitor.state.${row.state}`) }}
@@ -308,7 +336,7 @@ onBeforeUnmount(stop)
 
             <div class="mn-ledger-id">{{ row.id }}</div>
 
-            <div class="mn-ledger-meta">
+            <div v-if="row.metricsAvailable" class="mn-ledger-meta">
               <span class="mn-ledger-mem">
                 {{ formatBytes(row.metrics.memory_current_bytes) }}
                 <span class="mn-muted">
@@ -325,8 +353,13 @@ onBeforeUnmount(stop)
                 {{ formatNumber(trapTotalOf(row)) }} Trap
               </span>
             </div>
+            <div v-else class="mn-ledger-meta">
+              <span class="mn-ledger-unavailable">
+                {{ t('monitor.ledger.metricsUnavailable') }}
+              </span>
+            </div>
 
-            <div class="mn-waterline is-compact" aria-hidden="true">
+            <div v-if="row.metricsAvailable" class="mn-waterline is-compact" aria-hidden="true">
               <div
                 v-if="memoryRatioOf(row) !== null"
                 class="mn-waterline-fill"

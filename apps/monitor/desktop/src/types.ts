@@ -34,11 +34,18 @@ export type MetricsSnapshot = {
   plugins: Record<string, PluginMetricsSnapshot>
 } & Record<string, unknown>
 
+/** 装配角色（manifest `type`；旧宿主缺省时落 unknown，不猜成应用） */
+export type PluginKindRole = 'basic-service' | 'internal-business' | 'business-app' | 'unknown'
+
 /** 桌面宿主 `plugin_list_loaded` 条目（只取页面用到的字段） */
 export interface HostPluginInfo {
   id: string
   name: string
   version?: string
+  /** 产物形态：rust / rust-ts / wasm / ts-only */
+  pluginType?: string
+  /** 装配角色（L1 基础服务 / L2 内部业务 / L3 应用） */
+  kind?: string
   state?: { state?: string; error?: string } | string
 }
 
@@ -51,9 +58,15 @@ export interface PluginRow {
   id: string
   name: string
   version?: string
+  kind: PluginKindRole
   state: PluginDisplayState
   stateRaw: string
   stateError?: string
+  /**
+   * 是否有运行时指标。宿主清单里存在、但未实例化（装载失败 / 待授权等）的
+   * wasm 插件也会出行，此时为 false，页面不得用零值冒充真实指标。
+   */
+  metricsAvailable: boolean
   metrics: PluginMetricsSnapshot
 }
 

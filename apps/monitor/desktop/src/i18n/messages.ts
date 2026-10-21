@@ -23,6 +23,11 @@ export type MessageSchema = {
   'monitor.self': string
   'monitor.hostInfoUnavailable': string
 
+  // ==================== 装配角色 ====================
+  'monitor.role.basicService': string
+  'monitor.role.internalBusiness': string
+  'monitor.role.businessApp': string
+
   // ==================== 错误 / 空态（fail-visible） ====================
   'monitor.error.title': string
   'monitor.error.hint': string
@@ -33,6 +38,7 @@ export type MessageSchema = {
   // ==================== KPI ====================
   'monitor.kpi.plugins': string
   'monitor.kpi.pluginsValue': string
+  'monitor.kpi.pluginsUnavailable': string
   'monitor.kpi.calls': string
   'monitor.kpi.inFlight': string
   'monitor.kpi.inFlightHint': string
@@ -146,8 +152,12 @@ export type MessageSchema = {
   'monitor.ledger.hint': string
   'monitor.ledger.calls': string
   'monitor.ledger.select': string
+  'monitor.ledger.roleSummary': string
+  'monitor.ledger.metricsUnavailable': string
   'monitor.inspector.usage': string
   'monitor.inspector.noTraps': string
+  'monitor.inspector.noMetricsTitle': string
+  'monitor.inspector.noMetricsHint': string
   'monitor.host.hint': string
   'monitor.footer.source': string
   'monitor.footer.session': string

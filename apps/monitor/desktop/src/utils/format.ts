@@ -8,6 +8,7 @@ import type {
   HostPluginInfo,
   MetricsSnapshot,
   PluginDisplayState,
+  PluginKindRole,
   PluginMetricsSnapshot,
   PluginRow,
   SystemSection,
@@ -77,16 +78,96 @@ const STATE_RANK: Record<PluginDisplayState, number> = {
   unknown: 4,
 }
 
+/** 同一状态下服务优先于业务应用（认证中心等基础服务先被发现） */
+const ROLE_RANK: Record<PluginKindRole, number> = {
+  'basic-service': 0,
+  'internal-business': 1,
+  'business-app': 2,
+  unknown: 3,
+}
+
+/** 宿主清单有、指标快照无时只补这些异常态，正常未运行的应用不进入运行时台账 */
+const HOST_ONLY_VISIBLE_STATES = new Set<PluginDisplayState>(['error', 'degraded', 'approval'])
+
+/** 携带 wasm Store 的产物形态；ts-only 没有运行时指标 */
+const WASM_PLUGIN_TYPES = new Set(['rust', 'rust-ts', 'wasm'])
+
+/** manifest kind → 展示角色（兼容历史别名 system / application） */
+export function normalizePluginKind(raw: unknown): PluginKindRole {
+  switch (raw) {
+    case 'basic-service':
+    case 'system':
+      return 'basic-service'
+    case 'internal-business':
+      return 'internal-business'
+    case 'business-app':
+    case 'application':
+      return 'business-app'
+    default:
+      return 'unknown'
+  }
+}
+
+/** 角色徽标的 i18n key；unknown 不出徽标 */
+export function roleI18nKey(kind: PluginKindRole): string | null {
+  switch (kind) {
+    case 'basic-service':
+      return 'monitor.role.basicService'
+    case 'internal-business':
+      return 'monitor.role.internalBusiness'
+    case 'business-app':
+      return 'monitor.role.businessApp'
+    default:
+      return null
+  }
+}
+
+/** 是否为服务型角色（L1 / L2） */
+export function isServiceKind(kind: PluginKindRole): boolean {
+  return kind === 'basic-service' || kind === 'internal-business'
+}
+
+function isWasmBearingPluginType(raw: unknown): boolean | undefined {
+  if (typeof raw !== 'string' || raw.trim() === '') return undefined
+  return WASM_PLUGIN_TYPES.has(raw.toLowerCase())
+}
+
+function emptyPluginMetrics(): PluginMetricsSnapshot {
+  return {
+    memory_current_bytes: 0,
+    memory_peak_bytes: 0,
+    calls_total: 0,
+    calls_in_flight: 0,
+    fuel_consumed_total: 0,
+    call_duration_us_total: 0,
+    call_duration_us_max: 0,
+    call_duration_buckets: [],
+    lifecycle: {},
+    lifecycle_last_unix: {},
+    trap_reasons: {},
+    memory_grow_denied_total: 0,
+    table_grow_denied_total: 0,
+    activation_us_total: 0,
+    activation_us_max: 0,
+    quota: {},
+    authz: {},
+    bus: {},
+  }
+}
+
 function stateOfInfo(info: HostPluginInfo): { raw: string; error?: string } {
   if (typeof info.state === 'string') return { raw: info.state }
   return { raw: info.state?.state ?? '', error: info.state?.error }
 }
 
 /**
- * 指标 + 宿主清单合并为按状态排序的插件行。
+ * 指标 + 宿主清单合并为按状态 / 角色排序的插件行。
  *
- * `infos` 缺失（清单命令失败 / 移动端不提供）时仍以指标里的 plugin_id 出行，
- * 状态落 `unknown`——不把「查不到状态」显示成「未运行」。
+ * - 指标行带 manifest 角色（L1 基础服务 / L2 内部业务 / L3 应用）；
+ * - 宿主清单里有、指标快照里没有的 wasm 插件（装载失败 / 待授权）补一行，
+ *   `metricsAvailable=false`——服务失联不能从台账里静默消失；
+ * - `infos` 缺失（清单命令失败 / 移动端不提供）时仍以指标里的 plugin_id 出行，
+ *   状态落 `unknown`——不把「查不到状态」显示成「未运行」。
  */
 export function mergePluginRows(
   snapshot: MetricsSnapshot,
@@ -104,16 +185,40 @@ export function mergePluginRows(
       id,
       name: info?.name?.trim() || id,
       version: info?.version,
+      kind: normalizePluginKind(info?.kind),
       state: displayStateOf(state.raw),
       stateRaw: state.raw,
       stateError: state.error,
+      metricsAvailable: true,
       metrics,
     }
   })
 
+  for (const [id, info] of infoById) {
+    if (snapshot.plugins[id]) continue
+    const state = stateOfInfo(info)
+    const displayState = displayStateOf(state.raw)
+    if (!HOST_ONLY_VISIBLE_STATES.has(displayState)) continue
+    // 明确 ts-only 的插件不进入 wasm 运行时台账；缺 pluginType 的老宿主按异常态兜底
+    if (isWasmBearingPluginType(info.pluginType) === false) continue
+    rows.push({
+      id,
+      name: info.name?.trim() || id,
+      version: info.version,
+      kind: normalizePluginKind(info.kind),
+      state: displayState,
+      stateRaw: state.raw,
+      stateError: state.error,
+      metricsAvailable: false,
+      metrics: emptyPluginMetrics(),
+    })
+  }
+
   return rows.sort((a, b) => {
     const rank = STATE_RANK[a.state] - STATE_RANK[b.state]
     if (rank !== 0) return rank
+    const roleRank = ROLE_RANK[a.kind] - ROLE_RANK[b.kind]
+    if (roleRank !== 0) return roleRank
     return a.name.localeCompare(b.name)
   })
 }
