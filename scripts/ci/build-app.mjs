@@ -38,6 +38,7 @@ import {
 import { join, resolve } from 'node:path'
 
 import { APPS_ROOT, appInfo, readJson } from './app-info.mjs'
+import { checkReleasePurity } from './check-release-purity.mjs'
 import {
   desktopHostResourcesDir,
   mobileHostResourcesDir,
@@ -182,7 +183,8 @@ async function main() {
   }
 
   // ==================== 产物复核（版本 / 插件 id） ====================
-  const shippedManifestPath = join(resourcesRoot, target.id, 'plugin.json')
+  const shippedDir = join(resourcesRoot, target.id)
+  const shippedManifestPath = join(shippedDir, 'plugin.json')
   const shipped = readJson(shippedManifestPath, `产物清单 ${shippedManifestPath}`)
   if (shipped.id !== target.id) {
     fail(

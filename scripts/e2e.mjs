@@ -56,7 +56,7 @@ import {
   rmSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import {
   APPS_ROOT,
   assertHostCompatible,
@@ -65,6 +65,7 @@ import {
   readHostRuntimeLock,
   resolveHostRuntime,
 } from './host-runtime.mjs'
+import { installRuntime, runtimeMissingHint } from './install-runtime.mjs'
 import {
   cargoHostBin,
   hostExpectations,
@@ -177,6 +178,32 @@ function preflightHost({ mode, hostFlag }) {
     }
     console.log(`[e2e] 宿主二进制（cargo）：${bin}`)
     return { bin, meta: null, source: 'cargo' }
+  }
+
+  // runtime 模式：宿主 = L2 通用 runtime crate 装出来的二进制（无 host-version.json），
+  // 版本在**安装时**由 lock 钉住（cargo install --version =<lock 版本>），挂载契约由宿主
+  // 装载 app 时自己判（useAppMount 的 mountContract 校验）——因此这里不做 meta 比对，
+  // 但必须把「为什么没比对」打在日志里，不能让读者以为校验过了。
+  if (mode === 'runtime') {
+    const explicit = hostFlag || process.env.WASMNEST_HOST_RUNTIME_BIN
+    let bin = explicit || null
+    if (!bin) {
+      let result
+      try {
+        result = installRuntime({ print: true })
+      } catch (e) {
+        fail(e.message)
+      }
+      if (!existsSync(result.bin)) {
+        console.error(runtimeMissingHint({ version: result.version || '<lock 版本>', channel: 'crates-io' }))
+        process.exit(1)
+      }
+      bin = result.bin
+    }
+    if (!existsSync(bin)) fail(`宿主 runtime 二进制不存在：${bin}`, '安装：node scripts/install-runtime.mjs --from <平台仓根>')
+    console.log(`[e2e] 宿主产物（runtime crate）：${bin}`)
+    console.log('[e2e]   注：runtime 通道无 host-version.json，版本在安装时按 lock 钉住；挂载契约由宿主装载时校验')
+    return { bin, dir: dirname(bin), meta: null, source: 'runtime' }
   }
 
   let host = null
