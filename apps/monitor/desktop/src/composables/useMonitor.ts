@@ -17,7 +17,16 @@ import {
   normalizeSnapshot,
   summarize,
 } from '../utils/format'
-import type { HostPluginInfo, MetricsSnapshot, PluginRow, SystemSection } from '../types'
+import type {
+  HostPluginInfo,
+  MetricsSnapshot,
+  PluginRow,
+  SystemSection,
+  RuntimeSample,
+} from '../types'
+
+/** 本次打开最多保留的采样数（1s 轮询 ≈ 一分钟；不落盘） */
+const HISTORY_LIMIT = 60
 
 export interface UseMonitorOptions {
   /** 轮询周期（毫秒；默认 1000） */
@@ -48,6 +57,8 @@ export function useMonitor(
   const hostInfoWarning = ref<string | null>(null)
   const loading = ref(false)
   const lastUpdated = ref<number | null>(null)
+  /** 本次打开期间的采样序列（仅内存）；速率为相邻采样差值 */
+  const samples = ref<RuntimeSample[]>([])
 
   let timer: ReturnType<typeof setInterval> | null = null
   let inflight = false
@@ -77,11 +88,22 @@ export function useMonitor(
         loadHostInfos(),
       ])
       const next = normalizeSnapshot(raw)
+      const now = Date.now()
+      const totals = summarize(next)
       snapshot.value = next
       rows.value = mergePluginRows(next, infos)
       systems.value = collectSystemSections(next, { includeTask })
       error.value = null
-      lastUpdated.value = Date.now()
+      lastUpdated.value = now
+      samples.value = [
+        ...samples.value,
+        {
+          at: now,
+          callsTotal: totals.callsTotal,
+          callsInFlight: totals.callsInFlight,
+          trapsTotal: totals.trapsTotal,
+        },
+      ].slice(-HISTORY_LIMIT)
     } catch (e) {
       // 保留旧快照与旧行：页面用 stale 标记提示「数据已过期」，不白屏
       error.value = describeError(e)
@@ -118,6 +140,7 @@ export function useMonitor(
     hostInfoWarning,
     loading,
     lastUpdated,
+    samples,
     refresh,
     start,
     stop,

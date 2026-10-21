@@ -1,6 +1,7 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import {
   averageUs,
+  callRate,
   collectSystemSections,
   describeError,
   displayStateOf,
@@ -173,6 +174,24 @@ describe('数值 / 时间格式化', () => {
     expect(formatUnixTime(0)).toBe('—')
     expect(formatUnixTime(undefined)).toBe('—')
     expect(formatUnixTime(1_700_000_000)).toMatch(/\d{2}:\d{2}:\d{2}/)
+  })
+
+  it('formatUnixTime：原样使用调用方传入的 locale（不按 en/zh 前缀猜）', () => {
+    const spy = vi.spyOn(Intl, 'DateTimeFormat')
+    formatUnixTime(1_700_000_000, 'en-US')
+
+    expect(spy).toHaveBeenCalledWith('en-US', expect.any(Object))
+    spy.mockRestore()
+  })
+})
+
+describe('callRate（相邻采样差值）', () => {
+  it('正常增量 / 不同间隔 / 计数回退 / 间隔过短', () => {
+    expect(callRate(100, 300, 1000)).toBe(200)
+    expect(callRate(100, 300, 2000)).toBe(100)
+    expect(callRate(300, 100, 1000)).toBeNull()
+    expect(callRate(100, 300, 100)).toBeNull()
+    expect(callRate(undefined, 300, 1000)).toBeNull()
   })
 })
 

@@ -56,6 +56,7 @@ describe('MonitorView（桌面界面契约）', () => {
     )
     expect(wrapper.find('[data-testid="monitor-system-task"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="monitor-kpi-calls"]').text()).toContain('12')
+    expect(wrapper.find('[data-testid="monitor-live"]').exists()).toBe(true)
     // 1s 轮询只发一次初始请求（后续定时器由用例卸载清理）
     expect(execute).toHaveBeenCalledTimes(1)
   })
@@ -72,6 +73,27 @@ describe('MonitorView（桌面界面契约）', () => {
     expect(wrapper.find('[data-testid="monitor-error"]').text()).toContain('metrics:read denied')
     expect(wrapper.find('[data-testid="monitor-plugin-list"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="monitor-empty"]').exists()).toBe(false)
+    // 失败时不得同时宣称「实时」
+    expect(wrapper.find('[data-testid="monitor-live"]').exists()).toBe(false)
+  })
+
+  it('刷新失败但保留旧数据：隐藏实时徽章并显示过期标记', async () => {
+    vi.useFakeTimers()
+    let fail = false
+    const execute = vi.fn(async () => {
+      if (fail) throw new Error('metrics:read denied')
+      return snapshot({ a: metrics() })
+    })
+    const wrapper = mountView(makeContext(execute, async () => []))
+
+    await vi.advanceTimersByTimeAsync(0)
+    expect(wrapper.find('[data-testid="monitor-live"]').exists()).toBe(true)
+
+    fail = true
+    await vi.advanceTimersByTimeAsync(1000)
+
+    expect(wrapper.find('[data-testid="monitor-stale"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="monitor-live"]').exists()).toBe(false)
   })
 
   it('宿主清单不可用：运行中数量显示 —（不把查不到说成 0），并给出降级提示', async () => {
@@ -131,5 +153,31 @@ describe('MonitorView（桌面界面契约）', () => {
 
     expect(wrapper.find('[data-testid="monitor-error"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="monitor-plugin-list"]').exists()).toBe(true)
+  })
+  it('选择台账另一行：详情切换到该插件', async () => {
+    const execute = vi.fn(async () =>
+      snapshot({
+        'com.wasmnest.a': metrics({ calls_total: 1 }),
+        'com.wasmnest.b': metrics({ calls_total: 2 }),
+      }),
+    )
+    const hostInvoke = vi.fn(async () => [
+      info({ id: 'com.wasmnest.a', name: 'A' }),
+      info({ id: 'com.wasmnest.b', name: 'B' }),
+    ])
+    const wrapper = mountView(makeContext(execute, hostInvoke))
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="monitor-inspector"]').attributes('data-plugin-id')).toBe(
+      'com.wasmnest.a',
+    )
+
+    await wrapper.find('[data-testid="monitor-plugin-com.wasmnest.b"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="monitor-inspector"]').attributes('data-plugin-id')).toBe(
+      'com.wasmnest.b',
+    )
+    expect(wrapper.find('[data-testid="monitor-inspector"]').text()).toContain('com.wasmnest.b')
   })
 })

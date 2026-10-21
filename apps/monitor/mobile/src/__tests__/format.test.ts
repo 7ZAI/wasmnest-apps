@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
+  callRate,
   collectSystemSections,
   formatBytes,
   formatDurationUs,
@@ -57,6 +58,16 @@ describe('格式化', () => {
     expect(formatDurationUs(1500)).toBe('1.50 ms')
     expect(formatRatio(0.25)).toBe('25.0%')
     expect(formatRatio(null)).toBe('—')
+  })
+})
+
+describe('callRate（相邻采样差值）', () => {
+  it('正常增量 / 其它间隔 / 回退与过短间隔', () => {
+    expect(callRate(10, 30, 1000)).toBe(20)
+    expect(callRate(10, 30, 500)).toBe(40)
+    expect(callRate(30, 10, 1000)).toBeNull()
+    expect(callRate(10, 30, 150)).toBeNull()
+    expect(callRate(undefined, 30, 1000)).toBeNull()
   })
 })
 

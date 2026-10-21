@@ -27,6 +27,7 @@ export type MessageSchema = {
   'monitor.kpi.pluginsValue': string
   'monitor.kpi.calls': string
   'monitor.kpi.inFlight': string
+  'monitor.kpi.inFlightHint': string
   'monitor.kpi.traps': string
   'monitor.kpi.memoryPeak': string
 
@@ -90,4 +91,31 @@ export type MessageSchema = {
   'monitor.bucket.le1s': string
   'monitor.bucket.le10s': string
   'monitor.bucket.gt10s': string
+
+  // ==================== 仪表盘 / 插件台账 / 底注 ====================
+  'monitor.hero.calm': string
+  'monitor.hero.attention': string
+  'monitor.hero.noTraps': string
+  'monitor.hero.unknown': string
+  'monitor.hero.stale': string
+  'monitor.hero.proof': string
+  'monitor.hero.proofUnknown': string
+  'monitor.hero.proofStale': string
+  'monitor.hero.proofMobile': string
+  'monitor.signal.title': string
+  'monitor.signal.perSecond': string
+  'monitor.signal.window': string
+  'monitor.signal.justStarted': string
+  'monitor.signal.starting': string
+  'monitor.signal.inFlight': string
+  'monitor.signal.note': string
+  'monitor.signal.peak': string
+  'monitor.ledger.title': string
+  'monitor.ledger.hint': string
+  'monitor.ledger.calls': string
+  'monitor.ledger.select': string
+  'monitor.inspector.usage': string
+  'monitor.inspector.noTraps': string
+  'monitor.footer.source': string
+  'monitor.footer.session': string
 }

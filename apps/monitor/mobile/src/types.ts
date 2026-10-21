@@ -44,3 +44,14 @@ export interface SystemSection {
   id: string
   data: Record<string, unknown>
 }
+
+/**
+ * 本次打开期间的采样点（仅前端内存，不落盘、不上报）。
+ * 速率为相邻采样的差值；页面卸载即丢失。
+ */
+export interface RuntimeSample {
+  at: number
+  callsTotal: number
+  callsInFlight: number
+  trapsTotal: number
+}

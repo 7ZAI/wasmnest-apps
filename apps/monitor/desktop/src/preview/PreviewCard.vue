@@ -67,7 +67,8 @@ onUnmounted(() => {
     </div>
 
     <div v-else-if="!hasData" class="mnpv-state">
-      <span class="mnpv-state-text">{{ t('monitor.preview.empty') }}</span>
+      <span class="mnpv-state-text">{{ t('monitor.preview.noPlugins') }}</span>
+      <span class="mnpv-hint">{{ t('monitor.preview.noPluginsHint') }}</span>
     </div>
 
     <div v-else class="mnpv-grid">
@@ -182,9 +183,8 @@ onUnmounted(() => {
 }
 
 .mnpv-value {
-  font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
-  font-size: calc(14px * var(--ui-scale));
+  font-size: calc(15px * var(--ui-scale));
   font-weight: 600;
   color: var(--text-primary);
   white-space: nowrap;

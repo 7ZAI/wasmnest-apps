@@ -114,6 +114,29 @@ export function averageUs(
   return total / calls
 }
 
+/**
+ * 相邻两次采样的调用速率（次/秒）。
+ * 计数回退（宿主重启 / 插件重载）或采样间隔过短时返回 null，由图表断开，
+ * 不用负值或补点冒充连续数据。
+ */
+export function callRate(
+  previousCalls: number | null | undefined,
+  currentCalls: number | null | undefined,
+  elapsedMs: number | null | undefined,
+): number | null {
+  if (
+    !isFiniteNumber(previousCalls) ||
+    !isFiniteNumber(currentCalls) ||
+    !isFiniteNumber(elapsedMs) ||
+    elapsedMs < 200
+  ) {
+    return null
+  }
+  const delta = currentCalls - previousCalls
+  if (delta < 0) return null
+  return delta / (elapsedMs / 1000)
+}
+
 /** 占比（分母 <= 0 → null） */
 export function usageRatio(
   part: number | null | undefined,

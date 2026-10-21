@@ -58,6 +58,18 @@ describe('PreviewCard（多任务卡片只读预览面）', () => {
     wrapper.unmount()
   })
 
+  it('零插件是合法空快照：显示「暂无插件」，不与读取失败混淆', async () => {
+    const env = makeEnv({
+      appInvoke: vi.fn(async () => snapshot({})) as AppPreviewEnv['appInvoke'],
+    })
+    const wrapper = mount(PreviewCard, { props: { env } })
+
+    await flushPromises()
+    expect(wrapper.text()).toContain('暂无插件')
+    expect(wrapper.text()).not.toContain('指标不可读')
+    wrapper.unmount()
+  })
+
   it('卸载后晚到数据不写回已卸载组件', async () => {
     let resolveInvoke: ((value: unknown) => void) | undefined
     const env = makeEnv({

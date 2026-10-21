@@ -24,6 +24,7 @@ const en: MessageSchema = {
   'monitor.kpi.pluginsValue': '{running} / {total} running',
   'monitor.kpi.calls': 'Total calls',
   'monitor.kpi.inFlight': 'In flight',
+  'monitor.kpi.inFlightHint': "Includes this app's own call",
   'monitor.kpi.traps': 'Total traps',
   'monitor.kpi.memoryPeak': 'Peak memory (sum)',
 
@@ -87,6 +88,34 @@ const en: MessageSchema = {
   'monitor.bucket.le1s': '<1 s',
   'monitor.bucket.le10s': '<10 s',
   'monitor.bucket.gt10s': '≥10 s',
+
+  'monitor.hero.calm': 'No traps recorded',
+  'monitor.hero.attention': 'Needs attention: {count}',
+  'monitor.hero.noTraps': 'No traps recorded',
+  'monitor.hero.unknown': 'Runtime state unknown',
+  'monitor.hero.stale': 'Data is stale',
+  'monitor.hero.proof': '{plugins} plugins · {calls} calls · {traps} traps',
+  'monitor.hero.proofUnknown':
+    'Mobile cannot read the host plugin list; rows below show plugin ids from metrics only.',
+  'monitor.hero.proofStale':
+    'The latest refresh failed. Values below are the last successful snapshot, not live.',
+  'monitor.hero.proofMobile': 'Mobile reads metrics only; host runtime state is not available.',
+  'monitor.signal.title': 'Call rate',
+  'monitor.signal.perSecond': 'per second',
+  'monitor.signal.window': 'This session · last {seconds}s',
+  'monitor.signal.justStarted': 'This session · just started',
+  'monitor.signal.starting': 'Establishing baseline',
+  'monitor.signal.inFlight': '{n} in flight',
+  'monitor.signal.note': 'Rate is the delta between polls and lives only in this session.',
+  'monitor.signal.peak': 'Peak {n}/s',
+  'monitor.ledger.title': 'Plugins',
+  'monitor.ledger.hint': 'Open a row to inspect its full metrics.',
+  'monitor.ledger.calls': '{n} calls',
+  'monitor.ledger.select': 'Inspect {name} metrics',
+  'monitor.inspector.usage': '{ratio} of memory limit',
+  'monitor.inspector.noTraps': 'No traps recorded',
+  'monitor.footer.source': 'Data from monitor.snapshot · permission metrics:read',
+  'monitor.footer.session': 'This session · cleared on close',
 }
 
 export default en

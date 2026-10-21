@@ -7,8 +7,8 @@ import { wasmnestPlugin } from '@binblink/wasmnest-plugin-sdk-mobile/vite'
  * Monitor（移动端）构建：SDK `wasmnestPlugin()`（vue / vue-i18n / pinia 外置为
  * 宿主全局）；产物入口 `src/index.ts`，宿主 loader 调 activate 注册运行面。
  *
- * 本 app 的样式全部使用宿主 Tailwind 工具类（移动宿主 Tailwind content 扫描
- * apps/<slug>/mobile/src），不产生独立 CSS 资产，无需内联插件。
+ * SDK 的 vite 插件已在库模式下把全部 CSS（含本 app 的 SFC scoped 样式）内联进
+ * 入口 chunk —— 宿主只 import index.js，不会加载 dist/style.css。
  */
 export default defineConfig({
   plugins: [vue(), wasmnestPlugin()],

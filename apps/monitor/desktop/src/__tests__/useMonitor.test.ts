@@ -112,4 +112,54 @@ describe('useMonitor（桌面：1s 轮询 + 宿主清单合并）', () => {
     expect(execute).toHaveBeenCalledTimes(1)
     expect(m.rows.value).toHaveLength(1)
   })
+
+  it('页面隐藏时跳过轮询刷新（不烧电量、不叠加请求）', async () => {
+    vi.useFakeTimers()
+    vi.spyOn(document, 'hidden', 'get').mockReturnValue(true)
+    const execute = vi.fn(async () => snapshot({ a: metrics() }))
+    const m = useMonitor(makeContext(execute), { intervalMs: 1000, withHostInfo: false })
+
+    m.start()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(execute).toHaveBeenCalledTimes(1)
+
+    await vi.advanceTimersByTimeAsync(3000)
+    expect(execute).toHaveBeenCalledTimes(1)
+    m.stop()
+  })
+  it('成功采样进入本次打开序列，失败不追加；上限 60 条', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-01-01T00:00:00Z'))
+    let calls = 1
+    let fail = false
+    const execute = vi.fn(async () => {
+      if (fail) throw new Error('metrics:read denied')
+      return snapshot({ a: metrics({ calls_total: calls }) })
+    })
+    const m = useMonitor(makeContext(execute), { withHostInfo: false })
+
+    await m.refresh()
+    expect(m.samples.value).toHaveLength(1)
+    expect(m.samples.value[0].callsTotal).toBe(1)
+
+    await vi.advanceTimersByTimeAsync(1000)
+    calls = 5
+    await m.refresh()
+    expect(m.samples.value).toHaveLength(2)
+    expect(m.samples.value[1].callsTotal).toBe(5)
+
+    fail = true
+    await m.refresh()
+    expect(m.samples.value).toHaveLength(2)
+
+    fail = false
+    for (let i = 0; i < 65; i++) {
+      calls += 1
+      await vi.advanceTimersByTimeAsync(1000)
+      await m.refresh()
+    }
+    expect(m.samples.value).toHaveLength(60)
+    expect(m.samples.value[0].callsTotal).toBe(11)
+    expect(m.samples.value[59].callsTotal).toBe(70)
+  })
 })

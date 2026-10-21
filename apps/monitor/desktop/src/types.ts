@@ -63,6 +63,17 @@ export interface SystemSection {
   data: Record<string, unknown>
 }
 
+/**
+ * 本次打开期间的采样点（仅前端内存，不落盘、不上报）。
+ * 速率为相邻采样的差值；页面卸载即丢失，属于实时展示而非历史持久化。
+ */
+export interface RuntimeSample {
+  at: number
+  callsTotal: number
+  callsInFlight: number
+  trapsTotal: number
+}
+
 /** 宿主任务池快照（`task` 段，camelCase；桌面端展示） */
 export interface TaskMetrics {
   jobsSubmittedTotal?: number

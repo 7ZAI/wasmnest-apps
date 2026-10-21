@@ -180,6 +180,29 @@ export function averageUs(
   return total / calls
 }
 
+/**
+ * 相邻两次采样的调用速率（次/秒）。
+ * 计数回退（宿主重启 / 插件重载）或采样间隔过短时返回 null，由图表断开，
+ * 不用负值或补点冒充连续数据。
+ */
+export function callRate(
+  previousCalls: number | null | undefined,
+  currentCalls: number | null | undefined,
+  elapsedMs: number | null | undefined,
+): number | null {
+  if (
+    !isFiniteNumber(previousCalls) ||
+    !isFiniteNumber(currentCalls) ||
+    !isFiniteNumber(elapsedMs) ||
+    elapsedMs < 200
+  ) {
+    return null
+  }
+  const delta = currentCalls - previousCalls
+  if (delta < 0) return null
+  return delta / (elapsedMs / 1000)
+}
+
 /** 占比（分母 <= 0 → null；不除零、不把无上限说成 0%） */
 export function usageRatio(
   part: number | null | undefined,
@@ -229,7 +252,7 @@ export function latestLifecycle(
 export function formatUnixTime(unix: number | null | undefined, locale = 'zh-CN'): string {
   if (!isFiniteNumber(unix) || unix <= 0) return '—'
   try {
-    return new Intl.DateTimeFormat(locale === 'en' ? 'en-US' : 'zh-CN', {
+    return new Intl.DateTimeFormat(locale, {
       hour: '2-digit',
       minute: '2-digit',
       second: '2-digit',

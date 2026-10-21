@@ -2,8 +2,7 @@
 /**
  * 非插件维度指标段（桌面）：`task` 段按已知键翻译，其余段按原始键名展示。
  *
- * 这些段由宿主 `MetricsRegistry::register_source` 注册（当前为 host-task 的
- * `task`）；段缺失 = 该维度未注册（不是 0），组件不伪造。
+ * 段缺失 = 该维度未注册（不是 0），组件不伪造。
  */
 import { inject } from 'vue'
 import type { MonitorAppContext } from '../appContext'
@@ -11,9 +10,7 @@ import type { SystemSection } from '../types'
 import { formatNumber } from '../utils/format'
 
 const props = defineProps<{ sections: SystemSection[] }>()
-
 const context = inject<MonitorAppContext>('pluginContext')!
-
 const t = (key: string, params?: Record<string, unknown>): string => context.i18n.t(key, params)
 
 const TASK_KEYS = [
@@ -30,13 +27,22 @@ function titleOf(section: SystemSection): string {
   return section.id === 'task' ? t('monitor.task.title') : section.id
 }
 
-function entriesOf(section: SystemSection): Array<{ key: string; label: string; value: string }> {
+function entriesOf(
+  section: SystemSection,
+): Array<{ key: string; label: string; value: string; warning: boolean }> {
   if (section.id === 'task') {
-    return TASK_KEYS.map((key) => ({
-      key,
-      label: t(`monitor.task.${key}`),
-      value: formatNumber(section.data[key] as number | undefined),
-    }))
+    return TASK_KEYS.map((key) => {
+      const value = section.data[key] as number | undefined
+      return {
+        key,
+        label: t(`monitor.task.${key}`),
+        value: formatNumber(value),
+        warning:
+          (key === 'jobsRejectedTotal' || key === 'eventsDroppedTotal') &&
+          typeof value === 'number' &&
+          value > 0,
+      }
+    })
   }
   return Object.entries(section.data).map(([key, value]) => ({
     key,
@@ -47,31 +53,30 @@ function entriesOf(section: SystemSection): Array<{ key: string; label: string; 
         : typeof value === 'string'
           ? value
           : JSON.stringify(value),
+    warning: false,
   }))
 }
 </script>
 
 <template>
-  <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
+  <div class="mn-system" data-ui>
     <section
       v-for="section in props.sections"
       :key="section.id"
-      class="mn-card p-4 min-w-0"
+      class="mn-system-section"
       :data-testid="`monitor-system-${section.id}`"
     >
-      <h3 class="text-[calc(12px*var(--ui-scale))] font-semibold text-[var(--text-primary)]">
+      <h3 v-if="props.sections.length > 1 || section.id !== 'task'" class="mn-system-title">
         {{ titleOf(section) }}
       </h3>
-      <div class="mt-2 grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-2">
-        <div v-for="entry in entriesOf(section)" :key="entry.key" class="min-w-0">
-          <div class="mn-label truncate">{{ entry.label }}</div>
-          <div
-            class="mn-mono text-[calc(11.5px*var(--ui-scale))] text-[var(--text-primary)] truncate"
-          >
+      <dl class="mn-system-grid">
+        <div v-for="entry in entriesOf(section)" :key="entry.key" class="mn-system-item">
+          <dd class="mn-system-value" :class="{ 'is-warning': entry.warning }">
             {{ entry.value }}
-          </div>
+          </dd>
+          <dt class="mn-system-label">{{ entry.label }}</dt>
         </div>
-      </div>
+      </dl>
     </section>
   </div>
 </template>
