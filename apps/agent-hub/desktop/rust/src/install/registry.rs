@@ -6,9 +6,9 @@
 //! `GET /<pkg>/latest`（官方源失败回落 npmmirror），与本地版本比较得 outdated。
 //! 候选源白名单常量亦在此（测速列表 + apply-mirror 白名单共用）。
 
-use super::recipe::npm_package;
 use super::state::{all_sources, emit, emit_and_return, now_ms, read_state, write_state};
 use super::version::compare_versions;
+use crate::agents::{self, Agent, LatestSource};
 use crate::detect;
 use wasmnest_plugin_api::host::{HostHttp, HostLog, HostStorage};
 use wasmnest_plugin_api::wasm_host::WasmHost;
@@ -143,11 +143,8 @@ fn fetch_latest_version(h: &WasmHost, pkg: &str) -> Result<String, String> {
     Err(format!("latest version unavailable for {pkg}"))
 }
 
-/// opencode GitHub Releases 仓库（curl/standalone 安装的二进制真源；官方
-/// `opencode upgrade` 对 curl 安装同样查该仓库的 latest release）
-const OPENCODE_GITHUB_REPO: &str = "anomalyco/opencode";
-
-/// GitHub Releases API 查 opencode 最新版本（免 shell，与 npm registry 同走
+/// opencode 的 GitHub Releases 仓库由适配器声明（`LatestSource::GitHub`）；
+/// GitHub Releases API 查最新版本（免 shell，与 npm registry 同走
 /// host-http）：`GET /repos/{repo}/releases/latest` → tag_name（`v1.19.1`
 /// 形态，剥前缀 v）。未认证限 60 次/小时/IP，偶发更新检查足够
 fn fetch_github_latest(h: &WasmHost, repo: &str) -> Result<String, String> {
@@ -170,22 +167,25 @@ fn fetch_github_latest(h: &WasmHost, repo: &str) -> Result<String, String> {
     Err(format!("github latest unavailable for {repo}"))
 }
 
-/// 最新版本来源决策（纯函数，可测）：opencode standalone（curl 安装）以
-/// GitHub Releases 为权威（官方 `opencode upgrade` 同源），其余走 npm registry
-fn latest_uses_github(cli: &str, method: Option<&str>) -> bool {
-    cli == "opencode" && method == Some("standalone")
-}
-
-/// 最新版本查询分派：opencode standalone → GitHub Releases（失败回落 npm
-/// registry）；其余 → npm registry
-fn fetch_latest_for_cli(h: &WasmHost, cli: &str, method: Option<&str>) -> Result<String, String> {
-    if latest_uses_github(cli, method) {
-        match fetch_github_latest(h, OPENCODE_GITHUB_REPO) {
+/// 最新版本查询分派（适配器声明来源）：GitHub Releases 为主来源的形态
+/// （opencode standalone）先查 GitHub，失败回落 npm registry；其余走 npm
+fn fetch_latest_for_agent(
+    h: &WasmHost,
+    agent: &dyn Agent,
+    method: Option<&str>,
+) -> Result<String, String> {
+    match agent.latest_source(method) {
+        Some(LatestSource::GitHub(repo)) => match fetch_github_latest(h, repo) {
             Ok(v) => return Ok(v),
             Err(e) => h.log_warn(&format!("install: github latest failed, fallback npm: {e}")),
-        }
+        },
+        Some(LatestSource::Npm(pkg)) => return fetch_latest_version(h, pkg),
+        // 未声明来源：走包名兜底（无包名时 fail-visible）
+        None => {}
     }
-    let pkg = npm_package(cli).ok_or_else(|| format!("no package for {cli}"))?;
+    let pkg = agent
+        .npm_package()
+        .ok_or_else(|| format!("no package for {}", agent.id()))?;
     fetch_latest_version(h, pkg)
 }
 
@@ -205,17 +205,18 @@ pub(crate) fn run_update_check(h: &WasmHost) -> anyhow::Result<()> {
     let detection = h.storage_get(crate::STATE_KEY).ok().flatten();
     let checked_at = now_ms(h).unwrap_or(0);
 
-    for cli in detect::CLI_KINDS {
+    for agent in agents::all().iter().copied() {
+        let cli = agent.id();
         let local = detection
             .as_ref()
             .and_then(|d| d["clis"][cli]["version"].as_str())
             .map(|s| s.to_string());
-        // opencode standalone（curl 安装）→ GitHub Releases 权威来源（官方
-        // `opencode upgrade` 同源），失败回落 npm registry；其余 CLI 一律 npm
+        // 来源由适配器声明（opencode standalone 以 GitHub Releases 为权威，
+        // 失败回落 npm registry；其余 CLI 一律 npm），公共查询与回落在此复用
         let method = detection
             .as_ref()
             .and_then(|d| d["clis"][cli]["method"].as_str());
-        let entry = match fetch_latest_for_cli(h, cli, method) {
+        let entry = match fetch_latest_for_agent(h, agent, method) {
             Ok(latest) => json!({
                 "latest": latest,
                 "outdated": outdated_flag(local.as_deref(), &latest),
@@ -299,13 +300,27 @@ mod tests {
         assert_eq!(outdated_flag(None, "1.0.0"), None);
     }
 
-    /// 最新版本来源决策：opencode standalone → GitHub Releases；opencode
-    /// npm-global / 其余 CLI → npm registry
+    /// 最新版本来源决策（适配器声明）：opencode standalone → GitHub Releases；
+    /// opencode npm-global / 其余 CLI → npm registry
     #[test]
     fn latest_source_decision() {
-        assert!(latest_uses_github("opencode", Some("standalone")));
-        assert!(!latest_uses_github("opencode", Some("npm-global")));
-        assert!(!latest_uses_github("opencode", None));
-        assert!(!latest_uses_github("pi", Some("standalone")));
+        let opencode = agents::get("opencode").expect("opencode registered");
+        assert!(matches!(
+            opencode.latest_source(Some("standalone")),
+            Some(LatestSource::GitHub(_))
+        ));
+        assert!(matches!(
+            opencode.latest_source(Some("npm-global")),
+            Some(LatestSource::Npm("opencode-ai"))
+        ));
+        assert!(matches!(
+            opencode.latest_source(None),
+            Some(LatestSource::Npm(_))
+        ));
+        let pi = agents::get("pi").expect("pi registered");
+        assert!(matches!(
+            pi.latest_source(Some("standalone")),
+            Some(LatestSource::Npm(_))
+        ));
     }
 }

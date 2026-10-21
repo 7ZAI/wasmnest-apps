@@ -1,30 +1,22 @@
 //! 安装/卸载命令 recipe 白名单（纯函数，双平台可测）
 //!
-//! 仅接受白名单 cli 名 + 固定模板，method/installed 来自探测状态而非前端
-//! 传参：claude native → `claude update`（镜像无关）；claude npm-global →
-//! npm 包安装；opencode standalone（已装）→ `opencode upgrade`（官方内置
-//! 更新命令，自动探测安装方式：curl 安装重跑官方脚本、pnpm/npm 走包管理器
-//! ——2026-10-16 修订，v1 曾拒绝并提示手动）；其余 npm-global → npm 包安装。
-//! 卸载同样只走白名单：npm-global → `npm uninstall -g <pkg>`；claude native
-//! → 官方文档卸载命令（rm launcher + 版本目录）；opencode standalone →
-//! `opencode uninstall --force`（官方命令，非交互跳过确认）。
+//! 白名单 = 注册表（[`crate::agents`]）：cli 名必须是注册项，method/installed
+//! 来自探测状态而非前端传参。具体命令由适配器声明，公共默认覆盖 npm-global
+//! （读包名）：
+//! - claude native → `claude update`（镜像无关）；claude npm-global → npm 包安装
+//! - opencode standalone（已装）→ `opencode upgrade`（官方内置更新命令，自动
+//!   探测安装方式：curl 安装重跑官方脚本、pnpm/npm 走包管理器）；其余 → npm
+//!   包安装
+//! - 卸载：npm-global → `npm uninstall -g <pkg>`；claude native → 官方文档
+//!   卸载命令（rm launcher + 版本目录）；opencode standalone →
+//!   `opencode uninstall --force`（官方命令，非交互跳过确认）
 
 use super::registry::NPMMIRROR;
+use crate::agents;
 
-// ==================== recipe 白名单 ====================
-
-/// npm 包名白名单（spec §4.2，包名已实机核实）；cli 名本身也经本表校验
-pub(super) fn npm_package(cli: &str) -> Option<&'static str> {
-    match cli {
-        "pi" => Some("@earendil-works/pi-coding-agent"),
-        "codex" => Some("@openai/codex"),
-        "opencode" => Some("opencode-ai"),
-        "claude" => Some("@anthropic-ai/claude-code"),
-        _ => None,
-    }
-}
-
-fn npm_install_cmd(pkg: &str, use_mirror: bool) -> String {
+/// npm 安装命令（mirror 开关追加 `--registry`；包名来自适配器注册表）。
+/// 公共默认 recipe 与适配器的 npm 回落分支共用
+pub(crate) fn npm_install_cmd(pkg: &str, use_mirror: bool) -> String {
     if use_mirror {
         format!("npm install -g {pkg} --registry={NPMMIRROR}")
     } else {
@@ -32,89 +24,31 @@ fn npm_install_cmd(pkg: &str, use_mirror: bool) -> String {
     }
 }
 
-/// claude native 卸载命令（官方文档，双平台形态）：
-/// unix `rm -f ~/.local/bin/claude` + `rm -rf ~/.local/share/claude`；
-/// Windows cmd `del`/`rd` 等价（`%USERPROFILE%` 由 cmd 展开）
-fn claude_native_uninstall(windows: bool) -> String {
-    if windows {
-        "del /f \"%USERPROFILE%\\.local\\bin\\claude.exe\" & rd /s /q \"%USERPROFILE%\\.local\\share\\claude\"".to_string()
-    } else {
-        "rm -f ~/.local/bin/claude\nrm -rf ~/.local/share/claude".to_string()
-    }
-}
-
 /// 卸载命令构造（纯函数，双平台可测）
 ///
-/// 仅接受白名单 cli 名 + 固定模板；method 来自探测状态而非前端传参。
-/// - npm-global（全部 CLI）→ `npm uninstall -g <pkg>`（卸载本地完成，镜像无关）
-/// - claude native → 官方文档卸载命令（unix / Windows 分派）
-/// - opencode standalone → `opencode uninstall --force`（官方命令，非交互跳过确认）
-///
-/// 其余 method（unknown 等）→ 拒绝（v1 提示手动卸载）
+/// 仅接受注册表内的 cli 名；method 来自探测状态而非前端传参。
+/// 未知 cli / 未知 method 一律拒绝（v1 提示手动卸载）
 pub(crate) fn build_uninstall_script(
     cli: &str,
     method: &str,
     windows: bool,
 ) -> Result<String, String> {
-    if cli == "claude" && method == "native" {
-        return Ok(claude_native_uninstall(windows));
-    }
-    if cli == "opencode" && method == "standalone" {
-        return Ok("opencode uninstall --force".to_string());
-    }
-    if method != "npm-global" {
-        return Err(format!("unsupported uninstall method: {cli} / {method}"));
-    }
-    let pkg = npm_package(cli).ok_or_else(|| format!("no uninstall recipe for cli: {cli}"))?;
-    Ok(format!("npm uninstall -g {pkg}"))
+    let agent = agents::get(cli).ok_or_else(|| format!("no uninstall recipe for cli: {cli}"))?;
+    agent.uninstall_recipe(method, windows)
 }
 
 /// 安装/更新命令构造（纯函数，双平台可测）
 ///
-/// 仅接受白名单 cli 名 + 固定模板；method/installed 来自探测状态而非前端传参。
-/// 返回 `(脚本, action)`；action 供 UI 展示（install/update）。
-/// - claude native → `claude update`（双平台同命令，镜像无关）
-/// - claude npm-global → npm 包安装
-/// - opencode standalone（已装）→ `opencode upgrade`：官方内置更新命令，自动
-///   探测安装方式（curl 安装重跑官方安装脚本下载新二进制、npm/pnpm 走包管理
-///   器），不依赖 node、不受镜像影响。v1 曾拒绝并提示手动，2026-10-16 修订
-///   为自动（curl 安装的二进制本就来自 GitHub Releases，`opencode upgrade`
-///   是官方唯一自更新路径）；未装时仍拒绝（upgrade 只更新不安装）
+/// 仅接受注册表内的 cli 名；method/installed 来自探测状态而非前端传参。
+/// 返回 `(脚本, action)`；action 供 UI 展示（install/update）
 pub(crate) fn build_install_script(
     cli: &str,
     method: &str,
     installed: bool,
     use_mirror: bool,
 ) -> Result<(String, &'static str), String> {
-    if cli == "claude" {
-        return match method {
-            "native" => Ok(("claude update".to_string(), "update")),
-            "npm-global" => Ok((
-                npm_install_cmd(
-                    npm_package(cli).ok_or_else(|| "no package for claude".to_string())?,
-                    use_mirror,
-                ),
-                if installed { "update" } else { "install" },
-            )),
-            other => Err(format!("unsupported claude install method: {other}")),
-        };
-    }
-    if cli == "opencode" && method == "standalone" {
-        if !installed {
-            // 防御分支：standalone 归类来自 PATH 首命中 `~/.opencode/bin` 且
-            // 版本可读，实际不会走到；upgrade 只更新不安装，仍走官方脚本手动
-            return Err(
-                "opencode standalone not installed: install via official script (manual)"
-                    .to_string(),
-            );
-        }
-        return Ok(("opencode upgrade".to_string(), "update"));
-    }
-    let pkg = npm_package(cli).ok_or_else(|| format!("no install recipe for cli: {cli}"))?;
-    Ok((
-        npm_install_cmd(pkg, use_mirror),
-        if installed { "update" } else { "install" },
-    ))
+    let agent = agents::get(cli).ok_or_else(|| format!("no install recipe for cli: {cli}"))?;
+    agent.install_recipe(method, installed, use_mirror)
 }
 
 // ==================== Tests（纯函数单测，双平台形态覆盖） ====================
@@ -199,19 +133,20 @@ mod tests {
 
     // ==================== 卸载 recipe（票据：概览卸载） ====================
 
-    /// npm-global 卸载：四家 CLI 均 `npm uninstall -g <pkg>`（包名同安装白名单），
+    /// npm-global 卸载：四家 CLI 均 `npm uninstall -g <pkg>`（包名来自注册表），
     /// 镜像无关（本地完成）
     #[test]
     fn build_uninstall_npm_global() {
-        for (cli, pkg) in [
-            ("pi", "@earendil-works/pi-coding-agent"),
-            ("codex", "@openai/codex"),
-            ("opencode", "opencode-ai"),
-            ("claude", "@anthropic-ai/claude-code"),
-        ] {
-            let script =
-                build_uninstall_script(cli, "npm-global", false).expect("npm uninstall recipe");
-            assert_eq!(script, format!("npm uninstall -g {pkg}"), "cli: {cli}");
+        for agent in crate::agents::all() {
+            let pkg = agent.npm_package().expect("builtin npm package");
+            let script = build_uninstall_script(agent.id(), "npm-global", false)
+                .expect("npm uninstall recipe");
+            assert_eq!(
+                script,
+                format!("npm uninstall -g {pkg}"),
+                "cli: {}",
+                agent.id()
+            );
         }
     }
 
@@ -247,5 +182,6 @@ mod tests {
     fn build_uninstall_unknown_cli_rejected() {
         assert!(build_uninstall_script("rm -rf /", "npm-global", false).is_err());
         assert!(build_uninstall_script("", "npm-global", false).is_err());
+        assert!(build_uninstall_script("gemini", "native", true).is_err());
     }
 }
