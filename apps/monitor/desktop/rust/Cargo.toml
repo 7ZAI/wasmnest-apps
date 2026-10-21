@@ -14,7 +14,7 @@ wasm = []
 crate-type = ["cdylib"]
 
 [dependencies]
-wasmnest-plugin-api = { path = "../../../../../wasmnest/wasmnest-desktop/packages/plugin-sdk-desktop/rust", features = ["wasm"] }
+wasmnest-plugin-api = { version = "=0.0.1", features = ["wasm"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 anyhow = "1"

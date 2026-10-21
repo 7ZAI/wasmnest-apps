@@ -21,7 +21,7 @@ wasm = []
 crate-type = ["cdylib"]
 
 [dependencies]
-wasmnest-plugin-api = { path = "../../../../../wasmnest/wasmnest-desktop/packages/plugin-sdk-desktop/rust", features = ["wasm"] }
+wasmnest-plugin-api = { version = "=0.0.1", features = ["wasm"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 anyhow = "1"
@@ -58,10 +58,14 @@ rand = "0.8"
 # 集成目标需要 crate-type 可链接（rlib），而加 rlib 会连带构建 x86_64 cdylib 并
 # 因 WIT 导出名在 ELF 下非法而链接失败（见 `[lib]` 注释）。单测 harness 不需要。
 # 收益不变：dev-deps 不参与 wasm 构建，`pnpm run build` 的产物链零影响。
-wasmnest-server-base = { path = "../../../../../wasmnest-lib/wasmnest-server-base" }
-wasmnest-server-core = { path = "../../../../../wasmnest-lib/wasmnest-server-core" }
-wasmnest-server-http = { path = "../../../../../wasmnest-lib/wasmnest-server-http" }
-wasmnest-server-websocket = { path = "../../../../../wasmnest-lib/wasmnest-server-websocket" }
+# 能力仓（wasmnest-lib）按 git tag 精确依赖：tag 与平台仓 release-manifest 的
+# `repos.lib.tag` 同轴（lib-v0.0.2），由 Cargo.lock 钉到 commit。本地开发要读源码时
+# 用 `node scripts/link-platform-sdk.mjs` 追加 `[patch."https://github.com/7ZAI/wasmnest-lib"]`，
+# 默认路径不依赖平台 / 能力仓工作树。
+wasmnest-server-base = { git = "https://github.com/7ZAI/wasmnest-lib", tag = "lib-v0.0.2", package = "wasmnest-server-base" }
+wasmnest-server-core = { git = "https://github.com/7ZAI/wasmnest-lib", tag = "lib-v0.0.2", package = "wasmnest-server-core" }
+wasmnest-server-http = { git = "https://github.com/7ZAI/wasmnest-lib", tag = "lib-v0.0.2", package = "wasmnest-server-http" }
+wasmnest-server-websocket = { git = "https://github.com/7ZAI/wasmnest-lib", tag = "lib-v0.0.2", package = "wasmnest-server-websocket" }
 # 真实 HTTP 客户端（与宿主 `src-tauri` 同版本 0.12，依赖图统一为一份）
 reqwest = { version = "0.12", features = ["json"] }
 # 真实 WS 客户端（裸升级探测 + 认证帧 A/B；与 `cross-end-tests` 同选型）

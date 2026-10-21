@@ -46,3 +46,6 @@ desktop.ini
 .env
 .env.*
 !.env.example
+
+# 平台 SDK 本地 link 状态（scripts/link-platform-sdk.mjs 写入，提交前 unlink）
+.platform-sdk-link.json
