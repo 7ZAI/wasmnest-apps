@@ -153,6 +153,10 @@ const ignores = [
   '**/node_modules',
   '**/dist',
   '**/dist-ssr',
+  // G2 后的本仓生成物目录：build.js 默认产物（.build/plugins/<id>/index.js 是打包压缩过的
+  // 挂载包）与 dev:host 的 .dev-host/plugins/**。压缩产物进 lint = 把机器生成的字节当源码审。
+  '**/.build',
+  '**/.dev-host',
   '**/src-tauri',
   // Cargo 构建目录：tauri build 会把插件产物（index.js）拷进 target/ 下的
   // resources/plugins/**，那是生成物（压缩过的 index.js），不是源码。
