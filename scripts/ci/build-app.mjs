@@ -150,8 +150,11 @@ async function main() {
 
   const platform = platformRoot()
   const appDir = join(APPS_ROOT, target.dir)
+  // 桌面产物落**本仓 CI staging**（build.js 默认写 app 内 `.build/plugins`，发布链显式
+  // `--out`，一次构建一份产物，互不覆盖）；移动端仍由平台构建写宿主 resources（不在本票范围）。
+  const desktopStageRoot = join(APPS_ROOT, 'dist', 'ci-plugins')
   const resourcesRoot =
-    args.end === 'desktop' ? desktopHostResourcesDir() : mobileHostResourcesDir()
+    args.end === 'desktop' ? desktopStageRoot : mobileHostResourcesDir()
 
   log(`应用 ${info.slug} / ${args.end} / v${version}（插件 ${target.id}）`)
 
@@ -163,7 +166,10 @@ async function main() {
   // ==================== 构建 ====================
   if (args.end === 'desktop') {
     await generateDesktopManifest(appDir)
-    run('pnpm', ['run', 'build'], appDir)
+    // 直接跑构建脚本并指定产物目录：绕开各 app `build` 脚本的默认落点，
+    // 也让「产物缺失」指向明确目录（而不是平台仓宿主 resources 这类隐式位置）。
+    rmSync(join(desktopStageRoot, target.id), { recursive: true, force: true })
+    run(process.execPath, ['scripts/build.js', '--out', desktopStageRoot], appDir)
   } else {
     // 平台移动构建：自有 rust 走 SDK CLI、file-transfer 共享 crate；统一写宿主 resources。
     // 不用 app 自己的 `build`：ai-chatbox / bedcode 的 `wasmnest-plugin build` 只产自身 dist/，
@@ -201,6 +207,7 @@ async function main() {
       info.slug,
       '--target',
       args.end,
+      ...(args.end === 'desktop' ? ['--plugins-dir', desktopStageRoot] : []),
       '--out',
       'dist/ci-packages',
       '--version',
@@ -290,6 +297,7 @@ async function main() {
 
   // 中间产物清理（zip 与元数据已落到发布目录）
   rmSync(PACKAGE_STAGE, { recursive: true, force: true })
+  if (args.end === 'desktop') rmSync(desktopStageRoot, { recursive: true, force: true })
 }
 
 function gitHead() {
