@@ -5,7 +5,8 @@
  * 设计真源：用户评审定稿原型 `.scratch/agent-hub/prototype/index.html`
  * （#variant=b）。六分区中票据 02 交付概览、票据 03 交付安装与更新、
  * 票据 04 交付 Skills、票据 05 交付供应商、票据 06 交付使用统计与会话
- * 日志（07 收尾 opencode/codex）。useDetection / useInstall 均为单实例：
+ * 日志（07 收尾 opencode/codex）。agent 清单来自 `agent-hub.list-agents`
+ * （失败回退内置 UI 注册表并上屏降级横幅）。useDetection / useInstall 均为单实例：
  * 事件订阅与输出轮询在此层持有，各分区经 props + emits 交互。
  *
  * 分区职责（统计改版后）：**统计 = 聚合看板**（汇总 / 趋势 / 节奏 / 分布），
@@ -19,6 +20,7 @@ import { failedUninstallFromLast, useInstall } from '../composables/useInstall'
 import { useSkills } from '../composables/useSkills'
 import { useProviders } from '../composables/useProviders'
 import { useUsage } from '../composables/useUsage'
+import { useAgentCatalog } from '../composables/useAgentCatalog'
 import type { CliId, HubTab } from '../types'
 import OverviewTab from './OverviewTab.vue'
 import InstallTab from './InstallTab.vue'
@@ -39,6 +41,7 @@ const install = useInstall(context)
 const skills = useSkills(context)
 const providers = useProviders(context)
 const usage = useUsage(context)
+const catalog = useAgentCatalog(context)
 
 const activeTab = ref<HubTab>('overview')
 
@@ -86,6 +89,8 @@ const tabs = computed(() => [
 onMounted(() => {
   refresh()
   install.refresh()
+  // agent 清单：后端注册表为准；失败回退内置注册表并上屏降级横幅
+  void catalog.load()
 })
 
 function gotoInstall() {
@@ -98,16 +103,23 @@ function gotoInstall() {
  * 由 usage 域单实例计算后下传——统计与概览两个分区共享同一个 useUsage，
  * 不会重复拉取。未扫描 / 未授权 / 扫描中 → `unknown`（不下结论）。
  */
-const CLI_IDS: CliId[] = ['claude', 'codex', 'opencode', 'pi']
 const sessionStates = computed(() => {
   const out: Partial<Record<CliId, ReturnType<typeof usage.cliSessionState>>> = {}
-  for (const id of CLI_IDS) out[id] = usage.cliSessionState(id)
+  for (const id of catalog.ids.value) out[id] = usage.cliSessionState(id)
   return out
 })
 </script>
 
 <template>
   <div class="ah-view" data-testid="hub-view">
+    <div
+      v-if="catalog.degraded.value"
+      class="ah-banner ah-banner-info"
+      data-testid="agent-catalog-degraded"
+    >
+      <span class="ah-banner-ic">⚠</span>
+      <span class="ah-banner-text">{{ context.i18n.t('hub.agents.degraded') }}</span>
+    </div>
     <div class="ah-tabs" role="tablist" data-testid="hub-tabs">
       <button
         v-for="tab in tabs"
@@ -135,6 +147,7 @@ const sessionStates = computed(() => {
         :detecting="detecting"
         :install-state="install.state.value"
         :speed-testing="install.speedTesting.value"
+        :agents="catalog.agents.value"
         :session-states="sessionStates"
         :uninstall-failed="uninstallFailed"
         @detect="detect"
@@ -150,6 +163,7 @@ const sessionStates = computed(() => {
         :output="install.output.value"
         :checking="install.checking.value"
         :speed-testing="install.speedTesting.value"
+        :agents="catalog.agents.value"
         @speed-test="install.speedTest"
         @apply-mirror="install.applyMirror"
         @restore="install.restoreNpmrc"
@@ -158,10 +172,20 @@ const sessionStates = computed(() => {
         @cancel="install.cancelRun"
         @auth="requestAuth"
       />
-      <SkillsTab v-else-if="activeTab === 'skills'" :detection="state" :skills="skills" />
-      <ProvidersTab v-else-if="activeTab === 'providers'" :detection="state" :providers="providers" />
+      <SkillsTab
+        v-else-if="activeTab === 'skills'"
+        :detection="state"
+        :skills="skills"
+        :agents="catalog.agents.value"
+      />
+      <ProvidersTab
+        v-else-if="activeTab === 'providers'"
+        :detection="state"
+        :providers="providers"
+        :agents="catalog.agents.value"
+      />
       <SessionLogsTab v-else-if="activeTab === 'logs'" :usage="usage" />
-      <StatsTab v-else :usage="usage" />
+      <StatsTab v-else :usage="usage" :agents="catalog.agents.value" />
       </Transition>
     </div>
   </div>

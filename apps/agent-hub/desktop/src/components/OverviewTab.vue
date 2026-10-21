@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * 概览分区（票据 02 交付范围 + 票据 03 测速行）：目录授权横幅 + 环境条
- * （含 npm 源测速与推荐）+ 四张 CLI 卡片
+ * （含 npm 源测速与推荐）+ agent 卡片（清单/顺序来自注册表）
  *
  * 票 07：CLI 卡片的第六态「已装 · 未初始化」由 usage 域给出（父层经
  * `sessionStates` 下传），本分区不自行探测会话数据。
@@ -11,8 +11,9 @@
  */
 import { computed, inject } from 'vue'
 import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-desktop'
-import type { AgentHubState, CliId, InstallDomainState } from '../types'
+import type { AgentDescriptor, AgentHubState, CliId, InstallDomainState } from '../types'
 import type { CliSessionState } from '../composables/useUsage'
+import { BUILTIN_AGENTS } from '../agents'
 import CliCard from './CliCard.vue'
 
 const props = defineProps<{
@@ -25,6 +26,8 @@ const props = defineProps<{
   /** 卸载失败信号：{ cli, error }（guest 拒绝/异常；瞬态提示，成功后由父层清除）
    * error 为友好 i18n 文案（ADR 0030：guest 业务码优先，原文不携带） */
   uninstallFailed?: { cli: CliId; error: string } | null
+  /** 注册表 agent 清单（顺序/能力来自后端；缺省回退内置注册表） */
+  agents?: AgentDescriptor[]
 }>()
 const emit = defineEmits<{
   detect: []
@@ -37,7 +40,8 @@ const emit = defineEmits<{
 const context = inject<PluginContext>('pluginContext')!
 const t = (key: string) => context.i18n.t(key)
 
-const CLI_IDS: CliId[] = ['claude', 'codex', 'opencode', 'pi']
+/** 卡片清单：注册表派生（顺序即展示顺序） */
+const agentList = computed(() => props.agents ?? BUILTIN_AGENTS)
 
 /** 平台名（std::env::consts::OS 值域）→ 展示名；未知值回退原样 */
 const OS_LABELS: Record<string, string> = {
@@ -174,14 +178,15 @@ const recommendMirror = computed(() => speed.value?.recommend === 'npmmirror')
 
     <div class="ah-grid" data-testid="overview-clis">
       <CliCard
-        v-for="id in CLI_IDS"
-        :key="id"
-        :cli-id="id"
-        :info="state?.clis?.[id] ?? null"
-        :session-state="props.sessionStates?.[id]"
+        v-for="agent in agentList"
+        :key="agent.id"
+        :cli-id="agent.id"
+        :name="agent.displayName"
+        :info="state?.clis?.[agent.id] ?? null"
+        :session-state="props.sessionStates?.[agent.id]"
         :busy="busy"
-        :uninstalling="uninstalling === id"
-        :uninstall-failed="props.uninstallFailed?.cli === id ? props.uninstallFailed.error : undefined"
+        :uninstalling="uninstalling === agent.id"
+        :uninstall-failed="props.uninstallFailed?.cli === agent.id ? props.uninstallFailed.error : undefined"
         :node-ready="nodeReady"
         @uninstall="(cli) => emit('uninstall', cli)"
       />

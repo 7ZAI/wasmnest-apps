@@ -50,6 +50,7 @@ const zhCN: MessageSchema = {
   'hub.card.uninstallRunFailed': '卸载失败，详情见「安装」页控制台',
 
   'hub.auth.banner': 'CLI 配置目录尚未授权（~/.codex、~/.pi、opencode 等），相关能力暂不可用。',
+  'hub.agents.degraded': '无法读取后端 Agent 清单，已回退内置列表（新接入的 agent 暂不可见）。',
   'hub.auth.action': '授权目录',
 
   'hub.speed.title': 'npm 源测速',
@@ -107,7 +108,7 @@ const zhCN: MessageSchema = {
   'hub.skill.targetSync': '{name} 已同步',
   'hub.skill.targetStale': '{name} · {n} 个落后',
   'hub.skill.targetIdle': '{name} 未分发',
-  'hub.skill.targetNoConvention': 'opencode / codex 无 skills 目录约定',
+  'hub.skill.targetNoConvention': '{names} 无 skills 目录约定',
   'hub.skill.scanError': '扫描失败，请稍后重试',
   'hub.skill.empty': '规范库暂无 skill',
   'hub.skill.emptyHint': '可从 GitHub 安装，或导入本地含 SKILL.md 的目录。',

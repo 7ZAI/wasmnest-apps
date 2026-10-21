@@ -20,18 +20,22 @@ import { computed, inject, ref } from 'vue'
 import { toast } from 'vue-sonner'
 import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-desktop'
 import type {
+  AgentDescriptor,
   ApplyKeySpec,
   ApplyTargetReason,
   ApplyTargetResult,
   ProviderPreset,
   ProviderTarget,
 } from '../types'
-import { APPLY_TARGETS, deriveEnvKeyName, sourceFromNotes, TARGET_PATHS } from '../utils/providers'
+import { deriveEnvKeyName, sourceFromNotes, TARGET_PATHS } from '../utils/providers'
+import { BUILTIN_AGENTS, preferredProviderTarget } from '../agents'
 import type { UseProvidersReturn } from '../composables/useProviders'
 
 const props = defineProps<{
   providers: UseProvidersReturn
   preset: ProviderPreset
+  /** 注册表 agent 清单（provider 目标由能力派生；缺省回退内置注册表） */
+  agents?: AgentDescriptor[]
 }>()
 
 const emit = defineEmits<{ close: [] }>()
@@ -41,8 +45,16 @@ const t = (key: string, params?: Record<string, unknown>) => context.i18n.t(key,
 
 // ==================== 表单状态 ====================
 
-/** 已选目标（默认 pi：唯一支持模型列表的目标 CLI） */
-const targets = ref<ProviderTarget[]>(['pi'])
+/** 可应用目标：注册表里声明了 provider 能力的 agent */
+const applyTargets = computed(() =>
+  (props.agents ?? BUILTIN_AGENTS)
+    .filter((a) => a.capabilities.provider)
+    .map((a) => a.id),
+)
+
+/** 已选目标（默认 = 声明的偏好目标，当前 pi：唯一支持模型清单的目标） */
+const preferredTarget = preferredProviderTarget(applyTargets.value)
+const targets = ref<ProviderTarget[]>(preferredTarget ? [preferredTarget] : [])
 const targetName = ref(props.preset.name)
 
 /** codex 的 env_key 变量名（默认由预设名派生，用户可改成供应商文档里的名字） */
@@ -307,7 +319,7 @@ async function apply(force: boolean) {
           <span class="ah-pv-label">{{ t('hub.pv.apply.target') }}</span>
           <span class="ah-pv-targets">
             <button
-              v-for="tg in APPLY_TARGETS"
+              v-for="tg in applyTargets"
               :key="tg"
               type="button"
               class="ah-cli-tag ah-pv-target"
@@ -320,7 +332,7 @@ async function apply(force: boolean) {
             </button>
           </span>
           <span class="ah-inst-hint">{{ t('hub.pv.apply.targetHint') }}</span>
-          <span class="ah-inst-hint ah-mono">{{ targets.map((tg) => TARGET_PATHS[tg]).join('  ·  ') }}</span>
+          <span class="ah-inst-hint ah-mono">{{ targets.map((tg) => TARGET_PATHS[tg] ?? '').filter(Boolean).join('  ·  ') }}</span>
         </div>
 
         <!-- 无模型的预设：提前拦一道（guest 也会拒，这里让原因先到） -->

@@ -18,10 +18,13 @@ import { computed, inject, onUnmounted, ref } from 'vue'
 import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-desktop'
 import type { CliDetectInfo, CliId } from '../types'
 import type { CliSessionState } from '../composables/useUsage'
+import { builtinAgentName } from '../agents'
 import CliIcon from './CliIcon.vue'
 
 const props = defineProps<{
   cliId: CliId
+  /** 展示名（后端清单优先；缺省回退 UI 注册表） */
+  name?: string
   info: CliDetectInfo | null
   /** usage 域的会话数据状态（缺省=不下结论） */
   sessionState?: CliSessionState
@@ -41,12 +44,7 @@ const emit = defineEmits<{ uninstall: [cli: CliId] }>()
 const context = inject<PluginContext>('pluginContext')!
 const t = (key: string, params?: Record<string, unknown>) => context.i18n.t(key, params)
 
-const NAMES: Record<CliId, string> = {
-  claude: 'Claude Code',
-  codex: 'Codex CLI',
-  opencode: 'OpenCode',
-  pi: 'Pi',
-}
+const displayName = computed(() => props.name ?? builtinAgentName(props.cliId))
 
 const badge = computed(() => {
   const s = props.info?.status ?? 'idle'
@@ -127,7 +125,7 @@ onUnmounted(() => {
     <div class="ah-cli-head">
       <span class="ah-cli-name">
         <CliIcon :cli-id="cliId" />
-        <span class="ah-cli-name-text" :data-testid="`cli-name-${cliId}`">{{ NAMES[cliId] }}</span>
+        <span class="ah-cli-name-text" :data-testid="`cli-name-${cliId}`">{{ displayName }}</span>
       </span>
       <span class="ah-cli-tag" :class="badge.tone" :data-testid="`cli-badge-${cliId}`">
         <span class="ah-cli-dot"></span>{{ badge.label }}

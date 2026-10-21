@@ -3,7 +3,6 @@
  */
 import { describe, expect, it } from 'vitest'
 import {
-  APPLY_TARGETS,
   defaultModelsUrl,
   deriveEnvKeyName,
   mergeModelIds,
@@ -50,12 +49,6 @@ describe('sourceFromNotes', () => {
     expect(sourceFromNotes('pi:')).toBeNull()
     expect(sourceFromNotes(':sensenova')).toBeNull()
     expect(sourceFromNotes('unknown-cli:provider')).toBeNull()
-  })
-})
-
-describe('APPLY_TARGETS', () => {
-  it('应用目标白名单：claude/pi/opencode/codex（codex = 登记 provider + 设为当前模型）', () => {
-    expect(APPLY_TARGETS).toEqual(['claude', 'pi', 'opencode', 'codex'])
   })
 })
 

@@ -19,9 +19,16 @@
  */
 import { computed, inject, ref } from 'vue'
 import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-desktop'
-import type { CliId, CliStatRow, ModelStatRow, ProjectStatRow, StatsMetric } from '../types'
+import type {
+  AgentDescriptor,
+  CliStatRow,
+  ModelStatRow,
+  ProjectStatRow,
+  StatsMetric,
+} from '../types'
 import type { UseUsageReturn } from '../composables/useUsage'
 import type { StatsDays } from '../composables/useUsage'
+import { BUILTIN_AGENTS } from '../agents'
 import {
   abbreviateProject,
   cacheHitRate,
@@ -42,6 +49,8 @@ import type { BarRow } from '../types'
 
 const props = defineProps<{
   usage: UseUsageReturn
+  /** 注册表 agent 清单（顺序即身份色槽位顺序；缺省回退内置注册表） */
+  agents?: AgentDescriptor[]
 }>()
 
 const context = inject<PluginContext>('pluginContext')!
@@ -121,11 +130,11 @@ const rangeText = computed(() => {
   return t('hub.st.kpi.range', { from: formatSessionTime(t0), to: formatSessionTime(t1) })
 })
 
-/** 在册 CLI（顺序即身份色槽位顺序；未采集的显示 0 参与占比） */
-const CLI_IDS: CliId[] = ['claude', 'codex', 'opencode', 'pi']
+/** 在册 CLI（注册表顺序即身份色槽位顺序；未采集的显示 0 参与占比） */
+const cliIds = computed(() => (props.agents ?? BUILTIN_AGENTS).map((a) => a.id))
 const cliRows = computed<CliStatRow[]>(() => {
   const rows = stats.value?.byCli ?? []
-  return CLI_IDS.map(
+  return cliIds.value.map(
     (id) => rows.find((r) => r.adapter === id) ?? emptyCliRow(id),
   )
 })

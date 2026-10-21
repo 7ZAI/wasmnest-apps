@@ -20,18 +20,13 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import i18n, { MESSAGE_NAMESPACE } from '../i18n'
 import type { AppPreviewEnv } from '../entry'
-import type { AgentHubState, CliDetectInfo, CliId, UsageDomainState } from '../types'
+import type { AgentHubState, CliDetectInfo, UsageDomainState } from '../types'
+import { BUILTIN_AGENTS } from '../agents'
 
 const props = defineProps<{ env: AppPreviewEnv }>()
 
-/** CLI 展示顺序与展示名（与主界面 CliCard 一致；纯展示，不参与业务判定） */
-const CLI_IDS: CliId[] = ['claude', 'codex', 'opencode', 'pi']
-const CLI_NAMES: Record<CliId, string> = {
-  claude: 'Claude Code',
-  codex: 'Codex CLI',
-  opencode: 'OpenCode',
-  pi: 'Pi',
-}
+/** CLI 展示顺序与展示名（UI 注册表；纯展示，不参与业务判定） */
+const PREVIEW_AGENTS = BUILTIN_AGENTS
 
 /** 检测状态（guest 持久化全量；null = 从未探测过） */
 const detection = ref<AgentHubState | null>(null)
@@ -63,11 +58,12 @@ function cliValue(info: CliDetectInfo | undefined): string {
 }
 
 const rows = computed(() =>
-  CLI_IDS.map((id) => {
+  PREVIEW_AGENTS.map((agent) => {
+    const id = agent.id
     const info = detection.value?.clis?.[id]
     return {
       id,
-      name: CLI_NAMES[id],
+      name: agent.displayName,
       value: cliValue(info),
       installed: info?.installed === true || info?.status === 'ok',
     }
@@ -159,7 +155,7 @@ onUnmounted(() => {
     <template v-else>
       <div class="ahpv-summary">
         <span class="ahpv-stat">
-          {{ t('hub.preview.installedCount', { done: installedCount, total: CLI_IDS.length }) }}
+          {{ t('hub.preview.installedCount', { done: installedCount, total: rows.length }) }}
         </span>
         <span v-if="sessions !== null" class="ahpv-stat">
           {{ t('hub.preview.sessionCount', { n: sessions }) }}

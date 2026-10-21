@@ -3,26 +3,42 @@
  * Skills 管理分区（票据 04）：规范库列表 + GitHub 安装 + 本地导入 + 编辑器入口
  *
  * 设计真源：原型 `.scratch/agent-hub/prototype/index.html` #a-sk（页头双动作 +
- * 状态 tag 行 + 技能表格）。规范库 `~/.agents/skills` 为真源，分发到 claude /
- * pi 私有目录（opencode/codex 无 skills 目录约定，仅静态提示）。
+ * 状态 tag 行 + 技能表格）。规范库 `~/.agents/skills` 为真源；分发目标由
+ * agent 注册表的 skills 能力派生（无目录约定的 agent 只做能力集合提示）。
  * 动作经 useSkills 单实例（AgentHubView 持有）执行，状态经
  * `plugin:agent-hub:skills` 事件回流；编辑器为独立子组件（SkillEditor）。
  */
 import { computed, inject, ref } from 'vue'
 import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-desktop'
-import type { AgentHubState, SkillEntry, SkillsDomainState } from '../types'
+import type {
+  AgentDescriptor,
+  AgentHubState,
+  SkillEntry,
+  SkillsDomainState,
+} from '../types'
 import type { UseSkillsReturn } from '../composables/useSkills'
+import { BUILTIN_AGENTS } from '../agents'
 import SkillEditor from './SkillEditor.vue'
 
 const props = defineProps<{
   detection: AgentHubState | null
   skills: UseSkillsReturn
+  /** 注册表 agent 清单（分发目标由 skills 能力派生；缺省回退内置注册表） */
+  agents?: AgentDescriptor[]
 }>()
 
 const context = inject<PluginContext>('pluginContext')!
 const t = (key: string, params?: Record<string, unknown>) => context.i18n.t(key, params)
 
-const TARGET_NAMES = ['claude', 'pi'] as const
+/** 分发目标：注册表里声明了 skills 目录的 agent（顺序同注册表） */
+const targets = computed(() => (props.agents ?? BUILTIN_AGENTS).filter((a) => a.capabilities.skills))
+/** 无 skills 目录约定的 agent（提示由能力集合派生，不点名具体产品） */
+const skippedNames = computed(() =>
+  (props.agents ?? BUILTIN_AGENTS)
+    .filter((a) => !a.capabilities.skills)
+    .map((a) => a.displayName),
+)
+const targetIds = computed(() => targets.value.map((t) => t.id))
 
 /** fs 类动作依赖目录授权；拒绝时置灰降级（与概览/安装页同一横幅语义） */
 const authGranted = computed(() => props.detection?.authGranted ?? false)
@@ -43,15 +59,17 @@ interface SkillRow {
 const rows = computed<SkillRow[]>(() =>
   (state.value?.skills ?? []).map((entry) => ({
     entry,
-    tags: TARGET_NAMES.filter((t) => entry.distribution[t]?.status !== 'none').map((t) => ({
-      target: t,
-      status: entry.distribution[t].status as 'distributed' | 'stale',
-    })),
+    tags: targetIds.value
+      .filter((t) => entry.distribution[t]?.status !== 'none')
+      .map((t) => ({
+        target: t,
+        status: entry.distribution[t].status as 'distributed' | 'stale',
+      })),
   })),
 )
 
 /** 汇总：某目标全部 distributed → 已同步；有 stale/missing → N 落后 */
-function targetSummary(target: 'claude' | 'pi'): { status: 'ok' | 'warn' | 'neutral'; count: number } {
+function targetSummary(target: string): { status: 'ok' | 'warn' | 'neutral'; count: number } {
   const skills = state.value?.skills ?? []
   let bad = 0
   for (const s of skills) {
@@ -187,19 +205,21 @@ function closeEditor() {
           <span class="ah-cli-dot"></span>{{ t('hub.skill.library', { root: state?.libraryRoot ?? '', n: state?.skills.length ?? 0 }) }}
         </span>
         <span
-          v-for="target in TARGET_NAMES"
-          :key="target"
+          v-for="target in targets"
+          :key="target.id"
           class="ah-cli-tag"
-          :class="targetSummary(target).status === 'ok' ? 'ok' : targetSummary(target).status === 'warn' ? 'warn' : ''"
+          :class="targetSummary(target.id).status === 'ok' ? 'ok' : targetSummary(target.id).status === 'warn' ? 'warn' : ''"
         >
           <span class="ah-cli-dot"></span>
-          {{ targetSummary(target).status === 'ok'
-            ? t('hub.skill.targetSync', { name: target })
-            : targetSummary(target).status === 'warn'
-              ? t('hub.skill.targetStale', { name: target, n: targetSummary(target).count })
-              : t('hub.skill.targetIdle', { name: target }) }}
+          {{ targetSummary(target.id).status === 'ok'
+            ? t('hub.skill.targetSync', { name: target.displayName })
+            : targetSummary(target.id).status === 'warn'
+              ? t('hub.skill.targetStale', { name: target.displayName, n: targetSummary(target.id).count })
+              : t('hub.skill.targetIdle', { name: target.displayName }) }}
         </span>
-        <span class="ah-cli-tag">{{ t('hub.skill.targetNoConvention') }}</span>
+        <span v-if="skippedNames.length > 0" class="ah-cli-tag">
+          {{ t('hub.skill.targetNoConvention', { names: skippedNames.join(' · ') }) }}
+        </span>
       </div>
 
       <!-- 扫描/导入失败提示 -->

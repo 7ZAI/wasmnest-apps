@@ -55,9 +55,6 @@ export const PROVIDER_TEMPLATES: ProviderTemplate[] = [
   },
 ]
 
-/** 应用目标（与 guest apply 白名单同构；codex = 登记 provider + 设为当前模型） */
-export const APPLY_TARGETS = ['claude', 'pi', 'opencode', 'codex'] as const
-
 /** 各目标的配置文件落点（面板提示用；与 guest paths.rs 同构） */
 export const TARGET_PATHS: Record<string, string> = {
   claude: '~/.claude/settings.json',

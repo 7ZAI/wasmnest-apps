@@ -2,7 +2,28 @@
  * Agent Hub 前端类型（与 Rust 后端 wire 形状同构，camelCase）
  */
 
-export type CliId = 'claude' | 'codex' | 'opencode' | 'pi'
+/**
+ * Agent id（注册表派生的稳定字符串）。
+ *
+ * 内置四家只是注册项，不是类型面：新增 agent 不需要改类型；未登记的 id
+ * 由后端 `list-agents` 提供展示名，前端用通用占位渲染（不丢行）。
+ */
+export type CliId = string
+
+/** 单个 agent 的能力（guest `list-agents` 派生；默认关闭） */
+export interface AgentCapabilities {
+  install: boolean
+  provider: boolean
+  skills: boolean
+  usage: boolean
+}
+
+/** `agent-hub.list-agents` 返回的单条 agent 描述（顺序即展示顺序） */
+export interface AgentDescriptor {
+  id: CliId
+  displayName: string
+  capabilities: AgentCapabilities
+}
 
 /** 探测项状态：idle=未检测 detecting=进行中 ok/error=终态 */
 export type DetectStatus = 'idle' | 'detecting' | 'ok' | 'not-installed' | 'error'
@@ -42,7 +63,7 @@ export interface AgentHubState {
   envStatus: DetectStatus
   envError?: string | null
   env: EnvInfo | null
-  clis: Record<CliId, CliDetectInfo>
+  clis: Record<string, CliDetectInfo>
   /** 状态推送序号（探测期间多次推送全量状态，前端按序过滤乱序旧事件） */
   seq?: number
 }
@@ -124,7 +145,7 @@ export interface LastRun {
 export interface InstallDomainState {
   active: ActiveRun | null
   last: LastRun | null
-  updates: Record<CliId, CliUpdateInfo | null>
+  updates: Record<string, CliUpdateInfo | null>
   mirror: {
     speed: SpeedTestState
     npmrc: NpmrcState
@@ -170,7 +191,7 @@ export interface SkillEntry {
   files: SkillFile[]
   hash: string
   error: string | null
-  distribution: Record<'claude' | 'pi', SkillDistribution>
+  distribution: Record<string, SkillDistribution>
 }
 
 /** Skills 域复合状态（host-storage `skills` 键 + `plugin:agent-hub:skills` 事件载荷） */
@@ -181,7 +202,7 @@ export interface SkillsDomainState {
   libraryRoot: string
   importing: boolean
   skills: SkillEntry[]
-  targets: Record<'claude' | 'pi', { root: string; exists: boolean }>
+  targets: Record<string, { root: string; exists: boolean }>
   github: {
     last: {
       ok: boolean
@@ -236,8 +257,8 @@ export interface ImportSkillResult {
 /** API 方言（与 chatbox ApiStyle 同构；custom 为逃生舱槽位） */
 export type ApiStyle = 'openai' | 'anthropic' | 'gemini' | 'custom'
 
-/** 应用目标（codex = 登记 provider + 设为当前模型，形态见 codex.rs 模块头） */
-export type ProviderTarget = 'claude' | 'pi' | 'opencode' | 'codex'
+/** 应用目标（注册表 provider 能力派生；codex = 登记 provider + 设为当前模型） */
+export type ProviderTarget = string
 
 /** 供应商预设（guest provider_preset 表同构；key 只以掩码 keyMask 出现） */
 export interface ProviderPreset {
@@ -421,7 +442,7 @@ export interface UsageDomainState {
   authGranted: boolean
   /** 用户主目录（项目路径 ~ 折叠展示用） */
   home: string
-  adapters: Record<CliId, UsageAdapterStat> & Record<string, UsageAdapterStat>
+  adapters: Record<string, UsageAdapterStat>
   /** 日志来源清单（内置只读 + 自定义增删；含各来源扫描计数） */
   sources: UsageSource[]
   /** 正在使用的项目会话（扫描时计算：claude 读 ~/.claude.json 配置权威，

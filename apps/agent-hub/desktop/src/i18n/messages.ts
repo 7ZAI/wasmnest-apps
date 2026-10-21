@@ -65,6 +65,7 @@ export type MessageSchema = {
 
   // ==================== 目录授权 ====================
   'hub.auth.banner': string
+  'hub.agents.degraded': string
   'hub.auth.action': string
 
   // ==================== 安装与更新 · 测速/镜像（票据 03） ====================

@@ -9,7 +9,15 @@
 import { computed, inject, nextTick, ref, watch } from 'vue'
 import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-desktop'
 import { resolvePluginErrorText } from '../utils/pluginError'
-import type { AgentHubState, CliDetectInfo, CliId, CliUpdateInfo, InstallDomainState } from '../types'
+import type {
+  AgentDescriptor,
+  AgentHubState,
+  CliDetectInfo,
+  CliId,
+  CliUpdateInfo,
+  InstallDomainState,
+} from '../types'
+import { BUILTIN_AGENTS } from '../agents'
 import CliIcon from './CliIcon.vue'
 
 const props = defineProps<{
@@ -18,6 +26,8 @@ const props = defineProps<{
   output: string | null
   checking: boolean
   speedTesting: boolean
+  /** 注册表 agent 清单（顺序/能力来自后端；缺省回退内置注册表） */
+  agents?: AgentDescriptor[]
 }>()
 
 const emit = defineEmits<{
@@ -33,13 +43,8 @@ const emit = defineEmits<{
 const context = inject<PluginContext>('pluginContext')!
 const t = (key: string, params?: Record<string, unknown>) => context.i18n.t(key, params)
 
-const CLI_IDS: CliId[] = ['claude', 'codex', 'opencode', 'pi']
-const NAMES: Record<CliId, string> = {
-  claude: 'Claude Code',
-  codex: 'Codex CLI',
-  opencode: 'OpenCode',
-  pi: 'Pi',
-}
+/** 安装行清单：注册表派生（顺序即展示顺序） */
+const agentList = computed(() => props.agents ?? BUILTIN_AGENTS)
 
 /**
  * 目录授权结果：fs 类动作（安装/换源/还原）依赖授权过的宿主 fs 通道；
@@ -56,13 +61,14 @@ const useMirror = ref(true)
  * node 缺失降级：每家的展示用命令经 guest `describe-install` 解析
  * （同一 recipe 白名单真源，前端不复刻包名）；随临时镜像开关重取
  */
-const displayCommands = ref<Partial<Record<CliId, string>>>({})
+const displayCommands = ref<Record<string, string>>({})
 const copiedCli = ref<CliId | null>(null)
 let copiedTimer: ReturnType<typeof setTimeout> | null = null
 
 async function loadDisplayCommands() {
   if (nodeReady.value) return
-  for (const cli of CLI_IDS) {
+  for (const agent of agentList.value) {
+    const cli = agent.id
     try {
       const d = await context.commands.execute('agent-hub.describe-install', {
         cli,
@@ -70,7 +76,7 @@ async function loadDisplayCommands() {
       })
       if (d?.command) displayCommands.value[cli] = d.command as string
     } catch (e) {
-      // 解析失败（如 opencode standalone / claude unknown method）：行内不展示命令
+      // 解析失败（无对应 recipe / unknown method）：行内不展示命令
       console.error('[Agent Hub] describe-install failed', cli, e)
     }
   }
@@ -175,12 +181,13 @@ interface Row {
 }
 
 const rows = computed<Row[]>(() =>
-  CLI_IDS.map((cli) => {
+  agentList.value.map((agent) => {
+    const cli = agent.id
     const info = props.detection?.clis?.[cli] ?? null
     const update = props.state?.updates?.[cli] ?? null
     const busy = activeRun.value !== null
 
-    const row: Row = { cli, name: NAMES[cli], info, update, hint: null, action: 'waiting', disabled: true }
+    const row: Row = { cli, name: agent.displayName, info, update, hint: null, action: 'waiting', disabled: true }
 
     if (!authGranted.value) {
       // 页顶已有授权横幅，行内不重复提示
@@ -196,10 +203,10 @@ const rows = computed<Row[]>(() =>
       row.hint = t('hub.card.error')
       return row
     }
-    // opencode standalone 更新走官方内置命令（`opencode upgrade` 自更新：curl
-    // 安装重跑官方脚本 / npm·pnpm 走包管理器），不依赖 node；其余 CLI 的 npm
-    // 安装/更新需要 node
-    const standalone = cli === 'opencode' && info.method === 'standalone'
+    // standalone 安装自带官方更新器（如 opencode 的 `upgrade`：curl 安装重跑
+    // 官方脚本 / npm·pnpm 走包管理器），不依赖 node；npm-global 的安装/更新
+    // 需要 node
+    const standalone = info.method === 'standalone'
     if (!nodeReady.value && !standalone) {
       row.hint = t('hub.inst.nodeGuide')
       return row

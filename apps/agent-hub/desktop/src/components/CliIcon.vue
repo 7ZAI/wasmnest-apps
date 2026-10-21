@@ -7,11 +7,12 @@
  */
 import { computed } from 'vue'
 import type { CliId } from '../types'
-import { CLI_ICONS } from '../icons'
+import { agentGlyph } from '../agents'
 
 const props = defineProps<{ cliId: CliId }>()
 
-const icon = computed(() => CLI_ICONS[props.cliId])
+/** 品牌图标：未登记的 agent 用通用占位（不丢行、不白屏） */
+const icon = computed(() => agentGlyph(props.cliId))
 </script>
 
 <template>

@@ -15,7 +15,12 @@
 import { computed, inject, nextTick, ref, useTemplateRef, watch } from 'vue'
 import { toast } from 'vue-sonner'
 import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-desktop'
-import type { AgentHubState, ProviderPreset, ProvidersDomainState } from '../types'
+import type {
+  AgentDescriptor,
+  AgentHubState,
+  ProviderPreset,
+  ProvidersDomainState,
+} from '../types'
 import type { UseProvidersReturn } from '../composables/useProviders'
 import { PROVIDER_TEMPLATES, sourceFromNotes } from '../utils/providers'
 import { defaultModelsUrl, mergeModelIds, modelsToText, parseModelsText } from '../utils/providers'
@@ -24,6 +29,8 @@ import ProviderApply from './ProviderApply.vue'
 const props = defineProps<{
   detection: AgentHubState | null
   providers: UseProvidersReturn
+  /** 注册表 agent 清单（provider 目标由能力派生；缺省回退内置注册表） */
+  agents?: AgentDescriptor[]
 }>()
 
 const context = inject<PluginContext>('pluginContext')!
@@ -423,6 +430,7 @@ function sourceTag(preset: ProviderPreset): string {
       v-if="applyingPreset"
       :providers="props.providers"
       :preset="applyingPreset"
+      :agents="props.agents"
       @close="applyingPreset = null"
     />
 

@@ -50,6 +50,7 @@ const en: MessageSchema = {
   'hub.card.uninstallRunFailed': 'Uninstall failed; see console on Install tab',
 
   'hub.auth.banner': 'CLI config directories not authorized (~/.codex, ~/.pi, opencode, etc.); related capabilities unavailable.',
+  'hub.agents.degraded': 'Could not load the agent list from the backend; using the built-in list (newly added agents are hidden for now).',
   'hub.auth.action': 'Authorize',
 
   'hub.speed.title': 'npm Registry Speed Test',
@@ -107,7 +108,7 @@ const en: MessageSchema = {
   'hub.skill.targetSync': '{name} synced',
   'hub.skill.targetStale': '{name} · {n} stale',
   'hub.skill.targetIdle': '{name} none',
-  'hub.skill.targetNoConvention': 'opencode / codex have no skills directory convention',
+  'hub.skill.targetNoConvention': '{names}: no skills directory convention',
   'hub.skill.scanError': 'Scan failed, please try again',
   'hub.skill.empty': 'No skills in the library yet',
   'hub.skill.emptyHint': 'Install from GitHub, or import a local directory containing SKILL.md.',
