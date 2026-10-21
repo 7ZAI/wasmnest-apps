@@ -115,6 +115,26 @@ sudo apt install webkit2gtk-driver   # 提供 WebKitWebDriver
 cd <平台仓>/wasmnest-desktop && cargo build --manifest-path src-tauri/Cargo.toml
 ```
 
+### 宿主运行时来源（`fetch-host` / lock）
+
+`node scripts/fetch-host.mjs` 负责把**已发布的宿主资产**落到本地缓存（CONTRACT §4）：
+
+- 版本：`WASMNEST_HOST_VERSION` → 仓根 `host-runtime.lock.json`。lock 由
+  `node scripts/ci/sync-host-lock.mjs` 从平台 `release-manifest.json` 的 `hostRuntime` 段同步，
+  `--check` 做漂移检查（CI 用）。
+- 下载：默认 GitHub Releases（`WASMNEST_HOST_BASE_URL` 必须是 https）。**lock 的 sha256 是权威**；
+  `.sha256` 边车存在时必须与 lock 一致；任何不匹配都中止且不落缓存。
+- 离线 / 本机：`node scripts/fetch-host.mjs --from <host-desktop 目录|tar.gz>`；
+  tar 没有 lock sha 时打印「未校验发布 sha」警告（不静默）。
+- `--print` 只打印解析到的宿主可执行路径、不下载，可配合
+  `WASMNEST_HOST_BIN=$(node scripts/fetch-host.mjs --print)`。
+- 缓存布局：`<cache root>/<version>/<platform>-<arch>/`，完整性判据是 `.complete`
+  （含 sha256 / 解包时间）；缓存根见 CONTRACT §3.3。
+
+**tar 实现**：Node 内置 `zlib` + 自实现 ustar 读取器（与平台 `package-host.mjs` 的写入器对称），
+**不依赖系统 `tar`**，跨平台行为一致。符号链接 / 硬链接 / 绝对路径 / `..` 条目一律拒绝
+（防路径穿越）；解包走临时目录，校验通过后原子 rename，失败清理且不产生半套缓存。
+
 ---
 
 ## 5. 锚点约定（`data-testid`）
