@@ -1,12 +1,13 @@
 /**
  * File Transfer 插件统一构建脚本（双端单产物，2026-10-13）
  *
- * 串联：vite build → cargo 构建（wasm32-unknown-unknown）→ 组件化 → 复制产物
+ * 串联：vite build → cargo 构建（wasm32-unknown-unknown）→ 组件化 → 复制产物到本仓 .build/plugins
  *
  * **工具链口径（单产物）**：本插件是双端共享产物源（规格
  * `.scratch/2026-10-13-file-transfer-single-wasm/spec.md`），与桌面其余
  * wasm 应用的 wasm32-wasip3 直出 Component **不同**——改用
- * wasm32-unknown-unknown + 平台仓级组件化工具（`tools/componentize`），
+ * wasm32-unknown-unknown + 组件化工具（随桌面 SDK 发布的 `tools/componentize`，
+ * 经包名定位，见 `scripts/sdk-componentize.mjs`；G2 构建链不引平台仓源码），
  * 与移动端构建同一编码路径：stable 工具链可编（无需 pinned nightly），且移动
  * 宿主（wasmtime 48）加载的组件形态与其既有产物同构。桌面宿主加载标准组件
  * 无差异（T3 探针用例覆盖）。
@@ -17,23 +18,25 @@ import { cpSync, copyFileSync, mkdirSync, existsSync, mkdtempSync, rmSync } from
 import { tmpdir } from 'os'
 import { resolve, dirname, basename, join, sep } from 'path'
 import { fileURLToPath } from 'url'
-import { startPluginWatch } from '../../../../../wasmnest/wasmnest-desktop/scripts/plugin-watch.js'
+import { startPluginWatch } from '@binblink/wasmnest-plugin-sdk-desktop/bin/plugin-watch.js'
 import { WASM_TARGET_DIR } from '../../../../scripts/plugin-wasm-config.mjs'
-import {
-  componentizeManifest,
-  desktopHostResourcesDir,
-} from '../../../../scripts/platform-paths.mjs'
-import { injectWasmHash } from '../../../../../wasmnest/wasmnest-desktop/packages/plugin-sdk-desktop/bin/wasm-hash.js'
+import { componentizeManifestForBuild } from './sdk-componentize.mjs'
+import { injectWasmHash } from '@binblink/wasmnest-plugin-sdk-desktop/bin/wasm-hash.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
 const ROOT = resolve(__dirname, '..')
+/** 默认产物根目录：本仓内、且不在 vite outDir（dist）之下 */
+const DEFAULT_PLUGINS_DIR = join('.build', 'plugins')
 const PLUGIN_ID = 'com.wasmnest.file-transfer'
 const RUST_LIB_NAME = 'wasmnest_plugin_file_transfer'
 
 // 单产物工具链：unknown-unknown + 组件化（非 wasip3 直出；见文件头口径）
 const WASM_TARGET = 'wasm32-unknown-unknown'
-const COMPONENTIZE_MANIFEST = componentizeManifest()
+// 每次构建物化到本 app 可写目录（node_modules 内是 pnpm 只读仓库，cargo 要写 lock）
+const COMPONENTIZE_MANIFEST = componentizeManifestForBuild({
+  destDir: resolve(ROOT, '.build', 'componentize'),
+})
 
 // 插件调试模式：WASMNEST_PLUGIN_DEBUG=1 → wasm 以 debug profile 构建（保留
 // DWARF，宿主开启 backtrace 行号栈用）；release 构建忽略（宿主侧以
@@ -42,21 +45,21 @@ const DEBUG_MODE = !!process.env.WASMNEST_PLUGIN_DEBUG
 const WASM_PROFILE = DEBUG_MODE ? 'debug' : 'release'
 const WASM_PROFILE_DIR = `${WASM_TARGET_DIR}/${WASM_TARGET}/${WASM_PROFILE}`
 
-// ==================== 产物目标目录 ====================
-// 默认 = 平台仓宿主 resources（经集中 resolver 解析，三仓拆分 §5-E7）：dev 期产物直接
-// 写进平台仓宿主 resources，宿主读同一目录。
+// ==================== 产物目标目录（G2：默认写本仓，不依赖平台仓） ====================
+// 默认 = 本 app 工程内 `.build/plugins/<appId>/`（已 gitignore）。**刻意不落 `dist/`**：
+// 桌面各 app 的 vite 配置都是 `outDir: dist` + `emptyOutDir: true`，产物一旦落在 dist
+// 就会被每次前端构建清空——仅前端构建会连 wasm 一起丢，watch 期宿主还会短暂看到目录消失。
 //
 // `--out <dir>`（或 env WASMNEST_PLUGINS_DIR）：产物改写到**指定 plugins 目录**下的
-// `<dir>/<appId>/`。给「宿主以构建产物运行、不依赖平台仓源码」的形态用——宿主启动时
-// 用同一个目录作为 WASMNEST_PLUGINS_DIR 即可装载本 app（见 scripts/dev-host.js）。
-// 注意本脚本只写 `<dir>/<appId>/` 一层，同目录下可以有别的 app 的产物，互不覆盖。
+// `<dir>/<appId>/`。宿主以构建产物运行（dev:host）、E2E 临时 staging 都走这条。
+// 本脚本只写 `<dir>/<appId>/` 一层，同目录下可以有别的 app 的产物，互不覆盖。
 const argv = process.argv.slice(2)
 function flagValue(flag) {
   const i = argv.indexOf(flag)
   return i !== -1 && argv[i + 1] && !argv[i + 1].startsWith('--') ? argv[i + 1] : null
 }
-const OUT_DIR_ARG = flagValue('--out') || process.env.WASMNEST_PLUGINS_DIR || null
-const PLUGINS_DIR = OUT_DIR_ARG ? resolve(ROOT, OUT_DIR_ARG) : desktopHostResourcesDir()
+const OUT_DIR_ARG = flagValue('--out')
+const PLUGINS_DIR = resolve(ROOT, OUT_DIR_ARG || DEFAULT_PLUGINS_DIR)
 const RESOURCES_DIR = resolve(PLUGINS_DIR, PLUGIN_ID)
 
 function run(cmd, options = {}) {
@@ -67,6 +70,21 @@ function run(cmd, options = {}) {
     console.error(`[build] 命令失败: ${cmd} (cwd=${ROOT})`)
     throw e
   }
+}
+
+/**
+ * 仅前端构建前保全上一份 wasm（G2 默认产物写本仓后的必做前置）。
+ *
+ * `vite build` 清空 outDir（dist），而 `--frontend-only` 的语义是「wasm 保持现状」；
+ * 不在构建前把它挪出来，清空后无处复用 = 产物目录里只剩前端包，宿主装不上该 app。
+ */
+function preservePreviousWasm() {
+  const prev = resolve(RESOURCES_DIR, `${RUST_LIB_NAME}.wasm`)
+  if (!existsSync(prev)) return null
+  const tmp = mkdtempSync(join(tmpdir(), 'wasmnest-wasm-keep-'))
+  const kept = join(tmp, `${RUST_LIB_NAME}.wasm`)
+  copyFileSync(prev, kept)
+  return kept
 }
 
 function buildFrontend() {
@@ -90,7 +108,11 @@ function buildRust() {
   console.log('\n[build] ====== Componentizing WASM (Component Model) ======')
   // 原地组件化（-o 覆盖输入）：工具幂等，已是组件时直通
   run(
-    `cargo run --release --manifest-path "${COMPONENTIZE_MANIFEST}" -- "${modulePath}" -o "${modulePath}"`,
+    // --target-dir 复用应用仓共享 target（工具是宿主机 native bin，与 wasm 产物同桶无害）。
+    // 不加 --locked：仓内 .cargo/config.toml 的 [patch]（CI 的跨仓检出 / link-platform-sdk
+    // 的本地 patch）会让 SDK 带来的 Cargo.lock 需要重写，--locked 只会把构建打死；
+    // 工具依赖本身钉死在 `wit-component = "=0.256.0"`，编码行为不随依赖漂移。
+    `cargo run --release --manifest-path "${COMPONENTIZE_MANIFEST}" --target-dir ${WASM_TARGET_DIR} -- "${modulePath}" -o "${modulePath}"`,
   )
 }
 
@@ -103,7 +125,7 @@ function copyArtifacts(opts = {}) {
   // 候选顺序（`wasmRebuilt` = 本次是否真的重建了 wasm）：
   //   1. 本次构建 profile 的产物
   //   2. 另一 profile 的产物
-  //   3. **仅前端构建时**：复用上一份留在宿主 resources 里的产物 —— `--frontend-only`
+  //   3. **仅前端构建时**：复用上一份留在产物目录里的 wasm —— `--frontend-only`
   //      的语义就是「只改前端，wasm 保持现状」；共享 wasm target 被 cargo clean 清掉
   //      （平台仓 15G 阈值自动清理）时这是唯一正确的来源。
   const candidates = [
@@ -115,6 +137,9 @@ function copyArtifacts(opts = {}) {
     ),
   ]
   if (opts.wasmRebuilt === false) {
+    // 本次构建没动 wasm：目标目录里仍在的那份优先（原位复用），其次用构建前保全到
+    // 临时目录的那份（vite 清空 outDir 时唯一来源）。
+    if (opts.keptWasm && existsSync(opts.keptWasm)) candidates.unshift(opts.keptWasm)
     candidates.unshift(resolve(RESOURCES_DIR, `${RUST_LIB_NAME}.wasm`))
   }
   const wasmSource = candidates.find((p) => existsSync(p))
@@ -180,8 +205,10 @@ if (watchMode) {
     wasmFile: `${WASM_PROFILE_DIR}/${RUST_LIB_NAME}.wasm`,
   })
 } else if (frontendOnly) {
+  // 先保全上一份 wasm 再让 vite 清空 outDir：仅前端构建语义 = 「wasm 保持现状」
+  const keptWasm = preservePreviousWasm()
   buildFrontend()
-  copyArtifacts({ wasmRebuilt: false })
+  copyArtifacts({ wasmRebuilt: false, keptWasm })
 } else if (rustOnly) {
   buildRust()
   copyArtifacts()

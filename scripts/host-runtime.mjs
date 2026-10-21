@@ -262,6 +262,34 @@ function readHostVersion({ appsRoot, platformRoot, required }) {
   return null
 }
 
+/**
+ * 读「我要求哪个宿主」的版本事实（CONTRACT §2.3 / §3.4）。
+ *
+ * 优先级 = lock（应用仓签入，唯一可离线钉住的真源）→ 平台仓 release-manifest（仅在场时）。
+ * 两处都没有 ⇒ 返回 null，由调用方 fail-visible（**不猜默认值**：猜出来的 0.0.1 会让
+ * 真正的版本错位静默通过）。lock 存在但缺 hostRuntime 段是损坏，直接抛错。
+ */
+export function readHostRuntimeLock({ appsRoot = APPS_ROOT, platformRoot } = {}) {
+  const lockPath = join(appsRoot, 'host-runtime.lock.json')
+  if (existsSync(lockPath)) {
+    const hostRuntime = readJsonFile(lockPath)?.hostRuntime
+    if (!hostRuntime || typeof hostRuntime !== 'object' || Array.isArray(hostRuntime)) {
+      throw new Error(`[host-runtime] ${lockPath} 缺 hostRuntime 段（版本事实唯一真源）。`)
+    }
+    return hostRuntime
+  }
+  const actualPlatformRoot =
+    platformRoot === undefined ? detectPlatformRoot({ appsRoot }) : platformRoot
+  if (actualPlatformRoot) {
+    const manifestPath = join(actualPlatformRoot, 'release-manifest.json')
+    if (existsSync(manifestPath)) {
+      const hostRuntime = readJsonFile(manifestPath)?.hostRuntime
+      if (hostRuntime && typeof hostRuntime === 'object') return hostRuntime
+    }
+  }
+  return null
+}
+
 /** 宿主运行时版本（缺失 fail-visible） */
 export function resolveHostVersion({ appsRoot = APPS_ROOT, platformRoot } = {}) {
   const actualPlatformRoot =

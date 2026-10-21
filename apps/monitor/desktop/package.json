@@ -9,6 +9,7 @@
     "build:rust": "cargo build --target wasm32-wasip3 --no-default-features --features wasm --manifest-path rust/Cargo.toml --release",
     "build": "node scripts/build.js",
     "dev": "node scripts/build.js --watch",
+    "dev:host": "node scripts/dev-host.js",
     "test:run": "vitest run",
     "test": "vitest"
   },
