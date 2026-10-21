@@ -20,7 +20,7 @@ wasm = []
 crate-type = ["cdylib"]
 
 [dependencies]
-wasmnest-plugin-api = { path = "../../../../../wasmnest/wasmnest-desktop/packages/plugin-sdk-desktop/rust", features = ["wasm"] }
+wasmnest-plugin-api = { version = "=0.0.1", features = ["wasm"] }
 # 双端共享业务核（ADR 0044）：可共享面收敛为一份，双端差异面全部经端口 trait 注入
 wasmnest-file-transfer-core = { path = "../core" }
 serde = { version = "1", features = ["derive"] }

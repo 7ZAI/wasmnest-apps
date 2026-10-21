@@ -11,11 +11,13 @@
     "e2e": "node scripts/e2e.mjs",
     "e2e:dual": "node scripts/e2e-dual.mjs",
     "e2e:mobile": "node scripts/e2e-mobile.mjs",
+    "link:platform": "node scripts/link-platform-sdk.mjs",
+    "unlink:platform": "node scripts/unlink-platform-sdk.mjs",
     "lint": "eslint .",
     "format": "prettier --write \"apps/**/src/**/*.{ts,vue,js,mjs}\""
   },
   "devDependencies": {
-    "@binblink/wasmnest-plugin-sdk-desktop": "file:../wasmnest/wasmnest-desktop/packages/plugin-sdk-desktop",
+    "@binblink/wasmnest-plugin-sdk-desktop": "0.0.1",
     "@eslint/js": "^9.39.5",
     "@types/mocha": "^10.0.10",
     "@vue/eslint-config-prettier": "^9.0.0",
