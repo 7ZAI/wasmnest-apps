@@ -314,6 +314,7 @@ describe('C2 构建链收口到共享配置', () => {
 function makeEnv(overrides: Partial<Parameters<typeof createAppContext>[0]> = {}) {
   return {
     appId: 'com.wasmnest.terminal-session',
+    mountContract: '1',
     invoke: vi.fn(async () => ({ ui: { terminal_font_size: 14, terminal_letter_spacing: 0 } })),
     appInvoke: vi.fn(async () => ({})),
     appStorageGet: vi.fn(async () => undefined),
@@ -387,6 +388,9 @@ describe('C3 入口契约（挂载包形态：mountApp + 直连上下文 + 内�
     expect(entry).not.toContain('__WASMNEST_SHARED__')
     // 本包自带依赖（无外部化）——vite 构建不再依赖宿主全局
     expect(readFileSync(resolve(PLUGIN_ROOT, 'vite.config.ts'), 'utf-8')).not.toContain('wasmnestPlugin()')
+    // 挂载契约版本（宿主 MOUNT_CONTRACT 比对；分发化后版本不再天然一致）
+    expect(entry).toContain('mountContract: string')
+    expect(entry).toContain("export const mountContract = '1'")
   })
 })
 

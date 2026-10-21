@@ -358,6 +358,9 @@ describe('entry.ts — mountPreview 契约', () => {
     for (const field of ['appId', 'appInvoke', 'appStorageGet', 'lastRoute', 'locale', 'theme']) {
       expect(ENTRY_SRC).toContain(field)
     }
+    // 挂载契约版本（宿主 MOUNT_CONTRACT 比对）
+    expect(ENTRY_SRC).toContain('mountContract: string')
+    expect(ENTRY_SRC).toContain("export const mountContract = '1'")
     // 预览不接收写面 / 事件出口
     expect(ENTRY_SRC).not.toMatch(/interface AppPreviewEnv[\s\S]*?onEvent/)
   })

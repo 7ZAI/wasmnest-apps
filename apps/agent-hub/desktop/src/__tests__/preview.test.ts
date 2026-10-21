@@ -367,6 +367,11 @@ describe('⑥ entry.ts 契约导出与「不等待预览数据」', () => {
     for (const field of ['appId', 'appInvoke', 'appStorageGet', 'lastRoute', 'locale', 'theme']) {
       expect(code, `entry.ts 契约缺字段 ${field}`).toContain(field)
     }
+    // 挂载契约版本（宿主 MOUNT_CONTRACT 比对；分发化后版本不再天然一致）
+    expect(code, "entry.ts AppMountEnv 必须声明 mountContract").toContain('mountContract: string')
+    expect(code, "entry.ts 必须导出 mountContract = '1'").toContain(
+      "export const mountContract = '1'",
+    )
   })
 
   it('mountPreview 在数据回来前就返回句柄（骨架已挂出），unmount 清空容器', async () => {
