@@ -710,8 +710,17 @@ async function loadFormDefaults(): Promise<void> {
 
 // ==================== 数据辅助 ====================
 
+/**
+ * 配置卡片下的会话行：**只列非 stopped 会话**（用户裁决 2026-10-21：停止的会话
+ * 不需要历史，会话卡片不显示；运行中 Tab 本就只列非 stopped/error）。
+ *
+ * 推论：stopped 会话不可见后，行内重启/删除入口随之不可达（会话记录仍在插件
+ * 私有库，不自动删除）；error 会话仍显示（保留诊断与删除路径）。
+ * 用户 2026-10-21 裁决：接受现状——停止的会话不需要历史，不再为 stopped
+ * 保留删除/重启入口。
+ */
 function sessionsOf(configId: string): SessionDto[] {
-  return sessions.value.filter((s) => s.configId === configId)
+  return sessions.value.filter((s) => s.configId === configId && s.status !== 'stopped')
 }
 
 function runningOf(configId: string): SessionDto[] {

@@ -229,6 +229,23 @@ describe('C-C4/C-C5/C-C6/C-C9 会话页形态与动作契约', () => {
     wrapper.unmount()
   })
 
+  it('should_hideStoppedSessions_when_listRendered（用户裁决 2026-10-21：停止的会话不需要历史，会话卡片不显示）', () => {
+    api.isConnected.value = true
+    api.isPaired.value = true
+    api.activeSessions.value = [
+      { id: 's-1', name: 'build', status: 'running' },
+      { id: 's-2', name: 'old-session', status: 'stopped' },
+    ]
+    const wrapper = mountSection(SessionsSection)
+
+    // running 会话正常渲染
+    expect(wrapper.text()).toContain('build')
+    // stopped 会话不渲染会话卡片（其删除按钮入口随之不可达，记录不自动删除）
+    expect(wrapper.text()).not.toContain('old-session')
+    expect(wrapper.find('button[title="hub.deleteSession"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
   it('should_renderEmptyStateWithConnectEntry_when_notAuthenticated', async () => {
     // 传输层已连但未认证同样算「不可用」：受保护端点会 401
     api.isConnected.value = true

@@ -272,7 +272,17 @@ const logger = ctrl.logger
 const api = ctrl.api
 
 const isAuthenticated = computed(() => api.isPaired.value)
-const realSessions = computed<any[]>(() => api.activeSessions.value ?? [])
+/**
+ * 会话卡片数据源：**只列非 stopped 会话**（用户裁决 2026-10-21：停止的会话
+ * 不需要历史，会话卡片不显示）。
+ *
+ * 推论：stopped 卡片不再渲染 → 其上的删除按钮（SessionCard 仅 stopped 态
+ * 显示）随之不可达，会话记录仍在宿主/插件私有库不自动删除。
+ * 用户 2026-10-21 裁决：接受现状——不再为 stopped 会话保留删除入口。
+ */
+const realSessions = computed<any[]>(() =>
+  (api.activeSessions.value ?? []).filter((s: any) => s?.status !== 'stopped'),
+)
 const sessionConfigs = computed<any[]>(() => api.sessionConfigs.value ?? [])
 const isLoadingConfigs = computed(() => api.isLoadingConfigs.value)
 const hasLoadedConfigs = computed(() => api.hasLoadedConfigs.value)

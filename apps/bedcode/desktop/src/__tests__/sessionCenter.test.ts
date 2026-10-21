@@ -14,7 +14,7 @@
  *   会话按 configId 归入对应配置卡片
  * - C2 启动：先预测宿主终端网格再 `session.create`（cols/rows 随预测值传递）
  * - C3 查看终端：运行中会话触发 `context.session.openTerminal`；已停止会话
- *   不触发（只提示「未运行」）
+ *   不渲染会话卡片（用户裁决 2026-10-21：停止的会话不需要历史，卡片不显示）
  * - C4 停止：确认后 `session.close` + 关闭终端窗口
  * - C5 删除运行中会话：先 `session.close` 再 `session.action.remove`（顺序）
  * - C6 重启：`session.action.restart`
@@ -178,7 +178,7 @@ describe('SessionCenterView（会话中心页面）', () => {
     })
   })
 
-  it('C3 查看终端：运行中会话触发宿主开窗；已停止会话不触发且提示未运行', async () => {
+  it('C3 查看终端：运行中会话触发宿主开窗；已停止会话不渲染（卡片不显示）', async () => {
     const wrapper = mountView()
     await flushPromises()
 
@@ -191,18 +191,16 @@ describe('SessionCenterView（会话中心页面）', () => {
     await flushPromises()
     expect(openTerminal).toHaveBeenCalledWith({ id: 'mock-session-1', name: 'claude-dev' })
 
-    // 已停止会话（mock-session-3，落在第二张卡片）：点击后只提示未运行，不开窗
+    // 已停止会话（mock-session-3，第二张配置卡下的行）：用户裁决——停止的会话
+    // 不需要历史，会话卡片不显示（配置 Tab 下不渲染 stopped 行，点不到）
     openTerminal.mockClear()
-    const { toast } = await import('vue-sonner')
     const stoppedRow = wrapper
       .findAll('[title="session.terminal.view"]')
       .find((el) => el.text().includes('Ubuntu 工具链'))
-    expect(stoppedRow, '停止态会话行仍可点击（点击后提示未运行）').toBeTruthy()
-    await stoppedRow!.trigger('click')
-    await flushPromises()
-
+    expect(stoppedRow, '已停止会话不渲染会话卡片').toBeUndefined()
+    // 配置卡片本身仍在（stopped 的是会话行，不是配置卡）
+    expect(wrapper.text()).toContain('Ubuntu 工具链')
     expect(openTerminal).not.toHaveBeenCalled()
-    expect(toast.info).toHaveBeenCalledWith('session.error.notRunning')
   })
 
   it('C4 停止：确认后经 session.close 停止并关闭其终端窗口', async () => {
