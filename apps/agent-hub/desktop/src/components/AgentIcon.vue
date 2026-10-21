@@ -4,8 +4,8 @@
  *
  * 图元数据单一真源在 src/icons.ts，与概览卡片（CliIcon）同一份：
  * adapter ∈ {claude, codex, opencode, pi} 渲染官方品牌标（随主题的
- * currentColor 走 token，claude 保持品牌橙）；其他适配器（含自定义
- * 日志来源）回退 FNV-1a 字母徽标。
+ * currentColor 走 token，claude 保持品牌橙，pi 为官方 coral/blue/yellow
+ * 三色像素标）；其他适配器（含自定义日志来源）回退 FNV-1a 字母徽标。
  *
  * 字母徽标底色走 --ah-avatar-0..5（宿主 token 的中性派生，见 styles.css），
  * 不使用硬编码 hex 色板：同一来源名恒得同一档（hash 取模），
@@ -72,6 +72,7 @@ const avatarToken = computed(() => {
         v-for="(p, i) in glyph.paths"
         :key="i"
         :d="p.d"
+        :fill="p.fill ?? glyph.color"
         :fill-rule="p.rule ?? 'nonzero'"
       />
     </svg>

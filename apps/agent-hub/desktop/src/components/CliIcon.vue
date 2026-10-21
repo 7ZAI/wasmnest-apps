@@ -22,7 +22,7 @@ const icon = computed(() => agentGlyph(props.cliId))
         v-for="(p, i) in icon.paths"
         :key="i"
         :d="p.d"
-        :fill="icon.color"
+        :fill="p.fill ?? icon.color"
         :fill-rule="p.rule ?? 'nonzero'"
       />
     </svg>

@@ -3,16 +3,17 @@
  *
  * 概览卡片（CliIcon）与会话日志角色图标（AgentIcon）共用同一份 path 数据，
  * 避免两份图标资产漂移。claude / codex(OpenAI) / opencode 路径取自
- * simple-icons（CC0）；pi 为官方标（用户提供，evenodd 镂空）。品牌标为
- * 固定商标色（claude 的 Anthropic 橙），不随主题——frontend-styles 的
- * token 约束针对 UI 语义色，品牌标志不在其列；底色 chip 仍走 token。
+ * simple-icons（CC0）；pi 为 pi 1.3+ 的多色像素标（4×4 网格，
+ * 官方色 coral / blue / yellow，与 pi TUI 的 pi-logo / 3D easter egg 同源）。
+ * 品牌标为固定商标色（claude 的 Anthropic 橙、pi 三色），不随主题——
+ * frontend-styles 的 token 约束针对 UI 语义色，品牌标志不在其列；底色 chip 仍走 token。
  */
 
-/** 品牌图元：viewBox + 固定填充色 + path 列表（rule 默认 nonzero） */
+/** 品牌图元：viewBox + 兜底填充色 + path 列表（rule 默认 nonzero，fill 缺省用 color） */
 export interface BrandGlyph {
   viewBox: string
   color: string
-  paths: { d: string; rule?: 'evenodd' | 'nonzero' | 'inherit' }[]
+  paths: { d: string; rule?: 'evenodd' | 'nonzero' | 'inherit'; fill?: string }[]
 }
 
 export const CLI_ICONS: Record<string, BrandGlyph> = {
@@ -39,15 +40,17 @@ export const CLI_ICONS: Record<string, BrandGlyph> = {
     color: 'currentColor',
     paths: [{ d: 'M22 24H2V0h20zM17 4.8H7v14.4h10z' }],
   },
+  // pi 1.3+ 官方像素标：4×4 网格（coral = 顶横 + 右上格，blue = 左竖 + 中格，
+  // yellow = 右下两格）。色值与网格真源 = pi 包 dist/modes/interactive/components/
+  // pi-logo.js（CORAL #e48a7a / BLUE #4f8eb3 / YELLOW #eab55d，像素矩阵
+  // ["ccc.", "b.c.", "bb.y", "b..y"]）。按色拆成三条 path，互不重叠。
   pi: {
-    viewBox: '165.29 165.29 469.43 469.43',
-    color: 'currentColor',
+    viewBox: '0 0 4 4',
+    color: '#e48a7a',
     paths: [
-      {
-        d: 'M165.29 165.29H517.36V400H400V517.36H282.65V634.72H165.29Z M282.65 282.65V400H400V282.65Z',
-        rule: 'evenodd',
-      },
-      { d: 'M517.36 400H634.72V634.72H517.36Z' },
+      { d: 'M0 0H3V2H2V1H0Z', fill: '#e48a7a' },
+      { d: 'M0 1H1V4H0Z M1 2H2V3H1Z', fill: '#4f8eb3' },
+      { d: 'M3 2H4V4H3Z', fill: '#eab55d' },
     ],
   },
 }
