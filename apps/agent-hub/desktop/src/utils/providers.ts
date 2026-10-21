@@ -55,14 +55,6 @@ export const PROVIDER_TEMPLATES: ProviderTemplate[] = [
   },
 ]
 
-/** 各目标的配置文件落点（面板提示用；与 guest paths.rs 同构） */
-export const TARGET_PATHS: Record<string, string> = {
-  claude: '~/.claude/settings.json',
-  pi: '~/.pi/agent/{models.json, auth.json}',
-  opencode: '~/.config/opencode/opencode.json',
-  codex: '~/.codex/config.toml',
-}
-
 /**
  * 由预设名派生 codex 的 `env_key` 变量名（`<NAME>_API_KEY` 大写）
  *

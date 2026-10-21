@@ -27,8 +27,13 @@ import type {
   ProviderPreset,
   ProviderTarget,
 } from '../types'
-import { deriveEnvKeyName, sourceFromNotes, TARGET_PATHS } from '../utils/providers'
-import { BUILTIN_AGENTS, preferredProviderTarget } from '../agents'
+import { deriveEnvKeyName, sourceFromNotes } from '../utils/providers'
+import {
+  BUILTIN_AGENTS,
+  preferredProviderTarget,
+  providerConfigHint,
+  providerWritesModels,
+} from '../agents'
 import type { UseProvidersReturn } from '../composables/useProviders'
 
 const props = defineProps<{
@@ -144,15 +149,13 @@ const applyNote = computed(() =>
     : t('hub.pv.apply.note', { n: targets.value.length, targets: targets.value.join(' · ') }),
 )
 
-/** 预设没有模型：pi / opencode / codex 写入会被 guest 拒绝（fail-visible），提前拦一道
- * （2026-10-04 OCR A-06：codex 入列——guest 侧 `codex.rs::plan_apply` 同样拒
- * `noModels`，且 `codexNextModel` 为 null 时切换预览横幅也不出现，此前 codex
- * 是唯一在查不到模型的预设上无任何点击前警告的目标） */
-const modelLessTargets = computed(() =>
-  props.preset.models.length === 0 ? ['pi', 'opencode', 'codex'] : [],
-)
+/** 预设没有模型：声明了「写入需要模型」的目标会被 guest 拒绝（fail-visible），
+ * 提前拦一道。模型需求来自 UI 注册表的目标能力（unknown agent 默认需要，
+ * 宁多一次警告也不让 guest 静默拒绝）。 */
 const blockedTargets = computed(() =>
-  targets.value.filter((tg) => modelLessTargets.value.includes(tg)),
+  props.preset.models.length === 0
+    ? targets.value.filter((tg) => providerWritesModels(tg))
+    : [],
 )
 
 /** 失败分类 → i18n（guest 的 error 原文只进 console，不进界面） */
@@ -332,7 +335,7 @@ async function apply(force: boolean) {
             </button>
           </span>
           <span class="ah-inst-hint">{{ t('hub.pv.apply.targetHint') }}</span>
-          <span class="ah-inst-hint ah-mono">{{ targets.map((tg) => TARGET_PATHS[tg] ?? '').filter(Boolean).join('  ·  ') }}</span>
+          <span class="ah-inst-hint ah-mono">{{ targets.map((tg) => providerConfigHint(tg)).filter(Boolean).join('  ·  ') }}</span>
         </div>
 
         <!-- 无模型的预设：提前拦一道（guest 也会拒，这里让原因先到） -->
@@ -373,7 +376,7 @@ async function apply(force: boolean) {
             <span class="ah-banner-ic">⚠</span>
             <span class="ah-banner-text">{{ t('hub.pv.apply.codex.dialectBlocked') }}</span>
           </div>
-          <span class="ah-inst-hint ah-mono">{{ TARGET_PATHS.codex }}</span>
+          <span class="ah-inst-hint ah-mono">{{ providerConfigHint('codex') }}</span>
         </template>
 
         <!-- key 四选一（纯 codex 应用不需要：codex 只写 env_key 变量名） -->

@@ -17,6 +17,10 @@ export interface AgentUiEntry extends AgentDescriptor {
   glyph: BrandGlyph
   /** provider 应用的默认目标（首个模型清单目标；保持历史默认落在 pi） */
   preferredProviderTarget?: boolean
+  /** 供应商写入是否需要至少一个模型（无模型时面板提前警告；未知 agent 默认 true） */
+  providerWritesModels?: boolean
+  /** 供应商配置落点提示（面板展示用；未知 agent 留空） */
+  providerConfigHint?: string
 }
 
 /** 通用占位图标（未知 agent：机器人头像，品牌色随主题） */
@@ -42,18 +46,24 @@ export const BUILTIN_AGENTS: AgentUiEntry[] = [
     displayName: 'Claude Code',
     glyph: CLI_ICONS.claude ?? GENERIC_AGENT_GLYPH,
     capabilities: { install: true, provider: true, skills: true, usage: true },
+    providerWritesModels: false,
+    providerConfigHint: '~/.claude/settings.json',
   },
   {
     id: 'codex',
     displayName: 'Codex CLI',
     glyph: CLI_ICONS.codex ?? GENERIC_AGENT_GLYPH,
     capabilities: { install: true, provider: true, skills: false, usage: true },
+    providerWritesModels: true,
+    providerConfigHint: '~/.codex/config.toml',
   },
   {
     id: 'opencode',
     displayName: 'OpenCode',
     glyph: CLI_ICONS.opencode ?? GENERIC_AGENT_GLYPH,
     capabilities: { install: true, provider: true, skills: false, usage: true },
+    providerWritesModels: true,
+    providerConfigHint: '~/.config/opencode/opencode.json',
   },
   {
     id: 'pi',
@@ -61,6 +71,8 @@ export const BUILTIN_AGENTS: AgentUiEntry[] = [
     glyph: CLI_ICONS.pi ?? GENERIC_AGENT_GLYPH,
     capabilities: { install: true, provider: true, skills: true, usage: true },
     preferredProviderTarget: true,
+    providerWritesModels: true,
+    providerConfigHint: '~/.pi/agent/{models.json, auth.json}',
   },
 ]
 
@@ -82,6 +94,16 @@ export function agentGlyph(id: string): BrandGlyph {
 /** 品牌展示名回退（后端展示名优先；此函数只给纯前端场景兜底） */
 export function builtinAgentName(id: string): string {
   return UI_BY_ID.get(id)?.displayName ?? id
+}
+
+/** 供应商写入是否需要模型（未登记 agent 默认 true：没把握时先警告） */
+export function providerWritesModels(id: string): boolean {
+  return UI_BY_ID.get(id)?.providerWritesModels ?? true
+}
+
+/** 供应商配置落点提示（未登记 agent 留空，面板只显示目标名） */
+export function providerConfigHint(id: string): string {
+  return UI_BY_ID.get(id)?.providerConfigHint ?? ''
 }
 
 /** provider 默认目标：声明的偏好优先，否则回退第一个 provider 目标 */
