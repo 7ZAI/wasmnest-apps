@@ -27,6 +27,10 @@
         "title": "Agent Hub: Get State"
       },
       {
+        "id": "agent-hub.list-agents",
+        "title": "Agent Hub: List Agents"
+      },
+      {
         "id": "agent-hub.request-auth",
         "title": "Agent Hub: Request Directory Authorization"
       },

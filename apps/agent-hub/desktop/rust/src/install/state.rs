@@ -6,7 +6,7 @@
 
 use super::registry::MIRROR_SOURCES;
 use super::INSTALL_KEY;
-use crate::detect;
+use crate::agents;
 use wasmnest_plugin_api::host::{ConfigKey, HostConfig, HostEvents, HostLog, HostStorage};
 use wasmnest_plugin_api::wasm_host::WasmHost;
 use serde_json::{json, Value};
@@ -47,9 +47,9 @@ pub(super) fn read_state(h: &WasmHost) -> Value {
 
 /// 默认复合状态（纯函数，可测）
 pub(super) fn default_state() -> Value {
-    let updates = detect::CLI_KINDS
+    let updates = agents::all()
         .iter()
-        .map(|c| (c.to_string(), json!(null)))
+        .map(|a| (a.id().to_string(), json!(null)))
         .collect::<serde_json::Map<String, Value>>();
     json!({
         "active": null,
@@ -107,14 +107,18 @@ pub(crate) fn now_ms(h: &WasmHost) -> Result<u64, String> {
 mod tests {
     use super::*;
 
-    /// 状态默认值：updates 覆盖四家 CLI、mirror 含 speed/npmrc 两个子域
+    /// 状态默认值：updates 覆盖注册表全部 CLI、mirror 含 speed/npmrc 两个子域
     #[test]
     fn default_state_shape() {
         let state = default_state();
         assert!(state["active"].is_null());
         assert!(state["last"].is_null());
-        for cli in detect::CLI_KINDS {
-            assert!(state["updates"][cli].is_null(), "{cli} 应有 updates 占位");
+        for agent in agents::all() {
+            assert!(
+                state["updates"][agent.id()].is_null(),
+                "{} 应有 updates 占位",
+                agent.id()
+            );
         }
         assert_eq!(state["mirror"]["speed"]["status"], json!("idle"));
         assert_eq!(state["mirror"]["npmrc"]["backupExists"], json!(false));

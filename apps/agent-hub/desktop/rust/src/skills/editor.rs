@@ -6,7 +6,7 @@
 
 use super::listing::{combined_hash, hash_of, parse_frontmatter};
 use super::scan::recompute_distribution;
-use super::{emit_and_return, library_root, read_state, target_roots, write_state, TARGET_SEGS};
+use super::{emit_and_return, library_root, read_state, target_roots, targets, write_state};
 use crate::HOME;
 use wasmnest_plugin_api::host::{HostFs, HostLog};
 use wasmnest_plugin_api::wasm_host::WasmHost;
@@ -120,15 +120,16 @@ pub(crate) fn distribute(h: &WasmHost, args: &Value) -> anyhow::Result<Value> {
     if dir.is_empty() || dir.contains('/') || dir.contains('\\') || dir.contains("..") {
         return Err(anyhow::anyhow!("distribute: invalid dir"));
     }
+    let target_segs = targets();
     let wanted: Vec<String> = match args.get("targets").and_then(|v| v.as_array()) {
         Some(arr) => arr
             .iter()
             .filter_map(|v| v.as_str().map(|s| s.to_string()))
             .collect(),
-        None => TARGET_SEGS.iter().map(|(n, _)| n.to_string()).collect(),
+        None => target_segs.iter().map(|(n, _)| n.to_string()).collect(),
     };
     for t in &wanted {
-        if !TARGET_SEGS.iter().any(|(n, _)| n == t) {
+        if !target_segs.iter().any(|(n, _)| n == t) {
             return Err(anyhow::anyhow!("distribute: unknown target {t}"));
         }
     }

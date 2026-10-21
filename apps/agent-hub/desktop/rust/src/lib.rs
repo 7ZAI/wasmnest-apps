@@ -33,6 +33,7 @@ use wasmnest_plugin_api::WasmPlugin;
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 
+mod agents;
 mod detect;
 mod install;
 mod providers;
@@ -74,31 +75,15 @@ fn host() -> WasmHost {
     WasmHost
 }
 
-/// 批量授权目录清单：全部为家目录绝对路径前缀。
+/// 批量授权目录清单（注册表适配器声明 + 共享目录，全部为家目录绝对路径前缀）。
 ///
 /// 宿主侧第一方清单已免审 `~/.agents`、`~/.claude/skills`、`~/.pi/agent/skills`
 /// 与自身数据根的 `~/.wasmnest/agent-hub/runs`（回灌产物目录），不在申请列；
-/// 其余每次会话都会读写的目录在这里一次性批量申请：CLI 配置/会话目录
-/// （codex / pi / opencode / claude projects）、npmrc、claude.json。
-/// `~/.claude/projects` 是 usage 扫描的会话真源（claude 适配器逐文件读），
-/// 不随宿主免询目录放行（用户内容），须用户点头；拒绝后 usage 域降级，
-/// 扫描时仍可就「实际来源根目录」重新批量申请。
-fn auth_dirs(home: &str) -> Vec<String> {
-    vec![
-        format!("{home}/.codex"),
-        format!("{home}/.pi"),
-        format!("{home}/.config/opencode"),
-        format!("{home}/.local/share/opencode"),
-        format!("{home}/.agents"),
-        format!("{home}/.npmrc"),
-        format!("{home}/.claude.json"),
-        format!("{home}/.claude/projects"),
-    ]
-}
-
-/// 批量申请 CLI 配置目录授权（一次弹窗），结果持久化并返回是否全部同意
+/// 其余每次会话都会读写的目录（CLI 配置/会话目录、npmrc、claude 当前项目
+/// 配置与 usage 会话真源）由 [`agents::auth_dirs`] 一次性汇总批量申请。
+/// 拒绝后 usage 域降级，扫描时仍可就「实际来源根目录」重新批量申请。
 fn request_auth(h: &WasmHost, home: &str) -> bool {
-    let dirs = auth_dirs(home);
+    let dirs = agents::auth_dirs(home);
     let granted = h.fs_request_auth(&dirs).unwrap_or(false);
     let _ = h.storage_set(
         AUTH_KEY,
@@ -184,6 +169,7 @@ impl WasmPlugin for AgentHubPlugin {
                 let state = h.storage_get(STATE_KEY)?;
                 Ok(serde_json::json!({ "state": state }))
             }
+            "agent-hub.list-agents" => Ok(agents::describe()),
             "agent-hub.request-auth" => {
                 let home = HOME
                     .get()
@@ -271,11 +257,11 @@ mod tests {
         assert!(m.permissions.contains(&"process:run".to_string()));
     }
 
-    /// 授权目录清单：家目录绝对路径前缀、覆盖四家 CLI 配置/会话落点，
+    /// 授权目录清单（注册表派生）：家目录绝对路径前缀、覆盖四家 CLI 配置/会话落点，
     /// 且不含宿主第一方清单已免审的目录（`.claude/skills`、`.wasmnest/agent-hub/runs`）
     #[test]
     fn auth_dirs_cover_cli_homes() {
-        let dirs = auth_dirs("/home/u");
+        let dirs = agents::auth_dirs("/home/u");
         assert_eq!(dirs.len(), 8);
         assert!(dirs.iter().all(|d| d.starts_with("/home/u/")));
         assert!(dirs.iter().any(|d| d.ends_with("/.codex")));
@@ -287,6 +273,25 @@ mod tests {
         // .pi/agent/skills / .wasmnest/agent-hub/runs；.agents 因技能库仍需逐文件读写）
         assert!(dirs.iter().all(|d| !d.contains("/.claude/skills")));
         assert!(dirs.iter().all(|d| !d.contains("/.wasmnest/agent-hub/runs")));
+    }
+
+    /// list-agents 路由：返回注册表全量（顺序/展示名/能力形状），未知命令仍然拒绝
+    #[test]
+    fn list_agents_route_returns_registry() {
+        let out = AgentHubPlugin::invoke_command(
+            "agent-hub.list-agents",
+            serde_json::json!(null),
+        )
+        .expect("list-agents");
+        let agents = out["agents"].as_array().expect("agents array");
+        let ids: Vec<&str> = agents
+            .iter()
+            .map(|a| a["id"].as_str().expect("id"))
+            .collect();
+        assert_eq!(ids, vec!["claude", "codex", "opencode", "pi"]);
+        assert_eq!(agents[0]["displayName"], serde_json::json!("Claude Code"));
+        assert!(agents[0]["capabilities"]["install"].is_boolean());
+        assert!(AgentHubPlugin::invoke_command("agent-hub.nope", serde_json::json!(null)).is_err());
     }
 }
 

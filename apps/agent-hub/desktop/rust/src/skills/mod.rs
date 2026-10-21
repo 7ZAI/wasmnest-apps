@@ -25,9 +25,14 @@
 
 /// host-storage 键：Skills 域复合状态
 pub(crate) const SKILLS_KEY: &str = "skills";
-/// 分发目标白名单（v1：claude / pi 家级私有目录），值为家目录相对段
-pub(super) const TARGET_SEGS: [(&str, &str); 2] =
-    [("claude", ".claude/skills"), ("pi", ".pi/agent/skills")];
+/// 分发目标（注册表派生）：声明了 skills 目录的 agent（claude / pi），
+/// 值为家目录相对段；未声明的 agent（codex / opencode）自然不在分发面
+pub(super) fn targets() -> Vec<(&'static str, &'static str)> {
+    crate::agents::all()
+        .iter()
+        .filter_map(|a| a.skills_seg().map(|seg| (a.id(), seg)))
+        .collect()
+}
 /// 规范库家目录相对段
 pub(super) const LIBRARY_SEG: &str = ".agents/skills";
 /// 扫描/导入枚举超时：目录列举为纯文件系统遍历，30s 上限
@@ -40,9 +45,9 @@ pub(super) static RUN_SEQ: AtomicU32 = AtomicU32::new(0);
 
 /// 分发目标根目录表：[(目标名, 绝对根)]
 pub(super) fn target_roots(home: &str) -> Vec<(&'static str, String)> {
-    TARGET_SEGS
-        .iter()
-        .map(|(name, seg)| (*name, format!("{home}/{seg}")))
+    targets()
+        .into_iter()
+        .map(|(name, seg)| (name, format!("{home}/{seg}")))
         .collect()
 }
 

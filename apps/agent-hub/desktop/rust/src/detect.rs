@@ -10,11 +10,15 @@
 //! - 环境：node / npm / pnpm 版本 + 当前 npm registry
 //! - 路径统一规范化为 `/` 分隔后再归类（Windows `where` 输出反斜杠）
 //!
+//! CLI 清单来自注册表（[`crate::agents`]）：二进制名、安装方式路径特征均由
+//! 适配器声明，本模块不持有具体 id。
+//!
 //! 流程：spawn_all 将各项标记 detecting 并持久化推送 → 宿主进程结束回灌
 //! `on_process_done` → 读输出文件解析 → 更新 storage → emit 事件推前端。
 //! 状态 JSON 为唯一真源（host-storage `detection` 键），每次读-改-写。
 
 use super::{host, pending, PendingRun, AUTH_KEY, DATA_DIR, STATE_KEY};
+use crate::agents::{self, Agent};
 use crate::util::{is_windows, os_platform, shell_invocation};
 use wasmnest_plugin_api::events::ProcessDoneEvent;
 use wasmnest_plugin_api::host::{HostEvents, HostFs, HostLog, HostProcess, HostStorage};
@@ -24,9 +28,8 @@ use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Mutex, OnceLock};
 
-/// 探测项：4 个 CLI + 1 个环境采集
+/// 探测项：注册表全部 agent + 1 个环境采集
 pub(crate) const ENV_KIND: &str = "env";
-pub(crate) const CLI_KINDS: [&str; 4] = ["claude", "codex", "opencode", "pi"];
 /// 登录 shell + nvm 注入可能偏慢，`--version` 类采集 20s 足够
 const TIMEOUT_MS: u64 = 20_000;
 
@@ -125,11 +128,12 @@ fn ensure_env_os(env: &mut Value) {
     }
 }
 
-fn default_clis() -> Value {
+/// 默认探测状态（键集合 = 注册表 id 集合，顺序即展示顺序；契约测试锁死）
+pub(crate) fn default_clis() -> Value {
     let mut map = serde_json::Map::new();
-    for kind in CLI_KINDS {
+    for agent in agents::all() {
         map.insert(
-            kind.to_string(),
+            agent.id().to_string(),
             json!({
                 "status": "idle",
                 "installed": null,
@@ -167,8 +171,8 @@ pub(crate) fn push_state(h: &WasmHost) {
 fn mark_detecting(state: &mut Value) {
     state["envStatus"] = json!("detecting");
     if let Some(clis) = state["clis"].as_object_mut() {
-        for kind in CLI_KINDS {
-            if let Some(info) = clis.get_mut(kind) {
+        for agent in agents::all() {
+            if let Some(info) = clis.get_mut(agent.id()) {
                 info["status"] = json!("detecting");
             }
         }
@@ -210,8 +214,10 @@ pub(crate) fn spawn_all(h: &WasmHost) -> anyhow::Result<()> {
     }
     push_state(h);
 
-    let mut kinds = vec![ENV_KIND];
-    kinds.extend(CLI_KINDS);
+    let mut kinds: Vec<(&'static str, String)> = vec![(ENV_KIND, env_detection_script())];
+    for agent in agents::all().iter().copied() {
+        kinds.push((agent.id(), cli_detection_script(agent)));
+    }
     // 批跟踪：本轮发起的 run 全部收敛才算一次探测完成（旧批集合整体替换，
     // 迟到旧 run 完成事件不误触发后续动作）
     let mut runs = detect_runs()
@@ -219,10 +225,9 @@ pub(crate) fn spawn_all(h: &WasmHost) -> anyhow::Result<()> {
         .map_err(|e| anyhow::anyhow!("detect: poisoned batch map: {e}"))?;
     runs.clear();
     let mut spawned = 0usize;
-    for kind in kinds {
+    for (kind, script) in kinds {
         let seq = RUN_SEQ.fetch_add(1, Ordering::Relaxed);
         let output_path = format!("{data_dir}/runs/{kind}-{seq}.log");
-        let script = detection_script(kind);
         let (command, args) = shell_invocation(script, is_windows());
         let request = json!({
             "command": command,
@@ -318,32 +323,40 @@ fn apply_output(state: &mut Value, kind: &str, output: &str) {
         ensure_env_os(&mut state["env"]);
         // 清除历史失败残留（如修复前探测的 exit=127 envError），避免 UI 混淆
         state["envError"] = Value::Null;
-    } else {
-        let mut info = parse_cli(kind, output);
+    } else if let Some(agent) = agents::get(kind) {
+        let mut info = parse_cli(agent, output);
         info["status"] = json!(if info["installed"] == json!(true) {
             "ok"
         } else {
             "not-installed"
         });
         state["clis"][kind] = info;
+    } else {
+        // 注册表已无该 id（旧版本在途 run 的迟到回灌）：fail-visible 落错误
+        set_cli_error(state, kind, &format!("unknown agent: {kind}"));
     }
 }
 
 // ==================== 采集脚本（按平台分派，分段标记两端一致） ====================
 
-/// 采集脚本分派：Windows 用 `cmd /C` 链式（`where` 全命中、`2>nul` 抑制未装
-/// 报错）；unix 用 `which -a` + `head` 截断版本噪声
-fn detection_script(kind: &str) -> String {
+/// 环境采集脚本分派：Windows 用 `cmd /C` 链式（`2>nul` 抑制未装报错）；
+/// unix 用登录 shell + PATH 引导
+fn env_detection_script() -> String {
     if cfg!(windows) {
-        if kind == ENV_KIND {
-            "echo == node == & node --version 2>&1 & echo == npm == & npm --version 2>&1 & echo == pnpm == & pnpm --version 2>&1 & echo == registry == & npm config get registry 2>&1 & echo == python == & py --version 2>&1 || python --version 2>&1 & echo == arch == & echo %PROCESSOR_ARCHITECTURE% & echo == os_version == & ver 2>&1 & echo == shell == & echo %COMSPEC%".to_string()
-        } else {
-            format!("echo == paths == & where {kind} 2>nul & echo == version == & {kind} --version 2>&1")
-        }
-    } else if kind == ENV_KIND {
-        env_script_unix()
+        "echo == node == & node --version 2>&1 & echo == npm == & npm --version 2>&1 & echo == pnpm == & pnpm --version 2>&1 & echo == registry == & npm config get registry 2>&1 & echo == python == & py --version 2>&1 || python --version 2>&1 & echo == arch == & echo %PROCESSOR_ARCHITECTURE% & echo == os_version == & ver 2>&1 & echo == shell == & echo %COMSPEC%".to_string()
     } else {
-        cli_script_unix(kind)
+        env_script_unix()
+    }
+}
+
+/// 单 CLI 采集脚本分派：Windows `where` 全命中（`2>nul` 抑制未装报错）；
+/// unix `which -a` 全命中（二进制名来自适配器，默认等于 id）
+fn cli_detection_script(agent: &dyn Agent) -> String {
+    let bin = agent.binary();
+    if cfg!(windows) {
+        format!("echo == paths == & where {bin} 2>nul & echo == version == & {bin} --version 2>&1")
+    } else {
+        cli_script_unix(bin)
     }
 }
 
@@ -359,9 +372,9 @@ pub(crate) fn path_bootstrap_unix() -> &'static str {
 
 /// unix 单 CLI 采集：`which -a` 全部 PATH 命中 + 版本行；未安装时 paths 为空、
 /// version 段只有 shell 报错行 → not-installed
-fn cli_script_unix(kind: &str) -> String {
+fn cli_script_unix(bin: &str) -> String {
     format!(
-        "{}echo '== paths =='\nwhich -a {kind} 2>/dev/null\necho '== version =='\n{kind} --version 2>&1 | head -n 2\n",
+        "{}echo '== paths =='\nwhich -a {bin} 2>/dev/null\necho '== version =='\n{bin} --version 2>&1 | head -n 2\n",
         path_bootstrap_unix()
     )
 }
@@ -376,8 +389,9 @@ fn env_script_unix() -> String {
 
 // ==================== 输出解析 ====================
 
-/// 解析单 CLI 输出（分段：== paths == / == version ==）
-pub(crate) fn parse_cli(kind: &str, output: &str) -> Value {
+/// 解析单 CLI 输出（分段：== paths == / == version ==）；安装方式归类与二进制名
+/// 均来自适配器（注册表唯一真源）
+pub(crate) fn parse_cli(agent: &dyn Agent, output: &str) -> Value {
     let mut paths: Vec<String> = vec![];
     let mut version: Option<String> = None;
     let mut section = "";
@@ -419,7 +433,7 @@ pub(crate) fn parse_cli(kind: &str, output: &str) -> Value {
         "status": "ok",
         "installed": installed,
         "version": version,
-        "method": classify(kind, &paths),
+        "method": classify(agent, &paths),
         "paths": paths,
         "dual": paths.len() > 1,
         "error": null,
@@ -473,19 +487,29 @@ fn extract_version(line: &str) -> Option<String> {
 /// 安装方式归类：以 PATH 首位（实际生效者）为准
 ///
 /// 输入已规范化为 `/` 分隔；Windows 路径大小写不敏感，统一小写后匹配特征。
-/// - standalone：opencode 官方安装脚本落 `~/.opencode/bin`
-/// - npm-global：nvm（unix/nvm-windows）/ node 全局 bin（Windows 为
-///   `%APPDATA%\Roaming\npm` shim 目录，另含 volta、pnpm 全局目录特征）
-/// - native：claude 官方安装器落 `~/.local/bin`（两端同位）
-fn classify(kind: &str, paths: &[String]) -> &'static str {
+/// 顺序：适配器声明的私有路径特征（如 claude native `~/.local/bin`、
+/// opencode standalone `~/.opencode/bin`）优先，未命中再走公共 npm 全局特征
+/// （nvm（unix/nvm-windows）/ node 全局 bin（Windows 为 `%APPDATA%\Roaming\npm`
+/// shim 目录，另含 volta、pnpm 全局目录特征））。
+fn classify(agent: &dyn Agent, paths: &[String]) -> &'static str {
     let Some(primary) = paths.first() else {
         return "unknown";
     };
     let p = primary.to_lowercase();
-    if p.contains("/.opencode/bin/") {
-        return "standalone";
+    for &(needle, method) in agent.path_methods() {
+        if p.contains(needle) {
+            return method;
+        }
     }
-    if p.contains("nvm")
+    if is_npm_global_path(&p) {
+        return "npm-global";
+    }
+    "unknown"
+}
+
+/// 公共 npm 全局安装路径特征（大小写不敏感输入）
+fn is_npm_global_path(p: &str) -> bool {
+    p.contains("nvm")
         || p.contains("/node-v")
         || p.contains("node_modules")
         || p.contains("/.npm-global")
@@ -493,13 +517,6 @@ fn classify(kind: &str, paths: &[String]) -> &'static str {
         || p.contains("volta")
         || p.contains("/roaming/npm/")
         || p.contains("/program files/nodejs")
-    {
-        return "npm-global";
-    }
-    if kind == "claude" && p.contains("/.local/bin/") {
-        return "native";
-    }
-    "unknown"
 }
 
 /// 解析环境输出（分段：== node == / == npm == / == pnpm == / == registry == /
@@ -619,11 +636,16 @@ pub(crate) fn parse_env(output: &str) -> Value {
 mod tests {
     use super::*;
 
+    /// 经注册表取适配器（探测解析/归类的唯一入口）
+    fn agent(id: &str) -> &'static dyn Agent {
+        agents::get(id).unwrap_or_else(|| panic!("agent not registered: {id}"))
+    }
+
     /// codex 形态：版本带 CLI 名前缀；本机已装 → npm-global
     #[test]
     fn parse_cli_codex() {
         let out = "== paths ==\n/home/u/.config/nvm/versions/node/v24.20.0/bin/codex\n== version ==\ncodex-cli 0.153.4\n";
-        let info = parse_cli("codex", out);
+        let info = parse_cli(agent("codex"), out);
         assert_eq!(info["installed"], json!(true));
         assert_eq!(info["version"], json!("0.153.4"));
         assert_eq!(info["method"], json!("npm-global"));
@@ -634,7 +656,7 @@ mod tests {
     #[test]
     fn parse_cli_opencode_dual_install() {
         let out = "== paths ==\n/home/u/.opencode/bin/opencode\n/home/u/.config/nvm/versions/node/v24.20.0/bin/opencode\n== version ==\nopencode 1.18.30\n";
-        let info = parse_cli("opencode", out);
+        let info = parse_cli(agent("opencode"), out);
         assert_eq!(info["dual"], json!(true));
         assert_eq!(info["method"], json!("standalone"));
         assert_eq!(info["version"], json!("1.18.30"));
@@ -645,7 +667,7 @@ mod tests {
     #[test]
     fn parse_cli_claude_native() {
         let out = "== paths ==\n/home/u/.local/bin/claude\n== version ==\n2.1.263 (Claude Code)\n";
-        let info = parse_cli("claude", out);
+        let info = parse_cli(agent("claude"), out);
         assert_eq!(info["method"], json!("native"));
         assert_eq!(info["version"], json!("2.1.263"));
     }
@@ -654,7 +676,7 @@ mod tests {
     #[test]
     fn parse_cli_not_installed() {
         let out = "== paths ==\n== version ==\nbash: codex: command not found\n";
-        let info = parse_cli("codex", out);
+        let info = parse_cli(agent("codex"), out);
         assert_eq!(info["installed"], json!(false));
         assert_eq!(info["version"], json!(null));
         assert_eq!(info["paths"].as_array().unwrap().len(), 0);
@@ -697,7 +719,7 @@ mod tests {
     #[test]
     fn parse_cli_opencode_v2() {
         let out = "== paths ==\n/home/u/.config/nvm/versions/node/v24.20.0/bin/opencode\n== version ==\nopencode v2.0.29\n";
-        let info = parse_cli("opencode", out);
+        let info = parse_cli(agent("opencode"), out);
         assert_eq!(info["installed"], json!(true));
         assert_eq!(info["status"], json!("ok"));
         assert_eq!(info["version"], json!("2.0.29"));
@@ -764,7 +786,7 @@ mod tests {
     fn parse_cli_windows_paths() {
         let out =
             "== paths ==\nC:\\Users\\u\\AppData\\Roaming\\npm\\pi.cmd\n== version ==\n0.85.1\n";
-        let info = parse_cli("pi", out);
+        let info = parse_cli(agent("pi"), out);
         assert_eq!(info["installed"], json!(true));
         assert_eq!(info["method"], json!("npm-global"));
         assert_eq!(
@@ -773,12 +795,12 @@ mod tests {
         );
 
         let out = "== paths ==\nC:\\Users\\u\\.local\\bin\\claude.exe\n== version ==\n2.1.263 (Claude Code)\n";
-        let info = parse_cli("claude", out);
+        let info = parse_cli(agent("claude"), out);
         assert_eq!(info["method"], json!("native"));
 
         let out =
             "== paths ==\nC:\\Users\\u\\.opencode\\bin\\opencode.exe\n== version ==\n1.18.30\n";
-        let info = parse_cli("opencode", out);
+        let info = parse_cli(agent("opencode"), out);
         assert_eq!(info["method"], json!("standalone"));
     }
 

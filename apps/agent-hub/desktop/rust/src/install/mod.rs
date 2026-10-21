@@ -23,6 +23,7 @@
 //! - 本模块：安装/更新执行 lifecycle（spawn → 进程回灌 → 自动重探测）
 
 use super::{host, pending, PendingRun, DATA_DIR, HOME, INSTALL_KEY};
+use crate::agents;
 use crate::detect;
 use crate::detect::path_bootstrap_unix;
 use crate::util::{is_windows, shell_invocation};
@@ -33,7 +34,7 @@ use serde_json::{json, Value};
 use std::sync::atomic::{AtomicU32, Ordering as AtomicOrdering};
 
 mod mirror;
-mod recipe;
+pub(crate) mod recipe;
 mod registry;
 mod state;
 mod version;
@@ -82,7 +83,7 @@ pub(crate) fn describe_install(h: &WasmHost, args: &Value) -> anyhow::Result<Val
         .get("cli")
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow::anyhow!("describe-install: missing cli"))?;
-    if !detect::CLI_KINDS.contains(&cli) {
+    if agents::get(cli).is_none() {
         return Err(anyhow::anyhow!("describe-install: unknown cli: {cli}"));
     }
     let use_mirror = args.get("mirror").and_then(|v| v.as_bool()).unwrap_or(true);
@@ -106,9 +107,9 @@ pub(crate) fn start(h: &WasmHost, args: &Value) -> anyhow::Result<Value> {
         .get("cli")
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow::anyhow!("install: missing cli"))?;
-    if !detect::CLI_KINDS.contains(&cli) {
+    let Some(agent) = agents::get(cli) else {
         return Err(anyhow::anyhow!("install: unknown cli: {cli}"));
-    }
+    };
     let use_mirror = args.get("mirror").and_then(|v| v.as_bool()).unwrap_or(true);
 
     let mut state = read_state(h);
@@ -135,7 +136,7 @@ pub(crate) fn start(h: &WasmHost, args: &Value) -> anyhow::Result<Value> {
     let method = info["method"].as_str().unwrap_or("unknown");
     let installed = info["installed"].as_bool().unwrap_or(false);
     let node_ok = detection["env"]["node"].is_string();
-    if !node_ok && !(cli == "opencode" && method == "standalone") {
+    if !node_ok && agent.install_requires_node(method) {
         // 无 node 环境（用户可见拒绝；ADR 0030 业务码）
         wasmnest_plugin_api::bail_with_code!("com.wasmnest.agent-hub.hub.inst.error.nodeMissing");
     }
@@ -198,9 +199,9 @@ pub(crate) fn uninstall(h: &WasmHost, args: &Value) -> anyhow::Result<Value> {
         .get("cli")
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow::anyhow!("uninstall: missing cli"))?;
-    if !detect::CLI_KINDS.contains(&cli) {
+    let Some(agent) = agents::get(cli) else {
         return Err(anyhow::anyhow!("uninstall: unknown cli: {cli}"));
-    }
+    };
 
     let mut state = read_state(h);
     if state["active"].is_object() {
@@ -222,7 +223,7 @@ pub(crate) fn uninstall(h: &WasmHost, args: &Value) -> anyhow::Result<Value> {
     let method = detection["clis"][cli]["method"]
         .as_str()
         .unwrap_or("unknown");
-    if method == "npm-global" && !detection["env"]["node"].is_string() {
+    if !detection["env"]["node"].is_string() && agent.uninstall_requires_node(method) {
         // 无 node 环境（用户可见拒绝；ADR 0030 业务码）
         wasmnest_plugin_api::bail_with_code!("com.wasmnest.agent-hub.hub.inst.error.nodeMissing");
     }
