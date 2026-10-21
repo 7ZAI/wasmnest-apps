@@ -55,6 +55,21 @@ import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { APPS_ROOT, desktopHostDir, platformRoot } from './platform-paths.mjs'
+import {
+  assertHostCompatible,
+  hostRuntimeMissingHint,
+  readHostRuntimeLock,
+  resolveHostRuntime,
+} from './host-runtime.mjs'
+import {
+  hostExpectations,
+  needsDevServer,
+  planArtifactCopy,
+  planBuildArgs,
+  planStaging,
+  planStagingCleanup,
+  resolveHostMode,
+} from './e2e-plan.mjs'
 
 const HOST_DEV_URL = 'http://localhost:1420/'
 const MOBILE_PACKAGE = 'com.wasmnest.mobile'
@@ -80,6 +95,8 @@ function parseArgs(argv) {
     spec: null,
     isolate: true,
     keep: false,
+    hostMode: null,
+    host: null,
     help: false,
   }
   for (let i = 0; i < argv.length; i++) {
@@ -94,6 +111,8 @@ function parseArgs(argv) {
     else if (a === '--spec') args.spec = argv[++i]
     else if (a === '--no-isolate') args.isolate = false
     else if (a === '--keep') args.keep = true
+    else if (a === '--host-mode') args.hostMode = argv[++i]
+    else if (a === '--host') args.host = argv[++i]
     else if (a === '--help' || a === '-h') args.help = true
     else throw new Error(`未知参数：${a}（--help 看用法）`)
   }
@@ -117,6 +136,8 @@ function usage() {
       '  --spec <path>      透传 wdio --spec',
       '  --no-isolate       不隔离桌面数据目录',
       '  --keep             保留失败现场与临时目录',
+      '  --host-mode        packed（默认，桌面宿主来自解析器）| cargo（平台 dev 二进制 + dev server）',
+      '  --host <路径>      packed 下显式指定桌面宿主',
     ].join('\n'),
   )
 }
@@ -145,18 +166,46 @@ function preflightDrivers() {
   console.log(`[e2e-dual] 驱动就绪：tauri-driver=${tauriDriver}`)
 }
 
-function preflightHost() {
-  const hostDir = desktopHostDir()
-  const bin = process.env.WASMNEST_E2E_HOST_BIN || join(hostDir, 'src-tauri', 'target', 'debug', 'wasmnest-desktop')
-  if (!existsSync(bin)) {
-    fail(
-      `宿主 debug 二进制不存在：${bin}`,
-      '构建：cd <平台仓>/wasmnest-desktop && cargo build --manifest-path src-tauri/Cargo.toml\n' +
-        '  （wdio 插件只在 debug 构建注册，release 产物不能跑 E2E）',
-    )
+/**
+ * 桌面宿主来源（与 e2e.mjs 同口径）：packed（默认）走解析器 + 版本比对；
+ * cargo 走平台 src-tauri debug 二进制。移动侧不在本票范围（仍需平台仓 APK / 真机）。
+ */
+function preflightHost({ mode, hostFlag }) {
+  if (mode === 'cargo') {
+    const bin = process.env.WASMNEST_E2E_HOST_BIN || cargoDebugBin()
+    if (!existsSync(bin)) {
+      fail(
+        `宿主 debug 二进制不存在：${bin}`,
+        '构建：cd <平台仓>/wasmnest-desktop && cargo build --manifest-path src-tauri/Cargo.toml\\n' +
+          '  或改用默认形态 --host-mode packed',
+      )
+    }
+    console.log(`[e2e-dual] 桌面宿主（cargo）：${bin}`)
+    return { bin, source: 'cargo' }
   }
-  console.log(`[e2e-dual] 宿主二进制：${bin}`)
-  return bin
+  let host = null
+  try {
+    host = resolveHostRuntime({ explicit: hostFlag })
+  } catch (e) {
+    fail(e.message)
+  }
+  if (!host) {
+    console.error(hostRuntimeMissingHint())
+    process.exit(1)
+  }
+  try {
+    const lock = readHostRuntimeLock({ appsRoot: APPS_ROOT })
+    assertHostCompatible(host.meta, hostExpectations({ lock, sdkVersion: null }))
+  } catch (e) {
+    fail(`宿主版本与 app 期望不匹配：\\n${e.message}`)
+  }
+  console.log(`[e2e-dual] 桌面宿主（${host.source}）：${host.bin}（hostVersion=${host.meta.hostVersion}）`)
+  return host
+}
+
+/** cargo 模式的平台 debug 二进制路径 */
+function cargoDebugBin() {
+  return `${desktopHostDir()}/src-tauri/target/debug/wasmnest-desktop`
 }
 
 function adbBin() {
@@ -255,31 +304,44 @@ function hasDualSpec(slug) {
   return existsSync(resolve(APPS_ROOT, 'e2e', 'dual', `${slug}-pairing.spec.ts`))
 }
 
-function buildApp(app, { skip }) {
+/** 桌面 app 构建：packed 一律 --out 到临时 staging（不写平台 resources）；cargo 保持现状 */
+function buildApp(app, { mode, skip, pluginsDir }) {
   if (skip) {
     console.log('[e2e-dual] 跳过桌面 app 构建（--skip-build）')
     return
   }
-  console.log(`[e2e-dual] 构建 ${app.slug}（前端 + wasm）…`)
-  const r = spawnSync('node', ['scripts/build.js'], { cwd: app.dir, stdio: 'inherit' })
-  if (r.status !== 0) fail(`app 构建失败：${app.slug}`, `手工复现：cd apps/${app.slug}/desktop && node scripts/build.js`)
+  const args = planBuildArgs({ mode, full: true, pluginsDir })
+  console.log(`[e2e-dual] 构建 ${app.slug}（前端 + wasm${mode === 'cargo' ? '' : ` → ${pluginsDir}`}）…`)
+  const r = spawnSync('node', ['scripts/build.js', ...args], { cwd: app.dir, stdio: 'inherit' })
+  if (r.status !== 0) {
+    fail(`app 构建失败：${app.slug}`, `手工复现：cd apps/${app.slug}/desktop && node scripts/build.js ${args.join(' ')}`)
+  }
 }
 
-/** 被测 app 的桌面产物复制到「只装它一个」的隔离目录（与 e2e.mjs 同口径） */
-function stagePlugins(app) {
-  const hostDir = desktopHostDir()
-  const srcRoot = join(hostDir, 'src-tauri', 'resources', 'plugins', 'desktop')
-  const stageDir = join(hostDir, 'src-tauri', 'target', 'debug', 'resources', 'plugins', 'e2e-dual')
-  rmSync(stageDir, { recursive: true, force: true })
-  const srcDir = join(srcRoot, app.pluginId)
-  if (!existsSync(srcDir)) {
-    fail(`app 产物缺失：${srcDir}`, `先构建：cd apps/${app.slug}/desktop && node scripts/build.js`)
+/** 桌面产物进「只装它一个」的隔离目录（与 e2e.mjs 共用 planArtifactCopy 判据） */
+function stagePlugins(app, { mode, skipBuild, pluginsDir }) {
+  const platformResourcesDir = `${desktopHostDir()}/src-tauri/resources/plugins/desktop`
+  if (planStagingCleanup({ mode })) rmSync(pluginsDir, { recursive: true, force: true })
+  mkdirSync(pluginsDir, { recursive: true })
+  const [plan] = planArtifactCopy({
+    mode,
+    skipBuild,
+    apps: [app],
+    pluginsDir,
+    platformResourcesDir,
+  })
+  if (plan.copy) {
+    if (!existsSync(plan.src)) {
+      fail(`app 产物缺失：${plan.src}`, `先构建：cd apps/${app.slug}/desktop && node scripts/build.js`)
+    }
+    rmSync(plan.dst, { recursive: true, force: true })
+    mkdirSync(plan.dst, { recursive: true })
+    cpSync(plan.src, plan.dst, { recursive: true })
+  } else if (!existsSync(`${plan.dst}/plugin.json`)) {
+    fail(`构建后 staging 里没有该 app 的产物：${plan.dst}`, '检查 build.js 的 --out 行为')
   }
-  const target = join(stageDir, app.pluginId)
-  mkdirSync(target, { recursive: true })
-  cpSync(srcDir, target, { recursive: true })
-  console.log(`[e2e-dual] 桌面产物已就位：${target}`)
-  return stageDir
+  console.log(`[e2e-dual] 桌面产物已就位：${plan.dst}`)
+  return pluginsDir
 }
 
 function resolveApk(explicit) {
@@ -407,12 +469,20 @@ async function main() {
   console.log(`[e2e-dual] APK：${apk}`)
   warnIfApkStale(apk, app)
 
-  const hostBin = preflightHost()
+  const mode = resolveHostMode({ hostMode: args.hostMode })
+  const host = preflightHost({ mode, hostFlag: args.host })
   preflightDrivers()
 
-  buildApp(app, { skip: args.skipBuild })
-  const stageDir = stagePlugins(app)
-  const devServer = await ensureDevServer()
+  // staging：packed（默认）用临时目录，跑完删除；cargo 保留平台 target 下的历史落点
+  const staging = planStaging({
+    mode,
+    stagingDir: mode === 'cargo' ? null : mkdtempSync(join(tmpdir(), 'wasmnest-e2e-dual-plugins-')),
+    platformRoot: platformRoot(),
+  })
+  buildApp(app, { mode, skip: args.skipBuild, pluginsDir: staging.pluginsDir })
+  const stageDir = stagePlugins(app, { mode, skipBuild: args.skipBuild, pluginsDir: staging.pluginsDir })
+  // packed 的宿主前端已嵌进二进制：再起 dev server 就等于「用平台工作树的前端测下载宿主」
+  const devServer = needsDevServer(mode) ? await ensureDevServer() : null
 
   // USB 反向端口：设备侧 127.0.0.1:<port> → 宿主 127.0.0.1:<port>
   adb(serial, ['reverse', `tcp:${args.serverPort}`, `tcp:${args.serverPort}`])
@@ -441,7 +511,7 @@ async function main() {
   const env = {
     ...process.env,
     WASMNEST_E2E_DUAL: '1',
-    WASMNEST_E2E_HOST_BIN: hostBin,
+    WASMNEST_E2E_HOST_BIN: host.bin,
     WASMNEST_E2E_APK: apk,
     WASMNEST_E2E_SERVER: `127.0.0.1:${args.serverPort}`,
     WASMNEST_E2E_ARTIFACTS: artifactsDir,

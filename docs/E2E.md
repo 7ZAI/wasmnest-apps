@@ -27,17 +27,32 @@ E2E 的判据：**在真实桌面宿主里挂载真实 wasm app，用脚本点�
 
 ```text
 ┌─ scripts/e2e.mjs（编排层 · 本仓）
-│   1. 构建被测 app 前端（vite）→ 产物落平台仓宿主 resources
-│   2. 复制产物到「隔离插件目录」（只含被测 app）→ WASMNEST_PLUGINS_DIR
-│   3. 预检：宿主 debug 二进制 / tauri-driver / WebKitWebDriver
-│   4. 起（或复用）宿主前端 dev server（vite :1420）
-│   5. 设隔离环境：WASMNEST_PLUGINS_DIR / XDG_DATA_HOME（可选）
-│   6. 跑 wdio → 退出码即结论
+│   1. 解析宿主（scripts/host-runtime.mjs）：显式 --host → 本机 host:pack 产物 → 下载缓存
+│      并用 host-runtime.lock.json 比对 sdkVersion / witVersion / mountContract（不匹配即红）
+│   2. 构建被测 app → `build.js --out <临时 staging>`（**不写平台宿主 resources**）
+│   3. 预检驱动：tauri-driver / WebKitWebDriver
+│   4. 仅 cargo 模式才起（或复用）宿主前端 dev server（vite :1420）
+│   5. 设隔离环境：WASMNEST_PLUGINS_DIR=staging / XDG_DATA_HOME（可选）
+│   6. 跑 wdio → 退出码即结论；临时 staging 无论成败都删
 │
 └─ e2e/wdio.conf.ts（驱动层 · 本仓）
-    WDIO → @wdio/tauri-service → tauri-driver(Rust) → WebKitWebDriver → 宿主 debug 二进制
-    宿主 debug 二进制里的 tauri-plugin-wdio（仅 debug 注册）提供 `browser.tauri.execute`
+    WDIO → @wdio/tauri-service → tauri-driver(Rust) → WebKitWebDriver → 宿主二进制
+    宿主二进制**只认**运行器注入的 WASMNEST_E2E_HOST_BIN（本配置不再自行拼平台仓路径）
+    宿主里的 tauri-plugin-wdio（仅 debug 构建注册）提供 `browser.tauri.execute`
 ```
+
+### 两种宿主模式（CONTRACT §8.3；默认 `packed`）
+
+| 模式 | 宿主来源 | 宿主前端 dev server | app 产物 / staging | 用途 |
+| --- | --- | --- | --- | --- |
+| `packed`（默认） | 解析器：`--host` / `WASMNEST_HOST_BIN` → 本机 `host:pack` 产物 → 下载缓存 | **不启**（前端已嵌进 `tauri build --debug` 产物） | `build.js --out <mkdtemp>`，就地使用，跑完删除 | **G2 验收形态**：只有应用仓也能跑完整前后端 E2E |
+| `cargo` | `<平台仓>/wasmnest-desktop/src-tauri/target/debug/wasmnest-desktop` | 启（`devUrl` :1420） | 写平台宿主 resources，再拷进平台 target 下的 e2e 目录 | 平台仓内改宿主前端时的调试形态 |
+
+> `runtime`（L2 通用 `wasmnest-desktop-runtime` 装出来的二进制）与 packed 共用 staging 逻辑，
+> 只是宿主来源换成 `scripts/install-runtime.mjs --print`；见 A7 / CONTRACT §5.2。
+>
+> packed 与 cargo 的 **CSP 不同**（packed 用生产 `connect-src 'none'`，cargo 用 `devCsp`），
+> 所以两条路都要各自实跑，不能拿一条的绿推断另一条。
 
 > **逐 app 一次 wdio**：桌面宿主是**单实例**资源（端口 + 应用数据目录 + 窗口），
 > 同一个 wdio run 里放多个 spec 文件会各自起 worker → 各自起宿主实例 → 第二个起不来
@@ -49,15 +64,23 @@ E2E 的判据：**在真实桌面宿主里挂载真实 wasm app，用脚本点�
 `src/shell/mount/useAppMount.ts` + `AppMountSlot.vue` 的 `.app-mount-slot`）。所以
 WebDriver 注入的脚本能直接访问 app 内部节点。
 
-### 三条硬前置（缺任一 → 失败原因会伪装成「功能坏」）
+### 硬前置（缺任一 → 失败原因会伪装成「功能坏」）
 
-| 前置 | 判据 | 缺了会怎样 |
-| --- | --- | --- |
-| 宿主 **debug** 二进制 | `src-tauri/target/debug/wasmnest-desktop` 存在 | wdio 插件只在 `#[cfg(debug_assertions)]` 注册，release 产物**没有**它（平台仓有锁测试保证） |
-| 宿主前端 **dev server** | `http://localhost:1420/` 可达 | debug 二进制走 `tauri.conf.json` 的 `devUrl`，不启服务时页面是 `about:blank` → 报 `Tauri plugin not available`（极易误判成「插件没装」） |
-| **tauri-driver** + **WebKitWebDriver**（Linux） | `which tauri-driver` / `which WebKitWebDriver` | driver 起不来 |
+| 前置 | 适用模式 | 判据 | 缺了会怎样 |
+| --- | --- | --- | --- |
+| 宿主**含 wdio 插件的二进制** | 全部 | packed：解析器给得出（`node scripts/fetch-host.mjs` 或本机 `host:pack`）；cargo：`src-tauri/target/debug/wasmnest-desktop` | wdio 插件只在 `#[cfg(debug_assertions)]` 注册，release 产物**没有**它（平台仓有锁测试保证） |
+| 宿主前端 **dev server** | 仅 cargo | `http://localhost:1420/` 可达 | 不启服务时页面是 `about:blank` → 报 `Tauri plugin not available`（极易误判成「插件没装」）；packed 前端已嵌进二进制，不需要 |
+| **tauri-driver** + **WebKitWebDriver**（Linux） | 全部 | `which tauri-driver` / `which WebKitWebDriver` | driver 起不来（`sudo apt install libwebkit2gtk-4.1-dev webkit2gtk-driver`，包名随发行版） |
+| **host-runtime.lock.json** | 全部（packed/cargo 版本比对） | 文件在场且含 hostRuntime 段 | 无法校验 witVersion / mountContract ⇒ 显性报错，指引跑 `node scripts/ci/sync-host-lock.mjs` |
 
-`scripts/e2e.mjs` 对三条都做**显性预检**（缺则打印修复指引并退出，不静默降级）。
+`scripts/e2e.mjs` 对以上都做**显性预检**（缺则打印修复指引并退出，不静默降级）。
+
+```bash
+node scripts/e2e.mjs --app agent-hub                        # packed（默认）
+node scripts/e2e.mjs --app agent-hub --host-mode cargo      # 平台集成
+node scripts/e2e.mjs --app bedcode --host ./host-desktop     # packed + 显式宿主产物目录
+node scripts/e2e.mjs --app monitor --skip-build              # 复用 app 默认产物目录搬进 staging
+```
 
 ---
 

@@ -21,12 +21,23 @@ const APPS_ROOT = resolve(fileURLToPath(new URL('.', import.meta.url)), '..', '.
 
 const SLUGS = ['agent-hub', 'ai-chatbox', 'bedcode', 'file-transfer', 'monitor']
 
-/** 参与 G2 构建链的文件清单（相对应用仓根） */
+/**
+ * 参与 G2 的「无平台仓也必须能跑」文件清单（相对应用仓根）。
+ *
+ * spec D11 ⑥ 点名：五个 build.js、五个 dev-host.js、scripts/e2e.mjs；
+ * `e2e/wdio.conf.ts` 一并纳入——它是历史上自己拼平台仓宿主路径的那一处。
+ * `scripts/e2e-dual.mjs` **不在禁列**：移动侧真要跑就得拿平台仓的 debug APK
+ * （out of scope），只要求桌面宿主解析走同一个 resolver。
+ */
 function buildChainFiles() {
-  return SLUGS.flatMap((slug) => [
-    `apps/${slug}/desktop/scripts/build.js`,
-    `apps/${slug}/desktop/scripts/dev-host.js`,
-  ])
+  return [
+    ...SLUGS.flatMap((slug) => [
+      `apps/${slug}/desktop/scripts/build.js`,
+      `apps/${slug}/desktop/scripts/dev-host.js`,
+    ]),
+    'scripts/e2e.mjs',
+    'e2e/wdio.conf.ts',
+  ]
 }
 
 /** 禁止出现的模式：命中即点名文件与行 */
@@ -50,7 +61,7 @@ function offenders(source) {
 
 test('G2 导入锁：五个 app 的 build.js / dev-host.js 零平台仓引用', () => {
   const files = buildChainFiles()
-  assert.equal(files.length, 10, 'app 清单不得为空（否则本锁空转）')
+  assert.equal(files.length, 12, '文件清单不得为空（否则本锁空转）')
   const offendersByFile = files
     .map((rel) => [rel, offenders(readFileSync(join(APPS_ROOT, rel), 'utf-8'))])
     .filter(([, hits]) => hits.length > 0)
