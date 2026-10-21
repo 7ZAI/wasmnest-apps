@@ -26,6 +26,8 @@
 | `src/appContext.ts` | 把 `AppMountEnv` 适配成 `PluginContext` 形状 | 自己拼 `plugin_invoke` 通道、碰令牌 |
 | `src/index.ts` | **仅** dev-shell 兼容出口（导出 `devMock` 领域种子数据） | 加业务逻辑（主宿主不加载它） |
 
+依赖口径：`package.json` 的桌面 SDK 是**已发布版本精确依赖**（`0.0.1`，不用 `file:` / `^`），`rust/Cargo.toml` 里 `wasmnest-plugin-api = { version = "=0.0.1" }`；要拿本地平台仓源码调试必须显式 `pnpm run link:platform`（`unlink:platform` 还原，`link:platform --status` 看状态），link 产生的 `file:` / lock 变更 / `.cargo/config.toml` 的 `[patch]` 一律不提交（AGENTS §2）。
+
 五个桌面 app（`agent-hub` / `ai-chatbox` / `bedcode` / `file-transfer` / `monitor`）都有 `entry.ts` 与 `appContext.ts`；`src/index.ts` 在 agent-hub / ai-chatbox / file-transfer 存在，**bedcode/desktop 与 monitor/desktop 没有**。
 
 ### 1.2 挂载契约字段
@@ -37,6 +39,7 @@
 | 字段 | 用途 |
 | --- | --- |
 | `appId` | 插件 id（= 应用 id） |
+| `mountContract` | **挂载契约版本**（宿主 `MOUNT_CONTRACT` 同值，当前 `"1"`）：`entry.ts` 必须 `export const mountContract = '1'`，宿主装载时比对，不匹配 / 缺失 ⇒ **显性报错**（不是 mount 失败的白屏） |
 | `invoke(command, args)` | 宿主面命令（无附加凭证，如 `get_app_settings`） |
 | `appInvoke(command, ...args)` | 插件面命令（`plugin_invoke`，本 app 通道令牌已绑定） |
 | `appStorageGet / Set / Delete` | 本 app 插件 KV 存储（凭证已绑定） |
@@ -45,6 +48,11 @@
 | `onEvent?` | 宿主面事件出口：`navigate`（请求壳跳转）/ `route`（应用自报内部当前页） |
 
 `AppMountHandle`：`unmount()` 必选；`setRoute?` / `setLocale?` / `setTheme?` 可选。
+
+> **`mountContract` 的 bump 规则**（G2 / CONTRACT §6）：只在 `AppMountEnv` / `AppMountHandle`
+> 形状**破坏性**变化（删字段 / 改名 / 语义变）时 bump；新增可选字段不 bump。它不替代
+> WIT 版本与 SDK 版本——分发化之后三者各自独立，宿主启动前按 `host-runtime.lock.json`
+> 一并比对（`scripts/host-runtime.mjs` 的 `assertHostCompatible`）。
 
 ### 1.2.1 多任务卡片预览面（可选 `mountPreview`，2026-10-20）
 
@@ -81,7 +89,10 @@
 
 - `vite.config.ts`：`build.lib` 单文件 `dist/index.js`（`formats: ['es']`、`inlineDynamicImports: true`）、`minify: 'terser'`；CSS 经 `vite-plugin-css-injected-by-js` 内联；**无 externals**。
 - 各 app 自持 `tailwind.config.js` / `postcss.config.js`，类名自编译（宿主 Tailwind content 不再扫 app）。
-- `scripts/build.js`：`vite build → cargo build → 复制 index.js / plugin.json / icon.svg / <rustLibrary>.wasm 到宿主 resources → injectWasmHash`；支持 `--watch` / `--frontend-only` / `--rust-only`；`WASMNEST_PLUGIN_DEBUG=1` 出 debug wasm。
+- `scripts/build.js`：`vite build → cargo build → 复制 index.js / plugin.json / icon.svg / <rustLibrary>.wasm 到产物目录 → injectWasmHash`；支持 `--watch` / `--frontend-only` / `--rust-only`；`WASMNEST_PLUGIN_DEBUG=1` 出 debug wasm。
+  - **产物目录默认 = 本 app 的 `.build/plugins/<appId>/`**（G2：构建链不依赖平台仓）。刻意不落 `dist/`：五个 app 的 vite 配置都是 `outDir: dist` + `emptyOutDir: true`，落在 dist 里等于每次前端构建把自己清空。写平台宿主 resources 必须显式 `--out <平台仓>/wasmnest-desktop/src-tauri/resources/plugins/desktop`（平台集成/dev-run 用）。
+  - 工具来自已发布 SDK 包，不走平台相对路径：`@binblink/wasmnest-plugin-sdk-desktop/bin/{wasm-hash.js,plugin-watch.js}`（`file-transfer` 另有 `tools/componentize`，见 `scripts/sdk-componentize.mjs`：从包内物化到 `.build/componentize/` 再 `cargo run`，node_modules 是 pnpm 只读仓库，cargo 要在那儿写 `Cargo.lock` 会失败）。
+  - `--frontend-only` 的 wasm 复用靠 `preservePreviousWasm()`：**构建前**把上一份 wasm 挪到临时目录（否则 outDir 被清空后无处复用）。
 
 ### 1.5 迭代路径
 

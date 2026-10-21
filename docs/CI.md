@@ -80,9 +80,11 @@ $GITHUB_WORKSPACE/
 
 | 依赖                                                   | 来自                                                     | 说明                                                                                                                    |
 | ------------------------------------------------------ | -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| 双端 SDK 包                                            | 平台仓 `wasmnest-{desktop,mobile}/packages/plugin-sdk-*` | 应用 `package.json` 用 `file:../../../../wasmnest/...`，深路径相对关系决定**目录名必须是 `wasmnest` / `wasmnest-apps`** |
+| 双端 SDK 包                                            | 平台仓 `wasmnest-{desktop,mobile}/packages/plugin-sdk-*` | **默认按已发布版本精确依赖**（npm `0.0.1` / crate `=0.0.1`）；本地平台开发才 `pnpm run link:platform`（改 `file:` + `.cargo/config.toml` 的 `[patch]`，不提交）。SDK 发布 = 平台仓 `.github/workflows/sdk-publish.yml`（tag `sdk-v*`） |
+| 宿主运行时（dev / 验证期）                             | 平台仓 `host-v*` release 资产 + `release-manifest.hostRuntime` | 应用仓 `host-runtime.lock.json` 钉版本，`scripts/fetch-host.mjs` 下载校验；`scripts/ci/sync-host-lock.mjs --check` 校验 lock↔manifest 漂移；**不进 app 发布产物**（`scripts/ci/check-release-purity.mjs`） |
 | 组件化工具                                             | 平台仓 `tools/componentize`                              | 移动端与 file-transfer 的 core module → Component                                                                       |
-| 宿主 resources 落点                                    | 平台仓 `wasmnest-*/src-tauri/resources/plugins/**`       | 各 app 构建产物先写这里，再打包成 zip                                                                                   |
+| 桌面 app 产物落点                                      | 应用仓 `apps/<slug>/desktop/.build/plugins/`（默认）、CI staging `dist/ci-plugins/` | `build.js --out` 决定；`package-plugins.mjs` 的 `--plugins-dir` 与 build 同源，不再从平台 resources 取桌面产物 |
+| 移动 app 产物落点                                      | 平台仓 `wasmnest-mobile/src-tauri/resources/plugins/**`  | 移动端构建链本轮不变（写 resources 仍由平台移动构建负责）                                                              |
 | WIT 生成物                                             | 平台仓 `scripts/compose-wit.mjs`（真源在能力仓）         | `rust/wit/` 不入库，必须现场拼装                                                                                        |
 | `plugin-watch.js` / `wasm-hash.js` / `manifest-gen.js` | 平台仓 SDK                                               | 桌面 build 脚本直接 import                                                                                              |
 
@@ -184,7 +186,8 @@ node scripts/ci/set-app-version.mjs agent-hub 0.0.2 --dry-run
 | `--lib-ref auto` 报找不到 ref                          | `repos.lib.tag` 没推到 origin：`git -C ../wasmnest-lib push origin <tag>`，或临时 `--lib-ref dev`       |
 | `sccache` 报 `incremental compilation is prohibited`   | 环境里设了 `CARGO_INCREMENTAL=1`，删掉该变量（sccache 会拒绝执行）                                      |
 | app 构建报 `Cannot find module @binblink/.../dist/...` | `prepare-platform.mjs` 没跑（或平台 SDK build 失败），先补齐 SDK dist                                   |
-| 打包报「产物缺失」                                     | 构建没写进平台 resources：确认走的是本文档 §5 的构建命令，而不是只产 `dist/` 的 `wasmnest-plugin build` |
+| 打包报「产物缺失」                                     | 桌面：确认 `package-plugins.mjs --plugins-dir` 与构建的 `--out` 同源；移动：确认走平台移动构建（不是只产 `dist/` 的 `wasmnest-plugin build`） |
+| `pnpm install --frozen-lockfile` 404 找不到 SDK        | SDK 还没发布（`0.0.1` 未上 npm）：本地开发跑 `pnpm run link:platform`（会改 lock，别提交）；发布 SDK 后重跑 install 生成 registry 解析的 lock 并提交 |
 | artifact 里版本不是刚改的版本                          | 版本改动没提交 / 构建缓存了旧产物：`app-info --expect-version` 会先挡；必要时清对应 resources 目录重建  |
 | Release 创建失败「tag 已存在」                         | 手动 `publish` 不会覆盖既有 tag；发布新版本请 bump + 重新打 tag                                         |
 
