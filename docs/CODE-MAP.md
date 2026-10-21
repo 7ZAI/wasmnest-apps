@@ -22,7 +22,8 @@
 
 | 方向 | resolver | 环境变量覆盖 |
 | --- | --- | --- |
-| 应用 → 平台 | `scripts/platform-paths.mjs`（宿主 resources 落点 / 组件化工具 manifest） | `WASMNEST_PLATFORM_ROOT` |
+| 应用 → 平台（仅 CI / 平台集成脚本） | `scripts/platform-paths.mjs`（宿主 resources 落点等） | `WASMNEST_PLATFORM_ROOT` |
+| 应用 → 宿主运行时 | `scripts/host-runtime.mjs`（解析：显式 → 本机 `host:pack` → 缓存）、`scripts/fetch-host.mjs`（下载 + sha256 校验 + 解包）、`scripts/install-runtime.mjs`（L2 通用 runtime crate）、`host-runtime.lock.json`（版本真源镜像） | `WASMNEST_HOST_BIN` / `WASMNEST_HOST_APP` / `WASMNEST_HOST_VERSION` / `WASMNEST_HOST_CACHE` / `WASMNEST_HOST_PREFER` / `WASMNEST_HOST_BASE_URL` |
 | 平台 → 应用 | `../wasmnest/scripts/app-paths.mjs`（读本仓源码；`app-script.mjs` 转发单 app 脚本） | `WASMNEST_APPS_ROOT` |
 
 两个 resolver 都 fail-visible：目录缺失**抛错**，不返回可能无效的路径。
@@ -41,7 +42,7 @@ wasmnest-apps/
 │   ├─ src/index.ts                dev-shell 兼容出口（仅导出 devMock；主宿主不加载）
 │   ├─ src/components|composables|utils|i18n|__tests__/
 │   ├─ rust/                       WASM 后端（file-transfer 例外：无本端 rust）
-│   ├─ scripts/build.js            vite → cargo → 复制产物到宿主 resources → injectWasmHash
+│   ├─ scripts/build.js            vite → cargo → 复制产物到 .build/plugins/<id> → injectWasmHash
 │   ├─ vite.config.ts / vitest.config.ts / tailwind.config.js / postcss.config.js
 │   ├─ package.json + pnpm-lock.yaml + pnpm-workspace.yaml    ← 独立 workspace
 │   └─ icon.svg
@@ -150,7 +151,7 @@ apps/<slug>/<end>/ 源码
    └─ <rustLibrary>.wasm
 ```
 
-桌面 app 的 `pnpm run build` 直接写平台宿主 resources；移动 app 的 `wasmnest-plugin build` 只产自身 `dist/`，**写进宿主 resources 由平台仓移动构建负责**（`wasmnest-mobile/scripts/plugin-build.js`；file-transfer/mobile 的 `build` 已直接指向该包装脚本）。
+桌面 app 的 `pnpm run build` 默认写**本仓** `apps/<slug>/desktop/.build/plugins/<appId>/`（CI 打包经 `scripts/ci/build-app.mjs` 的 `--out` staging 收集，`scripts/ci/check-release-purity.mjs` 保证产物里不含宿主痕迹）；平台 `tauri:dev` / `dev-run.js` 需要产物进宿主 resources 时显式 `--out`；移动 app 的 `wasmnest-plugin build` 只产自身 `dist/`，**写进宿主 resources 由平台仓移动构建负责**（`wasmnest-mobile/scripts/plugin-build.js`；file-transfer/mobile 的 `build` 已直接指向该包装脚本）。
 
 **发布产物（CI）**：`scripts/ci/build-app.mjs` 在上述构建链之后经 `package-plugins.mjs --skip-build` 打包为
 `dist/release/<slug>-<end>-v<version>.zip` + 同名元数据 JSON（详见 `docs/CI.md` §5）。
@@ -172,10 +173,14 @@ apps/<slug>/<end>/ 源码
 | 移动运行面契约（类型真源） | `wasmnest-mobile/packages/plugin-sdk-mobile/src/types.ts`（`UIRegistry`） |
 | 移动宿主注册表 | `wasmnest-mobile/src/shell/registry.ts` |
 | manifest 校验 / 生成 / wasmHash | `wasmnest-desktop/packages/plugin-sdk-desktop/bin/{manifest-validate.js,manifest-gen.js,wasm-hash.js}` |
+| 宿主运行时版本真源（平台 ↔ 应用） | 平台 `release-manifest.json` 的 `hostRuntime` ↔ 应用仓 `host-runtime.lock.json`（`scripts/ci/sync-host-lock.mjs` 同步；应用侧解析 `scripts/host-runtime.mjs`、下载 `scripts/fetch-host.mjs`）；口径 `wasmnest-apps/.scratch/2026-10-21-host-runtime-distribution/CONTRACT.md` |
 | 权限词汇真源 | `wasmnest-desktop/packages/plugin-sdk-desktop/rust/src/permission.rs`（生成物：同 SDK `bin/permission-vocabulary.json`） |
 | 跨仓版本 / 发布 | `release-manifest.json`、`scripts/check-release-manifest.mjs` |
 | wasip3 工具链 | `scripts/wasip3-toolchain.sh`（`WASIP3_NIGHTLY` 单一事实源） |
-| 构建 / dev 编排 | `wasmnest-desktop/scripts/{plugin-build.js,dev-run.js,plugin-watch.js}`、`wasmnest-mobile/scripts/plugin-build.js` |
+| 构建 / dev 编排 | `wasmnest-desktop/scripts/{plugin-build.js,dev-run.js}`、`wasmnest-mobile/scripts/plugin-build.js`；**`plugin-watch.js` 已随 SDK 发布**（`wasmnest-desktop/packages/plugin-sdk-desktop/bin/plugin-watch.js`，应用侧经包名导入） |
+| 宿主产物与运行时发布 | `wasmnest-desktop/scripts/package-host.mjs`（`dist-host/` + tar.gz + sha256 + `host-version.json`）、`.github/workflows/host-release.yml`、`scripts/{set-host-version.mjs,update-host-runtime-artifacts.mjs}` |
+| SDK 发布物 | `wasmnest-desktop/packages/plugin-sdk-desktop/{bin/plugin-watch.js,tools/componentize/**}`、`scripts/package-sdks.mjs`（含发布内容断言）、`.github/workflows/sdk-publish.yml` |
+| L2 通用 runtime crate | `wasmnest-desktop/src-tauri/`（包名 `wasmnest-desktop-runtime`、`[[bin]] wasmnest-desktop`、随包 `shell-dist/`、`run_with(plugins_dir)`）；门禁 `wasmnest-desktop/scripts/{sync-shell-dist.mjs,check-runtime-crate.mjs}` |
 
 ### 能力仓 `../wasmnest-lib`
 

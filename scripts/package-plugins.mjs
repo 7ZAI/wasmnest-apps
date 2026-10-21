@@ -59,7 +59,7 @@ import { platform } from 'node:os'
 // 不直接读平台仓源码路径——SDK 是 app 的构建期依赖，也是这两个 bin 的唯一真源。
 import { generateManifest } from '@binblink/wasmnest-plugin-sdk-desktop/bin/manifest-gen.js'
 import { verifyWasmHash } from '@binblink/wasmnest-plugin-sdk-desktop/bin/wasm-hash.js'
-import { desktopHostResourcesDir, mobileHostResourcesDir } from './platform-paths.mjs'
+import { mobileHostResourcesDir } from './platform-paths.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT = resolve(__dirname, '..')
@@ -78,6 +78,7 @@ function parseArgs(argv) {
     only: [],
     exclude: [],
     out: 'dist/plugin-packages',
+    pluginsDir: null,
     version: null,
     noZip: false,
     skipBuild: false,
@@ -121,6 +122,10 @@ function parseArgs(argv) {
         break
       case 'out':
         args.out = String(val)
+        break
+      case 'plugins-dir':
+        // 桌面产物来源目录（build.js `--out` 的那一层）；缺省 = <out>/plugins
+        args.pluginsDir = String(val)
         break
       case 'version':
         args.version = String(val)
@@ -307,6 +312,13 @@ if (args.list) {
 
 // ==================== 构建 ====================
 
+// 产物根与桌面 plugins 来源目录在构建前就要确定：桌面构建显式 `--out` 写这里，
+// 收集阶段从同一目录读（构建与读取同源 = 不会把平台仓宿主 resources 里的陈旧副本打包）。
+const outDir = resolve(ROOT, args.out)
+const stageDir = join(outDir, 'stage')
+const desktopPluginsDir = resolve(ROOT, args.pluginsDir || join(args.out, 'plugins'))
+const version = args.version || readJson(join(ROOT, 'package.json'), 'package.json').version
+
 function buildDesktopPlugin({ dir, id }) {
   const pluginDir = resolve(APPS_DIR, dir, 'desktop')
   // manifest 自动填充（SDK bin/manifest-gen.js，与宿主插件构建链同源，保证产物与源码一致；
@@ -319,8 +331,12 @@ function buildDesktopPlugin({ dir, id }) {
     console.error(`[package-plugins] ${id} manifest 自动填充失败: ${e.message}`)
     process.exit(1)
   }
-  // 插件 build 脚本 = vite build + cargo wasm + componentize + 复制到 resources
-  run(['pnpm', 'run', 'build'], { cwd: pluginDir, label: `构建桌面端插件 ${id}` })
+  // 插件构建 = vite build + cargo wasm（+ file-transfer 组件化）→ 写 --out 指定目录
+  rmSync(join(desktopPluginsDir, id), { recursive: true, force: true })
+  run([process.execPath, 'scripts/build.js', '--out', desktopPluginsDir], {
+    cwd: pluginDir,
+    label: `构建桌面端插件 ${id}`,
+  })
 }
 
 function buildMobilePlugin({ dir, id }) {
@@ -342,22 +358,22 @@ if (!args.skipBuild) {
 
 // ==================== 收集产物 ====================
 
-const outDir = resolve(ROOT, args.out)
-const stageDir = join(outDir, 'stage')
-const version = args.version || readJson(join(ROOT, 'package.json'), 'package.json').version
-
 function collectArtifacts() {
-  // 产物落点 = 平台仓宿主 resources（构建期写入、宿主直接加载的同一目录）；
-  // 经 platform-paths 集中解析，平台仓缺失时 fail-visible（不静默回退）。
+  // 桌面 = 本次构建的 `--out` 目录（构建与读取同源；平台仓不在场也能打包）；
+  // 移动 = 平台移动构建写进宿主 resources 的那一份（本票不动移动端）。
   const resourcesRoots = {
-    desktop: desktopHostResourcesDir(),
+    desktop: desktopPluginsDir,
     mobile: mobileHostResourcesDir(),
   }
   for (const p of plugins) {
     const src = resolve(resourcesRoots[p.target], p.id)
     const dst = join(stageDir, p.target, p.id)
     if (!existsSync(src)) {
-      console.error(`[package-plugins] 产物缺失: ${src}\n  先运行构建（或确认去掉 --skip-build）`)
+      console.error(
+        `[package-plugins] 产物缺失: ${src}\n` +
+          `  桌面：先跑构建（或 --plugins-dir 指向 build.js --out 的那一层）\n` +
+          `  移动：先跑平台移动构建（写宿主 resources）；确认是否误用了 --skip-build`,
+      )
       process.exit(1)
     }
     rmSync(dst, { recursive: true, force: true })

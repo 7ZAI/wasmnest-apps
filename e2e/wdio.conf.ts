@@ -1,7 +1,6 @@
 import { existsSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { resolve } from 'node:path'
 import type { Options } from '@wdio/types'
-import { desktopHostDir } from '../scripts/platform-paths.mjs'
 
 /**
  * 桌面端 E2E 配置（应用仓层 · WebdriverIO + @wdio/tauri-service）
@@ -17,22 +16,25 @@ import { desktopHostDir } from '../scripts/platform-paths.mjs'
  *    假绿。`scripts/e2e.mjs` 负责起/复用它。
  * 3. **`tauri-driver` + `WebKitWebDriver`**（Linux）：`scripts/e2e.mjs` 预检并 fail-visible。
  *
- * 宿主二进制路径由 `scripts/e2e.mjs` 经 `WASMNEST_E2E_HOST_BIN` 传入（也可直接指定
- * 打包产物：`WASMNEST_E2E_HOST_BIN=<platform>/wasmnest-desktop/dist/host-desktop/...`）。
+ * 宿主二进制路径**只认** `scripts/e2e.mjs` 注入的 `WASMNEST_E2E_HOST_BIN`：
+ * 配置里不再自己拼平台仓路径——绕过运行器直接 `wdio run` 时，静默用一个陈旧的
+ * 平台 debug 二进制 = 测的是旧代码却看起来像功能坏。缺失即显性报错并给出路。
  */
 
 const HERE = resolve(process.cwd())
 
-/** 宿主 debug 二进制（默认：平台仓 `src-tauri/target/debug/`） */
-const HOST_BIN =
-  process.env.WASMNEST_E2E_HOST_BIN ??
-  join(desktopHostDir(), 'src-tauri', 'target', 'debug', 'wasmnest-desktop')
-
+/** 宿主二进制（由运行器解析后注入：packed 产物 / cargo debug / runtime crate） */
+const HOST_BIN = process.env.WASMNEST_E2E_HOST_BIN?.trim() || null
+if (!HOST_BIN) {
+  throw new Error(
+    '[e2e] 缺 WASMNEST_E2E_HOST_BIN：宿主二进制由 scripts/e2e.mjs 解析后注入，本配置不再自行推断。\n' +
+      '  跑法：node scripts/e2e.mjs --app <slug>（默认 packed，宿主来自下载缓存 / 本机 host:pack 产物）',
+  )
+}
 if (!existsSync(HOST_BIN)) {
   throw new Error(
-    `[e2e] 宿主 debug 二进制不存在：${HOST_BIN}\n` +
-      '  构建：cd <平台仓>/wasmnest-desktop && cargo build --manifest-path src-tauri/Cargo.toml\n' +
-      '  或指定现成产物：WASMNEST_E2E_HOST_BIN=<binary>',
+    `[e2e] WASMNEST_E2E_HOST_BIN 指向的二进制不存在：${HOST_BIN}\n` +
+      '  重新解析：node scripts/fetch-host.mjs（或 --host 指定现成宿主产物目录）',
   )
 }
 

@@ -450,5 +450,8 @@ describe('mountPreview 入口契约', () => {
     }
     // 预览面必须走专用组件，不复用主 App / 主 router
     expect(source).toContain("'./preview/PreviewCard.vue'")
+    // 挂载契约版本（宿主 MOUNT_CONTRACT 比对；分发化后版本不再天然一致）
+    expect(source).toContain('mountContract: string')
+    expect(source).toContain("export const mountContract = '1'")
   })
 })

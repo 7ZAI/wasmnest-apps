@@ -41,7 +41,8 @@
 
 ## 2. 三仓边界（禁止反向引用）
 
-- 应用只依赖**平台仓 SDK 包**：桌面 `@binblink/wasmnest-plugin-sdk-desktop`、移动 `@binblink/wasmnest-plugin-sdk-mobile`（开发期 `file:` 指向平台仓）。应用**零宿主源码 import**、零平台仓内部路径引用；宿主前端同样禁止 import 应用源码（运行时装载）。
+- 应用只依赖**平台仓 SDK 包**：桌面 `@binblink/wasmnest-plugin-sdk-desktop`、移动 `@binblink/wasmnest-plugin-sdk-mobile`。**默认口径 = 已发布物精确版本**（npm `0.0.1` + `wasmnest-plugin-api =0.0.1`，见 `.scratch/2026-10-21-host-runtime-distribution/CONTRACT.md` §2.2）；平台仓开发者要指回本地源码，必须显式 `pnpm run link:platform`（`unlink:platform` 还原，状态由 `link:platform --status` 打印）——**不许**把 `file:` / `path` 提交回仓库。构建链需要的小工具（`bin/wasm-hash.js`、`bin/plugin-watch.js`、`tools/componentize/`）都随该 npm 包分发，应用侧一律经包名取用。
+- 桌面 `build.js` / `dev-host.js` / `scripts/e2e.mjs` / `e2e/wdio.conf.ts` **禁止 import `scripts/platform-paths.mjs`**（G2 导入锁，`scripts/__tests__/g2-import-lock.test.mjs` 机器判）；`platform-paths.mjs` 只留给 CI / 平台集成脚本。
 - 平台仓读应用源码的**唯一入口**是两个 resolver（见 `docs/CODE-MAP.md` §1），禁止在调用方散落硬编码。
 - **ABI / WIT 真源不在本仓**：核心 WIT 在能力仓，端组合与 SDK 生成物在平台仓（`rust/wit` 是生成物，禁止手改）。应用只是 SDK 绑定使用方——改契约不在本仓进行。
 - 平台仓读本仓源码的**锁**（改本仓结构 / 文案前先看）：见 `docs/CODE-MAP.md` §5。关键三条：桌面边界锁（`hostAppBoundaryLock`，逐字校验五个桌面 `entry.ts`）、i18n drift 锁（宿主 ↔ `apps/bedcode/desktop/src/i18n/host-*` 逐字一致）、Tailwind content 覆盖锁。
@@ -53,6 +54,7 @@
 - 平台仓 `release-manifest.json` 是**跨仓版本唯一表达**：`repos.apps.tag` = 应用仓 HEAD 精确 tag（当前线 `apps-v0.0.x`），`apps` 段逐端列 `<rustLibrary>.wasm`。
 - 判据由平台仓 `pnpm run check:manifest` 校验。**新增 / 改名 / 停用应用或变更 `rustLibrary` 时**，除本仓提交外必须在平台仓同步更新该 manifest，否则装配红。
 - 应用仓独立打 tag：`apps-vX.Y.Z`（不与其他仓同号）。发布装配按该 tag 取应用仓；未打 tag 的本地改动不进发布。
+- **宿主运行时是另一条版本轴**（真源 = 平台仓 `release-manifest.json` 的 `hostRuntime`）：应用仓签入 `host-runtime.lock.json` 钉住「我要求哪个宿主」，由 `node scripts/ci/sync-host-lock.mjs` 从 manifest 同步、CI 校验漂移。宿主产物由平台仓发布（`host-v<版本>` tag + `host-desktop-<版本>-<platform>-<arch>.tar.gz` + `.sha256`），应用侧 `node scripts/fetch-host.mjs` 取用。宿主运行时**不进 app 发布产物**（`scripts/ci/check-release-purity.mjs` 机器判，D8）。
 - **版本号只在发布时设置**（dev 日常不改）：bump 号段 / 各仓设置点 / 发布动作见 `../wasmnest/docs/public/versioning.md`；应用版本号仅作显示语义，装配不读它。
 
 ---
@@ -96,7 +98,7 @@
 | `pnpm run build` | 逐 app 串行跑 `build` |
 | `pnpm run lint` | 根 eslint（0 error 口径；warning 不阻断） |
 | `pnpm run format` | prettier 写 `apps/**/src/**` |
-| `node scripts/e2e.mjs --app <slug>` | 桌面端 E2E：真实宿主里挂载真实 wasm app，脚本点击界面做功能测试（说明与判据纪律见 `docs/E2E.md`；需宿主 debug 二进制 + tauri-driver + WebKitWebDriver） |
+| `node scripts/e2e.mjs --app <slug>` | 桌面端 E2E：真实宿主里挂载真实 wasm app，脚本点击界面做功能测试（说明与判据纪律见 `docs/E2E.md`；需 tauri-driver + WebKitWebDriver）。**默认 `--host-mode packed`**：宿主来自解析器、staging 在临时目录、不启平台 dev server；`--host-mode cargo` 才用平台 debug 二进制 + dev server |
 | `node scripts/e2e-dual.mjs --app <slug>` | 双端 E2E：上一行 + USB 真机（adb 反向端口 + WebView CDP 触摸/断言）；需 debug APK，见 `docs/E2E.md` §10 |
 | `node scripts/e2e-mobile.mjs --app <slug>` | 真机单端 E2E：真机 + 真移动宿主（真 wasm / 真权限门），桌面不在场；需 debug APK，见 `docs/E2E.md` §11 |
 
@@ -108,8 +110,10 @@
 | `pnpm run build` | 桌面 = `node scripts/build.js`；移动 = SDK CLI / 平台包装脚本 | `file-transfer/mobile` 的 build 直接指向 `wasmnest-mobile/scripts/plugin-build.js` |
 | `pnpm run build:frontend` / `build:rust` | 桌面分段构建 | `bedcode/desktop` 的 `build:rust` = `build.js --rust-only`；移动端无分段脚本 |
 | `pnpm run dev` | 桌面 = `build.js --watch`；移动 = SDK dev-shell（HMR） | **`bedcode/desktop` 无 dev 脚本**（前端最重，dev 期不参与 watch） |
-| `pnpm run dev:host`（桌面各 app 工程内） | **应用工程内起真实桌面宿主**：默认用**宿主构建产物**（平台仓 `pnpm run host:pack` 产出，debug profile 二进制 + 已嵌入的宿主前端 dist），本 app 产物写 `--plugins-dir`（默认 `.dev-host/plugins`），经 `WASMNEST_PLUGINS_DIR` 递给宿主 → 宿主 watcher 触发前端热重载，**不依赖平台仓源码**。宿主产物缺失 fail-visible（提示先 `pnpm run host:pack`）；**无平台仓 dev-run 回退分支**（单路径） | **bedcode 例外**：前端不参与 watch（既有口径），dev:host 只预构建 + 起宿主，改前端需重跑 |
-| `node scripts/build.js --out <dir>` | 产物目录参数化：写 `<dir>/<appId>/` 而非平台仓宿主 resources（也可用 env `WASMNEST_PLUGINS_DIR`）。默认行为不变 | 桌面各 app 均支持 |
+| `node scripts/fetch-host.mjs` | 取宿主运行时：按 `host-runtime.lock.json` 下载 GitHub Release 资产 → **sha256 校验（lock 为权威）** → 解包进缓存（临时目录 → 校验 → 原子 rename + `.complete`）；`--from <目录|tar.gz>` 本地 bootstrap，`--print` 只打印解析结果 | bootstrap / 离线用 `--from`，未发布时 `artifacts` 为空会显性失败 |
+| `pnpm run dev:host`（桌面各 app 工程内） | **应用工程内起真实桌面宿主**：宿主来源统一走 `scripts/host-runtime.mjs`（显式 `--host`/`WASMNEST_HOST_BIN` → 本机 `host:pack` 产物 → 下载缓存），启动前按 lock 比对 `sdkVersion` / `witVersion` / `mountContract`（不匹配即退出，不再只是 warning）；本 app 产物写 `--plugins-dir`（默认 `.dev-host/plugins`），经 `WASMNEST_PLUGINS_DIR` 递给宿主 → 宿主 watcher 触发前端热重载，**不依赖平台仓源码** | **bedcode 例外**：前端不参与 watch（既有口径），dev:host 只预构建 + 起宿主，改前端需重跑 |
+| `node scripts/build.js` | **默认产物写本仓 `apps/<slug>/desktop/.build/plugins/<appId>/`**（G2：不再写平台宿主 resources；刻意不落 `dist/`——vite `emptyOutDir` 会把它清空） | 桌面各 app |
+| `node scripts/build.js --out <dir>` | 产物目录改到 `<dir>/<appId>/`（也可用 env `WASMNEST_PLUGINS_DIR`）；写平台宿主 resources 必须走这条显式路径 | 桌面各 app 均支持 |
 | `cargo test --manifest-path <crate>/Cargo.toml` | 该 crate 的 Rust 单测（native） | `bedcode/desktop` 另有 `pnpm run test:rust` |
 
 > 桌面 app 的 `build` 直接把产物写平台宿主 resources；移动 app 的 `build` 默认只产出自身 `dist/`，**写进宿主 resources 以平台仓移动构建为准**。
@@ -135,6 +139,8 @@
 | `node scripts/ci/app-info.mjs --app <slug>` | 解析 app 的端 / 插件 id / 版本；双端版本不一致即失败（发布判据） |
 | `node scripts/ci/set-app-version.mjs <slug> <x.y.z>` | **发布时**写 app 版本（`plugin.json` + `package.json`，全端同版本） |
 | `node scripts/ci/fetch-cross-repo.mjs` / `node scripts/ci/prepare-platform.mjs` | CI 用：按 R1 布局检出平台仓 / 能力仓；补齐 WIT 生成物与双端 SDK `dist`（只新建，不覆盖既有检出） |
+| `pnpm run link:platform` / `unlink:platform` | 显式把 SDK 指回本地平台仓（`WASMNEST_PLATFORM_ROOT` → 主工作树兄弟 `wasmnest`）：改 npm `file:` + 写 `.cargo/config.toml` 的 `[patch]` + 跑 install；`--status` 看当前是 linked 还是 published。link 状态（package.json / lock / patch / marker）**不得提交** |
+| `node scripts/install-runtime.mjs [--from <平台仓>]` | L2：安装**通用** runtime crate `wasmnest-desktop-runtime`（默认 crates.io 精确版本，或本地平台仓 `cargo build --release` 后复制进缓存），给 `e2e.mjs --host-mode runtime` 用；dev/验证期专用，不进 app 发布产物 |
 | `node scripts/replace-console.mjs <desktop\|mobile> [appDirName]` | `console.*` → 统一 `logger`（仅处理自带 `src/utils/frontendLogger.ts` 的 app，当前只有 `bedcode/desktop`） |
 
 **构建环境约定**：`.cargo/config.toml` 强制 `rustc-wrapper = "sccache"`（未装则 cargo 直接失败，这是显性设计，不要绕过）；**绝不要设 `CARGO_INCREMENTAL=1`**（sccache 会拒绝执行，一切 cargo 命令成批失败）；全仓共享 `target/wasm-apps`（不要用 `cargo clean` 清平台仓目录）；`jobs = 4` 可用 `CARGO_BUILD_JOBS` 覆盖（内存吃紧时调小）。
@@ -155,6 +161,7 @@
 | 新增移动应用 | 复制现有移动 app 骨架；平台移动构建脚本自动扫描 `apps/*/mobile` → 更新 `release-manifest.json` |
 | 跨应用互调 | `docs/BACKEND.md` §3（平台 `host-api-call` + 被调方 `plugin.json.api` 声明 + `#[plugin_api]`）；**禁止跨应用直接耦合源码** |
 | 发布 / 版本 | §3 + `docs/CI.md`（按 app 独立发版：`<slug>-v<X.Y.Z>` tag / 手动构建）+ `scripts/package-plugins.mjs` |
+| 取用 / 校验宿主运行时（dev:host、E2E、lock、宿主产物） | 本仓 `scripts/host-runtime.mjs`（解析）、`scripts/fetch-host.mjs`（下载校验）、`host-runtime.lock.json`、平台仓 `wasmnest-desktop/scripts/package-host.mjs` + `release-manifest.json` 的 `hostRuntime`；口径见 `.scratch/2026-10-21-host-runtime-distribution/CONTRACT.md` |
 | 排查「改了没生效」/ 产物路径 | `docs/CODE-MAP.md` §4 + 平台 `scripts/app-paths.mjs`、`wasmnest-desktop/scripts/{dev-run.js,plugin-watch.js}`；确认产物是否真写进了平台宿主 resources |
 
 ---

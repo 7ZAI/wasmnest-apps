@@ -28,9 +28,17 @@ import { useToast } from './composables/useToast'
 
 // ==================== 挂载契约（宿主 useAppMount 同形声明） ====================
 
+/**
+ * 挂载契约版本（宿主 useAppMount 的 MOUNT_CONTRACT 同值）。
+ * 只在 AppMountEnv / AppMountHandle 形状**破坏性**变更时 bump；新增可选字段不 bump。
+ */
+export const mountContract = '1'
+
 /** app 前端挂载环境（宿主注入；令牌/凭证已绑定本 app） */
 export interface AppMountEnv {
   appId: string
+  /** 挂载契约版本（本包声明值；宿主装载时据此判定兼容性） */
+  mountContract: string
   /** 宿主面命令（invoke 原样，无附加凭证）：get_app_settings 等 */
   invoke: <T = unknown>(command: string, args?: Record<string, unknown>) => Promise<T>
   /** 插件面命令（plugin_invoke，本 app 通道令牌已绑定） */

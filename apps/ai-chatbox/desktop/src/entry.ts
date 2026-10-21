@@ -14,8 +14,16 @@ import './style.css'
 
 // ==================== 挂载契约（宿主 useAppMount 同形声明） ====================
 
+/**
+ * 挂载契约版本（宿主 useAppMount 的 MOUNT_CONTRACT 同值）。
+ * 只在 AppMountEnv / AppMountHandle 形状**破坏性**变更时 bump；新增可选字段不 bump。
+ */
+export const mountContract = '1'
+
 export interface AppMountEnv {
   appId: string
+  /** 挂载契约版本（本包声明值；宿主装载时据此判定兼容性） */
+  mountContract: string
   invoke: <T = unknown>(command: string, args?: Record<string, unknown>) => Promise<T>
   appInvoke: <T = unknown>(command: string, ...args: unknown[]) => Promise<T>
   appStorageGet: <T = unknown>(key: string) => Promise<T | undefined>

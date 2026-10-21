@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { flushPromises } from '@vue/test-utils'
-import { mountApp, mountPreview, type AppMountEnv, type AppPreviewEnv } from '../entry'
+import { mountApp, mountPreview, mountContract, type AppMountEnv, type AppPreviewEnv } from '../entry'
 import i18n from '../i18n'
 import { info, metrics, snapshot } from './fixtures'
 
@@ -19,6 +19,7 @@ const SNAPSHOT = snapshot(
 function mountEnv(overrides: Partial<AppMountEnv> = {}): AppMountEnv {
   return {
     appId: 'com.wasmnest.monitor',
+    mountContract,
     invoke: vi.fn(async () => [
       info({ id: 'com.wasmnest.monitor', name: 'Monitor' }),
     ]) as AppMountEnv['invoke'],
@@ -35,6 +36,10 @@ function mountEnv(overrides: Partial<AppMountEnv> = {}): AppMountEnv {
 }
 
 describe('mountApp 挂载契约（桌面机制 B）', () => {
+  it('导出挂载契约版本 mountContract = "1"（宿主装载时比对）', () => {
+    expect(mountContract).toBe('1')
+  })
+
   it('挂载出监控界面，unmount 后 DOM 清空', async () => {
     const root = document.createElement('div')
     document.body.appendChild(root)

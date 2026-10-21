@@ -16,6 +16,15 @@
 # 平台仓宿主 resources 里的副本在平台仓 .gitignore 管辖）
 **/rust/target/
 
+# 构建 / 运行期产物目录（G2：build.js 默认写 app 内 `.build/plugins`；
+# dev:host 写 .dev-host/plugins）。两者都是生成物，误提交 = 把整包产物带进仓库。
+**/.build/
+**/.dev-host/
+
+# link-platform-sdk 的 marker：link 状态（SDK 指回本地平台仓）是本机开发态，
+# 入库等于把「默认走发布物」的口径悄悄改回「默认走平台仓源码」。
+.platform-sdk-link.json
+
 # AI agent
 *.codebuddy/
 
@@ -46,3 +55,6 @@ desktop.ini
 .env
 .env.*
 !.env.example
+
+# 平台 SDK 本地 link 状态（scripts/link-platform-sdk.mjs 写入，提交前 unlink）
+.platform-sdk-link.json

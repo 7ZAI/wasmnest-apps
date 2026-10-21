@@ -64,13 +64,19 @@ flattenKeys(messages['zh-CN'], '', DECLARED_MESSAGE_KEYS)
 flattenKeys(hostZhCN, '', DECLARED_MESSAGE_KEYS)
 
 describe('C1 工程身份五处一致', () => {
-  it('manifest id 与构建脚本 PLUGIN_ID、内置资源目录条目一致', () => {
+  it('manifest id 与构建脚本 PLUGIN_ID、默认产物目录与 --out 语义一致', () => {
     expect(manifest.id).toBe('com.wasmnest.terminal-session')
     expect(buildScript).toContain(`const PLUGIN_ID = 'com.wasmnest.terminal-session'`)
-    // 内置资源产物目录约定：平台仓宿主 src-tauri/resources/plugins/desktop/<plugin-id>/。
-    // 三仓拆分 §5-E7：路径经 `desktopHostResourcesDir()`（platform-paths resolver）解析，
-    // 不再在 app build.js 里拼 `../../src-tauri/...` 相对路径。
-    expect(buildScript).toContain('resolve(desktopHostResourcesDir(), PLUGIN_ID)')
+    // G2（宿主运行时可分发化）：默认产物写**本仓** `.build/plugins`，写平台宿主 resources
+    // 必须显式 `--out`。落点刻意不在 vite outDir（dist）内——dist 每次前端构建都被清空，
+    // 产物落在里面等于每构建一次就自己删掉自己。
+    expect(buildScript).toContain("const DEFAULT_PLUGINS_DIR = join('.build', 'plugins')")
+    expect(buildScript).toContain('const PLUGINS_DIR = resolve(ROOT, OUT_DIR_ARG || DEFAULT_PLUGINS_DIR)')
+    expect(buildScript).toContain('const RESOURCES_DIR = resolve(PLUGINS_DIR, PLUGIN_ID)')
+    // 构建链不得再引平台仓路径解析器（platform-paths 只留给 CI / 平台集成脚本，见 G2 导入锁）
+    expect(buildScript).not.toContain('platform-paths')
+    expect(buildScript).not.toContain('desktopHostResourcesDir')
+    expect(buildScript).not.toContain('../../../../../wasmnest')
   })
 
   it('rustLibrary 与构建脚本 RUST_LIB_NAME 与 Cargo 包名一致', () => {
@@ -314,6 +320,7 @@ describe('C2 构建链收口到共享配置', () => {
 function makeEnv(overrides: Partial<Parameters<typeof createAppContext>[0]> = {}) {
   return {
     appId: 'com.wasmnest.terminal-session',
+    mountContract: '1',
     invoke: vi.fn(async () => ({ ui: { terminal_font_size: 14, terminal_letter_spacing: 0 } })),
     appInvoke: vi.fn(async () => ({})),
     appStorageGet: vi.fn(async () => undefined),
@@ -387,6 +394,9 @@ describe('C3 入口契约（挂载包形态：mountApp + 直连上下文 + 内�
     expect(entry).not.toContain('__WASMNEST_SHARED__')
     // 本包自带依赖（无外部化）——vite 构建不再依赖宿主全局
     expect(readFileSync(resolve(PLUGIN_ROOT, 'vite.config.ts'), 'utf-8')).not.toContain('wasmnestPlugin()')
+    // 挂载契约版本（宿主 MOUNT_CONTRACT 比对；分发化后版本不再天然一致）
+    expect(entry).toContain('mountContract: string')
+    expect(entry).toContain("export const mountContract = '1'")
   })
 })
 

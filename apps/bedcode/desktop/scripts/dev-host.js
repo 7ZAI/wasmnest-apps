@@ -37,10 +37,15 @@
  */
 
 import { spawn, spawnSync } from 'node:child_process'
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { desktopHostDir } from '../../../../scripts/platform-paths.mjs'
+import {
+  assertHostCompatible,
+  hostRuntimeMissingHint,
+  readHostRuntimeLock,
+  resolveHostRuntime,
+} from '../../../../scripts/host-runtime.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const APP_ROOT = resolve(__dirname, '..')
@@ -54,7 +59,7 @@ function flagValue(flag) {
   const i = argv.indexOf(flag)
   return i !== -1 && argv[i + 1] && !argv[i + 1].startsWith('--') ? argv[i + 1] : null
 }
-const hostArg = flagValue('--host') || process.env.WASMNEST_HOST_APP || null
+const hostArg = flagValue('--host')  // WASMNEST_HOST_BIN / WASMNEST_HOST_APP 由解析器统一读
 const pluginsDirArg = flagValue('--plugins-dir')
 const skipBuild = argv.includes('--skip-build')
 
@@ -94,94 +99,35 @@ const PLUGINS_DIR = resolve(
 )
 const APP_OUT_DIR = join(PLUGINS_DIR, pluginId)
 
-// ==================== 宿主产物解析（fail-visible） ====================
+// ==================== 宿主运行时解析（单一入口：scripts/host-runtime.mjs） ====================
 
-/** 默认宿主产物目录：平台仓 `wasmnest-desktop/dist/host-desktop`（host:pack 的落点） */
-function defaultHostDir() {
-  try {
-    return join(desktopHostDir(), 'dist', 'host-desktop')
-  } catch {
-    return null
-  }
-}
-
-/** 从宿主产物目录里找出可执行：host-version.json 的 binary 优先，其次按平台扩展名扫 */
-function resolveHostBinary(dir) {
-  let meta = null
-  const metaPath = join(dir, 'host-version.json')
-  if (existsSync(metaPath)) {
-    try {
-      meta = JSON.parse(readFileSync(metaPath, 'utf-8'))
-    } catch (e) {
-      console.warn(`[dev-host] 解析 host-version.json 失败：${e.message}`)
-    }
-  }
-  if (meta?.binary) {
-    const hit = join(dir, meta.binary)
-    if (existsSync(hit)) return { bin: hit, meta }
-  }
-  // 兜底扫描：无 host-version.json（手工拷产物）时按平台形态挑
-  for (const name of readdirSync(dir)) {
-    const full = join(dir, name)
-    if (IS_WIN) {
-      if (name.endsWith('.exe')) return { bin: full, meta }
-    } else if (IS_MAC) {
-      if (name.endsWith('.app')) {
-        return { bin: join(full, 'Contents', 'MacOS', name.replace(/\.app$/, '')), meta }
-      }
-    } else if (statSync(full).isFile() && (name.endsWith('.AppImage') || !name.includes('.'))) {
-      return { bin: full, meta }
-    }
-  }
-  return null
-}
-
-function resolveHost() {
-  if (hostArg) {
-    const explicit = resolve(APP_ROOT, hostArg)
-    if (!existsSync(explicit)) {
-      console.error(`[dev-host] --host 指向的路径不存在：${explicit}`)
-      process.exit(1)
-    }
-    if (statSync(explicit).isDirectory()) {
-      const hit = resolveHostBinary(explicit)
-      if (!hit) {
-        console.error(`[dev-host] 宿主产物目录里找不到可执行文件：${explicit}`)
-        process.exit(1)
-      }
-      return hit
-    }
-    return { bin: explicit, meta: null }
-  }
-  const fallbackDir = defaultHostDir()
-  if (fallbackDir && existsSync(fallbackDir)) {
-    const hit = resolveHostBinary(fallbackDir)
-    if (hit) {
-      console.log(`[dev-host] 使用默认宿主产物目录：${fallbackDir}`)
-      return hit
-    }
-  }
-  return null
-}
-
-const host = resolveHost()
+/**
+ * 宿主来源只有解析器一条路：显式（--host / WASMNEST_HOST_BIN / WASMNEST_HOST_APP）
+ * → 本机平台仓 host:pack 产物 → 已下载缓存 → 都没有则打印可执行指引退出。
+ * 本脚本**不再自己拼平台仓路径 / 扫宿主目录**（G2 票 D2：六份重复解析收敛为一份）。
+ */
+const host = resolveHostRuntime({ explicit: hostArg })
 if (!host) {
-  console.error('[dev-host] ✗ 未找到宿主构建产物（运行真实宿主需要它，本脚本不依赖平台仓源码）')
-  console.error('[dev-host]   先在平台仓打一次宿主产物：')
-  console.error('[dev-host]     cd <平台仓>/wasmnest-desktop && pnpm run host:pack')
-  console.error('[dev-host]   产物落点：<平台仓>/wasmnest-desktop/dist/host-desktop（可用 --host 显式指定）')
+  console.error(hostRuntimeMissingHint())
+  process.exit(1)
+}
+
+// 版本兼容检查：此前只是 warning，且提示语（「重新 host:pack」）对下载来的宿主是错的。
+try {
+  assertHostCompatible(host.meta, hostExpectations())
+} catch (e) {
+  console.error(`[dev-host] ✗ ${e.message.split('\n').join('\n[dev-host] ')}`)
   process.exit(1)
 }
 
 console.log(`[dev-host] 应用：${pluginId}`)
-console.log(`[dev-host] 宿主产物：${host.bin}`)
-if (host.meta) {
-  console.log(
-    `[dev-host] 宿主版本：${host.meta.hostVersion}（profile=${host.meta.profile}, sdk=${host.meta.sdkVersion}, builtAt=${host.meta.builtAt}）`,
-  )
-  checkSdkVersion(host.meta.sdkVersion)
-}
+console.log(`[dev-host] 宿主产物：${host.bin}（来源=${host.source}）`)
+console.log(
+  `[dev-host] 宿主版本：${host.meta.hostVersion}（sdk=${host.meta.sdkVersion}, ` +
+    `wit=${host.meta.witVersion}, mountContract=${host.meta.mountContract}, builtAt=${host.meta.builtAt}）`,
+)
 console.log(`[dev-host] app 产物目录：${APP_OUT_DIR}`)
+
 
 // ==================== 1. 构建本 app 到产物目录 ====================
 
@@ -229,10 +175,29 @@ for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
   process.on(sig, () => shutdown(0))
 }
 
-/** SDK 版本提示（不阻断：版本规则尚未定义，但错配要看得见） */
-function checkSdkVersion(hostSdk) {
-  if (!hostSdk) return
-  let appSdk = null
+/**
+ * 期望的宿主版本事实（D15）：
+ * - `sdkVersion` = 本 app 工程里**实际装着**的桌面 SDK 版本（wasm / 前端产物就是按它生成的）；
+ * - `witVersion` / `mountContract` = 应用仓 `host-runtime.lock.json`（缺 lock 即退出，
+ *   不猜默认值——猜出来的版本号会让真正的错位静默通过）。
+ */
+function hostExpectations() {
+  const lock = readHostRuntimeLock()
+  if (!lock) {
+    console.error('[dev-host] ✗ 无法校验宿主版本：缺 host-runtime.lock.json（平台 manifest 也不在场）')
+    console.error('[dev-host]   → 由平台 manifest 同步：node scripts/ci/sync-host-lock.mjs')
+    console.error('[dev-host]   → 或临时指定版本事实：WASMNEST_HOST_VERSION=<version>（仍建议签入 lock）')
+    process.exit(1)
+  }
+  return {
+    sdkVersion: installedSdkVersion() || lock.sdkVersion,
+    witVersion: lock.witVersion,
+    mountContract: lock.mountContract,
+  }
+}
+
+/** 本 app 依赖里实际安装的桌面 SDK 版本（未装依赖 = 拿不到，退回 lock 的期望值） */
+function installedSdkVersion() {
   try {
     const pkg = join(
       APP_ROOT,
@@ -241,14 +206,8 @@ function checkSdkVersion(hostSdk) {
       'wasmnest-plugin-sdk-desktop',
       'package.json',
     )
-    appSdk = JSON.parse(readFileSync(pkg, 'utf-8')).version
+    return JSON.parse(readFileSync(pkg, 'utf-8')).version
   } catch {
-    return
-  }
-  if (appSdk && appSdk !== hostSdk) {
-    console.warn(
-      `[dev-host] ⚠ 宿主产物的 SDK 版本（${hostSdk}）与本 app 依赖的 SDK（${appSdk}）不一致；` +
-        `若插件加载失败（ABI/契约不匹配），请在平台仓重跑 pnpm run host:pack`,
-    )
+    return null
   }
 }
