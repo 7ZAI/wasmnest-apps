@@ -2767,6 +2767,7 @@
 
 /* 聊天式只读会话记录（类 zcode/trae 桌面 agent 对话，无输入框） */
 .ah-chat {
+  position: relative;
   display: flex;
   flex-direction: column;
   flex: 1;
@@ -2781,6 +2782,46 @@
   flex-direction: column;
   gap: 12px;
   padding: 4px 4px 8px;
+}
+
+/* 任务记录快捷跳转（回顶 / 到底）：悬浮在滚动区右下角，只在对应方向
+   可滚时由 v-show 出现。字形取 --text-primary（对 --bg-card 高对比），
+   圆形底卡保持不透明，压在消息气泡上仍可辨识；可读名由 aria-label 给。 */
+.ah-chat-jump {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ah-chat-jump-btn {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-card);
+  font-size: var(--font-size-base);
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color 0.15s, border-color 0.15s;
+}
+
+.ah-chat-jump-btn:hover {
+  background: var(--bg-hover);
+}
+
+.ah-chat-jump-btn:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
 }
 
 /* 单条消息：头行（角色/模型/时间）+ 内容气泡 */

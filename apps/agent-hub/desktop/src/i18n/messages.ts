@@ -445,6 +445,9 @@ export type MessageSchema = {
   /** guest 上限截断提示（票 B4 的可做部分） */
   'hub.lg.detail.truncated': string
   'hub.lg.detail.viewRaw': string
+  /** 任务记录快捷跳转：回到顶部 / 滑到最底 */
+  'hub.lg.detail.toTop': string
+  'hub.lg.detail.toBottom': string
   /** guest 非文本块占位 token 的本地化（带块类型；类型名由 guest 给，不翻译） */
   'hub.lg.nonTextBlock': string
   /** 同上，但块类型缺失 / 形态不符 guest 校验 */

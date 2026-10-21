@@ -10,7 +10,7 @@
  * 数据流：列表分页与统计明细共用 useUsage 同一查询域；打开会话经
  * read-usage-session 按需解析（单会话一次读盘双消费）。
  */
-import { computed, inject, ref, watch, onBeforeUnmount } from 'vue'
+import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-desktop'
 import Select from '@binblink/wasmnest-plugin-sdk-desktop/ui'
 import Datepicker from '@vuepic/vue-datepicker'
@@ -408,10 +408,47 @@ function toggleRawExpand(i: number) {
   expandedRawIndexes.value = next
 }
 
+// ==================== 任务记录快捷跳转（回顶 / 到底） ====================
+/** 任务记录的滚动容器（.ah-chat-scroll；切页签时会被重建，故用模板 ref） */
+const chatScroll = ref<HTMLElement | null>(null)
+/** 当前滚动位置两端是否还有内容（按钮可见性） */
+const chatCanUp = ref(false)
+const chatCanDown = ref(false)
+/** 端点容差（px）：滚动取整 / 亚像素下不因 1px 抖动闪按钮 */
+const CHAT_EDGE_PX = 8
+
+/** 读一次滚动几何：内容不足一屏时两个按钮都不出现 */
+function updateChatScrollState() {
+  const el = chatScroll.value
+  if (!el) {
+    chatCanUp.value = false
+    chatCanDown.value = false
+    return
+  }
+  chatCanUp.value = el.scrollTop > CHAT_EDGE_PX
+  chatCanDown.value = el.scrollTop + el.clientHeight < el.scrollHeight - CHAT_EDGE_PX
+}
+
+/** 回顶 / 到底（平滑滚动；滚动后由 scroll 事件刷新按钮可见性） */
+function scrollChatTo(edge: 'top' | 'bottom') {
+  const el = chatScroll.value
+  if (!el) return
+  el.scrollTo({ top: edge === 'top' ? 0 : el.scrollHeight, behavior: 'smooth' })
+}
+
+// 首次挂载 / 换会话 / 切回任务记录页签时都要重新量：这些时机内容刚渲染，
+// 不量就只能等用户先滚一下按钮才出现。
+onMounted(() => void nextTick(updateChatScrollState))
+watch(detailTab, (tab) => {
+  if (tab === 'chat') void nextTick(updateChatScrollState)
+})
+
 watch(opened, () => {
   detailTab.value = 'chat'
   expandedIndexes.value = new Set()
   expandedRawIndexes.value = new Set()
+  // 新会话的内容渲染完再量（否则按钮按上一会话的滚动位置误显示）
+  void nextTick(updateChatScrollState)
 })
 
 /**
@@ -490,6 +527,8 @@ function toggleExpand(i: number) {
     next.add(i)
   }
   expandedIndexes.value = next
+  // 展开/收起改变内容高度：内容缩短到不足一屏时「到底」按钮要及时消失
+  void nextTick(updateChatScrollState)
 }
 </script>
 
@@ -868,7 +907,7 @@ function toggleExpand(i: number) {
         <div v-if="detailTab === 'chat'" class="ah-card ah-lg-events">
           <div v-if="opened.events.length === 0" class="ah-st-empty">{{ t('hub.lg.noEvents') }}</div>
           <div v-else class="ah-chat">
-            <div class="ah-chat-scroll">
+            <div ref="chatScroll" class="ah-chat-scroll" @scroll="updateChatScrollState">
               <div
                 v-for="row in chatRows"
                 :key="row.i"
@@ -933,6 +972,33 @@ function toggleExpand(i: number) {
                   </div>
                 </div>
               </div>
+            </div>
+
+            <!-- 任务记录快捷跳转：回顶 / 到底。按滚动几何显示（内容不足一屏
+                 或已在端点时对应的按钮隐藏），不做「点了没反应」的空按钮。 -->
+            <div class="ah-chat-jump">
+              <button
+                v-show="chatCanUp"
+                type="button"
+                class="ah-chat-jump-btn"
+                data-testid="lg-chat-to-top"
+                :title="t('hub.lg.detail.toTop')"
+                :aria-label="t('hub.lg.detail.toTop')"
+                @click="scrollChatTo('top')"
+              >
+                ↑
+              </button>
+              <button
+                v-show="chatCanDown"
+                type="button"
+                class="ah-chat-jump-btn"
+                data-testid="lg-chat-to-bottom"
+                :title="t('hub.lg.detail.toBottom')"
+                :aria-label="t('hub.lg.detail.toBottom')"
+                @click="scrollChatTo('bottom')"
+              >
+                ↓
+              </button>
             </div>
           </div>
         </div>

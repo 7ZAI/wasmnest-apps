@@ -434,6 +434,8 @@ const en: MessageSchema = {
   'hub.lg.detail.expandDetail': 'Expand details',
   'hub.lg.detail.truncated': 'Content hit the parser limit; full text is in the Raw JSONL tab.',
   'hub.lg.detail.viewRaw': 'View raw JSONL',
+  'hub.lg.detail.toTop': 'Back to top',
+  'hub.lg.detail.toBottom': 'Scroll to bottom',
   'hub.lg.nonTextBlock': '[{kind} content block — see raw JSONL]',
   'hub.lg.nonTextBlockUnknown': '[non-text block — see raw JSONL]',
   'hub.lg.noSource': 'Source file unavailable',

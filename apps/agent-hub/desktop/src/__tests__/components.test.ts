@@ -1798,6 +1798,54 @@ describe('A4 SessionLogsTab：查询 / 重置 / 翻页 / 详情 / 原始页签',
     w.unmount()
   })
 
+  // ------ 任务记录快捷跳转（回顶 / 到底） ------
+
+  it('任务记录：回顶/到底按钮按滚动几何出现，点击平滑滚到对应端点', async () => {
+    const w = mountComponent(SessionLogsTab, {
+      usage: usageStub({
+        openedSession: ref(
+          openedWithMessages(
+            Array.from({ length: 6 }, (_, i) => ({ role: 'user', text: `m${i}`, ts: i + 1 })),
+          ),
+        ) as never,
+      }),
+    })
+    await flushPromises()
+    const scroll = w.get('.ah-chat-scroll')
+    const el = scroll.element as HTMLElement
+    // happy-dom 不算布局：显式给出滚动几何（1000 内容 / 200 视口）
+    Object.defineProperty(el, 'clientHeight', { value: 200, configurable: true })
+    Object.defineProperty(el, 'scrollHeight', { value: 1000, configurable: true })
+    const scrollTo = vi.fn()
+    Object.defineProperty(el, 'scrollTo', { value: scrollTo, configurable: true })
+
+    // 停在中间：两个方向都可滚
+    el.scrollTop = 500
+    await scroll.trigger('scroll')
+    // happy-dom 的 getComputedStyle 不反映 v-show（isVisible 恒 true），
+    // 直接断言 v-show 写入的 display 内联样式
+    const hidden = (sel: string) =>
+      (w.get(sel).attributes('style') ?? '').includes('display: none')
+    expect(hidden('[data-testid="lg-chat-to-top"]')).toBe(false)
+    expect(hidden('[data-testid="lg-chat-to-bottom"]')).toBe(false)
+
+    await w.get('[data-testid="lg-chat-to-top"]').trigger('click')
+    expect(scrollTo).toHaveBeenLastCalledWith({ top: 0, behavior: 'smooth' })
+    await w.get('[data-testid="lg-chat-to-bottom"]').trigger('click')
+    expect(scrollTo).toHaveBeenLastCalledWith({ top: 1000, behavior: 'smooth' })
+
+    // 已到底：只剩「回到顶部」；已在顶：只剩「到底」
+    el.scrollTop = 800
+    await scroll.trigger('scroll')
+    expect(hidden('[data-testid="lg-chat-to-top"]')).toBe(false)
+    expect(hidden('[data-testid="lg-chat-to-bottom"]')).toBe(true)
+    el.scrollTop = 0
+    await scroll.trigger('scroll')
+    expect(hidden('[data-testid="lg-chat-to-top"]')).toBe(true)
+    expect(hidden('[data-testid="lg-chat-to-bottom"]')).toBe(false)
+    w.unmount()
+  })
+
   it('用户 / 系统角色即使超阈值也不提供折叠（折叠只针对模型输出与工具卡身）', async () => {
     const long = 'y'.repeat(COLLAPSE_THRESHOLD_CHARS + 1)
     const w = mountComponent(SessionLogsTab, {

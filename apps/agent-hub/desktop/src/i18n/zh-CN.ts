@@ -429,6 +429,8 @@ const zhCN: MessageSchema = {
   'hub.lg.detail.expandDetail': '展开详情',
   'hub.lg.detail.truncated': '内容已达解析上限，完整原文见「原始 JSONL」。',
   'hub.lg.detail.viewRaw': '查看原始 JSONL',
+  'hub.lg.detail.toTop': '回到顶部',
+  'hub.lg.detail.toBottom': '滑到最底',
   'hub.lg.nonTextBlock': '[{kind} 内容块，原始 JSONL 可查]',
   'hub.lg.nonTextBlockUnknown': '[非文本内容块，原始 JSONL 可查]',
   'hub.lg.noSource': '源文件不可用',
