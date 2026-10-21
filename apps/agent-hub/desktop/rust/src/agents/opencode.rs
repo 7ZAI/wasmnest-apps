@@ -17,6 +17,7 @@ use crate::providers::jsonc::{ensure_container, parse_jsonc, upsert_entry};
 use crate::providers::merge::{merge_opencode_entry, merged_model_count};
 use crate::providers::paths::opencode_cfg_path;
 use crate::providers::{presets_from_opencode, PresetDraft};
+use crate::usage::contract::{SqliteUsage, UsageSource, UsageSpec};
 use wasmnest_plugin_api::host::{HostFs, HostLog};
 use wasmnest_plugin_api::wasm_host::WasmHost;
 
@@ -25,6 +26,21 @@ use wasmnest_plugin_api::wasm_host::WasmHost;
 pub(super) const GITHUB_REPO: &str = "anomalyco/opencode";
 
 pub(super) struct Opencode;
+
+// ==================== 使用统计（SQLite 库 + 取数引擎） ====================
+
+/// 使用统计能力：opencode 的 SQLite 库不进文件枚举，由取数引擎同步/现查
+pub(super) static USAGE: UsageSpec = UsageSpec {
+    source: UsageSource::Sqlite(crate::usage_sqlite::DB_REL),
+    parse_jsonl: None,
+    sniff: None,
+    sniff_rank: 0,
+    sqlite: Some(SqliteUsage {
+        collect: crate::usage_sqlite::collect_sessions,
+        events: crate::usage_sqlite::session_events,
+    }),
+    active_session: None,
+};
 
 // ==================== 供应商目标（opencode.json provider 条目） ====================
 
@@ -151,8 +167,8 @@ impl Agent for Opencode {
         Some(&PROVIDER)
     }
 
-    fn supports_usage(&self) -> bool {
-        true
+    fn usage(&self) -> Option<&'static UsageSpec> {
+        Some(&USAGE)
     }
 
     fn install_recipe(

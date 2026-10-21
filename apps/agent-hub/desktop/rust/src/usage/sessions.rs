@@ -2,19 +2,20 @@
 //!
 //! 列表（started_at 倒序，多条件：adapter / 关键词 / 时间范围）与看板共用
 //! `usage_session` 聚合表；打开单会话时 JSONL 源以同一适配器重解析该文件
-//! 产出归一事件流 + 原始行（体积不受控，不落库），opencode 源改现查
+//! 产出归一事件流 + 原始行（体积不受控，不落库），SQLite 源改现查
 //! message/part 联表（原始行视图对它天然不存在）。
 
 use super::active::mark_active_rows;
+use super::contract::SqliteUsage;
 use super::ingest::parse_by_adapter;
 use super::schema::ensure_schema;
-use super::{read_state, OPENCODE_ADAPTER, PAGE_SIZE, RAW_LINE_CAP};
+use super::{read_state, usage_spec, PAGE_SIZE, RAW_LINE_CAP};
 use crate::usage_parse::NormalizedEvent;
 use crate::HOME;
+use serde_json::{json, Value};
 use wasmnest_plugin_api::host::{HostFs, HostPluginDatabase};
 use wasmnest_plugin_api::sql_params;
 use wasmnest_plugin_api::wasm_host::WasmHost;
-use serde_json::{json, Value};
 
 // ==================== 会话列表（统计明细 + 日志主从共用） ====================
 
@@ -167,8 +168,15 @@ pub(crate) fn read_session(h: &WasmHost, args: &Value) -> anyhow::Result<Value> 
         .unwrap_or("")
         .to_string();
 
-    if adapter == OPENCODE_ADAPTER {
-        return read_opencode_session(h, &row, &cli_session_id);
+    // SQLite 源（适配器声明）：详情现查联表，原始行视图天然不存在
+    if let Some(spec) = usage_spec(&adapter) {
+        if let Some(engine) = spec.sqlite {
+            let home = HOME
+                .get()
+                .ok_or_else(|| anyhow::anyhow!("read-session: home unavailable"))?;
+            let db = format!("{home}/{}", spec.source.seg());
+            return read_sqlite_session(h, &row, &cli_session_id, &adapter, &db, &engine);
+        }
     }
 
     // 源文件可能已被外部清理：会话元数据仍在（列表可展示），事件流报错呈现
@@ -195,19 +203,22 @@ pub(crate) fn read_session(h: &WasmHost, args: &Value) -> anyhow::Result<Value> 
     }))
 }
 
-/// opencode 会话详情：现查 message/part 联表（票 07）
+/// SQLite 源会话详情：现查联表（票 07）
 ///
 /// 失败**显性报错**（不返回空事件流）：「查不出数据」有三种完全不同的成因
 /// ——sqlite3 缺失 / 库被删 / 会话真没了——静默返回空数组会把它们压成同一个
 /// 「该会话无记录」，与 spec §8 fail-visible 相悖。原始行视图对 SQLite 源
 /// 天然不存在（没有「原始 JSONL」这个概念），恒空且不标截断。
-fn read_opencode_session(h: &WasmHost, row: &Value, cli_session_id: &str) -> anyhow::Result<Value> {
-    let home = HOME
-        .get()
-        .ok_or_else(|| anyhow::anyhow!("read-session: home unavailable"))?;
-    let db = crate::usage_sqlite::db_path(home);
-    let (events, truncated) = crate::usage_sqlite::session_events(h, &db, cli_session_id)
-        .map_err(|e| anyhow::anyhow!("read-session: opencode query failed: {}", e.code()))?;
+fn read_sqlite_session(
+    h: &WasmHost,
+    row: &Value,
+    cli_session_id: &str,
+    adapter: &str,
+    db: &str,
+    engine: &SqliteUsage,
+) -> anyhow::Result<Value> {
+    let (events, truncated) = (engine.events)(h, db, cli_session_id)
+        .map_err(|e| anyhow::anyhow!("read-session: {adapter} query failed: {}", e.code()))?;
     let events: Vec<Value> = events.iter().map(event_to_json).collect();
     Ok(json!({
         "session": row,

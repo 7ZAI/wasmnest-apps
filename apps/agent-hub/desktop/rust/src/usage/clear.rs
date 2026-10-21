@@ -5,12 +5,12 @@
 //! 整体回滚）——两者必须同生共死：只删会话留水位 → 下轮扫描整文件跳过，
 //! 那些会话永远回不来；只删水位留会话 → 重复入库。
 
+use super::adapter_ids;
 use super::schema::ensure_schema;
-use super::ADAPTERS;
 use super::{auth_granted, emit_and_return, read_state, write_state};
+use serde_json::{json, Value};
 use wasmnest_plugin_api::host::{HostLog, HostPluginDatabase};
 use wasmnest_plugin_api::wasm_host::WasmHost;
-use serde_json::{json, Value};
 
 // ==================== 数据清空（票 07：全量保留 + 手动清空） ====================
 /// 清空已采集的使用统计数据（会话聚合 + 解析水位）
@@ -37,7 +37,7 @@ pub(crate) fn clear_data(h: &WasmHost) -> anyhow::Result<Value> {
 
     let mut state = read_state(h);
     state["authGranted"] = json!(auth_granted(h));
-    // 自定义来源的适配器槽位也要归零（它们不是 ADAPTERS 成员）：先取名再借
+    // 自定义来源的适配器槽位也要归零（它们不是注册表 Usage 成员）：先取名再借
     let custom_names: Vec<String> = state
         .get("sources")
         .and_then(|s| s.as_array())
@@ -50,7 +50,11 @@ pub(crate) fn clear_data(h: &WasmHost) -> anyhow::Result<Value> {
         .unwrap_or_default();
     let zero_stat = json!({ "files": 0, "parsed": 0, "skipped": 0, "sessions": 0, "error": null });
     if let Some(adapters) = state["adapters"].as_object_mut() {
-        for name in ADAPTERS.iter().map(|s| s.to_string()).chain(custom_names) {
+        for name in adapter_ids()
+            .into_iter()
+            .map(|s| s.to_string())
+            .chain(custom_names)
+        {
             adapters.insert(name, zero_stat.clone());
         }
     }

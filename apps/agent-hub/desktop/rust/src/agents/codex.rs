@@ -14,10 +14,25 @@ use crate::providers::contract::{
     read_or_default_raw, ProviderSpec, ProviderWriteCtx, TargetWrite, REASON_WRITE_FAILED,
 };
 use crate::providers::paths::codex_config_path;
+use crate::usage::contract::{UsageSource, UsageSpec};
+use crate::usage_parse::parse_codex_session;
 use wasmnest_plugin_api::host::HostFs;
 use wasmnest_plugin_api::wasm_host::WasmHost;
 
 pub(super) struct Codex;
+
+// ==================== 使用统计（~/.codex/sessions JSONL rollout） ====================
+
+/// 使用统计能力：codex 官方 rollout 会话（`~/.codex/sessions/YYYY/MM/DD/*.jsonl`），
+/// 无自定义来源嗅探、无 SQLite 源、无配置权威活跃会话
+pub(super) static USAGE: UsageSpec = UsageSpec {
+    source: UsageSource::Jsonl(".codex/sessions"),
+    parse_jsonl: Some(parse_codex_session),
+    sniff: None,
+    sniff_rank: 0,
+    sqlite: None,
+    active_session: None,
+};
 
 // ==================== 供应商目标（config.toml TOML 文本级 splice） ====================
 
@@ -100,7 +115,7 @@ impl Agent for Codex {
         Some(&PROVIDER)
     }
 
-    fn supports_usage(&self) -> bool {
-        true
+    fn usage(&self) -> Option<&'static UsageSpec> {
+        Some(&USAGE)
     }
 }

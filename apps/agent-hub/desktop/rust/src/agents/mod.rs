@@ -21,6 +21,7 @@ mod pi;
 
 use crate::install::recipe::npm_install_cmd;
 use crate::providers::contract::ProviderSpec;
+use crate::usage::contract::UsageSpec;
 use serde_json::{json, Value};
 
 /// 最新版本来源（公共查询 / 失败回落 / 版本比较在 `install::registry`）
@@ -63,9 +64,9 @@ pub(crate) trait Agent: Sync {
     fn provider(&self) -> Option<&'static ProviderSpec> {
         None
     }
-    /// 使用统计来源能力（JSONL / SQLite 由适配器私有实现）
-    fn supports_usage(&self) -> bool {
-        false
+    /// 使用统计来源能力（JSONL / SQLite 由适配器私有实现）；None = 不入统计
+    fn usage(&self) -> Option<&'static UsageSpec> {
+        None
     }
     /// 是否出现在安装页（注册项默认参与探测与安装）
     fn installable(&self) -> bool {
@@ -177,7 +178,7 @@ pub(crate) fn describe() -> Value {
                     "install": a.installable(),
                     "provider": a.provider().is_some(),
                     "skills": a.skills_seg().is_some(),
-                    "usage": a.supports_usage(),
+                    "usage": a.usage().is_some(),
                 },
             })
         })
@@ -349,6 +350,94 @@ mod tests {
         importers.sort_by_key(|(rank, _)| *rank);
         let ids: Vec<&str> = importers.into_iter().map(|(_, id)| id).collect();
         assert_eq!(ids, vec!["pi", "opencode"]);
+    }
+
+    /// 使用统计来源由注册表派生：四家均入统计；JSONL 源必有解析器，
+    /// SQLite 源必有取数引擎（两者互斥），来源落点与重构前一致
+    #[test]
+    fn usage_sources_are_registry_derived() {
+        use crate::usage::contract::UsageSource;
+
+        let mut ids: Vec<&str> = Vec::new();
+        for agent in all() {
+            let Some(spec) = agent.usage() else {
+                continue;
+            };
+            ids.push(agent.id());
+            match spec.source {
+                UsageSource::Jsonl(seg) => {
+                    assert!(seg.starts_with('.'), "{} jsonl seg", agent.id());
+                    assert!(
+                        spec.parse_jsonl.is_some(),
+                        "{} jsonl source needs parser",
+                        agent.id()
+                    );
+                    assert!(spec.sqlite.is_none(), "{} jsonl has no sqlite", agent.id());
+                }
+                UsageSource::Sqlite(seg) => {
+                    assert!(seg.starts_with('.'), "{} sqlite seg", agent.id());
+                    assert!(
+                        spec.sqlite.is_some(),
+                        "{} sqlite source needs engine",
+                        agent.id()
+                    );
+                    assert!(
+                        spec.parse_jsonl.is_none(),
+                        "{} sqlite has no jsonl parser",
+                        agent.id()
+                    );
+                }
+            }
+        }
+        assert_eq!(ids, vec!["claude", "codex", "opencode", "pi"]);
+
+        let source = |id: &str| {
+            all()
+                .iter()
+                .find(|a| a.id() == id)
+                .and_then(|a| a.usage())
+                .map(|s| s.source)
+                .expect("usage source")
+        };
+        assert!(matches!(
+            source("claude"),
+            UsageSource::Jsonl(".claude/projects")
+        ));
+        assert!(matches!(
+            source("codex"),
+            UsageSource::Jsonl(".codex/sessions")
+        ));
+        assert!(matches!(
+            source("pi"),
+            UsageSource::Jsonl(".pi/agent/sessions")
+        ));
+        match source("opencode") {
+            UsageSource::Sqlite(seg) => assert_eq!(seg, crate::usage_sqlite::DB_REL),
+            UsageSource::Jsonl(_) => panic!("opencode must be a sqlite source"),
+        }
+    }
+
+    /// 自定义来源嗅探顺序（同名样式冲突时先者有优先权）：pi 先于 claude；
+    /// 只有 claude 声明了配置权威的活跃会话钩子
+    #[test]
+    fn usage_policies_are_declared() {
+        let mut sniffs: Vec<(u8, &str)> = Vec::new();
+        let mut active: Vec<&str> = Vec::new();
+        for agent in all() {
+            let Some(spec) = agent.usage() else {
+                continue;
+            };
+            if spec.sniff.is_some() {
+                sniffs.push((spec.sniff_rank, agent.id()));
+            }
+            if spec.active_session.is_some() {
+                active.push(agent.id());
+            }
+        }
+        sniffs.sort_by_key(|(rank, _)| *rank);
+        let sniff_ids: Vec<&str> = sniffs.into_iter().map(|(_, id)| id).collect();
+        assert_eq!(sniff_ids, vec!["pi", "claude"]);
+        assert_eq!(active, vec!["claude"]);
     }
 
     /// 契约：注册表 id 集合 == 探测状态 `clis` 键集合（含顺序）

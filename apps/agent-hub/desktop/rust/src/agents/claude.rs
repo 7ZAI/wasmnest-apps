@@ -14,11 +14,72 @@ use crate::providers::contract::{
 use crate::providers::jsonc::{ensure_container, parse_jsonc, upsert_entry};
 use crate::providers::merge::{claude_env_entries, claude_env_view};
 use crate::providers::paths::{bridge_paths, claude_auth_paths, claude_settings_path};
+use crate::usage::contract::{UsageSource, UsageSpec};
+use crate::usage_parse::parse_claude_session;
+use crate::HOME;
 use serde_json::{json, Value};
 use wasmnest_plugin_api::host::{HostFs, HostLog};
 use wasmnest_plugin_api::wasm_host::WasmHost;
 
 pub(super) struct Claude;
+
+// ==================== 使用统计（~/.claude/projects JSONL + 配置权威活跃会话） ====================
+
+/// claude 配置解析（纯函数，可测）：读 `~/.claude.json` 的 `projects` 映射
+/// （key=项目绝对路径 → { lastSessionId, lastStartTime }），返回最后启动
+/// 时间（epoch 毫秒）最大的项目 → (项目路径, lastSessionId)。
+/// 缺键/非数字的条目跳过；无有效条目返回 None。
+fn claude_active_from_config(projects: &Value) -> Option<(String, String)> {
+    let obj = projects.as_object()?;
+    let mut best: Option<(String, String, i64)> = None;
+    for (proj, meta) in obj {
+        let sid = meta.get("lastSessionId").and_then(|v| v.as_str());
+        let ts = meta.get("lastStartTime").and_then(|v| v.as_i64());
+        match (sid, ts) {
+            (Some(sid), Some(ts)) if best.as_ref().map_or(true, |(_, _, t)| ts > *t) => {
+                best = Some((proj.clone(), sid.to_string(), ts));
+            }
+            _ => {}
+        }
+    }
+    best.map(|(proj, sid, _)| (proj, sid))
+}
+
+/// 正在使用的项目会话：claude 优先读 `~/.claude.json` 配置（lastStartTime
+/// 最大者为当前项目会话，比文件 mtime 权威；未授权/损坏时跳过并回退最新会话）
+fn active_session(h: &WasmHost) -> Option<(String, String)> {
+    let home = HOME.get()?;
+    let claude_json = format!("{home}/.claude.json");
+    match h.fs_read(&claude_json) {
+        Ok(Some(content)) => match serde_json::from_str::<Value>(&content) {
+            Ok(cfg) => cfg.get("projects").and_then(claude_active_from_config),
+            Err(e) => {
+                h.log_warn(&format!(
+                    "usage: parse {claude_json} failed, fallback to newest session: {e}"
+                ));
+                None
+            }
+        },
+        // 未授权（fs_auth 拒绝）或文件缺失：回退最新会话，不中断扫描
+        Ok(None) | Err(_) => None,
+    }
+}
+
+/// 自定义来源嗅探：前 64 行内顶层 `"type":"assistant"/"user"` → claude 形态
+fn sniff(head: &[&str]) -> bool {
+    head.iter()
+        .any(|l| l.contains("\"type\":\"assistant\"") || l.contains("\"type\":\"user\""))
+}
+
+/// 使用统计能力：JSONL 会话根 + claude 配置权威的活跃会话判定
+pub(super) static USAGE: UsageSpec = UsageSpec {
+    source: UsageSource::Jsonl(".claude/projects"),
+    parse_jsonl: Some(parse_claude_session),
+    sniff: Some(sniff),
+    sniff_rank: 20,
+    sqlite: None,
+    active_session: Some(active_session),
+};
 
 /// claude native 卸载命令（官方文档，双平台形态）：
 /// unix `rm -f ~/.local/bin/claude` + `rm -rf ~/.local/share/claude`；
@@ -151,8 +212,8 @@ impl Agent for Claude {
         Some(&PROVIDER)
     }
 
-    fn supports_usage(&self) -> bool {
-        true
+    fn usage(&self) -> Option<&'static UsageSpec> {
+        Some(&USAGE)
     }
 
     /// native → `claude update`（双平台同命令，镜像无关）；npm-global → npm
@@ -176,5 +237,29 @@ impl Agent for Claude {
             return Ok(claude_native_uninstall(windows));
         }
         super::npm_uninstall_recipe(self, method)
+    }
+}
+
+// ==================== Tests（配置权威活跃会话） ====================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// claude 配置解析：取 lastStartTime 最大项目；缺键/非数字条目跳过
+    #[test]
+    fn claude_active_picks_latest_project() {
+        let projects = serde_json::json!({
+            "/home/u/old": { "lastSessionId": "s-1", "lastStartTime": 1000 },
+            "/home/u/new": { "lastSessionId": "s-2", "lastStartTime": 3000 },
+            // 缺 lastStartTime / lastSessionId 的条目跳过，不中断
+            "/home/u/broken-a": { "lastSessionId": "s-3" },
+            "/home/u/broken-b": { "lastStartTime": 5000 },
+        });
+        let got = claude_active_from_config(&projects);
+        assert_eq!(got, Some(("/home/u/new".to_string(), "s-2".to_string())));
+        // 空/非对象输入 → None
+        assert_eq!(claude_active_from_config(&serde_json::json!([])), None);
+        assert_eq!(claude_active_from_config(&serde_json::json!({})), None);
     }
 }

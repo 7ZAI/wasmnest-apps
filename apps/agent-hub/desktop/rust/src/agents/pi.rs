@@ -13,11 +13,30 @@ use crate::providers::jsonc::{ensure_container, parse_jsonc, upsert_entry};
 use crate::providers::merge::{merge_pi_entry, merged_model_count, pi_auth_entry};
 use crate::providers::paths::{pi_auth_path, pi_models_path};
 use crate::providers::{presets_from_pi, PresetDraft};
+use crate::usage::contract::{UsageSource, UsageSpec};
+use crate::usage_parse::parse_pi_session;
 use serde_json::json;
 use wasmnest_plugin_api::host::{HostFs, HostLog};
 use wasmnest_plugin_api::wasm_host::WasmHost;
 
 pub(super) struct Pi;
+
+// ==================== 使用统计（~/.pi/agent/sessions JSONL） ====================
+
+/// 自定义来源嗅探：前 64 行内顶层 `"type":"message"` → pi 形态
+fn sniff(head: &[&str]) -> bool {
+    head.iter().any(|l| l.contains("\"type\":\"message\""))
+}
+
+/// 使用统计能力：JSONL 会话根 + pi 形态嗅探（先于 claude 判定）
+pub(super) static USAGE: UsageSpec = UsageSpec {
+    source: UsageSource::Jsonl(".pi/agent/sessions"),
+    parse_jsonl: Some(parse_pi_session),
+    sniff: Some(sniff),
+    sniff_rank: 10,
+    sqlite: None,
+    active_session: None,
+};
 
 // ==================== 供应商目标（pi models.json + auth.json） ====================
 
@@ -177,7 +196,7 @@ impl Agent for Pi {
         Some(&PROVIDER)
     }
 
-    fn supports_usage(&self) -> bool {
-        true
+    fn usage(&self) -> Option<&'static UsageSpec> {
+        Some(&USAGE)
     }
 }

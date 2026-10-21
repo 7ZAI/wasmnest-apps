@@ -5,28 +5,30 @@
 //! 时用批量授权代替逐个弹窗；旧版以 AUTH_KEY 固定清单为闸门，claude 会话
 //! 目录不在清单内，回灌直读静默失败）→ host-process 平台分派枚举各来源根
 //! 目录（`== 分段 ==` 标记）→ `on_process_done` 回灌：并行读文件（v20
-//! host-task `execute-batch`）→ 逐文件水位判定 + 解析 + 落库 → opencode
-//! SQLite 同步 → 状态推送。
+//! host-task `execute-batch`）→ 逐文件水位判定 + 解析 + 落库 → SQLite 源
+//! 同步（适配器声明）→ 状态推送。
 
 use super::active::compute_active_sessions;
+use super::contract::UsageSource;
 use super::ingest::{
-    file_stem, parse_by_adapter, sync_opencode, upsert_session, upsert_watermark,
+    file_stem, parse_by_adapter, sync_sqlite_sources, upsert_session, upsert_watermark,
     watermark_unchanged,
 };
 use super::schema::ensure_schema;
+use super::SCAN_TIMEOUT_MS;
 use super::{emit_and_return, heal_stale_scan, read_state, write_state};
-use super::{SCAN_TIMEOUT_MS, SESSION_ROOTS};
+use crate::agents;
 use crate::install::now_ms;
 use crate::usage_parse::MAX_FILE_BYTES;
 use crate::util::{is_windows, sh_quote, shell_invocation};
 use crate::{host, pending, PendingRun, DATA_DIR, HOME};
+use serde_json::{json, Value};
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicU32, Ordering as AtomicOrdering};
 use wasmnest_plugin_api::events::ProcessDoneEvent;
 use wasmnest_plugin_api::host::{HostFs, HostLog, HostProcess};
 use wasmnest_plugin_api::host::{HostTask, TaskPlan, TaskUnit};
 use wasmnest_plugin_api::wasm_host::WasmHost;
-use serde_json::{json, Value};
-use std::collections::HashMap;
-use std::sync::atomic::{AtomicU32, Ordering as AtomicOrdering};
 
 static RUN_SEQ: AtomicU32 = AtomicU32::new(0);
 
@@ -47,8 +49,8 @@ pub(crate) fn scan(h: &WasmHost) -> anyhow::Result<Value> {
     let home = HOME
         .get()
         .ok_or_else(|| anyhow::anyhow!("usage: home unavailable"))?;
-    // 分段 = 内置 JSONL 来源（按当前 home 展开）+ 自定义来源（state 持久化绝对路径）。
-    // opencode 的内置条目 kind=sqlite，不进枚举（它由 sync_opencode 单独同步取数）
+    // 分段 = 注册表声明的内置 JSONL 来源（按当前 home 展开）+ 自定义来源
+    // （state 持久化绝对路径）。SQLite 源不进枚举（由 sync_sqlite_sources 取数）
     let sections = scan_sections(home, &state);
     // 批量申请本次扫描的全部来源根目录（一次弹窗；已授权路径宿主静默跳过）。
     // 同一业务（一次扫描）预见 N 个目录的逐文件访问，逐个 fs_read 会弹 N 次框；
@@ -107,19 +109,27 @@ pub(crate) fn scan(h: &WasmHost) -> anyhow::Result<Value> {
 
 /// 枚举分段构造（纯函数，可测）：内置 JSONL 根目录 + 各来源用户目录
 ///
-/// 分段 = (来源名, 根目录)。**内置默认路径**按 [`SESSION_ROOTS`] 以当前 home
+/// 分段 = (来源名, 根目录)。**内置默认路径**按注册表 Usage 源以当前 home
 /// 展开（防家目录变更后 state 旧路径滞留）；state 里的其余目录（内置来源上
 /// 追加的用户目录 + 自定义来源目录）逐条加入。同一来源的多个目录用同名分段
 /// ——`== 分段 ==` 标记重复出现在枚举脚本里，[`crate::skills::parse_listing`]
 /// 会把它们全部归到该来源名下，适配器 / 水位键天然聚合。
 ///
-/// `kind == "sqlite"` 的条目不取——opencode 的库文件不是 `*.jsonl`，
-/// 走 [`sync_opencode`] 同步查表而非文件枚举。
+/// `kind == "sqlite"` 的条目不取——SQLite 源（opencode）的库文件不是
+/// `*.jsonl`，走 [`sync_sqlite_sources`] 同步查表而非文件枚举。
 fn scan_sections(home: &str, state: &Value) -> Vec<(String, String)> {
-    let mut sections: Vec<(String, String)> = SESSION_ROOTS
-        .iter()
-        .map(|(name, seg)| (name.to_string(), format!("{home}/{seg}")))
-        .collect();
+    let mut sections: Vec<(String, String)> = Vec::new();
+    for agent in agents::all() {
+        let Some(spec) = agent.usage() else {
+            continue;
+        };
+        if matches!(spec.source, UsageSource::Jsonl(_)) {
+            sections.push((
+                agent.id().to_string(),
+                format!("{home}/{}", spec.source.seg()),
+            ));
+        }
+    }
     if let Some(arr) = state.get("sources").and_then(|s| s.as_array()) {
         for src in arr {
             if src.get("kind").and_then(|k| k.as_str()) == Some("sqlite") {
@@ -133,7 +143,7 @@ fn scan_sections(home: &str, state: &Value) -> Vec<(String, String)> {
                 if path.is_empty() {
                     continue;
                 }
-                // 内置默认路径已由 SESSION_ROOTS 段覆盖；这里只收用户追加的目录
+                // 内置默认路径已由注册表 Usage 源段覆盖；这里只收用户追加的目录
                 if src
                     .get("builtin")
                     .and_then(|b| b.as_bool())
@@ -280,7 +290,7 @@ fn scan_done_inner(event: &ProcessDoneEvent) -> anyhow::Result<()> {
 
     // 按分段（来源名）分组汇总；分段名与状态 sources 条目名一致（内置 + 自定义）。
     // **SQLite 源（opencode）不入此累加器**：它不是文件枚举源，混进去会让
-    // files/parsed 口径失真——它的槽位由 sync_opencode 单独写。
+    // files/parsed 口径失真——它的槽位由 sync_sqlite_sources 单独写。
     let mut per_adapter: HashMap<String, (u32, u32, u32, u32)> = HashMap::new();
     if let Some(arr) = state.get("sources").and_then(|s| s.as_array()) {
         for src in arr {
@@ -370,10 +380,10 @@ fn scan_done_inner(event: &ProcessDoneEvent) -> anyhow::Result<()> {
         }
     }
 
-    // opencode（SQLite 源，票 07）：不进上面的文件枚举，在 JSONL 回灌后
-    // **同步**补一轮。失败隔离：任何错误只置 opencode 槽位 error 态
-    // （带机器可读 code 供前端 i18n），另两家结果不受影响。
-    sync_opencode(&h, &mut state, now);
+    // SQLite 源（票 07，当前 = opencode）：不进上面的文件枚举，在 JSONL 回灌后
+    // **同步**补一轮。失败隔离：任何错误只置该源槽位 error 态（带机器可读
+    // code 供前端 i18n），文件源结果不受影响。
+    sync_sqlite_sources(&h, &mut state, now);
 
     // 汇总各适配器结果进状态（per_adapter 不含 opencode，故不会覆写其槽位）
     if let Some(adapters) = state["adapters"].as_object_mut() {
@@ -697,7 +707,7 @@ mod tests {
             ]
         });
         let sections = scan_sections("/home/u", &state);
-        // 内置默认（.pi/agent/sessions）来自 SESSION_ROOTS，不重复收录；
+        // 内置默认（.pi/agent/sessions）来自注册表 Usage 源，不重复收录；
         // 追加目录 pi-extra 与自定义来源的两个目录都要进枚举
         let names: Vec<&str> = sections.iter().map(|(n, _)| n.as_str()).collect();
         assert_eq!(

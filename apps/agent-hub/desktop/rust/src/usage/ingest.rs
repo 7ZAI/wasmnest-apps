@@ -1,47 +1,48 @@
-//! 适配器分派 + 水位/会话落库 + opencode SQLite 同步
+//! 适配器分派 + 水位/会话落库 + SQLite 源同步
 //!
-//! 内置格式直连解析器（usage_parse.rs 纯函数），自定义来源走内容嗅探；
-//! 水位以 size（JSONL append-only 语义）/ signature（SQLite 变化指纹）判定；
-//! opencode 是 SQLite 源，不进文件枚举，在 JSONL 回灌后同步补一轮，失败
-//! 隔离只置该槽位 error 态（带机器可读 code，前端 i18n）。
+//! 内置格式解析器与嗅探由适配器声明（[`crate::agents`] 的 `Agent::usage()`），
+//! 自定义来源走内容嗅探；水位以 size（JSONL append-only 语义）/ signature
+//! （SQLite 变化指纹）判定；SQLite 源（opencode）不进文件枚举，在 JSONL
+//! 回灌后同步补一轮，失败隔离只置该槽位 error 态（带机器可读 code，前端 i18n）。
 
-use super::OPENCODE_ADAPTER;
-use crate::usage_parse::{
-    parse_claude_session, parse_codex_session, parse_pi_session, ParsedSession,
-};
-use crate::HOME;
+use super::contract::SqliteUsage;
+use super::usage_spec;
+use crate::agents;
+use crate::usage_parse::ParsedSession;
+use serde_json::{json, Value};
 use wasmnest_plugin_api::host::{HostLog, HostPluginDatabase};
 use wasmnest_plugin_api::sql_params;
 use wasmnest_plugin_api::wasm_host::WasmHost;
-use serde_json::{json, Value};
 
 // ==================== 适配器分派 ====================
 
-/// 按适配器名分派解析（扫描回灌与会话日志打开共用；内置格式直连解析器，
-/// 自定义来源走内容嗅探，未知格式退化为「仅原始行会话」）
+/// 按适配器名分派解析（扫描回灌与会话日志打开共用）：注册表声明了解析器的
+/// 内置格式直连解析，其余（未知 / 自定义来源 / SQLite 源）走内容嗅探降级
 pub(super) fn parse_by_adapter(adapter: &str, content: &str) -> Option<ParsedSession> {
-    match adapter {
-        "claude" => Some(parse_claude_session(content)),
-        "codex" => Some(parse_codex_session(content)),
-        "pi" => Some(parse_pi_session(content)),
-        _ => Some(parse_sniffed_session(content)),
+    if let Some(parse) = usage_spec(adapter).and_then(|s| s.parse_jsonl) {
+        return Some(parse(content));
     }
+    Some(parse_sniffed_session(content))
 }
 
-/// 自定义来源格式嗅探：前 64 行内顶层 `"type":"message"` → pi 解析器；
-/// 顶层 `"type":"assistant"/"user"` → claude 解析器；其余未知格式退化为
-/// 空事件会话（cli_session_id 由调用方按文件名补足，详情仅原始行可读）。
+/// 自定义来源格式嗅探：按适配器声明的顺序（`sniff_rank`，pi 先于 claude）
+/// 逐个判定内容 head，命中即用该适配器的解析器；其余未知格式退化为空事件
+/// 会话（cli_session_id 由调用方按文件名补足，详情仅原始行可读）。
 pub(super) fn parse_sniffed_session(content: &str) -> ParsedSession {
     let head: Vec<&str> = content.lines().take(64).collect();
-    let has_top_type = |kind: &str| {
-        head.iter()
-            .any(|l| l.contains(&format!("\"type\":\"{kind}\"")))
-    };
-    if has_top_type("message") {
-        return parse_pi_session(content);
-    }
-    if has_top_type("assistant") || has_top_type("user") {
-        return parse_claude_session(content);
+    let mut sniffs: Vec<(u8, fn(&[&str]) -> bool, fn(&str) -> ParsedSession)> = agents::all()
+        .iter()
+        .filter_map(|a| a.usage())
+        .filter_map(|s| match (s.sniff, s.parse_jsonl) {
+            (Some(sniff), Some(parse)) => Some((s.sniff_rank, sniff, parse)),
+            _ => None,
+        })
+        .collect();
+    sniffs.sort_by_key(|(rank, _, _)| *rank);
+    for (_, sniff, parse) in sniffs {
+        if sniff(&head) {
+            return parse(content);
+        }
     }
     ParsedSession::default()
 }
@@ -162,94 +163,122 @@ pub(super) fn upsert_session(
     }
 }
 
-/// opencode SQLite 增量导入（票据 07）
+/// 遍历注册表声明的 SQLite 源并逐源同步（当前唯一内置源 = opencode）
 ///
 /// 幂等靠**变化指纹**（`{db 字节}:{wal 字节}`，见 [`crate::usage_sqlite::signature`]）：
 /// 指纹未变则整轮跳过（不跑 sqlite3），变了则全量重拉并逐会话 upsert
 /// （`UNIQUE(adapter, cli_session_id)` 保证重复扫描不产生重复会话）。
 ///
 /// 与 JSONL 路径不同：库里没有「本会话的源文件」概念，源路径统一记库文件
-/// 路径（供日志页展示与 opencode 分支重查）。
-///
-/// **本函数直接写 `state.adapters.opencode` 整槽**，不进 `per_adapter`
-/// （后者是「文件枚举口径」的累加器，opencode 不是文件源，混进去会让
-/// files/parsed 口径失真）。错误分类三种各有机器可读 code 写入 `error` 字段
-/// ——**不静默吞错**（spec §8 fail-visible：宁可显式报错也不要「永远没数据
-/// 且无解释」）。
+/// 路径（供日志页展示与 SQLite 分支重查）。
+pub(super) fn sync_sqlite_sources(h: &WasmHost, state: &mut Value, now: u64) {
+    let home = crate::HOME.get().map(|s| s.as_str()).unwrap_or("");
+    for agent in agents::all().iter().copied() {
+        let Some(spec) = agent.usage() else {
+            continue;
+        };
+        let Some(engine) = spec.sqlite else {
+            continue;
+        };
+        let db = format!("{home}/{}", spec.source.seg());
+        sync_sqlite_source(h, agent.id(), &db, &engine, state, now);
+    }
+}
+
+/// 单个 SQLite 源同步：**直接写 `state.adapters.<id>` 整槽**，不进
+/// `per_adapter`（后者是「文件枚举口径」的累加器，SQLite 源不是文件源，
+/// 混进去会让 files/parsed 口径失真）。错误分类三种各有机器可读 code 写入
+/// `error` 字段——**不静默吞错**（spec §8 fail-visible：宁可显式报错也不要
+/// 「永远没数据且无解释」）。
 ///
 /// 错误轮次**保留上轮的 sessions 计数**：列表仍能展示旧数据，只是标明
 /// 「本轮未刷新」，而不是把已有数据抹成 0。
-pub(super) fn sync_opencode(h: &WasmHost, state: &mut Value, now: u64) -> Option<(u32, u32)> {
+fn sync_sqlite_source(
+    h: &WasmHost,
+    adapter: &str,
+    db: &str,
+    engine: &SqliteUsage,
+    state: &mut Value,
+    now: u64,
+) {
     let (files, skipped) = (0u32, 0u32);
-    let Some(home) = HOME.get() else {
-        write_opencode_slot(state, None, 0, 0, files, skipped);
-        return None;
+    // 库不存在（CLI 未装 / 从未跑过）——不是错误，是常态
+    let Some(sig) = crate::usage_sqlite::signature(h, db) else {
+        write_sqlite_slot(state, adapter, None, 0, 0, files, skipped);
+        return;
     };
-    let db = crate::usage_sqlite::db_path(home);
-    // 库不存在（opencode 未装 / 从未跑过）——不是错误，是常态
-    let Some(sig) = crate::usage_sqlite::signature(h, &db) else {
-        write_opencode_slot(state, None, 0, 0, files, skipped);
-        return None;
-    };
-    if watermark_signature_matches(h, OPENCODE_ADAPTER, &db, &sig) {
+    if watermark_signature_matches(h, adapter, db, &sig) {
         // 水位未变：沿用上轮会话数（不重跑 sqlite3），计入「已同步」水位
-        let prev = opencode_slot(state)
+        let prev = sqlite_slot(state, adapter)
             .and_then(|s| s.get("sessions"))
             .and_then(|s| s.as_u64())
             .unwrap_or(0);
-        write_opencode_slot(state, None, prev as u32, 0, files, 1);
-        return Some((0, 0));
+        write_sqlite_slot(state, adapter, None, prev as u32, 0, files, 1);
+        return;
     }
-    let sessions = match crate::usage_sqlite::collect_sessions(h, &db) {
+    let sessions = match (engine.collect)(h, db) {
         Ok(s) => s,
         Err(e) => {
-            h.log_warn(&format!("usage: opencode sqlite sync failed: {e:?}"));
-            let prev = opencode_slot(state)
+            h.log_warn(&format!("usage: {adapter} sqlite sync failed: {e:?}"));
+            let prev = sqlite_slot(state, adapter)
                 .and_then(|s| s.get("sessions"))
                 .and_then(|s| s.as_u64())
                 .unwrap_or(0);
-            write_opencode_slot(state, Some(e.code()), prev as u32, 0, files, skipped);
-            return None;
+            write_sqlite_slot(
+                state,
+                adapter,
+                Some(e.code()),
+                prev as u32,
+                0,
+                files,
+                skipped,
+            );
+            return;
         }
     };
     let mut added = 0u32;
     for parsed in &sessions {
-        added += upsert_session(h, OPENCODE_ADAPTER, &db, parsed, now);
+        added += upsert_session(h, adapter, db, parsed, now);
     }
-    upsert_watermark_signature(h, OPENCODE_ADAPTER, &db, &sig, now);
+    upsert_watermark_signature(h, adapter, db, &sig, now);
     h.log_info(&format!(
-        "usage: opencode sessions imported, total = {}, added = {added}",
+        "usage: {adapter} sessions imported, total = {}, added = {added}",
         sessions.len()
     ));
-    write_opencode_slot(state, None, added, sessions.len() as u32, files, skipped);
-    Some((added, sessions.len() as u32))
+    write_sqlite_slot(
+        state,
+        adapter,
+        None,
+        added,
+        sessions.len() as u32,
+        files,
+        skipped,
+    );
 }
 
-/// opencode 适配器槽位（可变）
-fn opencode_slot_mut(state: &mut Value) -> Option<&mut Value> {
-    state
-        .get_mut("adapters")?
-        .as_object_mut()?
-        .get_mut(OPENCODE_ADAPTER)
+/// SQLite 源适配器槽位（可变）
+fn sqlite_slot_mut<'a>(state: &'a mut Value, adapter: &str) -> Option<&'a mut Value> {
+    state.get_mut("adapters")?.as_object_mut()?.get_mut(adapter)
 }
 
-/// opencode 适配器槽位（只读）
-pub(super) fn opencode_slot(state: &Value) -> Option<&Value> {
-    state.get("adapters")?.as_object()?.get(OPENCODE_ADAPTER)
+/// SQLite 源适配器槽位（只读）
+pub(super) fn sqlite_slot<'a>(state: &'a Value, adapter: &str) -> Option<&'a Value> {
+    state.get("adapters")?.as_object()?.get(adapter)
 }
 
-/// 整体写回 opencode 槽位（口径：files 恒 0——它不是文件枚举源；
+/// 整体写回 SQLite 源槽位（口径：files 恒 0——它不是文件枚举源；
 /// `parsed` = 本轮解析的会话数，`sessions` = 本轮新增的会话数，
 /// `skipped` = 水位未变而跳过的轮次）
-pub(super) fn write_opencode_slot(
+pub(super) fn write_sqlite_slot(
     state: &mut Value,
+    adapter: &str,
     error: Option<&str>,
     sessions: u32,
     parsed: u32,
     files: u32,
     skipped: u32,
 ) {
-    if let Some(slot) = opencode_slot_mut(state) {
+    if let Some(slot) = sqlite_slot_mut(state, adapter) {
         *slot = json!({
             "files": files,
             "parsed": parsed,
@@ -346,12 +375,12 @@ mod tests {
         assert!(parse_by_adapter("my-logs", "[]").is_some());
     }
 
-    /// opencode 槽位写入：口径固定（files 恒 0，error 可为 null）
+    /// SQLite 源槽位写入：口径固定（files 恒 0，error 可为 null）
     #[test]
-    fn write_opencode_slot_shape() {
+    fn write_sqlite_slot_shape() {
         let mut state = default_state();
-        write_opencode_slot(&mut state, Some("sqlite3-missing"), 0, 0, 0, 0);
-        let slot = opencode_slot(&state).expect("opencode slot");
+        write_sqlite_slot(&mut state, "opencode", Some("sqlite3-missing"), 0, 0, 0, 0);
+        let slot = sqlite_slot(&state, "opencode").expect("opencode slot");
         assert_eq!(slot["error"], json!("sqlite3-missing"));
         // 它不是文件枚举源：files 恒 0（不进 per_adapter 累加器）
         assert_eq!(slot["files"], json!(0));
@@ -359,21 +388,21 @@ mod tests {
         assert_eq!(slot["parsed"], json!(0));
 
         // 成功轮：error 归 null，parsed = 本轮解析会话数，sessions = 新增数
-        write_opencode_slot(&mut state, None, 7, 54, 0, 0);
-        let slot = opencode_slot(&state).expect("opencode slot");
+        write_sqlite_slot(&mut state, "opencode", None, 7, 54, 0, 0);
+        let slot = sqlite_slot(&state, "opencode").expect("opencode slot");
         assert_eq!(slot["error"], json!(null));
         assert_eq!(slot["sessions"], json!(7));
         assert_eq!(slot["parsed"], json!(54));
     }
 
-    /// 回归见证：槽位写错键会让「另一家适配器的 error」被 opencode 覆盖
+    /// 回归见证：槽位写错键会让「另一家适配器的 error」被 SQLite 源覆盖
     #[test]
-    fn write_opencode_slot_only_touches_opencode() {
+    fn write_sqlite_slot_only_touches_its_own_adapter() {
         let mut state = default_state();
         // 预置 claude 的成功计数
         state["adapters"]["claude"] =
             json!({ "files": 3, "parsed": 3, "skipped": 0, "sessions": 5, "error": null });
-        write_opencode_slot(&mut state, Some("db-missing"), 1, 1, 0, 0);
+        write_sqlite_slot(&mut state, "opencode", Some("db-missing"), 1, 1, 0, 0);
         // claude 不得被影响
         assert_eq!(state["adapters"]["claude"]["sessions"], json!(5));
         assert_eq!(state["adapters"]["claude"]["files"], json!(3));

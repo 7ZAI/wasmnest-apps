@@ -4,14 +4,18 @@
 //! 数据流：`scan-usage` 发起时先对**本次扫描的实际来源根目录**批量授权
 //! （一次 `fs_request_auth` 弹窗列全部，已授权路径宿主静默跳过——同一业务
 //! 预见多个文件访问用批量授权代替逐个弹窗；拒绝才降级 auth-required）→
-//! host-process 枚举各家 JSONL + opencode SQLite 源同步 → 回灌解析入库 →
-//! 状态推送。
+//! host-process 枚举各家 JSONL + SQLite 源同步 → 回灌解析入库 → 状态推送。
+//!
+//! 适配器清单与来源形态来自注册表（[`crate::agents`] 的 `Agent::usage()`）：
+//! 本域只做扫描编排 / 水位 / 落库 / 统计聚合，JSONL vs SQLite、解析器、
+//! 嗅探顺序与活跃会话策略由适配器声明（[`contract`]）。
 //!
 //! # 模块结构
+//! - [`contract`]：适配器钩子契约（UsageSpec / UsageSource / SqliteUsage）
 //! - [`schema`]：幂等建表（parse_watermark / usage_session / provider_preset）
 //! - [`scan`]：扫描异步流（枚举脚本 → 回灌 → 并行读文件）
-//! - [`ingest`]：适配器分派 + 水位/会话落库 + opencode SQLite 同步
-//! - [`active`]：正在使用的项目会话（claude 配置权威 + 最新会话回退）
+//! - [`ingest`]：适配器分派 + 水位/会话落库 + SQLite 源同步
+//! - [`active`]：正在使用的项目会话（最新会话回退 + 适配器策略钩子）
 //! - [`stats`]：多维看板聚合（汇总 + 按天 / CLI / 模型 / 项目 / 7×24 节奏矩阵）
 //! - [`sessions`]：会话列表与日志视图（事件流 + 原始行）
 //! - [`sources`]：日志来源管理（内置只读 + 自定义增删）
@@ -25,6 +29,7 @@
 
 mod active;
 mod clear;
+pub(crate) mod contract;
 mod ingest;
 mod scan;
 mod schema;
@@ -50,20 +55,20 @@ use serde_json::{json, Value};
 
 /// host-storage 键：使用统计域状态
 pub(crate) const USAGE_KEY: &str = "usage";
-/// 适配器清单（票据 06：claude / pi；票据 07 补 opencode SQLite + codex 骨架）。
-/// 顺序即概览/看板的默认展示序，与 `types.ts` 的 `CliId` 一致。
-pub(super) const ADAPTERS: [&str; 4] = ["claude", "codex", "opencode", "pi"];
-/// (adapter, 家目录相对段)：JSONL 会话根目录
-///
-/// codex 官方 rollout 路径（母 spec §9 标「待实机校准」）：`~/.codex/sessions`
-/// 下的 `YYYY/MM/DD/rollout-*.jsonl`，递归 `find` 覆盖三层嵌套。
-pub(super) const SESSION_ROOTS: [(&str, &str); 3] = [
-    ("claude", ".claude/projects"),
-    ("codex", ".codex/sessions"),
-    ("pi", ".pi/agent/sessions"),
-];
-/// opencode 的 SQLite 库（不进文件枚举，见模块头）
-pub(super) const OPENCODE_ADAPTER: &str = "opencode";
+
+/// 适配器的 Usage 能力（None = 该 agent 不入使用统计）
+pub(super) fn usage_spec(id: &str) -> Option<&'static contract::UsageSpec> {
+    crate::agents::get(id).and_then(|a| a.usage())
+}
+
+/// 统计适配器 id（注册表顺序 = 概览/看板默认展示序）
+pub(super) fn adapter_ids() -> Vec<&'static str> {
+    crate::agents::all()
+        .iter()
+        .filter_map(|a| a.usage().map(|_| a.id()))
+        .collect()
+}
+
 /// 枚举超时：纯文件系统遍历（与 skills 扫描同量级）
 pub(super) const SCAN_TIMEOUT_MS: u64 = 30_000;
 /// 扫描在途无进展的判定窗口（2026-09-28 实机 bug 的兜底）
@@ -85,32 +90,40 @@ pub(crate) const PAGE_SIZE: i64 = 50;
 
 // ==================== 状态（读-改-写） ====================
 
-/// 内置来源（(adapter, 家目录相对段)）→ 家目录绝对路径条目（只读）
+/// 内置来源（注册表 Usage 能力派生）→ 家目录绝对路径条目（只读）
 ///
-/// opencode 是 SQLite 源而非 JSONL 目录，条目带 `kind: "sqlite"` 与展开后的
-/// 库文件路径（前端据此提示「需要 sqlite3」而不是把它当可添加/移除的目录）。
-/// 每个条目带 `paths` 数组（首个元素 = 内置默认路径，只读；用户可在其上追加
-/// 更多目录）。
+/// 顺序保持重构前口径：先全部 JSONL 目录（claude / codex / pi），再 SQLite
+/// 库（opencode）——前端来源列表按数组序展示。SQLite 条目带 `kind: "sqlite"`
+/// 与展开后的库文件路径（前端据此提示「需要 sqlite3」而不是把它当可添加/
+/// 移除的目录）。每个条目带 `paths` 数组（首个元素 = 内置默认路径，只读；
+/// 用户可在其上追加更多目录）。
 fn builtin_sources() -> Vec<Value> {
     let home = HOME.get().cloned().unwrap_or_default();
-    let mut out: Vec<Value> = SESSION_ROOTS
-        .iter()
-        .map(|(name, seg)| {
-            json!({ "name": name, "paths": [format!("{home}/{seg}")], "kind": "jsonl", "builtin": true })
-        })
-        .collect();
-    out.push(json!({
-        "name": OPENCODE_ADAPTER,
-        "paths": [crate::usage_sqlite::db_path(&home)],
-        "kind": "sqlite",
-        "builtin": true,
-    }));
-    out
+    let mut jsonl: Vec<Value> = Vec::new();
+    let mut sqlite: Vec<Value> = Vec::new();
+    for agent in crate::agents::all() {
+        let Some(spec) = agent.usage() else {
+            continue;
+        };
+        let entry = json!({
+            "name": agent.id(),
+            "paths": [format!("{home}/{}", spec.source.seg())],
+            "kind": if spec.source.is_sqlite() { "sqlite" } else { "jsonl" },
+            "builtin": true,
+        });
+        if spec.source.is_sqlite() {
+            sqlite.push(entry);
+        } else {
+            jsonl.push(entry);
+        }
+    }
+    jsonl.extend(sqlite);
+    jsonl
 }
 
 pub(super) fn default_state() -> Value {
     let mut adapters = serde_json::Map::new();
-    for name in ADAPTERS {
+    for name in adapter_ids() {
         adapters.insert(
             name.to_string(),
             json!({ "files": 0, "parsed": 0, "skipped": 0, "sessions": 0, "error": null }),
@@ -126,7 +139,7 @@ pub(super) fn default_state() -> Value {
         "adapters": Value::Object(adapters),
         // 日志来源清单（内置只读 + 自定义增删）；旧状态无此键由 read_state 补齐
         "sources": json!(builtin_sources()),
-        // 正在使用的项目会话（扫描时计算：claude 配置权威 / 其余最新会话）
+        // 正在使用的项目会话（扫描时计算：适配器策略钩子 + 最新会话回退）
         "activeSessions": json!({}),
     })
 }
@@ -163,7 +176,7 @@ pub(super) fn read_state(h: &WasmHost) -> Value {
     }
     // 票 07 旧状态的 adapters 只有 claude/pi：补齐新槽位（保留已有计数）
     if let Some(adapters) = state["adapters"].as_object_mut() {
-        for name in ADAPTERS {
+        for name in adapter_ids() {
             if !adapters.contains_key(name) {
                 adapters.insert(
                     name.to_string(),

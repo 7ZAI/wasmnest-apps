@@ -7,12 +7,12 @@
 //! 目录路径全局唯一（同一目录只能归属一个来源）——扫描按来源名归段入库，
 //! 路径重复会让同一批会话文件以两个适配器名各入一次库，统计重复。
 
-use super::{emit_and_return, read_state, write_state, OPENCODE_ADAPTER, SESSION_ROOTS};
+use super::{emit_and_return, read_state, usage_spec, write_state};
 use crate::util::path_rejected_for_script;
-use crate::{usage_sqlite, HOME};
+use crate::HOME;
+use serde_json::{json, Value};
 use wasmnest_plugin_api::host::HostPlatform;
 use wasmnest_plugin_api::wasm_host::WasmHost;
-use serde_json::{json, Value};
 
 // ==================== 日志来源管理（内置只读 + 自定义增删 + 每来源多目录） ====================
 
@@ -395,17 +395,9 @@ fn path_registered(state: &Value, path: &str) -> bool {
 }
 
 /// 内置来源的默认路径（不可移除）；自定义来源 → None（全部路径可移除）。
-/// sqlite 源（opencode）也是内置单文件，默认路径即库文件。
+/// SQLite 源（opencode）也是内置单文件，默认路径即库文件。
 pub(super) fn builtin_default_path(home: &str, name: &str) -> Option<String> {
-    for (n, seg) in SESSION_ROOTS {
-        if n == name {
-            return Some(format!("{home}/{seg}"));
-        }
-    }
-    if name == OPENCODE_ADAPTER {
-        return Some(usage_sqlite::db_path(home));
-    }
-    None
+    usage_spec(name).map(|spec| format!("{home}/{}", spec.source.seg()))
 }
 
 // ==================== Tests（纯函数单测） ====================

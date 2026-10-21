@@ -50,13 +50,9 @@ const PART_OUTPUT_CAP: usize = 600;
 /// 单次 `sqlite3` 调用的超时（本地只读查询，正常 < 200ms）
 const QUERY_TIMEOUT_MS: u64 = 30_000;
 
-/// opencode 库相对家目录的落点（母 spec §9：`~/.local/share/opencode/opencode.db`）
+/// opencode 库相对家目录的落点（母 spec §9：`~/.local/share/opencode/opencode.db`；
+/// 由适配器的 Usage 源声明引用，路径真源只此一处）
 pub(crate) const DB_REL: &str = ".local/share/opencode/opencode.db";
-
-/// 库文件绝对路径（home 由 `usage.rs` 注入，本模块不读全局）
-pub(crate) fn db_path(home: &str) -> String {
-    format!("{home}/{DB_REL}")
-}
 
 /// 同步查询失败原因（前端按 `code` 走 i18n，`detail` 只进日志不进界面）
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -382,14 +378,5 @@ mod tests {
         assert_eq!(SyncError::SqliteMissing.code(), "sqlite3-missing");
         assert_eq!(SyncError::DbMissing.code(), "db-missing");
         assert_eq!(SyncError::QueryFailed("boom".into()).code(), "query-failed");
-    }
-
-    /// 库路径：家目录拼接（母 spec §9 落点）
-    #[test]
-    fn db_path_under_local_share() {
-        assert_eq!(
-            db_path("/home/u"),
-            "/home/u/.local/share/opencode/opencode.db"
-        );
     }
 }
