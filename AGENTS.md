@@ -200,3 +200,19 @@
 | 四仓通用规范（git 提交 / 注释命名 / 测试验证 / 版本号管理 / issue 管理） | `../wasmnest/docs/public/{git,commenting,testing,versioning,issues}.md` |
 | 契约包名与版本真源 | `../wasmnest-lib/contracts/wasmnest-plugin-package.rs`、`../wasmnest-lib/wasmnest-wasm-core/wit/core.wit` |
 | 跨端互连测试 | `../wasmnest-test/cross-end-tests/` |
+
+---
+
+## Agent skills
+
+### Issue tracker
+
+跨会话 issue / spec 的真源是 GitHub Issues（`7ZAI/wasmnest-apps`，经 `gh` CLI 操作）；PR 不作为请求面。尚存的 `.scratch/<date>-<slug>/spec.md` 是历史票据惯例，新工作优先走 issue。见 `docs/agents/issue-tracker.md`。
+
+### Triage labels
+
+triage 状态机用五个状态标签（`needs-triage` / `needs-info` / `ready-for-agent` / `ready-for-human` / `wontfix`），类别映射到既有 `kind:bug` / `kind:feature`；与四仓共享 `issues.md` 的「不新增」差异见文件内说明。见 `docs/agents/triage-labels.md`。
+
+### Domain docs
+
+single-context：根 `GLOSSARY.md` + `docs/adr/`，按 `/domain-modeling` 懒创建。见 `docs/agents/domain.md`。
