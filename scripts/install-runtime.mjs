@@ -10,13 +10,17 @@
  * | 通道 | 命令 | 前置 |
  * | --- | --- | --- |
  * | `crates-io`（默认） | `cargo install wasmnest-desktop-runtime --version =<lock 版本> --root <缓存>` | 平台仓把该 crate 发到 crates.io（L2 的发布动作，本票据只实现不发布） |
- * | `platform`（`--from <平台仓>`） | 在平台仓里 `cargo build --release --manifest-path .../src-tauri/Cargo.toml --bin wasmnest-desktop` 后**复制**进缓存 | 本机有平台仓工作树 |
+ * | `platform`（`--from <平台仓>`） | 在平台仓里 `cargo build --features tauri/custom-protocol --manifest-path .../src-tauri/Cargo.toml --bin wasmnest-desktop`（debug 产物）后**复制**进缓存 | 本机有平台仓工作树 |
  *
  * `--from` 走 build + 复制而不是 `cargo install --path`：`--install` 会要求该 crate 的
  * `Cargo.lock` 与依赖解析在应用仓工作目录下也成立，而 cargo 的 config 发现按 **cwd**
  * 而不是 manifest 路径 —— 平台仓 `.cargo/config.toml` 里的 `[patch]`（能力仓兄弟目录 +
  * 尚未发布的 crates.io SDK）会吃不到，结果是解析失败或拉到与本地不同码的依赖。
  * build + 复制把这条不确定性去掉，代价是多一次复制（宿主二进制本来就 ~百 MB）。
+ *
+ * `--host-mode runtime` 只在这条 **platform 通道**下可跑：crates.io 的 `cargo install`
+ * 产出 release 二进制，而 E2E 依赖 `#[cfg(debug_assertions)]` 才注册的 wdio 插件；
+ * registry 通道因此只用于「作为依赖被消费」的编译期校验。
  *
  * **为什么没有 `cargo install --git --tag`**：平台仓刻意**没有根 Cargo workspace**
  * （30+ 独立 Cargo.toml、8 个 target 落点，见平台仓根 `.cargo/config.toml` 头注），
@@ -124,13 +128,24 @@ export function resolveRuntimePlan({
       source: 'platform',
       mode: 'build-copy',
       cwd: from,
-      // release：tauri_build 把随包 `shell-dist` 嵌进二进制（与 host:pack 的 packed 宿主等价）。
-      // **不能用 debug**：debug 产物是 tauri 的 dev 形态，走 `devUrl`（:1420），
-      // 没有平台前端 dev server 时页面是 `about:blank` —— E2E 会报「宿主 webview 未就绪」。
-      builtBin: join(manifestDir, 'target', 'release', binName),
+      // debug + `tauri/custom-protocol`，与 host:pack 的 `tauri build --debug --no-bundle` 同形：
+      //  - tauri 的 `dev` cfg = **!custom-protocol**（tauri build.rs），纯 debug 产物走
+      //    `devUrl`（:1420），没有平台前端 dev server 时页面 `about:blank`；
+      //  - 但 E2E 又**必须**是 debug（`tauri-plugin-wdio` 被 `#[cfg(debug_assertions)]` 门住，
+      //    release 产物里没有它 ⇒ `browser.tauri.execute` 不可用）。
+      // 两条合起来 = 只有「debug + custom-protocol」这一种形态能跑，这里显式钉住它。
+      builtBin: join(manifestDir, 'target', 'debug', binName),
       command: {
         command: 'cargo',
-        args: ['build', '--release', '--manifest-path', manifest, '--bin', RUNTIME_BIN],
+        args: [
+          'build',
+          '--features',
+          'tauri/custom-protocol',
+          '--manifest-path',
+          manifest,
+          '--bin',
+          RUNTIME_BIN,
+        ],
       },
     }
   }

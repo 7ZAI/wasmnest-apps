@@ -135,7 +135,7 @@ test('resolveRuntimePlan：默认 crates-io 通道，版本精确钉死', (t) =>
   ])
 })
 
-test('resolveRuntimePlan：--from 走平台仓 src-tauri 的 release 构建 + 复制', (t) => {
+test('resolveRuntimePlan：--from 走平台仓 src-tauri 的 debug + custom-protocol 构建 + 复制', (t) => {
   const root = tempRoot(t)
   const platformRoot = join(root, 'wasmnest')
   const manifestDir = join(platformRoot, 'wasmnest-desktop', 'src-tauri')
@@ -146,10 +146,13 @@ test('resolveRuntimePlan：--from 走平台仓 src-tauri 的 release 构建 + �
   assert.equal(plan.source, 'platform')
   assert.equal(plan.mode, 'build-copy')
   assert.equal(plan.cwd, platformRoot, 'cwd 必须是平台仓根（cargo 的 [patch] 按 cwd 发现）')
-  assert.equal(plan.builtBin, join(manifestDir, 'target', 'release', BINARY))
+  // debug（wdio 插件在）+ tauri/custom-protocol（内嵌随包壳，不走 devUrl）——
+  // 纯 debug 会白屏，release 没有 wdio 插件，两条都跑不了 E2E
+  assert.equal(plan.builtBin, join(manifestDir, 'target', 'debug', BINARY))
   assert.deepEqual(plan.command.args, [
     'build',
-    '--release',
+    '--features',
+    'tauri/custom-protocol',
     '--manifest-path',
     join(manifestDir, 'Cargo.toml'),
     '--bin',
@@ -253,7 +256,7 @@ test('installRuntime：cargo 成功但产物缺失 ⇒ 点名 bin', (t) => {
   )
 })
 
-test('installRuntime --from：release 产物复制进缓存并保留可执行位', (t) => {
+test('installRuntime --from：构建产物复制进缓存并保留可执行位', (t) => {
   const root = tempRoot(t)
   const platformRoot = join(root, 'wasmnest')
   const manifestDir = join(platformRoot, 'wasmnest-desktop', 'src-tauri')
@@ -293,7 +296,7 @@ test('installRuntime --from：build 成功但 target/release 没有产物 ⇒ �
         from: platformRoot,
         exec: () => ({ status: 0 }),
       }),
-    /\[install-runtime\][\s\S]*cargo build 成功但找不到产物[\s\S]*target\/release[\s\S]*wasmnest-desktop/s,
+    /\[install-runtime\][\s\S]*cargo build 成功但找不到产物[\s\S]*target\/debug[\s\S]*wasmnest-desktop/s,
   )
 })
 
