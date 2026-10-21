@@ -9,6 +9,7 @@
   "type": "internal-business",
   "pluginType": "rust-ts",
   "rustLibrary": "bedcode_plugin_terminal_session",
+  "icon": "icon.svg",
   "permissions": [
     "auth",
     "broadcast",
