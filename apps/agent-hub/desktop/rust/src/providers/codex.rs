@@ -310,7 +310,7 @@ fn scalar_of(line: &str) -> Value {
 }
 
 /// codex 只读视图（读时现查；读失败降级为空视图，不阻断页签）
-pub(super) fn codex_view(h: &WasmHost, home: &str) -> Value {
+pub(crate) fn codex_view(h: &WasmHost, home: &str) -> Value {
     match h.fs_read(&codex_config_path(home)) {
         Ok(Some(text)) => parse_codex_config(&text),
         Ok(None) => {

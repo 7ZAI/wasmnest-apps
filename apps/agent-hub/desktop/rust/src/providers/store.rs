@@ -6,11 +6,9 @@
 //! wire（明文永不进状态载荷/前端）。域状态（host-storage `providers` 键）
 //! 记 import/apply 最近一次结果。
 
-use super::jsonc::parse_jsonc;
 use super::mapping::mask_key;
-use super::merge::claude_env_view;
-use super::paths::{bridge_paths, claude_auth_paths, claude_settings_path};
 use super::PROVIDERS_KEY;
+use crate::agents;
 use crate::HOME;
 use wasmnest_plugin_api::host::{HostEvents, HostFs, HostLog, HostPluginDatabase, HostStorage};
 use wasmnest_plugin_api::sql_params;
@@ -169,50 +167,49 @@ pub(super) fn write_stored(h: &WasmHost, import_last: &Value, apply_last: &Value
     }
 }
 
-/// claude 只读视图（env 掩码 + 桥接文件存在性，读时现查）
-fn claude_view(h: &WasmHost, home: &str) -> Value {
-    let env = h
-        .fs_read(&claude_settings_path(home))
-        .ok()
-        .flatten()
-        .map(|t| {
-            parse_jsonc(&t)
-                .map(|v| claude_env_view(&v))
-                .unwrap_or(json!({}))
-        })
-        .unwrap_or_else(|| json!({}));
-    let bridges = bridge_paths(home);
-    json!({
-        "env": env,
-        "bridge": {
-            "providerConfigSh": h.fs_exists(&bridges[0]).unwrap_or(false),
-            "anthropicBridgeMjs": h.fs_exists(&bridges[1]).unwrap_or(false),
-        },
-    })
-}
-
 /// 组装全量状态（命令返回值与事件载荷同形）
 ///
-/// claude 视图一次读 3 个路径（settings + 两桥接文件存在性），先批量授权整组
-/// （[`claude_auth_paths`]）再逐路径读取：同一业务（打开供应商页 / 一次应用）
-/// 预见多个文件访问，逐个 fs_read 会弹 N 次框；一次 request-auth 弹一次框列出
-/// 全部，命中即静默、未命中拒绝则视图降级（claude_view 的读失败分支与
-/// 未授权一致——env 空 + 桥接 false，不阻断页签）。
-/// codex 视图同理：读 `~/.codex/config.toml`（激活时的批量授权已含该目录），
-/// 读失败/未授权 → 全 null 视图（面板据此不显示「当前模型」行，不阻断）。
+/// 目标视图与授权路径都来自注册表（[`crate::agents`] 的 `Agent::provider()`）：
+/// 声明了 `view` 的适配器产出自己的 wire 键（claude / codex），未声明者不出现；
+/// 声明了 `auth_paths` 的目标先一次性批量授权（claude 视图一次读 3 个路径，
+/// settings + 两桥接文件存在性）。拒绝只降级对应视图（读失败与未授权同形态：
+/// env 空 + 桥接 false），不阻断状态组装。
+///
+/// codex 视图不在此申请授权：`~/.codex` 随 activate 批量授权覆盖。
 pub(super) fn build_state(h: &WasmHost) -> anyhow::Result<Value> {
     ensure_schema(h)?;
     let (import_last, apply_last) = read_stored(h);
     let home = HOME.get().map(|s| s.as_str()).unwrap_or("");
-    // 拒绝只降级视图（见上），不阻断状态组装
-    let _ = h.fs_request_auth(&claude_auth_paths(home)).unwrap_or(false);
-    Ok(json!({
-        "presets": list_presets(h)?,
-        "claude": claude_view(h, home),
-        "codex": super::codex::codex_view(h, home),
-        "import": { "last": import_last },
-        "apply": { "last": apply_last },
-    }))
+
+    let mut auth_paths: Vec<String> = Vec::new();
+    for agent in agents::all() {
+        if let Some(spec) = agent.provider() {
+            if let Some(f) = spec.auth_paths {
+                for path in f(home) {
+                    if !auth_paths.contains(&path) {
+                        auth_paths.push(path);
+                    }
+                }
+            }
+        }
+    }
+    // 拒绝只降级视图，不阻断状态组装
+    if !auth_paths.is_empty() {
+        let _ = h.fs_request_auth(&auth_paths).unwrap_or(false);
+    }
+
+    let mut state = serde_json::Map::new();
+    state.insert("presets".to_string(), Value::Array(list_presets(h)?));
+    for agent in agents::all() {
+        if let Some(spec) = agent.provider() {
+            if let (Some(key), Some(view)) = (spec.view_key, spec.view) {
+                state.insert(key.to_string(), view(h, home));
+            }
+        }
+    }
+    state.insert("import".to_string(), json!({ "last": import_last }));
+    state.insert("apply".to_string(), json!({ "last": apply_last }));
+    Ok(Value::Object(state))
 }
 
 pub(super) fn emit_and_return(h: &WasmHost, state: &Value) -> anyhow::Result<Value> {

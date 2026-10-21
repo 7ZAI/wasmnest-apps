@@ -5,16 +5,21 @@
 //! 真源始终是 CLI 自己的配置）。配置写入采用**文本级 splice**（JSONC 感知，
 //! 注释与未知字段逐字保留），key 纪律 = 明文只落本库、UI/状态/日志一律掩码。
 //!
+//! **目标清单与能力来自注册表**（[`crate::agents`] 的 `Agent::provider()`）：
+//! 本域只做公共编排（入参校验 / key 四选一 / 多目标独立失败 / 状态推送），
+//! 每个目标写哪个文件、怎么写、能否导入/视由适配器声明（[`contract`]）。
+//!
 //! # 模块结构
+//! - [`contract`]：适配器钩子契约（ProviderSpec / ProviderWriteCtx / TargetWrite）
 //! - [`paths`]：CLI 配置文件路径（家目录相对段）
 //! - [`jsonc`]：JSONC 解析 + 文本级 splice（纯函数）
 //! - [`mapping`]：key 掩码与方言映射（纯函数）
-//! - [`codex`]：codex 目标（TOML splice + 只读视图）
+//! - [`codex`]：codex TOML splice 引擎 + 只读解析（适配器消费）
 //! - [`discover`]：模型列表查询（可选 URL + 手动输入互补）
-//! - [`import`]：反向导入提取（PresetDraft / presets_from_* / plan_inserts）
+//! - [`import`]：反向导入提取纯函数（PresetDraft / presets_from_* / plan_inserts）
 //! - [`merge`]：应用条目构造（合并既有 + 覆盖受控字段）
-//! - [`store`]：provider_preset 表 + 域状态（导入/应用结果）
-//! - [`apply`]：应用到目标 CLI（多目标 + key 四选一 + claude 桥接冲突）
+//! - [`store`]：provider_preset 表 + 域状态（导入/应用结果 + 注册表派生的视图）
+//! - [`apply`]：应用到目标 CLI（多目标 + key 四选一 + 适配器写入钩子）
 //! - 本模块：命令入口（预设 CRUD / 反向导入 / get_state）
 
 /// host-storage 键：供应商域导入/应用结果（不含 presets——presets 真源在插件库）
@@ -27,13 +32,14 @@ const MODELS_MAX: usize = 256;
 /// api 方言白名单（与前端 ApiStyle 同构）
 const API_STYLES: [&str; 4] = ["openai", "anthropic", "gemini", "custom"];
 mod apply;
-mod codex;
+pub(crate) mod codex;
+pub(crate) mod contract;
 mod discover;
 mod import;
-mod jsonc;
+pub(crate) mod jsonc;
 mod mapping;
-mod merge;
-mod paths;
+pub(crate) mod merge;
+pub(crate) mod paths;
 mod store;
 
 /// 命令入口面（lib.rs 路由）
@@ -41,17 +47,18 @@ pub(crate) use apply::apply_provider;
 pub(crate) use discover::fetch_models;
 pub(crate) use store::ensure_schema;
 
+/// 反向导入纯函数与草稿（适配器的 import 钩子消费）
+pub(crate) use import::{presets_from_opencode, presets_from_pi, PresetDraft};
+
 use super::HOME;
 use crate::install::now_ms;
 use crate::providers::discover::validate_models_url;
-use crate::providers::import::{plan_inserts, presets_from_opencode, presets_from_pi, PresetDraft};
-use crate::providers::jsonc::parse_jsonc;
-use crate::providers::paths::{opencode_cfg_path, pi_auth_path, pi_models_path};
+use crate::providers::import::plan_inserts;
 use crate::providers::store::{
     build_state, emit_and_return, list_presets, preset_key_of, preset_names, read_stored,
     write_stored,
 };
-use wasmnest_plugin_api::host::{HostFs, HostLog, HostPluginDatabase};
+use wasmnest_plugin_api::host::{HostLog, HostPluginDatabase};
 use wasmnest_plugin_api::sql_params;
 use wasmnest_plugin_api::wasm_host::WasmHost;
 use serde_json::{json, Value};
@@ -235,43 +242,28 @@ pub(crate) fn delete_preset(h: &WasmHost, args: &Value) -> anyhow::Result<Value>
 // ==================== 命令：反向导入 ====================
 // ==================== 命令：反向导入 ====================
 
-/// 反向导入（同步命令）：pi（models.json + auth.json）与 opencode
-/// （opencode.json）各生成预设并把源 key 一并收进中心凭据库；同名去重见
-/// `plan_inserts`；claude 只读展示不生成预设。导入结果只回掩码 keys
+/// 反向导入（同步命令）：遍历注册表的 provider.import 钩子，各适配器读自己的
+/// 配置并生成预设（pi models.json + auth.json、opencode opencode.json；claude /
+/// codex 只读展示不生成预设），源 key 一并收进中心凭据库；同名去重见
+/// `plan_inserts`。导入顺序由适配器声明的 `import_rank` 决定（同名冲突时先者
+/// 保留原名，与重构前 pi → opencode 的顺序一致）。导入结果只回掩码 keys
 pub(crate) fn import_providers(h: &WasmHost) -> anyhow::Result<Value> {
     ensure_schema(h)?;
     let home = HOME
         .get()
         .ok_or_else(|| anyhow::anyhow!("import: home unavailable"))?;
 
+    // 收集 import 钩子并按声明顺序执行（稳定排序：同 rank 保持注册顺序）
+    let mut importers: Vec<(u8, fn(&WasmHost, &str) -> Vec<PresetDraft>)> = crate::agents::all()
+        .iter()
+        .filter_map(|a| a.provider())
+        .filter_map(|p| p.import.map(|f| (p.import_rank, f)))
+        .collect();
+    importers.sort_by_key(|(rank, _)| *rank);
+
     let mut drafts: Vec<PresetDraft> = Vec::new();
-
-    // pi
-    match h.fs_read(&pi_models_path(home)) {
-        Ok(Some(text)) => match parse_jsonc(&text) {
-            Ok(models) => {
-                let auth = h
-                    .fs_read(&pi_auth_path(home))
-                    .ok()
-                    .flatten()
-                    .and_then(|t| parse_jsonc(&t).ok())
-                    .unwrap_or_else(|| json!({}));
-                drafts.extend(presets_from_pi(&models, &auth));
-            }
-            Err(e) => h.log_warn(&format!("import: pi models.json parse failed: {e}")),
-        },
-        Ok(None) => {}
-        Err(e) => h.log_warn(&format!("import: read pi models.json failed: {e}")),
-    }
-
-    // opencode
-    match h.fs_read(&opencode_cfg_path(home)) {
-        Ok(Some(text)) => match parse_jsonc(&text) {
-            Ok(cfg) => drafts.extend(presets_from_opencode(&cfg)),
-            Err(e) => h.log_warn(&format!("import: opencode.json parse failed: {e}")),
-        },
-        Ok(None) => {}
-        Err(e) => h.log_warn(&format!("import: read opencode.json failed: {e}")),
+    for (_, import) in importers {
+        drafts.extend(import(h, home));
     }
 
     let (to_create, skipped) = plan_inserts(&preset_names(h)?, drafts);

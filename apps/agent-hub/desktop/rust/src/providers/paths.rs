@@ -36,7 +36,7 @@ pub(crate) fn claude_auth_paths(home: &str) -> Vec<String> {
 }
 
 /// claude 自建桥接文件（存在任一即视为桥接体系在用）
-pub(super) fn bridge_paths(home: &str) -> [String; 2] {
+pub(crate) fn bridge_paths(home: &str) -> [String; 2] {
     [
         format!("{home}/.claude/provider-config.sh"),
         format!("{home}/.claude/anthropic-bridge.mjs"),

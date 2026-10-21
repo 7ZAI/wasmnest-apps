@@ -5,15 +5,126 @@
 //! 脚本、npm/pnpm 走包管理器，不依赖 node、镜像无关），未安装时拒绝；
 //! 卸载走 `opencode uninstall --force`；standalone 的最新版本以 GitHub
 //! Releases 为权威（官方 upgrade 同源），失败回落 npm registry。
-//! 无 skills 目录约定。
+//! 供应商配置为 `~/.config/opencode/opencode.json` 的 provider 条目；
+//! 反向导入读同一文件。无 skills 目录约定。
 
 use super::{Agent, LatestSource};
+use crate::providers::contract::{
+    read_or_default, ProviderSpec, ProviderWriteCtx, TargetWrite, REASON_NO_MODELS,
+    REASON_WRITE_FAILED,
+};
+use crate::providers::jsonc::{ensure_container, parse_jsonc, upsert_entry};
+use crate::providers::merge::{merge_opencode_entry, merged_model_count};
+use crate::providers::paths::opencode_cfg_path;
+use crate::providers::{presets_from_opencode, PresetDraft};
+use wasmnest_plugin_api::host::{HostFs, HostLog};
+use wasmnest_plugin_api::wasm_host::WasmHost;
 
 /// curl/standalone 安装的二进制真源（官方 `opencode upgrade` 对 curl 安装
 /// 同样查该仓库的 latest release）
 pub(super) const GITHUB_REPO: &str = "anomalyco/opencode";
 
 pub(super) struct Opencode;
+
+// ==================== 供应商目标（opencode.json provider 条目） ====================
+
+/// opencode：opencode.json 写 provider 条目（options.apiKey 内联）
+fn provider_write(h: &WasmHost, ctx: &ProviderWriteCtx) -> Result<TargetWrite, (String, String)> {
+    let target_name = ctx.target_name;
+    let path = opencode_cfg_path(ctx.home);
+    let text = read_or_default(h, &path, "opencode.json")
+        .map_err(|e| (REASON_WRITE_FAILED.to_string(), e))?;
+    let t = ensure_container(&text, "provider").map_err(|e| {
+        (
+            REASON_WRITE_FAILED.to_string(),
+            format!("opencode provider container: {e}"),
+        )
+    })?;
+    let existing = parse_jsonc(&t)
+        .ok()
+        .and_then(|v| v.get("provider").and_then(|p| p.get(target_name)).cloned());
+    let entry = merge_opencode_entry(
+        existing.as_ref(),
+        &ctx.preset.name,
+        &ctx.preset.base_url,
+        &ctx.preset.api_style,
+        &ctx.preset.models,
+        ctx.key,
+    );
+    if merged_model_count(&entry) == 0 {
+        return Err((
+            REASON_NO_MODELS.to_string(),
+            format!("preset {target_name} has no models"),
+        ));
+    }
+    let pretty = serde_json::to_string_pretty(&entry).map_err(|e| {
+        (
+            REASON_WRITE_FAILED.to_string(),
+            format!("serialize opencode entry: {e}"),
+        )
+    })?;
+    let t = upsert_entry(&t, Some("provider"), target_name, &pretty).map_err(|e| {
+        (
+            REASON_WRITE_FAILED.to_string(),
+            format!("opencode provider upsert: {e}"),
+        )
+    })?;
+    h.fs_write(&path, &t).map_err(|e| {
+        (
+            REASON_WRITE_FAILED.to_string(),
+            format!("write opencode.json failed: {e}"),
+        )
+    })?;
+    Ok(TargetWrite::Applied(vec!["opencode.json".to_string()]))
+}
+
+/// 从源 CLI 配置直拷 key（opencode.json provider.<名>.options.apiKey）
+fn provider_source_key(h: &WasmHost, provider: &str, home: &str) -> Result<String, String> {
+    let path = opencode_cfg_path(home);
+    let text = h
+        .fs_read(&path)
+        .map_err(|e| format!("apply: read source config failed: {e}"))?
+        .ok_or_else(|| "apply: source config missing (opencode)".to_string())?;
+    let cfg = parse_jsonc(&text).map_err(|e| format!("apply: source config invalid: {e}"))?;
+    cfg.get("provider")
+        .and_then(|p| p.get(provider))
+        .and_then(|p| p.get("options"))
+        .and_then(|o| o.get("apiKey"))
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+        .ok_or_else(|| format!("apply: no key for opencode:{provider}"))
+}
+
+/// 反向导入：opencode.json provider.* → 预设草稿（解析失败只留日志）
+fn provider_import(h: &WasmHost, home: &str) -> Vec<PresetDraft> {
+    match h.fs_read(&opencode_cfg_path(home)) {
+        Ok(Some(text)) => match parse_jsonc(&text) {
+            Ok(cfg) => presets_from_opencode(&cfg),
+            Err(e) => {
+                h.log_warn(&format!("import: opencode.json parse failed: {e}"));
+                Vec::new()
+            }
+        },
+        Ok(None) => Vec::new(),
+        Err(e) => {
+            h.log_warn(&format!("import: read opencode.json failed: {e}"));
+            Vec::new()
+        }
+    }
+}
+
+/// 供应商目标能力：opencode.json 写入 + 反向导入（导入顺序在 pi 之后）
+pub(super) static PROVIDER: ProviderSpec = ProviderSpec {
+    view_key: None,
+    requires_key: true,
+    import_rank: 20,
+    write: provider_write,
+    source_key: Some(provider_source_key),
+    view: None,
+    import: Some(provider_import),
+    auth_paths: None,
+};
 
 impl Agent for Opencode {
     fn id(&self) -> &'static str {
@@ -36,8 +147,8 @@ impl Agent for Opencode {
         &[".config/opencode", ".local/share/opencode"]
     }
 
-    fn supports_provider(&self) -> bool {
-        true
+    fn provider(&self) -> Option<&'static ProviderSpec> {
+        Some(&PROVIDER)
     }
 
     fn supports_usage(&self) -> bool {

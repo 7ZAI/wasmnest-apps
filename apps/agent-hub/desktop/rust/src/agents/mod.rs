@@ -20,6 +20,7 @@ mod opencode;
 mod pi;
 
 use crate::install::recipe::npm_install_cmd;
+use crate::providers::contract::ProviderSpec;
 use serde_json::{json, Value};
 
 /// 最新版本来源（公共查询 / 失败回落 / 版本比较在 `install::registry`）
@@ -58,9 +59,9 @@ pub(crate) trait Agent: Sync {
     fn skills_seg(&self) -> Option<&'static str> {
         None
     }
-    /// 供应商写入能力（配置格式由适配器私有实现）
-    fn supports_provider(&self) -> bool {
-        false
+    /// 供应商目标能力（配置格式 / 路径 / 导入由适配器私有实现）；None = 非目标
+    fn provider(&self) -> Option<&'static ProviderSpec> {
+        None
     }
     /// 使用统计来源能力（JSONL / SQLite 由适配器私有实现）
     fn supports_usage(&self) -> bool {
@@ -174,7 +175,7 @@ pub(crate) fn describe() -> Value {
                 "displayName": a.display_name(),
                 "capabilities": {
                     "install": a.installable(),
-                    "provider": a.supports_provider(),
+                    "provider": a.provider().is_some(),
                     "skills": a.skills_seg().is_some(),
                     "usage": a.supports_usage(),
                 },
@@ -287,6 +288,67 @@ mod tests {
             assert_eq!(a["capabilities"]["usage"], json!(true));
             assert_eq!(a["capabilities"]["skills"], json!(i == 0 || i == 3));
         }
+    }
+
+    /// 供应商目标由注册表派生：四家均为目标；视图成对声明（当前 claude / codex），
+    /// 仅 codex 不参与 key 解析（只写 env 变量名）
+    #[test]
+    fn provider_targets_are_registry_derived() {
+        let ids: Vec<&str> = all()
+            .iter()
+            .filter(|a| a.provider().is_some())
+            .map(|a| a.id())
+            .collect();
+        assert_eq!(ids, vec!["claude", "codex", "opencode", "pi"]);
+
+        let mut view_keys: Vec<&str> = Vec::new();
+        for agent in all() {
+            let spec = agent.provider().expect("provider target");
+            // 视图键与视图函数必须成对（成对声明才能上 wire）
+            assert_eq!(
+                spec.view_key.is_some(),
+                spec.view.is_some(),
+                "{} view_key/view pair",
+                agent.id()
+            );
+            if let Some(key) = spec.view_key {
+                view_keys.push(key);
+            }
+        }
+        assert_eq!(view_keys, vec!["claude", "codex"]);
+        for agent in all() {
+            let spec = agent.provider().expect("provider target");
+            assert_eq!(
+                spec.requires_key,
+                agent.id() != "codex",
+                "{} requires_key",
+                agent.id()
+            );
+        }
+        // source 模式只对有配置直拷能力的目标开放（codex 无 key 可拷）
+        assert!(all()
+            .iter()
+            .find(|a| a.id() == "codex")
+            .and_then(|a| a.provider())
+            .expect("codex provider")
+            .source_key
+            .is_none());
+    }
+
+    /// 反向导入顺序：同名冲突时先者有名字优先权（重构前 pi → opencode）
+    #[test]
+    fn provider_import_order_is_declared() {
+        let mut importers: Vec<(u8, &str)> = Vec::new();
+        for agent in all() {
+            if let Some(spec) = agent.provider() {
+                if spec.import.is_some() {
+                    importers.push((spec.import_rank, agent.id()));
+                }
+            }
+        }
+        importers.sort_by_key(|(rank, _)| *rank);
+        let ids: Vec<&str> = importers.into_iter().map(|(_, id)| id).collect();
+        assert_eq!(ids, vec!["pi", "opencode"]);
     }
 
     /// 契约：注册表 id 集合 == 探测状态 `clis` 键集合（含顺序）
