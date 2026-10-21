@@ -14,6 +14,8 @@
 | `wasmnest-plugin-agent-hub` | `apps/agent-hub/desktop/rust` | desktop | `wasmnest_plugin_agent_hub` | `default=["native"]`, `native`, `wasm` |
 | `wasmnest-plugin-ai-chatbox` | `apps/ai-chatbox/desktop/rust` | desktop | `wasmnest_plugin_ai_chatbox` | `default=["wasm"]`, `wasm`（**无 native**） |
 | `wasmnest_plugin_ai_chatbox` | `apps/ai-chatbox/mobile/rust` | mobile | `wasmnest_plugin_ai_chatbox` | `default=[]`, `wasm` |
+| `wasmnest-plugin-monitor` | `apps/monitor/desktop/rust` | desktop | `wasmnest_plugin_monitor` | `default=["wasm"]`, `wasm`（无 native） |
+| `wasmnest_plugin_monitor` | `apps/monitor/mobile/rust` | mobile | `wasmnest_plugin_monitor` | `default=[]`, `wasm` |
 | `bedcode-plugin-terminal-session` | `apps/bedcode/desktop/rust` | desktop | `bedcode_plugin_terminal_session` | `default=["native"]`, `native`, `wasm` |
 | `bedcode_plugin_terminal_session` | `apps/bedcode/mobile/rust` | mobile | `bedcode_plugin_terminal_session` | `default=[]`, `wasm` |
 | `wasmnest-plugin-file-transfer` | `apps/file-transfer/rust/plugin` | **双端单产物** | `wasmnest_plugin_file_transfer` | `default=["native"]`, `native`, `wasm` |
@@ -80,7 +82,7 @@ pub(crate) trait SessionCenterApi {
 
 | 类别 | 目标 | 适用 | 工具链 |
 | --- | --- | --- | --- |
-| 一般桌面应用 | `wasm32-wasip3`（cdylib 直出 Component，免 componentize） | agent-hub / ai-chatbox / bedcode 的 desktop | pinned nightly，由 `scripts/plugin-wasm-config.mjs` 的 `WASIP3_NIGHTLY` 注入 `RUSTUP_TOOLCHAIN`（单一事实源对齐平台 `scripts/wasip3-toolchain.sh`） |
+| 一般桌面应用 | `wasm32-wasip3`（cdylib 直出 Component，免 componentize） | agent-hub / ai-chatbox / bedcode / monitor 的 desktop | pinned nightly，由 `scripts/plugin-wasm-config.mjs` 的 `WASIP3_NIGHTLY` 注入 `RUSTUP_TOOLCHAIN`（单一事实源对齐平台 `scripts/wasip3-toolchain.sh`） |
 | 移动应用 + 双端共享核 | `wasm32-unknown-unknown` + 平台组件化工具 | 全部 mobile crate；`file-transfer/rust/plugin` | stable 可编；经 `../wasmnest/tools/componentize` 编码为 Component（原地覆盖，幂等） |
 
 统一经各 app `pnpm run build` / `build:rust`，**不要在命令行自带 target / toolchain 字面量**（真源在 `scripts/plugin-wasm-config.mjs`）。`WASMNEST_PLUGIN_DEBUG=1` 出 debug wasm（保留 DWARF）。

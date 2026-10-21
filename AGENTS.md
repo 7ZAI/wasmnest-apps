@@ -44,7 +44,7 @@
 - 应用只依赖**平台仓 SDK 包**：桌面 `@binblink/wasmnest-plugin-sdk-desktop`、移动 `@binblink/wasmnest-plugin-sdk-mobile`（开发期 `file:` 指向平台仓）。应用**零宿主源码 import**、零平台仓内部路径引用；宿主前端同样禁止 import 应用源码（运行时装载）。
 - 平台仓读应用源码的**唯一入口**是两个 resolver（见 `docs/CODE-MAP.md` §1），禁止在调用方散落硬编码。
 - **ABI / WIT 真源不在本仓**：核心 WIT 在能力仓，端组合与 SDK 生成物在平台仓（`rust/wit` 是生成物，禁止手改）。应用只是 SDK 绑定使用方——改契约不在本仓进行。
-- 平台仓读本仓源码的**锁**（改本仓结构 / 文案前先看）：见 `docs/CODE-MAP.md` §5。关键三条：桌面边界锁（`hostAppBoundaryLock`，逐字校验四个桌面 `entry.ts`）、i18n drift 锁（宿主 ↔ `apps/bedcode/desktop/src/i18n/host-*` 逐字一致）、Tailwind content 覆盖锁。
+- 平台仓读本仓源码的**锁**（改本仓结构 / 文案前先看）：见 `docs/CODE-MAP.md` §5。关键三条：桌面边界锁（`hostAppBoundaryLock`，逐字校验五个桌面 `entry.ts`）、i18n drift 锁（宿主 ↔ `apps/bedcode/desktop/src/i18n/host-*` 逐字一致）、Tailwind content 覆盖锁。
 
 ---
 

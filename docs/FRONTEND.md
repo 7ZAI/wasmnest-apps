@@ -26,11 +26,11 @@
 | `src/appContext.ts` | 把 `AppMountEnv` 适配成 `PluginContext` 形状 | 自己拼 `plugin_invoke` 通道、碰令牌 |
 | `src/index.ts` | **仅** dev-shell 兼容出口（导出 `devMock` 领域种子数据） | 加业务逻辑（主宿主不加载它） |
 
-四个桌面 app（`agent-hub` / `ai-chatbox` / `bedcode` / `file-transfer`）都有 `entry.ts` 与 `appContext.ts`；`src/index.ts` 在 agent-hub / ai-chatbox / file-transfer 存在，**bedcode/desktop 没有**。
+五个桌面 app（`agent-hub` / `ai-chatbox` / `bedcode` / `file-transfer` / `monitor`）都有 `entry.ts` 与 `appContext.ts`；`src/index.ts` 在 agent-hub / ai-chatbox / file-transfer 存在，**bedcode/desktop 与 monitor/desktop 没有**。
 
 ### 1.2 挂载契约字段
 
-与宿主 `../wasmnest/wasmnest-desktop/src/shell/mount/useAppMount.ts` 逐字同形（平台仓 `hostAppBoundaryLock.test.ts` 逐字校验四个 `entry.ts`，改字段必须两端同改）。
+与宿主 `../wasmnest/wasmnest-desktop/src/shell/mount/useAppMount.ts` 逐字同形（平台仓 `hostAppBoundaryLock.test.ts` 逐字校验五个 `entry.ts`，改字段必须两端同改）。
 
 `AppMountEnv`：
 
@@ -48,7 +48,7 @@
 
 ### 1.2.1 多任务卡片预览面（可选 `mountPreview`，2026-10-20）
 
-平台仓多任务卡片的缩略区由应用**自绘**一张只读、点时刻的预览面（**不是截图**：后台应用离开应用面即被卸载，没有 DOM 可抓）。契约与 `AppMountEnv` 逐字同形住 `useAppMount.ts`，平台 `hostAppBoundaryLock.test.ts` 的 **L5** 逐字校验四个内置桌面 `entry.ts`（`appId` / `lastRoute` / `appInvoke` / `appStorageGet` / `locale` / `theme` 关键字段）；第三方面向契约仍可选。
+平台仓多任务卡片的缩略区由应用**自绘**一张只读、点时刻的预览面（**不是截图**：后台应用离开应用面即被卸载，没有 DOM 可抓）。契约与 `AppMountEnv` 逐字同形住 `useAppMount.ts`，平台 `hostAppBoundaryLock.test.ts` 的 **L5** 逐字校验五个内置桌面 `entry.ts`（`appId` / `lastRoute` / `appInvoke` / `appStorageGet` / `locale` / `theme` 关键字段）；第三方面向契约仍可选。
 
 `AppPreviewEnv`（**收窄面**）：
 
@@ -71,7 +71,7 @@
 - 不挂主 `App.vue` / 主 router / 主 pinia / 主 stores / 模块级可变单例（当前前台应用的卡也会挂预览，主实例可能在遮罩后同时运行）；
 - 不留下活过 `unmount()` 的定时器 / 全局监听；数据拿不到时显示应用自己的诚实空态。
 
-内容建议（应用自决）：bedcode 会话 / 连接状态摘要、agent-hub CLI 检测概览、ai-chatbox 最近对话摘要、file-transfer 对端 + 传输任务摘要。机制与边界完整说明见平台仓 `.scratch/2026-10-20-app-preview-contract/spec.md`。
+内容建议（应用自决）：bedcode 会话 / 连接状态摘要、agent-hub CLI 检测概览、ai-chatbox 最近对话摘要、file-transfer 对端 + 传输任务摘要、monitor 插件数 / 调用 / Trap / 内存峰值摘要。机制与边界完整说明见平台仓 `.scratch/2026-10-20-app-preview-contract/spec.md`。
 
 ### 1.3 页面取数
 
@@ -191,6 +191,8 @@ node scripts/replace-console.mjs <desktop|mobile> [appDirName]
 | ai-chatbox | desktop | `entry.ts` | 组件内 | 无 | ✅ | ✅ |
 | bedcode | desktop | `entry.ts` | pinia | vue-router（内存路由 + `onEvent('route')` 自报） | ✅ | ❌ 无 dev 脚本 |
 | file-transfer | desktop | `entry.ts` | 组件内 | 无 | ✅ | ✅ |
+| monitor | desktop | `entry.ts` | 组件内 | 无 | ✅ | ✅ |
 | ai-chatbox | mobile | `index.ts` | 组件内 | 宿主路由 | ✅ | ✅ dev-shell |
 | bedcode | mobile | `index.ts` | pinia | 宿主路由 | ✅ | ✅ dev-shell |
 | file-transfer | mobile | `index.ts` | 组件内 | 宿主路由 + `registerRoute` | ❌ | ✅ dev-shell |
+| monitor | mobile | `index.ts` | 组件内（composable） | 宿主运行面 | ✅ | ✅ dev-shell |
