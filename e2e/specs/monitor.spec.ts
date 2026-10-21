@@ -7,8 +7,9 @@
  * 判据纪律：
  * 1. 隔离插件目录里只有 monitor 一个 app → 快照至少包含本应用自身的指标；
  *    断言「本应用出现在插件列表」是稳定事实，不依赖本机装了什么。
- * 2. `metrics:read` 对内置（StaticRegistry）插件走免审批门（wasm-core
- *    `builtin_source_skips_approval_gate`）——E2E 不会弹授权窗，页面应直接出数据。
+ * 2. monitor 是随包应用（PluginSource::Wasm，非 UserInstalled），宿主审批门对
+ *    `UserInstalled` 以外的来源直接跳过（wasm-core `builtin_source_skips_approval_gate`）
+ *    ——E2E 不会弹授权窗，页面应直接出数据。
  * 3. 不断言具体指标数值（每次运行都不同）；只断言结构、状态与交互。
  */
 import {
