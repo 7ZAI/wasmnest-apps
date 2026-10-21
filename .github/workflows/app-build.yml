@@ -23,6 +23,7 @@ on:
           - ai-chatbox
           - bedcode
           - file-transfer
+          - monitor
       end:
         description: 构建端
         type: choice
