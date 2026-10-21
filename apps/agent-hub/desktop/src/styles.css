@@ -2526,17 +2526,31 @@
   padding: 8px 16px;
 }
 
-.ah-lg-table-head {
-  flex: none;
-  color: var(--ah-text-data);
-  font-size: var(--font-size-tag);
-  border-bottom: 1px solid var(--border);
-}
-
-.ah-lg-table-rows {
+/* 表头与表体同处这一层滚动容器：滚动条只从同一内容宽里扣，两行的
+   列轨恒等宽（表头在容器外时，表格一溢出就把表体整体左移一个滚动条
+   宽——本机 WebKitGTK 实测 17px，时长 / Tokens 列与表头明显错开）。 */
+.ah-lg-table-scroll {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+}
+
+/* 表体不自已滚动（滚动在 .ah-lg-table-scroll 上）：若在这里再开一条
+   滚动条，又会出现「表头 / 表体宽度不一致」的列轨错位。 */
+.ah-lg-table-rows {
+  overflow: visible;
+}
+
+.ah-lg-table-head {
+  /* 随表体滚动容器常驻顶部；底色必须不透明，否则行会从表头下透出来 */
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  flex: none;
+  color: var(--ah-text-data);
+  font-size: var(--font-size-tag);
+  background: var(--bg-card);
+  border-bottom: 1px solid var(--border);
 }
 
 /* 行内字号统一 `--font-size-tag`：表头、筛选标签、分页信息与时间/时长/Tokens

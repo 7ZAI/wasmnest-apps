@@ -1706,6 +1706,17 @@ describe('A4 SessionLogsTab：查询 / 重置 / 翻页 / 详情 / 原始页签',
     w.unmount()
   })
 
+  it('表头与表体同处一个滚动容器，分页器在容器外（滚动条不再把右侧列整体左移）', async () => {
+    const w = mountComponent(SessionLogsTab, { usage: usageStub() })
+    await flushPromises()
+    const scroll = w.get('.ah-lg-table-scroll')
+    // 同一内容宽 ⇒ 表头「时长 / Tokens」与行值列轨恒等宽；表头 sticky 由样式锁
+    expect(scroll.find('.ah-lg-table-head').exists()).toBe(true)
+    expect(scroll.find('.ah-lg-table-rows').exists()).toBe(true)
+    expect(scroll.find('.ah-lg-pager').exists()).toBe(false)
+    w.unmount()
+  })
+
   // ------ 模型输出折叠（默认折叠：超阈值助手正文收起 + 展开/收起互切） ------
 
   /** 打开详情视图的通用夹具：长/短助手消息 + 长用户消息 */

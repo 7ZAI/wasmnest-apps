@@ -781,6 +781,11 @@ function toggleExpand(i: number) {
 
       <!-- 分页表格：Agent | 会话 | 项目 | 开始时间 | 时长 | Tokens -->
       <div class="ah-card ah-lg-table">
+        <!-- 表头与表体共用同一个滚动容器：纵向滚动条只从「两者同一内容宽」里扣，
+             列轨恒等宽。表头此前在滚动容器之外，表格一溢出（本机 WebKitGTK
+             滚动条 17px）表体整体左移一个滚动条宽，「时长 / Tokens」等右侧列
+             与表头错开。表头 sticky 常驻顶部。 -->
+        <div class="ah-lg-table-scroll">
         <div class="ah-lg-table-head">
           <span>{{ t('hub.lg.col.agent') }}</span>
           <span>{{ t('hub.lg.col.session') }}</span>
@@ -823,6 +828,7 @@ function toggleExpand(i: number) {
             {{ formatTokens((s.tokens_in || 0) + (s.tokens_out || 0)) }}
           </div>
           <div class="ah-lg-col-go">›</div>
+        </div>
         </div>
         </div>
 
