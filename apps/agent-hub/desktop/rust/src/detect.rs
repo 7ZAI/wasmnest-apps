@@ -16,6 +16,12 @@
 //! 流程：spawn_all 将各项标记 detecting 并持久化推送 → 宿主进程结束回灌
 //! `on_process_done` → 读输出文件解析 → 更新 storage → emit 事件推前端。
 //! 状态 JSON 为唯一真源（host-storage `detection` 键），每次读-改-写。
+//!
+//! **平台分派必须运行期**：脚本内容按 `is_windows()`（activate 时缓存的宿主
+//! `os.platform`）选择，经 `windows: bool` 参数逐层下传。编译期 `cfg!(windows)`
+//! 在 wasm32-wasip3 guest 上恒为 false——用它选脚本会让 Windows 机器拿到 POSIX
+//! 脚本，`cmd /C` 执行第一行 `export` 即 exit 1，五个分段标记一个都读不到，
+//! 探测全线「失败」（2026-10-22 实机事故）。
 
 use super::{host, pending, PendingRun, AUTH_KEY, DATA_DIR, STATE_KEY};
 use crate::agents::{self, Agent};
@@ -179,15 +185,22 @@ fn mark_detecting(state: &mut Value) {
     }
 }
 
+/// 探测失败落态（无结论）：`unavailable` = 「探测本身没给出结论」（进程失败 /
+/// 超时 / 输出不可解析），与「探测成功且确认不存在」（`not-installed`）是两件
+/// 事——后者给安装按钮，前者只能给「重试检测」。失败明细保留在 `error` 字段。
+///
+/// 环境采集同口径：采集进程失败 → `envStatus=unavailable` + `envError` 明细；
+/// 采集成功但某字段缺失（如没装 node）→ `envStatus=ok` + 该字段 `null`
+/// （**不得**整体降级为失败）。
 fn set_cli_error(state: &mut Value, kind: &str, message: &str) {
     if kind == ENV_KIND {
-        state["envStatus"] = json!("error");
+        state["envStatus"] = json!("unavailable");
         state["envError"] = json!(message);
     } else if let Some(clis) = state["clis"].as_object_mut() {
         clis.insert(
             kind.to_string(),
             json!({
-                "status": "error",
+                "status": "unavailable",
                 "installed": null,
                 "version": null,
                 "method": "unknown",
@@ -214,9 +227,13 @@ pub(crate) fn spawn_all(h: &WasmHost) -> anyhow::Result<()> {
     }
     push_state(h);
 
-    let mut kinds: Vec<(&'static str, String)> = vec![(ENV_KIND, env_detection_script())];
+    // 平台判定只读一次（运行期宿主 os.platform），脚本内容与执行壳共用同一口径：
+    // 脚本按 windows 分派、进程也按 windows 分派，两者不一致会拿到错的执行壳
+    let windows = is_windows();
+
+    let mut kinds: Vec<(&'static str, String)> = vec![(ENV_KIND, env_detection_script(windows))];
     for agent in agents::all().iter().copied() {
-        kinds.push((agent.id(), cli_detection_script(agent)));
+        kinds.push((agent.id(), cli_detection_script(agent, windows)));
     }
     // 批跟踪：本轮发起的 run 全部收敛才算一次探测完成（旧批集合整体替换，
     // 迟到旧 run 完成事件不误触发后续动作）
@@ -228,7 +245,7 @@ pub(crate) fn spawn_all(h: &WasmHost) -> anyhow::Result<()> {
     for (kind, script) in kinds {
         let seq = RUN_SEQ.fetch_add(1, Ordering::Relaxed);
         let output_path = format!("{data_dir}/runs/{kind}-{seq}.log");
-        let (command, args) = shell_invocation(script, is_windows());
+        let (command, args) = shell_invocation(script, windows);
         let request = json!({
             "command": command,
             "args": args,
@@ -312,6 +329,10 @@ pub(crate) fn handle_process_done(event: &ProcessDoneEvent) -> anyhow::Result<()
     // 探测收敛钩子：本批 run 完成时移除判定，全部完成且安装域有 pending
     // 更新检查时自动查最新版本（本地版本此刻已刷新）
     maybe_run_update_check(&h, &event.run_id);
+    // 引导重探测收敛：env 段完成即判引导结果（phase == reprobing 时才生效）
+    if kind == ENV_KIND {
+        crate::env::on_env_probe(&h, &state);
+    }
     Ok(())
 }
 
@@ -339,25 +360,47 @@ fn apply_output(state: &mut Value, kind: &str, output: &str) {
 
 // ==================== 采集脚本（按平台分派，分段标记两端一致） ====================
 
-/// 环境采集脚本分派：Windows 用 `cmd /C` 链式（`2>nul` 抑制未装报错）；
+/// 环境采集脚本分派（运行期平台，`windows` 由 `spawn_all` 传入）：
+/// Windows 用 `cmd /C` 链式（`2>nul` 抑制未装报错）；
 /// unix 用登录 shell + PATH 引导
-fn env_detection_script() -> String {
-    if cfg!(windows) {
-        "echo == node == & node --version 2>&1 & echo == npm == & npm --version 2>&1 & echo == pnpm == & pnpm --version 2>&1 & echo == registry == & npm config get registry 2>&1 & echo == python == & py --version 2>&1 || python --version 2>&1 & echo == arch == & echo %PROCESSOR_ARCHITECTURE% & echo == os_version == & ver 2>&1 & echo == shell == & echo %COMSPEC%".to_string()
+fn env_detection_script(windows: bool) -> String {
+    if windows {
+        env_script_windows()
     } else {
         env_script_unix()
     }
 }
 
-/// 单 CLI 采集脚本分派：Windows `where` 全命中（`2>nul` 抑制未装报错）；
+/// 单 CLI 采集脚本分派（运行期平台，`windows` 由 `spawn_all` 传入）：
+/// Windows `where` 全命中（`2>nul` 抑制未装报错）；
 /// unix `which -a` 全命中（二进制名来自适配器，默认等于 id）
-fn cli_detection_script(agent: &dyn Agent) -> String {
+fn cli_detection_script(agent: &dyn Agent, windows: bool) -> String {
     let bin = agent.binary();
-    if cfg!(windows) {
-        format!("echo == paths == & where {bin} 2>nul & echo == version == & {bin} --version 2>&1")
+    if windows {
+        cli_script_windows(bin)
     } else {
         cli_script_unix(bin)
     }
+}
+
+/// Windows 环境采集：`cmd /C` 链式命令（`2>&1` 收未装报错行，`&` 串接不因
+/// 单条失败中断后续分段）。段标记与 unix 形态逐段一致，解析层不分平台。
+/// 脚本头前置引导出来的 node 目录（[`crate::env::shell_env_prefix`]）：
+/// 刚装完 node 的机器无需重启应用即可被探测到。
+fn env_script_windows() -> String {
+    format!(
+        "{}{}",
+        crate::env::shell_env_prefix(true),
+        "echo == node == & node --version 2>&1 & echo == npm == & npm --version 2>&1 & echo == pnpm == & pnpm --version 2>&1 & echo == registry == & npm config get registry 2>&1 & echo == python == & py --version 2>&1 || python --version 2>&1 & echo == arch == & echo %PROCESSOR_ARCHITECTURE% & echo == os_version == & ver 2>&1 & echo == shell == & echo %COMSPEC%"
+    )
+}
+
+/// Windows 单 CLI 采集：`where` 全命中（PATHEXT 解析 npm shim）+ 版本行
+fn cli_script_windows(bin: &str) -> String {
+    format!(
+        "{}echo == paths == & where {bin} 2>nul & echo == version == & {bin} --version 2>&1",
+        crate::env::shell_env_prefix(true)
+    )
 }
 
 /// unix PATH 引导前缀：登录 shell 不读 `~/.bashrc`（其交互守卫
@@ -374,16 +417,19 @@ pub(crate) fn path_bootstrap_unix() -> &'static str {
 /// version 段只有 shell 报错行 → not-installed
 fn cli_script_unix(bin: &str) -> String {
     format!(
-        "{}echo '== paths =='\nwhich -a {bin} 2>/dev/null\necho '== version =='\n{bin} --version 2>&1 | head -n 2\n",
-        path_bootstrap_unix()
+        "{}{}echo '== paths =='\nwhich -a {bin} 2>/dev/null\necho '== version =='\n{bin} --version 2>&1 | head -n 2\n",
+        path_bootstrap_unix(),
+        crate::env::shell_env_prefix(false)
     )
 }
 
-/// unix 环境采集：node / npm / pnpm 版本 + 当前 npm registry
+/// unix 环境采集：node / npm / pnpm 版本 + 当前 npm registry。
+/// PATH 引导之后紧接引导出来的 node 目录（覆盖 nvm 之外的干净机器场景）。
 fn env_script_unix() -> String {
     format!(
-        "{}echo '== node =='\nnode --version 2>&1\necho '== npm =='\nnpm --version 2>&1\necho '== pnpm =='\npnpm --version 2>&1\necho '== registry =='\nnpm config get registry 2>&1\necho '== python =='\npython3 --version 2>&1 || python --version 2>&1\necho '== arch =='\nuname -m\necho '== os_version =='\nuname -sr\necho '== shell =='\necho $SHELL\n",
-        path_bootstrap_unix()
+        "{}{}echo '== node =='\nnode --version 2>&1\necho '== npm =='\nnpm --version 2>&1\necho '== pnpm =='\npnpm --version 2>&1\necho '== registry =='\nnpm config get registry 2>&1\necho '== python =='\npython3 --version 2>&1 || python --version 2>&1\necho '== arch =='\nuname -m\necho '== os_version =='\nuname -sr\necho '== shell =='\necho $SHELL\n",
+        path_bootstrap_unix(),
+        crate::env::shell_env_prefix(false)
     )
 }
 
@@ -508,11 +554,15 @@ fn classify(agent: &dyn Agent, paths: &[String]) -> &'static str {
 }
 
 /// 公共 npm 全局安装路径特征（大小写不敏感输入）
+///
+/// `npm-global` 是 agent-hub 引导 node 后的 npm 全局落点（升级 node 不改该
+/// 目录）：装出来的 CLI 必须归类为 `npm-global`，否则卸载会走「方式未知」。
 fn is_npm_global_path(p: &str) -> bool {
     p.contains("nvm")
         || p.contains("/node-v")
         || p.contains("node_modules")
         || p.contains("/.npm-global")
+        || p.contains("/npm-global/")
         || p.contains("/.local/share/pnpm")
         || p.contains("volta")
         || p.contains("/roaming/npm/")
@@ -521,7 +571,7 @@ fn is_npm_global_path(p: &str) -> bool {
 
 /// 解析环境输出（分段：== node == / == npm == / == pnpm == / == registry == /
 /// == python == / == arch == / == os_version == / == shell ==）；
-/// 各段取首个非空行，未安装的 shell 报错行不算版本
+/// 各段取首个非空行，未安装工具的 shell 报错行不算值（该字段为 null）
 pub(crate) fn parse_env(output: &str) -> Value {
     let mut node: Option<String> = None;
     let mut npm: Option<String> = None;
@@ -575,38 +625,27 @@ pub(crate) fn parse_env(output: &str) -> Value {
         match section {
             "node" => {
                 if node.is_none() {
-                    node = Some(line.to_string());
+                    node = section_value(line);
                 }
             }
             "npm" => {
                 if npm.is_none() {
-                    npm = Some(line.to_string());
+                    npm = section_value(line);
                 }
             }
             "pnpm" => {
-                // pnpm 未安装：unix「command not found」/ Windows「'pnpm' is not
-                // recognized」/ 中文 locale 报错行，均不算版本
-                if pnpm.is_none()
-                    && !line.contains("not found")
-                    && !line.contains("not recognized")
-                    && !line.contains("未找到")
-                {
-                    pnpm = Some(line.to_string());
+                if pnpm.is_none() {
+                    pnpm = section_value(line);
                 }
             }
             "registry" => {
                 if registry.is_none() {
-                    registry = Some(line.to_string());
+                    registry = section_value(line);
                 }
             }
             "python" => {
-                // python 未安装：同 pnpm 的报错行过滤逻辑
-                if python.is_none()
-                    && !line.contains("not found")
-                    && !line.contains("not recognized")
-                    && !line.contains("未找到")
-                {
-                    python = Some(line.to_string());
+                if python.is_none() {
+                    python = section_value(line);
                 }
             }
             "arch" => {
@@ -628,6 +667,28 @@ pub(crate) fn parse_env(output: &str) -> Value {
         }
     }
     json!({ "node": node, "npm": npm, "pnpm": pnpm, "registry": registry, "python": python, "arch": arch, "osVersion": os_version, "shell": shell })
+}
+
+/// 段内取值：未安装工具的 shell 报错行不算值（→ 该字段 null）
+///
+/// unix 未装：`bash: node: command not found` / `sh: node: not found`；
+/// Windows 未装：`'node' is not recognized as an internal or external command`
+/// （英文 locale）或 `'node' 不是内部或外部命令，也不是可运行的程序或批处理文件。`
+/// （中文 locale）——两者都表示「工具不存在」，不能当版本值上屏。
+fn section_value(line: &str) -> Option<String> {
+    if is_missing_tool_line(line) {
+        None
+    } else {
+        Some(line.to_string())
+    }
+}
+
+/// 未安装工具的报错行识别（双平台文案）：命中即「该工具不存在」，不是值
+fn is_missing_tool_line(line: &str) -> bool {
+    line.contains("not found")
+        || line.contains("not recognized")
+        || line.contains("未找到")
+        || line.contains("不是内部或外部命令")
 }
 
 // ==================== Tests（native 编译下的纯函数单测） ====================
@@ -817,6 +878,153 @@ mod tests {
         assert!(env_script_unix().contains("== arch =="));
         assert!(env_script_unix().contains("== os_version =="));
         assert!(env_script_unix().contains("== shell =="));
+    }
+
+    // ==================== 平台脚本分派（运行期，双形态断言） ====================
+    //
+    // 回归锁：脚本内容曾用编译期 `cfg!(windows)` 选择（wasm guest 恒 false），
+    // Windows 机器因此拿到 POSIX 脚本，`cmd /C` 第一行 `export` 即 exit 1，
+    // 探测全线失败（2026-10-22 实机事故）。此处**显式传参**断言两种形态，
+    // 与构建平台无关——宿主机上跑 Linux 也必须能覆盖 Windows 分支。
+
+    /// Windows 环境采集：cmd 链式 + `%PROCESSOR_ARCHITECTURE%` / `%COMSPEC%`，
+    /// 不得混入 POSIX 片段（`export PATH` / `uname -m`）
+    #[test]
+    fn env_script_windows_form() {
+        let script = env_detection_script(true);
+        assert!(script.contains("%PROCESSOR_ARCHITECTURE%"));
+        assert!(script.contains("%COMSPEC%"));
+        assert!(script.contains("== node =="));
+        assert!(script.contains("== registry =="));
+        assert!(script.contains("== shell =="));
+        // 不得混入 unix 形态片段
+        assert!(!script.contains("export PATH"));
+        assert!(!script.contains("uname -m"));
+        assert!(!script.contains("which -a"));
+    }
+
+    /// unix 环境采集：登录 shell + PATH 引导 + `uname -m`，不得混入 cmd 片段
+    #[test]
+    fn env_script_unix_form() {
+        let script = env_detection_script(false);
+        assert!(script.contains("export PATH"));
+        assert!(script.contains("uname -m"));
+        assert!(script.contains("== node =="));
+        assert!(script.contains("== registry =="));
+        assert!(!script.contains("%COMSPEC%"));
+        assert!(!script.contains("%PROCESSOR_ARCHITECTURE%"));
+        assert!(!script.contains("where "));
+    }
+
+    /// 单 CLI 采集双形态：Windows `where` / unix `which -a`，两者互不串味
+    /// （四种 CLI 各断言一次——二进制名不同，`where`/`which` 形态都需覆盖）
+    #[test]
+    fn cli_script_platform_forms() {
+        for agent in agents::all().iter().copied() {
+            let bin = agent.binary();
+            let win = cli_detection_script(agent, true);
+            assert!(
+                win.contains(&format!("where {bin} 2>nul")),
+                "cli: {bin}, got: {win}"
+            );
+            assert!(win.contains("== paths =="), "cli: {bin}");
+            assert!(win.contains("== version =="), "cli: {bin}");
+            assert!(!win.contains("export PATH"), "cli: {bin}");
+            assert!(!win.contains("which -a"), "cli: {bin}");
+
+            let unix = cli_detection_script(agent, false);
+            assert!(
+                unix.contains(&format!("which -a {bin}")),
+                "cli: {bin}, got: {unix}"
+            );
+            assert!(unix.contains("== paths =="), "cli: {bin}");
+            assert!(unix.contains("== version =="), "cli: {bin}");
+            assert!(!unix.contains("where "), "cli: {bin}");
+            assert!(!unix.contains("%COMSPEC%"), "cli: {bin}");
+        }
+    }
+
+    /// 分派函数只认入参：把 `windows` 写死为 false 时 Windows 分支用例必须红
+    /// （变异自检——本组断言就是该变异的探测器）
+    #[test]
+    fn detection_script_dispatch_follows_argument() {
+        assert_eq!(
+            env_detection_script(true),
+            env_script_windows(),
+            "windows=true 必须给 Windows 形态"
+        );
+        assert_eq!(
+            env_detection_script(false),
+            env_script_unix(),
+            "windows=false 必须给 unix 形态"
+        );
+        assert_ne!(env_detection_script(true), env_detection_script(false));
+    }
+
+    // ==================== 三态（not-installed / ready / unavailable） ====================
+
+    /// 探测失败 → `unavailable`（不是 `not-installed`，也不是旧的 `error`）：
+    /// 「探测没结论」与「探测成功且确认不存在」是两种用户动作
+    #[test]
+    fn cli_probe_failure_is_unavailable() {
+        let mut state = json!({ "clis": {} });
+        set_cli_error(&mut state, "claude", "exit=Some(1) timed_out=false");
+        let info = &state["clis"]["claude"];
+        assert_eq!(info["status"], json!("unavailable"));
+        assert_eq!(info["installed"], json!(null));
+        assert_eq!(info["method"], json!("unknown"));
+        assert_eq!(info["error"], json!("exit=Some(1) timed_out=false"));
+    }
+
+    /// 环境采集进程失败 → `envStatus=unavailable` + 明细进 `envError`
+    #[test]
+    fn env_probe_failure_is_unavailable() {
+        let mut state = json!({});
+        set_cli_error(&mut state, ENV_KIND, "exit=Some(1) timed_out=false");
+        assert_eq!(state["envStatus"], json!("unavailable"));
+        assert_eq!(state["envError"], json!("exit=Some(1) timed_out=false"));
+    }
+
+    /// cmd 报错行（未装）→ `not-installed`：探测**成功**且确认不存在，
+    /// 与 `unavailable` 严格区分
+    #[test]
+    fn cmd_not_found_line_means_not_installed() {
+        let out = "== paths ==\n== version ==\n'claude' 不是内部或外部命令，也不是可运行的程序或批处理文件。\n";
+        let info = parse_cli(agent("claude"), out);
+        assert_eq!(info["installed"], json!(false));
+        assert_eq!(info["paths"].as_array().unwrap().len(), 0);
+        // 解析层只给事实，终态由 apply_output 落
+        let mut state = json!({ "clis": {} });
+        apply_output(&mut state, "claude", out);
+        assert_eq!(state["clis"]["claude"]["status"], json!("not-installed"));
+    }
+
+    /// 探测成功但没装 node → `envStatus=ok` + `env.node=null`（**不得**整体失败）
+    #[test]
+    fn env_missing_node_is_ok_with_null_field() {
+        let out = "== node ==\n'node' 不是内部或外部命令，也不是可运行的程序或批处理文件。\n== npm ==\n== pnpm ==\n== registry ==\n";
+        let mut state = json!({});
+        apply_output(&mut state, ENV_KIND, out);
+        assert_eq!(state["envStatus"], json!("ok"));
+        assert_eq!(state["env"]["node"], json!(null));
+        assert_eq!(state["env"]["npm"], json!(null));
+        // 历史失败残留被一次成功探测清除
+        assert_eq!(state["envError"], json!(null));
+    }
+
+    /// 历史 `unavailable` 残留被一次成功探测清除（CLI 三态同口径）
+    #[test]
+    fn successful_probe_clears_stale_unavailable() {
+        let mut state = json!({ "clis": {} });
+        set_cli_error(&mut state, "pi", "exit=Some(1) timed_out=false");
+        assert_eq!(state["clis"]["pi"]["status"], json!("unavailable"));
+
+        let out = "== paths ==\n/home/u/.local/bin/pi\n== version ==\n0.85.1\n";
+        apply_output(&mut state, "pi", out);
+        let info = &state["clis"]["pi"];
+        assert_eq!(info["status"], json!("ok"));
+        assert_eq!(info["installed"], json!(true));
+        assert_eq!(info["error"], json!(null));
     }
 
     /// 新增段（python / arch / os_version / shell）全量解析：python 和 pnpm

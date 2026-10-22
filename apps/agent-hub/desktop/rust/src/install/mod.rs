@@ -57,16 +57,83 @@ const INSTALL_TIMEOUT_MS: u64 = 900_000;
 /// 读注册表用户 PATH 无需引导。仅影响实际执行的脚本——`state.active.command`
 /// 仍存原始 recipe 供展示。
 fn exec_script(script: String, windows: bool) -> String {
+    // 引导出来的 node / npm 走脚本 env 前缀（PATH 前置 + npm_config_prefix）：
+    // 装完 node 立刻能装 CLI，不需要重启应用把新 PATH 灌进宿主进程。
+    // unix 的 PATH 引导会重写 PATH，故 env 前缀必须排在它之后。
     if windows {
-        script
+        crate::env::prepend_env(script, true)
     } else {
-        format!("{}{}", path_bootstrap_unix(), script)
+        format!(
+            "{}{}",
+            path_bootstrap_unix(),
+            crate::env::prepend_env(script, false)
+        )
     }
 }
 /// 输出回显尾部截断：控制台只需尾部，限制 guest↔host 每次轮询的载荷
 const OUTPUT_TAIL_BYTES: usize = 16 * 1024;
 
 static RUN_SEQ: AtomicU32 = AtomicU32::new(0);
+
+/// 是否有在途 CLI 安装/卸载（引导域互斥判定用：两域共享「同实例串行」语义）
+pub(crate) fn is_active(h: &WasmHost) -> bool {
+    read_state(h)["active"].is_object()
+}
+
+// ==================== 探测前置判定（三态口径） ====================
+
+/// 探测状态 → 安装/卸载前置判定（纯函数，可测）
+///
+/// `unavailable` = **探测没结论**（进程失败 / 超时 / 输出不可解析），此时
+/// method 恒为 `unknown`。但「没结论」与「确实不支持这种安装方式」对用户是
+/// 两个完全不同的动作（先重试检测 vs 手动安装）——混成一句「unsupported
+/// install method」会把用户引向错误的操作（2026-10-22 Windows 干净机实测：
+/// 探测全线 unavailable 时安装页直接报「unsupported claude install method」）。
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum ProbeGuard {
+    /// 探测有结论：按 method 构造 recipe
+    Proceed,
+    /// 探测未完成：先重试检测（业务码 `hub.inst.error.probeUnavailable`）
+    Unavailable,
+}
+
+/// 探测前置判定（纯函数）：只有 `unavailable`（无结论）才拦；`not-installed`
+/// 与 `ok` 都是有效结论，照常按 method 构造命令
+pub(crate) fn probe_guard(status: &str) -> ProbeGuard {
+    match status {
+        "unavailable" => ProbeGuard::Unavailable,
+        _ => ProbeGuard::Proceed,
+    }
+}
+
+/// 探测未完成时的用户可见拒绝（ADR 0030 业务码）
+macro_rules! bail_probe_unavailable {
+    () => {
+        wasmnest_plugin_api::bail_with_code!("com.wasmnest.agent-hub.hub.inst.error.probeUnavailable")
+    };
+}
+
+// ==================== 环境前置判定（node 三态口径） ====================
+
+/// node 环境前置判定（纯函数，可测）
+///
+/// 缺 node + recipe 依赖 npm → 业务码 `hub.inst.error.nodeMissing`（前端据此
+/// 弹链式引导）；standalone 的 CLI（官方自带 `upgrade`）不依赖 node，照常执行。
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum NodeGuard {
+    Proceed,
+    /// 缺 node 且该安装方式需要 npm（用户可见拒绝）
+    Missing,
+}
+
+/// 环境前置判定（纯函数）：`requires_node` 由适配器注册表给出（不信任前端传参）
+pub(crate) fn node_guard(node_ok: bool, requires_node: bool) -> NodeGuard {
+    if node_ok || !requires_node {
+        NodeGuard::Proceed
+    } else {
+        NodeGuard::Missing
+    }
+}
 
 // ==================== 安装/更新执行 ====================
 // ==================== 安装/更新执行 ====================
@@ -95,6 +162,10 @@ pub(crate) fn describe_install(h: &WasmHost, args: &Value) -> anyhow::Result<Val
     let info = &detection["clis"][cli];
     let method = info["method"].as_str().unwrap_or("unknown");
     let installed = info["installed"].as_bool().unwrap_or(false);
+    // 探测未完成（unavailable）：先重试检测，不得报成「不支持这种安装方式」
+    if probe_guard(info["status"].as_str().unwrap_or("idle")) == ProbeGuard::Unavailable {
+        bail_probe_unavailable!();
+    }
     let (script, action) =
         build_install_script(cli, method, installed, use_mirror).map_err(anyhow::Error::msg)?;
     Ok(json!({ "command": script, "action": action }))
@@ -117,6 +188,10 @@ pub(crate) fn start(h: &WasmHost, args: &Value) -> anyhow::Result<Value> {
         // 并发安装/更新（用户可见拒绝；ADR 0030 业务码，前端经插件 i18n 展示）
         wasmnest_plugin_api::bail_with_code!("com.wasmnest.agent-hub.hub.inst.error.busy");
     }
+    // 与 Node.js 引导互斥：两域都写 PATH / 全局目录，串行才可解释
+    if crate::env::is_active(h) {
+        wasmnest_plugin_api::bail_with_code!("com.wasmnest.agent-hub.hub.inst.error.busy");
+    }
 
     // method/installed 取自探测状态（不信任前端传参）；node 环境缺失时前端
     // 降级为展示命令，这里兜底拒绝——opencode standalone 例外：官方内置
@@ -135,9 +210,13 @@ pub(crate) fn start(h: &WasmHost, args: &Value) -> anyhow::Result<Value> {
     let info = &detection["clis"][cli];
     let method = info["method"].as_str().unwrap_or("unknown");
     let installed = info["installed"].as_bool().unwrap_or(false);
+    // 探测未完成（unavailable）：先重试检测（不是「node 缺失」也不是「方式未知」）
+    if probe_guard(info["status"].as_str().unwrap_or("idle")) == ProbeGuard::Unavailable {
+        bail_probe_unavailable!();
+    }
     let node_ok = detection["env"]["node"].is_string();
-    if !node_ok && agent.install_requires_node(method) {
-        // 无 node 环境（用户可见拒绝；ADR 0030 业务码）
+    if node_guard(node_ok, agent.install_requires_node(method)) == NodeGuard::Missing {
+        // 无 node 环境（用户可见拒绝；ADR 0030 业务码）：前端据此弹链式引导
         wasmnest_plugin_api::bail_with_code!("com.wasmnest.agent-hub.hub.inst.error.nodeMissing");
     }
     let (script, action) =
@@ -208,6 +287,10 @@ pub(crate) fn uninstall(h: &WasmHost, args: &Value) -> anyhow::Result<Value> {
         // 并发卸载（用户可见拒绝；ADR 0030 业务码）
         wasmnest_plugin_api::bail_with_code!("com.wasmnest.agent-hub.hub.inst.error.busy");
     }
+    // 与 Node.js 引导互斥（同 start）
+    if crate::env::is_active(h) {
+        wasmnest_plugin_api::bail_with_code!("com.wasmnest.agent-hub.hub.inst.error.busy");
+    }
 
     // method 取自探测状态（不信任前端传参）；npm-global 卸载依赖 node 环境
     let detection = h
@@ -223,7 +306,17 @@ pub(crate) fn uninstall(h: &WasmHost, args: &Value) -> anyhow::Result<Value> {
     let method = detection["clis"][cli]["method"]
         .as_str()
         .unwrap_or("unknown");
-    if !detection["env"]["node"].is_string() && agent.uninstall_requires_node(method) {
+    // 探测未完成（unavailable）：先重试检测，不报成「不支持这种卸载方式」
+    if probe_guard(detection["clis"][cli]["status"].as_str().unwrap_or("idle"))
+        == ProbeGuard::Unavailable
+    {
+        bail_probe_unavailable!();
+    }
+    if node_guard(
+        detection["env"]["node"].is_string(),
+        agent.uninstall_requires_node(method),
+    ) == NodeGuard::Missing
+    {
         // 无 node 环境（用户可见拒绝；ADR 0030 业务码）
         wasmnest_plugin_api::bail_with_code!("com.wasmnest.agent-hub.hub.inst.error.nodeMissing");
     }
@@ -453,5 +546,48 @@ mod tests {
         let tail = output_tail(&big);
         assert!(tail.len() <= OUTPUT_TAIL_BYTES + 3);
         assert_eq!(tail, big[big.len() - tail.len()..]);
+    }
+
+    // ==================== 探测前置判定（三态口径） ====================
+
+    /// `unavailable`（探测没结论）→ 拦下并给业务码，**不得**落到 recipe 构造
+    /// （否则报成「unsupported install method: unknown」，把用户引向手动安装）
+    #[test]
+    fn probe_guard_blocks_unavailable_only() {
+        assert_eq!(probe_guard("unavailable"), ProbeGuard::Unavailable);
+        // 有效结论照常放行
+        assert_eq!(probe_guard("ok"), ProbeGuard::Proceed);
+        assert_eq!(probe_guard("not-installed"), ProbeGuard::Proceed);
+        assert_eq!(probe_guard("idle"), ProbeGuard::Proceed);
+        assert_eq!(probe_guard("detecting"), ProbeGuard::Proceed);
+    }
+
+    /// 两条失败面分得开：探测**有结论**但方式确实未知 → 交给 recipe 拒绝
+    /// （`unsupported … install method`，用户该去手动安装）；探测**没结论** →
+    /// probe_guard 拦下（用户该去重试检测）。命令面本身要宿主 storage，native
+    /// 不可调，故在这里锁判据与 recipe 的分工。
+    #[test]
+    fn probe_unavailable_is_distinct_from_unknown_method() {
+        assert_eq!(probe_guard("ok"), ProbeGuard::Proceed);
+        let recipe_err = build_install_script("claude", "unknown", false, false)
+            .err()
+            .unwrap_or_default();
+        assert!(
+            recipe_err.contains("unsupported") && recipe_err.contains("unknown"),
+            "有结论 + 方式未知应落 recipe 拒绝，实际：{recipe_err}"
+        );
+        assert_eq!(probe_guard("unavailable"), ProbeGuard::Unavailable);
+    }
+
+    // ==================== 环境前置判定（node 三态口径） ====================
+
+    /// 缺 node + recipe 依赖 npm → `nodeMissing`（前端据此弹链式引导）；
+    /// standalone（官方自更新）不受 node 影响；有 node 一律放行
+    #[test]
+    fn node_guard_matrix() {
+        assert_eq!(node_guard(true, true), NodeGuard::Proceed);
+        assert_eq!(node_guard(true, false), NodeGuard::Proceed);
+        assert_eq!(node_guard(false, false), NodeGuard::Proceed);
+        assert_eq!(node_guard(false, true), NodeGuard::Missing);
     }
 }

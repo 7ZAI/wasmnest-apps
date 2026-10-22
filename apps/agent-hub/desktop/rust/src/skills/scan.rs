@@ -65,8 +65,10 @@ pub(crate) fn scan(h: &WasmHost) -> anyhow::Result<Value> {
 
     let mut sections = vec![("lib", format!("{home}/{LIBRARY_SEG}"))];
     sections.extend(target_roots(home));
-    let script = scan_script(&sections, is_windows());
-    let (command, args_vec) = shell_invocation(script, is_windows());
+    let windows = is_windows();
+    // 引导出来的 node / npm 走脚本 env 前缀（扫描不依赖 npm，但保持与其它域同一套 PATH）
+    let script = crate::env::prepend_env(scan_script(&sections, windows), windows);
+    let (command, args_vec) = shell_invocation(script, windows);
 
     let data_dir = DATA_DIR
         .get()

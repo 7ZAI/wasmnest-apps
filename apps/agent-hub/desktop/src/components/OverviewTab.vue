@@ -11,7 +11,13 @@
  */
 import { computed, inject } from 'vue'
 import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-desktop'
-import type { AgentDescriptor, AgentHubState, CliId, InstallDomainState } from '../types'
+import type {
+  AgentDescriptor,
+  AgentHubState,
+  BootstrapState,
+  CliId,
+  InstallDomainState,
+} from '../types'
 import type { CliSessionState } from '../composables/useUsage'
 import { BUILTIN_AGENTS } from '../agents'
 import CliCard from './CliCard.vue'
@@ -28,6 +34,8 @@ const props = defineProps<{
   uninstallFailed?: { cli: CliId; error: string } | null
   /** 注册表 agent 清单（顺序/能力来自后端；缺省回退内置注册表） */
   agents?: AgentDescriptor[]
+  /** Node.js 引导状态（P3；缺失=不渲染引导动作） */
+  bootstrap?: BootstrapState | null
 }>()
 const emit = defineEmits<{
   detect: []
@@ -35,10 +43,13 @@ const emit = defineEmits<{
   'speed-test': []
   'goto-install': []
   uninstall: [cli: CliId]
+  'bootstrap-start': []
+  'bootstrap-cancel': []
+  'node-remove': []
 }>()
 
 const context = inject<PluginContext>('pluginContext')!
-const t = (key: string) => context.i18n.t(key)
+const t = (key: string, params?: Record<string, unknown>) => context.i18n.t(key, params)
 
 /** 卡片清单：注册表派生（顺序即展示顺序） */
 const agentList = computed(() => props.agents ?? BUILTIN_AGENTS)
@@ -63,18 +74,54 @@ function osLabel(os: string | null | undefined): string | null {
 
 const envRows = computed(() => {
   const env = props.state?.env
+  // 环境采集成功（envStatus=ok）时，缺 node 是「确认没装」——给专门文案；
+  // 采集本身失败（unavailable）时整块不可信，各字段一律显示通用「未检测」
+  const envOk = props.state?.envStatus === 'ok'
   return [
     { label: t('hub.env.os'), value: osLabel(env?.os) },
     { label: t('hub.env.arch'), value: env?.arch },
     { label: t('hub.env.osVersion'), value: env?.osVersion },
     { label: t('hub.env.shell'), value: env?.shell },
-    { label: t('hub.env.node'), value: env?.node },
+    {
+      label: t('hub.env.node'),
+      value: env?.node ?? (envOk ? t('hub.env.nodeMissing') : null),
+    },
     { label: t('hub.env.npm'), value: env?.npm },
     { label: t('hub.env.pnpm'), value: env?.pnpm },
     { label: t('hub.env.registry'), value: env?.registry },
     { label: t('hub.env.python'), value: env?.python },
   ]
 })
+
+/** 环境采集没结论（进程失败/超时/输出不可解析）：整块不可信，只给重试 */
+const envUnavailable = computed(() => props.state?.envStatus === 'unavailable')
+
+/**
+ * 采集成功且确认没有 node（P3）：给「安装 Node.js（含 npm）」入口。
+ * `unavailable` 时**不**出现该入口——探测故障不等于缺环境（否则用户会装第二份）。
+ */
+const nodeMissing = computed(
+  () => props.state?.envStatus === 'ok' && !props.state?.env?.node,
+)
+
+/** 引导是否在途（在途时按钮换成阶段 + 取消） */
+const bootRunning = computed(() => props.bootstrap?.active === true)
+const bootPhaseKey = computed(() => {
+  const phase = props.bootstrap?.phase
+  return phase && phase !== 'idle' ? `hub.boot.phase.${phase}` : 'hub.boot.phase.preflight'
+})
+
+/** 本插件落位过的运行时版本（P4：升级 / 移除入口的真源；null = 没装过） */
+const managedVersion = computed(() => props.bootstrap?.placedVersion ?? null)
+/** 钉住版本（guest 常量）；与已落位版本不同 = 有新版本可升级 */
+const upgradable = computed(
+  () =>
+    !!managedVersion.value &&
+    !!props.bootstrap?.version &&
+    managedVersion.value !== props.bootstrap?.version,
+)
+/** 删不掉的旧目录（占用 / 杀软）：只提示「重启后再清理」，不谎报已清干净 */
+const cleanupPending = computed(() => props.bootstrap?.cleanupPending ?? [])
 
 /** 是否有任意在途 run（安装/更新/卸载共用同一 run 管线，busy 期间全禁） */
 const busy = computed(() => !!props.installState?.active)
@@ -132,7 +179,7 @@ const recommendMirror = computed(() => speed.value?.recommend === 'npmmirror')
           data-testid="overview-detect"
           @click="emit('detect')"
         >
-          {{ detecting ? t('hub.env.detecting') : t('hub.env.detect') }}
+          {{ detecting ? t('hub.env.detecting') : envUnavailable ? t('hub.card.retry') : t('hub.env.detect') }}
         </button>
       </div>
       <div class="ah-env-rows">
@@ -140,6 +187,80 @@ const recommendMirror = computed(() => speed.value?.recommend === 'npmmirror')
           <span class="ah-env-label">{{ row.label }}</span>
           <span class="ah-env-value ah-mono">{{ row.value ?? t('hub.env.none') }}</span>
         </div>
+      </div>
+
+      <!-- 环境采集没结论：整块不可信（不逐字段下结论），只给重试入口 -->
+      <div v-if="envUnavailable" class="ah-cli-error" data-testid="overview-env-unavailable">
+        {{ t('hub.env.detectFailed') }}
+      </div>
+
+      <!-- 采集成功但没装 node：一键引导入口（P3）。在途时显示阶段 + 取消 -->
+      <div v-if="nodeMissing" class="ah-speed-line" data-testid="overview-node-missing">
+        <span class="ah-speed-text">{{ t('hub.env.node.missing') }}</span>
+        <span class="ah-speed-line-btns">
+          <button
+            v-if="!bootRunning"
+            type="button"
+            class="ah-btn ah-btn-primary ah-btn-sm"
+            data-testid="overview-node-install"
+            @click="emit('bootstrap-start')"
+          >
+            {{ t('hub.env.node.install') }}
+          </button>
+          <template v-else>
+            <span class="ah-cli-tag warn" data-testid="overview-node-phase">
+              <span class="ah-cli-dot"></span>{{ t(bootPhaseKey) }}
+            </span>
+            <button
+              type="button"
+              class="ah-btn ah-btn-ghost ah-btn-sm"
+              data-testid="overview-node-cancel"
+              @click="emit('bootstrap-cancel')"
+            >
+              {{ t('hub.boot.cancel') }}
+            </button>
+          </template>
+        </span>
+      </div>
+
+      <!-- 本插件装过运行时（P4）：给出升级 / 移除入口（都不静默执行，走确认弹窗） -->
+      <div v-if="managedVersion" class="ah-speed-line" data-testid="overview-node-managed">
+        <span class="ah-speed-text">
+          {{ t('hub.env.node.managed', { version: managedVersion }) }}
+        </span>
+        <span class="ah-speed-line-btns">
+          <!-- 升级在途：与「缺 node 安装」同一个阶段文案来源（guest phase） -->
+          <span
+            v-if="bootRunning"
+            class="ah-cli-tag warn"
+            data-testid="overview-node-managed-phase"
+          >
+            <span class="ah-cli-dot"></span>{{ t(bootPhaseKey) }}
+          </span>
+          <button
+            v-if="upgradable && !bootRunning"
+            type="button"
+            class="ah-btn ah-btn-ghost ah-btn-sm"
+            data-testid="overview-node-upgrade"
+            @click="emit('bootstrap-start')"
+          >
+            {{ t('hub.env.node.upgrade', { version: props.bootstrap?.version }) }}
+          </button>
+          <button
+            v-if="!bootRunning"
+            type="button"
+            class="ah-btn ah-btn-ghost ah-btn-sm"
+            data-testid="overview-node-remove"
+            @click="emit('node-remove')"
+          >
+            {{ t('hub.env.node.remove') }}
+          </button>
+        </span>
+      </div>
+
+      <!-- 旧版本目录删不掉（文件占用 / 杀软）：守住「不谎报清干净」 -->
+      <div v-if="cleanupPending.length" class="ah-cli-error" data-testid="overview-cleanup-pending">
+        {{ t('hub.env.node.cleanupPending', { paths: cleanupPending.join(', ') }) }}
       </div>
 
       <!-- npm 源测速（原型 b-ov：两源计时 + 推荐；动作在安装与更新页） -->
@@ -189,6 +310,7 @@ const recommendMirror = computed(() => speed.value?.recommend === 'npmmirror')
         :uninstall-failed="props.uninstallFailed?.cli === agent.id ? props.uninstallFailed.error : undefined"
         :node-ready="nodeReady"
         @uninstall="(cli) => emit('uninstall', cli)"
+        @retry="emit('detect')"
       />
     </div>
   </div>

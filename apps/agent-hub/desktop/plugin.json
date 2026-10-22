@@ -10,6 +10,7 @@
   "rustLibrary": "wasmnest_plugin_agent_hub",
   "icon": "icon.svg",
   "permissions": [
+    "app:path",
     "broadcast",
     "fs:pick",
     "fs:read",
@@ -85,6 +86,22 @@
       {
         "id": "agent-hub.cancel-run",
         "title": "Agent Hub: Cancel Running Install"
+      },
+      {
+        "id": "agent-hub.get-bootstrap-state",
+        "title": "Agent Hub: Get Node Bootstrap State"
+      },
+      {
+        "id": "agent-hub.bootstrap-env",
+        "title": "Agent Hub: Install Node.js Runtime"
+      },
+      {
+        "id": "agent-hub.cancel-bootstrap",
+        "title": "Agent Hub: Cancel Node.js Bootstrap"
+      },
+      {
+        "id": "agent-hub.remove-env",
+        "title": "Agent Hub: Remove Node.js Runtime"
       },
       {
         "id": "agent-hub.get-skills-state",

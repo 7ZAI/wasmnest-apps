@@ -37,6 +37,13 @@ export type MessageSchema = {
   'hub.env.detect': string
   'hub.env.detecting': string
   'hub.env.none': string
+  // 环境采集成功但没装 node（确认没装，不是探测失败）
+  'hub.env.nodeMissing': string
+  // 环境采集没结论（进程失败/超时/输出不可解析）
+  'hub.env.detectFailed': string
+  // 环境采集成功但没装 node：给「安装 Node.js（含 npm）」入口（P3）
+  'hub.env.node.missing': string
+  'hub.env.node.install': string
 
   // ==================== 概览 · CLI 卡片 ====================
   'hub.card.installed': string
@@ -44,6 +51,9 @@ export type MessageSchema = {
   'hub.card.installedNoSessions': string
   'hub.card.notInstalled': string
   'hub.card.error': string
+  // 探测没结论（unavailable）：与「未安装」严格区分
+  'hub.card.unavailable': string
+  'hub.card.retry': string
   'hub.card.detecting': string
   'hub.card.dual': string
   'hub.card.dualWarning': string
@@ -114,10 +124,73 @@ export type MessageSchema = {
   'hub.inst.error.busy': string
   'hub.inst.error.detectionPending': string
   'hub.inst.error.nodeMissing': string
+  // 探测没结论（unavailable）：先重试检测，不是「不支持这种安装方式」
+  'hub.inst.error.probeUnavailable': string
   'hub.inst.cancelled': string
   'hub.inst.cancel': string
   'hub.inst.outputEmpty': string
   'hub.inst.console': string
+
+  // ==================== Node.js 环境引导（P3） ====================
+  'hub.boot.confirm.title': string
+  // 一句话说明「装什么、从哪来、多大」（参数：version / platform / host / size）
+  'hub.boot.confirm.body': string
+  // 安全告知：会把目录写进用户级 PATH（不是机器级、不写 shell rc）
+  'hub.boot.confirm.path': string
+  'hub.boot.row.version': string
+  'hub.boot.row.platform': string
+  'hub.boot.row.source': string
+  'hub.boot.row.size': string
+  'hub.boot.row.sha256': string
+  'hub.boot.sha.show': string
+  'hub.boot.sha.hide': string
+  'hub.boot.start': string
+  'hub.boot.close': string
+  'hub.boot.cancel': string
+  'hub.boot.retry': string
+  'hub.boot.detail': string
+  'hub.boot.detailHide': string
+  // 已用时（参数：s = 秒）
+  'hub.boot.elapsed': string
+  'hub.boot.done': string
+  // 已有可用 node：不下载、不改 PATH
+  'hub.boot.already': string
+  // 链式安装（参数：cli = 目标 CLI 展示名）：装完 node 自动继续装它
+  'hub.boot.chain': string
+  'hub.boot.phase.preflight': string
+  'hub.boot.phase.downloading': string
+  'hub.boot.phase.verifying': string
+  'hub.boot.phase.extracting': string
+  'hub.boot.phase.registering': string
+  'hub.boot.phase.reprobing': string
+  // 失败文案（guest `Code::as_str` → 短名映射）
+  'hub.boot.failed.generic': string
+  'hub.boot.failed.unsupportedPlatform': string
+  'hub.boot.failed.insufficientSpace': string
+  'hub.boot.failed.downloadFailed': string
+  'hub.boot.failed.verifyFailed': string
+  'hub.boot.failed.extractFailed': string
+  'hub.boot.failed.registerPathFailed': string
+  'hub.boot.failed.reprobeFailed': string
+  'hub.boot.failed.cancelled': string
+  // ADR 0030 业务码（guest bail_with_code!）：引导被拒（如有安装任务在跑）
+  'hub.boot.error.busy': string
+
+  // ==================== Node.js 运行时管理（P4：升级 / 移除） ====================
+  // 本插件已装的版本（参数：version）
+  'hub.env.node.managed': string
+  // 有新钉住版本可升级（参数：version）
+  'hub.env.node.upgrade': string
+  'hub.env.node.remove': string
+  // 旧版本目录删不掉（参数：paths）；只能提示重启后再清理
+  'hub.env.node.cleanupPending': string
+  'hub.remove.title': string
+  'hub.remove.body': string
+  // 后果告知（P4 硬要求）：已装 CLI 会暂时无法运行
+  'hub.remove.warning': string
+  'hub.remove.confirm': string
+  'hub.remove.working': string
+  'hub.remove.failed': string
 
   // ==================== Skills 管理（票据 04） ====================
   'hub.skill.scan': string

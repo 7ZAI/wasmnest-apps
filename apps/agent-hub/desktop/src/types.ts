@@ -25,8 +25,17 @@ export interface AgentDescriptor {
   capabilities: AgentCapabilities
 }
 
-/** 探测项状态：idle=未检测 detecting=进行中 ok/error=终态 */
-export type DetectStatus = 'idle' | 'detecting' | 'ok' | 'not-installed' | 'error'
+/**
+ * 探测项状态（三态语义，guest detect.rs 同构）
+ *
+ * - `idle`：未探测
+ * - `detecting`：探测进行中
+ * - `ok`：探测成功且确认存在（已装）
+ * - `not-installed`：探测成功且确认不存在（可点安装）
+ * - `unavailable`：探测**没有结论**（进程失败 / 超时 / 输出不可解析）——只能
+ *   重试检测，**不得**显示成「未安装」（那会让用户以为没装、进而重复安装）
+ */
+export type DetectStatus = 'idle' | 'detecting' | 'ok' | 'not-installed' | 'unavailable'
 
 /** 单个 CLI 的探测结果（guest detect.rs 同构） */
 export interface CliDetectInfo {
@@ -161,6 +170,106 @@ export interface RunOutput {
   action?: 'install' | 'update' | 'uninstall'
   command?: string | null
   output: string | null
+}
+
+// ==================== Node.js 环境引导域（P2/P3，guest env/ 同构） ====================
+
+/** 引导阶段（wire 字符串与 guest `Phase::as_str` 一致） */
+export type BootstrapPhase =
+  | 'idle'
+  | 'preflight'
+  | 'downloading'
+  | 'verifying'
+  | 'extracting'
+  | 'registering'
+  | 'reprobing'
+  | 'done'
+  | 'failed'
+  | 'cancelled'
+
+/** 失败码（guest `Code::as_str`；前端映射到 `hub.boot.failed.*` 文案） */
+export type BootstrapFailureCode =
+  | 'unsupported-platform'
+  | 'insufficient-space'
+  | 'download-failed'
+  | 'verify-failed'
+  | 'extract-failed'
+  | 'register-path-failed'
+  | 'reprobe-failed'
+  | 'cancelled'
+
+/** 一次失败的完整描述（阶段 + 码 + 原始输出尾部，detail 只进「详情」折叠区） */
+export interface BootstrapFailure {
+  phase: BootstrapPhase
+  code: BootstrapFailureCode
+  detail: string
+}
+
+/** 单个目标平台的产物（确认弹窗展示用） */
+export interface BootstrapTarget {
+  platform: string
+  file: string
+  sha256: string
+  bytes: number
+  archive: string
+}
+
+/** `get-bootstrap-state` 附带的计划（不启动流水线；架构来自已完成的探测） */
+export interface BootstrapPlan {
+  version: string
+  windows: boolean
+  arch: string | null
+  platform: string | null
+  file: string | null
+  sha256: string | null
+  bytes: number | null
+  archive: string | null
+  sources: string[]
+  fallbackFile: string | null
+  minNodeMajor: number
+}
+
+/** 引导域状态（host-storage `bootstrap` 键 + `plugin:agent-hub:bootstrap` 事件载荷） */
+export interface BootstrapState {
+  phase: BootstrapPhase
+  active: boolean
+  version: string
+  platform?: string | null
+  file?: string | null
+  sourceUrl?: string | null
+  sha256?: string | null
+  bytes?: number | null
+  targets?: BootstrapTarget[]
+  targetIndex?: number
+  sourceIndex?: number
+  attemptIndex?: number
+  sources?: string[]
+  tools?: string[]
+  runId?: string | null
+  cachePath?: string | null
+  tmpDir?: string | null
+  extractIndex?: number
+  extractError?: string | null
+  /** 已有可用 node（≥ minNodeMajor）：不下载、不改 PATH，直接 done */
+  alreadyReady?: boolean
+  detectedVersion?: string | null
+  /** 本插件落位过的版本（null = 没装过；旧于 `version` 即可升级） */
+  placedVersion?: string | null
+  /** 升级时要清理的旧版本（非升级为 null） */
+  previousVersion?: string | null
+  /** 已登记进用户 PATH 的精确条目（升级 / 移除据此只摘自己的） */
+  registered?: string[]
+  /**
+   * 删不掉的旧目录（文件占用 / 杀软）：只影响文案，不阻塞后续操作。
+   * 非空时界面提示「重启应用后再清理」，不得谎报已清理干净。
+   */
+  cleanupPending?: string[]
+  /** 最近一次移除环境的时间戳（0 = 从未移除） */
+  removedAt?: number
+  startedAt?: number
+  finishedAt?: number
+  error?: BootstrapFailure | null
+  seq?: number
 }
 
 // ==================== Skills 管理域（票据 04，guest skills.rs 同构） ====================

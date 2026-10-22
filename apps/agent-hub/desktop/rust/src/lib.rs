@@ -35,6 +35,7 @@ use std::sync::{Mutex, OnceLock};
 
 mod agents;
 mod detect;
+mod env;
 mod install;
 mod providers;
 mod skills;
@@ -50,6 +51,8 @@ const STATE_KEY: &str = "detection";
 const AUTH_KEY: &str = "auth";
 /// host-storage 键：安装/更新域复合状态（active/last/updates/mirror）
 const INSTALL_KEY: &str = "install";
+/// host-storage 键：Node.js 引导域状态（phase / 目标产物 / 失败明细）
+const BOOTSTRAP_KEY: &str = "bootstrap";
 
 /// 插件数据目录：`{HomeDir}/.wasmnest/agent-hub/`（探测/安装输出落盘 + 后续统计库）
 static DATA_DIR: OnceLock<String> = OnceLock::new();
@@ -159,6 +162,10 @@ impl WasmPlugin for AgentHubPlugin {
         if let Err(e) = install::abort_active(&host()) {
             host().log_warn(&format!("deactivate: abort active run failed: {e}"));
         }
+        // 引导进程同理：kill + 清临时物 + 落 cancelled（不留半截 runtime）
+        if let Err(e) = env::abort_active(&host()) {
+            host().log_warn(&format!("deactivate: abort bootstrap failed: {e}"));
+        }
         Ok(())
     }
 
@@ -195,6 +202,11 @@ impl WasmPlugin for AgentHubPlugin {
             "agent-hub.describe-install" => install::describe_install(&h, &args),
             "agent-hub.get-run-output" => install::run_output(&h),
             "agent-hub.cancel-run" => install::cancel_run(&h),
+            // ==================== Node.js 环境引导（P2/P3/P4） ====================
+            "agent-hub.get-bootstrap-state" => env::get_state(&h),
+            "agent-hub.bootstrap-env" => env::start(&h),
+            "agent-hub.cancel-bootstrap" => env::cancel(&h),
+            "agent-hub.remove-env" => env::remove(&h),
             // ==================== 票据 04：Skills 管理 ====================
             "agent-hub.get-skills-state" => skills::get_state(&h),
             "agent-hub.scan-skills" => skills::scan(&h),
@@ -235,6 +247,7 @@ impl WasmPlugin for AgentHubPlugin {
             .map(|e| e.kind.clone());
         match kind.as_deref() {
             Some("install") | Some("uninstall") => install::handle_process_done(event),
+            Some("bootstrap") => env::handle_process_done(event),
             Some(kind) if kind.starts_with("skills-") => skills::handle_process_done(event, kind),
             Some("usage-scan") => usage::handle_scan_done(event),
             Some(_) => detect::handle_process_done(event),

@@ -76,8 +76,12 @@ pub(crate) fn import_local(h: &WasmHost, args: &Value) -> anyhow::Result<Value> 
 
 /// spawn 导入枚举进程（`== src ==` 单分段列举源目录全量文件）
 fn start_import(h: &WasmHost, source: &str, name: &str) -> anyhow::Result<Value> {
-    let script = scan_script(&[("src", source.to_string())], is_windows());
-    let (command, args_vec) = shell_invocation(script, is_windows());
+    let windows = is_windows();
+    let script = crate::env::prepend_env(
+        scan_script(&[("src", source.to_string())], windows),
+        windows,
+    );
+    let (command, args_vec) = shell_invocation(script, windows);
     let data_dir = DATA_DIR
         .get()
         .ok_or_else(|| anyhow::anyhow!("import: data dir unavailable"))?;

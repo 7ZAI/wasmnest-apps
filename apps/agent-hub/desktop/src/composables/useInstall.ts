@@ -9,10 +9,26 @@
  */
 import { onUnmounted, ref } from 'vue'
 import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-desktop'
-import { resolvePluginErrorText } from '../utils/pluginError'
+import { parsePluginError, resolvePluginErrorText } from '../utils/pluginError'
 import type { CliId, InstallDomainState, LastRun } from '../types'
 
 const POLL_INTERVAL_MS = 1200
+
+/**
+ * guest 业务码：没有可用 Node.js（`install.start` / `uninstall` 的前置闸门）。
+ *
+ * 前端据此弹链式引导（先装 node，装完自动重入原 CLI 安装）——**不**复刻
+ * 「哪家 CLI 需要 node」的判断（recipe 白名单在 guest 侧）。
+ */
+export const CODE_NODE_MISSING = 'com.wasmnest.agent-hub.hub.inst.error.nodeMissing'
+
+/** 安装/更新命令的结果（code 为 guest 业务信封码，用于链式分支） */
+export interface InstallStartResult {
+  ok: boolean
+  code?: string
+  /** 友好文案（ADR 0030：原文只进日志） */
+  error?: string
+}
 
 /**
  * 终态 run 失败归因（纯函数）：last 为一次「进程级失败」的卸载 run
@@ -121,12 +137,23 @@ export function useInstall(context: PluginContext) {
     }
   }
 
-  /** 一键安装/更新（recipe 白名单在 guest 端）；失败经命令错误上抛给调用方提示 */
-  async function install(cli: string, useMirror: boolean) {
+  /**
+   * 一键安装/更新（recipe 白名单在 guest 端）；失败返回业务码与友好文案：
+   * `nodeMissing` 由父层转成链式引导（装 node → 重入本安装），其余只提示。
+   */
+  async function install(cli: string, useMirror: boolean): Promise<InstallStartResult> {
     try {
       await context.commands.execute('agent-hub.install', { cli, mirror: useMirror })
+      return { ok: true }
     } catch (e) {
+      // ADR 0030：原文只进日志；业务码交给调用方分流（链式引导 / 普通失败）
       console.error('[Agent Hub] install failed', cli, e)
+      const env = parsePluginError(e)
+      return {
+        ok: false,
+        code: env?.code,
+        error: resolvePluginErrorText(context, e, 'hub.inst.failed'),
+      }
     }
   }
 

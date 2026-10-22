@@ -28,6 +28,8 @@ const props = defineProps<{
   speedTesting: boolean
   /** 注册表 agent 清单（顺序/能力来自后端；缺省回退内置注册表） */
   agents?: AgentDescriptor[]
+  /** 安装命令被拒的友好文案（业务码 / 异常；原文只进日志） */
+  commandError?: string | null
 }>()
 
 const emit = defineEmits<{
@@ -197,19 +199,23 @@ const rows = computed<Row[]>(() =>
       row.hint = t('hub.card.detecting')
       return row
     }
-    if (info.status === 'error') {
-      // 票 04（ADR 0030）：检测失败详情只进日志，行内提示用友好 i18n
+    if (info.status === 'unavailable') {
+      // 票 P0：探测没结论（不是「未安装」）——详情只进日志，行内给「检测失败」
+      // + 重试入口（由概览页的检测按钮触发），不提供安装动作
       if (info.error) console.error('[Agent Hub] cli detect error:', info.error)
-      row.hint = t('hub.card.error')
+      row.hint = t('hub.card.unavailable')
       return row
     }
     // standalone 安装自带官方更新器（如 opencode 的 `upgrade`：curl 安装重跑
     // 官方脚本 / npm·pnpm 走包管理器），不依赖 node；npm-global 的安装/更新
-    // 需要 node
+    // 需要 node。
+    //
+    // 缺 node 时**仍给安装动作**：点了由 guest 以 `nodeMissing` 业务码拒绝，
+    // 前端据此弹链式引导（装完 node 自动重入本次安装）。白名单命令照旧展示，
+    // 供用户手动执行——两条路并存，不把用户堵死。
     const standalone = info.method === 'standalone'
     if (!nodeReady.value && !standalone) {
       row.hint = t('hub.inst.nodeGuide')
-      return row
     }
     if (info.status === 'not-installed') {
       row.action = 'install'
@@ -372,6 +378,11 @@ watch(
         >
           {{ checking ? t('hub.inst.checking') : t('hub.inst.check') }}
         </button>
+      </div>
+
+      <!-- 安装命令被拒（busy / 缺环境等）：就地可见，不静默吞掉 -->
+      <div v-if="commandError" class="ah-cli-error" data-testid="inst-command-error">
+        {{ commandError }}
       </div>
 
       <label class="ah-mirror-tmp">

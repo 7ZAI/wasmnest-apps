@@ -33,6 +33,10 @@ import SkillsTab from '../components/SkillsTab.vue'
 import InstallTab from '../components/InstallTab.vue'
 import OverviewTab from '../components/OverviewTab.vue'
 import CliCard from '../components/CliCard.vue'
+import AgentHubView from '../components/AgentHubView.vue'
+import NodeBootstrapDialog from '../components/NodeBootstrapDialog.vue'
+import NodeRemoveDialog from '../components/NodeRemoveDialog.vue'
+import { CODE_NODE_MISSING } from '../composables/useInstall'
 import type { AdapterErrorCode, ProviderPreset, ProvidersDomainState, UsageSessionDetail, UsageSessionRow, UsageSource } from '../types'
 import type { UseProvidersReturn } from '../composables/useProviders'
 import type { CliSessionState, StatsDays, UseUsageReturn } from '../composables/useUsage'
@@ -2483,7 +2487,7 @@ describe('A6 InstallTab：行状态机与两击换源', () => {
     w.unmount()
   })
 
-  it('node 缺失：降级为白名单命令 + 复制按钮，不给安装按钮', async () => {
+  it('node 缺失：仍给安装按钮（走 nodeMissing 链式引导），并并列展示白名单命令', async () => {
     execute.mockImplementation(async (cmd: string) => {
       if (cmd === 'agent-hub.describe-install') return { command: 'npm i -g @anthropic-ai/claude-code' }
       return null
@@ -2492,12 +2496,17 @@ describe('A6 InstallTab：行状态机与两击换源', () => {
       detection: {
         ...detectionBase,
         env: { node: null, registry: '' },
-        clis: { claude: { status: 'ok', version: '1.0', method: 'npm' } },
+        clis: { claude: { status: 'not-installed', version: null, method: 'npm-global' } },
       },
     })
     await flushPromises()
     expect(w.text()).toContain('hub.inst.nodeGuide')
     expect(w.text()).toContain('npm i -g')
+    // 不把用户堵死：安装动作仍在（guest 会以 nodeMissing 拒绝，前端据此弹链式引导）
+    const btn = w.findAll('.ah-inst-row .ah-btn-primary').at(0)!
+    expect(btn.exists()).toBe(true)
+    await btn.trigger('click')
+    expect(w.emitted('install')?.[0]).toEqual(['claude', true])
     w.unmount()
   })
 
@@ -2577,13 +2586,15 @@ describe('A6 InstallTab：行状态机与两击换源', () => {
     w.unmount()
   })
 
-  it('探测失败 → 行内友好 i18n 提示（原文只进日志）', async () => {
+  it('探测无结论（unavailable）→ 行内友好 i18n 提示（原文只进日志，不给安装动作）', async () => {
     const w = mountInstall({
-      detection: { ...detectionBase, clis: { claude: { status: 'error', error: 'boom secret' } } },
+      detection: { ...detectionBase, clis: { claude: { status: 'unavailable', error: 'boom secret' } } },
     })
     await flushPromises()
-    expect(w.text()).toContain('hub.card.error')
+    expect(w.text()).toContain('hub.card.unavailable')
     expect(w.text()).not.toContain('boom secret')
+    // 「探测没结论」不得被当成「未安装」——不给安装按钮
+    expect(w.text()).not.toContain('hub.inst.install')
     w.unmount()
   })
 
@@ -3140,8 +3151,8 @@ describe('A8 CliCard：卸载动作（两击确认与不可用原因）', () => 
     w.unmount()
   })
 
-  it('A8-2 边界：检测中/失败 → 不渲染卸载动作', async () => {
-    for (const status of ['detecting', 'error'] as const) {
+  it('A8-2 边界：检测中/探测无结论 → 不渲染卸载动作', async () => {
+    for (const status of ['detecting', 'unavailable'] as const) {
       const w = mountComponent(CliCard, {
         cliId: 'pi',
         info: { ...info, status },
@@ -3320,6 +3331,123 @@ describe('A9 OverviewTab：卸载事件上抛', () => {
     // pi 卡片下方有失败文案；其余卡片（未装/无信息）不出现
     expect(w.text()).toContain('hub.card.uninstallFailed')
     expect(w.findAll('.ah-cli-foot')).toHaveLength(1)
+    w.unmount()
+  })
+})
+
+// ==================== A13 探测三态渲染（票 P0） ====================
+
+/**
+ * A13 三态语义的界面契约：
+ *  - `not-installed`（探测成功且确认未装）→「未安装」徽章
+ *  - `unavailable`（探测没结论）→「检测失败」徽章 + 重试入口，**不得**显示
+ *    「未安装」——否则用户会把「没测出来」当成「没装」而重复安装
+ *  - 环境条：采集失败（envStatus=unavailable）→ 失败提示 + 按钮变「重试检测」；
+ *    采集成功但没装 node → 「未检测到 Node.js」（不是「未检测」）
+ */
+describe('A13 探测三态渲染（票 P0）', () => {
+  const baseInfo = {
+    installed: false,
+    version: null,
+    method: 'unknown',
+    paths: [] as string[],
+    dual: false,
+    status: 'not-installed' as const,
+    error: null,
+  }
+
+  it('正例：not-installed → 「未安装」徽章（无重试入口）', async () => {
+    const w = mountComponent(CliCard, { cliId: 'pi', info: baseInfo })
+    await flushPromises()
+    expect(w.get('[data-testid="cli-badge-pi"]').text()).toContain('hub.card.notInstalled')
+    expect(w.find('[data-testid="cli-retry-pi"]').exists()).toBe(false)
+    w.unmount()
+  })
+
+  it('正例：unavailable → 「检测失败」徽章 + 重试入口', async () => {
+    const w = mountComponent(CliCard, {
+      cliId: 'pi',
+      info: { ...baseInfo, status: 'unavailable', error: 'exit=Some(1)' },
+    })
+    await flushPromises()
+    expect(w.get('[data-testid="cli-badge-pi"]').text()).toContain('hub.card.unavailable')
+    expect(w.text()).not.toContain('hub.card.notInstalled')
+    const retry = w.get('[data-testid="cli-retry-pi"]')
+    expect(retry.text()).toBe('hub.card.retry')
+    await retry.trigger('click')
+    await flushPromises()
+    expect(w.emitted('retry')).toBeTruthy()
+    w.unmount()
+  })
+
+  it('反例：unavailable 不得渲染「未安装」文案（不谎报未装）', async () => {
+    const w = mountComponent(CliCard, {
+      cliId: 'pi',
+      info: { ...baseInfo, status: 'unavailable', error: 'boom' },
+    })
+    await flushPromises()
+    expect(w.text()).not.toContain('hub.card.notInstalled')
+    w.unmount()
+  })
+
+  function mountOverview(over: Record<string, unknown> = {}) {
+    return mountComponent(OverviewTab, {
+      state: {
+        authGranted: true,
+        envStatus: 'ok',
+        env: { node: 'v22', npm: '10', pnpm: null, registry: '', python: null, arch: 'x86_64', osVersion: '', shell: '/bin/bash', os: 'linux' },
+        clis: {},
+      },
+      detecting: false,
+      installState: { active: null, last: null, mirror: { speed: null }, updates: {} },
+      speedTesting: false,
+      ...over,
+    })
+  }
+
+  it('正例：环境采集失败 → 失败提示 + 按钮变「重试检测」', async () => {
+    const w = mountOverview({
+      state: {
+        authGranted: true,
+        envStatus: 'unavailable',
+        env: null,
+        envError: 'exit=Some(1) timed_out=false',
+        clis: {},
+      },
+    })
+    await flushPromises()
+    expect(w.find('[data-testid="overview-env-unavailable"]').exists()).toBe(true)
+    expect(w.get('[data-testid="overview-detect"]').text()).toBe('hub.card.retry')
+    w.unmount()
+  })
+
+  it('正例：采集成功但没装 node → 「未检测到 Node.js」（不是「未检测」）', async () => {
+    const w = mountOverview({
+      state: {
+        authGranted: true,
+        envStatus: 'ok',
+        env: { node: null, npm: null, pnpm: null, registry: '', python: null, arch: 'x86_64', osVersion: '', shell: '/bin/bash', os: 'linux' },
+        clis: {},
+      },
+    })
+    await flushPromises()
+    expect(w.text()).toContain('hub.env.nodeMissing')
+    expect(w.find('[data-testid="overview-env-unavailable"]').exists()).toBe(false)
+    w.unmount()
+  })
+
+  it('反例：采集失败时不逐字段下结论（node 行不得显示「未检测到 Node.js」）', async () => {
+    const w = mountOverview({
+      state: {
+        authGranted: true,
+        envStatus: 'unavailable',
+        env: null,
+        envError: 'exit=Some(1) timed_out=false',
+        clis: {},
+      },
+    })
+    await flushPromises()
+    expect(w.text()).not.toContain('hub.env.nodeMissing')
     w.unmount()
   })
 })
@@ -3780,5 +3908,375 @@ describe('A11 SessionLogsTab：扫描失败必须看得见且按钮能重试', (
         ':hide-input-icon="true"',
       )
     }
+  })
+})
+
+// ==================== A14 Node.js 引导弹窗（票 P3） ====================
+
+/**
+ * A14 行为契约（对外可见的部分）：
+ *  - 确认态必须展示版本 / 目标平台 / 来源主机 / 大小 / SHA-256（安全约束：
+ *    不做「一键静默下载」，来源与校验方式在点「开始」之前可见）
+ *  - 进行态只按 guest `phase` 显示阶段，不猜百分比；取消 emit 给父层
+ *  - 失败态按失败码渲染文案，原始输出默认折叠（详情只进折叠区）
+ *  - 链式：从某 CLI 安装被拒时打开，要说明「装完继续装它」
+ */
+
+const BOOT_SHA = 'd2046d28c2c3dcd211ac5145c0bf30e2047ef9dfb306693c8c6e2eccd8b95fa5'
+
+function bootPlan(over: Record<string, unknown> = {}) {
+  return {
+    version: 'v24.22.1',
+    windows: true,
+    arch: 'AMD64',
+    platform: 'win-x64',
+    file: 'node-v24.22.1-win-x64.zip',
+    sha256: BOOT_SHA,
+    bytes: 37748064,
+    archive: 'zip',
+    sources: ['https://nodejs.org/dist/v24.22.1/node-v24.22.1-win-x64.zip'],
+    fallbackFile: null,
+    minNodeMajor: 22,
+    ...over,
+  }
+}
+
+describe('A14 NodeBootstrapDialog：确认 / 进行 / 失败 / 完成', () => {
+  function mountBoot(over: Record<string, unknown> = {}) {
+    return mountComponent(NodeBootstrapDialog, {
+      open: true,
+      state: null,
+      plan: bootPlan(),
+      ...over,
+    })
+  }
+
+  it('确认态：版本 / 平台 / 来源 / 大小 / SHA-256 全部可见，SHA 可展开', async () => {
+    const w = mountBoot()
+    await flushPromises()
+    expect(w.get('[data-testid="boot-version"]').text()).toBe('v24.22.1')
+    expect(w.get('[data-testid="boot-platform"]').text()).toBe('win-x64')
+    expect(w.get('[data-testid="boot-source"]').text()).toBe('nodejs.org')
+    expect(w.get('[data-testid="boot-size"]').text()).toBe('36.0 MB')
+    // 默认只展示前 12 位（防止误读长串）；展开后可见完整值
+    expect(w.get('[data-testid="boot-sha"]').text()).toBe(`${BOOT_SHA.slice(0, 12)}…`)
+    await w.get('[data-testid="boot-sha-toggle"]').trigger('click')
+    expect(w.get('[data-testid="boot-sha"]').text()).toBe(BOOT_SHA)
+    w.unmount()
+  })
+
+  it('确认态：点「开始安装」只上抛意图，不自行发命令', async () => {
+    const w = mountBoot()
+    await flushPromises()
+    await w.get('[data-testid="boot-start"]').trigger('click')
+    expect(w.emitted('start')).toBeTruthy()
+    expect(callsTo('agent-hub.bootstrap-env')).toHaveLength(0)
+    w.unmount()
+  })
+
+  it('进行态：按 phase 显示阶段文案（无假百分比），取消 emit cancel', async () => {
+    const w = mountBoot({
+      state: { phase: 'downloading', active: true, version: 'v24.22.1', startedAt: Date.now() },
+    })
+    await flushPromises()
+    expect(w.get('[data-testid="boot-phase"]').text()).toContain('hub.boot.phase.downloading')
+    expect(w.find('[data-testid="boot-elapsed"]').exists()).toBe(true)
+    await w.get('[data-testid="boot-cancel"]').trigger('click')
+    expect(w.emitted('cancel')).toBeTruthy()
+    w.unmount()
+  })
+
+  it('失败态：按失败码渲染文案，原始输出默认折叠', async () => {
+    const w = mountBoot({
+      state: {
+        phase: 'failed',
+        active: false,
+        version: 'v24.22.1',
+        error: { phase: 'verifying', code: 'verify-failed', detail: 'sha256 mismatch: got deadbeef' },
+      },
+    })
+    await flushPromises()
+    expect(w.get('[data-testid="boot-error"]').text()).toBe('hub.boot.failed.verifyFailed')
+    expect(w.find('[data-testid="boot-detail"]').exists()).toBe(false)
+    await w.get('[data-testid="boot-detail-toggle"]').trigger('click')
+    expect(w.get('[data-testid="boot-detail"]').text()).toContain('sha256 mismatch')
+    w.unmount()
+  })
+
+  it('失败态：未知失败码退回通用文案（不裸奔 code）', async () => {
+    const w = mountBoot({
+      state: {
+        phase: 'failed',
+        active: false,
+        version: 'v24.22.1',
+        error: { phase: 'downloading', code: 'some-new-code', detail: '' },
+      },
+    })
+    await flushPromises()
+    expect(w.get('[data-testid="boot-error"]').text()).toBe('hub.boot.failed.generic')
+    w.unmount()
+  })
+
+  it('完成态：alreadyReady 说明「无需安装」', async () => {
+    const w = mountBoot({
+      state: { phase: 'done', active: false, alreadyReady: true, detectedVersion: 'v24.22.1' },
+    })
+    await flushPromises()
+    expect(w.get('[data-testid="boot-done"]').exists()).toBe(true)
+    expect(w.text()).toContain('hub.boot.already')
+    w.unmount()
+  })
+
+  it('链式：给出 chainName 时说明装完继续安装该 CLI', async () => {
+    const w = mountBoot({ chainName: 'Claude Code' })
+    await flushPromises()
+    expect(w.get('[data-testid="boot-chain"]').text()).toContain('cli=Claude Code')
+    w.unmount()
+  })
+
+  it('命令面拒绝（busy 等）在确认态可见', async () => {
+    const w = mountBoot({ commandError: 'hub.boot.error.busy' })
+    await flushPromises()
+    expect(w.get('[data-testid="boot-command-error"]').text()).toBe('hub.boot.error.busy')
+    w.unmount()
+  })
+})
+
+// ==================== A14b 移除运行时确认弹窗（票 P4） ====================
+
+describe('A14b NodeRemoveDialog：后果告知 + 不可静默删除', () => {
+  function mountRemove(over: Record<string, unknown> = {}) {
+    return mountComponent(NodeRemoveDialog, { open: true, version: 'v24.22.1', ...over })
+  }
+
+  it('正例：展示版本 + 「已装 CLI 会暂时无法运行」的后果告知', async () => {
+    const w = mountRemove()
+    await flushPromises()
+    expect(w.get('[data-testid="remove-version"]').text()).toBe('v24.22.1')
+    expect(w.get('[data-testid="remove-warning"]').text()).toBe('hub.remove.warning')
+    expect(w.get('[data-testid="remove-body"]').text()).toBe('hub.remove.body')
+    w.unmount()
+  })
+
+  it('正例：确认才 emit confirm（关闭不触发）', async () => {
+    const w = mountRemove()
+    await flushPromises()
+    await w.get('[data-testid="remove-cancel"]').trigger('click')
+    expect(w.emitted('confirm')).toBeFalsy()
+    expect(w.emitted('close')).toBeTruthy()
+    await w.get('[data-testid="remove-confirm"]').trigger('click')
+    expect(w.emitted('confirm')).toBeTruthy()
+    w.unmount()
+  })
+
+  it('边界：busy → 按钮禁用并显示「正在移除」', async () => {
+    const w = mountRemove({ busy: true })
+    await flushPromises()
+    const btn = w.get('[data-testid="remove-confirm"]')
+    expect(btn.attributes('disabled')).toBeDefined()
+    expect(btn.text()).toBe('hub.remove.working')
+    w.unmount()
+  })
+
+  it('反例：失败文案可见（原文只进日志）', async () => {
+    const w = mountRemove({ error: 'hub.remove.failed' })
+    await flushPromises()
+    expect(w.get('[data-testid="remove-error"]').text()).toBe('hub.remove.failed')
+    w.unmount()
+  })
+})
+
+// ==================== A15 概览：运行时管理入口（票 P4） ====================
+
+describe('A15 OverviewTab：安装 / 升级 / 移除入口与旧目录提示', () => {
+  function envState(over: Record<string, unknown> = {}) {
+    return {
+      authGranted: true,
+      envStatus: 'ok',
+      env: {
+        node: null,
+        npm: null,
+        pnpm: null,
+        registry: '',
+        python: null,
+        arch: 'x86_64',
+        osVersion: '',
+        shell: '/bin/bash',
+        os: 'linux',
+      },
+      clis: {},
+      ...over,
+    }
+  }
+
+  function mountOverview(over: Record<string, unknown> = {}) {
+    return mountComponent(OverviewTab, {
+      state: envState(),
+      detecting: false,
+      installState: { active: null, last: null, mirror: { speed: null }, updates: {} },
+      speedTesting: false,
+      ...over,
+    })
+  }
+
+  it('正例：采集成功且没 node → 「安装 Node.js」入口，点击只上抛意图（先确认再下载）', async () => {
+    const w = mountOverview({
+      bootstrap: { phase: 'idle', active: false, version: 'v24.22.1' },
+    })
+    await flushPromises()
+    const btn = w.get('[data-testid="overview-node-install"]')
+    expect(btn.text()).toBe('hub.env.node.install')
+    await btn.trigger('click')
+    expect(w.emitted('bootstrap-start')).toBeTruthy()
+    expect(callsTo('agent-hub.bootstrap-env')).toHaveLength(0)
+    w.unmount()
+  })
+
+  it('反例：探测没结论（unavailable）→ 不出现安装按钮（探测故障 ≠ 缺环境）', async () => {
+    const w = mountOverview({
+      state: envState({ envStatus: 'unavailable', env: null }),
+      bootstrap: { phase: 'idle', active: false, version: 'v24.22.1' },
+    })
+    await flushPromises()
+    expect(w.find('[data-testid="overview-node-install"]').exists()).toBe(false)
+    w.unmount()
+  })
+
+  it('正例：托管运行时旧于钉住版本 → 升级入口 + 移除入口', async () => {
+    const w = mountOverview({
+      state: envState({ env: { ...envState().env, node: 'v24.21.0' } }),
+      bootstrap: { phase: 'done', active: false, version: 'v24.22.1', placedVersion: 'v24.21.0' },
+    })
+    await flushPromises()
+    const upgrade = w.get('[data-testid="overview-node-upgrade"]')
+    expect(upgrade.text()).toContain('hub.env.node.upgrade')
+    expect(upgrade.text()).toContain('version=v24.22.1')
+    await w.get('[data-testid="overview-node-remove"]').trigger('click')
+    expect(w.emitted('node-remove')).toBeTruthy()
+    w.unmount()
+  })
+
+  it('边界：已是最新托管版本 → 有移除入口，无升级入口', async () => {
+    const w = mountOverview({
+      state: envState({ env: { ...envState().env, node: 'v24.22.1' } }),
+      bootstrap: { phase: 'done', active: false, version: 'v24.22.1', placedVersion: 'v24.22.1' },
+    })
+    await flushPromises()
+    expect(w.find('[data-testid="overview-node-upgrade"]').exists()).toBe(false)
+    expect(w.find('[data-testid="overview-node-remove"]').exists()).toBe(true)
+    w.unmount()
+  })
+
+  it('反例：有旧目录没删掉 → 上屏待清理提示（不谎报清干净）', async () => {
+    const w = mountOverview({
+      state: envState({ env: { ...envState().env, node: 'v24.22.1' } }),
+      bootstrap: {
+        phase: 'done',
+        active: false,
+        version: 'v24.22.1',
+        placedVersion: 'v24.22.1',
+        cleanupPending: ['/home/u/.wasmnest/agent-hub/runtime/node/v24.21.0'],
+      },
+    })
+    await flushPromises()
+    const hint = w.get('[data-testid="overview-cleanup-pending"]')
+    expect(hint.text()).toContain('hub.env.node.cleanupPending')
+    expect(hint.text()).toContain('v24.21.0')
+    w.unmount()
+  })
+})
+
+// ==================== A16 链式安装（票 P3） ====================
+
+/**
+ * A16 端到端（组件层）：点 claude 安装 → guest 以 `nodeMissing` 拒绝 →
+ * 打开同一个引导弹窗 → 引导完成 → **自动重入**原安装（单次确认、串行）。
+ */
+describe('A16 链式安装：nodeMissing → 引导 → 自动重入安装', () => {
+  const cliInfo = {
+    installed: false,
+    version: null,
+    method: 'npm-global',
+    paths: [] as string[],
+    dual: false,
+    status: 'not-installed' as const,
+    error: null,
+  }
+
+  function detection() {
+    return {
+      authGranted: true,
+      envStatus: 'ok',
+      env: {
+        node: null,
+        npm: null,
+        pnpm: null,
+        registry: '',
+        python: null,
+        arch: 'x86_64',
+        osVersion: '',
+        shell: '/bin/bash',
+        os: 'linux',
+      },
+      clis: { claude: cliInfo, codex: cliInfo, opencode: cliInfo, pi: cliInfo },
+    }
+  }
+
+  it('引导成功后自动再发一次 agent-hub.install（同 cli / 同镜像参数）', async () => {
+    const installs: Array<Record<string, unknown> | undefined> = []
+    execute.mockImplementation(async (cmd: string, args?: Record<string, unknown>) => {
+      switch (cmd) {
+        case 'agent-hub.get-state':
+          return { state: detection() }
+        case 'agent-hub.get-install-state':
+          return { state: { active: null, last: null, mirror: null, updates: {} } }
+        case 'agent-hub.get-bootstrap-state':
+          return { state: { phase: 'idle', active: false, version: 'v24.22.1' }, plan: bootPlan() }
+        case 'agent-hub.describe-install':
+          return { command: 'npm i -g @anthropic-ai/claude-code' }
+        case 'agent-hub.install': {
+          installs.push(args)
+          if (installs.length === 1) {
+            // 前置闸门：缺 node（业务码信封，ADR 0030）
+            throw Object.assign(new Error('node missing'), { code: CODE_NODE_MISSING })
+          }
+          return { started: true }
+        }
+        case 'agent-hub.bootstrap-env':
+          return {
+            state: {
+              phase: 'done',
+              active: false,
+              version: 'v24.22.1',
+              placedVersion: 'v24.22.1',
+              alreadyReady: false,
+            },
+          }
+        default:
+          return null
+      }
+    })
+
+    const w = mountComponent(AgentHubView)
+    await flushPromises()
+    await w.get('[data-testid="hub-tab-install"]').trigger('click')
+    await flushPromises()
+
+    await w.findAll('.ah-inst-row .ah-btn-primary').at(0)!.trigger('click')
+    await flushPromises()
+
+    // 一次确认：弹窗打开，且说明装完继续装 claude（不额外弹第二个弹窗）
+    expect(w.find('[data-testid="boot-dialog"]').exists()).toBe(true)
+    expect(w.get('[data-testid="boot-chain"]').text()).toContain('Claude Code')
+    expect(installs).toHaveLength(1)
+
+    await w.get('[data-testid="boot-start"]').trigger('click')
+    await flushPromises()
+
+    expect(installs).toHaveLength(2)
+    expect(installs[1]).toEqual({ cli: 'claude', mirror: true })
+    // 引导完成后收起弹窗（回到安装控制台看进度）
+    expect(w.find('[data-testid="boot-dialog"]').exists()).toBe(false)
+    w.unmount()
   })
 })

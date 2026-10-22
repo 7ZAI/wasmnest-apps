@@ -2,7 +2,11 @@
 /**
  * 单 CLI 卡片：官方图标 + 状态徽章 + 版本/安装方式 + 双安装警告 + 卸载动作
  *
- * 徽章色语义：ok=success；双安装=warning；error=danger；其余中性
+ * 徽章色语义：ok=success；双安装=warning；unavailable=danger（探测无结论）；其余中性
+ *
+ * 三态语义（票 P0）：`not-installed`（探测成功且确认未装）给安装入口；
+ * `unavailable`（探测没结论：进程失败/超时/输出不可解析）只给「重试检测」——
+ * 两者不可混同，否则用户会把「没测出来」当成「没装」而重复安装。
  *
  * 票 07 新增第六态「已装 · 未初始化」：`sessionState === 'empty'`（装了但
  * 扫描后零会话数据，如本机 codex —— `~/.codex/` 存在却从未跑过会话）。
@@ -39,7 +43,7 @@ const props = defineProps<{
   nodeReady?: boolean
 }>()
 
-const emit = defineEmits<{ uninstall: [cli: CliId] }>()
+const emit = defineEmits<{ uninstall: [cli: CliId]; retry: [] }>()
 
 const context = inject<PluginContext>('pluginContext')!
 const t = (key: string, params?: Record<string, unknown>) => context.i18n.t(key, params)
@@ -59,7 +63,9 @@ const badge = computed(() => {
     return { tone: 'ok', label: t('hub.card.installed') }
   }
   if (s === 'not-installed') return { tone: 'neutral', label: t('hub.card.notInstalled') }
-  if (s === 'error') return { tone: 'err', label: t('hub.card.error') }
+  // unavailable = 探测没结论（不是「未安装」）：区别于 not-installed 的中性色，
+  // 用错误色提示「这里没有答案」，并给出重试入口
+  if (s === 'unavailable') return { tone: 'err', label: t('hub.card.unavailable') }
   if (s === 'detecting') return { tone: 'neutral', label: t('hub.card.detecting') }
   return { tone: 'neutral', label: t('hub.card.idle') }
 })
@@ -137,7 +143,24 @@ onUnmounted(() => {
       <span v-if="methodLabel" class="ah-cli-method">{{ methodLabel }}</span>
     </div>
 
-    <div v-if="props.info?.error" class="ah-cli-error">{{ t('hub.card.error') }}</div>
+    <!-- 探测无结论（unavailable）：显示「检测失败」+ 重试入口。
+         原始错误明细只进日志（ADR 0030），界面不展示原文 -->
+    <div
+      v-if="props.info?.error || props.info?.status === 'unavailable'"
+      class="ah-cli-error"
+      :data-testid="`cli-unavailable-${cliId}`"
+    >
+      <span>{{ t('hub.card.unavailable') }}</span>
+      <button
+        v-if="props.info?.status === 'unavailable'"
+        type="button"
+        class="ah-btn ah-btn-ghost ah-btn-sm"
+        :data-testid="`cli-retry-${cliId}`"
+        @click="emit('retry')"
+      >
+        {{ t('hub.card.retry') }}
+      </button>
+    </div>
 
     <div v-if="props.info?.dual" class="ah-cli-dual">
       <div>{{ t('hub.card.dualWarning', { n: props.info.paths.length }) }}</div>

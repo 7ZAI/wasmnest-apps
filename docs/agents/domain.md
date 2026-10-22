@@ -6,8 +6,8 @@ How the engineering skills should consume this repo's domain documentation when 
 
 ## Before exploring, read these
 
-- **`GLOSSARY.md`** at the repo root (created lazily; absent today).
-- **`docs/adr/`**: read ADRs that touch the area you're about to work in (absent today).
+- **`GLOSSARY.md`** at the repo root（已建：agent-hub 环境 / 探测 / 引导 等术语）。
+- **`docs/adr/`**: read ADRs that touch the area you're about to work in（已建：`0001-agent-hub-node-bootstrap.md`）。
 
 If any of these files don't exist, **proceed silently**. Don't flag their absence; don't suggest creating them upfront. The `/domain-modeling` skill (reached via `/grill-with-docs` and `/improve-codebase-architecture`) creates them lazily when terms or decisions actually get resolved.
 

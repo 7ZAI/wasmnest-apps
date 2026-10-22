@@ -50,7 +50,7 @@ function cliValue(info: CliDetectInfo | undefined): string {
       return t('hub.preview.detecting')
     case 'not-installed':
       return t('hub.preview.notInstalled')
-    case 'error':
+    case 'unavailable':
       return t('hub.preview.error')
     default:
       return t('hub.preview.idle')
