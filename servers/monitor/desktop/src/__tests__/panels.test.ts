@@ -148,6 +148,44 @@ describe('Monitor 自定义监控面板（宿主中介装载）', () => {
     await flushPromises()
     expect(unmountSecond).toHaveBeenCalledTimes(1)
   })
+
+  it('快速切页签：晚到的旧实例自卸，不覆盖新句柄', async () => {
+    const staleUnmount = vi.fn(async () => {})
+    const freshUnmount = vi.fn(async () => {})
+    let resolveStale!: (handle: MonitorPanelHandle) => void
+    const stalePending = new Promise<MonitorPanelHandle>((resolve) => {
+      resolveStale = resolve
+    })
+    const fn = vi
+      .fn()
+      .mockImplementationOnce(() => stalePending)
+      .mockResolvedValueOnce({ unmount: freshUnmount })
+    const hostInvoke = async () => [
+      withPanels('com.wasmnest.a', 'Provider A', [
+        { id: 'health', title: 'Health', order: 10 },
+        { id: 'usage', title: 'Usage', order: 20 },
+      ]),
+    ]
+    const wrapper = mountView(makeContext(metricsOnly, hostInvoke, fn))
+    await flushPromises()
+    expect(fn).toHaveBeenCalledTimes(1) // 首个面板装载仍在途
+
+    // 在旧装载未完成时切到第二页签
+    await wrapper.find('[data-testid="monitor-panel-tab-com.wasmnest.a-usage"]').trigger('click')
+    await flushPromises()
+    expect(fn).toHaveBeenCalledTimes(2)
+
+    // 旧实例晚到：自己卸掉，且不得成为当前句柄
+    resolveStale({ unmount: staleUnmount })
+    await flushPromises()
+    await flushPromises()
+    expect(staleUnmount).toHaveBeenCalledTimes(1)
+
+    wrapper.unmount()
+    await flushPromises()
+    expect(freshUnmount).toHaveBeenCalledTimes(1)
+    expect(staleUnmount).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe('Monitor 台账角色过滤（全部 / 服务 / 应用）', () => {

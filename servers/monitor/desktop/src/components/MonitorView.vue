@@ -142,6 +142,12 @@ const activePanelKey = ref<string | null>(null)
 const panelError = ref<string | null>(null)
 let panelHandle: MonitorPanelHandle | null = null
 
+/**
+ * 装载代次：连续点两个页签会有并发装载，旧代次的结果必须丢弃——否则晚到的
+ * 旧句柄会覆盖新句柄（前一个实例再也卸不掉）。与 `AppMountSlot` 的 loadSeq 同法。
+ */
+let panelSeq = 0
+
 const activePanel = computed<MonitorPanelRegistration | null>(() => {
   if (!activePanelKey.value) return null
   return panels.value.find((panel) => panelKey(panel) === activePanelKey.value) ?? null
@@ -163,19 +169,31 @@ async function unmountPanel(): Promise<void> {
 }
 
 async function mountPanel(panel: MonitorPanelRegistration): Promise<void> {
+  const seq = ++panelSeq
   await unmountPanel()
+  if (seq !== panelSeq) return
   activePanelKey.value = panelKey(panel)
   panelError.value = null
   await nextTick()
-  if (!panelRoot.value) return
+  if (seq !== panelSeq || !panelRoot.value) return
   if (!context.mountMonitorPanel) {
     panelError.value = t('monitor.panels.unsupported')
     return
   }
   try {
-    panelHandle = await context.mountMonitorPanel(panelRoot.value, panel.appId, panel.id)
+    const handle = await context.mountMonitorPanel(panelRoot.value, panel.appId, panel.id)
+    if (seq !== panelSeq) {
+      // 晚到的旧实例：自己卸掉，不写回 panelHandle（否则泄漏 / 覆盖新实例）
+      try {
+        await handle.unmount()
+      } catch (e) {
+        console.error('[Monitor] stale panel unmount failed', e)
+      }
+      return
+    }
+    panelHandle = handle
   } catch (e) {
-    panelError.value = describeError(e)
+    if (seq === panelSeq) panelError.value = describeError(e)
   }
 }
 
@@ -221,6 +239,8 @@ function trapTotalOf(row: PluginRow): number {
 onMounted(start)
 onBeforeUnmount(() => {
   stop()
+  // 先让在途装载作废（晚到结果会自卸），再卸已挂载实例
+  panelSeq += 1
   void unmountPanel()
 })
 </script>

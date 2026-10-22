@@ -183,6 +183,49 @@ describe('Monitor（移动）自定义监控面板', () => {
     await flushPromises()
     expect(unmountSecond).toHaveBeenCalledTimes(1)
   })
+
+  it('快速切页签：晚到的旧实例自卸，不覆盖新句柄', async () => {
+    const staleUnmount = vi.fn(async () => {})
+    const freshUnmount = vi.fn(async () => {})
+    let resolveStale!: (handle: { unmount(): Promise<void> }) => void
+    const stalePending = new Promise<{ unmount(): Promise<void> }>((resolve) => {
+      resolveStale = resolve
+    })
+    const fn = vi
+      .fn()
+      .mockImplementationOnce(() => stalePending)
+      .mockResolvedValueOnce({ unmount: freshUnmount })
+    const execute = async () =>
+      snapshotWithMeta(['com.wasmnest.a'], {
+        'com.wasmnest.a': {
+          name: 'Provider A',
+          kind: 'business-app',
+          monitorPanels: [
+            { id: 'health', title: 'Health', order: 10 },
+            { id: 'usage', title: 'Usage', order: 20 },
+          ],
+        },
+      })
+    const wrapper = mountView(makeContext(execute, fn))
+    await flushPromises()
+    expect(fn).toHaveBeenCalledTimes(1) // 首个面板装载仍在途
+
+    await wrapper
+      .find('[data-testid="mobile-monitor-panel-tab-com.wasmnest.a-usage"]')
+      .trigger('click')
+    await flushPromises()
+    expect(fn).toHaveBeenCalledTimes(2)
+
+    resolveStale({ unmount: staleUnmount })
+    await flushPromises()
+    await flushPromises()
+    expect(staleUnmount).toHaveBeenCalledTimes(1)
+
+    wrapper.unmount()
+    await flushPromises()
+    expect(freshUnmount).toHaveBeenCalledTimes(1)
+    expect(staleUnmount).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe('Monitor（移动）台账角色过滤', () => {
