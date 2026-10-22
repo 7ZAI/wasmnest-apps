@@ -1157,8 +1157,11 @@ pub(crate) fn get_settings(h: &WasmHost) -> Result<serde_json::Value> {
             "concurrency": s.concurrency,
         })),
         Platform::Mobile => {
-            // 内置条目 local-downloads 由引擎注入、不进注册表；此处以只读形状
-            // 合并展示（前端按 builtin 标记渲染「私有下载」分区，不可移除）
+            // 平台默认下载目录（app 私有下载目录）：引擎侧为平台缝注册的普通
+            // 条目（对端经 list-shared-roots 可浏览；2026-10-22 peer-net-dissolve
+            // 起无「内置/免授权」特殊语义）。本端 UI 以只读形状合成特殊分区
+            // 展示（前端按 builtin 标记渲染「私有下载」分区，不可移除）——
+            // 此合成为纯展示层，不依赖引擎内置条目
             let builtin = serde_json::json!({
                 "id": "local-downloads", "name": "下载", "builtin": true, "treeUri": "",
             });
