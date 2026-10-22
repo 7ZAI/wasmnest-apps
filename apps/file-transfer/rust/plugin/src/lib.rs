@@ -42,6 +42,10 @@ mod roots_registry;
 mod settings_store;
 mod transfer_store;
 
+use platform::Platform;
+use std::sync::Mutex;
+use std::sync::OnceLock;
+use wasmnest_file_transfer_core::ports::ConsentGate;
 use wasmnest_plugin_api::host::{
     mdns_event_topic, HostBus, HostEvents, HostLog, HostMdns, HostPeer, HostPlatform, MDNS_FOUND,
     MDNS_LOST,
@@ -49,10 +53,6 @@ use wasmnest_plugin_api::host::{
 use wasmnest_plugin_api::types::PluginManifest;
 use wasmnest_plugin_api::wasm_host::WasmHost;
 use wasmnest_plugin_api::{BusMessage, WasmPlugin};
-use wasmnest_file_transfer_core::ports::ConsentGate;
-use platform::Platform;
-use std::sync::Mutex;
-use std::sync::OnceLock;
 
 pub(crate) use peer::PLUGIN_ID;
 
@@ -169,20 +169,28 @@ impl WasmPlugin for FileTransferPlugin {
         // 自建 browse 对等网络服务类型（共享守护，事件定向投递）；引擎未就绪
         // 时降级（空列表 + 提示），刷新命令补建
         ensure_mdns_browse(&h);
-        // 引擎电源：桌面由本插件显式请求起停（审计票 12：peer-net 节点由插件
-        // 自己经 host-peer 原语请求，内核不按硬编码产品 id 开关）；移动由宿主
-        // 外壳驱动（plugin/manager.rs 接线），插件不持有电源
-        if platform == Platform::Desktop {
-            // 放在 activate 后段，等价于旧外壳的 `result.is_ok()` 门——前面任何
-            // 一步失败都不会把节点带起来。起节点失败不翻成激活失败（与旧行为一致：
-            // 旧外壳只 log_error，激活结果由 inner 决定），否则一次引擎故障会变成
-            // 插件整体不可用
-            match h.peer_start_node() {
-                Ok(changed) => h.log_info(&format!(
-                    "peer-net node requested by this activation (state changed: {changed})"
-                )),
-                Err(e) => h.log_error(&format!("peer-net node start failed (plugin stays active): {e}")),
-            }
+        // 接收策略与落点推送：引擎默认 fail-closed（AlwaysDeny，2026-10-22
+        // peer-net-dissolve：业务语义不留在底座），产品默认（Ask + 审批窗口）由
+        // 本插件激活期显式给出——否则引擎直拒一切传入传输。失败不翻成激活失败
+        // （下次设置变更 save_and_push 重推收敛）
+        if let Err(e) = settings_store::load(&h)
+            .and_then(|settings| settings_store::save_and_push(&h, &settings))
+        {
+            h.log_error(&format!("activate: receive policy push failed: {e}"));
+        }
+        // 引擎电源：双端同构——本插件显式请求 peer 节点起停（服务租约按插件 id
+        // 记账：首个引用拉起、最后引用关停；宿主外壳不再按产品 id 驱动）
+        // 放在 activate 后段，等价于旧外壳的 `result.is_ok()` 门——前面任何
+        // 一步失败都不会把节点带起来。起节点失败不翻成激活失败（与旧行为一致：
+        // 旧外壳只 log_error，激活结果由 inner 决定），否则一次引擎故障会变成
+        // 插件整体不可用
+        match h.peer_start_node() {
+            Ok(changed) => h.log_info(&format!(
+                "peer-net node requested by this activation (state changed: {changed})"
+            )),
+            Err(e) => h.log_error(&format!(
+                "peer-net node start failed (plugin stays active): {e}"
+            )),
         }
         // 注册表层初始化：桌面建 plugin-db 表（幂等，尽早暴露持久化故障）；
         // 移动 storage KV 无表可建（函数内按平台短路）
@@ -200,7 +208,11 @@ impl WasmPlugin for FileTransferPlugin {
         let h = host();
         let platform = platform::current();
         // 关闭插件 = 服务下线：先自建 browse 回收句柄（宿主 purge 兜底不泄漏）
-        if let Some(id) = mdns_browser().lock().expect("mdns browser slot lock").take() {
+        if let Some(id) = mdns_browser()
+            .lock()
+            .expect("mdns browser slot lock")
+            .take()
+        {
             // 回收失败不阻断停用：宿主 purge 是兜底，不泄漏句柄——但要留痕，
             // 否则「插件关了却仍有 browse 残留」这类问题无从排查
             if let Err(e) = h.mdns_stop_browse(&id) {
@@ -211,7 +223,9 @@ impl WasmPlugin for FileTransferPlugin {
         // 仍显示在线——「关闭插件 对方无感知」），再清空句柄表与订阅
         for handle in device_bridge::drain_sessions() {
             if let Err(e) = h.peer_close(&handle) {
-                h.log_warn(&format!("deactivate: peer_close {handle} failed (non-fatal): {e}"));
+                h.log_warn(&format!(
+                    "deactivate: peer_close {handle} failed (non-fatal): {e}"
+                ));
             }
         }
         // endpoint memo 随会话一并清空（与移动端同构）：跨启停残留旧地址会在
@@ -242,16 +256,16 @@ impl WasmPlugin for FileTransferPlugin {
                 h.log_warn(&format!("deactivate: bus_unsubscribe {topic} failed: {e}"));
             }
         }
-        // 引擎电源（审计票 12）：桌面插件下线 → 自己关停节点（会话已在上方关闭，
-        // 对端经断流事件即时感知）。放在最后一步，与旧外壳的 `result.is_ok()` 门
-        // 同形。宿主侧另有一条按属主的兜底清理，本步失败或被漏调都不会让节点泄漏
-        // 在已停用的插件名下；非属主调用会报错，这里只记录不翻成停用失败。
-        // 移动端节点由宿主外壳驱动停息，插件不调
-        if platform == Platform::Desktop {
-            match h.peer_stop_node() {
-                Ok(_) => h.log_info("peer-net node stopped with plugin"),
-                Err(e) => h.log_warn(&format!("peer-net node stop skipped/failed (non-fatal): {e}")),
-            }
+        // 引擎电源：双端同构——插件下线 → 释放本插件的节点引用（会话已在上方
+        // 关闭，对端经断流事件即时感知）。放在最后一步，与旧外壳的
+        // `result.is_ok()` 门同形。宿主内核另有一条按 holder 的兜底释放，本步
+        // 失败或被漏调都不会让节点泄漏在已停用的插件名下；非持有者调用会报错，
+        // 这里只记录不翻成停用失败。
+        match h.peer_stop_node() {
+            Ok(_) => h.log_info("peer-net node released with plugin"),
+            Err(e) => h.log_warn(&format!(
+                "peer-net node stop skipped/failed (non-fatal): {e}"
+            )),
         }
         Ok(())
     }
@@ -288,7 +302,11 @@ impl WasmPlugin for FileTransferPlugin {
             "file-transfer.dial-peer" => peer::dial_peer(&h, &args),
             "file-transfer.disconnect-peer" => peer::disconnect_peer(&h, &args),
             "file-transfer.set-active-peer" => {
-                let id = args.get("peerId").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                let id = args
+                    .get("peerId")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
                 *active_node().lock().expect("active node lock") = id;
                 Ok(serde_json::json!({ "ok": true }))
             }
@@ -368,7 +386,10 @@ impl WasmPlugin for FileTransferPlugin {
             // 同一宿主 trust store），故不属本端口面。
             "file-transfer.respond-consent" => {
                 let request_id = require_str(&args, "requestId")?;
-                let accepted = args.get("accepted").and_then(|v| v.as_bool()).unwrap_or(false);
+                let accepted = args
+                    .get("accepted")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
                 let hit = consent_gate(platform, &h)
                     .decide_consent(&request_id, accepted)
                     .map_err(anyhow::Error::msg)?;
@@ -438,7 +459,11 @@ fn dispatch_bus_message(
     // 注：payload 增量追加 serviceType / browserId（spec v2 §5.2），
     // 前端按「忽略未知字段」增量原则兼容，这里原样透传
     if topic == *MDNS_FOUND_TOPIC || topic == *MDNS_LOST_TOPIC {
-        let event = if topic == *MDNS_FOUND_TOPIC { "mdns-found" } else { "mdns-lost" };
+        let event = if topic == *MDNS_FOUND_TOPIC {
+            "mdns-found"
+        } else {
+            "mdns-lost"
+        };
         h.emit_event(&format!("plugin:file-transfer:{event}"), payload);
         return Ok(());
     }
