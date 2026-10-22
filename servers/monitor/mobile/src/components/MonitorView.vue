@@ -10,7 +10,13 @@ import { useI18n } from 'vue-i18n'
 import type { PluginContext, MonitorPanelHandle } from '@binblink/wasmnest-plugin-sdk-mobile'
 import type { MonitorPanelRegistration, PluginMetricRow } from '../types'
 import { useMonitor } from '../composables/useMonitor'
-import { formatBytes, formatNumber, formatUnixTime, isServiceKind, sumValues } from '../utils/format'
+import {
+  formatBytes,
+  formatNumber,
+  formatUnixTime,
+  isServiceKind,
+  sumValues,
+} from '../utils/format'
 import PluginCardMobile from './PluginCardMobile.vue'
 import MiniSignal from './MiniSignal.vue'
 
@@ -21,8 +27,19 @@ const tx = (key: string, params?: Record<string, unknown>): string =>
 
 const context = inject<PluginContext>('pluginContext')!
 
-const { rows, panels, systems, summary, error, loading, lastUpdated, samples, refresh, start, stop } =
-  useMonitor(context, { intervalMs: 1000, includeTask: false })
+const {
+  rows,
+  panels,
+  systems,
+  summary,
+  error,
+  loading,
+  lastUpdated,
+  samples,
+  refresh,
+  start,
+  stop,
+} = useMonitor(context, { intervalMs: 1000, includeTask: false })
 
 const localeTag = computed(() => (locale.value === 'en' ? 'en-US' : 'zh-CN'))
 const initialLoading = computed(() => loading.value && lastUpdated.value === null)
@@ -57,8 +74,10 @@ const filterOptions = computed<Array<{ id: LedgerFilter; label: string; count: n
   { id: 'apps', label: tx('monitor.filter.apps'), count: appCount.value },
 ])
 const filteredOrderedRows = computed(() => {
-  if (ledgerFilter.value === 'services') return orderedRows.value.filter((row) => isServiceKind(row.kind))
-  if (ledgerFilter.value === 'apps') return orderedRows.value.filter((row) => !isServiceKind(row.kind))
+  if (ledgerFilter.value === 'services')
+    return orderedRows.value.filter((row) => isServiceKind(row.kind))
+  if (ledgerFilter.value === 'apps')
+    return orderedRows.value.filter((row) => !isServiceKind(row.kind))
   return orderedRows.value
 })
 

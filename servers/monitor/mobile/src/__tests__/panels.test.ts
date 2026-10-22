@@ -44,14 +44,18 @@ function snapshotWithMeta(
   plugins: string[],
   meta: Record<
     string,
-    { name?: string; kind?: string; monitorPanels?: Array<{ id: string; title: string; order?: number }> }
+    {
+      name?: string
+      kind?: string
+      monitorPanels?: Array<{ id: string; title: string; order?: number }>
+    }
   >,
   extra: Record<string, unknown> = {},
 ) {
-  return snapshot(
-    Object.fromEntries(plugins.map((id) => [id, metrics()])),
-    { plugin_meta: meta, ...extra },
-  )
+  return snapshot(Object.fromEntries(plugins.map((id) => [id, metrics()])), {
+    plugin_meta: meta,
+    ...extra,
+  })
 }
 
 describe('Monitor（移动）自定义监控面板', () => {
@@ -168,7 +172,9 @@ describe('Monitor（移动）自定义监控面板', () => {
     const wrapper = mountView(makeContext(execute, fn))
     await flushPromises()
 
-    await wrapper.find('[data-testid="mobile-monitor-panel-tab-com.wasmnest.a-usage"]').trigger('click')
+    await wrapper
+      .find('[data-testid="mobile-monitor-panel-tab-com.wasmnest.a-usage"]')
+      .trigger('click')
     await flushPromises()
     expect(unmountFirst).toHaveBeenCalledTimes(1)
     expect(fn).toHaveBeenLastCalledWith(expect.any(HTMLElement), 'com.wasmnest.a', 'usage')

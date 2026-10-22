@@ -142,11 +142,7 @@ describe('Monitor 自定义监控面板（宿主中介装载）', () => {
     await flushPromises()
 
     expect(unmountFirst).toHaveBeenCalledTimes(1)
-    expect(fn).toHaveBeenLastCalledWith(
-      expect.any(HTMLElement),
-      'com.wasmnest.a',
-      'usage',
-    )
+    expect(fn).toHaveBeenLastCalledWith(expect.any(HTMLElement), 'com.wasmnest.a', 'usage')
 
     wrapper.unmount()
     await flushPromises()

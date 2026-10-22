@@ -10,9 +10,7 @@
   "pluginType": "wasm",
   "type": "internal-business",
   "rustLibrary": "wasmnest_plugin_monitor",
-  "permissions": [
-    "metrics:read"
-  ],
+  "permissions": ["metrics:read"],
   "contributes": {
     "commands": [
       {
