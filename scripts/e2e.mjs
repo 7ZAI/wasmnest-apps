@@ -46,15 +46,7 @@
  */
 
 import { spawn, spawnSync } from 'node:child_process'
-import {
-  cpSync,
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  readdirSync,
-  rmSync,
-} from 'node:fs'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import {
@@ -66,6 +58,7 @@ import {
   resolveHostRuntime,
 } from './host-runtime.mjs'
 import { installRuntime, runtimeMissingHint } from './install-runtime.mjs'
+import { listProjects, locate, projectDir } from './lib/projects.mjs'
 import {
   cargoHostBin,
   hostExpectations,
@@ -112,7 +105,7 @@ function usage() {
     [
       '用法：node scripts/e2e.mjs --app <slug> [选项]',
       '',
-      '  --app <slug>    被测 app 目录 slug（agent-hub / ai-chatbox / bedcode / file-transfer / monitor）',
+      '  --app <slug>    被测 app 目录 slug（agent-hub / ai-chatbox / bedcode / file-transfer / monitor / auth-center）',
       '  --skip-build    不重建被测 app（复用现有产物）',
       '  --build-full    连 wasm 后端一起构建（默认只重建前端）',
       '  --spec <path>   透传给 wdio --spec',
@@ -306,16 +299,27 @@ function platformDirsOrDie() {
 
 // ==================== 被测 app ====================
 
-/** 解析被测 app：目录 slug → 插件 id */
-function resolveApp(slug) {
-  const dir = resolve(APPS_ROOT, 'apps', slug, 'desktop')
+/** 解析被测 app：`slug` / `group:slug` → 插件 id（分组经唯一枚举点定位） */
+function resolveApp(spec) {
+  const found = locate(spec)
+  if (!found) {
+    fail(
+      `app 不存在或缺 plugin.json：${spec}`,
+      `可用 app：${listApps().join(' / ')}（取值 = 工程目录名，跨分组重名时用 group:slug）`,
+    )
+  }
+  const dir = projectDir(found.group, found.slug, 'desktop')
   const manifestPath = join(dir, 'plugin.json')
   if (!existsSync(manifestPath)) {
-    fail(`app 不存在或缺 plugin.json：${dir}`, `可用 app：${listApps().join(' / ')}`)
+    fail(
+      `app 不存在或缺 plugin.json：${dir}`,
+      `可用 app：${listApps().join(' / ')}（取值 = 工程目录名，跨分组重名时用 group:slug）`,
+    )
   }
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf-8'))
   return {
-    slug,
+    slug: found.slug,
+    group: found.group,
     dir,
     pluginId: manifest.id,
     name: manifest.name,
@@ -324,11 +328,7 @@ function resolveApp(slug) {
 }
 
 function listApps() {
-  const appsDir = resolve(APPS_ROOT, 'apps')
-  if (!existsSync(appsDir)) return []
-  return readdirSync(appsDir, { withFileTypes: true })
-    .filter((e) => e.isDirectory() && existsSync(join(appsDir, e.name, 'desktop')))
-    .map((e) => e.name)
+  return listProjects({ ends: ['desktop'], requireManifest: true }).map((p) => p.slug)
 }
 
 /** 该 app 是否已有 E2E 用例（`e2e/specs/<slug>.spec.ts`） */
@@ -357,7 +357,7 @@ function buildApp(app, { mode, skip, full, pluginsDir }) {
   if (r.status !== 0) {
     fail(
       `app 构建失败：${app.slug}`,
-      `手工复现：cd apps/${app.slug}/desktop && node scripts/build.js ${args.join(' ')}`,
+      `手工复现：cd ${app.group}/${app.slug}/desktop && node scripts/build.js ${args.join(' ')}`,
     )
   }
 }
@@ -424,6 +424,17 @@ async function main() {
     fail('没有可跑的 app', `e2e/specs/ 下有用例的 app：${listApps().filter(hasSpec).join(' / ')}`)
   }
   const apps = slugs.map(resolveApp)
+  // 显式 `--app` 同样要求用例存在：把不存在的 spec 路径交给 wdio，只会得到
+  // 「找不到文件」的笼统失败，看不出「这个 app 还没写 E2E」（判据纪律：fail-visible）
+  const specless = apps.filter((app) => !hasSpec(app.slug))
+  if (specless.length > 0) {
+    fail(
+      `尚无 E2E 用例：${specless.map((a) => a.slug).join(' / ')}`,
+      `补用例文件 = e2e/specs/<slug>.spec.ts（锚点约定见 docs/E2E.md）；当前有用例的 app：${listApps()
+        .filter(hasSpec)
+        .join(' / ')}`,
+    )
+  }
   const host = preflightHost({ mode, hostFlag: args.host })
   console.log(`[e2e] 宿主模式：${mode}${needsDevServer(mode) ? '（需要平台前端 dev server）' : '（不启 dev server，前端已嵌入宿主二进制）'}`)
   for (const app of apps) {

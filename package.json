@@ -15,7 +15,7 @@
     "link:platform": "node scripts/link-platform-sdk.mjs",
     "unlink:platform": "node scripts/unlink-platform-sdk.mjs",
     "lint": "eslint .",
-    "format": "prettier --write \"apps/**/src/**/*.{ts,vue,js,mjs}\""
+    "format": "prettier --write \"apps/**/src/**/*.{ts,vue,js,mjs}\" \"servers/**/src/**/*.{ts,vue,js,mjs}\""
   },
   "devDependencies": {
     "@binblink/wasmnest-plugin-sdk-desktop": "0.0.1",

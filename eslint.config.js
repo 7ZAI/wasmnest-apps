@@ -22,11 +22,15 @@ const prettier = require('eslint-config-prettier')
 const RESOURCE_ACCESS_MSG =
   '前端禁止直接发起网络 / 文件访问（AGENTS.md §6 前端红线）：HTTP / WebSocket / 文件访问只能由 Rust 端发起并经权限仲裁。改走 invoke(...) → 宿主命令或插件命令面；确需豁免请写 eslint-disable-next-line 并注明理由。'
 
-// 受锁约束的前端源码：应用仓内全部 app 前端（各端 src/**）。
+// 受锁约束的前端源码：应用仓内全部工程前端（apps + servers 两个分组的各端 src/**）。
 // 构建脚本、配置、测试不在其列（它们不是运行在权限闸门内的前端）。
+// `servers/`（服务型 wasm）与 `apps/` 同权：它的前端同样跑在宿主挂载槽里，同样
+// 不许直连网络 / 文件——漏了这组 glob 等于给服务型 wasm 开一条无锁通道。
 const frontendSourceGlobs = [
   'apps/*/desktop/src/**/*.{ts,tsx,js,mjs,vue}',
   'apps/*/mobile/src/**/*.{ts,tsx,js,mjs,vue}',
+  'servers/*/desktop/src/**/*.{ts,tsx,js,mjs,vue}',
+  'servers/*/mobile/src/**/*.{ts,tsx,js,mjs,vue}',
 ]
 
 // 资源访问原语：直接调用、new 构造、经 window/globalThis/self 取用三种写法都要拦。
@@ -157,6 +161,15 @@ const ignores = [
   // 挂载包）与 dev:host 的 .dev-host/plugins/**。压缩产物进 lint = 把机器生成的字节当源码审。
   '**/.build',
   '**/.dev-host',
+  // 本地并行工作树（`<仓根>/.worktrees/<name>`，见 scripts/platform-sdk-link.mjs 的
+  // 兄弟目录口径；由 .git/info/exclude 排除）。里面是另一份完整检出（含自己的
+  // node_modules），进 lint 会把别的工作树的源码当本树审，还会钻进 pnpm 的
+  // node_modules 软链环炸成 ELOOP。
+  // **两条都得留**（2026-10-23 逐条实跑过：只留 `**/.worktrees`、只留
+  // `**/.worktrees/**`、或只留 `.worktrees/**` 都会崩，两条同留才 0 error）——
+  // 点前缀 + 符号链接的目录剪枝口径就这样，别再"整理"成一条。
+  '.worktrees/**',
+  '**/.worktrees/**',
   '**/src-tauri',
   // Cargo 构建目录：tauri build 会把插件产物（index.js）拷进 target/ 下的
   // resources/plugins/**，那是生成物（压缩过的 index.js），不是源码。
@@ -167,6 +180,9 @@ const ignores = [
   '**/test-results',
   '**/scripts/**',
   '**/__tests__/**',
+  // 仓内草稿 / 票据目录（spec、排障记录、本地工具）。不是产品源码：既不该被
+  // 「前端红线」审，也不该因为里面放了一份解包的第三方包（如本地 pnpm）让 lint 变红。
+  '**/.scratch/**',
   '**/*.test.ts',
   '**/*.test.js',
   '**/*.spec.ts',

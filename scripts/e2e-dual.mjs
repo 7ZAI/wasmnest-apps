@@ -55,6 +55,7 @@ import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { APPS_ROOT, desktopHostDir, platformRoot } from './platform-paths.mjs'
+import { locate, projectDir, slugDir } from './lib/projects.mjs'
 import {
   assertHostCompatible,
   hostRuntimeMissingHint,
@@ -292,12 +293,14 @@ function adb(serial, args, { inherit = false, timeout = 120_000 } = {}) {
 
 // ==================== 被测 app ====================
 
-function resolveApp(slug) {
-  const dir = resolve(APPS_ROOT, 'apps', slug, 'desktop')
+function resolveApp(spec) {
+  const found = locate(spec)
+  if (!found) fail(`app 不存在：${spec}（取值 = 工程目录名，跨分组重名时用 group:slug）`)
+  const dir = projectDir(found.group, found.slug, 'desktop')
   const manifestPath = join(dir, 'plugin.json')
   if (!existsSync(manifestPath)) fail(`app 不存在或缺 plugin.json：${dir}`)
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf-8'))
-  return { slug, dir, pluginId: manifest.id, name: manifest.name }
+  return { slug: found.slug, group: found.group, dir, pluginId: manifest.id, name: manifest.name }
 }
 
 function hasDualSpec(slug) {
@@ -366,7 +369,7 @@ function resolveApk(explicit) {
 
 /** APK 是否比移动端源码新（陈旧产物会把「改了没生效」伪装成用例失败） */
 function warnIfApkStale(apk, app) {
-  const srcDir = resolve(APPS_ROOT, 'apps', app.slug, 'mobile', 'src')
+  const srcDir = join(slugDir(app.group, app.slug), 'mobile', 'src')
   if (!existsSync(srcDir)) return
   const apkTime = statSync(apk).mtimeMs
   const newest = newestMtime(srcDir)

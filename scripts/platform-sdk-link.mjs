@@ -13,18 +13,14 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join, relative, resolve, sep } from 'node:path'
 
+import { listProjects } from './lib/projects.mjs'
+
 export const SDK_PACKAGE_NAME = '@binblink/wasmnest-plugin-sdk-desktop'
 /** 未发布 / 发布后都应保持的精确版本（与 host-runtime.lock 的 sdkVersion 同轴） */
 export const SDK_EXACT_VERSION = '0.0.1'
-/** 五个桌面 app（monitor 也是本票对象） */
-export const DESKTOP_APPS = Object.freeze([
-  'agent-hub',
-  'ai-chatbox',
-  'bedcode',
-  'file-transfer',
-  'monitor',
-])
-/** marker（gitignore）：记录 link 前的原始 spec，供 unlink 精确还原 */
+/**
+ * marker（gitignore）：记录 link 前的原始 spec，供 unlink 精确还原
+ */
 export const MARKER_FILE_NAME = '.platform-sdk-link.json'
 /** `.cargo/config.toml` 追加块的定界标记（unlink 靠它整块删除） */
 export const LINK_BLOCK_BEGIN = '# >>> wasmnest-platform-sdk-link（scripts/link-platform-sdk.mjs 写入，unlink 删除） >>>'
@@ -43,19 +39,25 @@ export function sdkPackageDir(platformRoot) {
   return join(resolve(platformRoot), 'wasmnest-desktop', 'packages', 'plugin-sdk-desktop')
 }
 
-/** 根 + 五个 app 的 package.json（SDK 依赖所在文件） */
-export function desktopPackageFiles(appsRoot) {
-  const root = resolve(appsRoot)
-  return [
-    join(root, 'package.json'),
-    ...DESKTOP_APPS.map((slug) => join(root, 'apps', slug, 'desktop', 'package.json')),
-  ]
+/**
+ * 全部桌面工程目录（**枚举经 `scripts/lib/projects.mjs`**，覆盖 apps + servers 两个
+ * 分组）：link / unlink / status 都按它走，新增工程不再需要改清单。
+ *
+ * 只要求 `package.json`（不要求 `plugin.json`）：link 的判据是「这个工程声明了 SDK
+ * 依赖」，测试 fixture 也按这个口径构造。
+ */
+export function desktopAppDirs(appsRoot) {
+  return listProjects({
+    root: resolve(appsRoot),
+    ends: ['desktop'],
+    requirePackage: true,
+  }).map((project) => project.dir)
 }
 
-/** 五个 app 工程目录（link 后逐个 pnpm install） */
-export function desktopAppDirs(appsRoot) {
+/** 根 + 全部桌面工程的 package.json（SDK 依赖所在文件） */
+export function desktopPackageFiles(appsRoot) {
   const root = resolve(appsRoot)
-  return DESKTOP_APPS.map((slug) => join(root, 'apps', slug, 'desktop'))
+  return [join(root, 'package.json'), ...desktopAppDirs(root).map((dir) => join(dir, 'package.json'))]
 }
 
 /**

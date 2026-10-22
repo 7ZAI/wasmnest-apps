@@ -37,6 +37,7 @@ import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { APPS_ROOT, platformRoot } from './platform-paths.mjs'
+import { locate, projectDir } from './lib/projects.mjs'
 
 const MOBILE_PACKAGE = 'com.wasmnest.mobile'
 
@@ -165,12 +166,14 @@ function adb(serial, args, { inherit = false, timeout = 120_000 } = {}) {
 
 // ==================== 被测应用 ====================
 
-function resolveApp(slug) {
-  const dir = resolve(APPS_ROOT, 'apps', slug, 'mobile')
+function resolveApp(spec) {
+  const found = locate(spec)
+  if (!found) fail(`应用不存在：${spec}（取值 = 工程目录名，跨分组重名时用 group:slug）`)
+  const dir = projectDir(found.group, found.slug, 'mobile')
   const manifestPath = join(dir, 'plugin.json')
   if (!existsSync(manifestPath)) fail(`应用不存在或缺 plugin.json：${dir}`)
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf-8'))
-  return { slug, dir, pluginId: manifest.id, name: manifest.name }
+  return { slug: found.slug, group: found.group, dir, pluginId: manifest.id, name: manifest.name }
 }
 
 /** 该应用的用例文件（`e2e/mobile/<slug>-*.spec.ts`）；没有就是没写用例，不是「通过」 */
@@ -205,7 +208,7 @@ function resolveApk(explicit) {
 
 /** APK 是否比移动端源码新（陈旧产物会把「改了没生效」伪装成用例失败） */
 function warnIfApkStale(apk, app) {
-  const srcDir = resolve(APPS_ROOT, 'apps', app.slug, 'mobile', 'src')
+  const srcDir = join(app.dir, 'src')
   if (!existsSync(srcDir)) return
   const apkTime = statSync(apk).mtimeMs
   const newest = newestMtime(srcDir)

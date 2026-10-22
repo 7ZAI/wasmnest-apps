@@ -72,10 +72,14 @@ jobs:
       - name: 补齐平台侧生成物（WIT 拼装 + 双端 SDK dist）
         run: node scripts/ci/prepare-platform.mjs --ends all
 
-      - name: 安装各 app 依赖（每个 app 独立 workspace）
+      - name: 安装各工程依赖（apps + servers，每个工程独立 workspace）
         run: |
           set -euo pipefail
-          for pkg in apps/*/desktop/package.json apps/*/mobile/package.json; do
+          # nullglob：`servers/*/mobile/package.json` 这类「当前无人匹配」的模式展开成空，
+          # 否则字面量会被当成路径传进 cd（缺一个端目录就整步失败）。
+          shopt -s nullglob
+          for pkg in apps/*/desktop/package.json apps/*/mobile/package.json \
+                     servers/*/desktop/package.json servers/*/mobile/package.json; do
             dir="$(dirname "$pkg")"
             echo "::group::pnpm install $dir"
             (cd "$dir" && pnpm install --frozen-lockfile)
@@ -85,5 +89,5 @@ jobs:
       - name: eslint（0 error 口径）
         run: pnpm run lint
 
-      - name: 各 app 单测（逐 app 串行，缺脚本打印 skip）
+      - name: 各工程单测（逐工程串行，缺脚本打印 skip）
         run: pnpm run test:run

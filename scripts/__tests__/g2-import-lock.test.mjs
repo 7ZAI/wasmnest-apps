@@ -14,30 +14,35 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { join, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { join } from 'node:path'
 
-const APPS_ROOT = resolve(fileURLToPath(new URL('.', import.meta.url)), '..', '..')
+import { APPS_ROOT, listProjects } from '../lib/projects.mjs'
 
-const SLUGS = ['agent-hub', 'ai-chatbox', 'bedcode', 'file-transfer', 'monitor']
+/**
+ * 参与 G2 的桌面工程（**全部分组**：apps + servers —— 服务型 wasm 随包分发，
+ * 同样「只拿到应用仓 + 联网就要能构建」，不能因为住在 `servers/` 就漏锁）。
+ */
+const DESKTOP_PROJECTS = listProjects({ ends: ['desktop'] })
 
 /**
  * 参与 G2 的「无平台仓也必须能跑」文件清单（相对应用仓根）。
  *
- * spec D11 ⑥ 点名：五个 build.js、五个 dev-host.js、scripts/e2e.mjs；
+ * spec D11 ⑥ 点名：各 build.js、各 dev-host.js、scripts/e2e.mjs；
  * `e2e/wdio.conf.ts` 一并纳入——它是历史上自己拼平台仓宿主路径的那一处。
  * `scripts/e2e-dual.mjs` **不在禁列**：移动侧真要跑就得拿平台仓的 debug APK
  * （out of scope），只要求桌面宿主解析走同一个 resolver。
  */
 function buildChainFiles() {
   return [
-    ...SLUGS.flatMap((slug) => [
-      `apps/${slug}/desktop/scripts/build.js`,
-      `apps/${slug}/desktop/scripts/dev-host.js`,
-    ]),
+    ...DESKTOP_PROJECTS.flatMap((p) => [`${p.rel}/scripts/build.js`, `${p.rel}/scripts/dev-host.js`]),
     'scripts/e2e.mjs',
     'e2e/wdio.conf.ts',
   ]
+}
+
+/** 桌面 build.js 路径（断言用） */
+function desktopBuildJs(project) {
+  return join(APPS_ROOT, project.rel, 'scripts', 'build.js')
 }
 
 /** 禁止出现的模式：命中即点名文件与行 */
@@ -59,9 +64,10 @@ function offenders(source) {
   return hits
 }
 
-test('G2 导入锁：五个 app 的 build.js / dev-host.js 零平台仓引用', () => {
+test('G2 导入锁：全部桌面工程（含 servers）的 build.js / dev-host.js 零平台仓引用', () => {
   const files = buildChainFiles()
-  assert.equal(files.length, 12, '文件清单不得为空（否则本锁空转）')
+  assert.ok(DESKTOP_PROJECTS.length > 0, '工程清单不得为空（否则本锁空转）')
+  assert.equal(files.length, DESKTOP_PROJECTS.length * 2 + 2, '文件清单数量与工程数不符')
   const offendersByFile = files
     .map((rel) => [rel, offenders(readFileSync(join(APPS_ROOT, rel), 'utf-8'))])
     .filter(([, hits]) => hits.length > 0)
@@ -75,25 +81,25 @@ test('G2 导入锁：五个 app 的 build.js / dev-host.js 零平台仓引用', 
 })
 
 test('G2 导入锁：SDK 工具经包名导入（不是相对路径）', () => {
-  for (const slug of SLUGS) {
-    const src = readFileSync(join(APPS_ROOT, `apps/${slug}/desktop/scripts/build.js`), 'utf-8')
+  for (const project of DESKTOP_PROJECTS) {
+    const src = readFileSync(desktopBuildJs(project), 'utf-8')
     assert.match(
       src,
       /from '@binblink\/wasmnest-plugin-sdk-desktop\/bin\/wasm-hash\.js'/,
-      `${slug} 的 injectWasmHash 必须从 SDK 包导入`,
+      `${project.rel} 的 injectWasmHash 必须从 SDK 包导入`,
     )
-    if (slug === 'bedcode') continue // bedcode 无前端 watch（既有口径），不引 plugin-watch
+    if (project.slug === 'bedcode') continue // bedcode 无前端 watch（既有口径），不引 plugin-watch
     assert.match(
       src,
       /from '@binblink\/wasmnest-plugin-sdk-desktop\/bin\/plugin-watch\.js'/,
-      `${slug} 的 startPluginWatch 必须从 SDK 包导入`,
+      `${project.rel} 的 startPluginWatch 必须从 SDK 包导入`,
     )
   }
 })
 
-test('G2 导入锁：默认产物目录写本仓 .build/plugins，且不复用 vite outDir', () => {
-  for (const slug of SLUGS) {
-    const src = readFileSync(join(APPS_ROOT, `apps/${slug}/desktop/scripts/build.js`), 'utf-8')
+test('G2 导入锁：默认产物目录写各自工程 .build/plugins，且不复用 vite outDir', () => {
+  for (const project of DESKTOP_PROJECTS) {
+    const src = readFileSync(desktopBuildJs(project), 'utf-8')
     assert.match(src, /const DEFAULT_PLUGINS_DIR = join\('\.build', 'plugins'\)/)
     assert.match(src, /const PLUGINS_DIR = resolve\(ROOT, OUT_DIR_ARG \|\| DEFAULT_PLUGINS_DIR\)/)
     assert.doesNotMatch(src, /desktopHostResourcesDir\(\)/)
@@ -101,13 +107,13 @@ test('G2 导入锁：默认产物目录写本仓 .build/plugins，且不复用 v
 })
 
 test('G2 导入锁：仅前端构建先保全 wasm（否则清空 outDir 后无处复用）', () => {
-  for (const slug of SLUGS) {
-    const src = readFileSync(join(APPS_ROOT, `apps/${slug}/desktop/scripts/build.js`), 'utf-8')
-    assert.match(src, /function preservePreviousWasm\(\)/, `${slug} 缺构建前保全函数`)
-    assert.match(src, /keptWasm/, `${slug} 的 copyArtifacts 未接保全结果`)
+  for (const project of DESKTOP_PROJECTS) {
+    const src = readFileSync(desktopBuildJs(project), 'utf-8')
+    assert.match(src, /function preservePreviousWasm\(\)/, `${project.rel} 缺构建前保全函数`)
+    assert.match(src, /keptWasm/, `${project.rel} 的 copyArtifacts 未接保全结果`)
     const keptCall = src.indexOf('preservePreviousWasm()')
     const buildCall = src.indexOf('buildFrontend()')
-    assert.ok(keptCall > -1 && buildCall > -1, `${slug} 缺少保全 / 构建调用点`)
+    assert.ok(keptCall > -1 && buildCall > -1, `${project.rel} 缺少保全 / 构建调用点`)
   }
 })
 

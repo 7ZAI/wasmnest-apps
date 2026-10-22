@@ -12,9 +12,10 @@
  *      - <out>/<target>/<id>.zip（zip 根 = 插件文件，与移动端 SDK package 分发格式一致），
  *        一个插件一个包，发布后按需单独安装/更新。
  *
- * 三仓拆分（spec §5-E6）后本脚本随应用仓走：插件源码在 `apps/<slug>/{desktop,mobile}`，
- * 插件清单由目录扫描得出（不再依赖旧仓 `scripts/plugin-package-list.json`）；宿主资源目录
- * 仍由平台仓提供（产物落点，见 `scripts/platform-paths.mjs`）。
+ * 三仓拆分（spec §5-E6）后本脚本随应用仓走：插件源码在 `<group>/<slug>/{desktop,mobile}`
+ * （group ∈ apps / servers，枚举经 `scripts/lib/projects.mjs`），插件清单由目录扫描得出
+ * （不再依赖旧仓 `scripts/plugin-package-list.json`）；宿主资源目录仍由平台仓提供
+ * （产物落点，见 `scripts/platform-paths.mjs`）。
  *
  * 用法：
  *   node scripts/package-plugins.mjs [options]
@@ -60,10 +61,10 @@ import { platform } from 'node:os'
 import { generateManifest } from '@binblink/wasmnest-plugin-sdk-desktop/bin/manifest-gen.js'
 import { verifyWasmHash } from '@binblink/wasmnest-plugin-sdk-desktop/bin/wasm-hash.js'
 import { mobileHostResourcesDir } from './platform-paths.mjs'
+import { listProjects, locate, projectDir } from './lib/projects.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT = resolve(__dirname, '..')
-const APPS_DIR = resolve(ROOT, 'apps')
 const IS_WIN = platform() === 'win32'
 
 // ==================== 参数解析 ====================
@@ -200,26 +201,32 @@ function fmtSize(n) {
 // ==================== 插件列表解析 ====================
 
 /**
- * 解析单个插件名（app 目录名或 plugin.json id）在指定端的实际工程目录。
- * 应用仓布局：`apps/<slug>/<end>`（end = desktop|mobile）；优先 app 目录名直配，
- * 其次扫描全部 app 目录按 manifest.id 匹配（双端同 id 的 app 如 bedcode 按端各自命中）。
+ * 解析单个插件名（工程目录名 / `group:slug` / plugin.json id）在指定端的实际工程。
+ *
+ * 布局：`<group>/<slug>/<end>`（group ∈ apps / servers，end = desktop|mobile）；
+ * 优先按目录名直配（跨分组唯一），其次扫描两个分组按 manifest.id 匹配
+ * （双端同 id 的 app 如 bedcode 按端各自命中）。
+ *
+ * @returns {{group: string, dir: string, id: string} | null} `dir` = slug（日志与产物键沿用）
  */
 function resolvePlugin(target, name) {
-  const dirHit = resolve(APPS_DIR, name, target)
-  if (existsSync(join(dirHit, 'plugin.json'))) {
-    return { dir: name, id: readJson(join(dirHit, 'plugin.json'), `插件 ${name} 的 plugin.json`).id }
+  const located = locate(name)
+  if (located && existsSync(join(projectDir(located.group, located.slug, target), 'plugin.json'))) {
+    const manifestPath = join(projectDir(located.group, located.slug, target), 'plugin.json')
+    return {
+      group: located.group,
+      dir: located.slug,
+      id: readJson(manifestPath, `插件 ${name} 的 plugin.json`).id,
+    }
   }
-  for (const d of readdirSync(APPS_DIR, { withFileTypes: true })) {
-    if (!d.isDirectory() || d.name.startsWith('.') || d.name.startsWith('_')) continue
-    const manifestPath = join(APPS_DIR, d.name, target, 'plugin.json')
-    if (!existsSync(manifestPath)) continue
+  for (const project of listProjects({ ends: [target], requireManifest: true })) {
     let m
     try {
-      m = JSON.parse(readFileSync(manifestPath, 'utf-8'))
+      m = JSON.parse(readFileSync(join(project.dir, 'plugin.json'), 'utf-8'))
     } catch {
       continue
     }
-    if (m.id === name) return { dir: d.name, id: m.id }
+    if (m.id === name) return { group: project.group, dir: project.slug, id: m.id }
   }
   return null
 }
@@ -227,7 +234,7 @@ function resolvePlugin(target, name) {
 /**
  * 解析打包插件清单：--only（忽略清单）或 默认扫描 + --plugin 追加，再 --exclude 排除 + --target 过滤。
  *
- * 默认清单 = 扫描 `apps/<slug>/<end>/plugin.json`（应用仓是插件源码唯一真源，不再维护
+ * 默认清单 = 扫描全部工程分组的 `<end>/plugin.json`（应用仓是插件源码唯一真源，不再维护
  * 旧仓的 plugin-package-list.json；该清单已并入平台仓 release-manifest 的产品级片段）。
  */
 function loadPlugins() {
@@ -256,12 +263,9 @@ function loadPlugins() {
         }
       }
     } else {
-      // 默认扫描：每个 app 的每一端只要有 plugin.json 即为打包目标
-      for (const d of readdirSync(APPS_DIR, { withFileTypes: true })) {
-        if (!d.isDirectory() || d.name.startsWith('.') || d.name.startsWith('_')) continue
-        for (const t of ['desktop', 'mobile']) {
-          if (existsSync(join(APPS_DIR, d.name, t, 'plugin.json'))) list[t].add(d.name)
-        }
+      // 默认扫描：每个工程的每一端只要有 plugin.json 即为打包目标
+      for (const project of listProjects({ requireManifest: true })) {
+        list[project.end].add(project.slug)
       }
     }
     // --plugin 追加（同名插件两端都尝试，resolve 后去重）
@@ -270,7 +274,7 @@ function loadPlugins() {
       list.mobile.add(name)
     }
   }
-  // --exclude 排除（按 app 目录名或 id 删除）
+  // --exclude 排除（按工程目录名或 id 删除）
   for (const name of args.exclude) {
     list.desktop.delete(name)
     list.mobile.delete(name)
@@ -282,7 +286,7 @@ function loadPlugins() {
     for (const name of list[t]) {
       const hit = resolvePlugin(t, name)
       if (hit) plugins.push({ target: t, ...hit })
-      else warn(`插件「${name}」在 ${t} 端不存在，已跳过（--config / --plugin 名应为 app 目录名或 plugin.json id）`)
+      else warn(`插件「${name}」在 ${t} 端不存在，已跳过（--config / --plugin 名应为工程目录名、group:slug 或 plugin.json id）`)
     }
   }
   // 按 target 去重（--plugin 与清单可能重复指定）
@@ -305,7 +309,7 @@ if (plugins.length === 0) {
 if (args.list) {
   console.log('[package-plugins] 打包插件清单：')
   for (const p of plugins) {
-    console.log(`  ${p.target.padEnd(8)} ${p.id}  (dir: ${p.dir})`)
+    console.log(`  ${p.target.padEnd(8)} ${p.id}  (${p.group}/${p.dir})`)
   }
   process.exit(0)
 }
@@ -319,8 +323,8 @@ const stageDir = join(outDir, 'stage')
 const desktopPluginsDir = resolve(ROOT, args.pluginsDir || join(args.out, 'plugins'))
 const version = args.version || readJson(join(ROOT, 'package.json'), 'package.json').version
 
-function buildDesktopPlugin({ dir, id }) {
-  const pluginDir = resolve(APPS_DIR, dir, 'desktop')
+function buildDesktopPlugin({ group, dir, id }) {
+  const pluginDir = projectDir(group, dir, 'desktop', ROOT)
   // manifest 自动填充（SDK bin/manifest-gen.js，与宿主插件构建链同源，保证产物与源码一致；
   // wasmHash 是产物侧注入字段，不参与该一致性口径）
   try {
@@ -339,10 +343,13 @@ function buildDesktopPlugin({ dir, id }) {
   })
 }
 
-function buildMobilePlugin({ dir, id }) {
+function buildMobilePlugin({ group, dir, id }) {
   // 各 app 自己声明构建链（bedcode/ai-chatbox 走 SDK CLI；file-transfer 单产物
   // 走共享 rust 构建），本脚本只负责编排与打包，不复制构建逻辑。
-  run(['pnpm', 'run', 'build'], { cwd: resolve(APPS_DIR, dir, 'mobile'), label: `构建移动端插件 ${id}` })
+  run(['pnpm', 'run', 'build'], {
+    cwd: projectDir(group, dir, 'mobile', ROOT),
+    label: `构建移动端插件 ${id}`,
+  })
 }
 
 if (!args.skipBuild) {
@@ -563,7 +570,7 @@ function zipPlugins() {
 // ==================== 主流程 ====================
 
 console.log(`\n[package-plugins] 打包版本: ${version}，共 ${plugins.length} 个插件`)
-for (const p of plugins) console.log(`  - [${p.target}] ${p.id} (${p.dir})`)
+for (const p of plugins) console.log(`  - [${p.target}] ${p.id} (${p.group}/${p.dir})`)
 
 collectArtifacts()
 verifyDesktopArtifacts()

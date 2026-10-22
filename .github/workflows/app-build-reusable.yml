@@ -140,9 +140,18 @@ jobs:
       - name: 补齐平台侧生成物（WIT 拼装 + SDK dist）
         run: node scripts/ci/prepare-platform.mjs --ends ${{ matrix.end }}
 
+      # 工程目录经 resolver 解析（apps / servers 两个分组；`--field dir` 给出 `<group>/<slug>`），
+      # 不在 YAML 里拼 `apps/`——服务型 wasm 住在 `servers/` 下。
+      - name: 解析本端工程目录
+        id: project
+        run: |
+          set -euo pipefail
+          base=$(node scripts/ci/app-info.mjs --app "${{ inputs.app }}" --field dir)
+          echo "dir=wasmnest-apps/$base/${{ matrix.end }}" >> "$GITHUB_OUTPUT"
+
       - name: 安装本端依赖
         run: pnpm install --frozen-lockfile
-        working-directory: wasmnest-apps/apps/${{ inputs.app }}/${{ matrix.end }}
+        working-directory: ${{ steps.project.outputs.dir }}
 
       - name: 构建 + 打包
         id: build

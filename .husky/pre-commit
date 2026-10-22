@@ -1,10 +1,12 @@
-# ==================== 前端 ESLint 门禁（仅校验暂存的应用前端文件）====================
-# 应用仓有自己的 eslint 配置（apps/*/{desktop,mobile}/src 与 scripts/）。这里只校验
-# 暂存的应用前端源码；只因 error 阻断提交（warning 不卡，与根 `pnpm exec eslint .` 的
-# 0-error 基准一致）。
+# ==================== 前端 ESLint 门禁（仅校验暂存的工程前端文件）====================
+# 应用仓有自己的 eslint 配置（`apps/` 与 `servers/` 两个分组的 */{desktop,mobile}/src
+# 与 scripts/）。这里只校验暂存的工程前端源码；只因 error 阻断提交（warning 不卡，
+# 与根 `pnpm exec eslint .` 的 0-error 基准一致）。
+# `servers/`（服务型 wasm）必须同列：它的前端同样跑在宿主挂载槽里，漏进来等于给
+# 服务型 wasm 开一条无门禁通道（与 eslint.config.js 的 frontendSourceGlobs 同口径）。
 # node_modules 缺失（如未 pnpm install 的干净 clone）时跳过，不阻断提交。
 STAGED=$(git diff --cached --name-only --diff-filter=ACMR \
-  | grep -E '^apps/[^/]+/(desktop|mobile)/src/.*\.(vue|js|jsx|cjs|mjs|ts|tsx|cts|mts)$' || true)
+  | grep -E '^(apps|servers)/[^/]+/(desktop|mobile)/src/.*\.(vue|js|jsx|cjs|mjs|ts|tsx|cts|mts)$' || true)
 
 if [ -n "$STAGED" ]; then
   ESLINT="$(git rev-parse --show-toplevel)/node_modules/.bin/eslint"
@@ -12,8 +14,9 @@ if [ -n "$STAGED" ]; then
     echo "ESLint 未安装（应用仓根 node_modules 缺失，需在应用仓根执行 pnpm install），跳过前端门禁。"
     exit 0
   fi
-  echo "ESLint: 校验暂存的应用前端文件 ..."
-  echo "$STAGED" | xargs "$ESLINT" --quiet
+  echo "ESLint: 校验暂存的工程前端文件 ..."
+  # `--no-warn-ignored`：src/__tests__/** 被配置忽略，显式传入时只当跳过而不是报错
+  echo "$STAGED" | xargs "$ESLINT" --quiet --no-warn-ignored
   if [ $? -ne 0 ]; then
     echo ":: ESLint 发现 error，提交已阻断。请修复后重新 git add 再提交。"
     exit 1

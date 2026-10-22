@@ -5,8 +5,8 @@
  * 三仓拆分前本脚本在旧仓根、扫描 `wasmnest-desktop/wasm-apps/bedcode/src`（桌面产品
  * 前端已整体下沉该 app）与 `wasmnest-mobile/src`（移动宿主业务页）。拆分后业务源码
  * 全部住应用仓，脚本随业务代码迁到本仓，目标改为：
- *   - desktop：`apps/<slug>/desktop/src/**`（逐 app 扫描）
- *   - mobile ：`apps/<slug>/mobile/src/**`
+ *   - desktop：`<group>/<slug>/desktop/src/**`（逐工程扫描；group ∈ apps / servers）
+ *   - mobile ：`<group>/<slug>/mobile/src/**`
  *
  * 规则：
  * - 导入 `import { logger } from '@/utils/frontendLogger'`（或相对路径）
@@ -16,11 +16,11 @@
  *   （说明其日志口径尚未接入统一 logger，不能机械插入不存在的导入）
  *
  * 用法：node scripts/replace-console.mjs <desktop|mobile> [appDirName]
- *   appDirName 可选：只处理 `apps/<appDirName>`（默认处理该端全部 app）。
+ *   appDirName 可选：只处理该 slug（默认处理该端全部工程）。
  */
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
-import { dirname, join, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { join } from 'node:path'
+import { listProjects } from './lib/projects.mjs'
 
 const target = process.argv[2]
 const onlyApp = process.argv[3]
@@ -28,9 +28,6 @@ if (target !== 'desktop' && target !== 'mobile') {
   console.error('用法: node scripts/replace-console.mjs <desktop|mobile> [appDirName]')
   process.exit(1)
 }
-
-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const APPS_DIR = join(ROOT, 'apps')
 
 /** 递归收集目录下需要处理的源码（跳过 node_modules / dist / 测试） */
 function collect(dir, out = []) {
@@ -51,19 +48,16 @@ const importRe = /import\s*\{[^}]*logger[^}]*\}\s*from\s*['"]@\/utils\/frontendL
 let changedFiles = 0
 let replacedCalls = 0
 
-const appDirs = readdirSync(APPS_DIR, { withFileTypes: true })
-  .filter((d) => d.isDirectory() && !d.name.startsWith('.') && !d.name.startsWith('_'))
-  .map((d) => d.name)
-  .filter((name) => !onlyApp || name === onlyApp)
-  .sort()
+const appProjects = listProjects({ ends: [target] })
+  .filter((p) => !onlyApp || p.slug === onlyApp)
+  .sort((a, b) => a.rel.localeCompare(b.rel))
 
-for (const app of appDirs) {
-  const appRoot = join(APPS_DIR, app, target)
-  const srcDir = join(appRoot, 'src')
+for (const project of appProjects) {
+  const srcDir = join(project.dir, 'src')
   if (!existsSync(srcDir)) continue
   // 没有统一 logger 模块的 app 不机械插入导入（会产出坏引用）
   if (!existsSync(join(srcDir, 'utils', 'frontendLogger.ts'))) {
-    console.log(`[跳过] apps/${app}/${target}: 无 src/utils/frontendLogger.ts`)
+    console.log(`[跳过] ${project.rel}: 无 src/utils/frontendLogger.ts`)
     continue
   }
 

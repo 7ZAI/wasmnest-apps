@@ -12,25 +12,38 @@
  *  - 不一致时**列全**所有端与版本，并给出修法（set-app-version），不猜哪个是对的。
  *
  * 用法：
- *   node scripts/ci/app-info.mjs --list                 # 全部 app slug（每行一个）
+ *   node scripts/ci/app-info.mjs --list                 # 全部 slug（每行一个）
  *   node scripts/ci/app-info.mjs --app <slug>           # JSON（含全部端）
+ *   node scripts/ci/app-info.mjs --app servers:auth-center   # 跨分组重名时精确指定
  *   node scripts/ci/app-info.mjs --app <slug> --end desktop
  *   node scripts/ci/app-info.mjs --app <slug> --expect-version 0.0.2   # 版本不符即 exit 1
- *   node scripts/ci/app-info.mjs --app <slug> --field version|ends|plugin-ids|slug
+ *   node scripts/ci/app-info.mjs --app <slug> --field version|ends|plugin-ids|slug|group
  *
  * `--field` 是给 shell / workflow 取值的窄接口（避免在 YAML 里塞 jq）：
  *   ends → JSON 数组，如 ["desktop","mobile"]；plugin-ids → JSON 数组。
+ *
+ * 工程定位一律经 `scripts/lib/projects.mjs`（唯一枚举点，覆盖 apps + servers 两个
+ * 分组）——本文件不再自己拼 `apps/`。
  */
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
-import { dirname, join, relative, resolve } from 'node:path'
+import { existsSync, readFileSync } from 'node:fs'
+import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-/** 应用仓根（本文件在 `<appsRoot>/scripts/ci/`） */
-export const APPS_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
+import {
+  APPS_ROOT,
+  PROJECT_ENDS,
+  listSlugs as listProjectSlugs,
+  locate,
+  relFromRoot,
+  slugDir,
+} from '../lib/projects.mjs'
 
-const APPS_DIR = join(APPS_ROOT, 'apps')
-const ENDS = ['desktop', 'mobile']
-const SLUG_RE = /^[a-z0-9][a-z0-9-]*$/
+export { APPS_ROOT }
+
+const ENDS = PROJECT_ENDS
+
+/** 跨分组重名时用 `group:slug` 精确指定（供报错文案复用） */
+const SPEC_HINT = 'slug 或 group:slug（如 servers:auth-center）'
 
 /** 读 JSON（失败即抛，带用途与路径，绝不静默返回空对象） */
 export function readJson(path, what) {
@@ -47,52 +60,50 @@ export function readJson(path, what) {
   }
 }
 
-/** 全部 app slug（`apps/<slug>/<end>/plugin.json` 存在的目录） */
+/** 全部 slug（`<group>/<slug>/<end>/plugin.json` 存在；slug 跨分组重名直接抛错） */
 export function listSlugs() {
-  return readdirSync(APPS_DIR, { withFileTypes: true })
-    .filter((d) => d.isDirectory() && !d.name.startsWith('.') && !d.name.startsWith('_'))
-    .map((d) => d.name)
-    .filter((slug) => ENDS.some((end) => existsSync(join(APPS_DIR, slug, end, 'plugin.json'))))
-    .sort()
+  return listProjectSlugs()
 }
 
 /**
- * 解析单个 app 的元信息。
+ * 解析单个工程的元信息。
  *
- * @param {string} slug 应用目录名（`apps/<slug>`）
- * @returns {{slug: string, version: string, dir: string, ends: Array<object>}}
- * @throws 应用不存在 / 清单缺字段 / 端间版本不一致时抛错（含修法）
+ * @param {string} spec `slug` 或 `group:slug`（`apps/auth-center` 写法不接受，
+ *                      用 `servers:auth-center`）
+ * @returns {{slug: string, group: string, version: string, dir: string, ends: Array<object>}}
+ * @throws 工程不存在 / 清单缺字段 / 端间版本不一致时抛错（含修法）
  */
-export function appInfo(slug) {
-  if (!SLUG_RE.test(slug)) {
-    throw new Error(`[ci] 非法 app slug: ${JSON.stringify(slug)}（只允许小写字母 / 数字 / 连字符）`)
+export function appInfo(spec) {
+  const found = locate(spec)
+  if (!found) {
+    throw new Error(
+      `[ci] 工程不存在: ${JSON.stringify(spec)}（取值为 ${SPEC_HINT}；可选: ${listSlugs().join(' / ')}）`,
+    )
   }
-  const appDir = join(APPS_DIR, slug)
-  if (!existsSync(appDir) || !statSync(appDir).isDirectory()) {
-    throw new Error(`[ci] 应用不存在: apps/${slug}（可选: ${listSlugs().join(' / ')}）`)
-  }
+  const { group, slug } = found
+  const projectBase = slugDir(group, slug)
 
   const ends = []
   for (const end of ENDS) {
-    const dir = join(appDir, end)
+    const dir = join(projectBase, end)
     const manifestPath = join(dir, 'plugin.json')
     if (!existsSync(manifestPath)) continue
 
-    const manifest = readJson(manifestPath, `插件清单 apps/${slug}/${end}/plugin.json`)
+    const rel = `${group}/${slug}/${end}`
+    const manifest = readJson(manifestPath, `插件清单 ${rel}/plugin.json`)
     for (const key of ['id', 'version']) {
       if (typeof manifest[key] !== 'string' || !manifest[key]) {
-        throw new Error(`[ci] apps/${slug}/${end}/plugin.json 缺少字符串字段 ${key}`)
+        throw new Error(`[ci] ${rel}/plugin.json 缺少字符串字段 ${key}`)
       }
     }
 
     const pkgPath = join(dir, 'package.json')
-    const pkg = existsSync(pkgPath)
-      ? readJson(pkgPath, `包清单 apps/${slug}/${end}/package.json`)
-      : null
+    const pkg = existsSync(pkgPath) ? readJson(pkgPath, `包清单 ${rel}/package.json`) : null
 
     ends.push({
       end,
-      dir: relative(APPS_ROOT, dir).split('\\').join('/'),
+      group,
+      dir: relFromRoot(dir),
       id: manifest.id,
       version: manifest.version,
       name: manifest.name ?? manifest.id,
@@ -104,7 +115,9 @@ export function appInfo(slug) {
   }
 
   if (ends.length === 0) {
-    throw new Error(`[ci] apps/${slug} 没有任何端含 plugin.json（期望 ${ENDS.join(' / ')} 之一）`)
+    throw new Error(
+      `[ci] ${group}/${slug} 没有任何端含 plugin.json（期望 ${ENDS.join(' / ')} 之一）`,
+    )
   }
 
   // 版本一致性：发布语义要求双端同一版本（CI 用它决定 tag / 产物名）
@@ -124,8 +137,10 @@ export function appInfo(slug) {
 
   return {
     slug,
+    /** 分组（apps / servers）：发布清单与构建链按它分流 */
+    group,
     version: ends[0].version,
-    dir: relative(APPS_ROOT, appDir).split('\\').join('/'),
+    dir: relFromRoot(projectBase),
     ends,
   }
 }
@@ -150,8 +165,8 @@ function main(argv) {
   const slug = flagValue(argv, '--app')
   if (!slug) {
     throw new Error(
-      '用法：node scripts/ci/app-info.mjs --list | --app <slug> [--end desktop|mobile] ' +
-        '[--expect-version x.y.z] [--field version|ends|plugin-ids|slug] [--json]',
+      '用法：node scripts/ci/app-info.mjs --list | --app <slug|group:slug> [--end desktop|mobile] ' +
+        '[--expect-version x.y.z] [--field slug|group|version|ends|plugin-ids] [--json]',
     )
   }
 
@@ -185,7 +200,9 @@ function main(argv) {
       const value = info[field]
       console.log(typeof value === 'object' ? JSON.stringify(value) : String(value))
     } else
-      throw new Error(`[ci] 未知字段 ${field}（可用: slug / version / dir / ends / plugin-ids）`)
+      throw new Error(
+        `[ci] 未知字段 ${field}（可用: slug / group / version / dir / ends / plugin-ids）`,
+      )
     return
   }
 
