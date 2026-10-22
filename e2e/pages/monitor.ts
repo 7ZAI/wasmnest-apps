@@ -24,6 +24,5 @@ export const FILTER_APPS = 'monitor-filter-apps'
 /** 本应用的角色徽标（manifest kind = internal-business，E2E 验证服务角色端到端生效） */
 export const SELF_ROLE = `monitor-role-${MONITOR_PLUGIN_ID}`
 
-/** 自定义监控面板区（隔离目录里没有任何提供方 → 空态） */
-export const PANELS_SECTION = 'monitor-panels'
-export const PANELS_EMPTY = 'monitor-panels-empty'
+/** 页头整页页签条（只有其他应用注册监控面板时才出现） */
+export const PAGE_TABS = 'monitor-page-tabs'

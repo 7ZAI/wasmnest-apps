@@ -1,8 +1,12 @@
 /**
- * Monitor（移动）自定义面板统一壳 + 台账角色过滤 行为锁
+ * Monitor（移动）整页页签 + 台账角色过滤 行为锁
  *
- * 需求（spec `.scratch/2026-10-22-monitor-system-service` §4 / §5）：
- * - 面板页签来源 = 宿主 `plugin_meta.monitorPanels`（未激活应用也可列）；
+ * 需求（spec `.scratch/2026-10-22-monitor-system-service` §4 / §5，用户 2026-10-22 修正）：
+ * - 面板来源 = 宿主 `plugin_meta.monitorPanels`（未激活应用也可列）；
+ * - **整页页签**：页头标题位变成「监控主页 + 各提供方面板」页签，点击切换整个页面，
+ *   面板不再作为监控页内的一块分区展示；
+ * - **没有应用注册 = 什么都不显示**：页签条不出现，只保留标题；
+ * - 默认落在监控主页，不自动装载第一个面板；
  * - 装载走 `context.ui.mountMonitorPanel(root, appId, panelId)`（宿主中介）；
  * - 旧宿主未注入装载器 → 显性提示不支持；装载失败 → 点名 + 重试；
  * - 切换页签先卸载旧实例；monitor 卸载时销毁面板；
@@ -58,8 +62,8 @@ function snapshotWithMeta(
   })
 }
 
-describe('Monitor（移动）自定义监控面板', () => {
-  it('页签按 order 排序（缺省 100），首个面板自动装载到宿主给的容器', async () => {
+describe('Monitor（移动）整页页签', () => {
+  it('页签按 order 排序（缺省 100），监控主页排第一且默认选中、不预装载面板', async () => {
     const mounter = panelMounter()
     const execute = async () =>
       snapshotWithMeta(['com.wasmnest.a', 'com.wasmnest.b'], {
@@ -80,17 +84,48 @@ describe('Monitor（移动）自定义监控面板', () => {
     const wrapper = mountView(makeContext(execute, mounter.fn))
     await flushPromises()
 
-    expect(wrapper.findAll('[role="tab"]').map((t) => t.text())).toEqual([
-      'Latency',
-      'Usage',
-      'Health',
-    ])
-    expect(mounter.calls).toHaveLength(1)
-    expect(mounter.calls[0]).toMatchObject({ appId: 'com.wasmnest.a', panelId: 'latency' })
-    expect(mounter.calls[0].root.classList.contains('mnm-panel-root')).toBe(true)
+    const tabs = wrapper.findAll('[data-testid="mobile-monitor-page-tabs"] [role="tab"]')
+    expect(tabs.map((t) => t.text())).toEqual(['运行监控', 'Latency', 'Usage', 'Health'])
+    expect(tabs[0].attributes('aria-selected')).toBe('true')
+    expect(mounter.fn).not.toHaveBeenCalled()
+    expect(wrapper.find('[data-testid="mobile-monitor-panels"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="mobile-monitor-page-title"]').exists()).toBe(false)
   })
 
-  it('没有面板声明 → 空态，不调用装载器', async () => {
+  it('点面板页签 → 整页切到面板（监控主页内容消失）；点回主页 → 卸载面板', async () => {
+    const mounter = panelMounter()
+    const execute = async () =>
+      snapshotWithMeta(['com.wasmnest.a'], {
+        'com.wasmnest.a': {
+          name: 'Provider A',
+          kind: 'business-app',
+          monitorPanels: [{ id: 'usage', title: 'Usage' }],
+        },
+      })
+    const wrapper = mountView(makeContext(execute, mounter.fn))
+    await flushPromises()
+
+    await wrapper
+      .find('[data-testid="mobile-monitor-page-tab-com.wasmnest.a-usage"]')
+      .trigger('click')
+    await flushPromises()
+
+    expect(mounter.calls).toHaveLength(1)
+    expect(mounter.calls[0]).toMatchObject({ appId: 'com.wasmnest.a', panelId: 'usage' })
+    expect(mounter.calls[0].root.classList.contains('mnm-panel-root')).toBe(true)
+    expect(wrapper.find('[data-testid="mobile-monitor-panels"]').exists()).toBe(true)
+    // 整页切换：监控主页的仪表区不再渲染
+    expect(wrapper.find('[data-testid="mobile-monitor-live"]').exists()).toBe(false)
+
+    await wrapper.find('[data-testid="mobile-monitor-page-tab-monitor"]').trigger('click')
+    await flushPromises()
+
+    expect(mounter.unmount).toHaveBeenCalledTimes(1)
+    expect(wrapper.find('[data-testid="mobile-monitor-panels"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="mobile-monitor-live"]').exists()).toBe(true)
+  })
+
+  it('没有面板声明 → 什么都不显示：无页签条、无面板区，标题照常', async () => {
     const mounter = panelMounter()
     const execute = async () =>
       snapshotWithMeta(['com.wasmnest.a'], {
@@ -99,8 +134,9 @@ describe('Monitor（移动）自定义监控面板', () => {
     const wrapper = mountView(makeContext(execute, mounter.fn))
     await flushPromises()
 
-    expect(wrapper.find('[data-testid="mobile-monitor-panels-empty"]').exists()).toBe(true)
-    expect(wrapper.findAll('[role="tab"]')).toHaveLength(0)
+    expect(wrapper.find('[data-testid="mobile-monitor-page-tabs"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="mobile-monitor-panels"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="mobile-monitor-page-title"]').text()).toBe('运行监控')
     expect(mounter.fn).not.toHaveBeenCalled()
   })
 
@@ -114,6 +150,11 @@ describe('Monitor（移动）自定义监控面板', () => {
         },
       })
     const wrapper = mountView(makeContext(execute))
+    await flushPromises()
+
+    await wrapper
+      .find('[data-testid="mobile-monitor-page-tab-com.wasmnest.a-usage"]')
+      .trigger('click')
     await flushPromises()
 
     const error = wrapper.find('[data-testid="mobile-monitor-panel-error"]')
@@ -137,6 +178,11 @@ describe('Monitor（移动）自定义监控面板', () => {
         },
       })
     const wrapper = mountView(makeContext(execute, fn))
+    await flushPromises()
+
+    await wrapper
+      .find('[data-testid="mobile-monitor-page-tab-com.wasmnest.a-usage"]')
+      .trigger('click')
     await flushPromises()
     await flushPromises()
 
@@ -173,7 +219,13 @@ describe('Monitor（移动）自定义监控面板', () => {
     await flushPromises()
 
     await wrapper
-      .find('[data-testid="mobile-monitor-panel-tab-com.wasmnest.a-usage"]')
+      .find('[data-testid="mobile-monitor-page-tab-com.wasmnest.a-health"]')
+      .trigger('click')
+    await flushPromises()
+    expect(fn).toHaveBeenCalledTimes(1)
+
+    await wrapper
+      .find('[data-testid="mobile-monitor-page-tab-com.wasmnest.a-usage"]')
       .trigger('click')
     await flushPromises()
     expect(unmountFirst).toHaveBeenCalledTimes(1)
@@ -208,10 +260,15 @@ describe('Monitor（移动）自定义监控面板', () => {
       })
     const wrapper = mountView(makeContext(execute, fn))
     await flushPromises()
+
+    await wrapper
+      .find('[data-testid="mobile-monitor-page-tab-com.wasmnest.a-health"]')
+      .trigger('click')
+    await flushPromises()
     expect(fn).toHaveBeenCalledTimes(1) // 首个面板装载仍在途
 
     await wrapper
-      .find('[data-testid="mobile-monitor-panel-tab-com.wasmnest.a-usage"]')
+      .find('[data-testid="mobile-monitor-page-tab-com.wasmnest.a-usage"]')
       .trigger('click')
     await flushPromises()
     expect(fn).toHaveBeenCalledTimes(2)

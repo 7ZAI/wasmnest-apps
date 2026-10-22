@@ -131,7 +131,6 @@ export type MessageSchema = {
   'monitor.task.poolThreads': string
 
   // ==================== 仪表盘 / 插件台账 / 底注 ====================
-  'monitor.hero.calm': string
   'monitor.hero.attention': string
   'monitor.hero.noTraps': string
   'monitor.hero.unknown': string
@@ -158,9 +157,7 @@ export type MessageSchema = {
   'monitor.filter.services': string
   'monitor.filter.apps': string
   'monitor.filter.aria': string
-  'monitor.panels.title': string
-  'monitor.panels.hint': string
-  'monitor.panels.empty': string
+  'monitor.tabs.aria': string
   'monitor.panels.failed': string
   'monitor.panels.unsupported': string
   'monitor.panels.retry': string

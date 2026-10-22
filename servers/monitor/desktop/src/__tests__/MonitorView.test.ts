@@ -61,6 +61,28 @@ describe('MonitorView（桌面界面契约）', () => {
     expect(execute).toHaveBeenCalledTimes(1)
   })
 
+  it('正常态不靠标题命名区块：hero 无 lead 时改用 aria-label，不留悬空 aria-labelledby', async () => {
+    const execute = vi.fn(async () =>
+      snapshot({
+        'com.wasmnest.monitor': metrics(),
+        'com.wasmnest.ai-chatbox': metrics({ calls_total: 4 }),
+      }),
+    )
+    const hostInvoke = vi.fn(async () => [
+      info({ id: 'com.wasmnest.monitor', name: 'Monitor' }),
+      info({ id: 'com.wasmnest.ai-chatbox', name: 'AI Chatbox' }),
+    ])
+    const wrapper = mountView(makeContext(execute, hostInvoke))
+
+    await flushPromises()
+
+    // 一切正常 → 不渲染 lead 标题（仪表本身即结论）
+    expect(wrapper.find('#monitor-lead').exists()).toBe(false)
+    const hero = wrapper.find('.mn-hero')
+    expect(hero.attributes('aria-labelledby')).toBeUndefined()
+    expect(hero.attributes('aria-label')).toBe('monitor.title')
+  })
+
   it('指标失败：显示明确错误与重试，不出空表（fail-visible）', async () => {
     const execute = vi.fn(async () => {
       throw new Error('metrics:read denied')
@@ -161,8 +183,8 @@ describe('MonitorView（桌面界面契约）', () => {
     const hostInvoke = vi.fn(async () => [
       info({ id: 'com.wasmnest.monitor', name: 'Monitor', kind: 'business-app' }),
       info({
-        id: 'com.wasmnest.terminal-session',
-        name: 'BedCode',
+        id: 'com.wasmnest.auth-center',
+        name: 'Auth Center',
         kind: 'internal-business',
         pluginType: 'rust-ts',
         state: { state: 'error', error: 'auth center not registered' },
@@ -172,11 +194,11 @@ describe('MonitorView（桌面界面契约）', () => {
     await flushPromises()
 
     // 运行中应用 ↑ 先于错误服务；错误服务不能被快照缺席吞掉
-    const serviceRow = wrapper.find('[data-testid="monitor-plugin-com.wasmnest.terminal-session"]')
+    const serviceRow = wrapper.find('[data-testid="monitor-plugin-com.wasmnest.auth-center"]')
     expect(serviceRow.exists()).toBe(true)
     expect(serviceRow.attributes('data-metrics-available')).toBe('false')
     expect(
-      serviceRow.find('[data-testid="monitor-role-com.wasmnest.terminal-session"]').text(),
+      serviceRow.find('[data-testid="monitor-role-com.wasmnest.auth-center"]').text(),
     ).toBe('monitor.role.internalBusiness')
     // 应用行不出服务徽标；摘要仍给出应用 / 服务口径
     expect(wrapper.find('[data-testid="monitor-role-com.wasmnest.monitor"]').exists()).toBe(false)
@@ -192,12 +214,12 @@ describe('MonitorView（桌面界面契约）', () => {
     await serviceRow.trigger('click')
     await flushPromises()
     expect(wrapper.find('[data-testid="monitor-inspector"]').attributes('data-plugin-id')).toBe(
-      'com.wasmnest.terminal-session',
+      'com.wasmnest.auth-center',
     )
     expect(wrapper.find('[data-testid="monitor-metrics-unavailable"]').exists()).toBe(true)
     expect(wrapper.text()).toContain('auth center not registered')
     expect(
-      wrapper.find('[data-testid="monitor-inflight-com.wasmnest.terminal-session"]').exists(),
+      wrapper.find('[data-testid="monitor-inflight-com.wasmnest.auth-center"]').exists(),
     ).toBe(false)
   })
 

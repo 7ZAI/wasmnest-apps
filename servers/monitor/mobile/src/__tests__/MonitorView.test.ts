@@ -53,6 +53,23 @@ describe('MonitorView（移动界面契约）', () => {
     expect(wrapper.find('[data-testid="mobile-monitor-live"]').exists()).toBe(true)
   })
 
+  it('正常态不靠标题命名区块：hero 无 lead 时改用 aria-label，不留悬空 aria-labelledby', async () => {
+    const execute = vi.fn(async () =>
+      snapshot({
+        'com.wasmnest.monitor': metrics(),
+        'com.wasmnest.ai-chatbox': metrics({ calls_total: 6 }),
+      }),
+    )
+    const wrapper = mountView(makeContext(execute))
+
+    await flushPromises()
+
+    expect(wrapper.find('#mnm-lead').exists()).toBe(false)
+    const hero = wrapper.find('.mnm-hero')
+    expect(hero.attributes('aria-labelledby')).toBeUndefined()
+    expect(hero.attributes('aria-label')).toBe('运行监控')
+  })
+
   it('指标失败：明确错误 + 重试，不叠加空表', async () => {
     const execute = vi.fn(async () => {
       throw new Error('metrics:read denied')

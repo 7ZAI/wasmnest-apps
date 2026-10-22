@@ -30,8 +30,7 @@ import {
   FILTER_APPS,
   FILTER_SERVICES,
   MONITOR_PLUGIN_ID,
-  PANELS_EMPTY,
-  PANELS_SECTION,
+  PAGE_TABS,
   SELF_CARD,
   SELF_QUOTA_NOTE,
   SELF_QUOTA_TOGGLE,
@@ -139,9 +138,11 @@ describe('Monitor（桌面端 · 宿主内挂载）', () => {
     expectEqual(await exists(SELF_CARD), true, '全部过滤恢复全量')
   })
 
-  it('自定义面板空态：隔离环境无提供方时不伪造面板', async () => {
-    await waitFor(PANELS_SECTION)
-    expectEqual(await visible(PANELS_EMPTY), true, '无面板时显示空态')
-    expectEqual(await exists('monitor-panel-error'), false, '空态不是错误态')
+  it('无应用注册监控面板：页头不出现整页页签，监控页照常', async () => {
+    await waitFor(SELF_CARD)
+    expectEqual(await exists(PAGE_TABS), false, '无注册时页签条不出现')
+    expectEqual(await exists('monitor-page-title'), true, '标题照常显示')
+    expectEqual(await exists('monitor-panels'), false, '不渲染面板区')
+    expectEqual(await exists('monitor-panel-error'), false, '也不出现错误态')
   })
 })

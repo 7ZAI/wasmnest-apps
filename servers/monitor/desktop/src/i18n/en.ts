@@ -13,8 +13,7 @@ const en: MessageSchema = {
   'monitor.stale': 'Data is stale: the latest refresh failed',
   'monitor.loading': 'Reading metrics…',
   'monitor.self': 'This app',
-  'monitor.hostInfoUnavailable':
-    'Host plugin list unavailable; showing plugin_id from metrics only',
+  'monitor.hostInfoUnavailable': 'Host wasm list unavailable; showing plugin_id from metrics only',
 
   'monitor.role.basicService': 'Basic service',
   'monitor.role.internalBusiness': 'Internal business',
@@ -24,10 +23,11 @@ const en: MessageSchema = {
   'monitor.error.hint':
     'Make sure "metrics:read" is granted and the host has wired a metrics snapshot source. The page will not fake an empty table.',
   'monitor.error.retry': 'Retry',
-  'monitor.empty.title': 'No plugin metrics yet',
-  'monitor.empty.hint': 'No plugins are loaded in the host snapshot; they appear after activation.',
+  'monitor.empty.title': 'No wasm metrics yet',
+  'monitor.empty.hint':
+    'No wasm apps are loaded in the host snapshot; they appear after activation.',
 
-  'monitor.kpi.plugins': 'Plugins',
+  'monitor.kpi.plugins': 'wasm',
   'monitor.kpi.pluginsValue': '{running} / {total} running',
   'monitor.kpi.pluginsUnavailable': '{n} not ready',
   'monitor.kpi.calls': 'Total calls',
@@ -36,7 +36,7 @@ const en: MessageSchema = {
   'monitor.kpi.traps': 'Total traps',
   'monitor.kpi.memoryPeak': 'Peak memory (sum)',
 
-  'monitor.section.plugins': 'Plugin metrics',
+  'monitor.section.plugins': 'wasm metrics',
   'monitor.section.host': 'Host dimensions',
   'monitor.section.calls': 'Calls',
   'monitor.section.memory': 'Memory',
@@ -114,14 +114,13 @@ const en: MessageSchema = {
   'monitor.task.eventsDroppedTotal': 'Events dropped',
   'monitor.task.poolThreads': 'Pool threads',
 
-  'monitor.hero.calm': 'No plugins need attention',
   'monitor.hero.attention': 'Needs attention: {count}',
   'monitor.hero.noTraps': 'No traps recorded',
   'monitor.hero.unknown': 'Runtime state unknown',
   'monitor.hero.stale': 'Data is stale',
-  'monitor.hero.proof': '{plugins} plugins · {calls} calls · {traps} traps',
+  'monitor.hero.proof': '{plugins} wasm · {calls} calls · {traps} traps',
   'monitor.hero.proofUnknown':
-    'The host plugin list is unavailable, so runtime state cannot be confirmed. Rows below show plugin ids from metrics only.',
+    'The host wasm list is unavailable, so runtime state cannot be confirmed. Rows below show plugin ids from metrics only.',
   'monitor.hero.proofStale':
     'The latest refresh failed. Values below are the last successful snapshot, not live.',
   'monitor.hero.proofMobile': 'Mobile reads metrics only; host runtime state is not available.',
@@ -133,7 +132,7 @@ const en: MessageSchema = {
   'monitor.signal.inFlight': '{n} in flight',
   'monitor.signal.note': 'Rate is the delta between polls and lives only in this session.',
   'monitor.signal.peak': 'Peak {n}/s',
-  'monitor.ledger.title': 'Plugins',
+  'monitor.ledger.title': 'wasm',
   'monitor.ledger.hint': 'Sorted by state. Select a row to inspect its full metrics.',
   'monitor.ledger.calls': '{n} calls',
   'monitor.ledger.select': 'Inspect {name} metrics',
@@ -143,9 +142,7 @@ const en: MessageSchema = {
   'monitor.filter.services': 'Services',
   'monitor.filter.apps': 'Apps',
   'monitor.filter.aria': 'Filter the monitor ledger by role',
-  'monitor.panels.title': 'Custom monitoring',
-  'monitor.panels.hint': 'Registered by other apps via manifest; each panel implementation lives in its own app project.',
-  'monitor.panels.empty': 'No custom monitoring panels',
+  'monitor.tabs.aria': 'Switch monitor pages',
   'monitor.panels.failed': 'Failed to mount panel "{title}"',
   'monitor.panels.unsupported': 'This host does not support custom monitoring panels',
   'monitor.panels.retry': 'Retry',
@@ -162,9 +159,9 @@ const en: MessageSchema = {
   'monitor.preview.loading': 'Reading metrics…',
   'monitor.preview.empty': 'Metrics unavailable',
   'monitor.preview.emptyHint': 'Open the app for details',
-  'monitor.preview.noPlugins': 'No plugins yet',
-  'monitor.preview.noPluginsHint': 'Metrics are readable, but no plugins are loaded',
-  'monitor.preview.plugins': 'Plugins',
+  'monitor.preview.noPlugins': 'No wasm yet',
+  'monitor.preview.noPluginsHint': 'Metrics are readable, but no wasm apps are loaded',
+  'monitor.preview.plugins': 'wasm',
   'monitor.preview.calls': 'Calls',
   'monitor.preview.inFlight': 'In flight',
   'monitor.preview.traps': 'Traps',
