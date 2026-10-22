@@ -1,12 +1,15 @@
 /**
  * Server Management Composable
  *
- * 服务器状态管理、生命周期控制和指标轮询
+ * 服务器状态 / 指标 / 端口与网络配置的只读与配置面。
+ *
+ * 启停由宿主应用界面租约驱动（service-leases）：打开应用界面即持有
+ * `net.transport`，关闭最后一个界面即停播。本 composable 不再提供
+ * start / stop / restart / auto-start —— 对应的宿主命令已退役。
  */
 import { ref, onUnmounted } from 'vue'
 import { logger } from '@/utils/frontendLogger'
 import { invoke } from '@tauri-apps/api/core'
-import { parseInvokeError } from '@/utils/userError'
 
 /** 服务器状态 */
 export type ServerStatus = 'stopped' | 'starting' | 'running'
@@ -15,7 +18,6 @@ export type ServerStatus = 'stopped' | 'starting' | 'running'
 export interface ServerStatusInfo {
   status: ServerStatus
   port: number
-  auto_start: boolean
   local_ips: string[]
   /** 运行时长（秒）；服务器从未启动时为 null（Rust Option<u64> 恒序列化） */
   uptime_secs: number | null
@@ -68,11 +70,9 @@ const status = ref<ServerStatus>('stopped')
 
 export function useServer() {
   const port = ref(8765)
-  const autoStart = ref(true)
   const localIps = ref<string[]>([])
   const metrics = ref<ServerMetrics | null>(null)
   const metricsHistory = ref<TimestampedMetrics[]>([])
-  const loading = ref(false)
   const networkConfig = ref<NetworkConfig | null>(null)
 
   let pollTimer: ReturnType<typeof setInterval> | null = null
@@ -83,64 +83,16 @@ export function useServer() {
       const info: ServerStatusInfo = await invoke('get_server_status')
       status.value = info.status
       port.value = info.port
-      autoStart.value = info.auto_start
       localIps.value = info.local_ips
     } catch (e) {
       logger.error('Failed to load server status:', e)
     }
   }
 
-  /** 启动服务器 */
-  async function startServer() {
-    loading.value = true
-    try {
-      await invoke('server_start', { port: port.value })
-      status.value = 'running'
-    } catch (e) {
-      // 票 01（ADR 0030）：rejection 归一到 UserError 抛给调用方（ServerView catch 后
-      // showUserError 展示友好文案）；不再把技术详情插进错误消息
-      throw parseInvokeError(e)
-    } finally {
-      loading.value = false
-    }
-  }
-
-  /** 停止服务器 */
-  async function stopServer() {
-    loading.value = true
-    try {
-      await invoke('server_stop')
-      status.value = 'stopped'
-    } catch (e) {
-      throw parseInvokeError(e)
-    } finally {
-      loading.value = false
-    }
-  }
-
-  /** 重启服务器 */
-  async function restartServer() {
-    loading.value = true
-    try {
-      await invoke('server_restart')
-      status.value = 'running'
-    } catch (e) {
-      throw parseInvokeError(e)
-    } finally {
-      loading.value = false
-    }
-  }
-
-  /** 更新端口配置 */
+  /** 更新端口配置（下次传输面启动时生效；当前监听不热切端口） */
   async function updatePort(newPort: number) {
     await invoke('update_server_port', { port: newPort })
     port.value = newPort
-  }
-
-  /** 更新自启动配置 */
-  async function updateAutoStart(value: boolean) {
-    await invoke('update_server_auto_start', { autoStart: value })
-    autoStart.value = value
   }
 
   /** 加载网络配置 */
@@ -149,26 +101,16 @@ export function useServer() {
       const config: NetworkConfig = await invoke('get_server_network_config')
       networkConfig.value = config
       port.value = config.port
-      autoStart.value = config.auto_start
     } catch (e) {
       logger.error('Failed to load network config:', e)
     }
   }
 
-  /** 更新网络配置（需重启生效） */
-  async function updateNetworkConfig(config: NetworkConfig) {
-    await invoke('update_server_network_config', { networkConfig: config })
-    networkConfig.value = { ...config }
-    port.value = config.port
-    autoStart.value = config.auto_start
-  }
-
-  /** 重置网络配置为默认值（需重启生效） */
+  /** 重置网络配置为默认值（下次传输面启动时生效） */
   async function resetNetworkConfig(): Promise<NetworkConfig> {
     const config: NetworkConfig = await invoke('reset_server_network_config')
     networkConfig.value = config
     port.value = config.port
-    autoStart.value = config.auto_start
     return config
   }
 
@@ -214,22 +156,15 @@ export function useServer() {
   return {
     status,
     port,
-    autoStart,
     localIps,
     metrics,
     metricsHistory,
-    loading,
     networkConfig,
     loadStatus,
-    startServer,
-    stopServer,
-    restartServer,
     updatePort,
-    updateAutoStart,
     startPolling,
     stopPolling,
     loadNetworkConfig,
-    updateNetworkConfig,
     resetNetworkConfig,
   }
 }

@@ -1,6 +1,6 @@
 <template>
   <div class="h-full overflow-y-auto bg-[var(--bg-page)]">
-    <!-- ==================== 工具栏页头：左标题+状态，右启停/重启/重置 ==================== -->
+    <!-- ==================== 工具栏页头：左标题+状态，右只读提示+重置 ==================== -->
     <div class="wb-toolbar sticky top-0 z-10">
       <div class="flex items-center gap-2.5">
         <h1 class="text-[calc(13px*var(--ui-scale))] font-semibold text-[var(--text-primary)]">
@@ -10,37 +10,12 @@
           statusText
         }}</span>
       </div>
-      <div class="flex items-center gap-2">
-        <button
-          class="wb-btn-primary"
-          :class="
-            status !== 'stopped' &&
-            '!bg-[var(--bg-hover)] !text-[var(--text-tertiary)] cursor-not-allowed'
-          "
-          :disabled="status !== 'stopped' || loading"
-          @click="handleStart"
-        >
-          {{ t('desktop.server.start') }}
-        </button>
-        <button
-          class="wb-btn-ghost"
-          :class="status !== 'running' && '!text-[var(--text-tertiary)] cursor-not-allowed'"
-          :disabled="status !== 'running' || loading"
-          @click="handleStop"
-        >
-          {{ t('desktop.server.stop') }}
-        </button>
-        <button
-          class="wb-btn-ghost"
-          :class="status !== 'running' && '!text-[var(--text-tertiary)] cursor-not-allowed'"
-          :disabled="status !== 'running' || loading"
-          @click="handleRestart"
-        >
-          {{ t('desktop.server.restart') }}
-        </button>
+      <div class="flex items-center gap-3">
+        <span class="text-[calc(11px*var(--ui-scale))] text-[var(--text-tertiary)]">{{
+          t('desktop.server.surfaceHint')
+        }}</span>
         <button
           class="wb-btn-ghost !text-[var(--text-secondary)]"
-          :disabled="loading"
           @click="handleResetDefaults"
         >
           {{ t('desktop.server.resetDefaults') }}
@@ -130,7 +105,7 @@
               <button
                 class="wb-btn-ghost !h-7 !px-3 !text-[calc(11.5px*var(--ui-scale))]"
                 :class="!portDirty && '!text-[var(--text-tertiary)] cursor-not-allowed'"
-                :disabled="!portDirty || loading || savingPort"
+                :disabled="!portDirty || savingPort"
                 @click="handleSavePort"
               >
                 {{ t('desktop.server.portSave') }}
@@ -154,29 +129,6 @@
                 >-</span
               >
             </div>
-          </div>
-          <div class="flex items-center justify-between h-12">
-            <span class="text-[calc(12px*var(--ui-scale))] text-[var(--text-secondary)]">{{
-              t('desktop.server.autoStart')
-            }}</span>
-            <button
-              class="relative w-10 h-5 rounded-[4px] border transition-colors flex-shrink-0"
-              :class="
-                autoStart
-                  ? 'bg-[var(--color-primary)] border-[var(--color-primary)]'
-                  : 'bg-[var(--bg-page)] border-[var(--border-strong)]'
-              "
-              @click="handleAutoStartToggle(!autoStart)"
-            >
-              <span
-                class="absolute top-[3px] w-3 h-3 rounded-[2px] transition-all"
-                :class="
-                  autoStart
-                    ? 'left-[22px] bg-[var(--color-primary-contrast)]'
-                    : 'left-[3px] bg-[var(--border-strong)]'
-                "
-              ></span>
-            </button>
           </div>
         </div>
       </section>
@@ -210,33 +162,15 @@
                   >{{ field.hint }}</span
                 >
               </div>
-              <button
-                v-if="field.type === 'toggle'"
-                class="relative w-10 h-5 rounded-[4px] border transition-colors flex-shrink-0"
-                :class="
-                  (advConfig as any)[field.key]
-                    ? 'bg-[var(--color-primary)] border-[var(--color-primary)]'
-                    : 'bg-[var(--bg-page)] border-[var(--border-strong)]'
-                "
-                @click="(advConfig as any)[field.key] = !(advConfig as any)[field.key]"
-              >
-                <span
-                  class="absolute top-[3px] w-3 h-3 rounded-[2px] transition-all"
-                  :class="
-                    (advConfig as any)[field.key]
-                      ? 'left-[22px] bg-[var(--color-primary-contrast)]'
-                      : 'left-[3px] bg-[var(--border-strong)]'
-                  "
-                ></span>
-              </button>
-              <input
-                v-else
-                v-model.number="(advConfig as any)[field.key]"
-                type="number"
-                :min="field.min"
-                :max="field.max"
-                class="w-24 h-7 px-2 wb-mono rounded-[6px] border border-[var(--border-input)] bg-[var(--bg-input)] text-[var(--text-primary)] outline-none focus:border-[var(--color-primary)]"
-              />
+              <span class="wb-mono text-[calc(12px*var(--ui-scale))] text-[var(--text-primary)]">
+                {{
+                  field.type === 'toggle'
+                    ? (advConfig as any)[field.key]
+                      ? t('shell.quickSettings.on')
+                      : t('shell.quickSettings.off')
+                    : (advConfig as any)[field.key]
+                }}
+              </span>
             </div>
           </div>
         </div>
@@ -268,24 +202,6 @@
       </section>
     </div>
   </div>
-
-  <!-- ==================== 端口保存确认（运行中保存后弹） ==================== -->
-  <!-- Safe-stack: Modal 自身 Teleport to body + z-50；主次按钮放 footer（既有确认弹窗同构） -->
-  <Modal v-model="portRestartVisible" :title="t('desktop.server.portRestartConfirmTitle')" :closable="!savingPort" :close-on-backdrop="true">
-    <p class="text-[calc(12.5px*var(--ui-scale))] leading-relaxed text-[var(--text-primary)]">
-      {{ t('desktop.server.portRestartConfirmBody') }}
-    </p>
-    <template #footer>
-      <div class="flex items-center justify-end gap-2">
-        <button class="wb-btn-ghost" @click="deferPortRestart">
-          {{ t('desktop.server.portRestartLater') }}
-        </button>
-        <button class="wb-btn-primary" :disabled="savingPort" @click="applyPortRestart">
-          {{ t('desktop.server.portRestartNow') }}
-        </button>
-      </div>
-    </template>
-  </Modal>
 </template>
 
 <script setup lang="ts">
@@ -298,7 +214,6 @@ import { useI18n } from 'vue-i18n'
 import { useServer } from '@/composables/useServer'
 import { useToast } from '@/composables/useToast'
 import { showUserError } from '@/utils/userError'
-import Modal from '@/components/Modal.vue'
 import VChart from 'vue-echarts'
 import { use } from 'echarts/core'
 import { LineChart } from 'echarts/charts'
@@ -318,22 +233,15 @@ const toast = useToast()
 const {
   status,
   port,
-  autoStart,
   localIps,
   metrics,
   metricsHistory,
-  loading,
   networkConfig,
   loadStatus,
-  startServer,
-  stopServer,
-  restartServer,
   updatePort,
-  updateAutoStart,
   startPolling,
   stopPolling,
   loadNetworkConfig,
-  updateNetworkConfig,
   resetNetworkConfig,
 } = useServer()
 
@@ -353,51 +261,22 @@ const portDirty = computed(() => portInput.value !== port.value)
 /** 端口保存进行中（按钮 disabled） */
 const savingPort = ref(false)
 
-/** 「端口已保存，是否立即重启」确认弹窗可见 */
-const portRestartVisible = ref(false)
-
 /**
  * 保存端口：持久化到配置文件 + 更新 supervisor 内存端口。
  *
- * 生效语义（与后台 `update_server_port` 一致）：只重启服务器 / 下次启动才真正
- * 换监昕端口（`ServerSupervisor::update_port` 只改内存，不重启 actix socket）。
- * 故运行中保存后弹确认：立即重启 → 生效；稍后 → 下次启动生效。
+ * 传输面由应用界面租约持有，端口只在下次服务启动时绑定；当前监听不热切端口。
  */
 async function handleSavePort() {
   if (!portDirty.value) return
   savingPort.value = true
   try {
     await updatePort(portInput.value)
-    if (status.value === 'running') {
-      portRestartVisible.value = true
-    } else {
-      toast.success(t('desktop.server.portSavedDelayed'))
-    }
+    toast.success(t('desktop.server.portSavedDelayed'))
   } catch (e) {
     showUserError(e, { retry: handleSavePort })
   } finally {
     savingPort.value = false
   }
-}
-
-/** 确认立即重启：真实端口换新（restartServer 用 supervisor 内存新端口） */
-async function applyPortRestart() {
-  portRestartVisible.value = false
-  try {
-    await restartServer()
-    await loadStatus()
-    syncPortInput()
-    startPolling()
-    toast.success(t('desktop.server.portRestartApplied'))
-  } catch (e) {
-    showUserError(e, { retry: applyPortRestart })
-  }
-}
-
-/** 稍后重启：端口已保存，下次启动生效 */
-function deferPortRestart() {
-  portRestartVisible.value = false
-  toast.success(t('desktop.server.portSavedDelayed'))
 }
 
 const statusText = computed(() => {
@@ -561,90 +440,26 @@ function hexToRgba(hex: string, alpha: number): string {
   return `rgba(${r},${g},${b},${alpha})`
 }
 
-/** 启动服务器（先提交输入框中未应用的端口） */
-async function handleStart() {
-  try {
-    if (portInput.value !== port.value) {
-      await updatePort(portInput.value)
-    }
-    await startServer()
-    toast.success(t('desktop.server.startSuccess'))
-    startPolling()
-  } catch (e) {
-    showUserError(e, { retry: handleStart })
-  }
-}
-
-/** 停止服务器 */
-async function handleStop() {
-  try {
-    await stopServer()
-    toast.success(t('desktop.server.stopSuccess'))
-    stopPolling()
-  } catch (e) {
-    showUserError(e, { retry: handleStop })
-  }
-}
-
-/** 重启服务器（自动保存未应用的端口和高级配置） */
-async function handleRestart() {
-  try {
-    if (portInput.value !== port.value) {
-      await updatePort(portInput.value)
-    }
-    if (networkConfig.value && advConfig.value) {
-      const dirty = Object.entries(advConfig.value).some(
-        ([k, v]) => (networkConfig.value as any)[k] !== v,
-      )
-      if (dirty) {
-        const merged = { ...networkConfig.value, ...advConfig.value }
-        await updateNetworkConfig(merged)
-      }
-    }
-    await restartServer()
-    // 同步服务器实际端口，避免重启后页面仍显示旧端口
-    await loadStatus()
-    syncPortInput()
-    toast.success(t('desktop.server.restartSuccess'))
-    startPolling()
-  } catch (e) {
-    showUserError(e, { retry: handleRestart })
-  }
-}
-
-/** 切换自启动 */
-async function handleAutoStartToggle(val: boolean) {
-  try {
-    await updateAutoStart(val)
-  } catch (e) {
-    showUserError(e)
-  }
-}
-
 /** 高级配置折叠状态 — 默认展开（工作台气质，信息直接可见） */
 const advExpanded = ref(true)
 
-/** 高级配置本地编辑副本 */
-const advConfig = computed({
-  get: () =>
-    networkConfig.value
-      ? {
-          workers: networkConfig.value.workers,
-          keep_alive_secs: networkConfig.value.keep_alive_secs,
-          client_request_timeout_secs: networkConfig.value.client_request_timeout_secs,
-          client_disconnect_timeout_secs: networkConfig.value.client_disconnect_timeout_secs,
-          max_connections: networkConfig.value.max_connections,
-          backlog: networkConfig.value.backlog,
-          tcp_nodelay: networkConfig.value.tcp_nodelay,
-          shutdown_timeout_secs: networkConfig.value.shutdown_timeout_secs,
-          ws_max_frame_size_kb: networkConfig.value.ws_max_frame_size_kb,
-          ws_max_message_size_mb: networkConfig.value.ws_max_message_size_mb,
-        }
-      : null,
-  set: (v) => {
-    if (v && networkConfig.value) Object.assign(networkConfig.value, v)
-  },
-})
+/** 高级配置只读视图（编辑入口在宿主设置 / config.properties；本页仅诊断） */
+const advConfig = computed(() =>
+  networkConfig.value
+    ? {
+        workers: networkConfig.value.workers,
+        keep_alive_secs: networkConfig.value.keep_alive_secs,
+        client_request_timeout_secs: networkConfig.value.client_request_timeout_secs,
+        client_disconnect_timeout_secs: networkConfig.value.client_disconnect_timeout_secs,
+        max_connections: networkConfig.value.max_connections,
+        backlog: networkConfig.value.backlog,
+        tcp_nodelay: networkConfig.value.tcp_nodelay,
+        shutdown_timeout_secs: networkConfig.value.shutdown_timeout_secs,
+        ws_max_frame_size_kb: networkConfig.value.ws_max_frame_size_kb,
+        ws_max_message_size_mb: networkConfig.value.ws_max_message_size_mb,
+      }
+    : null,
+)
 
 /** 高级配置字段元数据 — 驱动网格渲染 */
 const advFields = computed(() => [
@@ -723,23 +538,11 @@ const advFields = computed(() => [
   },
 ])
 
-/** 还原所有配置为默认值 */
+/** 还原所有配置为默认值（下次传输面启动时生效） */
 async function handleResetDefaults() {
   try {
     const defaults = await resetNetworkConfig()
     portInput.value = defaults.port
-    advConfig.value = {
-      workers: defaults.workers,
-      keep_alive_secs: defaults.keep_alive_secs,
-      client_request_timeout_secs: defaults.client_request_timeout_secs,
-      client_disconnect_timeout_secs: defaults.client_disconnect_timeout_secs,
-      max_connections: defaults.max_connections,
-      backlog: defaults.backlog,
-      tcp_nodelay: defaults.tcp_nodelay,
-      shutdown_timeout_secs: defaults.shutdown_timeout_secs,
-      ws_max_frame_size_kb: defaults.ws_max_frame_size_kb,
-      ws_max_message_size_mb: defaults.ws_max_message_size_mb,
-    }
     toast.success(t('desktop.server.resetSuccess'))
   } catch (e) {
     showUserError(e)

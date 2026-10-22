@@ -56,9 +56,7 @@ describe('useServer', () => {
 
       expect(server.status.value).toBe('stopped')
       expect(server.port.value).toBe(8765)
-      expect(server.autoStart.value).toBe(true)
       expect(server.localIps.value).toEqual([])
-      expect(server.loading.value).toBe(false)
       expect(server.metrics.value).toBeNull()
       expect(server.metricsHistory.value).toEqual([])
       expect(server.networkConfig.value).toBeNull()
@@ -75,7 +73,6 @@ describe('useServer', () => {
       expect(mockInvoke).toHaveBeenCalledWith('get_server_status')
       expect(server.status.value).toBe('running')
       expect(server.port.value).toBe(9000)
-      expect(server.autoStart.value).toBe(false)
       expect(server.localIps.value).toEqual(['192.168.1.5', '127.0.0.1'])
     })
 
@@ -95,81 +92,7 @@ describe('useServer', () => {
     })
   })
 
-  describe('lifecycle commands', () => {
-    it('startServer should invoke with current port and set status to running', async () => {
-      mockInvoke.mockResolvedValueOnce(undefined)
-
-      const server = useServer()
-      server.port.value = 7777
-      await server.startServer()
-
-      expect(mockInvoke).toHaveBeenCalledWith('server_start', { port: 7777 })
-      expect(server.status.value).toBe('running')
-      expect(server.loading.value).toBe(false)
-    })
-
-    it('startServer should hold loading flag while request is in flight', async () => {
-      let resolveFn: () => void
-      mockInvoke.mockReturnValueOnce(
-        new Promise<void>((resolve) => {
-          resolveFn = resolve
-        }),
-      )
-
-      const server = useServer()
-      const pending = server.startServer()
-      expect(server.loading.value).toBe(true)
-
-      resolveFn!()
-      await pending
-      expect(server.loading.value).toBe(false)
-    })
-
-    it('startServer should reject UserError(host.internal) and keep status on failure', async () => {
-      mockInvoke.mockRejectedValueOnce(new Error('boom'))
-
-      const server = useServer()
-      await expect(server.startServer()).rejects.toMatchObject({ code: 'host.internal' })
-      expect(server.status.value).toBe('stopped')
-      expect(server.loading.value).toBe(false)
-    })
-
-    it('startServer should pass envelope rejection through to caller', async () => {
-      mockInvoke.mockRejectedValueOnce({
-        code: 'host.invoke.timeout',
-        request_id: 'ab12cd34',
-        params: { seconds: 30 },
-      })
-
-      const server = useServer()
-      await expect(server.startServer()).rejects.toMatchObject({
-        code: 'host.invoke.timeout',
-        requestId: 'ab12cd34',
-        params: { seconds: 30 },
-      })
-    })
-
-    it('stopServer should invoke server_stop and set status to stopped', async () => {
-      mockInvoke.mockResolvedValueOnce(undefined)
-
-      const server = useServer()
-      server.status.value = 'running'
-      await server.stopServer()
-
-      expect(mockInvoke).toHaveBeenCalledWith('server_stop')
-      expect(server.status.value).toBe('stopped')
-    })
-
-    it('restartServer should invoke server_restart and set status to running', async () => {
-      mockInvoke.mockResolvedValueOnce(undefined)
-
-      const server = useServer()
-      await server.restartServer()
-
-      expect(mockInvoke).toHaveBeenCalledWith('server_restart')
-      expect(server.status.value).toBe('running')
-    })
-
+  describe('config commands', () => {
     it('updatePort should pass the new port to backend and update local state', async () => {
       mockInvoke.mockResolvedValueOnce(undefined)
 
@@ -178,16 +101,6 @@ describe('useServer', () => {
 
       expect(mockInvoke).toHaveBeenCalledWith('update_server_port', { port: 9999 })
       expect(server.port.value).toBe(9999)
-    })
-
-    it('updateAutoStart should pass the flag and update local state', async () => {
-      mockInvoke.mockResolvedValueOnce(undefined)
-
-      const server = useServer()
-      await server.updateAutoStart(false)
-
-      expect(mockInvoke).toHaveBeenCalledWith('update_server_auto_start', { autoStart: false })
-      expect(server.autoStart.value).toBe(false)
     })
   })
 
@@ -201,7 +114,6 @@ describe('useServer', () => {
       expect(mockInvoke).toHaveBeenCalledWith('get_server_network_config')
       expect(server.networkConfig.value).toEqual(networkConfig)
       expect(server.port.value).toBe(9000)
-      expect(server.autoStart.value).toBe(false)
     })
 
     it('loadNetworkConfig should keep state on failure', async () => {
@@ -217,22 +129,6 @@ describe('useServer', () => {
       )
     })
 
-    it('updateNetworkConfig should pass config and update state with a copy', async () => {
-      mockInvoke.mockResolvedValueOnce(undefined)
-
-      const server = useServer()
-      const updated = { ...networkConfig, port: 8080 }
-      await server.updateNetworkConfig(updated)
-
-      expect(mockInvoke).toHaveBeenCalledWith('update_server_network_config', {
-        networkConfig: updated,
-      })
-      expect(server.networkConfig.value).toEqual(updated)
-      expect(server.networkConfig.value).not.toBe(updated) // 存副本，防止外部改动穿透
-      expect(server.port.value).toBe(8080)
-      expect(server.autoStart.value).toBe(false)
-    })
-
     it('resetNetworkConfig should return the reset config and sync state', async () => {
       const reset = { ...networkConfig, port: 8765, auto_start: true }
       mockInvoke.mockResolvedValueOnce(reset)
@@ -244,7 +140,6 @@ describe('useServer', () => {
       expect(result).toEqual(reset)
       expect(server.networkConfig.value).toEqual(reset)
       expect(server.port.value).toBe(8765)
-      expect(server.autoStart.value).toBe(true)
     })
   })
 

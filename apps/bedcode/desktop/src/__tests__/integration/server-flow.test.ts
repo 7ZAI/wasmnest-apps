@@ -4,9 +4,8 @@
  * 协作实体：useServer（composable） + useSettingsStore（真实 Pinia store） +
  * ServerView（服务设置组件挂载）。
  *
- * 覆盖用户路径：配置回显（settings 通道 + server 通道双源一致）→ 启动/停止
- * 服务器（invoke 参数构造）→ 指标轮询（fake timers 驱动）→ 端口修改与
- * 默认配置还原回显。
+ * 覆盖用户路径：配置回显（settings 通道 + server 通道双源一致）→ 端口保存
+ * （invoke 参数构造）→ 指标轮询（fake timers 驱动）→ 默认配置还原回显。
  *
  * 测试 seam（与 useServer.test.ts 同模式）：
  * - 只 mock @tauri-apps/api/core 的 invoke 边界；vue-echarts 为 canvas 渲染库，
@@ -160,31 +159,20 @@ describe('服务器流：useServer × ServerView（宿主设置经 invoke 只读
     expect(wrapper!.text()).toContain('运行中')
   })
 
-  it('停止 → 端口修改 → 启动：invoke 参数构造 + 状态流转', async () => {
+  it('保存端口：update_server_port 只落配置，下一次传输面启动生效', async () => {
     await mountView()
 
-    // 停止：running → stopped（status 模块级共享，测试实例可直读）
-    await buttonByText('停止').trigger('click')
-    await flushAsync()
-    expect(invokeCalls('server_stop')).toEqual([[]])
-    expect(useServer().status.value).toBe('stopped')
-    expect(wrapper!.text()).toContain('已停止')
-
-    // 修改端口后启动：ServerView.handleStart 先提交未应用端口再启动
     const input = wrapper!.find('input[type="number"]')
     await input.setValue(8080)
-    await buttonByText('启动').trigger('click')
+    await buttonByText('保存').trigger('click')
     await flushAsync()
 
     expect(invokeCalls('update_server_port')).toEqual([[{ port: 8080 }]])
-    expect(invokeCalls('server_start')).toEqual([[{ port: 8080 }]])
-    expect(useServer().status.value).toBe('running')
     // 端口回显（视图实例 port ref 经输入框渲染）
     expect(portInput().value).toBe('8080')
-    expect(wrapper!.text()).toContain('运行中')
   })
 
-  it('指标轮询：fake timers 驱动 → 视图监控区联动 + 停止后轮询终止', async () => {
+  it('指标轮询：fake timers 驱动 → 视图监控区联动 + 服务停止后轮询终止', async () => {
     vi.useFakeTimers()
     await mountView()
 
@@ -197,11 +185,11 @@ describe('服务器流：useServer × ServerView（宿主设置经 invoke 只读
     )!
     expect((connectionsLabel.nextElementSibling as HTMLElement).textContent).toBe('3')
 
-    // 停止后轮询终止：不再产生新调用
-    await buttonByText('停止').trigger('click')
+    // 服务停止（应用界面全部关闭 / transport 停）：轮询随 status 变化终止
+    useServer().status.value = 'stopped'
+    await flushAsync()
     await vi.advanceTimersByTimeAsync(4000)
     expect(invokeCalls('get_server_metrics')).toHaveLength(2)
-    expect(useServer().status.value).toBe('stopped')
   })
 
   it('还原默认配置：reset 返回值回显到端口与高级配置', async () => {

@@ -77,19 +77,20 @@ function buttonByText(text: string) {
 }
 
 describe('错误信封垂直切片', () => {
-  it('启动失败：toast 只显示友好文案，无技术原文/request_id/命令名；日志带追踪号', async () => {
+  it('保存端口失败：toast 只显示友好文案，无技术原文/request_id/命令名；日志带追踪号', async () => {
     wrapper = mount(ServerView, { global: { plugins: [pinia, i18n] } })
     await flushAsync()
 
     // 后端失败返回信封（模拟 Rust AppError::Internal 序列化，host.internal 兜底）
     mockInvoke.mockImplementation((cmd: string) => {
-      if (cmd === 'server_start') {
+      if (cmd === 'update_server_port') {
         return Promise.reject({ code: 'host.internal', request_id: 'deadbeef' })
       }
       return Promise.resolve(undefined)
     })
 
-    await buttonByText('启动').trigger('click')
+    await wrapper.find('input[type="number"]').setValue(9000)
+    await buttonByText('保存').trigger('click')
     await flushAsync()
 
     // toast 文案 = errors.host.internal（zh），不含任何技术痕迹
@@ -97,23 +98,23 @@ describe('错误信封垂直切片', () => {
     expect(message).toBe('操作未完成，请稍后重试')
     expect(message).not.toContain('deadbeef')
     expect(message).not.toContain('host.internal')
-    expect(message).not.toContain('server_start')
+    expect(message).not.toContain('update_server_port')
 
     // 日志：code + request_id 全量落地（技术详情唯一出口；arg1=消息串带 request_id，
     // arg2=归一化后的 UserError（requestId 字段），与宿主日志按值关联）
     expect(errorSpy).toHaveBeenCalledWith(
       expect.stringContaining('code=host.internal'),
-      expect.objectContaining({ requestId: 'deadbeef' }),
+      expect.objectContaining({ request_id: 'deadbeef' }),
     )
   })
 
-  it('启动超时：toast 显示超时文案并带「重试」按钮，重试后成功', async () => {
+  it('保存端口超时：toast 显示超时文案并带「重试」按钮，重试后成功', async () => {
     wrapper = mount(ServerView, { global: { plugins: [pinia, i18n] } })
     await flushAsync()
 
     let calls = 0
     mockInvoke.mockImplementation((cmd: string) => {
-      if (cmd === 'server_start') {
+      if (cmd === 'update_server_port') {
         calls += 1
         return calls === 1
           ? Promise.reject({ code: 'host.invoke.timeout', request_id: 'beefcafe', params: { seconds: 30 } })
@@ -122,7 +123,8 @@ describe('错误信封垂直切片', () => {
       return Promise.resolve(undefined)
     })
 
-    await buttonByText('启动').trigger('click')
+    await wrapper.find('input[type="number"]').setValue(9000)
+    await buttonByText('保存').trigger('click')
     await flushAsync()
 
     const message = mockedToast.error.mock.calls[0][0] as string
@@ -133,9 +135,11 @@ describe('错误信封垂直切片', () => {
       onClick: expect.any(Function),
     })
 
-    // 点击重试 → 重发 server_start → 成功路径
+    // 点击重试 → 重发 update_server_port → 成功路径
     options.action.onClick()
     await flushAsync()
-    expect(useServer().status.value).toBe('running')
+    const portCalls = mockInvoke.mock.calls.filter(([c]) => c === 'update_server_port')
+    expect(portCalls).toHaveLength(2)
+    expect(mockedToast.success).toHaveBeenCalled()
   })
 })
