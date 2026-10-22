@@ -52,11 +52,13 @@ wasmnest-apps/
 │   ├─ src/<domain>/               按域组织（bedcode 尤其明显：app / host / terminal / task / settings）
 │   ├─ rust/ 或 wasmnest.sharedRustManifest（file-transfer）
 │   └─ vite.config.ts（经 SDK wasmnestPlugin()）
+├─ servers/<slug>/{desktop,mobile}/  服务型 wasm（L1 基础服务 / L2 内部业务；结构与应用**完全一致**）
 ├─ apps/file-transfer/rust/
 │   ├─ core/                       双端共享业务核（端口 trait + 纯逻辑，**不依赖任何 SDK**）
 │   └─ plugin/                     双端同构 wasm 产物源（宿主适配 + 命令面；不属于任何一端）
 ├─ scripts/
-│   ├─ run-apps.mjs                仓编排：逐 app 串行跑同一条 package.json 脚本
+│   ├─ lib/projects.mjs            **唯一工程枚举点**：<group>/<slug>/<end>（group ∈ apps / servers）
+│   ├─ run-apps.mjs                仓编排：逐工程串行跑同一条 package.json 脚本
 │   ├─ e2e.mjs                     桌面端 E2E 运行器（构建 → 隔离插件目录 → 起 dev server → 跑 wdio）
 │   ├─ e2e-dual.mjs                双端 E2E 运行器（桌面真宿主 + USB 真机；见 docs/E2E.md §10）
 │   ├─ e2e-mobile.mjs              真机单端 E2E 运行器（真机 + 真移动宿主；见 docs/E2E.md §11）
@@ -105,7 +107,40 @@ wasmnest-apps/
 | ai-chatbox | `com.wasmnest.ai-chatbox` | desktop + mobile | `entry.ts` / `index.ts` | 桌面 `rust-ts`；移动 `wasm` | `wasmnest_plugin_ai_chatbox`（两端同名） | `wasmnest-plugin-ai-chatbox` @ `desktop/rust`；`wasmnest_plugin_ai_chatbox` @ `mobile/rust` |
 | bedcode（显示名 BedCode） | `com.wasmnest.terminal-session` | desktop + mobile | `entry.ts` / `index.ts` | 桌面 `rust-ts`；移动 `wasm` | `bedcode_plugin_terminal_session`（两端同名） | `bedcode-plugin-terminal-session` @ `desktop/rust`；`bedcode_plugin_terminal_session` @ `mobile/rust` |
 | file-transfer | `com.wasmnest.file-transfer` | desktop + mobile（`platform: "both"`） | `entry.ts` / `index.ts` | 桌面 `rust-ts`；移动 `wasm` | `wasmnest_plugin_file_transfer`（两端同名） | 单产物 `wasmnest-plugin-file-transfer` @ `apps/file-transfer/rust/plugin`；共享核 `wasmnest-file-transfer-core` @ `apps/file-transfer/rust/core` |
-| monitor | `com.wasmnest.monitor` | desktop + mobile | `entry.ts` / `index.ts` | 桌面 `rust-ts`；移动 `wasm` | `wasmnest_plugin_monitor`（两端同名） | `wasmnest-plugin-monitor` @ `desktop/rust`；`wasmnest_plugin_monitor` @ `mobile/rust` |
+| monitor（**`servers/` 分组**） | `com.wasmnest.monitor` | desktop + mobile | `entry.ts` / `index.ts` | 桌面 `rust-ts`；移动 `wasm` | `wasmnest_plugin_monitor`（两端同名） | `wasmnest-plugin-monitor` @ `servers/monitor/desktop/rust`；`wasmnest_plugin_monitor` @ `servers/monitor/mobile/rust` |
+| auth-center（**`servers/` 分组**） | `com.wasmnest.auth-center` | desktop | `servers/auth-center/desktop/src/entry.ts` | `rust-ts` | `wasmnest_plugin_auth_center` | `wasmnest-plugin-auth-center` @ `servers/auth-center/desktop/rust` |
+
+> **auth-center 现状（issue #6，已注册接管）**：六域全部就位——
+> `rust/src/{pairing,policy,trust,consent,auth_records,auth_http}`（用例自 bedcode 逐字
+> 搬入做行为等价）+ `http_routes`（七端点动态路由表）+ **互调 api 面**
+> （`plugin.json.api` ↔ `#[plugin_api] AuthCenterApi`，19 条，含宿主
+> `auth-method-invoke` 的 `auth-grant`）+ 认证记录库（`auth_pairings` /
+> `auth_biometric_keys` / `auth_connection_history`，插件私有库 = 唯一真源）。
+> 页面数据面（配对码 / QR、可信设备、连接历史、密钥代次）已接线，仅「决策计数」留位
+> （读 `metrics_snapshot` 需全局 `metrics:read`，单独一票）。
+>
+> **注册切换已落地**（K4 原子替换，issue #6 切换票）：
+> - `activate` 末尾调 `auth_center_register`（排在 api dispatcher / 密钥环两个硬失败
+>   步骤之后），并按注册结果登记 `/api/auth/*` 七端点——注册失败时一条都不登记，
+>   页面如实显示 `not_ready` + 原因（fail-closed，入站全拒）；
+> - `deactivate` 注销中心角色并清空注册记录；
+> - bedcode **已去注册**：`activate` / `deactivate` 不再调 `auth-center-*`，路由表删除
+>   认证七条，结构锁 `bedcode_does_not_register_or_unregister_auth_center` 守着；
+> - 消费方改指：bedcode 设备中心命令 / consent / 信任 / 密钥轮换 / 连接记录经
+>   `auth_center_client.rs` 互调；file-transfer `auth_center.rs` 的目标常量与
+>   `#[plugin_api]` manifest 均指向 `com.wasmnest.auth-center`；
+> - 数据冷启动：认证记录库是**新库**，旧配对记录不迁移（D5）——升级后既有移动端
+>   需要重新配对（旧 token 由旧密钥签发，注册切换后不再被本中心接受）。
+>
+> 排障口径（`enforce_connection_policy` 的 `deny_kind`）：`no_center` = 本插件未注册
+> （看注册失败日志）；`unavailable` = 中心实例不可调（trap / 超时）；`policy` = 本中心
+> 验签或策略拒绝（撤销 / 过期 / 结构非法）。
+>
+> **SDK 依赖当前是 link 态**（用户裁决 2026-10-22）：SDK `0.0.1` 尚未发布到任何 registry，
+> 该工程 `package.json` 的 SDK spec 与 `pnpm-lock.yaml` 都用 `file:../../../../wasmnest/...`
+> （与其它 app 的 committed lock 同口径），CI 的逐工程 install 依赖 `fetch-cross-repo.mjs`
+> 检出的平台仓兄弟目录。SDK 发布后跑 `node scripts/unlink-platform-sdk.mjs` 回到精确版本
+> 并重新生成 lock（link 态**不可**长期作为发布口径）。
 
 ### 命名纪律
 
@@ -194,7 +229,7 @@ apps/<slug>/<end>/ 源码
 
 | 锁 | 钉住什么 |
 | --- | --- |
-| `wasmnest-desktop/src/__tests__/hostAppBoundaryLock.test.ts` | 宿主零 app 源码 import、零 `__WASMNEST_SHARED__`、零旧贡献面；逐字校验**五个**桌面 `entry.ts` 的 `mountApp` 契约；**L5** 预览契约锁（五个 entry 必须导出 `mountPreview` + 关键字段；预览路径禁 `refreshChannelToken` / 写存储） |
+| `wasmnest-desktop/src/__tests__/hostAppBoundaryLock.test.ts` | 宿主零 app 源码 import、零 `__WASMNEST_SHARED__`、零旧贡献面；逐字校验**六个**桌面 `entry.ts`（5 个 `apps/` + `servers/auth-center`）的 `mountApp` 契约；**L5** 预览契约锁（六个 entry 必须导出 `mountPreview` + 关键字段；预览路径禁 `refreshChannelToken` / 写存储） |
 | `wasmnest-desktop/src/__tests__/shell/appPreviewTile.test.ts` | 多任务预览面行为（缺失 / 成功 / 抛错 / 超时 / 卸载 / 晚到结果 / 不换发令牌 / 装饰层属性） |
 | `wasmnest-desktop/src/__tests__/shell/recentsWiring.test.ts` | 多任务接线：app 卡用 `AppPreviewTile`、system 卡保留 glyph、预览不在动作按钮内 |
 | `wasmnest-desktop/src/__tests__/i18nDriftLock.test.ts` | 宿主 `src/i18n/host-{zh-CN,en}.ts` ↔ `apps/bedcode/desktop/src/i18n/host-{zh-CN,en}.ts` **逐字一致** |

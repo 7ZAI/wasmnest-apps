@@ -45,7 +45,7 @@
 - 桌面 `build.js` / `dev-host.js` / `scripts/e2e.mjs` / `e2e/wdio.conf.ts` **禁止 import `scripts/platform-paths.mjs`**（G2 导入锁，`scripts/__tests__/g2-import-lock.test.mjs` 机器判）；`platform-paths.mjs` 只留给 CI / 平台集成脚本。
 - 平台仓读应用源码的**唯一入口**是两个 resolver（见 `docs/CODE-MAP.md` §1），禁止在调用方散落硬编码。
 - **ABI / WIT 真源不在本仓**：核心 WIT 在能力仓，端组合与 SDK 生成物在平台仓（`rust/wit` 是生成物，禁止手改）。应用只是 SDK 绑定使用方——改契约不在本仓进行。
-- 平台仓读本仓源码的**锁**（改本仓结构 / 文案前先看）：见 `docs/CODE-MAP.md` §5。关键三条：桌面边界锁（`hostAppBoundaryLock`，逐字校验五个桌面 `entry.ts`）、i18n drift 锁（宿主 ↔ `apps/bedcode/desktop/src/i18n/host-*` 逐字一致）、Tailwind content 覆盖锁。
+- 平台仓读本仓源码的**锁**（改本仓结构 / 文案前先看）：见 `docs/CODE-MAP.md` §5。关键三条：桌面边界锁（`hostAppBoundaryLock`，逐字校验六个桌面 `entry.ts`，含 `servers/auth-center`）、i18n drift 锁（宿主 ↔ `apps/bedcode/desktop/src/i18n/host-*` 逐字一致）、Tailwind content 覆盖锁。
 
 ---
 
@@ -97,7 +97,7 @@
 | `pnpm run test:run` | 逐 app 串行跑 `test:run`（`scripts/run-apps.mjs`；缺脚本打印 skip，不静默略过） |
 | `pnpm run build` | 逐 app 串行跑 `build` |
 | `pnpm run lint` | 根 eslint（0 error 口径；warning 不阻断） |
-| `pnpm run format` | prettier 写 `apps/**/src/**` |
+| `pnpm run format` | prettier 写 `apps/**/src/**` 与 `servers/**/src/**`（两个分组的工程前端同权） |
 | `node scripts/e2e.mjs --app <slug>` | 桌面端 E2E：真实宿主里挂载真实 wasm app，脚本点击界面做功能测试（说明与判据纪律见 `docs/E2E.md`；需 tauri-driver + WebKitWebDriver）。**默认 `--host-mode packed`**：宿主来自解析器、staging 在临时目录、不启平台 dev server；`--host-mode cargo` 才用平台 debug 二进制 + dev server |
 | `node scripts/e2e-dual.mjs --app <slug>` | 双端 E2E：上一行 + USB 真机（adb 反向端口 + WebView CDP 触摸/断言）；需 debug APK，见 `docs/E2E.md` §10 |
 | `node scripts/e2e-mobile.mjs --app <slug>` | 真机单端 E2E：真机 + 真移动宿主（真 wasm / 真权限门），桌面不在场；需 debug APK，见 `docs/E2E.md` §11 |
@@ -158,6 +158,7 @@
 | 改 i18n | `docs/FRONTEND.md` §3（注意 `bedcode/mobile` 按域分散、bedcode desktop 有宿主副本 drift 锁） |
 | 改 WIT / ABI / 契约 | **不在本仓改**：去能力仓（WIT 真源）与平台仓（端组合 / SDK 生成物）；改完重拼并按当前 SDK **全量重建**本仓相关 app 产物（版本进入 import 名，旧产物实例化期被点名） |
 | 新增桌面应用 | 复制现有桌面 app 骨架（改五处命名，见 `docs/CODE-MAP.md` §3）→ 平台仓：`useShellApps.ts` 路由表 + `hostAppBoundaryLock.test.ts` 清单 + `plugin-build.js` 的 `PLUGINS` + `dev-run.js` 的 `PLUGIN_WATCH_CMDS` + `release-manifest.json` |
+| 新增服务型 wasm（`servers/`） | 同上，且工程放 `servers/<slug>/<end>`（`scripts/lib/projects.mjs` 自动枚举）；平台侧上述五处的条目要带 `group: 'servers'`（`app-paths.mjs` 的 `appDir(slug, end, { group })`），`release-manifest.json` 的 `path` 写 `servers/<slug>` |
 | 新增移动应用 | 复制现有移动 app 骨架；平台移动构建脚本自动扫描 `apps/*/mobile` → 更新 `release-manifest.json` |
 | 跨应用互调 | `docs/BACKEND.md` §3（平台 `host-api-call` + 被调方 `plugin.json.api` 声明 + `#[plugin_api]`）；**禁止跨应用直接耦合源码** |
 | 发布 / 版本 | §3 + `docs/CI.md`（按 app 独立发版：`<slug>-v<X.Y.Z>` tag / 手动构建）+ `scripts/package-plugins.mjs` |

@@ -1,13 +1,16 @@
 //! 设备与配对域命令面（票 14）
 //!
 //! 插件前端设备页（配对码 / QR / 设备列表 / 连接历史 / 设置分组）的命令入口。
-//! 这些命令**不是**互调 api（不对外提供给其他插件），因此不进 manifest `api`；
-//! 它们与互调 api 面共享同一批底层实现（配对码 / QR 走 crate 根的 `pair_*` /
-//! `qr_*`，信任走 [`crate::trust`]），本模块只补「前端取数编排」这一层。
+//! 这些命令**不是**互调 api（不对外提供给其他插件），因此不进 manifest `api`。
 //!
-//! 能力来源（spec D2 红线）：只经宿主 `host-*` 原语——`host-config`（端口 /
-//! 两项有效期）、`host-platform`（本机 IPv4 枚举）、`host-auth`（配对记录 /
-//! 连接历史 / 认证域设置写入）。**无新增宿主命令、无宿主特化**。
+//! **issue #6 切换后数据面归属**：配对码 / QR、已配对设备与连接历史全部经
+//! [`crate::auth_center_client`] 互调认证中心；本模块只保留「TTL 设置（宿主配置面）
+//! / 网络信息（宿主平台面）/ QR 连接信息组装」这些本地编排。命令名与返回 wire
+//! 不变，前端零改动。
+//!
+//! 能力来源（spec D2 红线）：只经宿主 `host-*` 原语与插件互调——`host-config`
+//! （端口 / 两项有效期）、`host-platform`（本机 IPv4 枚举）、`host-auth`
+//! （认证域设置写入）。**无新增宿主命令、无宿主特化**。
 //!
 //! 失败语义：native（cargo test，链接中无宿主符号）下显性报错而非返回空视图——
 //! 空列表会被消费方读成「没有任何已配对设备 / 没有连接历史」，是最危险的默认值。
@@ -97,13 +100,18 @@ pub fn ttl_set_via_host(_key: &str, _value: u64) -> Result<serde_json::Value, St
     Err("auth settings unavailable outside wasm runtime".to_string())
 }
 
-// ==================== 配对码 / QR（复用 crate 根状态机，补 TTL 与连接信息组装） ====================
+// ==================== 配对码 / QR（issue #6 切换：真源改指认证中心） ====================
+//
+// 命令名与返回 wire 不变（前端零改动）；TTL 仍读本插件设置项（`host-config`，
+// 设备页设置分组写 `host-auth`），生成 / 状态 / 清除动作经互调交给认证中心——
+// 本插件不再持有可对外服务的配对状态机（本地状态机只剩旧互调 api 的副本，
+// 待删除六域副本的后续票清理）。
 
 /// 生成配对码（TTL 取自认证域设置项，与宿主命令面同源）→ 宿主 `PairingCode` 形状
 #[cfg(target_arch = "wasm32")]
 pub fn pairing_generate_via_host() -> Result<serde_json::Value, String> {
     let ttl = config_seconds(ConfigKey::PairingCodeTtl, DEFAULT_PAIRING_CODE_TTL_SECS)?;
-    crate::pair_code_generate(ttl)
+    crate::auth_center_client::pairing_code_generate(ttl)
 }
 
 /// 生成配对码（native 无宿主环境）
@@ -112,20 +120,31 @@ pub fn pairing_generate_via_host() -> Result<serde_json::Value, String> {
     Err("pairing code unavailable outside wasm runtime".to_string())
 }
 
-/// 当前配对码（过滤过期）→ `PairingCode | null`（与 crate 根 api 面同一状态机）
+/// 当前配对码（过滤过期）→ `PairingCode | null`（真源 = 认证中心）
 ///
 /// 命令面统一以 `Value` 收口（无码 = `null`）：插件命令通道回执是 JSON 值，
 /// `Option` 与 `null` 对前端同义，但命令面签名必须单一形状（无需前端分支解包）。
+#[cfg(target_arch = "wasm32")]
 pub fn pairing_status_via_host() -> Result<serde_json::Value, String> {
-    Ok(crate::pair_code_status()?.unwrap_or(serde_json::Value::Null))
+    Ok(crate::auth_center_client::pairing_code_status()?.unwrap_or(serde_json::Value::Null))
 }
 
-/// 清除当前配对码（幂等）
+/// 当前配对码（native 无宿主环境）
+#[cfg(not(target_arch = "wasm32"))]
+pub fn pairing_status_via_host() -> Result<serde_json::Value, String> {
+    Err("pairing code unavailable outside wasm runtime".to_string())
+}
+
+/// 清除当前配对码（幂等；认证中心侧执行）
+#[cfg(target_arch = "wasm32")]
 pub fn pairing_clear_via_host() -> Result<(), String> {
-    *crate::CURRENT_CODE
-        .lock()
-        .map_err(|e| format!("pairing code lock: {e}"))? = None;
-    Ok(())
+    crate::auth_center_client::pairing_code_clear()
+}
+
+/// 清除当前配对码（native 无宿主环境）
+#[cfg(not(target_arch = "wasm32"))]
+pub fn pairing_clear_via_host() -> Result<(), String> {
+    Err("pairing code unavailable outside wasm runtime".to_string())
 }
 
 /// 生成 QR 连接信息：`{host, port, token, remainingSecs}`
@@ -137,7 +156,7 @@ pub fn pairing_clear_via_host() -> Result<(), String> {
 #[cfg(target_arch = "wasm32")]
 pub fn qr_generate_via_host(host: Option<&str>) -> Result<serde_json::Value, String> {
     let ttl = config_seconds(ConfigKey::QrTokenTtl, DEFAULT_QR_TOKEN_TTL_SECS)?;
-    let generated = crate::qr_generate(ttl)?;
+    let generated = crate::auth_center_client::qr_code_generate(ttl)?;
     qr_connection_info(host, &generated)
 }
 
@@ -147,10 +166,10 @@ pub fn qr_generate_via_host(_host: Option<&str>) -> Result<serde_json::Value, St
     Err("qr connection info unavailable outside wasm runtime".to_string())
 }
 
-/// 当前 QR 连接信息（无活跃 token → `null`）
+/// 当前 QR 连接信息（无活跃 token → `null`；token 状态真源 = 认证中心）
 #[cfg(target_arch = "wasm32")]
 pub fn qr_info_via_host(host: Option<&str>) -> Result<serde_json::Value, String> {
-    match crate::qr_status()? {
+    match crate::auth_center_client::qr_code_status()? {
         None => Ok(serde_json::Value::Null),
         Some(status) => qr_connection_info(host, &status),
     }
@@ -162,10 +181,16 @@ pub fn qr_info_via_host(_host: Option<&str>) -> Result<serde_json::Value, String
     Err("qr connection info unavailable outside wasm runtime".to_string())
 }
 
-/// 清除当前 QR token（幂等）
+/// 清除当前 QR token（幂等；认证中心侧执行）
+#[cfg(target_arch = "wasm32")]
 pub fn qr_clear_via_host() -> Result<(), String> {
-    crate::qr_manager().clear();
-    Ok(())
+    crate::auth_center_client::qr_code_clear()
+}
+
+/// 清除当前 QR token（native 无宿主环境）
+#[cfg(not(target_arch = "wasm32"))]
+pub fn qr_clear_via_host() -> Result<(), String> {
+    Err("qr connection info unavailable outside wasm runtime".to_string())
 }
 
 /// 组装 QR 连接信息（host 缺省回退本机首个可用 IPv4；端口取宿主运行端口）
@@ -210,12 +235,11 @@ fn qr_connection_info(
 
 /// 已配对设备列表：`PairedDeviceInfo[]`（camelCase，与前端 DTO 同形）
 ///
-/// 数据源 = 认证中心私有库（2026-09-22 下沉；真源 [`crate::auth_records`]），
-/// 只保留 `isActive = true` 的行并按其 RFC3339 `pairedAt` 倒序——过滤与排序是
-/// 插件的展示组织（ADR 0022 裁剪线）。凭据列不在记录面内（§8 红线）。
+/// 数据源 = **认证中心私有库**（issue #6 切换后本插件不再自持记录库；
+/// [`crate::auth_center_client::devices_list`]）。
 #[cfg(target_arch = "wasm32")]
 pub fn paired_list_via_host() -> Result<serde_json::Value, String> {
-    crate::auth_records::paired_list()
+    crate::auth_center_client::devices_list()
 }
 
 /// 已配对设备列表（native 无宿主环境）
@@ -288,7 +312,7 @@ pub fn active_pairings(raw: &serde_json::Value) -> Vec<serde_json::Value> {
 /// 设备连接历史：原始记录 JSON 数组（`device-id` = 配对记录 id，倒序）
 #[cfg(target_arch = "wasm32")]
 pub fn history_list_via_host(device_id: &str) -> Result<serde_json::Value, String> {
-    crate::auth_records::history_list(device_id)
+    crate::auth_center_client::history_list(device_id)
 }
 
 /// 设备连接历史（native 无宿主环境）
@@ -302,7 +326,7 @@ pub fn history_list_via_host(_device_id: &str) -> Result<serde_json::Value, Stri
 /// 不影响配对状态（与撤销配对的连带删除区分开：那是隐式清理，本函数是显式动作）。
 #[cfg(target_arch = "wasm32")]
 pub fn history_clear_via_host(device_id: &str) -> Result<serde_json::Value, String> {
-    crate::auth_records::history_clear(device_id)
+    crate::auth_center_client::history_clear(device_id)
 }
 
 /// 清空设备连接历史（native 无宿主环境）
@@ -394,15 +418,18 @@ mod tests {
     #[test]
     fn command_faces_fail_loudly_on_native() {
         for (name, result) in [
-            ("network.info", network_info_via_host()),
-            ("ttl.get", ttl_get_via_host()),
-            ("ttl.set", ttl_set_via_host("qrTokenTtl", 600)),
-            ("paired-list", paired_list_via_host()),
-            ("history.list", history_list_via_host("p-1")),
-            ("history.clear", history_clear_via_host("p-1")),
-            ("pairing.generate", pairing_generate_via_host()),
-            ("qr.generate", qr_generate_via_host(Some("192.168.1.10"))),
-            ("qr.info", qr_info_via_host(None)),
+            ("network.info", network_info_via_host().map(|_| ())),
+            ("ttl.get", ttl_get_via_host().map(|_| ())),
+            ("ttl.set", ttl_set_via_host("qrTokenTtl", 600).map(|_| ())),
+            ("paired-list", paired_list_via_host().map(|_| ())),
+            ("history.list", history_list_via_host("p-1").map(|_| ())),
+            ("history.clear", history_clear_via_host("p-1").map(|_| ())),
+            ("pairing.generate", pairing_generate_via_host().map(|_| ())),
+            ("pairing.status", pairing_status_via_host().map(|_| ())),
+            ("pairing.clear", pairing_clear_via_host()),
+            ("qr.generate", qr_generate_via_host(Some("192.168.1.10")).map(|_| ())),
+            ("qr.info", qr_info_via_host(None).map(|_| ())),
+            ("qr.clear", qr_clear_via_host()),
         ] {
             let err = result.expect_err("native 必须显性失败");
             assert!(

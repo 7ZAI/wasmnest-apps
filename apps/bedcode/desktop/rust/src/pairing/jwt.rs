@@ -422,7 +422,13 @@ mod tests {
     // 跨分组共享的测试脚手架（子模块经 `use super::*` 可见）
 
     /// ADR 0033 之前的 wire 格式冻结向量（无 `kid`）
-    const LEGACY_WIRE_VECTOR: &str = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJkZXZpY2UtMSIsImlzcyI6IkJlZENvZGUiLCJpYXQiOjE3MDAwMDAwMDAsImV4cCI6MTcwMDYwNDgwMCwiZGV2aWNlX25hbWUiOiJNeSBQaG9uZSIsImZpbmdlcnByaW50IjoiZnAtYWJjIn0.F_jY264ZZ74_BzyVaZBPPPF9H-4K-DYEVJj_bdTLgX8";
+    ///
+    /// **2026-10-22 重算**：签发者标识随产品改名从 `BedCode` 改为 `WasmNest`
+    /// （[`JWT_ISSUER`] 与能力仓 `wasmnest-server-base::constants::JWT_ISSUER` 同值），
+    /// 旧向量因此不再由本实现产出。`iss` 不参与验签（[`verify_with_key`] 只校验
+    /// `alg` / 签名 / `exp`），改名前的 token 仍可验；本向量继续锚定「既有字段顺序 /
+    /// 名称 / header 序列化不变」。
+    const LEGACY_WIRE_VECTOR: &str = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJkZXZpY2UtMSIsImlzcyI6Ildhc21OZXN0IiwiaWF0IjoxNzAwMDAwMDAwLCJleHAiOjE3MDA2MDQ4MDAsImRldmljZV9uYW1lIjoiTXkgUGhvbmUiLCJmaW5nZXJwcmludCI6ImZwLWFiYyJ9.cImm--_YKJYMTVEqBFZ3nP0EjCaeqyH-FKntBqm-cpc";
 
     /// 切出 header 段与 (payload 段, 其余)
     fn split_head(token: &str) -> (&str, (&str, &str)) {

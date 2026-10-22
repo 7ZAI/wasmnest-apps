@@ -3,10 +3,9 @@
 use super::*;
 
 /// **wire 格式冻结向量**：固定 key + 固定 claims（无 `kid`，注入 iat/exp）→ 固定
-/// token 串。这是 ADR 0033 迁移期的**兼容性锚点**：该常量逐字节等于 ADR 0033
-/// 之前宿主 `jsonwebtoken` 与本实现共同产出的 token，断言它是为了保证
-/// 「`kid` 是纯追加的可选字段」——一旦有人调整既有字段的顺序 / 名称 / header
-/// 序列化，本用例立即转红（存量 wire 格式破了）。
+/// token 串。这是 ADR 0033 迁移期的**兼容性锚点**：断言它有两点——① claims / header
+/// 的字段顺序与序列化不被动过（存量 wire 格式不破）；② 签发者标识与当前
+/// [`JWT_ISSUER`]（`WasmNest`，产品改名前为 `BedCode`）一致。
 #[test]
 fn legacy_wire_format_is_byte_frozen() {
     let svc = JwtService::with_key(fixed_key_b());

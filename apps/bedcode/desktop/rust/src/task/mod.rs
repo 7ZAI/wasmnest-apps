@@ -562,13 +562,12 @@ mod tests {
         let mut expected = HTTP_ENDPOINTS.to_vec();
         expected.extend(crate::BUSINESS_HTTP_ENDPOINTS.iter().copied());
         expected.extend(crate::FILE_BROWSE_HTTP_ENDPOINTS.iter().copied());
-        expected.extend(crate::AUTH_HTTP_ENDPOINTS.iter().copied());
         expected.extend(crate::sessions_http::SESSIONS_HTTP_PATHS.iter().copied());
         expected.push("terminal-bg");
         expected.sort();
         assert_eq!(
             declared, expected,
-            "http_routes::ROUTES 必须与 task::HTTP_ENDPOINTS + BUSINESS_HTTP_ENDPOINTS + FILE_BROWSE_HTTP_ENDPOINTS + AUTH_HTTP_ENDPOINTS + SESSIONS_HTTP_PATHS + terminal-bg 逐项一致"
+            "http_routes::ROUTES 必须与 task::HTTP_ENDPOINTS + BUSINESS_HTTP_ENDPOINTS + FILE_BROWSE_HTTP_ENDPOINTS + SESSIONS_HTTP_PATHS + terminal-bg 逐项一致（auth 七条已随认证中心迁出）"
         );
         assert_eq!(HTTP_ENDPOINTS.len(), 17);
         assert_eq!(crate::BUSINESS_HTTP_ENDPOINTS.len(), 2);
@@ -577,7 +576,6 @@ mod tests {
             8,
             "票 03 五条 + 票 04 git 三条"
         );
-        assert_eq!(crate::AUTH_HTTP_ENDPOINTS.len(), 7, "票 07 认证链七端点");
         assert_eq!(crate::sessions_http::SESSIONS_HTTP_PATHS.len(), 7);
         for endpoint in crate::GIT_HTTP_ENDPOINTS {
             assert!(
@@ -590,10 +588,13 @@ mod tests {
     /// ABI v29：免凭证档位集合与 [`crate::NO_AUTH_HTTP_ENDPOINTS`] + terminal-bg 逐字一致
     ///
     /// 三个方向各自锁死：
-    /// 1. ROUTES 里标 `none` 的端点 == 常量清单（少标 → hook / 配对链路被宿主判 401；
+    /// 1. ROUTES 里标 `none` 的端点 == 常量清单（少标 → hook 被宿主判 401；
     ///    多标 → 写端点对局域网匿名敞开）；
-    /// 2. 认证链七条与 hook 两条**必须**全在 none 清单里（这两批是「拿不到 JWT」的调用方）；
+    /// 2. hook 两条**必须**在 none 清单里（它们的调用方拿不到 JWT）；
     /// 3. terminal-bg 恒 none（CSS background-image 无法携带认证头）。
+    ///
+    /// 认证链七条已随认证中心迁出（issue #6）：它们不再出现在本插件 ROUTES 中，
+    /// 由 `com.wasmnest.auth-center` 注册时自行声明 `none`。
     #[test]
     fn none_auth_routes_cover_public_surface_and_match_no_auth_list() {
         let mut none_registered: Vec<&str> = crate::http_routes::ROUTES
@@ -610,14 +611,11 @@ mod tests {
             "auth:none 的端点集合必须与 NO_AUTH_HTTP_ENDPOINTS + terminal-bg 一致"
         );
 
-        // 「拿不到 JWT 的调用方」两批必须全部在免凭证清单里
-        for endpoint in crate::AUTH_HTTP_ENDPOINTS
-            .iter()
-            .chain(&["task-status", "session-mode"])
-        {
+        // 「拿不到 JWT 的调用方」：hook 两条必须全在免凭证清单里
+        for endpoint in ["task-status", "session-mode"] {
             assert!(
-                expected_none.contains(endpoint),
-                "{endpoint} 的调用方拿不到 JWT（hook 脚本 / 配对入口），必须声明 auth:none"
+                expected_none.contains(&endpoint),
+                "{endpoint} 的调用方拿不到 JWT（hook 脚本），必须声明 auth:none"
             );
         }
         assert!(

@@ -59,7 +59,6 @@ use std::time::Duration;
 use crate::http_routes::{HttpRouteDecl, ROUTES};
 use wasmnest_plugin_api::host::bus::TOPIC_NS_SEP;
 use wasmnest_plugin_api::host::ws::WS_CLIENT_CONNECT;
-use wasmnest_plugin_api::EndpointAuth;
 use wasmnest_server_base::config::NetworkConfig;
 use wasmnest_server_base::identity::AuthenticatedIdentity;
 use wasmnest_server_base::ports::{
@@ -68,6 +67,12 @@ use wasmnest_server_base::ports::{
     ServerLifecyclePort, ServerPorts, SystemInfoPort,
 };
 use futures_util::{SinkExt, StreamExt};
+// 注册面吃的是**能力仓自持的 wire 副本**（`wasmnest_server_http::wire` /
+// `wasmnest_server_websocket::wire`），与桌面 SDK 的 `wasmnest_plugin_api::EndpointAuth`
+// 是两份逐字一致、由能力仓 `cross-end-tests` 漂移锁钉住的独立类型。测试要过的注册表
+// 认前者，故档位解析也必须用前者——用 SDK 副本会得到 E0308（两个同名不同类型）。
+use wasmnest_server_http::wire::EndpointAuth as HttpEndpointAuth;
+use wasmnest_server_websocket::endpoint::EndpointAuth as WsEndpointAuth;
 use serde_json::{json, Value};
 
 /// 本插件 id（与 `plugin.json` 的 `id` 逐字一致；命名空间段由宿主注入）
@@ -233,11 +238,17 @@ impl PowerPort for PilotPowerPort {
     fn disable(&self) {}
 }
 
+#[async_trait::async_trait]
 impl MdnsAdvertiserPort for PilotMdnsAdvertiser {
-    fn advertise(&self, _service_name: String, _port: u16, _txt: HashMap<String, String>) {
+    async fn advertise(
+        &self,
+        _service_name: String,
+        _port: u16,
+        _txt: HashMap<String, String>,
+    ) -> std::result::Result<(), String> {
         panic!("PilotMdnsAdvertiser must not be used: 直接起 serve() 不走 supervisor");
     }
-    fn stop(&self) {}
+    async fn stop(&self) {}
 }
 
 #[async_trait::async_trait]
@@ -374,7 +385,7 @@ fn manifest_ws_endpoints() -> Vec<(String, String)> {
 fn register_all_http_routes() -> usize {
     let mut registered = 0usize;
     for decl in ROUTES {
-        let auth = EndpointAuth::parse_with(Some(decl.auth), EndpointAuth::Jwt)
+        let auth = HttpEndpointAuth::parse_with(Some(decl.auth), HttpEndpointAuth::Jwt)
             .unwrap_or_else(|e| panic!("{} 的 auth 档位非法：{e}", decl.path));
         let methods: Vec<String> = decl.methods.iter().map(|m| m.to_string()).collect();
         let entry = wasmnest_server_http::registry::register(
@@ -455,29 +466,8 @@ const FROZEN_GATEWAY_ALIASES: &[(&str, &str, &[&str], &str)] = &[
     ("git/branches", "/api/git/branches", &["GET"], "jwt"),
     ("git/status", "/api/git/status", &["GET"], "jwt"),
     ("git/checkout", "/api/git/checkout", &["POST"], "jwt"),
-    // 认证链七条（移动端 `auth/http.rs`；**全免凭证**——拿 token 之前的公开入口）
-    ("auth/pairing", "/api/auth/pairing", &["POST"], "none"),
-    ("auth/verify", "/api/auth/verify", &["POST"], "none"),
-    ("auth/qr-connect", "/api/auth/qr-connect", &["POST"], "none"),
-    ("auth/reauth", "/api/auth/reauth", &["POST"], "none"),
-    (
-        "auth/biometric-challenge",
-        "/api/auth/biometric-challenge",
-        &["POST"],
-        "none",
-    ),
-    (
-        "auth/biometric-verify",
-        "/api/auth/biometric-verify",
-        &["POST"],
-        "none",
-    ),
-    (
-        "auth/biometric-bind",
-        "/api/auth/biometric-bind",
-        &["POST"],
-        "none",
-    ),
+    // 认证链七条已随认证中心迁出（issue #6）：`/api/auth/*` 由
+    // `com.wasmnest.auth-center` 在注册成功后登记，不再属于本插件契约。
     // 终端背景图（宿主静态路由；CSS background-image 无法携带认证头）
     ("terminal-bg", "/static/terminal-bg", &["GET"], "none"),
 ];
@@ -705,8 +695,8 @@ async fn http_routes_reach_the_plugin_edge_with_declared_method_and_auth_tier() 
         .collect();
     assert_eq!(
         gateway_aliased.len(),
-        24,
-        "网关别名数 = 业务 10 + auth 7 + sessions 7"
+        17,
+        "网关别名数 = 业务 10 + sessions 7（auth 7 条已随认证中心迁出）"
     );
     assert_eq!(
         static_aliased.len(),
@@ -840,33 +830,15 @@ async fn http_routes_reach_the_plugin_edge_with_declared_method_and_auth_tier() 
         .iter()
         .filter(|r| r.auth == "jwt" && r.host.is_some())
         .collect();
-    assert!(!none_routes.is_empty() && !jwt_routes.is_empty());
-    // 免凭证档必须逐条可交代（与插件内 `no_auth_routes_are_justified` 同一清单，
-    // 这里从**网关行为**侧复核：标了 none 却仍要凭证 = 移动端配对链与 hook 直接断）
-    assert_eq!(
-        none_routes.len(),
-        7,
-        "走网关的 none 档别名 = auth/* 七条；另三条 none 端点不在网关别名面上 \
-         （terminal-bg 是宿主静态路由见断言 7，task-status / session-mode 无别名见断言 6b）"
+    assert!(!jwt_routes.is_empty(), "业务别名都在 jwt 档");
+    // issue #6 切换：本插件已无免凭证的业务别名（auth/* 七条随中心迁出）。
+    // none 档只剩内部 hook 端点（断言 6b）与宿主静态 terminal-bg（断言 7）——
+    // 这两类都不经过「网关别名 + 档位」这条路径。
+    let none_paths: Vec<&str> = none_routes.iter().map(|r| r.path).collect();
+    assert!(
+        none_paths.is_empty(),
+        "本插件不应再有 none 档对外别名（认证入口已归认证中心）：{none_paths:?}"
     );
-
-    for decl in &none_routes {
-        let alias = decl.host.expect("filtered by is_some");
-        let url = format!("{base}{}", materialize(alias));
-        let resp = send_until(
-            method_request(&client, decl.methods[0], &url, &json!({})),
-            deadline,
-        )
-        .await
-        .expect("anonymous request must reach server");
-        assert_eq!(
-            resp.status().as_u16(),
-            200,
-            "{} 是 none 档（公开入口 / 环回 hook），无凭证必须转发 —— 否则移动端配对链与 hook 直接断",
-            decl.path
-        );
-    }
-    log.take();
 
     for decl in &jwt_routes {
         let alias = decl.host.expect("filtered by is_some");
@@ -1123,7 +1095,7 @@ async fn manifest_ws_endpoints_mount_and_gate_on_real_websocket_face() {
     assert!(!declared.is_empty(), "manifest 必须声明至少一条 wsEndpoint");
     let mut mounted = Vec::new();
     for (path, auth) in &declared {
-        let parsed = EndpointAuth::parse_with(Some(auth.as_str()), EndpointAuth::Jwt)
+        let parsed = WsEndpointAuth::parse_with(Some(auth.as_str()), WsEndpointAuth::Jwt)
             .unwrap_or_else(|e| panic!("manifest wsEndpoint {path} 的 auth 非法：{e}"));
         let entry = wasmnest_server_websocket::endpoint::register(
             PLUGIN_ID,

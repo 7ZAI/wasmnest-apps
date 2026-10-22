@@ -2,11 +2,11 @@
 //!
 //! 职责边界（spec D3/D4）——「这台设备上有几个会话、在跑什么」这道派生题：
 //!
-//! - **原始事实在内核**：连接注册表（`host-connection.connections-list`，票 04 起独立原语，
-//!   权限 `connection:read`；无排序无解读
-//!   的地址 / 设备标识 / 指纹）+ 配对记录（`host-auth.trusted-devices-list`，真源
-//!   内核 `pairings` 表）+ 会话列表（`host-session.list-sessions`，含 `canonicalRenderer`
-//!   与 `annotations` 透传）
+//! - **原始事实在内核 + 认证中心**：连接注册表（`host-connection.connections-list`，
+//!   票 04 起独立原语，权限 `connection:read`；无排序无解读
+//!   的地址 / 设备标识 / 指纹）+ 配对记录（issue #6 切换后经互调
+//!   `com.wasmnest.auth-center.devices-list` 读取）+ 会话列表（`host-session.list-sessions`，
+//!   含 `canonicalRenderer` 与 `annotations` 透传）
 //! - **派生与解读在本插件**：在线判定（连接指纹 ↔ 配对指纹）、会话数（会话的
 //!   正统渲染端 = 该设备 → 该设备当前在看的会话）、任务状态合并（会话注解槽里
 //!   本插件自己写入的 `taskStatus` / `taskReason`）、排序与展示组织——内核一个
@@ -220,27 +220,18 @@ pub fn connect_list_via_host() -> Result<serde_json::Value, String> {
     // P1-b 起会话真源在本域：读原始记录（含 ptyId / canonicalRenderer /
     // annotations 私有字段，只供本插件内部派生，不经互调面出网）
     let sessions = crate::session::internal_records_json()?;
-    // 配对记录真源 = 认证中心私有库（2026-09-22 下沉；含软删行）
-    let records = crate::auth_records::records().map_err(|e| e)?;
-    // 全量原始记录（含软删行 `is_active=false`）→ 推导；活跃过滤在
-    // `derive_connected` 内完成（撤销检测依赖软删行可见；派生视图不得把已撤销
-    // 设备合并为 paired）。T-F24：同一 fingerprint 存在多条 active 配对时
-    // `.find` 取首个是非确定渲染——host 侧不变量是 fingerprint 唯一（auth_pairings
-    // 有 UNIQUE 约束），此处防御性报错（宿主契约破坏不该静默任意取一个）
+    // 配对记录真源 = **认证中心私有库**（issue #6 切换后本插件不再自持记录库）。
+    // `devices-list` 只回活跃记录（已撤销行不必参与派生：`paired` 合并本就只认
+    // 活跃行；撤销后的连接行仍保留，只是不再带配对信息）。
+    let paired = pairings_from_auth_center(&crate::auth_center_client::devices_list()?)?;
+    // T-F24：同一 fingerprint 存在多条 active 配对时 `.find` 取首个是非确定渲染
+    // ——host 侧不变量是 fingerprint 唯一（auth_pairings 有 UNIQUE 约束），此处
+    // 防御性报错（宿主契约破坏不该静默任意取一个）
     let mut seen: std::collections::HashMap<&str, &str> = std::collections::HashMap::new();
-    let paired: Vec<PairingRow> = records
-        .into_iter()
-        .map(|d| PairingRow {
-            id: d.id,
-            device_name: d.device_name,
-            fingerprint: d.device_fingerprint,
-            is_active: d.is_active,
-        })
-        .collect();
     for row in paired.iter().filter(|r| r.is_active) {
         if let Some(prev) = seen.insert(&row.fingerprint, &row.id) {
             return Err(format!(
-                "host pairing contract violated: fingerprint '{}' has multiple active rows \
+                "auth center devices-list contract violated: fingerprint '{}' has multiple active rows \
                  ({} and {})",
                 row.fingerprint, prev, row.id
             ));
@@ -252,6 +243,34 @@ pub fn connect_list_via_host() -> Result<serde_json::Value, String> {
         &paired,
     );
     Ok(serde_json::json!({ "connections": rows }))
+}
+
+/// 认证中心 `devices-list` wire → 派生视图配对行（纯函数，native 单测覆盖）
+///
+/// wire = `PairedDeviceInfo[]`（camelCase：`id` / `deviceName` / `deviceFingerprint`）。
+/// 缺字段或非数组一律显性报错——静默跳过会让「已配对」在在线列表里随机消失。
+/// 条目全部来自活跃记录，故 `is_active` 恒 true。
+pub fn pairings_from_auth_center(view: &serde_json::Value) -> Result<Vec<PairingRow>, String> {
+    let arr = view.as_array().ok_or_else(|| {
+        format!("auth center devices-list must be an array, got: {view}")
+    })?;
+    arr.iter()
+        .map(|row| {
+            let field = |key: &str| {
+                row.get(key)
+                    .and_then(|v| v.as_str())
+                    .filter(|s| !s.is_empty())
+                    .map(str::to_string)
+                    .ok_or_else(|| format!("auth center devices-list row missing '{key}': {row}"))
+            };
+            Ok(PairingRow {
+                id: field("id")?,
+                device_name: field("deviceName")?,
+                fingerprint: field("deviceFingerprint")?,
+                is_active: true,
+            })
+        })
+        .collect()
 }
 
 /// 连接清单派生视图（native 无宿主环境）
@@ -483,5 +502,39 @@ mod tests {
         assert_eq!(rows[0]["authenticated"], false);
         assert_eq!(rows[0]["sessionCount"], 0);
         assert!(rows[0]["paired"].is_null());
+    }
+
+    /// 认证中心 `devices-list` → 配对行：字段逐字映射，活跃态恒 true
+    #[test]
+    fn auth_center_devices_map_to_pairing_rows() {
+        let rows = pairings_from_auth_center(&serde_json::json!([
+            {
+                "id": "p-1",
+                "deviceName": "Pixel",
+                "deviceFingerprint": "fp-1",
+                "pairedAt": "2026-10-22T00:00:00Z",
+                "connectCount": 2,
+            },
+        ]))
+        .expect("map");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].id, "p-1");
+        assert_eq!(rows[0].device_name, "Pixel");
+        assert_eq!(rows[0].fingerprint, "fp-1");
+        assert!(rows[0].is_active, "devices-list 只回活跃记录");
+    }
+
+    /// 畸形 wire 显性报错（不静默跳过——配对信息随机消失比报错更难排障）
+    #[test]
+    fn malformed_auth_center_devices_error() {
+        assert!(pairings_from_auth_center(&serde_json::json!({})).is_err());
+        assert!(pairings_from_auth_center(&serde_json::json!([
+            { "id": "p-1", "deviceName": "Pixel" },
+        ]))
+        .is_err());
+        assert!(pairings_from_auth_center(&serde_json::json!([
+            { "id": "", "deviceName": "Pixel", "deviceFingerprint": "fp" },
+        ]))
+        .is_err());
     }
 }

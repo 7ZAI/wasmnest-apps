@@ -7,16 +7,20 @@
 //! 不通过声明配置路由，插件代码运行时注册）。
 //!
 //! 三类路由：
-//! - **业务/认证别名**（17 条）：内部段 + 对外别名（`/api/configs` … `/api/auth/*`），
+//! - **业务别名**（17 条）：内部段 + 对外别名（`/api/configs` … `/api/git/*`），
 //!   移动端经网关别名直达；
 //! - **任务域内部路径**（17 条）：只挂内部路径（`/api/plugin/<id>/<path>`），
 //!   hook 脚本 / 移动端任务面经插件代理前缀访问；
 //! - **sessions REST**（7 条）：内部段 + 模板别名（`/api/sessions/{id}/…`）；
 //! - **terminal-bg**（1 条）：内部段 + `/static/terminal-bg`（auth:none）。
 //!
+//! **认证链七端点不在本表**（issue #6 切换）：`/api/auth/*` 随认证中心迁到
+//! `com.wasmnest.auth-center`，由它在注册成功后自行登记。本插件再登记会与
+//! 中心抢全局唯一的 host 别名（宿主注册表拒绝 → 中心入口 404）。
+//!
 //! 认证档位（票 08 裁决 1 沿革）：未显式 `none` 一律最严档 `jwt`（宿主要求验签）；
-//! 免凭证只有两批——`auth/*` 七条（配对/QR/生物，拿 token 之前的公开入口）与
-//! `task-status` / `session-mode` / `terminal-bg`（环回 hook / CSS 无法携带凭证）。
+//! 免凭证只有 `task-status` / `session-mode` / `terminal-bg`（环回 hook / CSS
+//! 无法携带凭证）。
 
 use crate::WasmHost;
 use wasmnest_plugin_api::host::{HostHttp, HostLog};
@@ -101,49 +105,6 @@ pub const ROUTES: &[HttpRouteDecl] = &[
         host: Some("/api/git/checkout"),
         methods: &["POST"],
         auth: JWT,
-    },
-    // ==================== 认证链别名（公开路由——拿 token 之前的入口，票 07） ====================
-    HttpRouteDecl {
-        path: "auth/pairing",
-        host: Some("/api/auth/pairing"),
-        methods: &["POST"],
-        auth: NONE,
-    },
-    HttpRouteDecl {
-        path: "auth/verify",
-        host: Some("/api/auth/verify"),
-        methods: &["POST"],
-        auth: NONE,
-    },
-    HttpRouteDecl {
-        path: "auth/qr-connect",
-        host: Some("/api/auth/qr-connect"),
-        methods: &["POST"],
-        auth: NONE,
-    },
-    HttpRouteDecl {
-        path: "auth/reauth",
-        host: Some("/api/auth/reauth"),
-        methods: &["POST"],
-        auth: NONE,
-    },
-    HttpRouteDecl {
-        path: "auth/biometric-challenge",
-        host: Some("/api/auth/biometric-challenge"),
-        methods: &["POST"],
-        auth: NONE,
-    },
-    HttpRouteDecl {
-        path: "auth/biometric-verify",
-        host: Some("/api/auth/biometric-verify"),
-        methods: &["POST"],
-        auth: NONE,
-    },
-    HttpRouteDecl {
-        path: "auth/biometric-bind",
-        host: Some("/api/auth/biometric-bind"),
-        methods: &["POST"],
-        auth: NONE,
     },
     // ==================== 任务域内部路径（/api/plugin/<id>/<path> 可达） ====================
     HttpRouteDecl {
@@ -388,19 +349,8 @@ mod tests {
             .collect();
         assert_eq!(
             none_paths,
-            vec![
-                "auth/pairing",
-                "auth/verify",
-                "auth/qr-connect",
-                "auth/reauth",
-                "auth/biometric-challenge",
-                "auth/biometric-verify",
-                "auth/biometric-bind",
-                "task-status",
-                "session-mode",
-                "terminal-bg",
-            ],
-            "none 档清单漂移必须显式交代（公开入口 / 环回 hook / CSS 无凭证）"
+            vec!["task-status", "session-mode", "terminal-bg"],
+            "none 档清单漂移必须显式交代（环回 hook / CSS 无凭证；认证链已随中心迁出）"
         );
     }
 
@@ -424,8 +374,8 @@ mod tests {
                 .iter()
                 .filter(|(h, _)| h.starts_with("/api/"))
                 .count(),
-            24,
-            "别名表 = 业务 10 + auth 7 + sessions 7 = 24 条 /api 别名"
+            17,
+            "别名表 = 业务 10 + sessions 7 = 17 条 /api 别名（auth 7 条已随中心迁出）"
         );
         assert!(
             aliases.iter().any(|(h, _)| *h == "/static/terminal-bg"),

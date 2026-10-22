@@ -71,7 +71,9 @@ describe('C1 工程身份五处一致', () => {
     // 必须显式 `--out`。落点刻意不在 vite outDir（dist）内——dist 每次前端构建都被清空，
     // 产物落在里面等于每构建一次就自己删掉自己。
     expect(buildScript).toContain("const DEFAULT_PLUGINS_DIR = join('.build', 'plugins')")
-    expect(buildScript).toContain('const PLUGINS_DIR = resolve(ROOT, OUT_DIR_ARG || DEFAULT_PLUGINS_DIR)')
+    expect(buildScript).toContain(
+      'const PLUGINS_DIR = resolve(ROOT, OUT_DIR_ARG || DEFAULT_PLUGINS_DIR)',
+    )
     expect(buildScript).toContain('const RESOURCES_DIR = resolve(PLUGINS_DIR, PLUGIN_ID)')
     // 构建链不得再引平台仓路径解析器（platform-paths 只留给 CI / 平台集成脚本，见 G2 导入锁）
     expect(buildScript).not.toContain('platform-paths')
@@ -221,8 +223,8 @@ describe('C1 工程身份五处一致', () => {
     expect(manifest.contributes.httpEndpoints).toBeUndefined()
     const httpRoutesSource = readFileSync(resolve(PLUGIN_ROOT, 'rust/src/http_routes.rs'), 'utf-8')
     expect(httpRoutesSource).toContain('pub const ROUTES: &[HttpRouteDecl]')
-    // ROUTES 表必须覆盖旧静态清单的全部 34 个内部段（业务 10 + 认证 7 + 任务 17），
-    // 并新增 sessions REST 7 + terminal-bg 1（票 11 下沉收尾）
+    // ROUTES 表必须覆盖旧静态清单的内部段（业务 10 + 任务 17；认证 7 条已随
+    // 认证中心迁出，issue #6 切换），并新增 sessions REST 7 + terminal-bg 1
     for (const endpoint of [
       'configs',
       'quick-actions',
@@ -234,13 +236,6 @@ describe('C1 工程身份五处一致', () => {
       'git/branches',
       'git/status',
       'git/checkout',
-      'auth/pairing',
-      'auth/verify',
-      'auth/qr-connect',
-      'auth/reauth',
-      'auth/biometric-challenge',
-      'auth/biometric-verify',
-      'auth/biometric-bind',
       'task-status',
       'session-mode',
       'session-settings',
@@ -259,9 +254,11 @@ describe('C1 工程身份五处一致', () => {
       'scheduled-jobs/remove',
       'scheduled-jobs/reset',
     ]) {
-      expect(httpRoutesSource, `http_routes::ROUTES 缺内部段 ${endpoint}`).toContain(`"${endpoint}"`)
+      expect(httpRoutesSource, `http_routes::ROUTES 缺内部段 ${endpoint}`).toContain(
+        `"${endpoint}"`,
+      )
     }
-    // 免凭证档位（none）必须覆盖旧 NO_AUTH_HTTP_ENDPOINTS 九条 + terminal-bg（CSS 无凭证）
+    // 认证七条必须**不在**本插件路由表里（否则与认证中心抢全局唯一的 host 别名）
     for (const endpoint of [
       'auth/pairing',
       'auth/verify',
@@ -270,10 +267,14 @@ describe('C1 工程身份五处一致', () => {
       'auth/biometric-challenge',
       'auth/biometric-verify',
       'auth/biometric-bind',
-      'task-status',
-      'session-mode',
-      'terminal-bg',
     ]) {
+      expect(
+        httpRoutesSource,
+        `auth 端点已迁至认证中心，不得残留在 ROUTES: ${endpoint}`,
+      ).not.toContain(`"${endpoint}"`)
+    }
+    // 免凭证档位（none）只剩环回 hook 两条 + terminal-bg（CSS 无凭证）
+    for (const endpoint of ['task-status', 'session-mode', 'terminal-bg']) {
       // 每条 none 档声明都要能在这份源码里找到（`"auth": NONE` 形态），否则即 401 漂移
       expect(httpRoutesSource).toContain(`"${endpoint}"`)
     }
@@ -384,7 +385,7 @@ describe('C3 入口契约（挂载包形态：mountApp + 直连上下文 + 内�
     const entry = stripComments(readFileSync(resolve(PLUGIN_ROOT, 'src/entry.ts'), 'utf-8'))
     // 契约：export mountApp + unmount/setRoute/setLocale 句柄
     expect(entry).toContain('export async function mountApp(')
-    expect(entry).toContain('app.provide(\'pluginContext\'')
+    expect(entry).toContain("app.provide('pluginContext'")
     expect(entry).toContain('app.mount(root)')
     expect(entry).toContain('unmount()')
     expect(entry).toContain('setRoute(')
@@ -393,7 +394,9 @@ describe('C3 入口契约（挂载包形态：mountApp + 直连上下文 + 内�
     expect(entry).not.toContain('setupSharedRuntime')
     expect(entry).not.toContain('__WASMNEST_SHARED__')
     // 本包自带依赖（无外部化）——vite 构建不再依赖宿主全局
-    expect(readFileSync(resolve(PLUGIN_ROOT, 'vite.config.ts'), 'utf-8')).not.toContain('wasmnestPlugin()')
+    expect(readFileSync(resolve(PLUGIN_ROOT, 'vite.config.ts'), 'utf-8')).not.toContain(
+      'wasmnestPlugin()',
+    )
     // 挂载契约版本（宿主 MOUNT_CONTRACT 比对；分发化后版本不再天然一致）
     expect(entry).toContain('mountContract: string')
     expect(entry).toContain("export const mountContract = '1'")
@@ -426,7 +429,10 @@ describe('C4 退役锁（D8 fail-visible：插件运行时回接零命中）', (
     const hits = frontendSources()
       .filter((f) => /plugin_invoke/.test(f.code))
       .map((f) => f.file)
-    expect(hits, `app 前端直调 plugin_invoke 的文件（应经 env.appInvoke）: ${hits.join(', ')}`).toEqual([])
+    expect(
+      hits,
+      `app 前端直调 plugin_invoke 的文件（应经 env.appInvoke）: ${hits.join(', ')}`,
+    ).toEqual([])
     // 防空转：env 适配层在场（appContext 的 commands.execute 走 env.appInvoke）
     const ctx = createAppContext(makeEnv() as any) as any
     expect(typeof ctx.commands.execute).toBe('function')
@@ -479,9 +485,7 @@ describe('C5 静态侧边栏菜单表与设置分组表（D3/D4）', () => {
 describe('C6 前端调用面与后端/文案同源（票 17）', () => {
   const rustDispatch = readFileSync(resolve(PLUGIN_ROOT, 'rust/src/lib.rs'), 'utf-8')
   /** Rust `invoke_command` 的匹配臂（含宿主桥接与调试臂，非仅 manifest 声明面） */
-  const rustArms = new Set(
-    [...rustDispatch.matchAll(/^\s{12}"([\w.-]+)"\s*=>/gm)].map((m) => m[1]),
-  )
+  const rustArms = new Set([...rustDispatch.matchAll(/^\s{12}"([\w.-]+)"\s*=>/gm)].map((m) => m[1]))
 
   it('前端调用的每条命令在 Rust 分派表里有同名臂（改名/漏臂即红）', () => {
     // 票 15/16 把 28 条任务命令从 `auto-task.*` 改指 `session.task.*`：调用点与

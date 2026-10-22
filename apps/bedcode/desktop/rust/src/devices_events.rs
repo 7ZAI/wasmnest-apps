@@ -11,8 +11,8 @@
 //!   连接触发；旧通道在票 08 整体退役，届时本域就是唯一设备事件源）；
 //! - 事件到达后经 `host-websocket.connection-context` 取**已脱敏**身份
 //!   （fingerprint / deviceName / subject），**凭据不出宿主**；
-//! - 认证记录 touch/close（本插件私有库 `auth_records` 域，原互调 api 的既有
-//!   实现）由插件自驱；宿主不再为端点连接代做。
+//! - 认证记录 touch/close（issue #6 切换后真源 = 认证中心私有库，经
+//!   [`crate::auth_center_client`] 互调写入）；宿主不再为端点连接代做。
 //!
 //! ## 前端事件
 //!
@@ -161,8 +161,9 @@ pub fn on_client_connected(endpoint_id: &str, client_id: &str) {
         }
         guard.insert(client_id.to_string(), identity.clone());
     }
-    // 认证记录 touch（本插件私有库真源；失败显性留痕，不阻断事件发布）
-    if let Err(e) = crate::auth_records::touch(&fp) {
+    // 认证记录 touch（issue #6 切换后真源 = 认证中心私有库，经互调写入；
+    // 失败显性留痕，不阻断事件发布）
+    if let Err(e) = crate::auth_center_client::connection_touch(&fp) {
         WasmHost.log_warn(&format!(
             "device: auth record touch failed (fingerprint len={}): {e}",
             fp.len()
@@ -214,7 +215,7 @@ pub fn on_client_disconnected(endpoint_id: &str, client_id: &str) {
         ));
         return;
     };
-    if let Err(e) = crate::auth_records::close_open_connection(&fp) {
+    if let Err(e) = crate::auth_center_client::connection_close(&fp) {
         WasmHost.log_warn(&format!(
             "device: auth record close failed (fingerprint len={}): {e}",
             fp.len()

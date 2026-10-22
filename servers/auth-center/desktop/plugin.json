@@ -1,0 +1,112 @@
+{
+  "id": "com.wasmnest.auth-center",
+  "name": "Auth Center",
+  "version": "0.0.1",
+  "platform": "desktop",
+  "description": "认证中心：本机入站连接的唯一裁决者（fail-closed）。页面显示中心就位三态、支持的认证方式、配对码 / 二维码、可信设备、连接历史、策略与密钥代次、决策计数。\n当前版本：六域（配对码 / QR / 信任 / 首连确认 / 认证策略 / 生物凭证）+ 认证记录库 + 互调 api 面均已就位，并在 activate 末尾注册为本机认证中心（K4 单中心）；BedCode 已同批去注册，设备中心与 file-transfer 的 consent / 信任面经互调消费本插件。注册失败时 fail-closed（入站全拒），页面如实显示 not_ready 与原因。",
+  "author": "WasmNest",
+  "main": "index.js",
+  "pluginType": "rust-ts",
+  "rustLibrary": "wasmnest_plugin_auth_center",
+  "icon": "icon.svg",
+  "type": "internal-business",
+  "permissions": [
+    "auth",
+    "network:http",
+    "peer",
+    "storage"
+  ],
+  "api": [
+    "com.wasmnest.auth-center.status",
+    "com.wasmnest.auth-center.pairing-code-generate",
+    "com.wasmnest.auth-center.pairing-code-status",
+    "com.wasmnest.auth-center.pairing-code-verify",
+    "com.wasmnest.auth-center.pairing-code-clear",
+    "com.wasmnest.auth-center.qr-code-generate",
+    "com.wasmnest.auth-center.qr-code-status",
+    "com.wasmnest.auth-center.qr-code-verify",
+    "com.wasmnest.auth-center.qr-code-clear",
+    "com.wasmnest.auth-center.trust-list",
+    "com.wasmnest.auth-center.trust-revoke",
+    "com.wasmnest.auth-center.consent-decide",
+    "com.wasmnest.auth-center.keys-rotate",
+    "com.wasmnest.auth-center.devices-list",
+    "com.wasmnest.auth-center.history-list",
+    "com.wasmnest.auth-center.history-clear",
+    "com.wasmnest.auth-center.connection-touch",
+    "com.wasmnest.auth-center.connection-close",
+    "com.wasmnest.auth-center.auth-grant"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "id": "auth-center.status",
+        "title": "Auth Center: Placement Status"
+      },
+      {
+        "id": "auth-center.pairing-code.generate",
+        "title": "Auth Center: Generate Pairing Code"
+      },
+      {
+        "id": "auth-center.pairing-code.status",
+        "title": "Auth Center: Pairing Code Status"
+      },
+      {
+        "id": "auth-center.pairing-code.verify",
+        "title": "Auth Center: Verify Pairing Code"
+      },
+      {
+        "id": "auth-center.pairing-code.clear",
+        "title": "Auth Center: Clear Pairing Code"
+      },
+      {
+        "id": "auth-center.qr-code.generate",
+        "title": "Auth Center: Generate QR Token"
+      },
+      {
+        "id": "auth-center.qr-code.status",
+        "title": "Auth Center: QR Token Status"
+      },
+      {
+        "id": "auth-center.qr-code.verify",
+        "title": "Auth Center: Verify QR Token"
+      },
+      {
+        "id": "auth-center.qr-code.clear",
+        "title": "Auth Center: Clear QR Token"
+      },
+      {
+        "id": "auth-center.consent.decide",
+        "title": "Auth Center: Decide Peer Consent"
+      },
+      {
+        "id": "auth-center.keys.rotate",
+        "title": "Auth Center: Rotate Entry Signing Key"
+      },
+      {
+        "id": "auth-center.keys.status",
+        "title": "Auth Center: Entry Signing Key Generation"
+      },
+      {
+        "id": "auth-center.trust.list",
+        "title": "Auth Center: Trust List"
+      },
+      {
+        "id": "auth-center.trust.revoke",
+        "title": "Auth Center: Revoke Trusted Device"
+      },
+      {
+        "id": "auth-center.devices.list",
+        "title": "Auth Center: Paired Devices"
+      },
+      {
+        "id": "auth-center.history.list",
+        "title": "Auth Center: Device Connection History"
+      },
+      {
+        "id": "auth-center.history.clear",
+        "title": "Auth Center: Clear Device Connection History"
+      }
+    ]
+  }
+}

@@ -8,8 +8,10 @@
 //!
 //! 已落地：
 //! - 票 03 骨架：可构建（wasm32-wasip3，cdylib 直出 Component）、可加载、可激活
-//! - 票 04 pairing 域：配对码 / QR token 生命周期语义（[`pairing`]），宿主命令面
-//!   与 server 配对端点经 `utils/auth/auth_center.rs` 桥接调本插件互调 api
+//! - **issue #6 起认证中心角色已迁出**：`com.wasmnest.auth-center` 注册为本机唯一
+//!   认证中心，本插件不再调用 `auth-center-register`；设备中心 / consent / 连接记录
+//!   经 [`auth_center_client`] 互调消费中心（本地六域副本待后续票删除）
+//! - 票 04 pairing 域：配对码 / QR token 生命周期语义（[`pairing`]）
 //! - 票 05 trust / consent 域：设备信任统一视图与撤销（[`trust`]，真源 = 内核
 //!   `pairings` 表经 host-auth 记录面）、首连确认决策（[`consent`]）、认证策略
 //!   导出（[`policy`]）——`auth-policy` capability 一并改指本插件
@@ -34,8 +36,12 @@
 
 /// 会话动作域（票 10）：重启 / 移除 / 改名编排 + 尺寸正统端裁决
 mod actions;
-/// 认证链 HTTP 编排域（票 07）：/api/auth/* 七端点 + JWT 签发 + 挑战状态机
-/// （密钥托管与信任表留宿主，经 host-auth 原语回调统一认证，见模块文档）
+/// 认证中心互调消费面（issue #6 切换）：设备中心 / consent / 连接记录改指
+/// `com.wasmnest.auth-center`，本地六域副本停止作为数据源
+mod auth_center_client;
+/// 认证链 HTTP 编排域（票 07）：**issue #6 切换后已停止对外服务**——
+/// `/api/auth/*` 路由与分派均归 `com.wasmnest.auth-center`。本模块只剩旧互调 api
+/// 仍引用的状态机副本，待「删除 bedcode 侧六域副本」后续票整体移除。
 pub mod auth_http;
 /// 认证记录域（2026-09-22 下沉）：配对设备 + 连接历史真源 = 本插件私有库，
 /// 宿主 host-auth 记录面原语退役后本域自持（见模块文档）
@@ -84,7 +90,7 @@ mod ws_control;
 pub mod ws_events;
 mod ws_terminal;
 
-use wasmnest_plugin_api::host::{HostAuth, HostBus, HostLog, HostStorage, HostTimer, HostWebsocket};
+use wasmnest_plugin_api::host::{HostBus, HostLog, HostStorage, HostTimer, HostWebsocket};
 use wasmnest_plugin_api::types::PluginManifest;
 use wasmnest_plugin_api::wasm::WasmPlugin;
 use wasmnest_plugin_api::wasm_host::WasmHost;
@@ -99,8 +105,10 @@ use std::sync::{Mutex, OnceLock};
 ///
 /// api 面按域分组命名（spec D2「配对 / 信任 / 同意 / 会话 / 任务」）——票 05 落
 /// pairing（八项）+ trust（两项）+ consent（一项）；session / task 归票 07 起。
-/// `trust-list` 同时是宿主桥接的**探活锚点**（注册表含它 ⇔ 本插件已激活且互调
-/// 面已登记，见宿主 `auth_center::SESSION_MARKER_API`）。
+///
+/// **issue #6 切换后这些认证域 api 不再有生产消费方**：`file-transfer` 与设备中心
+/// 均已改指 `com.wasmnest.auth-center`，宿主寻址也走注册表（不再按本插件探活）。
+/// 保留它们只是为了旧产物兼容，六域副本随后续票整体删除。
 #[plugin_api(manifest = "../plugin.json")]
 pub trait SessionApi {
     /// 生成配对码（替换旧的）→ 宿主 `PairingCode` 形状
@@ -331,28 +339,6 @@ static CURRENT_CODE: Mutex<Option<PairingCode>> = Mutex::new(None);
 
 /// QR token 管理器状态（OnceLock：仅运行时首次访问初始化一次，返回 &'static）
 static QR_MANAGER: OnceLock<QrTokenManager> = OnceLock::new();
-
-/// 本插件作为**认证中心**的注册结果（`activate` 末尾写入）
-///
-/// `Some(Ok(center_id))` = 注册成功；`Some(Err(why))` = 注册失败（fail-closed 下
-/// **所有入站连接被拒**，`deny_kind=no_center`）；`None` = 尚未 activate。
-///
-/// 存在的理由（ADR 0031 欠账 / 票 08 §8.1）：fail-closed 的失败**发生在入站方向**，
-/// 而本插件的设备中心界面照常打开（配对码能生成、界面无异常）——没有这份状态，
-/// 用户只看到「配对成功但手机连不上」，无法区分「本机中心没就位」与「对方网络问题」。
-/// 它是**本插件对自己注册结果的记录**，不需要宿主开新查询面。
-static CENTER_REGISTRATION: Mutex<Option<std::result::Result<String, String>>> = Mutex::new(None);
-
-/// 写入本插件的认证中心注册结果（`activate` 末尾调用）
-///
-/// 锁中毒（wasm 单线程 + 无 panic 传播面）**静默忽略**：注册状态只是给 UI 的
-/// 诊断信号，写不进去不该把一次已经成功的激活变成失败——真正的拒绝已经由宿主
-/// `deny_kind=no_center` 承担。
-fn set_center_registration(outcome: std::result::Result<String, String>) {
-    if let Ok(mut slot) = CENTER_REGISTRATION.lock() {
-        *slot = Some(outcome);
-    }
-}
 
 impl SessionApi for SessionPlugin {
     fn pairing_code_generate(ttl: u64) -> Result<serde_json::Value, String> {
@@ -1061,57 +1047,21 @@ impl WasmPlugin for SessionPlugin {
         }
 
         // ABI v29（HTTP 路由代码注册下沉）：activate 期注册自身全部 HTTP 路由
-        // （业务/认证别名 + 任务域内部路径 + sessions REST + terminal-bg）。
+        // （业务别名 + 任务域内部路径 + sessions REST + terminal-bg）。
         // 单条失败只 warn（该路由 404 可见，不把整个插件打成 Error——D7 故障隔离）。
+        // issue #6 切换：认证七端点已随中心迁出（由 `com.wasmnest.auth-center`
+        // 注册 `/api/auth/*`）；本插件不再登记任何认证路由，也不再注册认证中心。
         http_routes::register_all(&host);
 
-        // v32（ADR 0031 K1）：激活**末尾**注册为本机**认证中心**。静态声明段 =
-        // manifest `type: internal-business`（决定加载顺序），动态就绪段 = 本调用 +
-        // 宿主唯一性仲裁（单中心 D2；重复注册标点名在册属主）。
-        //
-        // **为什么放末尾而不是开头**（2026-09-29 集成测试实证）：注册即“就位”，而本
-        // activate 有多处 `?` 硬失败（会话登记域建表 / pty:exit 订阅 …）。注册在前则
-        // 「激活失败」会留下一个**在册的半死中心**——宿主侧 `is_registered()` 为真，
-        // 认证面去找一个没有会话域的中心，表现为「报 unavailable 而不是 no_center」，
-        // 排障方向被带偏（且本进程内重新激活会撞「already registered」）。就位 = 激活
-        // 全部成功，故注册必须是最后一步。
-        //
-        // 失败**不阻断激活**（它已经是最后一步），但认证面随之 fail-closed（无中心 =
-        // 拒绝），必须 error 留痕让排障可定位（宿主另有 `deny_kind=no_center` 日志 +
-        // L2 激活期未注册校验兜底点名「按当前 SDK 重建」）。
-        let reg_methods = ["pairing_code", "qr", "biometric", "jwt"]
-            .iter()
-            .map(|s| s.to_string())
-            .collect::<Vec<_>>();
-        match host.auth_center_register(reg_methods) {
-            Ok(center_id) => {
-                host.log_info(&format!("auth center registered: {center_id}"));
-                set_center_registration(Ok(center_id));
-            }
-            Err(e) => {
-                host.log_error(&format!(
-                    "auth center registration failed (auth surfaces stay fail-closed): {e}"
-                ));
-                // 记下失败原因供**设备中心 UI** 读取（ADR 0031 欠账 + 票 08 §8.1）：
-                // fail-closed 下本插件仍在册、界面照常打开，但**所有入站连接都会被拒**
-                // （`deny_kind=no_center`）。没有这个信号，用户只看到「配对码能生成、
-                // 手机却连不上」，无从判断是本机没就位还是对方网络问题。
-                set_center_registration(Err(e.to_string()));
-            }
-        }
+        host.log_info(
+            "WasmNest plugin activated (auth center role moved to com.wasmnest.auth-center)",
+        );
         Ok(())
     }
 
     fn deactivate() -> anyhow::Result<()> {
         let host = WasmHost;
         host.log_info("WasmNest plugin deactivated");
-        // v32（ADR 0031 K1）：注销认证中心角色（仅属主本人；宿主 purge_for_plugin
-        // 兜底回收）。注销失败不阻断停用流程——宿主侧回收兜底，故只留痕。
-        if let Err(e) = host.auth_center_unregister() {
-            host.log_warn(&format!(
-                "auth center unregister failed (host purge backs up): {e}"
-            ));
-        }
         // ABI v29：路由回收依赖宿主停用 purge（同 host-websocket 先例）；
         // 此处留痕 + 状态自清（双保险）
         http_routes::unregister_all(&host);
@@ -1280,24 +1230,26 @@ impl WasmPlugin for SessionPlugin {
             // 与互调 api 面共享同一实现（`*_via_host`）：宿主命令面未来经 api 转发，
             // 命令面保留供宿主闭环测试与调试直调。
 
-            // 统一信任视图 → {devices, peerError}
-            "session.trust.list" => trust::list_via_host().map_err(anyhow::Error::msg),
+            // 统一信任视图 → {devices, peerError}（issue #6：真源改指认证中心）
+            "session.trust.list" => {
+                auth_center_client::trust_list().map_err(anyhow::Error::msg)
+            }
 
-            // 撤销统一条目 {id} → {removed, kind}
+            // 撤销统一条目 {id} → {removed, kind}（认证中心统一裁决 pairing / peer）
             "session.trust.revoke" => {
                 let id = args
                     .get("id")
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| anyhow::anyhow!("id required"))?;
-                trust::revoke_via_host(id).map_err(anyhow::Error::msg)
+                auth_center_client::trust_revoke(id).map_err(anyhow::Error::msg)
             }
 
-            // 首连确认决策：args 即 ConsentRequest（camelCase wire）
+            // 首连确认决策：args 即 ConsentRequest（camelCase wire）；决策真源在认证中心
             "session.consent.decide" => {
                 let request: consent::model::ConsentRequest = serde_json::from_value(args)
                     .map_err(|e| anyhow::anyhow!("invalid consent request: {}", e))?;
                 let decision =
-                    consent::ops::decide_consent_via_host(request).map_err(anyhow::Error::msg)?;
+                    auth_center_client::consent_decide(request).map_err(anyhow::Error::msg)?;
                 serde_json::to_value(decision)
                     .map_err(|e| anyhow::anyhow!("decision serialize: {}", e))
             }
@@ -1475,13 +1427,13 @@ impl WasmPlugin for SessionPlugin {
                 device_face::paired_list_via_host().map_err(anyhow::Error::msg)
             }
 
-            // 撤销设备 → 复用统一信任视图的撤销编排（真源内核 pairings 软删 + 清历史）
+            // 撤销设备 → 认证中心统一信任视图的撤销编排（配对设备软删 + 清历史）
             "session.devices.revoke" => {
                 let id = args
                     .get("id")
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| anyhow::anyhow!("id required"))?;
-                trust::revoke_via_host(id).map_err(anyhow::Error::msg)
+                auth_center_client::trust_revoke(id).map_err(anyhow::Error::msg)
             }
 
             // 连接历史 {deviceId} → ConnectionHistory[]
@@ -1520,47 +1472,25 @@ impl WasmPlugin for SessionPlugin {
                 device_face::ttl_set_via_host(key, value).map_err(anyhow::Error::msg)
             }
 
-            // ==================== 票 05 命令面（入场签发密钥轮换 · ADR 0033 D4） ====================            // **操作员手动触发面**（UI 按钮在插件设备中心）。与组合式出口
-            // `auth-grant` / `jwt` / `rotate-key`（供其他插件经 `host-auth
-            // auth-method-invoke` 组合式调用）**同一实现体**，两条触发面不重复编排。
-            //
-            // 为什么放**插件命令面**而不是宿主 Tauri 命令（票 05 原文写「宿主命令面」，
-            // 实施按 AGENTS §5.2「业务面一律走插件命令面」改判并在此登记理由）：
-            // 轮换是认证域产品操作，密钥真源、宽限期、跨代验签全在本插件，宿主只需
-            // 转发——放宿主会凭空多出一条宿主→业务的命令面通路（还要在 L2 白名单登记），
-            // 却拿不到任何宿主侧才有的信息。
-            //
+            // ==================== 票 05 命令面（入场签发密钥轮换 · ADR 0033 D4） ====================
+            // **操作员手动触发面**（UI 按钮在插件设备中心）。issue #6 切换后密钥
+            // 真源随认证中心迁走，本命令只是互调转发（命令名与返回 wire 不变）：
             // 返回 `{rotated, kid, previousKid?}`（`kid` = 代次标识，**不含密钥材料**——
-            // 凭据红线）。**不撤销既有 token**：撤销归撤销域；上一代在宽限期内继续验签。
+            // 凭据红线）。**不撤销既有 token**：上一代在宽限期内继续验签。
             "session.auth.rotate-key" => {
-                crate::auth_http::jwt::rotate_signing_key().map_err(anyhow::Error::msg)
+                auth_center_client::keys_rotate().map_err(anyhow::Error::msg)
             }
 
-            // 认证中心**就位状态**（纯读；ADR 0031 欠账 / 票 08 §8.1）
+            // 认证中心**就位状态**（读认证中心的注册结果并映射为旧 wire）
             // → `{registered, centerId?, error?}`
             //
-            // 读的是本插件自己 `activate` 末尾那次注册的**结果**，不反查宿主注册表
-            // （那需要宿主开新查询面，而本插件没有理由知道全局单槽的其它属主）。
-            // `registered: false` ⇒ fail-closed 下**所有入站连接被拒**，UI 据此
-            // 给出点名原因的提示，而不是让用户对着「配对码正常」猜手机为何连不上。
-            "session.auth.center-status" => {
-                let outcome = CENTER_REGISTRATION
-                    .lock()
-                    .map_err(|e| anyhow::anyhow!("center registration lock: {e}"))?
-                    .clone();
-                Ok(match outcome {
-                    Some(Ok(center_id)) => serde_json::json!({
-                        "registered": true,
-                        "centerId": center_id,
-                    }),
-                    Some(Err(why)) => serde_json::json!({
-                        "registered": false,
-                        "error": why,
-                    }),
-                    // 尚未 activate（理论上不可达：本命令只在插件激活后可调）
-                    None => serde_json::json!({ "registered": false }),
-                })
-            }
+            // issue #6 切换后本插件不再注册中心，状态必须问认证中心（它记录自己
+            // `activate` 末尾那次注册的结果）。映射规则与旧语义逐条对齐：
+            // - `registered` → 真 + 中心句柄；无横幅；
+            // - `not_ready` → 假 + 原因（`deny_kind=no_center`，入站全拒）；
+            // - 读不到 / 响应不可判读 → **抛错**（调用方按「状态未知」呈现，
+            //   不误报成「中心未就位」——两者正确动作不同）。
+            "session.auth.center-status" => auth_center_status_via_auth_center(),
 
             // ==================== 票 15 命令面（任务域后端①：Agent 集成与会话状态） ====================
             // 命令名暂前缀 `session.task.*`（票 17 随 UI 迁入一并收口为最终命名）。
@@ -2062,6 +1992,51 @@ fn qr_manager() -> &'static QrTokenManager {
     QR_MANAGER.get_or_init(QrTokenManager::new)
 }
 
+/// 认证中心就位状态 → 旧 `session.auth.center-status` wire（issue #6 切换）
+///
+/// 旧 wire 是 `{registered, centerId?, error?}`，设备中心前端据此渲染三态横幅，
+/// 切换不改前端：这里把认证中心的 `{state, reason, owner, centerId}` 映射回旧形状。
+/// `unknown` / 畸形响应**抛错**而不是 `registered:false`——「读不到」与「确知未就位」
+/// 的排障方向不同（后者是重建/注册失败，前者是通信或激活链问题）。
+fn auth_center_status_via_auth_center() -> anyhow::Result<serde_json::Value> {
+    let status = auth_center_client::status().map_err(anyhow::Error::msg)?;
+    map_auth_center_status(&status).map_err(anyhow::Error::msg)
+}
+
+/// 认证中心 status 载荷 → 旧 `session.auth.center-status` wire（纯函数，单测直测）
+fn map_auth_center_status(status: &serde_json::Value) -> Result<serde_json::Value, String> {
+    let state = status
+        .get("state")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default();
+    match state {
+        "registered" => {
+            let mut wire = serde_json::json!({ "registered": true });
+            if let Some(center_id) = status.get("centerId").and_then(|v| v.as_str()) {
+                wire["centerId"] = serde_json::json!(center_id);
+            }
+            Ok(wire)
+        }
+        "not_ready" => {
+            let reason = status
+                .get("reason")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty())
+                .unwrap_or("auth center not registered");
+            Ok(serde_json::json!({ "registered": false, "error": reason }))
+        }
+        _ => {
+            let reason = status
+                .get("reason")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unreadable status");
+            Err(format!(
+                "auth center status unavailable (state={state:?}): {reason}"
+            ))
+        }
+    }
+}
+
 /// 从命令参数组装任务历史查询筛选条件（CommandArgs 统一字段提取）
 fn task_history_filter_from_args(args: &CommandArgs) -> task::state::TaskHistoryFilter {
     let opt = |key: &str| -> Option<String> {
@@ -2135,31 +2110,18 @@ pub const FILE_BROWSE_HTTP_ENDPOINTS: &[&str] = file_browse::HTTP_ENDPOINTS;
 /// （[`FILE_BROWSE_HTTP_ENDPOINTS`] 的 git 子集视图，供并集测试分域计数）
 pub const GIT_HTTP_ENDPOINTS: &[&str] = &["git/branches", "git/status", "git/checkout"];
 
-/// 认证链 HTTP 端点（票 07）：网关 /api/auth/* 七条公开路由的插件接管声明
-pub const AUTH_HTTP_ENDPOINTS: &[&str] = auth_http::AUTH_HTTP_ENDPOINTS;
-
 /// 免凭证（`auth: "none"`）端点清单——ABI v29 起是 `http_routes::ROUTES` 档位的
 /// 分派常量（契约锚点）
 ///
 /// 票 08 裁决 1：宿主对 HTTP 端点的缺省档已翻成最严档 `jwt`（未声明 auth 即要求
-/// 移动端 JWT 验签）。本清单是**仅有的两批**必须免凭证可达的端点，逐条理由：
+/// 移动端 JWT 验签）。本清单是**仅有的**必须免凭证可达的端点，逐条理由：
 /// - `task-status` / `session-mode`：Claude Code / codex / pi / opencode 的 hook 脚本由
 ///   插件注入 PTY 环境，拿不到 JWT，只能按环回地址匿名调用（宿主转发的 `caller`
-///   字段给 `localhost`，插件据此可自行区分，裁决 3）；
-/// - `auth/*` 七条：本身是「拿 token 之前」的公开入口（配对 / QR / 重认证 / 生物绑定），
-///   与网关别名表 `RouteAuth::Public` 同一批；票 08 起两处取较严者，故这里必须声明
-///   `none`，否则移动端配对链路会被判 401。验签执行点仍在插件 auth 域 + `host-auth`。
-pub const NO_AUTH_HTTP_ENDPOINTS: &[&str] = &[
-    "task-status",
-    "session-mode",
-    "auth/pairing",
-    "auth/verify",
-    "auth/qr-connect",
-    "auth/reauth",
-    "auth/biometric-challenge",
-    "auth/biometric-verify",
-    "auth/biometric-bind",
-];
+///   字段给 `localhost`，插件据此可自行区分，裁决 3）。
+///
+/// 认证链七条（`auth/*`）曾是第三批，issue #6 切换后随认证中心迁出本插件，
+/// 由 `com.wasmnest.auth-center` 在注册成功后自行登记 `/api/auth/*`。
+pub const NO_AUTH_HTTP_ENDPOINTS: &[&str] = &["task-status", "session-mode"];
 
 /// 业务域 HTTP 分派入口（先业务域后任务域，路径全等匹配）
 ///
@@ -2186,15 +2148,8 @@ fn handle_http_endpoint(
         | "git/branches" | "git/status" | "git/checkout" => {
             file_browse::handle_http_endpoint(host, method, path, body, query)
         }
-        // 票 07：认证链（公开路由，JWT 之前的入口——编排归插件，经 host-auth
-        // 原语回调宿主统一认证）
-        "auth/pairing"
-        | "auth/verify"
-        | "auth/qr-connect"
-        | "auth/reauth"
-        | "auth/biometric-challenge"
-        | "auth/biometric-verify"
-        | "auth/biometric-bind" => auth_http::handle_http_endpoint(host, method, path, body, query),
+        // 认证链七端点已随认证中心迁出（issue #6）：本插件不再登记、也不再分派
+        // `auth/*`——宿主 `/api/auth/*` 由 `com.wasmnest.auth-center` 接管。
         // 票 11 下沉收尾（ABI v29）：sessions REST 七条（host 模板别名 /api/sessions*）
         // ——内部段 + params（`{id}` 捕获）+ device（JWT claims 派生的设备名）
         "sessions" | "sessions/start" | "sessions/stop" | "sessions/resize" | "sessions/input"
@@ -2293,18 +2248,14 @@ mod tests {
         assert_eq!(env!("CARGO_PKG_NAME"), "bedcode-plugin-terminal-session");
     }
 
-    /// v32（ADR 0031 K1）：认证中心注册是 `activate` 的**最后一步**（就位 = 激活全部成功）
+    /// issue #6 切换：本插件**不得**再注册 / 注销认证中心（K4 单中心）
     ///
-    /// 契约：`auth_center_register` 必须排在每个硬失败步骤（`?`）之后。注册在前则
-    /// 「激活中途失败」会留下一个在册的半死中心：宿主 `is_registered()` 为真、认证面
-    /// 去找一个没有会话域的中心，表现为 `unavailable` 而非 `no_center`（排障方向被带偏），
-    /// 且同进程内重新激活撞「already registered」。这是 2026-09-29 集成测试
-    /// `broadcast_shutdown` 暴露的真实形态。
-    ///
-    /// 锁法：源码内 `fn activate` 体内量位置（结构锁，与宿主 `production_code_lines`
-    /// 同类思路）。反例：把注册块搬回 activate 开头即转红。
+    /// 认证中心已迁到 `com.wasmnest.auth-center`，它负责注册与 `/api/auth/*` 路由。
+    /// BedCode 若仍调用 `auth-center-register`，按其加载顺序只有两种结局：抢在中心
+    /// 前面登记（中心被拒 → 切回旧中心，切换形同未发生）或被中心抢先（本插件注册
+    /// 失败刷 error）。两种都是静默的双中心/半死中心形态，故用结构锁钉死「不存在」。
     #[test]
-    fn auth_center_registration_is_the_last_activate_step() {
+    fn bedcode_does_not_register_or_unregister_auth_center() {
         let src = include_str!("lib.rs");
         let activate_start = src
             .find("    fn activate() -> anyhow::Result<()> {")
@@ -2316,33 +2267,25 @@ mod tests {
             activate_start < deactivate_start,
             "activate 必须先于 deactivate 出现"
         );
-        let body = &src[activate_start..deactivate_start];
+        let deactivate_end = src[deactivate_start..]
+            .find("    /// 认证策略导出")
+            .map(|i| deactivate_start + i)
+            .expect("deactivate 后的 verify_device_token_policy 文档锚点");
+        let activate_body = &src[activate_start..deactivate_start];
+        let deactivate_body = &src[deactivate_start..deactivate_end];
 
-        let reg = body
-            .find("host.auth_center_register(reg_methods)")
-            .expect("activate 必须调 auth_center_register");
-        // 每个硬失败步骤（`?` 传播 = 激活失败 = 不该留下在册中心）
-        for hard_fail_step in [
-            "session registry schema init failed at activate",
-            "pty exit subscription failed",
-            "ws client-disconnect subscription failed",
-            "ws client-connect subscription failed",
-        ] {
-            let at = body.find(hard_fail_step).unwrap_or_else(|| {
-                panic!("activate 必须含硬失败步骤 `{hard_fail_step}`（否则本锁已失效）")
-            });
-            assert!(
-                reg > at,
-                "认证中心注册必须排在硬失败步骤 `{hard_fail_step}` 之后（注册在前 = 激活失败留下半死中心）"
-            );
-        }
-        // 末位：排在 HTTP 路由注册（activate 最后一个非注册步骤）之后
-        let routes = body
-            .find("http_routes::register_all(&host);")
-            .expect("activate 必须注册 http 路由");
         assert!(
-            reg > routes,
-            "认证中心注册必须在 http 路由注册之后（就位 = 激活全部成功）"
+            !activate_body.contains("auth_center_register"),
+            "activate 不得注册认证中心（属主已迁至 com.wasmnest.auth-center）"
+        );
+        assert!(
+            !deactivate_body.contains("auth_center_unregister"),
+            "deactivate 不得注销认证中心（本插件从来不是属主，注销会撞非属主错误）"
+        );
+        // 反面锚点：会话 / 任务域的本职注册仍在（防止「删干净」把 activate 掏空后本锁失效）
+        assert!(
+            activate_body.contains("http_routes::register_all(&host);"),
+            "activate 必须保留自身 HTTP 路由注册（本插件仍是业务 HTTP 面的属主）"
         );
     }
 
@@ -2514,37 +2457,52 @@ mod tests {
         );
     }
 
-    /// 票 08 命令面接线：`session.auth.center-status` 必须把**注册结果**如实
-    /// 映射为 `{registered, centerId? | error?}`，且**未就位不得静默当成已就位**。
+    /// issue #6 命令面接线：`session.auth.center-status` 经互调问认证中心，并把
+    /// 三态如实映射为旧 wire `{registered, centerId? | error?}`。
     ///
-    /// native 下可直接操纵 static（无并发），故三个分支都能钉：
-    /// 注册成功 → `registered: true` + 中心句柄；注册失败 → `false` + 原因；
-    /// 未 activate → `false`（**不带** `error`，因为那时还没有失败原因）。
+    /// 纯映射函数在这里直测三个分支；「读不到 / 畸形」必须抛错（调用方按状态未知
+    /// 呈现），不能伪装成 `registered:false`（那会把通信故障误报成中心没就位）。
     #[test]
-    fn center_status_command_reports_registration_outcome() {
-        // 先复位为「未 activate」，避免与其它用例的写入互相污染
-        *CENTER_REGISTRATION.lock().expect("lock") = None;
-        let v = SessionPlugin::invoke_command("session.auth.center-status", serde_json::json!({}))
-            .expect("center-status 已接线");
-        assert_eq!(v["registered"], false, "未 activate 不得报已就位");
-        assert!(v.get("error").is_none(), "未 activate 无失败原因: {v}");
+    fn center_status_maps_auth_center_states() {
+        let registered = map_auth_center_status(&serde_json::json!({
+            "state": "registered",
+            "reason": null,
+            "owner": "com.wasmnest.auth-center",
+            "centerId": "authc-1234",
+            "methods": [],
+        }))
+        .expect("registered");
+        assert_eq!(registered["registered"], true);
+        assert_eq!(registered["centerId"], "authc-1234");
 
-        // 注册失败：失败原因必须透出（UI 要据此点名）
-        *CENTER_REGISTRATION.lock().expect("lock") = Some(Err("permission denied".to_string()));
-        let v = SessionPlugin::invoke_command("session.auth.center-status", serde_json::json!({}))
-            .expect("center-status");
-        assert_eq!(v["registered"], false);
-        assert_eq!(v["error"], "permission denied", "失败原因必须透出: {v}");
+        let not_ready = map_auth_center_status(&serde_json::json!({
+            "state": "not_ready",
+            "reason": "permission denied",
+        }))
+        .expect("not_ready");
+        assert_eq!(not_ready["registered"], false);
+        assert_eq!(not_ready["error"], "permission denied", "失败原因必须透出");
 
-        // 注册成功：中心句柄回显
-        *CENTER_REGISTRATION.lock().expect("lock") = Some(Ok("authc-1234".to_string()));
-        let v = SessionPlugin::invoke_command("session.auth.center-status", serde_json::json!({}))
-            .expect("center-status");
-        assert_eq!(v["registered"], true);
-        assert_eq!(v["centerId"], "authc-1234");
+        for malformed in [
+            serde_json::json!({ "state": "unknown", "reason": "host-call-failed" }),
+            serde_json::json!({ "state": "weird" }),
+            serde_json::json!({}),
+        ] {
+            let err = map_auth_center_status(&malformed)
+                .expect_err("读不到 / 不可判读必须抛错，不伪装成未就位");
+            assert!(err.contains("auth center status unavailable"), "got: {err}");
+        }
+    }
 
-        // 复位，避免污染同进程其它用例
-        *CENTER_REGISTRATION.lock().expect("lock") = None;
+    /// 命令面在 native 下同样显性失败（转发层不可用，不落 Unknown command）
+    #[test]
+    fn center_status_command_fails_loudly_on_native() {
+        let err = SessionPlugin::invoke_command("session.auth.center-status", serde_json::json!({}))
+            .expect_err("native 无互调宿主，必须显性失败");
+        assert!(
+            err.to_string().contains("unavailable outside wasm runtime"),
+            "必须派发到认证中心转发层（而非 Unknown command）: {err}"
+        );
     }
 
     /// native 命令面：宿主原语不可用（非 wasm 目标）→ 显性失败，不静默返回空视图
