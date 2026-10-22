@@ -26,10 +26,16 @@ import { expectEqual, expectInSet } from '../harness/expect'
 import { goHome, homeAppCards, openApp } from '../harness/shell'
 import {
   APP_NAME,
+  FILTER_ALL,
+  FILTER_APPS,
+  FILTER_SERVICES,
   MONITOR_PLUGIN_ID,
+  PANELS_EMPTY,
+  PANELS_SECTION,
   SELF_CARD,
   SELF_QUOTA_NOTE,
   SELF_QUOTA_TOGGLE,
+  SELF_ROLE,
 } from '../pages/monitor'
 
 describe('Monitor（桌面端 · 宿主内挂载）', () => {
@@ -108,5 +114,34 @@ describe('Monitor（桌面端 · 宿主内挂载）', () => {
       ['以上是宿主配额上限，不是实时占用。', 'These are host quota limits, not live usage.'],
       '配额说明是诚实边界',
     )
+  })
+
+  it('manifest kind 端到端：本应用带「内部业务」服务角色徽标', async () => {
+    await waitFor(SELF_CARD)
+    expectEqual(await exists(SELF_ROLE), true, '服务角色徽标在场（kind 从 manifest 透传到台账）')
+    expectInSet(
+      await text(SELF_ROLE),
+      ['内部业务', 'Internal business'],
+      'monitor 作为 L2 系统服务的角色文案',
+    )
+  })
+
+  it('角色过滤：服务区含本应用，应用区不含（取数仍全量）', async () => {
+    await waitFor(SELF_CARD)
+
+    await click(FILTER_SERVICES)
+    expectEqual(await exists(SELF_CARD), true, '服务过滤仍显示 monitor')
+
+    await click(FILTER_APPS)
+    expectEqual(await exists(SELF_CARD), false, '应用过滤不显示系统服务')
+
+    await click(FILTER_ALL)
+    expectEqual(await exists(SELF_CARD), true, '全部过滤恢复全量')
+  })
+
+  it('自定义面板空态：隔离环境无提供方时不伪造面板', async () => {
+    await waitFor(PANELS_SECTION)
+    expectEqual(await visible(PANELS_EMPTY), true, '无面板时显示空态')
+    expectEqual(await exists('monitor-panel-error'), false, '空态不是错误态')
   })
 })

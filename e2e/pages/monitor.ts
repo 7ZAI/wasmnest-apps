@@ -15,3 +15,15 @@ export const MONITOR_PLUGIN_ID = 'com.wasmnest.monitor'
 export const SELF_CARD = `monitor-plugin-${MONITOR_PLUGIN_ID}`
 export const SELF_QUOTA_TOGGLE = `monitor-quota-toggle-${MONITOR_PLUGIN_ID}`
 export const SELF_QUOTA_NOTE = `monitor-quota-note-${MONITOR_PLUGIN_ID}`
+
+/** 角色过滤（全部 / 服务 / 应用） */
+export const FILTER_ALL = 'monitor-filter-all'
+export const FILTER_SERVICES = 'monitor-filter-services'
+export const FILTER_APPS = 'monitor-filter-apps'
+
+/** 本应用的角色徽标（manifest kind = internal-business，E2E 验证服务角色端到端生效） */
+export const SELF_ROLE = `monitor-role-${MONITOR_PLUGIN_ID}`
+
+/** 自定义监控面板区（隔离目录里没有任何提供方 → 空态） */
+export const PANELS_SECTION = 'monitor-panels'
+export const PANELS_EMPTY = 'monitor-panels-empty'
