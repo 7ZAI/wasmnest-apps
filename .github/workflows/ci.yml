@@ -125,6 +125,17 @@ jobs:
       - name: 安装 Rust stable（宿主 native 测试，无需 wasm target）
         uses: dtolnay/rust-toolchain@stable
 
+      # bedcode/desktop 等的 dev-deps（wasmnest-lib server crate）拖 tauri → Linux 宿主
+      # 编译 gtk/glib sys crate，runner 缺系统头文件。包集与平台仓 test.yml 的
+      # 「安装 Linux 宿主系统依赖」同口径（改动需两仓同步）。
+      - name: 安装 Linux 宿主系统依赖（gtk/glib sys crate 的 build script 需要）
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev libjavascriptcoregtk-4.1-dev \
+            libappindicator3-dev librsvg2-dev patchelf \
+            libsoup-3.0-dev libssl-dev pkg-config libgtk-3-dev build-essential
+
       # SDK 尚未发布 crates.io（平台仓 sdk-publish.yml 已实现未执行），desktop crate
       # 的 `wasmnest-plugin-api = "0.0.1"` 在 CI 无法从 registry 解析；本地开发同场景
       # 由 link:platform 写 [patch]（不可提交）解决。这里在 CI 内给 .cargo/config.toml
