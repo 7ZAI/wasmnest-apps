@@ -95,9 +95,9 @@ jobs:
 
   # Rust native 单测：逐 crate `cargo test --manifest-path`（口径同 AGENTS.md 命令表）。
   # 测试跑宿主 target，不覆盖 wasm32 宏路径（native 测试边界见 AGENTS.md 完成定义）；
-  # desktop crate 依赖 crates.io SDK（=0.0.1），mobile crate 经 path 依赖平台仓 SDK
-  # （`../../../../../wasmnest/...`，R1 兄弟布局）→ 仍需跨仓装配，但无需 pnpm / 前端生成物
-  # （SDK crate 的 wit/ 已入库，app crate 无 build.rs）。
+  # desktop crate 声明 crates.io SDK（=0.0.1，未发布 → 见下方临时 patch 步），mobile
+  # crate 经 path 依赖平台仓 SDK（`../../../../../wasmnest/...`，R1 兄弟布局）→ 仍需
+  # 跨仓装配，但无需 pnpm / 前端生成物（SDK crate 的 wit/ 已入库，app crate 无 build.rs）。
   rust-test:
     name: rust 单测（native）
     runs-on: ubuntu-latest
@@ -124,6 +124,27 @@ jobs:
 
       - name: 安装 Rust stable（宿主 native 测试，无需 wasm target）
         uses: dtolnay/rust-toolchain@stable
+
+      # SDK 尚未发布 crates.io（平台仓 sdk-publish.yml 已实现未执行），desktop crate
+      # 的 `wasmnest-plugin-api = "0.0.1"` 在 CI 无法从 registry 解析；本地开发同场景
+      # 由 link:platform 写 [patch]（不可提交）解决。这里在 CI 内给 .cargo/config.toml
+      # 追加等价 patch（指向本次检出的平台仓 SDK，不改 package.json / 不写 marker）。
+      # SDK 发布 crates.io 后：删除本步 + docs/CI.md §7 对应行（同提交）。
+      - name: SDK 未发布期的 cargo patch（指向已检出平台仓 SDK）
+        run: |
+          set -euo pipefail
+          sdk="$GITHUB_WORKSPACE/wasmnest/wasmnest-desktop/packages/plugin-sdk-desktop"
+          test -f "$sdk/rust/Cargo.toml" || {
+            echo "::error::平台仓检出缺 SDK crate（$sdk/rust）——检查 fetch-cross-repo 与平台仓布局"; exit 1;
+          }
+          {
+            echo ''
+            echo '# >>> ci rust-test 临时 patch（SDK 发布 crates.io 后随 workflow 本步一起删除） >>>'
+            echo '[patch.crates-io]'
+            echo "wasmnest-plugin-api = { path = \"$sdk/rust\" }"
+            echo "wasmnest-plugin-api-macros = { path = \"$sdk/rust-macros\" }"
+            echo '# <<< ci rust-test 临时 patch <<<'
+          } >> .cargo/config.toml
 
       - name: 逐 crate cargo test（file-transfer 嵌套 crate 依赖图最小，放最前 fail-fast）
         run: |

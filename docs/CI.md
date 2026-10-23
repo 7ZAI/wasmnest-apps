@@ -188,6 +188,7 @@ node scripts/ci/set-app-version.mjs agent-hub 0.0.2 --dry-run
 | app 构建报 `Cannot find module @binblink/.../dist/...` | `prepare-platform.mjs` 没跑（或平台 SDK build 失败），先补齐 SDK dist                                   |
 | 打包报「产物缺失」                                     | 桌面：确认 `package-plugins.mjs --plugins-dir` 与构建的 `--out` 同源；移动：确认走平台移动构建（不是只产 `dist/` 的 `wasmnest-plugin build`） |
 | `pnpm install --frozen-lockfile` 404 找不到 SDK        | SDK 还没发布（`0.0.1` 未上 npm）：本地开发跑 `pnpm run link:platform`（会改 lock，别提交）；发布 SDK 后重跑 install 生成 registry 解析的 lock 并提交 |
+| CI `cargo` 报 no matching package `wasmnest-plugin-api` | Rust SDK 还没发布 crates.io（平台 `sdk-publish.yml` 未执行）：`ci.yml` 的 rust-test job 有临时 patch 步指向已检出平台仓 SDK；**发布 crates.io 后删除该步**（连同 docs 本行，同提交） |
 | artifact 里版本不是刚改的版本                          | 版本改动没提交 / 构建缓存了旧产物：`app-info --expect-version` 会先挡；必要时清对应 resources 目录重建  |
 | Release 创建失败「tag 已存在」                         | 手动 `publish` 不会覆盖既有 tag；发布新版本请 bump + 重新打 tag                                         |
 
