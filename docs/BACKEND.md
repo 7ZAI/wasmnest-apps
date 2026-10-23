@@ -83,7 +83,7 @@ pub(crate) trait SessionCenterApi {
 | 类别 | 目标 | 适用 | 工具链 |
 | --- | --- | --- | --- |
 | 一般桌面应用 | `wasm32-wasip3`（cdylib 直出 Component，免 componentize） | agent-hub / ai-chatbox / bedcode / monitor（servers）的 desktop | pinned nightly，由 `scripts/plugin-wasm-config.mjs` 的 `WASIP3_NIGHTLY` 注入 `RUSTUP_TOOLCHAIN`（单一事实源对齐平台 `scripts/wasip3-toolchain.sh`） |
-| 移动应用 + 双端共享核 | `wasm32-unknown-unknown` + 平台组件化工具 | 全部 mobile crate；`file-transfer/rust/plugin` | stable 可编；经 `../wasmnest/tools/componentize` 编码为 Component（原地覆盖，幂等） |
+| 移动应用 + 双端共享核 | `wasm32-unknown-unknown` + 组件化工具 | 全部 mobile crate；`file-transfer/rust/plugin` | stable 可编；经桌面 SDK 包自带的 `tools/componentize`（真源平台仓 `wasmnest-desktop/packages/plugin-sdk-desktop/tools/componentize`）编码为 Component（原地覆盖，幂等） |
 
 统一经各 app `pnpm run build` / `build:rust`，**不要在命令行自带 target / toolchain 字面量**（真源在 `scripts/plugin-wasm-config.mjs`）。`WASMNEST_PLUGIN_DEBUG=1` 出 debug wasm（保留 DWARF）。
 

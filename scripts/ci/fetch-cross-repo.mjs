@@ -49,7 +49,10 @@ const PLATFORM_REQUIRED = [
   'release-manifest.json',
   'scripts/compose-wit.mjs',
   'scripts/wasip3-toolchain.sh',
-  'tools/componentize/Cargo.toml',
+  // componentize 自 54fe8d3 起随桌面 SDK 发布（平台仓根 tools/ 已删除）：
+  // 应用构建链经 SDK 包名定位（apps/*/desktop/scripts/sdk-componentize.mjs），
+  // 这里校验平台仓检出里 SDK 包内的随包副本。
+  'wasmnest-desktop/packages/plugin-sdk-desktop/tools/componentize/Cargo.toml',
   'wasmnest-desktop/packages/plugin-sdk-desktop/package.json',
   'wasmnest-mobile/packages/plugin-sdk-mobile/package.json',
   'wasmnest-mobile/scripts/plugin-build.js',
