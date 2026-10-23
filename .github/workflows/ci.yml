@@ -1,5 +1,6 @@
 # ==============================================================================
-# 应用仓 CI：lint + 各 app 单测（不产出发布包；构建走 app-build / app-release）
+# 应用仓 CI：lint + 各 app 前端单测 + Rust crate native 单测
+# （不产出发布包；构建走 app-build / app-release）
 #
 # 为什么需要跨仓检出：应用仓的依赖图与构建脚本**不自足**——
 # `package.json` 的 `file:../../../../wasmnest/...`、WIT 生成物、SDK 的 `dist/`
@@ -91,3 +92,60 @@ jobs:
 
       - name: 各工程单测（逐工程串行，缺脚本打印 skip）
         run: pnpm run test:run
+
+  # Rust native 单测：逐 crate `cargo test --manifest-path`（口径同 AGENTS.md 命令表）。
+  # 测试跑宿主 target，不覆盖 wasm32 宏路径（native 测试边界见 AGENTS.md 完成定义）；
+  # desktop crate 依赖 crates.io SDK（=0.0.1），mobile crate 经 path 依赖平台仓 SDK
+  # （`../../../../../wasmnest/...`，R1 兄弟布局）→ 仍需跨仓装配，但无需 pnpm / 前端生成物
+  # （SDK crate 的 wit/ 已入库，app crate 无 build.rs）。
+  rust-test:
+    name: rust 单测（native）
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      SCCACHE_GHA_ENABLED: 'true'
+    steps:
+      - name: 检出应用仓
+        uses: actions/checkout@v4
+        with:
+          path: wasmnest-apps
+          fetch-depth: 1
+
+      - name: 装配跨仓依赖（平台仓 / 能力仓）
+        env:
+          CROSS_REPO_TOKEN: ${{ secrets.CROSS_REPO_TOKEN }}
+        run: |
+          node scripts/ci/fetch-cross-repo.mjs \
+            --platform-ref "${{ vars.WASMNEST_PLATFORM_REF || 'dev' }}" \
+            --lib-ref "${{ vars.WASMNEST_LIB_REF || 'dev' }}"
+
+      - name: 安装 sccache（.cargo/config.toml 强制 rustc-wrapper，不绕过）
+        uses: mozilla-actions/sccache-action@v0.0.9
+
+      - name: 安装 Rust stable（宿主 native 测试，无需 wasm target）
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: 逐 crate cargo test（file-transfer 嵌套 crate 依赖图最小，放最前 fail-fast）
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          # 枚举口径：端内 crate = <group>/<slug>/<end>/rust/Cargo.toml（分组拓扑真源
+          # scripts/lib/projects.mjs）；file-transfer 特例：双端同构 rust 层住
+          # <slug>/rust/{core,plugin}（不在端目录下，无 desktop/rust）。
+          # 标准布局的新 app 自动被 glob 覆盖，无需改本文件；.build / .worktrees 不在 glob 内。
+          manifests=(
+            apps/file-transfer/rust/*/Cargo.toml
+            apps/*/desktop/rust/Cargo.toml
+            apps/*/mobile/rust/Cargo.toml
+            servers/*/desktop/rust/Cargo.toml
+            servers/*/mobile/rust/Cargo.toml
+          )
+          if [ ${#manifests[@]} -eq 0 ]; then
+            echo "::error::未枚举到任何 crate 的 Cargo.toml（分组拓扑变更？看 scripts/lib/projects.mjs）"
+            exit 1
+          fi
+          for m in "${manifests[@]}"; do
+            echo "::group::cargo test --manifest-path $m"
+            cargo test --manifest-path "$m"
+            echo "::endgroup::"
+          done

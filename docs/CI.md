@@ -10,7 +10,7 @@
 
 | 文件                                       | 触发                            | 作用                                         | 产物                           |
 | ------------------------------------------ | ------------------------------- | -------------------------------------------- | ------------------------------ |
-| `.github/workflows/ci.yml`                 | PR / push `dev`·`main` / 手动   | `eslint`（0 error）+ 各 app `test:run`       | 无（只做校验）                 |
+| `.github/workflows/ci.yml`                 | PR / push `dev`·`main` / 手动   | `eslint`（0 error）+ 各 app `test:run` + 各 crate `cargo test`（native） | 无（只做校验）                 |
 | `.github/workflows/app-build.yml`          | **手动**（按 app 选择端与版本） | 单 app 构建；勾 `publish` 则建 tag + Release | workflow artifact（+ Release） |
 | `.github/workflows/app-release.yml`        | **推 tag `<slug>-v<X.Y.Z>`**    | 该 app 全端构建 + GitHub Release             | Release 附件                   |
 | `.github/workflows/app-build-reusable.yml` | 仅被上面两个 `uses:` 调用       | 单 app 单端：装配跨仓 → 构建 → 打包 → 上传   | artifact（30 天）              |
