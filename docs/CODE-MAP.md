@@ -116,8 +116,9 @@ wasmnest-apps/
 > （`plugin.json.api` ↔ `#[plugin_api] AuthCenterApi`，19 条，含宿主
 > `auth-method-invoke` 的 `auth-grant`）+ 认证记录库（`auth_pairings` /
 > `auth_biometric_keys` / `auth_connection_history`，插件私有库 = 唯一真源）。
-> 页面数据面（配对码 / QR、可信设备、连接历史、密钥代次）已接线，仅「决策计数」留位
-> （读 `metrics_snapshot` 需全局 `metrics:read`，单独一票）。
+> 页面数据面（配对码 / QR、可信设备、连接历史、密钥代次）已接线；「接入应用」卡展示
+> 消费方（bedcode / file-transfer）与宿主运行态（`plugin_list_loaded`），清单在
+> `src/consumers.ts` 声明式登记。原「决策计数」占位已按用户裁定删除。
 >
 > **注册切换已落地**（K4 原子替换，issue #6 切换票）：
 > - `activate` 末尾调 `auth_center_register`（排在 api dispatcher / 密钥环两个硬失败

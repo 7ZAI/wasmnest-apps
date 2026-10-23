@@ -2,8 +2,8 @@
  * Auth Center 中文文案（扁平点号 key，命名空间由 i18n/index.ts 前缀）
  *
  * 文案纪律（issue #6 D3）：就位状态必须区分「确知未就位」与「读不到」；
- * 读不到数据时写「读不到 + 原因」，不用空列表冒充「没有设备」；未接管的区块
- * 显式写「尚未接线」，不显示 0 或空表。
+ * 读不到数据时写「读不到 + 原因」，不用空列表冒充「没有设备」；接入应用的
+ * 「未安装」与「状态读不到」分开写，不互相冒充。
  */
 const zhCN: Record<string, string> = {
   title: '认证中心',
@@ -76,9 +76,24 @@ const zhCN: Record<string, string> = {
   'keys.rotate': '轮换密钥',
   'keys.rotated': '已轮换到 {kid}（上一代保留至宽限期结束）',
 
-  'pending.title': '尚未接管的区块',
-  'pending.body': '下列区块尚未接线：决策计数需要读宿主的全局指标快照（`metrics:read` 是全局读权限），单独一票评估授权面；此处显式留位，不显示 0 冒充。',
-  'pending.counters': '决策计数（allow / deny / require_approval / records_dropped）',
+  'consumers.title': '接入应用',
+  'consumers.hint':
+    '这些应用不再自持认证副本：设备配对、可信设备、连接历史与首连确认都经互调由本中心裁决。右侧运行态取自宿主插件清单；中心未就位时它们同样 fail-closed。',
+  'consumers.count': '{count} 个接入方',
+  'consumers.state.activated': '已激活',
+  'consumers.state.loaded': '已加载（未激活）',
+  'consumers.state.activating': '激活中',
+  'consumers.state.degraded': '已降级',
+  'consumers.state.needsApproval': '待授权',
+  'consumers.state.error': '激活失败',
+  'consumers.state.deactivated': '已停用',
+  'consumers.state.missing': '未安装',
+  'consumers.state.unknown': '状态读不到',
+  'consumers.surface.device-center': '设备中心（配对码 / 二维码）',
+  'consumers.surface.trust': '可信设备',
+  'consumers.surface.history': '连接历史',
+  'consumers.surface.keys': '密钥轮换',
+  'consumers.surface.consent': '首连确认',
 
   'preview.hint': '点开查看详情',
 

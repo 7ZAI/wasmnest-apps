@@ -245,22 +245,48 @@
   color: var(--color-success-ink);
 }
 
-/* ==================== 未接管区块 ==================== */
+/* ==================== 接入应用 ==================== */
 
-.ac-slots {
+.ac-consumers {
   list-style: none;
   margin: 14px 0 0;
   padding: 0;
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
   gap: 8px;
 }
 
-.ac-slot {
-  padding: 5px 10px;
-  border: 1px dashed var(--text-tertiary);
-  border-radius: var(--radius-tag);
+.ac-consumer {
+  padding: 12px 14px;
+  border-radius: var(--radius-button);
+  background: var(--bg-hover);
+}
+
+.ac-consumer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ac-consumer-id {
+  margin: 2px 0 0;
   color: var(--text-tertiary);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: calc(12px * var(--ui-scale));
+  word-break: break-all;
+}
+
+.ac-consumer-surfaces {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.ac-consumer-error {
+  margin: 8px 0 0;
+  color: var(--color-danger-ink);
   font-size: calc(12px * var(--ui-scale));
 }
 
@@ -400,8 +426,20 @@
   margin: 0;
 }
 
+.ac-tag.is-ok {
+  color: var(--color-success-ink);
+}
+
+.ac-tag.is-warn {
+  color: var(--color-warning-ink);
+}
+
 .ac-tag.is-bad {
   color: var(--color-danger-ink);
+}
+
+.ac-tag.is-muted {
+  color: var(--text-tertiary);
 }
 
 .ac-note {

@@ -2,8 +2,9 @@
  * Auth Center English copy (flat dotted keys; namespace added by i18n/index.ts)
  *
  * Copy rules (issue #6 D3): distinguish "known not registered" from "unreadable";
- * unreadable must state the reason rather than fall back to an empty list; blocks
- * not yet owned by this app say so explicitly instead of rendering 0 / empty tables.
+ * unreadable must state the reason rather than fall back to an empty list; for
+ * integrated apps, "not installed" and "state unreadable" never impersonate
+ * each other.
  */
 const en: Record<string, string> = {
   title: 'Auth Center',
@@ -85,10 +86,24 @@ const en: Record<string, string> = {
   'keys.rotate': 'Rotate key',
   'keys.rotated': 'Rotated to {kid} (previous generation kept until the grace window ends)',
 
-  'pending.title': 'Not owned here yet',
-  'pending.body':
-    'The blocks below have no page wiring yet: decision counters need the host’s global metrics snapshot (`metrics:read` is a global read permission), so the grant is evaluated separately. Slots are shown explicitly rather than rendering 0.',
-  'pending.counters': 'Decision counters (allow / deny / require_approval / records_dropped)',
+  'consumers.title': 'Integrated apps',
+  'consumers.hint':
+    'These apps no longer keep auth copies of their own: device pairing, trusted devices, connection history and first-connection consent are all judged here through interop calls. The state on the right comes from the host plugin list; when this center is not registered they fail closed too.',
+  'consumers.count': '{count} consumers',
+  'consumers.state.activated': 'Active',
+  'consumers.state.loaded': 'Loaded (not active)',
+  'consumers.state.activating': 'Activating',
+  'consumers.state.degraded': 'Degraded',
+  'consumers.state.needsApproval': 'Needs approval',
+  'consumers.state.error': 'Activation failed',
+  'consumers.state.deactivated': 'Deactivated',
+  'consumers.state.missing': 'Not installed',
+  'consumers.state.unknown': 'State unreadable',
+  'consumers.surface.device-center': 'Device center (pairing code / QR)',
+  'consumers.surface.trust': 'Trusted devices',
+  'consumers.surface.history': 'Connection history',
+  'consumers.surface.keys': 'Key rotation',
+  'consumers.surface.consent': 'First-connection consent',
 
   'preview.hint': 'Open for details',
 

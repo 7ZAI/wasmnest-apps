@@ -20,10 +20,16 @@ function translate(key: string, params?: Record<string, unknown>): string {
 
 type Handler = (args?: Record<string, unknown>) => unknown
 
-function makeContext(appInvoke: (command: string, ...args: unknown[]) => Promise<unknown>) {
+function makeContext(
+  appInvoke: (command: string, ...args: unknown[]) => Promise<unknown>,
+  hostInvoke: (command: string, args?: Record<string, unknown>) => Promise<unknown> = vi.fn(
+    async () => [],
+  ),
+) {
   return {
     id: 'com.wasmnest.auth-center',
     appInvoke,
+    hostInvoke,
     storage: {
       get: vi.fn(async () => undefined),
       set: vi.fn(async () => undefined),
@@ -79,11 +85,14 @@ function defaults(status: CenterStatus = payload()): Record<string, Handler> {
   }
 }
 
-async function mountWith(appInvoke: (command: string, ...args: unknown[]) => Promise<unknown>) {
+async function mountWith(
+  appInvoke: (command: string, ...args: unknown[]) => Promise<unknown>,
+  hostInvoke?: (command: string, args?: Record<string, unknown>) => Promise<unknown>,
+) {
   const wrapper = mount(AuthCenterView, {
     global: {
       plugins: [i18n],
-      provide: { pluginContext: makeContext(appInvoke) },
+      provide: { pluginContext: makeContext(appInvoke, hostInvoke) },
     },
   })
   await flushPromises()
@@ -179,13 +188,99 @@ describe('AuthCenterView 就位三态', () => {
     expect(wrapper.find('[data-testid="auth-center-error"]').exists()).toBe(false)
   })
 
-  it('未接管区块只剩决策计数（其余四块已接线，不再留占位）', async () => {
+  it('「尚未接管的区块」占位卡已删除（不再显示决策计数留位）', async () => {
     const wrapper = await mountWith(route(defaults(payload({ methods: [] }))).appInvoke)
-    expect(wrapper.find('[data-testid="auth-center-pending-counters"]').exists()).toBe(true)
-    for (const section of ['pairing', 'trust', 'history', 'policy']) {
-      expect(wrapper.find(`[data-testid="auth-center-pending-${section}"]`).exists()).toBe(false)
-    }
+    expect(wrapper.find('[data-testid="auth-center-pending"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="auth-center-pending-counters"]').exists()).toBe(false)
     expect(wrapper.get('[data-testid="auth-center-methods-empty"]').text()).toBe('—')
+  })
+})
+
+describe('接入应用卡片', () => {
+  const BEDCODE = 'com.wasmnest.terminal-session'
+  const FILE_TRANSFER = 'com.wasmnest.file-transfer'
+
+  function hostRoute(infos: unknown[] | (() => never)) {
+    return vi.fn(async (command: string) => {
+      expect(command).toBe('plugin_list_loaded')
+      if (typeof infos === 'function') return infos()
+      return infos
+    })
+  }
+
+  it('列出声明的消费方；运行态与降级原因均上屏', async () => {
+    const wrapper = await mountWith(
+      route(defaults(payload({ methods: [] }))).appInvoke,
+      hostRoute([
+        { id: BEDCODE, state: { state: 'activated' } },
+        { id: FILE_TRANSFER, state: { state: 'degraded', error: 'peer engine down' } },
+      ]),
+    )
+
+    expect(wrapper.get(`[data-testid="auth-center-consumer-${BEDCODE}"]`).attributes('data-state')).toBe(
+      'activated',
+    )
+    expect(
+      wrapper.get(`[data-testid="auth-center-consumer-state-${FILE_TRANSFER}"]`).attributes('data-state'),
+    ).toBe('degraded')
+    expect(wrapper.get(`[data-testid="auth-center-consumer-state-${FILE_TRANSFER}"]`).text()).toContain(
+      '已降级',
+    )
+    expect(
+      wrapper.get(`[data-testid="auth-center-consumer-error-${FILE_TRANSFER}"]`).text(),
+    ).toContain('peer engine down')
+    expect(
+      wrapper.get(`[data-testid="auth-center-consumer-surface-${FILE_TRANSFER}-consent"]`).text(),
+    ).toContain('首连确认')
+    expect(wrapper.get('[data-testid="auth-center-consumers-count"]').text()).toContain('2')
+  })
+
+  it('清单里没有的消费方落「未安装」；状态值不可判读落「读不到」', async () => {
+    const wrapper = await mountWith(
+      route(defaults()).appInvoke,
+      hostRoute([
+        { id: BEDCODE, state: { state: 'weird-value' } },
+        // FILE_TRANSFER 不在清单里 = 未安装
+      ]),
+    )
+
+    expect(wrapper.get(`[data-testid="auth-center-consumer-state-${BEDCODE}"]`).attributes('data-state')).toBe(
+      'unknown',
+    )
+    expect(
+      wrapper.get(`[data-testid="auth-center-consumer-state-${FILE_TRANSFER}"]`).attributes('data-state'),
+    ).toBe('missing')
+    expect(wrapper.get(`[data-testid="auth-center-consumer-state-${FILE_TRANSFER}"]`).text()).toContain(
+      '未安装',
+    )
+  })
+
+  it('宿主清单读不到：原因上屏且整列 unknown（不冒充「未安装」）', async () => {
+    const wrapper = await mountWith(
+      route(defaults()).appInvoke,
+      hostRoute(() => {
+        throw new Error('host bridge closed')
+      }),
+    )
+
+    expect(wrapper.get('[data-testid="auth-center-consumers-error"]').text()).toContain(
+      'host bridge closed',
+    )
+    for (const id of [BEDCODE, FILE_TRANSFER]) {
+      expect(wrapper.get(`[data-testid="auth-center-consumer-state-${id}"]`).attributes('data-state')).toBe(
+        'unknown',
+      )
+    }
+  })
+
+  it('刷新会重新读取宿主清单', async () => {
+    const hostInvoke = hostRoute([{ id: BEDCODE, state: { state: 'activated' } }])
+    const wrapper = await mountWith(route(defaults()).appInvoke, hostInvoke)
+
+    expect(hostInvoke).toHaveBeenCalledTimes(1)
+    await wrapper.get('[data-testid="auth-center-consumers-refresh"]').trigger('click')
+    await flushPromises()
+    expect(hostInvoke).toHaveBeenCalledTimes(2)
   })
 })
 
@@ -353,7 +448,7 @@ describe('连接历史卡片', () => {
 
   it('设备为空：显示「暂无已配对设备」而不是历史空表', async () => {
     const wrapper = await mountWith(route(defaults()).appInvoke)
-    expect(wrapper.get('[data-testid="auth-center-history-empty-devices"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="auth-center-history-empty-devices"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="auth-center-history-no-events"]').exists()).toBe(false)
   })
 
@@ -460,8 +555,16 @@ describe('入场密钥代次卡片', () => {
 })
 
 describe('PreviewCard 卡片预览面（只读）', () => {
-  function previewEnv(appInvoke: AppPreviewEnv['appInvoke']): AppPreviewEnv {
-    return { appId: 'com.wasmnest.auth-center', appInvoke, appStorageGet: async () => undefined, locale: 'zh-CN', theme: 'dark' }
+  function previewEnv(
+    appInvoke: (command: string, ...args: unknown[]) => Promise<unknown>,
+  ): AppPreviewEnv {
+    return {
+      appId: 'com.wasmnest.auth-center',
+      appInvoke: appInvoke as AppPreviewEnv['appInvoke'],
+      appStorageGet: async () => undefined,
+      locale: 'zh-CN',
+      theme: 'dark',
+    }
   }
 
   it('已就位 → 卡片显示「已就位」', async () => {

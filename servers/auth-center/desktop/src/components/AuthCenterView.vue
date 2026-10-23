@@ -2,9 +2,9 @@
 /**
  * 认证中心主界面（桌面服务型 wasm）
  *
- * 本版本是**就位状态 + 六个数据面**：配对码 / 二维码、可信设备、连接历史、入场
- * 密钥代次都是真实命令（`auth-center.*`），决策计数尚未接线（`metrics:read` 是
- * 全局读权限，单独一票评估）。
+ * 本版本是**就位状态 + 认证方式 + 接入应用 + 五个数据面**：配对码 / 二维码、可信
+ * 设备、连接历史、入场密钥代次都接真实命令（`auth-center.*`），接入应用清单是声明
+ * （`consumers.ts`）+ 宿主 `plugin_list_loaded` 运行态。
  *
  * **注册已接管**（issue #6 切换）：本插件在 activate 末尾注册为认证中心，
  * `/api/auth/*` 也由本插件登记；BedCode 已同批去注册。顶部横幅按真实三态呈现——
@@ -16,6 +16,7 @@
 import { computed, inject, onMounted, ref } from 'vue'
 import type { AuthCenterContext } from '../appContext'
 import type { CenterState, CenterStatus } from '../types'
+import ConsumersCard from './ConsumersCard.vue'
 import PairingCard from './PairingCard.vue'
 import TrustCard from './TrustCard.vue'
 import HistoryCard from './HistoryCard.vue'
@@ -53,9 +54,6 @@ const versionText = computed(() => status.value?.version || t('status.none'))
 
 /** 声明的方式：后端没给就是「没声明」，不用空列表伪装成「没有可用方式」 */
 const methods = computed(() => status.value?.methods ?? [])
-
-/** 仍未接线的区块（只剩余决策计数——读 `metrics:read` 全局快照，单独一票） */
-const pendingSections = ['counters']
 
 async function load(): Promise<void> {
   loading.value = true
@@ -166,25 +164,11 @@ onMounted(load)
         <p v-else class="ac-hint" data-testid="auth-center-methods-empty">{{ t('status.none') }}</p>
       </section>
 
+      <ConsumersCard />
       <PairingCard />
       <TrustCard />
       <HistoryCard />
       <KeyCard />
-
-      <section class="ac-card" data-testid="auth-center-pending">
-        <h2 class="ac-h2">{{ t('pending.title') }}</h2>
-        <p class="ac-hint">{{ t('pending.body') }}</p>
-        <ul class="ac-slots">
-          <li
-            v-for="section in pendingSections"
-            :key="section"
-            class="ac-slot"
-            :data-testid="`auth-center-pending-${section}`"
-          >
-            {{ t(`pending.${section}`) }}
-          </li>
-        </ul>
-      </section>
     </main>
   </div>
 </template>

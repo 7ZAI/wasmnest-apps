@@ -113,3 +113,24 @@ export interface KeyRotationView {
   kid: string
   previousKid?: string | null
 }
+
+/** 已接入认证中心的应用（声明式登记，见 `consumers.ts`） */
+export interface AuthCenterConsumer {
+  /** 消费方插件 id（互调调用方 id） */
+  id: string
+  /** 展示名（消费方 manifest.name） */
+  name: string
+  /** 接入面 i18n 短键（`consumers.surface.*`），顺序即展示顺序 */
+  surfaces: string[]
+}
+
+/**
+ * 宿主 `plugin_list_loaded` 条目（只取本页用到的字段）
+ *
+ * wire 真源 = wasm-core `HostPluginInfo`（camelCase；`state` 为 `{state, error?}` 标签形状）。
+ */
+export interface HostPluginInfo {
+  id: string
+  name?: string
+  state?: { state?: string; error?: string } | string
+}

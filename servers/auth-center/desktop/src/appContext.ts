@@ -4,8 +4,9 @@
  * 页面经 `inject('pluginContext')` 取数。本模块只做一次适配：命令 / 存储由宿主经
  * `AppMountEnv` 注入；翻译走本包自持的 i18n 实例（命名空间见 `i18n/index.ts`）。
  *
- * 本 app **不订阅宿主事件**（当前只读就位状态）：接入配对码 / 连接事件后在此加
- * `events` 通道，不要在各页面里直接 `listen`。
+ * 本 app **不订阅宿主事件**：接入配对码 / 连接事件后在此加 `events` 通道，不要在各
+ * 页面里直接 `listen`。宿主面命令（`plugin_list_loaded`，用于接入应用运行态）走
+ * `hostInvoke`，与插件面 `appInvoke` 分开——前者不是本 app 的命令面。
  */
 import i18n, { MESSAGE_NAMESPACE } from './i18n'
 import type { AppMountEnv } from './entry'
@@ -15,6 +16,8 @@ export interface AuthCenterContext {
   id: string
   /** 本 app 插件面命令（带宿主签发的调用凭证） */
   appInvoke: <T = unknown>(command: string, ...args: unknown[]) => Promise<T>
+  /** 宿主面命令（只读；接入应用运行态等宿主事实） */
+  hostInvoke: <T = unknown>(command: string, args?: Record<string, unknown>) => Promise<T>
   storage: {
     get<T = unknown>(key: string): Promise<T | undefined>
     set(key: string, value: unknown): Promise<void>
@@ -33,6 +36,8 @@ export function createAppContext(env: AppMountEnv): AuthCenterContext {
     id: env.appId,
 
     appInvoke: (command, ...args) => env.appInvoke(command, ...args),
+
+    hostInvoke: (command, args) => env.invoke(command, args),
 
     storage: {
       get: (key) => env.appStorageGet(key),
