@@ -78,17 +78,24 @@ const DEFAULT_SETTINGS: InputAssistantSettings = {
   },
   quickBarCount: 6,
   floatingBall: false,
-  headerToolbarItems: ['folder'],
+  headerToolbarItems: ['folder', 'settings'],
   terminalFontSize: 12,
   terminalLetterSpacing: 0,
-  terminalTheme: null,
-  isTerminalThemeUserSet: false,
+  terminalTheme: 'dark',
+  isTerminalThemeUserSet: true,
   terminalOnboardingPending: true,
 }
 
 const STORAGE_KEY_STATS = 'terminal_shortcut_stats'
 const STORAGE_KEY_POSITION = 'input_assistant_position'
 const STORAGE_KEY_SETTINGS = 'input_assistant_settings'
+/**
+ * 设置存档版本键：v2 = 2026-10-24 出厂默认升级（终端默认暗色主题 + 设置按钮
+ * 常驻）。版本键门控保证升级只跑一次——升级后 null 主题 / ['folder'] 工具栏
+ * 也是用户的合法选择（显式改回），不得被再次「升级」
+ */
+const STORAGE_KEY_SETTINGS_VERSION = 'input_assistant_settings_version'
+const SETTINGS_VERSION = 2
 const STORAGE_KEY_CUSTOM_CMD_STATS = 'terminal_custom_cmd_stats'
 const STORAGE_KEY_SHORTCUT_CONFIG = 'terminal_shortcut_config'
 /** Agent CLI 覆盖映射（票 15 起存插件私有 storage；旧宿主 settings DB 键由一次性迁移搬运） */
@@ -259,6 +266,37 @@ export const useInputAssistantStore = defineStore('inputAssistant', () => {
     }))
   }
 
+  /**
+   * v1 → v2 一次性出厂默认升级（版本键门控）：
+   * - terminalTheme null 在 v1 是出厂值（跟随外观），升级为 v2 出厂暗色（dark +
+   *   手动指定标记）——null 同时也可能是 v1 用户显式选「跟随外观」的结果，两种
+   *   形态无法区分，统一按出厂值升级；想跟外观的用户在 v2 再选一次即被版本键保护
+   * - headerToolbarItems 仍为 v1 出厂 ['folder'] → 补 settings 常驻（已增删过
+   *   其它项视为已定制，不动）
+   * 只在确有升级时回写设置存档，避免把出厂默认快照钉死在 localStorage、
+   * 挡住未来版本的默认值演进
+   */
+  function upgradeLegacyDefaultSettings() {
+    if (localStorage.getItem(STORAGE_KEY_SETTINGS_VERSION) === String(SETTINGS_VERSION)) {
+      return
+    }
+    let upgraded = false
+    if (settings.value.terminalTheme == null) {
+      settings.value.terminalTheme = DEFAULT_SETTINGS.terminalTheme
+      settings.value.isTerminalThemeUserSet = DEFAULT_SETTINGS.isTerminalThemeUserSet
+      upgraded = true
+    }
+    const toolbar = settings.value.headerToolbarItems
+    if (Array.isArray(toolbar) && toolbar.length === 1 && toolbar[0] === 'folder') {
+      settings.value.headerToolbarItems = [...DEFAULT_SETTINGS.headerToolbarItems]
+      upgraded = true
+    }
+    if (upgraded) {
+      localStorage.setItem(STORAGE_KEY_SETTINGS, JSON.stringify(settings.value))
+    }
+    localStorage.setItem(STORAGE_KEY_SETTINGS_VERSION, String(SETTINGS_VERSION))
+  }
+
   // 从 localStorage 加载数据
   function loadFromStorage() {
     try {
@@ -285,6 +323,9 @@ export const useInputAssistantStore = defineStore('inputAssistant', () => {
       if (savedSettings) {
         settings.value = { ...DEFAULT_SETTINGS, ...JSON.parse(savedSettings) }
       }
+
+      // v1 存档出厂值一次性升级到 v2 出厂默认（版本键门控，详见函数头注）
+      upgradeLegacyDefaultSettings()
 
       // 加载快捷键配置
       loadShortcutConfig()

@@ -4,7 +4,8 @@
  * 移动端独立实现（与桌面端同名 store 无关），纯 localStorage 持久化。
  * 覆盖：默认配置、位置/频次/设置/快捷键配置的持久化与恢复、
  * 快捷键增删改与 builtin 保护、可见性切换、高频排序
- * （topShortcuts / getQuickBarItems 频次排序、数量钳制 3-10、无统计默认列表、颜色分类映射）。
+ * （topShortcuts / getQuickBarItems 频次排序、数量钳制 3-10、无统计默认列表、颜色分类映射）、
+ * v1→v2 出厂默认一次性升级（暗色主题 + 设置按钮常驻；版本键防二次升级）。
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { logger } from '../host'
@@ -15,6 +16,7 @@ const KEYS = {
   stats: 'terminal_shortcut_stats',
   position: 'input_assistant_position',
   settings: 'input_assistant_settings',
+  settingsVersion: 'input_assistant_settings_version',
   cmdStats: 'terminal_custom_cmd_stats',
   shortcutConfig: 'terminal_shortcut_config',
 } as const
@@ -36,11 +38,11 @@ describe('inputAssistant store', () => {
     expect(store.settings.size).toBe(48)
     expect(store.settings.quickBarCount).toBe(6)
     expect(store.settings.floatingBall).toBe(false)
-    expect(store.settings.headerToolbarItems).toEqual(['folder'])
+    expect(store.settings.headerToolbarItems).toEqual(['folder', 'settings'])
     expect(store.settings.terminalFontSize).toBe(12)
     expect(store.settings.terminalLetterSpacing).toBe(0)
-    expect(store.settings.terminalTheme).toBeNull()
-    expect(store.settings.isTerminalThemeUserSet).toBe(false)
+    expect(store.settings.terminalTheme).toBe('dark')
+    expect(store.settings.isTerminalThemeUserSet).toBe(true)
     expect(store.settings.gestures).toEqual({
       doubleTap: true,
       swipeDown: true,
@@ -121,6 +123,53 @@ describe('inputAssistant store', () => {
     const legacy = newStore()
     expect(legacy.settings.terminalFontSize).toBe(14)
     expect(legacy.settings.terminalLetterSpacing).toBe(0)
+  })
+
+  it('v1 存档一次性升级：出厂 null 主题 → dark + 手动标记、[folder] → 补 settings 常驻；已定制值保留', () => {
+    // v1 出厂存档（从未改过主题/工具栏），无版本键
+    localStorage.setItem(KEYS.settings, JSON.stringify({
+      terminalTheme: null,
+      isTerminalThemeUserSet: false,
+      headerToolbarItems: ['folder'],
+      terminalFontSize: 12,
+    }))
+    setActivePinia(createPinia())
+    const upgraded = newStore()
+    expect(upgraded.settings.terminalTheme).toBe('dark')
+    expect(upgraded.settings.isTerminalThemeUserSet).toBe(true)
+    expect(upgraded.settings.headerToolbarItems).toEqual(['folder', 'settings'])
+    // 升级结果 + 版本键落盘（防二次升级）
+    expect(JSON.parse(localStorage.getItem(KEYS.settings)!).terminalTheme).toBe('dark')
+    expect(localStorage.getItem(KEYS.settingsVersion)).toBe('2')
+
+    // v1 已定制（light 主题 / 自定义工具栏）：用户选择保留，仅落版本键
+    localStorage.clear()
+    localStorage.setItem(KEYS.settings, JSON.stringify({
+      terminalTheme: 'light',
+      isTerminalThemeUserSet: true,
+      headerToolbarItems: ['folder', 'task'],
+    }))
+    setActivePinia(createPinia())
+    const kept = newStore()
+    expect(kept.settings.terminalTheme).toBe('light')
+    expect(kept.settings.headerToolbarItems).toEqual(['folder', 'task'])
+    expect(localStorage.getItem(KEYS.settingsVersion)).toBe('2')
+  })
+
+  it('v2 起显式「跟随外观」（null 主题）与精简工具栏不再被升级覆盖', () => {
+    localStorage.setItem(KEYS.settingsVersion, '2')
+    localStorage.setItem(KEYS.settings, JSON.stringify({
+      terminalTheme: null,
+      isTerminalThemeUserSet: false,
+      headerToolbarItems: ['folder'],
+    }))
+    setActivePinia(createPinia())
+    const store = newStore()
+    expect(store.settings.terminalTheme).toBeNull()
+    expect(store.settings.isTerminalThemeUserSet).toBe(false)
+    expect(store.settings.headerToolbarItems).toEqual(['folder'])
+    // 无升级不回写设置存档
+    expect(JSON.parse(localStorage.getItem(KEYS.settings)!).terminalTheme).toBeNull()
   })
 
   it('resetSettings restores defaults and persists', () => {

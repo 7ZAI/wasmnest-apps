@@ -123,7 +123,7 @@
       :is-theme-user-set="terminalSettings.isThemeUserSet"
       :letter-spacing="terminalSettings.letterSpacing"
       :quick-bar-count="assistStore.settings.quickBarCount"
-      :toolbar-items="assistStore.settings.headerToolbarItems || ['folder']"
+      :toolbar-items="assistStore.settings.headerToolbarItems || ['folder', 'settings']"
       :all-toolbar-items="ALL_TOOLBAR_ITEMS"
       :onboarding-pending="assistStore.settings.terminalOnboardingPending"
       @change="handleSettingsUpdate"
@@ -372,7 +372,7 @@ const ALL_TOOLBAR_ITEMS: ToolbarItemConfig[] = [
 ]
 
 const visibleToolbarItems = computed(() => {
-  const items = assistStore.settings.headerToolbarItems || ['folder']
+  const items = assistStore.settings.headerToolbarItems || ['folder', 'settings']
   return ALL_TOOLBAR_ITEMS.filter(item => items.includes(item.key))
 })
 

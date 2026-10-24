@@ -8,7 +8,7 @@
       >
         <div class="absolute inset-0 bg-[var(--mobile-overlay-light)]" @click="emit('close')"></div>
         <div
-          class="relative bg-[var(--mobile-bg-card)] border border-[var(--mobile-border)] rounded-t-2xl w-full max-w-lg max-h-[min(85vh,44rem)] flex flex-col shadow-xl modal-panel"
+          class="relative bg-[var(--mobile-bg-card)] border border-[var(--mobile-border)] rounded-t-2xl w-full max-w-lg h-[min(85vh,44rem)] flex flex-col shadow-xl modal-panel"
           role="dialog"
           aria-modal="true"
           :aria-label="t('terminal.terminalSettings')"
@@ -150,6 +150,8 @@
  * 设置)，由 TerminalView 持久化并应用——终端即时重排，本身就是字号/主题预览。
  * 无草稿、无确认/取消 footer：关闭（遮罩 / 关闭钮）不会丢任何已生效修改。
  * Tab 不再每次打开重置：无丢稿风险后，停留页即用户上下文。
+ * 面板尺寸与 ShortcutConfigModal 同口径（w-full max-w-lg + 固定高
+ * min(85vh, 44rem)）：终端页两个入口弹窗大小一致，改任一侧须同步另一侧。
  */
 defineOptions({ name: 'TerminalSettingsModal' })
 
