@@ -6,7 +6,8 @@
  *   2. 注入插件全局样式（宿主不加载插件 dist/style.css，运行时注入一次）
  *   3. 注册宿主壳运行面（新设计界面 /mobile/shell 的独立页面；不再以工具箱页
  *      嵌入旧宿主——票 2026-10-09-mobile-host-into-wasm-apps）
- *   4. 保留设置动态路由与设置区贡献（设置仍可达；退役随旧宿主同批）
+ *   4. 设置为应用内二级页（registerRoute settings）：齿轮入口在应用自持界面内，
+ *      宿主设置页不再陈列应用项（2026-10-25 与 registerSettingsEntry 退役同批）
  *
  * 应用主题：registerSurface 的 accent 声明本应用的功能色（雾青，与
  * styles.css 的 .ft-app token 段同源）——壳可消费（应用图标色调等），应用
@@ -66,23 +67,12 @@ export async function activate(context: PluginContext): Promise<void> {
     header: true,
   })
 
-  // 5. 壳内设置入口（旧宿主「设置区」随阶段 B 退役：壳设置屏按 settingsEntries 渲染，
-  //    点击直达本应用已注册的设置路由）
-  context.ui.registerSettingsEntry({
-    id: 'file-transfer.settings',
-    label: context.i18n.t('transfer.settings.title'),
-    order: 10,
-    onSelect: () => {
-      void context.ui.openPage('settings')
-    },
-  })
-
-  // 6. 首连确认编排：激活期常驻订阅（不依赖视图挂载），确认框经插件
+  // 5. 首连确认编排：激活期常驻订阅（不依赖视图挂载），确认框经插件
   // 对话框 API 全局弹出，终端配对迁移规则静默互信 + toast（spec 决策 7）
   consentController = useConsent(context)
   consentController.start()
 
-  // 7. 批量传输请求全局弹窗：激活期常驻订阅（不依赖视图挂载），经宿主
+  // 6. 批量传输请求全局弹窗：激活期常驻订阅（不依赖视图挂载），经宿主
   // 全局弹窗（context.ui.showDialog 预设模式）渲染，任何页面可见
   batchDialogController = useBatchDialog(context)
   batchDialogController.start()
