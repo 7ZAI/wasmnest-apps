@@ -13,7 +13,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { nextTick } from 'vue'
-import { useTerminalBufferStore } from '../store'
+import { useTerminalBufferStore, SUBSCRIBE_ACK_TIMEOUT_MS, RECONNECT_STALL_TIMEOUT_MS } from '../store'
 import { useTerminalSubscription, HISTORY_SETTLE_TIMEOUT_MS, SUBSCRIBE_RETRY_INTERVAL_MS } from '../composables/useTerminalSubscription'
 import type { TerminalKernelContext } from '../composables/terminalKernel'
 
@@ -213,6 +213,62 @@ describe('useTerminalSubscription（票 05：subscribed 门控 + 超时兜底 + 
       const sub = useTerminalSubscription(makeCtx(), { bufferStore: store, subscribeSession: store.subscribeSession })
       await sub.subscribeWithRetry()
       expect(cmd.terminalSubscribe).not.toHaveBeenCalled()
+      sub.disposeSubscription()
+    })
+
+    // #9：订阅回包丢失时 `subscribing` 去重会让重试链永久空转（终端永久空白）
+    it('订阅确认丢失（subscribed 不到）：看门狗超窗后重新 subscribe', async () => {
+      vi.useFakeTimers()
+      emitState({ session_id: 's1', phase: 'idle', detail: 'unsubscribed' })
+      const sub = useTerminalSubscription(makeCtx(), { bufferStore: store, subscribeSession: store.subscribeSession })
+      await sub.subscribeWithRetry()
+      expect(cmd.terminalSubscribe).toHaveBeenCalledTimes(1)
+
+      // 首轮重试（3s）仍在看门狗窗口内：去重跳过，不重复重播
+      await vi.advanceTimersByTimeAsync(SUBSCRIBE_RETRY_INTERVAL_MS + 100)
+      expect(cmd.terminalSubscribe).toHaveBeenCalledTimes(1)
+
+      // 越过看门狗窗口后的下一轮：判定本轮订阅意图失效，重新 fresh subscribe
+      await vi.advanceTimersByTimeAsync(SUBSCRIBE_ACK_TIMEOUT_MS)
+      expect(cmd.terminalSubscribe).toHaveBeenCalledTimes(2)
+      sub.disposeSubscription()
+    })
+
+    // #9：插件会话缺失重试发 retry（不 close）——前端必须放开 subscribing 才能真的再订阅
+    it('会话缺失 retry 信号：清 subscribing，重试链能再次 subscribe', async () => {
+      vi.useFakeTimers()
+      emitState({ session_id: 's1', phase: 'idle', detail: 'unsubscribed' })
+      const sub = useTerminalSubscription(makeCtx(), { bufferStore: store, subscribeSession: store.subscribeSession })
+      await sub.subscribeWithRetry()
+      expect(cmd.terminalSubscribe).toHaveBeenCalledTimes(1)
+
+      emitState({ session_id: 's1', phase: 'connecting', detail: 'retry' })
+      expect(store.getBuffer('s1')?.subscribing).toBe(false)
+
+      await vi.advanceTimersByTimeAsync(SUBSCRIBE_RETRY_INTERVAL_MS + 100)
+      expect(cmd.terminalSubscribe).toHaveBeenCalledTimes(2)
+      sub.disposeSubscription()
+    })
+
+    // #9：宿主退避永远不回来时，重连态不得成为新的永久卡死
+    it('断线重连长期无 ws:open：停滞超窗后兜底重订阅', async () => {
+      vi.useFakeTimers()
+      emitState({ session_id: 's1', phase: 'idle', detail: 'unsubscribed' })
+      const sub = useTerminalSubscription(makeCtx(), { bufferStore: store, subscribeSession: store.subscribeSession })
+      emitState({ session_id: 's1', phase: 'connecting', detail: 'reconnecting' })
+
+      // 重连中：不重播（插件会在 ws:open 后自行重订阅）
+      await sub.subscribeWithRetry()
+      expect(cmd.terminalSubscribe).not.toHaveBeenCalled()
+
+      // 停滞窗口内只保留观察链
+      await vi.advanceTimersByTimeAsync(RECONNECT_STALL_TIMEOUT_MS / 2)
+      expect(cmd.terminalSubscribe).not.toHaveBeenCalled()
+
+      // 越过停滞窗口 → 放弃等待并 fresh subscribe
+      await vi.advanceTimersByTimeAsync(RECONNECT_STALL_TIMEOUT_MS / 2 + SUBSCRIBE_RETRY_INTERVAL_MS + 100)
+      expect(cmd.terminalSubscribe).toHaveBeenCalledWith('s1')
+      expect(store.getBuffer('s1')?.reconnecting).toBe(false)
       sub.disposeSubscription()
     })
   })

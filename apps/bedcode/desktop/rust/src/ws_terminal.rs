@@ -170,14 +170,24 @@ impl Watermark {
         *self = Watermark::default();
     }
 
-    /// 环淘汰重锚（插件自己发出 `ring_resync`）：基准跳到新游标
+    /// 环淘汰重锚（插件自己发出 `ring_resync`）：基准跳到**本块起点**
     ///
-    /// 同一环内偏移单调，故 `pushed` / `acked` 保留（仍是绝对偏移）；只换
-    /// `base` 并解除驻留——重锚是客户端唯一的自愈动作，抑制它等于把客户端
-    /// 锁死在「永远拿不到新数据也永远不 ack」的死锁里（`decide_pull_gate`
-    /// 的第一条同向保险：`from_offset < acked` 一律放行）。
-    pub fn reanchor(&mut self, next_offset: u64) {
-        self.base = next_offset;
+    /// 参数是从此刻起客户端会收到的第一个字节的环偏移（截断块 = 环驻留起点
+    /// `next_offset - data.len()`；客户端 `resync{offset}` = 客户端给的重锚点），
+    /// **不是** `next_offset`：多算一整块（≤16 KiB）方向安全但账不准，且每次
+    /// 截断都会多一次驻留。
+    ///
+    /// `acked` 必须跟着提到新基准：块起点之前的字节已被环淘汰、永远不可恢复，
+    /// 视同已确认。只换 `base` 不抬 `acked` 时，`pushed - acked` 仍停在高水位，
+    /// 下一轮立刻再次驻留——数据只能靠每 `PARK_MAX_CYCLES` 轮一次的逃生阀推进，
+    /// 且每次都打一条误导性的「基准换算错位」告警。
+    ///
+    /// 重锚是客户端唯一的自愈动作，必须解除驻留（抑制它等于把客户端锁死在
+    /// 「永远拿不到新数据也永远不 ack」的死锁里；`decide_pull_gate` 还有
+    /// `from_offset < acked` 一律放行的同向保险）。
+    pub fn reanchor(&mut self, block_start: u64) {
+        self.base = block_start;
+        self.acked = self.acked.max(block_start);
         self.parked = false;
         self.park_cycles = 0;
     }
@@ -601,6 +611,14 @@ fn drain_for(endpoint_id: &str, client_id: &str) -> Result<(), String> {
         fetches += 1;
         match WasmHost.pty_ring_fetch(&pty_id, cursor, MAX_FETCH_BYTES) {
             Ok(Some(fetched)) => {
+                // 本块起点（环绝对偏移）= 客户端即将收到的第一个字节：未截断时
+                // 就是请求游标，截断时是环驻留起点（`next_offset - data.len()`）。
+                // 重锚基准必须取后者（#10）。
+                let block_start = if fetched.truncated {
+                    fetched.next_offset.saturating_sub(fetched.data.len() as u64)
+                } else {
+                    cursor
+                };
                 if fetched.truncated {
                     // 环已淘汰游标之前的字节：显式重锚协议（客户端清屏续拉）。
                     //
@@ -614,36 +632,40 @@ fn drain_for(endpoint_id: &str, client_id: &str) -> Result<(), String> {
                     if let Err(e) = send_text(
                         endpoint_id,
                         client_id,
-                        &ring_resync_payload(cursor, fetched.next_offset).to_string(),
+                        &ring_resync_payload(cursor, block_start).to_string(),
                     ) {
                         WasmHost.log_warn(&format!(
                             "ws terminal: ring_resync 发送失败，游标不前进待下轮重试（client_id={client_id}）: {e}"
                         ));
                         return Ok(());
                     }
-                    // 本块取到的 [环驻留起点, next_offset) 是**有效连续字节**：
-                    // 截断只说明「请求游标之前」有缺口。早前实现此处直接 break
-                    // 把本块丢掉而游标已跳过 → 每次重锚都留一个客户端无从知晓
-                    // 的 ≤16 KiB 洞（且落点常在转义序列中段 → 脏屏）。
-                    watermark.reanchor(fetched.next_offset);
-                    cursor = fetched.next_offset;
                 }
+                // 本块取到的 [block_start, next_offset) 是**有效连续字节**：
+                // 截断只说明「请求游标之前」有缺口。早前实现此处直接 break
+                // 把本块丢掉而游标已跳过 → 每次重锚都留一个客户端无从知晓
+                // 的 ≤16 KiB 洞（且落点常在转义序列中段 → 脏屏）。
+                //
+                // 游标 / 水位**一律在数据下发成功后**才推进（#11）：重锚帧已发、
+                // 本块却没发出去时若照旧推进，客户端被告知从 block_start 续拉，
+                // 而这段字节永远不会再发 = 转义序列中段的静默洞。
                 if !fetched.data.is_empty() {
                     if let Err(e) =
                         WasmHost.ws_send_binary_to_client(endpoint_id, client_id, &fetched.data)
                     {
                         // 慢客户端/队列满：只停本人（fail-visible debug 留痕），
-                        // 不阻塞 PTY 产出与其他连接；游标不动，下轮续拉
+                        // 不阻塞 PTY 产出与其他连接。**不回写任何推进**：游标与
+                        // 基准停在旧值，下轮必然重新截断 → 重发重锚帧 + 本块。
                         WasmHost.log_debug(&format!(
                             "ws terminal: send to slow client failed (client_id={client_id}): {}",
                             e.message
                         ));
-                        with_conn(client_id, |c| {
-                            c.cursor = cursor;
-                            c.watermark = watermark;
-                        });
                         return Ok(());
                     }
+                }
+                if fetched.truncated {
+                    // 重锚帧与块数据都已送达，此刻才切换基准（#10：基准 = 块起点，
+                    // 且 acked 抬到新基准，否则下一轮立刻假驻留）
+                    watermark.reanchor(block_start);
                 }
                 cursor = fetched.next_offset;
                 watermark.note_pushed(fetched.next_offset);
@@ -795,29 +817,38 @@ pub fn on_session_terminated(session_id: &str, reason: &str, exit_code: Option<i
                 // 客户端就会把「半截屏 + session_stopped」当成完整
                 // 终态（这是尾帧路径独有的静默缺口——drain 路径有
                 // 截断必重锚，退出路径早前漏了）。
+                let block_start = if fetched.truncated {
+                    fetched.next_offset.saturating_sub(fetched.data.len() as u64)
+                } else {
+                    *cursor
+                };
                 if fetched.truncated {
                     if let Err(e) = send_text(
                         endpoint_id,
                         client_id,
-                        &ring_resync_payload(*cursor, fetched.next_offset).to_string(),
+                        &ring_resync_payload(*cursor, block_start).to_string(),
                     ) {
+                        // 重锚帧没发出去：客户端基准未切换，此时裸发尾帧会让后续
+                        // ack 全按旧基准解释——跳过尾帧（warn 已留痕）
                         WasmHost.log_warn(&format!(
-                            "ws terminal: 退出尾帧 ring_resync 发送失败（client_id={client_id}）: {e}"
+                            "ws terminal: 退出尾帧 ring_resync 发送失败，跳过尾帧（client_id={client_id}）: {e}"
                         ));
+                        continue;
                     }
-                    *cursor = fetched.next_offset;
                 }
                 if !fetched.data.is_empty() {
                     if let Err(e) =
                         WasmHost.ws_send_binary_to_client(endpoint_id, client_id, &fetched.data)
                     {
                         WasmHost.log_warn(&format!(
-                            "ws terminal: 退出尾帧下发失败（client_id={client_id}, bytes={}）: {}",
+                            "ws terminal: 退出尾帧下发失败（已重锚但尾帧丢失，客户端终屏为空；client_id={client_id}, bytes={}）: {}",
                             fetched.data.len(),
                             e.message
                         ));
+                    } else {
+                        // 只有真的送达才推进（退出路径无下一轮，账目仍要对得起诊断面）
+                        *cursor = fetched.next_offset;
                     }
-                    *cursor = fetched.next_offset;
                 }
             }
             Ok(None) => {}
@@ -982,6 +1013,37 @@ mod tests {
         wm.note_acked_local(4_000);
         assert_eq!(wm.acked, 104_000);
         assert_eq!(wm.unacked(), 96_000, "已推送 200_000 - 已确认 104_000");
+    }
+
+    /// W11 重锚基准 = 块起点：重锚后必须立即 Allow，且不得累积 forced_drains
+    ///
+    /// 反例（#10 实测缺陷）：只换 `base` 不抬 `acked` → 重锚后 `pushed - acked`
+    /// 仍在高水位，下一轮立刻再次驻留；数据只能靠每 `PARK_MAX_CYCLES` 轮一次的
+    /// 逃生阀推进，且每次截断都打一条误导性的「基准换算错位」告警。
+    #[test]
+    fn reanchor_at_block_start_keeps_gate_open_and_forced_drains_clean() {
+        let mut wm = Watermark::default();
+        // 截断前：已推到 1 MiB，客户端只确认了 4 KiB（高水位驻留）
+        wm.note_pushed(1_048_576);
+        wm.note_acked_local(4 * 1024);
+        assert!(matches!(wm.gate(900_000), Gate::Throttle { .. }));
+        assert!(wm.parked, "前置条件：已驻留");
+
+        // 环淘汰：重锚到本块起点（1 MiB），客户端本地计数归零
+        wm.reanchor(1_048_576);
+        assert_eq!(wm.base, 1_048_576);
+        assert_eq!(
+            wm.acked, 1_048_576,
+            "块起点之前的字节已被淘汰、永远不可恢复，视同已确认"
+        );
+        assert_eq!(wm.unacked(), 0);
+
+        // 重锚后每一轮都必须正常放行（不得依赖逃生阀）
+        for _ in 0..=(PARK_MAX_CYCLES + 1) {
+            assert_eq!(wm.gate(1_048_576), Gate::Allow);
+        }
+        assert!(!wm.parked);
+        assert_eq!(wm.forced_drains, 0, "重锚后不得产生假驻留 / 误报告警");
     }
 
     /// W4 全新订阅归零：旧订阅的驻留态不得遗留给新订阅（否则新环永久静默）
@@ -1214,6 +1276,43 @@ mod tests {
         assert!(
             body.contains("session_stopped 帧发送失败"),
             "停止帧发送失败必须留痕，不得静默丢弃（客户端会永远等不到终态）"
+        );
+    }
+
+    /// S7 截断 + 块发送失败：不得推进游标 / 基准（#11）
+    ///
+    /// 反例：重锚帧已发（客户端已清屏、基准切到新位置）而本块二进制没发出去，
+    /// 若照旧推进游标，`[旧游标, next_offset)` 永远不会再发送——转义序列中段
+    /// 的静默洞，TUI 脏屏。判据：重锚只能在块数据送达后切换，失败分支直接
+    /// 返回且不写回任何推进。
+    #[test]
+    fn failed_block_send_does_not_advance_after_reanchor() {
+        let body = fn_body(&source(), "fn drain_for(");
+        let data_send = body.find("ws_send_binary_to_client(").expect("数据下发");
+        let reanchor = body.find("watermark.reanchor(").expect("重锚基准切换");
+        assert!(
+            data_send < reanchor,
+            "重锚基准只能在块数据送达后切换（否则发送失败即静默丢块）"
+        );
+        assert!(
+            body.contains("ring_resync_payload(cursor, block_start)"),
+            "重锚 offset 必须是本块起点（next_offset 会把整块多算进已确认窗口）"
+        );
+        let fail_at = body[data_send..]
+            .find("send to slow client failed")
+            .expect("失败必须留痕");
+        let fail_branch = &body[data_send + fail_at..reanchor];
+        assert!(
+            fail_branch.contains("return Ok(());"),
+            "块发送失败必须早退（下轮重新截断 → 重发重锚帧 + 数据）"
+        );
+        assert!(
+            !fail_branch.contains("c.cursor = cursor"),
+            "失败分支不得回写已推进的游标"
+        );
+        assert!(
+            !fail_branch.contains("c.watermark = watermark"),
+            "失败分支不得回写已推进的水位"
         );
     }
 

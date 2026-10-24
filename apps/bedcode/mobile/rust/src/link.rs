@@ -21,7 +21,9 @@
 //! - 重连退避由宿主 auto-reconnect 承担（`ReconnectManager` 全局单一事实源）：
 //!   断开 → 宿主退避重建 → `ws:open`（新句柄 + `reconnectedFrom` 旧句柄）→
 //!   本状态机重新订阅（prewarm 未订阅过的链路不重订阅——无订阅可恢复）；
-//!   `session_missing` 重试复用同一循环（主动 close → 宿主退避 → 重连重订阅）。
+//!   `session_missing` 重试**不** close（`ws_close` 语义是「显式关闭 = 取消
+//!   auto-reconnect」，close 后无人再订阅）：保持连接、复位订阅基准，把 `retry`
+//!   交回前端 3s 重试循环，strikes 达上限才停。
 //! - ack 空闲兜底（250ms 轮询）退役：ack 由前端**解析完成回调**（writeCoalescer
 //!   的分块 parse 完成）推进，插件按「推进量 ≥ 64KB」节流回发（`should_send_ack`）。
 //!   为什么是「解析完成」而不是「已接收」：桌面端按 ack 记账放行（未确认窗口
@@ -630,15 +632,21 @@ fn handle_control_text(h: &WasmHost, session_id: &str, text: &str) {
                         }
                         emit_state(h, session_id, LinkPhase::Idle, 0, "session_missing");
                     } else {
-                        // 会话启动竞态：主动断开借宿主退避循环重试（新连接 +
-                        // 重新订阅，节流语义与退役前 TCP 重建一致），状态事件
-                        // 提示前端进入重试
-                        emit_state(h, session_id, LinkPhase::Connecting, 0, "retry");
-                        if let Some(handle) = handle {
-                            // close 触发宿主 auto-reconnect（waiting_reconnect
-                            // 状态由 ws:close 事件路径置位）
-                            let _ = h.ws_close(&handle, "{}");
+                        // 会话启动竞态：**保持连接**，只复位订阅基准并把重试交回
+                        // 前端 3s 循环。这里绝不能 close：宿主 `ws_close` 的语义是
+                        // 「显式关闭 = 取消 auto-reconnect」，close 后既没有退避重连、
+                        // 也没有任何路径再发 subscribe（前端的 subscribing 去重同样
+                        // 会跳过），strikes 永远到不了上限，终端永久停在「重连中」。
+                        // 重试帧由前端新一轮 subscribe 发出（同一连接可重复 subscribe）。
+                        {
+                            let mut mgr = LINK_MANAGER.lock().expect("link manager lock");
+                            if let Some(link) = mgr.links.get_mut(session_id) {
+                                link.reset_subscription_base();
+                                link.waiting_reconnect = false;
+                                link.phase = LinkPhase::Connecting;
+                            }
                         }
+                        emit_state(h, session_id, LinkPhase::Connecting, 0, "retry");
                     }
                 }
                 ServerErrorClass::Other => {

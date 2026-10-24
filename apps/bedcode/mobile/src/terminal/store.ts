@@ -149,6 +149,21 @@ const TERMINAL_STATE_EVENT = 'plugin:terminal-session:terminal-state'
 /** 重锚事件名（ring_resync / 重订阅回包） */
 const TERMINAL_RESYNC_EVENT = 'plugin:terminal-session:terminal-resync'
 
+/**
+ * 订阅确认看门狗（ms）：invoke 成功但 `subscribed` 迟迟不到（桌面回帧发送失败 /
+ * 帧丢失）时，`subscribing` 去重会把 3s 重试永久挡在门外——终端永久空白、输入
+ * 被 `subscribed` 门控拒绝。超窗即视为本轮订阅意图失效，允许重试重新发起
+ * fresh subscribe。
+ */
+export const SUBSCRIBE_ACK_TIMEOUT_MS = 5000
+
+/**
+ * 断线重连停滞判据（ms）：`reconnecting` 置位后长期收不到任何重连事件
+ * （`ws:open` 永不到达——重连会话被取消 / 桌面不可达），前端据此放弃等待
+ * 并兜底重订阅。取 2× 宿主退避上限（30s），给正常退避留出余量。
+ */
+export const RECONNECT_STALL_TIMEOUT_MS = 60_000
+
 export const useTerminalBufferStore = defineStore('terminalBuffer', () => {
   // ==================== State ====================
 
@@ -192,6 +207,12 @@ export const useTerminalBufferStore = defineStore('terminalBuffer', () => {
    *  也记录——live 事件早于页面挂载（直接进页面路径）时若被丢弃，buffer 挂载后
    *  phase 停在 idle。ensureBuffer 继承该值 */
   const knownPhases = new Map<string, SessionBuffer['phase']>()
+
+  /** sessionId → 本轮订阅发起时刻（`subscribing` 看门狗基准；非响应式） */
+  const subscribeRequestedAt = new Map<string, number>()
+
+  /** sessionId → 最近一次重连相关事件的时刻（`reconnecting` 停滞判据；非响应式） */
+  const reconnectSince = new Map<string, number>()
 
   // ==================== 链路调试统计（终端字节对账，5s 节流） ====================
 
@@ -418,6 +439,8 @@ export const useTerminalBufferStore = defineStore('terminalBuffer', () => {
     if (phase === 'live') {
       buffer.subscribing = false
       buffer.sessionStopped = false
+      subscribeRequestedAt.delete(payload.session_id)
+      reconnectSince.delete(payload.session_id)
       // 恢复 live → 断开提示与倒计时一并撤除（否则残留的倒计时会继续跑）
       buffer.reconnecting = false
       buffer.reconnectInMs = null
@@ -427,6 +450,9 @@ export const useTerminalBufferStore = defineStore('terminalBuffer', () => {
     // （本次等多久）。两者都置 reconnecting=true，只有后者带倒计时。
     if (payload.detail === 'reconnecting' || payload.detail === 'reconnect_scheduled') {
       buffer.reconnecting = true
+      // 停滞判据基准：任何重连事件都刷新——「停滞」= 一连串退避之后再无下文
+      // （ws:open 永不到达）
+      reconnectSince.set(payload.session_id, Date.now())
       if (payload.detail === 'reconnect_scheduled' && typeof payload.retry_in_ms === 'number') {
         buffer.reconnectInMs = payload.retry_in_ms
         // 排期到达时刻 = 倒计时基准（只在此处重置：同一轮退避内的 reconnecting
@@ -441,6 +467,8 @@ export const useTerminalBufferStore = defineStore('terminalBuffer', () => {
       buffer.phase = 'idle'
       buffer.subscribed = false
       buffer.subscribing = false
+      subscribeRequestedAt.delete(payload.session_id)
+      reconnectSince.delete(payload.session_id)
       buffer.sessionStopped = true
       buffer.lastRenderedOffset = null
       buffer.receivedBytes = 0
@@ -458,6 +486,14 @@ export const useTerminalBufferStore = defineStore('terminalBuffer', () => {
       buffer.reconnecting = false
       buffer.reconnectInMs = null
       buffer.reconnectReceivedAt = null
+      reconnectSince.delete(payload.session_id)
+    }
+    if (payload.detail === 'retry') {
+      // 会话启动竞态的 retry 信号：插件**保持连接**等前端再订阅（不 close——
+      // close 会取消宿主 auto-reconnect）。本轮订阅意图已失效，复位
+      // subscribing 与基准，让 3s 重试链真的能再发 fresh subscribe。
+      buffer.subscribing = false
+      subscribeRequestedAt.delete(payload.session_id)
     }
   }
 
@@ -510,6 +546,8 @@ export const useTerminalBufferStore = defineStore('terminalBuffer', () => {
     const buffer = buffers.get(sessionId)
     if (state.stopped) {
       knownPhases.delete(sessionId)
+      subscribeRequestedAt.delete(sessionId)
+      reconnectSince.delete(sessionId)
       if (buffer) {
         buffer.sessionStopped = true
         buffer.subscribed = false
@@ -527,6 +565,8 @@ export const useTerminalBufferStore = defineStore('terminalBuffer', () => {
     if (buffer.subscribed) {
       buffer.subscribing = false
       buffer.sessionStopped = false
+      subscribeRequestedAt.delete(sessionId)
+      reconnectSince.delete(sessionId)
     }
   }
 
@@ -539,6 +579,32 @@ export const useTerminalBufferStore = defineStore('terminalBuffer', () => {
     } catch (e: any) {
       logger.warn(`[terminalBuffer] state reconcile failed for ${sessionId}:`, e?.message || e)
     }
+  }
+
+  /**
+   * 断线重连是否已停滞：`reconnecting` 置位后超过 RECONNECT_STALL_TIMEOUT_MS
+   * 仍无任何新的重连事件（`ws:open` 永不到达）。重连会话可能已被取消（宿主侧
+   * close / 插件重建），前端必须放弃等待并兜底重订阅，否则横幅永久「重连中」
+   * 且没有任何恢复路径。
+   */
+  function isReconnectStalled(sessionId: string): boolean {
+    const buffer = buffers.get(sessionId)
+    if (!buffer?.reconnecting) return false
+    const since = reconnectSince.get(sessionId)
+    if (since === undefined) return false
+    return Date.now() - since >= RECONNECT_STALL_TIMEOUT_MS
+  }
+
+  /** 放弃停滞的重连等待（兜底重订阅前的复位） */
+  function resumeFromStalledReconnect(sessionId: string) {
+    reconnectSince.delete(sessionId)
+    subscribeRequestedAt.delete(sessionId)
+    const buffer = buffers.get(sessionId)
+    if (!buffer) return
+    buffer.reconnecting = false
+    buffer.reconnectInMs = null
+    buffer.reconnectReceivedAt = null
+    buffer.subscribing = false
   }
 
   /**
@@ -556,6 +622,20 @@ export const useTerminalBufferStore = defineStore('terminalBuffer', () => {
       ensureEventListeners()
     } catch (e) {
       logger.warn('[terminalBuffer] event listener init failed:', e)
+    }
+
+    // 订阅确认看门狗：invoke 成功但 `subscribed` 丢失时，下面的 subscribing
+    // 去重会让重试链永久空转（每 3s 调一次、每次都被跳过）——终端永久空白。
+    // 超窗视为本轮意图失效，放下一轮重试重新 subscribe。
+    if (buffer.subscribing) {
+      const startedAt = subscribeRequestedAt.get(sessionId) ?? 0
+      if (Date.now() - startedAt >= SUBSCRIBE_ACK_TIMEOUT_MS) {
+        logger.warn(
+          `[terminalBuffer] subscribe ack timeout (${sessionId}): re-arm retry after ${SUBSCRIBE_ACK_TIMEOUT_MS}ms`,
+        )
+        buffer.subscribing = false
+        subscribeRequestedAt.delete(sessionId)
+      }
     }
 
     // 订阅意图去重（一页一代只回放一次）。桌面插件每次 subscribe 都从环窗口
@@ -579,6 +659,7 @@ export const useTerminalBufferStore = defineStore('terminalBuffer', () => {
     }
 
     buffer.subscribing = true
+    subscribeRequestedAt.set(sessionId, Date.now())
     buffer.phase = 'connecting'
     // 登记→订阅的确定序：见 `pageChannelReady` 注释（通道未登记时的整段重放会被
     // 宿主窄转发层丢弃且当前无自愈路径）
@@ -592,7 +673,10 @@ export const useTerminalBufferStore = defineStore('terminalBuffer', () => {
     if (invoked) await reconcileState(sessionId)
     // 调用失败且未订阅：复位订阅中标志，交由调用方重试（成功路径保持
     // subscribing=true 直到状态事件/对账落定，避免重试路径误判失败）
-    if (!invoked && !buffer.subscribed) buffer.subscribing = false
+    if (!invoked && !buffer.subscribed) {
+      buffer.subscribing = false
+      subscribeRequestedAt.delete(sessionId)
+    }
     return null
   }
 
@@ -641,6 +725,8 @@ export const useTerminalBufferStore = defineStore('terminalBuffer', () => {
     // 先作废代际（在途帧不得写进已卸载的 xterm），再注销通道与链路。
     // 代际先删：异步登记完成的 openTerminalStream 见 token 不匹配即自行注销
     pageTokens.delete(sessionId)
+    subscribeRequestedAt.delete(sessionId)
+    reconnectSince.delete(sessionId)
     const stream = pageStreams.get(sessionId)
     if (stream) {
       pageStreams.delete(sessionId)
@@ -709,6 +795,8 @@ export const useTerminalBufferStore = defineStore('terminalBuffer', () => {
   /** 标记未订阅（手动取消）：关闭链路 + 清订阅信念，保留游标 */
   function markUnsubscribed(sessionId: string) {
     knownPhases.delete(sessionId)
+    subscribeRequestedAt.delete(sessionId)
+    reconnectSince.delete(sessionId)
     invokeTerminal('terminal-session.unsubscribe', { sessionId }).catch(() => {})
     const buffer = buffers.get(sessionId)
     if (buffer) {
@@ -732,6 +820,8 @@ export const useTerminalBufferStore = defineStore('terminalBuffer', () => {
    *  hasRenderedContent 保留——xterm 仍显示最终输出，重启后重播前需清屏提示 */
   function markSessionStopped(sessionId: string) {
     knownPhases.delete(sessionId)
+    subscribeRequestedAt.delete(sessionId)
+    reconnectSince.delete(sessionId)
     const buffer = buffers.get(sessionId)
     if (buffer) {
       buffer.sessionStopped = true
@@ -756,6 +846,8 @@ export const useTerminalBufferStore = defineStore('terminalBuffer', () => {
   /** 清理单个会话（会话删除时）：Rust 链路一并清 */
   function clearBuffer(sessionId: string) {
     knownPhases.delete(sessionId)
+    subscribeRequestedAt.delete(sessionId)
+    reconnectSince.delete(sessionId)
     invokeTerminal('terminal-session.remove', { sessionId }).catch(() => {})
     buffers.delete(sessionId)
     realtimeHandlers.delete(sessionId)
@@ -765,6 +857,8 @@ export const useTerminalBufferStore = defineStore('terminalBuffer', () => {
   /** 清理所有订阅状态（连接断开/退出） */
   function clearAllBuffers() {
     knownPhases.clear()
+    subscribeRequestedAt.clear()
+    reconnectSince.clear()
     invokeTerminal('terminal-session.unsubscribe-all', {}).catch(() => {})
     buffers.clear()
     realtimeHandlers.clear()
@@ -853,6 +947,8 @@ export const useTerminalBufferStore = defineStore('terminalBuffer', () => {
     unregisterRealtimeHandler,
     subscribeSession,
     reconcileState,
+    isReconnectStalled,
+    resumeFromStalledReconnect,
     resetMissingStrikes,
     sendInput,
   }
