@@ -186,6 +186,9 @@ export function useTerminalWritePipeline(
         }
       },
       onReset: () => {
+        // 先丢弃未刷出的旧字节：它们在 clear() 之后才写出，会与新基准的重播段
+        // 叠加成「同一段内容出现两遍」（重复显示）
+        clearPendingOutput()
         const terminal = ctx.terminalRef.value
         if (terminal) {
           terminal.clear()
@@ -202,6 +205,12 @@ export function useTerminalWritePipeline(
         )
       },
     }
+  }
+
+  /** 丢弃待刷队列（清屏 / 重锚 / 重挂前调用：旧字节不得落进新一代屏幕） */
+  function clearPendingOutput() {
+    writeQueue.length = 0
+    writeQueueBytes = 0
   }
 
   /** 组件卸载清理：取消挂起调度并清空队列（未 flush 的数据仍存于服务端环形，重开窗口可恢复） */
@@ -227,6 +236,7 @@ export function useTerminalWritePipeline(
     attachSource,
     enqueueOutput,
     armReplayRefresh,
+    clearPendingOutput,
     dispose,
   }
 }

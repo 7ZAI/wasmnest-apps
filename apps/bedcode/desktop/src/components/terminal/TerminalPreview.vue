@@ -402,7 +402,23 @@ let outputCursor = 0
 let pullTimer: ReturnType<typeof setInterval> | null = null
 /** 当前生效的轮询间隔（ms）：决策变化时重建 interval（快档 ↔ 慢档） */
 let pollIntervalMs = 0
-let pullInFlight = false
+/**
+ * 接入世代号：每次 stopOutputPull 递增。in-flight 的 pull 在 await 返回后比对
+ * 世代，过期响应直接丢弃——否则旧世代的 16 KiB 会被写进新屏幕（重复显示）。
+ */
+let attachSeq = 0
+/**
+ * 本世代是否已有 pull 在途（存世代号；-1 = 无）。
+ *
+ * 用世代号而不是布尔值：旧世代在途时新世代仍可自行发起拉取（旧响应由上面的
+ * 世代守卫丢弃），不会因为共享一个布尔标记而被永久卡在 pullInFlight=false 的
+ * 旧实现里（外部清标志 = 两代共享游标并发写 = 同一批字节写两次）。
+ */
+let pullInFlightSeq = -1
+/** 当前已接入输出源的会话（attach 幂等判据：同会话重复 attach 不重置游标） */
+let attachedSessionId: string | null = null
+/** 本组件是否已向终端交付过输出（重挂清屏判据：屏幕已有上一代内容时先清再重放） */
+let hasRenderedOutput = false
 /** 连续追平计数（空闲退避依据） */
 let idleStreak = 0
 
@@ -557,8 +573,9 @@ function logUnparkWatermarks(sessionId: string, parkedMs: number): void {
 
 /** 拉一轮：单 tick 内最多连续拉 OUTPUT_PULL_MAX_BATCHES 批，返回是否仍有余量 */
 async function pullOnce(): Promise<boolean> {
-  if (pullInFlight || !props.session?.id || !outputSink) return false
-  pullInFlight = true
+  const seq = attachSeq
+  if (pullInFlightSeq === seq || !props.session?.id || !outputSink) return false
+  pullInFlightSeq = seq
   const sessionId = props.session.id
   try {
     for (let i = 0; i < OUTPUT_PULL_MAX_BATCHES; i++) {
@@ -566,6 +583,9 @@ async function pullOnce(): Promise<boolean> {
         sessionId,
         fromOffset: outputCursor,
       })
+      // 世代守卫：await 期间发生过 attach / detach（游标可能已归零、屏幕已清），
+      // 本响应属于旧世代——丢弃，不推进游标、不写终端
+      if (seq !== attachSeq) return false
       // null = 游标已追平产出端（宿主 output-ring-fetch Ok(None)）
       if (res === null || res === undefined) return false
       const r = res as {
@@ -598,6 +618,7 @@ async function pullOnce(): Promise<boolean> {
       outputCursor = next
       if (bytes > 0) {
         outputSink.onData({ data: new Uint8Array(r.data as number[]) })
+        hasRenderedOutput = true
         // 交付即账：入队后推进水位，ack 上报的就是交付水位（非渲染完成）
         deliveredOffset = next
         pendingAckBytes += bytes
@@ -609,7 +630,7 @@ async function pullOnce(): Promise<boolean> {
     }
     return true
   } finally {
-    pullInFlight = false
+    if (pullInFlightSeq === seq) pullInFlightSeq = -1
   }
 }
 
@@ -676,7 +697,9 @@ function stopOutputPull() {
     clearTimeout(ackIdleTimer)
     ackIdleTimer = null
   }
-  pullInFlight = false
+  // 世代推进：在途 pull 的响应从此作废（不推进游标、不写终端）。
+  // 不再从外部清「在途」标记：两代共享游标并发写会同一批字节写两次
+  attachSeq += 1
   idleStreak = 0
   throttleBackoffUntil = 0
   parkedSince = 0
@@ -685,8 +708,20 @@ function stopOutputPull() {
 
 /** 接入输出源（票 04：插件 WASM 原语轮询拉取 → 写入管线）；会话停止/卸载时断开 */
 function attachOutputSource() {
-  if (!props.session?.id) return
+  const sessionId = props.session?.id
+  if (!sessionId) return
+  // 幂等：同一会话已接入且轮询在跑 → 不重挂。重挂会把游标归零并从环起点重放，
+  // 而 xterm 里已有内容 → 整段输出叠加重复（移动端 `replayGenerations` 同一口径）
+  if (attachedSessionId === sessionId && pullTimer) return
   stopOutputPull()
+  // 真重挂（会话重启 / 停止后恢复 / 换会话）：屏幕还留着上一代内容，先清屏并
+  // 丢弃待刷队列，再从环起点重放；首挂屏幕本为空，无需清
+  if (hasRenderedOutput) {
+    pipeline.clearPendingOutput()
+    kernel.terminalRef.value?.clear()
+  }
+  attachedSessionId = sessionId
+  hasRenderedOutput = false
   outputCursor = 0
   deliveredOffset = 0
   ackedThroughOffset = 0
@@ -703,6 +738,7 @@ function attachOutputSource() {
 function detachOutputSource() {
   stopOutputPull()
   outputSink = null
+  attachedSessionId = null
 }
 
 function initTerminal() {

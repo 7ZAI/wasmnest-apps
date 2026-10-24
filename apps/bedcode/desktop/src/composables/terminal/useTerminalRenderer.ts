@@ -202,8 +202,30 @@ export function useTerminalRenderer(ctx: TerminalKernelContext, logger: Terminal
   }
 
   /**
-   * DPR 感知 fit：容器 CSS 尺寸 × devicePixelRatio 换算设备像素后计算 cols/rows
-   * （行高 ceil、列宽 floor），替换 fitAddon.fit() 的裸 DPR 不感知计算。
+   * 终端可用绘制区（CSS px）= 宿主容器尺寸 − `.xterm` 自身内边距。
+   *
+   * 为什么不能直接用 `host.clientWidth`：`padding-inline: 0.5rem` 加在 `.xterm` 上
+   * （addon-fit 会扣掉它），而 DPR 路径量的是父容器——不扣这层 padding 会把列数
+   * 算多约 2 列，网格比可见区宽：TUI 按 cols 右对齐/填满的行在窗口右缘被裁掉
+   * （真机实测：stats 行尾被切、输入框光标落点偏右）。
+   */
+  function measureContentBox(host: HTMLElement): { width: number; height: number } {
+    const element = ctx.terminalRef.value?.element as HTMLElement | undefined
+    if (!element || typeof getComputedStyle !== 'function') {
+      return { width: host.clientWidth, height: host.clientHeight }
+    }
+    const style = getComputedStyle(element)
+    const padX = (parseFloat(style.paddingLeft) || 0) + (parseFloat(style.paddingRight) || 0)
+    const padY = (parseFloat(style.paddingTop) || 0) + (parseFloat(style.paddingBottom) || 0)
+    return {
+      width: Math.max(host.clientWidth - padX, 1),
+      height: Math.max(host.clientHeight - padY, 1),
+    }
+  }
+
+  /**
+   * DPR 感知 fit：可用绘制区 CSS 尺寸 × devicePixelRatio 换算设备像素后计算
+   * cols/rows（行高 ceil、列宽 floor），替换 fitAddon.fit() 的裸 DPR 不感知计算。
    * 容器/cell 尺寸不可用时优雅降级回 fitAddon.fit()，不炸。
    *
    * 触发 resize 前经 shouldApplyGridResize 抑制 ±1 列/行测量漂移：applyDprFit 的
@@ -223,9 +245,10 @@ export function useTerminalRenderer(ctx: TerminalKernelContext, logger: Terminal
       convergeViewportOverflow()
       return
     }
+    const contentBox = measureContentBox(host)
     const { cols, rows } = getXtermScaledDimensions({
-      containerWidthCss: host.clientWidth,
-      containerHeightCss: host.clientHeight,
+      containerWidthCss: contentBox.width,
+      containerHeightCss: contentBox.height,
       cellWidthCss: cell.width,
       cellHeightCss: cell.height,
       devicePixelRatio: window.devicePixelRatio,
@@ -234,6 +257,12 @@ export function useTerminalRenderer(ctx: TerminalKernelContext, logger: Terminal
     // 变化时经 ±1 漂移抑制，仅在真实变化时 resize
     if (terminal.cols !== cols || terminal.rows !== rows) {
       if (shouldApplyGridResize(terminal.cols, terminal.rows, cols, rows)) {
+        // 诊断：网格变化时留一行可核对的实测值（PTY 尺寸不跟随网格是本仓历史故障）
+        logger.info(
+          `[TerminalPreview] fit ${terminal.cols}x${terminal.rows} → ${cols}x${rows} ` +
+            `box=${contentBox.width.toFixed(1)}x${contentBox.height.toFixed(1)} ` +
+            `cell=${cell.width.toFixed(2)}x${cell.height.toFixed(2)} dpr=${window.devicePixelRatio}`,
+        )
         terminal.resize(cols, rows)
         scheduleAtlasPreheat()
       }

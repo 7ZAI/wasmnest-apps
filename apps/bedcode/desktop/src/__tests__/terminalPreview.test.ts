@@ -544,6 +544,72 @@ describe('TerminalPreview（插件版组装）', () => {
     ).toBe(true)
     warnSpy.mockRestore()
   })
+
+  it('重挂输出源（停止→运行）：先清屏再从环起点重放，不叠加上一代内容', async () => {
+    const context = makeContext()
+    context.__setPullResponses([textFrame('old-line\r\n', 0)])
+    wrapper = mount(TerminalPreview, {
+      props: { session: makeRunningSession() },
+      global: {
+        provide: {
+          pluginContext: context,
+          [TERMINAL_HOST_CAPABILITIES_KEY]: caps,
+        },
+      },
+      attachTo: document.body,
+    })
+    await vi.waitFor(() => expect(renderedRowsText(wrapper!)).toContain('old-line'), {
+      timeout: 3000,
+    })
+
+    // 停止 → 运行：detach 后再 attach（真重挂，新世代从环起点重放）。
+    // 屏幕已有一代内容，attach 必须先清屏 + 丢弃待刷队列，否则两代叠加 = 重复显示。
+    await wrapper.setProps({ session: { ...makeRunningSession(), status: 'stopped' } })
+    context.__setPullResponses([textFrame('new-line\r\n', 0)])
+    await wrapper.setProps({ session: { ...makeRunningSession(), status: 'running' } })
+
+    await vi.waitFor(() => expect(renderedRowsText(wrapper!)).toContain('new-line'), {
+      timeout: 3000,
+    })
+    expect(renderedRowsText(wrapper!)).not.toContain('old-line')
+  })
+
+  it('过期世代响应丢弃：detach 前发出的 pull 迟到不写入终端', async () => {
+    const context = makeContext()
+    let resolveStale: ((value: unknown) => void) | null = null
+    // 旧世代首拉挂起（响应晚于重挂到达）
+    context.__setPullResponses([
+      new Promise((resolve) => {
+        resolveStale = resolve
+      }),
+    ])
+    wrapper = mount(TerminalPreview, {
+      props: { session: makeRunningSession() },
+      global: {
+        provide: {
+          pluginContext: context,
+          [TERMINAL_HOST_CAPABILITIES_KEY]: caps,
+        },
+      },
+      attachTo: document.body,
+    })
+    await vi.waitFor(() => expect(countCalls(context, 'session.output.pull')).toBe(1), {
+      timeout: 2000,
+    })
+
+    // 停止（detach）→ 运行（attach）：世代推进，旧响应自此属于旧世代
+    await wrapper.setProps({ session: { ...makeRunningSession(), status: 'stopped' } })
+    context.__setPullResponses([textFrame('fresh\r\n', 0)])
+    await wrapper.setProps({ session: { ...makeRunningSession(), status: 'running' } })
+    await vi.waitFor(() => expect(renderedRowsText(wrapper!)).toContain('fresh'), {
+      timeout: 3000,
+    })
+
+    // 旧世代响应迟到：必须被世代守卫丢弃（不推进游标、不写终端）
+    resolveStale!(textFrame('stale\r\n', 0))
+    await flushAsync()
+    expect(renderedRowsText(wrapper!)).not.toContain('stale')
+  })
 })
 
 // ==================== 输出背压（ack 未确认窗口 / 驻留） ====================

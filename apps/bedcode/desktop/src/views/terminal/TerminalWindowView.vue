@@ -394,7 +394,7 @@
  */
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { toast } from 'vue-sonner'
-import { getCurrentWindow, PhysicalPosition } from '@tauri-apps/api/window'
+import { getCurrentWindow } from '@tauri-apps/api/window'
 import { emit, listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { inject } from 'vue'
 import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-desktop'
@@ -424,8 +424,6 @@ const t = (key: string, params?: Record<string, unknown>) => context.i18n.t(key,
 // 终端宿主能力（宿主插件窗口注入；dev-shell/vitest 回退内存版）
 const caps = useTerminalHostCapabilities() ?? createFallbackHostCapabilities()
 
-const SNAP_THRESHOLD = 15 // 贴靠阈值（像素）
-
 const sessionId = currentSessionId()
 const sessionName = ref('')
 const session = ref<SessionInfo | null>(null)
@@ -433,8 +431,6 @@ const isMaximized = ref(false)
 const isLoading = ref(true)
 const isShown = ref(false) // 是否已允许显示（由主窗口在内容就绪后通知）
 const revealDone = ref(false) // 进入动画是否已结束（结束后移除残留 transform）
-const isSnapped = ref(false) // 是否已贴靠
-const snapDirection = ref<'left' | 'right' | null>(null) // 贴靠方向
 const nowTick = ref(Date.now())
 let uptimeTimer: ReturnType<typeof setInterval> | null = null
 
@@ -617,9 +613,6 @@ async function loadSessionInfo() {
     // 空名会让窗口标题栏只剩状态标签、没有身份（插件侧已在创建时用 cwd basename
     // 兑底，这里再兜一层读时路径，覆盖已存在的空名行）
     sessionName.value = (result as SessionInfo).name?.trim() || t('session.terminal.defaultName')
-
-    // 加载完成后初始化位置
-    await initWindowPosition()
   } catch (e) {
     console.error('[terminal-session] Failed to load session info:', e)
     sessionName.value = t('session.terminal.defaultName')
@@ -632,130 +625,8 @@ async function loadSessionInfo() {
 
 // ==================== 窗口逻辑 ====================
 
-/** 初始化窗口位置和贴靠检测 */
-async function initWindowPosition() {
-  // 监听主窗口移动
-  unlistenMainMoved = await listen<{ x: number; y: number; width: number; height: number }>(
-    'main-window-moved',
-    handleMainWindowMoved,
-  )
-
-  // 监听主窗口大小变化
-  unlistenMainResized = await listen<{ width: number; height: number }>(
-    'main-window-resized',
-    handleMainWindowResized,
-  )
-
-  // 监听贴靠状态变化（从主窗口发出）
-  unlistenSnapped = await listen<{ sessionId: string; direction: 'left' | 'right' }>(
-    'terminal-window-snapped',
-    (event) => {
-      if (event.payload.sessionId === sessionId) {
-        isSnapped.value = true
-        snapDirection.value = event.payload.direction
-      }
-    },
-  )
-}
-
-// 记录主窗口上一次的位置
-let lastMainWindowPos = { x: 0, y: 0, width: 0, height: 0 }
-
-let unlistenMainMoved: UnlistenFn | null = null
-let unlistenMainResized: UnlistenFn | null = null
-let unlistenSnapped: UnlistenFn | null = null
 let unlistenShow: UnlistenFn | null = null
 let unlistenFocus: UnlistenFn | null = null
-
-/** 处理主窗口移动 - 贴靠时同步移动 */
-async function handleMainWindowMoved(event: {
-  payload: { x: number; y: number; width: number; height: number }
-}) {
-  const mainPos = event.payload
-
-  // 更新本窗口记录的位置
-  lastMainWindowPos = mainPos
-
-  if (!isSnapped.value) {
-    // 未贴靠时，检测是否需要贴靠
-    await checkAndSnap(mainPos)
-    return
-  }
-
-  // 已贴靠：跟随主窗口移动
-  const win = appWindow
-  const terminalPos = await win.outerPosition()
-  const terminalSize = await win.outerSize()
-
-  let newX = terminalPos.x
-
-  if (snapDirection.value === 'right') {
-    // 贴靠右侧
-    newX = mainPos.x + mainPos.width
-  } else if (snapDirection.value === 'left') {
-    // 贴靠左侧
-    newX = mainPos.x - terminalSize.width
-  }
-
-  // 计算移动差值
-  const dx = newX - terminalPos.x
-
-  // 仅当有实际移动时才更新
-  if (dx !== 0) {
-    await win.setPosition(new PhysicalPosition(newX, terminalPos.y))
-  }
-}
-
-/** 处理主窗口大小变化 - 调整贴靠位置 */
-async function handleMainWindowResized(event: { payload: { width: number; height: number } }) {
-  if (!isSnapped.value) return
-
-  const mainSize = event.payload
-  const win = appWindow
-  const terminalPos = await win.outerPosition()
-  const terminalSize = await win.outerSize()
-
-  let newX = terminalPos.x
-
-  if (snapDirection.value === 'right') {
-    newX = mainSize.width + lastMainWindowPos.width - terminalSize.width + lastMainWindowPos.x
-  } else if (snapDirection.value === 'left') {
-    newX = lastMainWindowPos.x - terminalSize.width
-  }
-
-  if (newX !== terminalPos.x) {
-    await win.setPosition(new PhysicalPosition(newX, terminalPos.y))
-  }
-}
-
-/** 检测并执行贴靠 */
-async function checkAndSnap(mainPos: { x: number; y: number; width: number; height: number }) {
-  const win = appWindow
-  const terminalPos = await win.outerPosition()
-  const terminalSize = await win.outerSize()
-
-  // 检测右侧贴靠
-  const rightDistance = Math.abs(mainPos.x + mainPos.width - terminalPos.x)
-  if (rightDistance < SNAP_THRESHOLD) {
-    isSnapped.value = true
-    snapDirection.value = 'right'
-    await win.setPosition(new PhysicalPosition(mainPos.x + mainPos.width, terminalPos.y))
-    return
-  }
-
-  // 检测左侧贴靠
-  const leftDistance = Math.abs(mainPos.x - (terminalPos.x + terminalSize.width))
-  if (leftDistance < SNAP_THRESHOLD) {
-    isSnapped.value = true
-    snapDirection.value = 'left'
-    await win.setPosition(new PhysicalPosition(mainPos.x - terminalSize.width, terminalPos.y))
-    return
-  }
-
-  // 未贴靠
-  isSnapped.value = false
-  snapDirection.value = null
-}
 
 /** 停止当前会话并关闭窗口（停止编排归本插件命令面 `session.close`） */
 async function stopSession() {
@@ -883,9 +754,6 @@ onUnmounted(() => {
     clearInterval(uptimeTimer)
     uptimeTimer = null
   }
-  if (unlistenMainMoved) unlistenMainMoved()
-  if (unlistenMainResized) unlistenMainResized()
-  if (unlistenSnapped) unlistenSnapped()
   if (unlistenShow) unlistenShow()
   if (unlistenFocus) unlistenFocus()
   sessionStoppedDisposable?.dispose()

@@ -170,6 +170,23 @@ describe('useTerminalWritePipeline（插件迁移版）', () => {
     expect(terminal.clear).toHaveBeenCalledTimes(1)
   })
 
+  it('onReset 丢弃待刷队列（反例防护）：清屏前已入队未写的旧字节不得落进新屏幕', async () => {
+    const terminal = makeTerminal()
+    const ctx = makeCtx({ terminalRef: shallowRef(terminal as any) })
+    const pipeline = useTerminalWritePipeline(ctx, { logTruncated: vi.fn() })
+    const source = pipeline.attachSource()
+
+    // 入队但尚未 flush（rAF 未触发）→ 队列里存着上一世代字节
+    source.onData({ data: new TextEncoder().encode('stale') })
+    // 重锚：清屏必须先丢弃这些字节，否则它们在 clear() 之后才写出，
+    // 与新基准的重播段叠加 = 同一段内容出现两遍
+    source.onReset()
+    fireRaf()
+    await vi.advanceTimersByTimeAsync(10)
+    expect(terminal.write).not.toHaveBeenCalled()
+    expect(terminal.clear).toHaveBeenCalledTimes(1)
+  })
+
 
   it('回放静止补刷（正例）：onData 后 REPLAY_IDLE_MS 无新数据 → terminal.refresh 一次', async () => {
     const terminal = makeTerminal()

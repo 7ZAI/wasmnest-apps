@@ -2,15 +2,13 @@ import { shallowRef } from 'vue'
 import { logger } from '@/utils/frontendLogger'
 import i18n from '@/i18n'
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
-import { getCurrentWindow, PhysicalPosition } from '@tauri-apps/api/window'
-import { emit, listen, emitTo, type UnlistenFn } from '@tauri-apps/api/event'
+import { getCurrentWindow } from '@tauri-apps/api/window'
+import { listen, emitTo, type UnlistenFn } from '@tauri-apps/api/event'
 import type { SessionInfo } from '@/composables/model'
 
 // Re-export from model
 import type { TerminalWindowState } from './model'
 export type { TerminalWindowState }
-
-const SNAP_THRESHOLD = 15 // 贴靠阈值（像素）
 
 // ==================== 单例模式 ====================
 // 模块级别的状态，确保所有组件共享同一个实例
@@ -19,60 +17,13 @@ const windows = shallowRef<Map<string, TerminalWindowState>>(new Map())
 // 跟踪正在关闭的窗口，防止重复调用
 const closingWindows = new Set<string>()
 
-// 存储事件监听器（模块级别，只初始化一次）
-let unlistenMoved: UnlistenFn | null = null
-let unlistenResized: UnlistenFn | null = null
-let isListenersInitialized = false
-
-/**
- * 初始化主窗口事件监听（只执行一次）
- */
-async function initMainWindowListeners() {
-  if (isListenersInitialized) return
-
-  const mainWindow = getCurrentWindow()
-
-  // 监听主窗口移动
-  unlistenMoved = await mainWindow.onMoved(async (event) => {
-    const mainPos = event.payload
-    // 发送主窗口位置给所有终端窗口
-    await emit('main-window-moved', {
-      x: mainPos.x,
-      y: mainPos.y,
-      width: 0, // PhysicalPosition 没有 width/height
-      height: 0,
-    })
-  })
-
-  // 监听主窗口大小变化
-  unlistenResized = await mainWindow.onResized(async (event) => {
-    const mainSize = event.payload
-    await emit('main-window-resized', {
-      width: mainSize.width,
-      height: mainSize.height,
-    })
-  })
-
-  isListenersInitialized = true
-}
-
 /**
  * 终端窗口管理器
  *
- * 管理每个会话对应的终端窗口的创建、聚焦、关闭、贴靠
+ * 管理每个会话对应的终端窗口的创建、聚焦、关闭
  * 使用单例模式，确保所有组件共享状态
  */
 export function useSessionWindows() {
-  // 初始化事件监听（只执行一次）
-  //
-  // appContext 在模块顶层调用本 composable，因此无 Tauri 运行时（happy-dom 单测 /
-  // dev-shell 预览）时 `getCurrentWindow()` 会抛 `__TAURI_INTERNALS__ undefined`，
-  // 且成为未处理的 rejection（vitest 会把它算作 run 级错误）。这里显式接住：
-  // 窗口事件监听只是多窗口联动增强，不可用时降级为 warn，不阻断挂载。
-  void initMainWindowListeners().catch((e) => {
-    logger.warn('[useSessionWindows] 窗口事件监听初始化失败（已降级，不阻断）:', e)
-  })
-
   /**
    * 为会话创建或聚焦终端窗口
    *
@@ -235,9 +186,6 @@ export function useSessionWindows() {
     // 存储窗口状态
     windows.value.set(session.id, {
       window: terminalWindow,
-      isSnapped: false,
-      snapDirection: null,
-      lastPosition: { x: terminalX, y: mainPosition.y },
     })
     logger.log('[useSessionWindows] Window stored, keys:', Array.from(windows.value.keys()))
 
@@ -325,66 +273,11 @@ export function useSessionWindows() {
     return windows.value.has(sessionId)
   }
 
-  /**
-   * 更新终端窗口的贴靠状态
-   */
-  async function updateWindowSnapState(
-    sessionId: string,
-    isSnapped: boolean,
-    snapDirection: 'left' | 'right' | null,
-  ) {
-    const state = windows.value.get(sessionId)
-    if (state) {
-      state.isSnapped = isSnapped
-      state.snapDirection = snapDirection
-    }
-  }
-
-  /**
-   * 获取终端窗口的当前位置
-   */
-  async function getTerminalWindowPosition(
-    sessionId: string,
-  ): Promise<{ x: number; y: number; width: number; height: number } | null> {
-    const state = windows.value.get(sessionId)
-    if (!state) return null
-
-    try {
-      const position = await state.window.outerPosition()
-      const size = await state.window.outerSize()
-      return {
-        x: position.x,
-        y: position.y,
-        width: size.width,
-        height: size.height,
-      }
-    } catch (e) {
-      return null
-    }
-  }
-
-  /**
-   * 设置终端窗口位置
-   */
-  async function setTerminalWindowPosition(sessionId: string, x: number, y: number) {
-    const state = windows.value.get(sessionId)
-    if (!state) return
-
-    try {
-      await state.window.setPosition(new PhysicalPosition(x, y))
-    } catch (e) {
-      logger.error('[useSessionWindows] Set position error:', e)
-    }
-  }
-
   return {
     windows,
     openTerminalWindow,
     closeTerminalWindow,
     closeAllTerminalWindows,
     hasTerminalWindow,
-    updateWindowSnapState,
-    getTerminalWindowPosition,
-    setTerminalWindowPosition,
   }
 }

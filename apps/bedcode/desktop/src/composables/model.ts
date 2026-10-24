@@ -48,9 +48,6 @@ export interface Shortcut {
 
 export interface TerminalWindowState {
   window: any
-  isSnapped: boolean
-  snapDirection: 'left' | 'right' | null
-  lastPosition: { x: number; y: number }
 }
 
 export interface PlatformInfo {
