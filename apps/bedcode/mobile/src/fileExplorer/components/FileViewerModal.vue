@@ -80,7 +80,6 @@
     :visible="showSettings"
     :z-index="60"
     @close="showSettings = false"
-    @confirm="showSettings = false"
   />
 </template>
 

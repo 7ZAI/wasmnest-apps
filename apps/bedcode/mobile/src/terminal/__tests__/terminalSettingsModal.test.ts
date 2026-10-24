@@ -1,19 +1,17 @@
 /**
- * TerminalSettingsModal 脏稿守卫契约测试（issue #16）
+ * TerminalSettingsModal 即改即存契约测试（issue #17）
  *
- * 修复前遮罩是 @click.self="cancel"：调了若干项后误触弹窗边缘 = 未确认修改
- * 静默全丢。守卫语义：干净状态遮罩点击直接关；有草稿先弹丢弃确认（ConfirmDialog），
- * 确认后才丢弃。头部关闭与底部取消是显式用户意图，不设守卫（对话框惯例）。
+ * 范式统一后组件完全受控：props 即真源（父层 TerminalSettings 状态），每次交互
+ * 立即 emit('change', 全量设置) 由父层持久化并应用；无草稿、无确认 footer——
+ * 遮罩/关闭钮直接 close，不存在丢稿路径。Tab 停留页跨开关保留。
  *
- * 组件根为 Teleport(to=body)，断言一律走 document（wrapper.find 看不进传送门）；
- * host fallback 的 t 回显 key，丢弃确认弹窗内容以 i18n key 文本定位。
+ * 组件根为 Teleport(to=body)，断言走 document；SDK swipe-tabs 替身（不驱动滑动）。
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { nextTick } from 'vue'
 import { installMockMobileApi, uninstallMockMobileApi } from './testKit'
 
-// 触摸滑动切 Tab 替身：本测试不驱动滑动
 vi.mock('@binblink/wasmnest-plugin-sdk-mobile/ui/swipe-tabs', () => ({
   useSwipeTabs: () => ({
     onTouchStart: () => {},
@@ -24,65 +22,51 @@ vi.mock('@binblink/wasmnest-plugin-sdk-mobile/ui/swipe-tabs', () => ({
 
 import TerminalSettingsModal from '../components/TerminalSettingsModal.vue'
 import type { ToolbarItemConfig } from '../components/TerminalSettingsModal.vue'
+import { TERMINAL_THEMES } from '../config/themes'
 
 const ALL_TOOLBAR_ITEMS: ToolbarItemConfig[] = [
   { key: 'task', label: 'terminal.toolbarTask', icon: 'task' },
   { key: 'folder', label: 'terminal.toolbarFolder', icon: 'folder' },
 ]
 
+const BASE_PROPS = {
+  visible: true,
+  fontSize: 14,
+  theme: 'dark',
+  isThemeUserSet: false,
+  letterSpacing: 0,
+  quickBarCount: 6,
+  toolbarItems: ['folder'],
+  allToolbarItems: ALL_TOOLBAR_ITEMS,
+  onboardingPending: false,
+}
+
 function mountModal() {
-  return mount(TerminalSettingsModal, {
-    props: {
-      visible: true,
-      fontSize: 14,
-      theme: 'dark',
-      isThemeUserSet: false,
-      letterSpacing: 0,
-      quickBarCount: 6,
-      toolbarItems: ['folder'],
-      allToolbarItems: ALL_TOOLBAR_ITEMS,
-      onboardingPending: false,
-      safeAreaStyle: {},
-    },
-  })
+  return mount(TerminalSettingsModal, { props: { ...BASE_PROPS } })
 }
 
-/** 丢弃确认弹窗面板（body 里含 discardChangesTitle 文案的 modal-panel；设置弹窗本体不含该 key） */
-function discardDialogPanel(): HTMLElement | null {
-  return (
-    [...document.querySelectorAll<HTMLElement>('.modal-panel')].find((p) =>
-      p.textContent!.includes('terminal.discardChangesTitle'),
-    ) ?? null
-  )
+/** 最后一次 change 事件载荷（无则 null） */
+function lastChange(wrapper: ReturnType<typeof mount>) {
+  const emitted = wrapper.emitted('change')
+  return emitted ? emitted[emitted.length - 1][0] : null
 }
 
-/** 点击丢弃确认弹窗里的按钮（DOM 序：[0]=取消 [1]=确认） */
-async function clickDiscardButton(index: number) {
-  const panel = discardDialogPanel()
-  expect(panel, '丢弃确认弹窗应已挂载').toBeTruthy()
-  panel!.querySelectorAll('button')[index].dispatchEvent(new MouseEvent('click', { bubbles: true }))
+async function click(selector: string, index = 0) {
+  const els = document.querySelectorAll(selector)
+  expect(els.length, `${selector} 应存在`).toBeGreaterThan(index)
+  els[index].dispatchEvent(new MouseEvent('click', { bubbles: true }))
   await nextTick()
   await nextTick()
 }
 
-/** 点击设置弹窗遮罩（bubbles:false 使 target === currentTarget，等价 @click.self 命中） */
 async function clickOverlay() {
-  const overlay = document.querySelector('.settings-modal-overlay')
-  expect(overlay).toBeTruthy()
-  overlay!.dispatchEvent(new MouseEvent('click', { bubbles: false }))
+  const sheetRoot = document.querySelector('.fixed.inset-0')!
+  sheetRoot.dispatchEvent(new MouseEvent('click', { bubbles: false }))
   await nextTick()
   await nextTick()
 }
 
-/** 改动字号（外观页第 2 个步进按钮 = 字号「+」）制造脏稿 */
-async function makeDirty() {
-  const plus = [...document.querySelectorAll('.size-btn')][1]
-  plus.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-  await nextTick()
-  await nextTick()
-}
-
-describe('TerminalSettingsModal 脏稿守卫（#16）', () => {
+describe('TerminalSettingsModal 即改即存（#17）', () => {
   let wrapper: ReturnType<typeof mount>
 
   beforeEach(() => {
@@ -96,34 +80,58 @@ describe('TerminalSettingsModal 脏稿守卫（#16）', () => {
     uninstallMockMobileApi()
   })
 
-  it('干净状态：遮罩点击直接关（cancel），不弹丢弃确认', async () => {
-    await clickOverlay()
-    expect(wrapper.emitted('cancel')).toHaveLength(1)
-    expect(discardDialogPanel()).toBeNull()
+  it('字号步进：点「+」立即 change 全量设置（其余字段原样带回）', async () => {
+    await click('.size-btn', 1) // 外观页：[0]=字号- [1]=字号+
+    const payload = lastChange(wrapper)
+    expect(payload).toMatchObject({ fontSize: 15, letterSpacing: 0, quickBarCount: 6, toolbarItems: ['folder'], onboardingPending: false })
+    expect(wrapper.emitted('close')).toBeUndefined()
   })
 
-  it('有草稿：遮罩点击只弹丢弃确认，不丢稿；确认后才 cancel', async () => {
-    await makeDirty()
-    await clickOverlay()
-    // 未丢弃：cancel 未发出，确认弹窗在场
-    expect(wrapper.emitted('cancel')).toBeUndefined()
-    expect(discardDialogPanel()).not.toBeNull()
-
-    await clickDiscardButton(1)
-    expect(wrapper.emitted('cancel')).toHaveLength(1)
-    expect(discardDialogPanel()).toBeNull()
+  it('字号到上限 24：步进按钮进入禁用态', async () => {
+    await wrapper.setProps({ fontSize: 24 })
+    await nextTick()
+    const plus = [...document.querySelectorAll('.size-btn')][1] as HTMLButtonElement
+    // 只断言禁用态：合成事件（dispatchEvent）会绕过浏览器对 disabled 的点击拦截
+    expect(plus.disabled).toBe(true)
   })
 
-  it('有草稿：丢弃确认点取消 → 弹窗保留草稿，再次遮罩点击守卫仍生效', async () => {
-    await makeDirty()
-    await clickOverlay()
-    await clickDiscardButton(0)
-    expect(wrapper.emitted('cancel')).toBeUndefined()
-    expect(discardDialogPanel()).toBeNull()
+  it('主题选择：具名主题锁定用户指定；system 折算当前外观并解除指定', async () => {
+    // 主题序以 TERMINAL_THEMES 键序为准（测试不硬编码具体主题名）
+    const keys = Object.keys(TERMINAL_THEMES)
+    const namedIdx = keys.findIndex((k) => k !== 'system')
+    await click('.theme-btn', namedIdx)
+    expect(lastChange(wrapper)).toMatchObject({ theme: keys[namedIdx], isThemeUserSet: true })
 
-    // 草稿仍在：再点遮罩守卫再次弹出（而非直接关）
+    await click('.theme-btn', keys.indexOf('system')) // system → isDark=false 折算 light
+    expect(lastChange(wrapper)).toMatchObject({ theme: 'light', isThemeUserSet: false })
+  })
+
+  it('工具栏多选：点选即在列表中增删该项（父层回灌后可继续增删）', async () => {
+    await click('.segmented-btn', 1)
+    await click('.toolbar-toggle-btn', 0) // task 芯片：增
+    const first = lastChange(wrapper)!.toolbarItems
+    expect(first).toEqual(['folder', 'task'])
+
+    // 受控组件契约：父层把 change 载荷回灌 props 后，再点 folder 芯片删
+    await wrapper.setProps({ toolbarItems: first })
+    await nextTick()
+    await click('.toolbar-toggle-btn', 1)
+    expect(lastChange(wrapper)?.toolbarItems).toEqual(['task'])
+  })
+
+  it('遮罩点击直接 close：无守卫（即改即存下不存在丢稿）', async () => {
+    await click('.size-btn', 1) // 先产生一次变更
     await clickOverlay()
-    expect(wrapper.emitted('cancel')).toBeUndefined()
-    expect(discardDialogPanel()).not.toBeNull()
+    expect(wrapper.emitted('close')).toHaveLength(1)
+  })
+
+  it('Tab 停留页跨开关保留：切到杂项再关闭重开，仍停杂项', async () => {
+    await click('.segmented-btn', 1)
+    await wrapper.setProps({ visible: false })
+    await nextTick()
+    await wrapper.setProps({ visible: true })
+    await nextTick()
+    const active = document.querySelector('.segmented-btn.active')
+    expect(active?.textContent?.trim()).toBe('terminal.tabMisc')
   })
 })

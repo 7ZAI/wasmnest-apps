@@ -1,159 +1,158 @@
 <template>
   <Teleport to="body">
-    <Transition name="center-modal">
-    <div v-if="visible" class="settings-modal-overlay mobile-ui" @click.self="requestClose">
-      <div class="settings-modal modal-panel" :style="safeAreaStyle">
-      <div class="settings-header">
-        <h2>{{ t('terminal.terminalSettings') }}</h2>
-        <button class="close-btn" @click.stop="$emit('cancel')">
-          <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-          </svg>
-        </button>
-      </div>
-
-      <!-- Tab 切换：外观 / 杂项配置（减少弹窗高度，同快捷键配置弹窗） -->
-      <div class="settings-tabs">
-        <div class="segmented">
-          <button
-            class="segmented-btn"
-            :class="{ active: activeTab === 'appearance' }"
-            @click="activeTab = 'appearance'"
-          >
-            {{ t('terminal.tabAppearance') }}
-          </button>
-          <button
-            class="segmented-btn"
-            :class="{ active: activeTab === 'misc' }"
-            @click="activeTab = 'misc'"
-          >
-            {{ t('terminal.tabMisc') }}
-          </button>
-        </div>
-      </div>
-
-      <!-- ==================== Tab: 外观 ==================== -->
-      <template v-if="activeTab === 'appearance'">
-      <div class="settings-content" @touchstart="onTouchStart" @touchmove="onTouchMove" @touchend="onTouchEnd">
-        <!-- Font Size -->
-        <div class="settings-section">
-          <label class="settings-label">{{ t('terminal.fontSize') }}</label>
-          <div class="font-size-control">
-            <button class="size-btn" @click.stop="tempFontSize--" :disabled="tempFontSize <= 10">-</button>
-            <span class="size-value">{{ tempFontSize }}px</span>
-            <button class="size-btn" @click.stop="tempFontSize++" :disabled="tempFontSize >= 24">+</button>
+    <Transition name="bottom-sheet">
+      <div
+        v-if="visible"
+        class="fixed inset-0 z-[100] flex items-end justify-center mobile-ui"
+        @click.self="emit('close')"
+      >
+        <div class="absolute inset-0 bg-[var(--mobile-overlay-light)]" @click="emit('close')"></div>
+        <div class="relative bg-[var(--mobile-bg-card)] border border-[var(--mobile-border)] rounded-t-2xl w-full max-w-lg max-h-[min(85vh,44rem)] flex flex-col shadow-xl modal-panel">
+          <!-- 拖拽指示条 -->
+          <div class="flex justify-center pt-2">
+            <div class="w-10 h-1 rounded-full bg-[var(--mobile-border)]"></div>
           </div>
-        </div>
 
-        <!-- Letter Spacing（字间距）：xterm letterSpacing 选项，格宽同步膨胀；
-             小屏/小字号下 CJK 字间留白仅剩字体字怀，可加间距拉开 -->
-        <div class="settings-section">
-          <label class="settings-label">{{ t('terminal.letterSpacing') }}</label>
-          <div class="font-size-control">
-            <button class="size-btn" :disabled="tempLetterSpacing <= 0" @click.stop="tempLetterSpacing--">-</button>
-            <span class="size-value">{{ tempLetterSpacing }}px</span>
-            <button class="size-btn" :disabled="tempLetterSpacing >= 4" @click.stop="tempLetterSpacing++">+</button>
-          </div>
-        </div>
-
-        <!-- Theme -->
-        <div class="settings-section">
-          <label class="settings-label">{{ t('terminal.theme') }}</label>
-          <div class="theme-grid">
-            <button
-              v-for="(theme, name) in TERMINAL_THEMES"
-              :key="name"
-              class="theme-btn"
-              :class="{ active: tempTheme === name }"
-              @click.stop="tempTheme = name"
-            >
-              <span class="theme-preview" :style="getThemePreviewStyle(name)">Aa</span>
-              <span class="theme-name">{{ resolveThemeLabel(theme.label, t) }}</span>
+          <!-- Header -->
+          <div class="flex items-center justify-between px-4 pt-2 pb-3">
+            <span class="font-semibold text-[var(--mobile-text-primary)] text-base">{{ t('terminal.terminalSettings') }}</span>
+            <button class="icon-btn" :aria-label="t('common.button.close')" @click="emit('close')">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+              </svg>
             </button>
           </div>
-        </div>
-      </div>
-      </template>
 
-      <!-- ==================== Tab: 杂项配置 ==================== -->
-      <template v-else>
-      <div class="settings-content" @touchstart="onTouchStart" @touchmove="onTouchMove" @touchend="onTouchEnd">
-        <!-- Quick Bar Count -->
-        <div class="settings-section">
-          <label class="settings-label">{{ t('terminal.shortcutCount') }}</label>
-          <div class="font-size-control">
-            <button class="size-btn" @click.stop="tempQuickBarCount--" :disabled="tempQuickBarCount <= 3">-</button>
-            <span class="size-value">{{ tempQuickBarCount }}</span>
-            <button class="size-btn" @click.stop="tempQuickBarCount++" :disabled="tempQuickBarCount >= 10">+</button>
+          <!-- Tab 切换：外观 / 杂项配置（形态对齐快捷键配置弹窗） -->
+          <div class="px-4 pb-3 flex-shrink-0">
+            <div class="segmented">
+              <button
+                class="segmented-btn"
+                :class="{ active: activeTab === 'appearance' }"
+                @click="activeTab = 'appearance'"
+              >
+                {{ t('terminal.tabAppearance') }}
+              </button>
+              <button
+                class="segmented-btn"
+                :class="{ active: activeTab === 'misc' }"
+                @click="activeTab = 'misc'"
+              >
+                {{ t('terminal.tabMisc') }}
+              </button>
+            </div>
           </div>
-        </div>
 
-        <!-- Header Toolbar Items -->
-        <div class="settings-section">
-          <label class="settings-label">{{ t('terminal.persistentToolbar') }}</label>
-          <p class="settings-hint">{{ t('terminal.persistentToolbarHint') }}</p>
-          <div class="toolbar-toggle-grid">
-            <button
-              v-for="item in allToolbarItems"
-              :key="item.key"
-              class="toolbar-toggle-btn"
-              :class="{ active: tempToolbarItems.includes(item.key) }"
-              @click.stop="toggleToolbarItem(item.key)"
-            >
-              <span>{{ t(item.label) }}</span>
-            </button>
-          </div>
-        </div>
+          <!-- ==================== Tab: 外观 ==================== -->
+          <template v-if="activeTab === 'appearance'">
+            <div class="settings-content" @touchstart="onTouchStart" @touchmove="onTouchMove" @touchend="onTouchEnd">
+              <!-- Font Size -->
+              <div class="settings-section">
+                <label class="settings-label">{{ t('terminal.fontSize') }}</label>
+                <div class="font-size-control">
+                  <button class="size-btn" :disabled="fontSize <= 10" @click.stop="emitChange({ fontSize: fontSize - 1 })">-</button>
+                  <span class="size-value">{{ fontSize }}px</span>
+                  <button class="size-btn" :disabled="fontSize >= 24" @click.stop="emitChange({ fontSize: fontSize + 1 })">+</button>
+                </div>
+              </div>
 
-        <!-- 新手引导开关：开启后下次进入终端页重新展示引导 -->
-        <div class="settings-section onboarding-row">
-          <div class="min-w-0">
-            <label class="settings-label">{{ t('terminal.onboardingToggle') }}</label>
-            <p class="settings-hint">{{ t('terminal.onboardingToggleHint') }}</p>
-          </div>
-          <Toggle v-model="tempOnboardingPending" class="flex-shrink-0" />
+              <!-- Letter Spacing（字间距）：xterm letterSpacing 选项，格宽同步膨胀；
+                   小屏/小字号下 CJK 字间留白仅剩字体字怀，可加间距拉开 -->
+              <div class="settings-section">
+                <label class="settings-label">{{ t('terminal.letterSpacing') }}</label>
+                <div class="font-size-control">
+                  <button class="size-btn" :disabled="letterSpacing <= 0" @click.stop="emitChange({ letterSpacing: letterSpacing - 1 })">-</button>
+                  <span class="size-value">{{ letterSpacing }}px</span>
+                  <button class="size-btn" :disabled="letterSpacing >= 4" @click.stop="emitChange({ letterSpacing: letterSpacing + 1 })">+</button>
+                </div>
+              </div>
+
+              <!-- Theme -->
+              <div class="settings-section">
+                <label class="settings-label">{{ t('terminal.theme') }}</label>
+                <div class="theme-grid">
+                  <button
+                    v-for="(theme, name) in TERMINAL_THEMES"
+                    :key="name"
+                    class="theme-btn"
+                    :class="{ active: currentThemeKey === name }"
+                    @click.stop="selectTheme(name)"
+                  >
+                    <span class="theme-preview" :style="getThemePreviewStyle(name)">Aa</span>
+                    <span class="theme-name">{{ resolveThemeLabel(theme.label, t) }}</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </template>
+
+          <!-- ==================== Tab: 杂项配置 ==================== -->
+          <template v-else>
+            <div class="settings-content" @touchstart="onTouchStart" @touchmove="onTouchMove" @touchend="onTouchEnd">
+              <!-- Quick Bar Count -->
+              <div class="settings-section">
+                <label class="settings-label">{{ t('terminal.shortcutCount') }}</label>
+                <div class="font-size-control">
+                  <button class="size-btn" :disabled="quickBarCount <= 3" @click.stop="emitChange({ quickBarCount: quickBarCount - 1 })">-</button>
+                  <span class="size-value">{{ quickBarCount }}</span>
+                  <button class="size-btn" :disabled="quickBarCount >= 10" @click.stop="emitChange({ quickBarCount: quickBarCount + 1 })">+</button>
+                </div>
+              </div>
+
+              <!-- Header Toolbar Items -->
+              <div class="settings-section">
+                <label class="settings-label">{{ t('terminal.persistentToolbar') }}</label>
+                <p class="settings-hint">{{ t('terminal.persistentToolbarHint') }}</p>
+                <div class="toolbar-toggle-grid">
+                  <button
+                    v-for="item in allToolbarItems"
+                    :key="item.key"
+                    class="toolbar-toggle-btn"
+                    :class="{ active: toolbarItems.includes(item.key) }"
+                    @click.stop="toggleToolbarItem(item.key)"
+                  >
+                    <span>{{ t(item.label) }}</span>
+                  </button>
+                </div>
+              </div>
+
+              <!-- 新手引导开关：开启后下次进入终端页重新展示引导 -->
+              <div class="settings-section onboarding-row">
+                <div class="min-w-0">
+                  <label class="settings-label">{{ t('terminal.onboardingToggle') }}</label>
+                  <p class="settings-hint">{{ t('terminal.onboardingToggleHint') }}</p>
+                </div>
+                <Toggle
+                  :model-value="onboardingPending"
+                  class="flex-shrink-0"
+                  @update:model-value="emitChange({ onboardingPending: $event })"
+                />
+              </div>
+            </div>
+          </template>
         </div>
       </div>
-      </template>
-
-      <!-- Settings Footer -->
-      <div class="settings-footer">
-        <button class="settings-footer-btn cancel" @click.stop="$emit('cancel')">{{ t('common.button.cancel') }}</button>
-        <button class="settings-footer-btn confirm" @click.stop="handleConfirm">{{ t('common.button.confirm') }}</button>
-      </div>
-      </div>
-    </div>
     </Transition>
-
-    <!-- 脏稿守卫（#16）：遮罩误触不再静默丢弃未确认修改 -->
-    <ConfirmDialog
-      :model-value="showDiscardConfirm"
-      :title="t('terminal.discardChangesTitle')"
-      :message="t('terminal.discardChangesMessage')"
-      :confirm-text="t('terminal.discardChangesConfirm')"
-      :cancel-text="t('common.button.cancel')"
-      variant="danger"
-      @update:model-value="showDiscardConfirm = $event"
-      @confirm="discardAndClose"
-    />
   </Teleport>
 </template>
 
 <script setup lang="ts">
 /**
- * 终端设置弹窗 - 字体大小、主题、快捷栏数量、工具栏配置
+ * 终端设置弹窗（#17 范式统一）—— bottom sheet + 即改即存
  *
- * 所有编辑中的状态 (temp*) 在组件内部管理，确认时通过 emit 传出
+ * 组件完全受控：当前值一律来自 props（父层真源），每次交互立即 emit('change', 全量
+ * 设置)，由 TerminalView 持久化并应用——终端即时重排，本身就是字号/主题预览。
+ * 无草稿、无确认/取消 footer：关闭（遮罩 / 关闭钮）不会丢任何已生效修改。
+ * Tab 不再每次打开重置：无丢稿风险后，停留页即用户上下文。
  */
 defineOptions({ name: 'TerminalSettingsModal' })
 
-import { computed, ref, watch } from 'vue'
+import { computed, ref } from 'vue'
 import { getMobileApi } from '@binblink/wasmnest-plugin-sdk-mobile'
 import { useSwipeTabs } from '@binblink/wasmnest-plugin-sdk-mobile/ui/swipe-tabs'
 import { t } from '../host'
 import { TERMINAL_THEMES, resolveThemeLabel } from '../config/themes'
 import Toggle from './Toggle.vue'
-import ConfirmDialog from './ConfirmDialog.vue'
 
 /** 设置分组 Tab：外观（字体/主题）与杂项配置（快捷栏/工具栏） */
 type SettingsTab = 'appearance' | 'misc'
@@ -186,49 +185,17 @@ const props = defineProps<{
   toolbarItems: string[]
   allToolbarItems: ToolbarItemConfig[]
   onboardingPending: boolean
-  safeAreaStyle: Record<string, string>
 }>()
 
 const emit = defineEmits<{
-  confirm: [settings: TerminalSettings]
-  cancel: []
+  change: [settings: TerminalSettings]
+  close: []
 }>()
 
-/** App 当前是否深色（宿主主题投影；system 主题预览的解析依据） */
+/** App 当前是否深色（宿主主题投影；system 主题的解析依据） */
 const isSystemDark = getMobileApi().isDark
 
-const tempFontSize = ref(props.fontSize)
-const tempLetterSpacing = ref(props.letterSpacing)
-const tempTheme = ref<string>(props.isThemeUserSet ? props.theme : 'system')
-const tempQuickBarCount = ref(props.quickBarCount)
-const tempToolbarItems = ref<string[]>([...props.toolbarItems])
-const tempOnboardingPending = ref(props.onboardingPending)
 const activeTab = ref<SettingsTab>('appearance')
-
-/** 脏稿守卫（#16）：遮罩误触时的丢弃确认开关 */
-const showDiscardConfirm = ref(false)
-
-/** 草稿是否偏离打开时状态（工具栏项为集合语义，排序后比较） */
-const isDirty = computed(
-  () =>
-    tempFontSize.value !== props.fontSize ||
-    tempLetterSpacing.value !== props.letterSpacing ||
-    tempTheme.value !== (props.isThemeUserSet ? props.theme : 'system') ||
-    tempQuickBarCount.value !== props.quickBarCount ||
-    tempOnboardingPending.value !== props.onboardingPending ||
-    [...tempToolbarItems.value].sort().join('\u0000') !== [...props.toolbarItems].sort().join('\u0000'),
-)
-
-/** 遮罩点击：干净直接关；有草稿先确认再丢。头部关闭与底部取消是显式意图，保持直接关闭 */
-function requestClose() {
-  if (isDirty.value) showDiscardConfirm.value = true
-  else emit('cancel')
-}
-
-function discardAndClose() {
-  showDiscardConfirm.value = false
-  emit('cancel')
-}
 
 // 内容区左右滑动切换 Tab：左滑 → 杂项配置，右滑 → 外观
 const { onTouchStart, onTouchMove, onTouchEnd } = useSwipeTabs((dir) => {
@@ -236,20 +203,38 @@ const { onTouchStart, onTouchMove, onTouchEnd } = useSwipeTabs((dir) => {
   else if (dir === 'right' && activeTab.value === 'misc') activeTab.value = 'appearance'
 })
 
-// 打开时同步 props 到临时状态
-watch(() => props.visible, (visible) => {
-  if (visible) {
-    tempFontSize.value = props.fontSize
-    tempLetterSpacing.value = props.letterSpacing
-    tempTheme.value = props.isThemeUserSet ? props.theme : 'system'
-    tempQuickBarCount.value = props.quickBarCount
-    tempToolbarItems.value = [...props.toolbarItems]
-    tempOnboardingPending.value = props.onboardingPending
-    // 每次打开回到「外观」页，避免停留在上一回的分组
-    activeTab.value = 'appearance'
-    showDiscardConfirm.value = false
+/** 当前主题选择键：未手动指定时选中 system 项 */
+const currentThemeKey = computed(() => (props.isThemeUserSet ? props.theme : 'system'))
+
+/** 即改即存出口：以 props 当前值为基线合并 patch，emit 全量设置（父层持久化 + 应用） */
+function emitChange(patch: Partial<TerminalSettings>) {
+  emit('change', {
+    fontSize: props.fontSize,
+    theme: props.theme,
+    isThemeUserSet: props.isThemeUserSet,
+    letterSpacing: props.letterSpacing,
+    quickBarCount: props.quickBarCount,
+    toolbarItems: [...props.toolbarItems],
+    onboardingPending: props.onboardingPending,
+    ...patch,
+  })
+}
+
+/** 主题选择：system 折算为当前外观解析值并解除手动指定；具名主题直接锁定 */
+function selectTheme(name: string) {
+  if (name === 'system') {
+    emitChange({ theme: isSystemDark.value ? 'dark' : 'light', isThemeUserSet: false })
+  } else {
+    emitChange({ theme: name, isThemeUserSet: true })
   }
-})
+}
+
+function toggleToolbarItem(key: string) {
+  const items = props.toolbarItems.includes(key)
+    ? props.toolbarItems.filter((k) => k !== key)
+    : [...props.toolbarItems, key]
+  emitChange({ toolbarItems: items })
+}
 
 function getThemePreviewStyle(themeName: string): { background: string; color: string } {
   if (themeName === 'system') {
@@ -260,73 +245,24 @@ function getThemePreviewStyle(themeName: string): { background: string; color: s
   const th = TERMINAL_THEMES[themeName]
   return { background: th.background, color: th.foreground }
 }
-
-function toggleToolbarItem(key: string) {
-  const idx = tempToolbarItems.value.indexOf(key)
-  if (idx >= 0) {
-    tempToolbarItems.value.splice(idx, 1)
-  } else {
-    tempToolbarItems.value.push(key)
-  }
-}
-
-function handleConfirm() {
-  let resolvedTheme: string
-  let isThemeUserSet: boolean
-
-  if (tempTheme.value === 'system') {
-    resolvedTheme = isSystemDark.value ? 'dark' : 'light'
-    isThemeUserSet = false
-  } else {
-    resolvedTheme = tempTheme.value
-    isThemeUserSet = true
-  }
-
-  emit('confirm', {
-    fontSize: tempFontSize.value,
-    theme: resolvedTheme,
-    isThemeUserSet,
-    letterSpacing: tempLetterSpacing.value,
-    quickBarCount: tempQuickBarCount.value,
-    toolbarItems: tempToolbarItems.value,
-    onboardingPending: tempOnboardingPending.value,
-  })
-}
 </script>
 
 <style scoped>
-.settings-modal-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: var(--mobile-overlay-heavy);
+.icon-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 50;
-  padding: 1rem;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 0.625rem;
+  color: var(--mobile-text-muted);
+  transition: all 0.15s ease;
 }
 
-.settings-modal {
-  --size-btn: clamp(2rem, 2.5rem, 3rem);
-  --footer-btn-py: clamp(0.625rem, 0.75rem, 1rem);
-
-  display: flex;
-  flex-direction: column;
-  background: var(--mobile-bg-secondary);
-  border-radius: 1rem;
-  width: 100%;
-  max-width: clamp(280px, 360px, 420px);
-  /* 固定高度：不随 Tab 切换变化，内容超出由内容区滚动 */
-  height: clamp(26rem, 72vh, 34rem);
-  overflow: hidden;
-}
-
-.settings-tabs {
-  padding: 0.75rem 1rem 0;
-  flex-shrink: 0;
+.icon-btn:hover,
+.icon-btn:active {
+  background: var(--mobile-accent-muted);
+  color: var(--mobile-text-primary);
 }
 
 /* 分段控件（同快捷键配置弹窗） */
@@ -362,40 +298,12 @@ function handleConfirm() {
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
 }
 
-.settings-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0.5rem 1rem;
-  border-bottom: 1px solid var(--mobile-border);
-}
-
-.settings-header h2 {
-  font-size: var(--font-size-lg);
-  font-weight: 600;
-  color: var(--mobile-text-primary);
-  margin: 0;
-}
-
-.close-btn {
-  padding: 0.25rem;
-  background: none;
-  border: none;
-  color: var(--mobile-text-muted);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.close-btn:hover {
-  color: var(--mobile-text-primary);
-}
-
 .settings-content {
+  --size-btn: 2.75rem;
+
   flex: 1;
   overflow-y: auto;
-  padding: 1rem;
+  padding: 0.25rem 1rem calc(var(--safe-area-bottom, 0px) + 1rem);
 }
 
 .settings-section {
@@ -546,43 +454,5 @@ function handleConfirm() {
 
 .onboarding-row .settings-hint {
   margin: 0;
-}
-
-.settings-footer {
-  display: flex;
-  gap: 0.75rem;
-  padding: 0.75rem 1rem;
-  border-top: 1px solid var(--mobile-border);
-}
-
-.settings-footer-btn {
-  flex: 1;
-  padding: var(--footer-btn-py);
-  border-radius: 0.5rem;
-  font-size: clamp(0.8125rem, 0.875rem, 1rem);
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.settings-footer-btn.cancel {
-  background: var(--mobile-bg-elevated);
-  border: 1px solid var(--mobile-border);
-  color: var(--mobile-text-muted);
-}
-
-.settings-footer-btn.cancel:hover {
-  background: var(--mobile-bg-hover);
-  color: var(--mobile-text-primary);
-}
-
-.settings-footer-btn.confirm {
-  background: var(--mobile-accent);
-  border: none;
-  color: var(--mobile-text-on-accent);
-}
-
-.settings-footer-btn.confirm:hover {
-  opacity: 0.9;
 }
 </style>

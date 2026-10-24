@@ -115,7 +115,7 @@
       </div>
     </div>
 
-    <!-- Settings Modal -->
+    <!-- Settings Modal（#17：即改即存 + bottom sheet——每次变更立即应用与持久化，终端即时重排即预览） -->
     <TerminalSettingsModal
       :visible="showSettings"
       :font-size="terminalSettings.fontSize"
@@ -126,9 +126,8 @@
       :toolbar-items="assistStore.settings.headerToolbarItems || ['folder']"
       :all-toolbar-items="ALL_TOOLBAR_ITEMS"
       :onboarding-pending="assistStore.settings.terminalOnboardingPending"
-      :safe-area-style="settingsModalStyle"
-      @confirm="handleSettingsConfirm"
-      @cancel="showSettings = false"
+      @change="handleSettingsUpdate"
+      @close="showSettings = false"
     />
 
     <!-- 清屏确认（#16：TerminalConfirmModal 退役，统一 ConfirmDialog；文案专用 key 替代拼接） -->
@@ -228,7 +227,7 @@ defineOptions({ name: 'TerminalView' })
 
 import { ref, computed, inject, type Ref, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { getMobileApi, getPresetTasks, getRouter } from '@binblink/wasmnest-plugin-sdk-mobile'
-import { logger, t } from './host'
+import { logger, t, toast } from './host'
 // xterm.css / terminal.css 由域 activate 统一注入（?inline 运行时挂载）
 import { isMockSession, useMockTerminal } from './composables/useMockTerminal'
 import { useTerminalBuffer } from './composables/useTerminalBuffer'
@@ -404,12 +403,6 @@ const inputPlaceholder = computed(() => {
 
 const safeAreaTop = computed(() => safeArea.value.top || 0)
 
-// 弹窗安全区域样式
-const settingsModalStyle = computed(() => ({
-  paddingTop: `${safeArea.value.top}px`,
-  paddingBottom: `${safeArea.value.bottom}px`,
-}))
-
 // ==================== 终端内核与域 ====================
 // 共享内核：xterm 实例 / addon 实例 / 模板挂载点经 ctx 交换，跨域回调在调用时
 // 解析（域创建顺序无关；详见 composables/terminal/terminalKernel.ts）
@@ -552,22 +545,28 @@ function handleClearConfirm() {
   showClearConfirm.value = false
 }
 
-/** 设置确认：持久化 + 应用主题 + 字号/字间距变更后重排并同步 PTY */
-function handleSettingsConfirm(settings: TerminalSettings) {
+/** 设置变更（#17 即改即存）：持久化 + 应用主题 + 字号/字间距变更后重排并同步 PTY。
+ *  持久化失败显性提示（内存态已生效、重进后回退），不静默吞 */
+function handleSettingsUpdate(settings: TerminalSettings) {
   terminalSettings.value.fontSize = settings.fontSize
   terminalSettings.value.theme = settings.theme
   terminalSettings.value.isThemeUserSet = settings.isThemeUserSet
   terminalSettings.value.letterSpacing = settings.letterSpacing
 
-  assistStore.saveSettings({
-    quickBarCount: settings.quickBarCount,
-    headerToolbarItems: settings.toolbarItems,
-    terminalFontSize: terminalSettings.value.fontSize,
-    terminalTheme: terminalSettings.value.isThemeUserSet ? terminalSettings.value.theme : null,
-    isTerminalThemeUserSet: terminalSettings.value.isThemeUserSet,
-    terminalLetterSpacing: terminalSettings.value.letterSpacing,
-    terminalOnboardingPending: settings.onboardingPending,
-  })
+  try {
+    assistStore.saveSettings({
+      quickBarCount: settings.quickBarCount,
+      headerToolbarItems: settings.toolbarItems,
+      terminalFontSize: terminalSettings.value.fontSize,
+      terminalTheme: terminalSettings.value.isThemeUserSet ? terminalSettings.value.theme : null,
+      isTerminalThemeUserSet: terminalSettings.value.isThemeUserSet,
+      terminalLetterSpacing: terminalSettings.value.letterSpacing,
+      terminalOnboardingPending: settings.onboardingPending,
+    })
+  } catch (e) {
+    logger.error('[TerminalView] 设置持久化失败：', e)
+    toast.error(t('terminal.settingsSaveFailed'))
+  }
 
   applyTerminalTheme()
   // 字号/字间距变更后重排：显式更新 xterm 选项 + 走统一口径 refit（fitWithMargin →
@@ -581,7 +580,6 @@ function handleSettingsConfirm(settings: TerminalSettings) {
   setTimeout(() => {
     if (renderer.fitWithMargin()) resize.syncTerminalSizeToHost()
   }, 50)
-  showSettings.value = false
 }
 
 /** 侧边栏设置面板输入框聚焦/失焦时，控制键盘避让 */

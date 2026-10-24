@@ -113,7 +113,6 @@
       :visible="showCodeViewerSettings"
       :z-index="130"
       @close="showCodeViewerSettings = false"
-      @confirm="showCodeViewerSettings = false"
     />
   </div>
 </template>

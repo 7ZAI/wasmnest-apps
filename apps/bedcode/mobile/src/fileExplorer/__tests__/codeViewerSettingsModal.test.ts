@@ -1,69 +1,47 @@
 /**
- * CodeViewerSettingsModal 脏稿守卫契约测试（issue #16）
+ * CodeViewerSettingsModal 即改即存契约测试（issue #17）
  *
- * 与终端设置弹窗同一守卫语义：干净状态遮罩点击直接关；有草稿先弹丢弃确认
- * （ConfirmDialog，danger），确认后才丢弃。头部关闭与底部取消是显式意图，不设守卫。
+ * 范式统一后无草稿：控件直接读写 codeViewer store，每次交互立即 saveSettings
+ * 持久化（localStorage）并生效；遮罩/关闭钮直接 close。断言 store 内存态与
+ * localStorage 双落点，验证「即改即存」而非仅 UI 态。
  *
- * 组件根为 Teleport(to=body)，断言走 document；fileExplorer host fallback 的
- * t 回显 key，丢弃确认以 codeViewer.discardChangesTitle 文本定位。
+ * 组件根为 Teleport(to=body)，断言走 document。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { nextTick, ref } from 'vue'
+import { nextTick } from 'vue'
 
 import CodeViewerSettingsModal from '../components/CodeViewerSettingsModal.vue'
-import { useCodeViewerStore } from '../stores/codeViewer'
+import { useCodeViewerStore, CODE_THEMES } from '../stores/codeViewer'
 
-/** 丢弃确认弹窗面板（含 discardChangesTitle 文案；设置弹窗本体不含该 key） */
-function discardDialogPanel(): HTMLElement | null {
-  return (
-    [...document.querySelectorAll<HTMLElement>('.modal-panel')].find((p) =>
-      p.textContent!.includes('codeViewer.discardChangesTitle'),
-    ) ?? null
-  )
+const STORAGE_KEY = 'wasmnest-code-viewer-settings'
+
+function readStorage(): { fontSize: number; lineHeight: number; theme: string; tabSize: number; showLineNumbers: boolean } | null {
+  const raw = localStorage.getItem(STORAGE_KEY)
+  return raw ? JSON.parse(raw) : null
 }
 
-async function clickDiscardButton(index: number) {
-  const panel = discardDialogPanel()
-  expect(panel, '丢弃确认弹窗应已挂载').toBeTruthy()
-  panel!.querySelectorAll('button')[index].dispatchEvent(new MouseEvent('click', { bubbles: true }))
-  await nextTick()
-  await nextTick()
-}
-
-/** 点击遮罩（bubbles:false 使 target === currentTarget，等价 @click.self 命中） */
-async function clickOverlay() {
-  const overlay = document.querySelector('.settings-modal-overlay')
-  expect(overlay).toBeTruthy()
-  overlay!.dispatchEvent(new MouseEvent('click', { bubbles: false }))
+async function click(selector: string, index = 0) {
+  const els = document.querySelectorAll(selector)
+  expect(els.length, `${selector} 应存在`).toBeGreaterThan(index)
+  els[index].dispatchEvent(new MouseEvent('click', { bubbles: true }))
   await nextTick()
   await nextTick()
 }
 
-/** 改动排版页字号（第 2 个步进按钮 = 字号「+」）制造脏稿 */
-async function makeDirty() {
-  const plus = [...document.querySelectorAll('.size-btn')][1]
-  plus.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-  await nextTick()
-  await nextTick()
-}
-
-describe('CodeViewerSettingsModal 脏稿守卫（#16）', () => {
+describe('CodeViewerSettingsModal 即改即存（#17）', () => {
   let wrapper: ReturnType<typeof mount>
+  let store: ReturnType<typeof useCodeViewerStore>
 
   beforeEach(() => {
     localStorage.clear()
     const pinia = createPinia()
     setActivePinia(pinia)
+    store = useCodeViewerStore()
     wrapper = mount(CodeViewerSettingsModal, {
       props: { visible: true },
-      global: {
-        plugins: [pinia],
-        provide: {
-          safeArea: ref({ top: 0, bottom: 0 }),
-        },
-      },
+      global: { plugins: [pinia] },
     })
   })
 
@@ -72,34 +50,47 @@ describe('CodeViewerSettingsModal 脏稿守卫（#16）', () => {
     document.body.innerHTML = ''
   })
 
-  it('干净状态：遮罩点击直接关（close），不弹丢弃确认', async () => {
-    await clickOverlay()
-    expect(wrapper.emitted('close')).toHaveLength(1)
-    expect(discardDialogPanel()).toBeNull()
+  it('字号步进：点「+」立即落 store 与 localStorage（默认 8 → 9）', async () => {
+    await click('.size-btn', 1) // 排版页：[0]=字号- [1]=字号+
+    expect(store.settings.fontSize).toBe(9)
+    expect(readStorage()?.fontSize).toBe(9)
   })
 
-  it('有草稿：遮罩点击只弹丢弃确认，不丢稿；确认后才 close', async () => {
-    await makeDirty()
-    await clickOverlay()
-    expect(wrapper.emitted('close')).toBeUndefined()
-    expect(discardDialogPanel()).not.toBeNull()
-
-    await clickDiscardButton(1)
-    expect(wrapper.emitted('close')).toHaveLength(1)
-    expect(discardDialogPanel()).toBeNull()
-    // 丢弃 = 不落库：store 保持默认字号
-    expect(useCodeViewerStore().settings.fontSize).toBe(8)
+  it('字号到上限 24：步进按钮进入禁用态', async () => {
+    store.saveSettings({ ...store.settings, fontSize: 24 })
+    await nextTick()
+    const plus = [...document.querySelectorAll('.size-btn')][1] as HTMLButtonElement
+    // 只断言禁用态：合成事件（dispatchEvent）会绕过浏览器对 disabled 的点击拦截
+    expect(plus.disabled).toBe(true)
   })
 
-  it('有草稿：丢弃确认点取消 → 草稿保留，再次遮罩点击守卫仍生效', async () => {
-    await makeDirty()
-    await clickOverlay()
-    await clickDiscardButton(0)
-    expect(wrapper.emitted('close')).toBeUndefined()
-    expect(discardDialogPanel()).toBeNull()
+  it('Tab 缩进与行号开关：点选即时生效', async () => {
+    // tab-size-group 序：[2, 4, 8]，默认 4 → 选 2
+    await click('.tab-size-btn', 0)
+    expect(store.settings.tabSize).toBe(2)
+    expect(readStorage()?.tabSize).toBe(2)
 
-    await clickOverlay()
-    expect(wrapper.emitted('close')).toBeUndefined()
-    expect(discardDialogPanel()).not.toBeNull()
+    await click('.toggle-btn') // 行号默认开 → 关
+    expect(store.settings.showLineNumbers).toBe(false)
+    expect(readStorage()?.showLineNumbers).toBe(false)
+  })
+
+  it('代码主题 tab：选非当前主题立即写入', async () => {
+    const otherTheme = Object.keys(CODE_THEMES).find((id) => id !== store.settings.theme)
+    expect(otherTheme).toBeTruthy()
+    await click('.segmented-btn', 1) // 切到代码主题 tab
+    const idx = Object.keys(CODE_THEMES).indexOf(otherTheme!)
+    await click('.theme-btn', idx)
+    expect(store.settings.theme).toBe(otherTheme)
+    expect(readStorage()?.theme).toBe(otherTheme)
+  })
+
+  it('遮罩点击直接 close：无守卫（即改即存下不存在丢稿）', async () => {
+    await click('.size-btn', 1) // 先产生一次变更
+    const sheetRoot = document.querySelector('.fixed.inset-0')!
+    sheetRoot.dispatchEvent(new MouseEvent('click', { bubbles: false }))
+    await nextTick()
+    await nextTick()
+    expect(wrapper.emitted('close')).toHaveLength(1)
   })
 })

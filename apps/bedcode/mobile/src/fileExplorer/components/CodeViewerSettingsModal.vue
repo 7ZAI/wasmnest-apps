@@ -1,161 +1,150 @@
 <template>
   <Teleport to="body">
-    <Transition name="center-modal">
-    <div
-      v-if="visible"
-      class="settings-modal-overlay mobile-ui"
-      :style="{ zIndex: zIndex }"
-      @click.self="requestClose"
-    >
-    <div class="settings-modal modal-panel" :style="modalStyle">
-      <div class="settings-header">
-        <h2>{{ t('codeViewer.settingsTitle') }}</h2>
-        <button class="close-btn" @click.stop="emit('close')">
-          <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-          </svg>
-        </button>
-      </div>
-
-      <!-- Tab 切换：排版 / 代码主题（同快捷键配置弹窗的分段控件） -->
-      <div class="settings-tabs">
-        <div class="segmented">
-          <button
-            class="segmented-btn"
-            :class="{ active: activeTab === 'editor' }"
-            @click="activeTab = 'editor'"
-          >
-            {{ t('codeViewer.tabEditor') }}
-          </button>
-          <button
-            class="segmented-btn"
-            :class="{ active: activeTab === 'theme' }"
-            @click="activeTab = 'theme'"
-          >
-            {{ t('codeViewer.tabTheme') }}
-          </button>
-        </div>
-      </div>
-
-      <!-- ==================== Tab: 排版 ==================== -->
-      <template v-if="activeTab === 'editor'">
-      <div class="settings-content" @touchstart="onTouchStart" @touchmove="onTouchMove" @touchend="onTouchEnd">
-        <!-- 字体大小 -->
-        <div class="settings-section">
-          <label class="settings-label">{{ t('codeViewer.fontSize') }}</label>
-          <div class="font-size-control">
-            <button class="size-btn" :disabled="localSettings.fontSize <= 6" @click.stop="localSettings.fontSize--">-</button>
-            <span class="size-value">{{ localSettings.fontSize }}px</span>
-            <button class="size-btn" :disabled="localSettings.fontSize >= 24" @click.stop="localSettings.fontSize++">+</button>
+    <Transition name="bottom-sheet">
+      <div
+        v-if="visible"
+        class="fixed inset-0 flex items-end justify-center mobile-ui"
+        :style="{ zIndex: zIndex }"
+        @click.self="emit('close')"
+      >
+        <div class="absolute inset-0 bg-[var(--mobile-overlay-light)]" @click="emit('close')"></div>
+        <div class="relative bg-[var(--mobile-bg-card)] border border-[var(--mobile-border)] rounded-t-2xl w-full max-w-lg max-h-[min(85vh,44rem)] flex flex-col shadow-xl modal-panel">
+          <!-- 拖拽指示条 -->
+          <div class="flex justify-center pt-2">
+            <div class="w-10 h-1 rounded-full bg-[var(--mobile-border)]"></div>
           </div>
-        </div>
 
-        <!-- 行间距 -->
-        <div class="settings-section">
-          <label class="settings-label">{{ t('codeViewer.lineHeight') }}</label>
-          <div class="slider-control">
-            <span class="slider-value">{{ localSettings.lineHeight.toFixed(1) }}</span>
-            <input
-              v-model.number="localSettings.lineHeight"
-              type="range"
-              class="slider-track"
-              min="0.5"
-              max="2.5"
-              step="0.1"
-            />
-            <span class="slider-range-label">0.5 – 2.5</span>
-          </div>
-        </div>
-
-        <!-- Tab 缩进 -->
-        <div class="settings-section">
-          <label class="settings-label">{{ t('codeViewer.tabIndent') }}</label>
-          <div class="tab-size-group">
-            <button
-              v-for="size in [2, 4, 8]"
-              :key="size"
-              class="tab-size-btn"
-              :class="{ active: localSettings.tabSize === size }"
-              @click.stop="localSettings.tabSize = size"
-            >{{ size }}</button>
-          </div>
-        </div>
-
-        <!-- 行号显示 -->
-        <div class="settings-section">
-          <div class="toggle-row">
-            <span class="settings-label" style="margin-bottom:0">{{ t('codeViewer.lineNumbers') }}</span>
-            <button
-              class="toggle-btn"
-              :class="{ active: localSettings.showLineNumbers }"
-              @click.stop="localSettings.showLineNumbers = !localSettings.showLineNumbers"
-            >
-              <span
-                class="toggle-thumb"
-                :class="{ on: localSettings.showLineNumbers }"
-              ></span>
+          <!-- Header -->
+          <div class="flex items-center justify-between px-4 pt-2 pb-3">
+            <span class="font-semibold text-[var(--mobile-text-primary)] text-base">{{ t('codeViewer.settingsTitle') }}</span>
+            <button class="icon-btn" :aria-label="t('file.close')" @click="emit('close')">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+              </svg>
             </button>
           </div>
-        </div>
-      </div>
-      </template>
 
-      <!-- ==================== Tab: 代码主题 ==================== -->
-      <template v-else>
-      <div class="settings-content" @touchstart="onTouchStart" @touchmove="onTouchMove" @touchend="onTouchEnd">
-        <div class="settings-section">
-          <label class="settings-label">{{ t('codeViewer.codeTheme') }}</label>
-          <div class="theme-grid">
-            <button
-              v-for="(config, id) in CODE_THEMES"
-              :key="id"
-              class="theme-btn"
-              :class="{ active: localSettings.theme === id }"
-              @click.stop="localSettings.theme = id"
-            >
-              <span class="theme-preview" :style="{ background: config.background, color: config.foreground }">Aa</span>
-              <span class="theme-name">{{ resolveThemeLabel(config.label, t) }}</span>
-            </button>
+          <!-- Tab 切换：排版 / 代码主题（形态对齐快捷键配置弹窗） -->
+          <div class="px-4 pb-3 flex-shrink-0">
+            <div class="segmented">
+              <button
+                class="segmented-btn"
+                :class="{ active: activeTab === 'editor' }"
+                @click="activeTab = 'editor'"
+              >
+                {{ t('codeViewer.tabEditor') }}
+              </button>
+              <button
+                class="segmented-btn"
+                :class="{ active: activeTab === 'theme' }"
+                @click="activeTab = 'theme'"
+              >
+                {{ t('codeViewer.tabTheme') }}
+              </button>
+            </div>
           </div>
+
+          <!-- ==================== Tab: 排版 ==================== -->
+          <template v-if="activeTab === 'editor'">
+            <div class="settings-content" @touchstart="onTouchStart" @touchmove="onTouchMove" @touchend="onTouchEnd">
+              <!-- 字体大小 -->
+              <div class="settings-section">
+                <label class="settings-label">{{ t('codeViewer.fontSize') }}</label>
+                <div class="font-size-control">
+                  <button class="size-btn" :disabled="store.settings.fontSize <= 6" @click.stop="apply({ fontSize: store.settings.fontSize - 1 })">-</button>
+                  <span class="size-value">{{ store.settings.fontSize }}px</span>
+                  <button class="size-btn" :disabled="store.settings.fontSize >= 24" @click.stop="apply({ fontSize: store.settings.fontSize + 1 })">+</button>
+                </div>
+              </div>
+
+              <!-- 行间距 -->
+              <div class="settings-section">
+                <label class="settings-label">{{ t('codeViewer.lineHeight') }}</label>
+                <div class="slider-control">
+                  <span class="slider-value">{{ store.settings.lineHeight.toFixed(1) }}</span>
+                  <input
+                    type="range"
+                    class="slider-track"
+                    min="0.5"
+                    max="2.5"
+                    step="0.1"
+                    :value="store.settings.lineHeight"
+                    @input="apply({ lineHeight: Number(($event.target as HTMLInputElement).value) })"
+                  />
+                  <span class="slider-range-label">0.5 – 2.5</span>
+                </div>
+              </div>
+
+              <!-- Tab 缩进 -->
+              <div class="settings-section">
+                <label class="settings-label">{{ t('codeViewer.tabIndent') }}</label>
+                <div class="tab-size-group">
+                  <button
+                    v-for="size in [2, 4, 8]"
+                    :key="size"
+                    class="tab-size-btn"
+                    :class="{ active: store.settings.tabSize === size }"
+                    @click.stop="apply({ tabSize: size })"
+                  >{{ size }}</button>
+                </div>
+              </div>
+
+              <!-- 行号显示 -->
+              <div class="settings-section">
+                <div class="toggle-row">
+                  <span class="settings-label" style="margin-bottom:0">{{ t('codeViewer.lineNumbers') }}</span>
+                  <button
+                    class="toggle-btn"
+                    :class="{ active: store.settings.showLineNumbers }"
+                    :aria-pressed="store.settings.showLineNumbers"
+                    @click.stop="apply({ showLineNumbers: !store.settings.showLineNumbers })"
+                  >
+                    <span
+                      class="toggle-thumb"
+                      :class="{ on: store.settings.showLineNumbers }"
+                    ></span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </template>
+
+          <!-- ==================== Tab: 代码主题 ==================== -->
+          <template v-else>
+            <div class="settings-content" @touchstart="onTouchStart" @touchmove="onTouchMove" @touchend="onTouchEnd">
+              <div class="settings-section">
+                <label class="settings-label">{{ t('codeViewer.codeTheme') }}</label>
+                <div class="theme-grid">
+                  <button
+                    v-for="(config, id) in CODE_THEMES"
+                    :key="id"
+                    class="theme-btn"
+                    :class="{ active: store.settings.theme === id }"
+                    @click.stop="apply({ theme: id })"
+                  >
+                    <span class="theme-preview" :style="{ background: config.background, color: config.foreground }">Aa</span>
+                    <span class="theme-name">{{ resolveThemeLabel(config.label, t) }}</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </template>
         </div>
       </div>
-      </template>
-
-      <!-- Footer：固定在底部，不随内容滚动 -->
-      <div class="settings-footer">
-        <button class="settings-footer-btn cancel" @click.stop="emit('close')">{{ t('common.button.cancel') }}</button>
-        <button class="settings-footer-btn confirm" @click.stop="handleConfirm">{{ t('common.button.confirm') }}</button>
-      </div>
-      </div>
-    </div>
     </Transition>
-
-    <!-- 脏稿守卫（#16）：遮罩误触不再静默丢弃未确认修改 -->
-    <ConfirmDialog
-      :model-value="showDiscardConfirm"
-      :title="t('codeViewer.discardChangesTitle')"
-      :message="t('codeViewer.discardChangesMessage')"
-      :confirm-text="t('codeViewer.discardChangesConfirm')"
-      :cancel-text="t('common.button.cancel')"
-      variant="danger"
-      @update:model-value="showDiscardConfirm = $event"
-      @confirm="discardAndClose"
-    />
   </Teleport>
 </template>
 
 <script setup lang="ts">
 /**
- * CodeViewerSettingsModal - 代码查看设置弹窗
+ * CodeViewerSettingsModal - 代码查看设置弹窗（#17 范式统一：bottom sheet + 即改即存）
  *
- * 双 Tab 结构（同快捷键配置弹窗）：排版页调整字体大小、行间距、Tab 缩进和行号显示，代码主题独立成 Tab
- * 编辑中修改临时变量，确认后保存到 store；头部/Tab/Footer 固定，内容超出时在内容区滚动查看
+ * 无草稿：控件直接读写 codeViewer store，每次交互立即 saveSettings 持久化并生效
+ * （查看器实时反应即预览；持久化失败由 store toast 显性提示）；无确认/取消 footer，
+ * 关闭不丢已生效修改。Tab 不再每次打开重置：无丢稿风险后，停留页即用户上下文。
  */
-import { ref, computed, watch, inject, type Ref } from 'vue'
-// issue #24：本组件随宿主提供组件五件套自移动宿主迁入，挂载契约形状不变
-// （文案经域内 host.t 相对键；safeArea 沿宿主组件树 inject）
+import { ref } from 'vue'
 import { useFileExplorerHost } from '../host'
-import ConfirmDialog from '../../terminal/components/ConfirmDialog.vue'
 import { useSwipeTabs } from '../composables/useSwipeTabs'
 import { useCodeViewerStore, CODE_THEMES, type CodeViewerSettings } from '../stores/codeViewer'
 import { resolveThemeLabel } from '../utils/themeLabel'
@@ -164,44 +153,17 @@ const { t } = useFileExplorerHost()
 
 const props = withDefaults(defineProps<{
   visible: boolean
-  /** 覆盖层 z-index，默认 50，嵌套在高层级弹窗中时应传入更高值 */
+  /** 覆盖层 z-index，默认 100（bottom sheet 层级）；嵌套在高层级弹窗中时应传入更高值 */
   zIndex?: number
 }>(), {
-  zIndex: 50,
+  zIndex: 100,
 })
 
 const emit = defineEmits<{
   close: []
-  confirm: [settings: CodeViewerSettings]
 }>()
 
 const store = useCodeViewerStore()
-const safeArea = inject<Ref<{ top: number; bottom: number }>>('safeArea')!
-
-const localSettings = ref<CodeViewerSettings>({ ...store.settings })
-
-/** 脏稿守卫（#16）：遮罩误触不再静默丢弃未确认修改（逐字段比较，键数变化也算脏） */
-const showDiscardConfirm = ref(false)
-const isDirty = computed(() => {
-  const draft = localSettings.value
-  const saved = store.settings
-  const draftKeys = Object.keys(draft) as (keyof CodeViewerSettings)[]
-  return (
-    draftKeys.length !== Object.keys(saved).length ||
-    draftKeys.some((key) => draft[key] !== saved[key])
-  )
-})
-
-/** 遮罩点击：干净直接关；有草稿先确认再丢。头部关闭与底部取消是显式意图，保持直接关闭 */
-function requestClose() {
-  if (isDirty.value) showDiscardConfirm.value = true
-  else emit('close')
-}
-
-function discardAndClose() {
-  showDiscardConfirm.value = false
-  emit('close')
-}
 
 // ==================== Tab 状态 ====================
 
@@ -215,63 +177,39 @@ const { onTouchStart, onTouchMove, onTouchEnd } = useSwipeTabs((dir) => {
   else if (dir === 'right' && activeTab.value === 'theme') activeTab.value = 'editor'
 })
 
-watch(() => props.visible, (show) => {
-  if (show) {
-    localSettings.value = { ...store.settings }
-    // 每次打开回到「排版」页，避免停留在上一回的分组
-    activeTab.value = 'editor'
-    showDiscardConfirm.value = false
-  }
-})
-
-const modalStyle = computed(() => ({
-  paddingTop: `${safeArea.value.top}px`,
-  paddingBottom: `${safeArea.value.bottom}px`,
-}))
-
-function handleConfirm() {
-  store.saveSettings(localSettings.value)
-  emit('confirm', localSettings.value)
-  emit('close')
+/** 即改即存出口：以 store 当前值为基线合并 patch，整包保存（内存态即时生效） */
+function apply(patch: Partial<CodeViewerSettings>) {
+  store.saveSettings({ ...store.settings, ...patch })
 }
 </script>
 
 <style scoped>
-/* 与终端设置弹窗保持一致的样式 */
-.settings-modal-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: var(--mobile-overlay-heavy);
+.icon-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 1rem;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 0.625rem;
+  color: var(--mobile-text-muted);
+  transition: all 0.15s ease;
 }
 
-.settings-modal {
-  --size-btn: clamp(2rem, 2.5rem, 3rem);
-  --footer-btn-py: clamp(0.625rem, 0.75rem, 1rem);
+.icon-btn:hover,
+.icon-btn:active {
+  background: var(--mobile-accent-muted);
+  color: var(--mobile-text-primary);
+}
+
+.settings-content {
+  --size-btn: 2.75rem;
   --thumb-size: clamp(1.25rem, 1.5rem, 1.75rem); /* 默认 24px，满足手指滑动触摸目标 */
   --toggle-w: clamp(2.25rem, 2.75rem, 3.25rem);
   --toggle-h: clamp(1.25rem, 1.5rem, 1.75rem);
 
-  display: flex;
-  flex-direction: column;
-  background: var(--mobile-bg-secondary);
-  border-radius: 1rem;
-  width: 100%;
-  max-width: clamp(280px, 360px, 420px);
-  /* 固定高度：不随 Tab 切换变化，内容超出由内容区滚动，Footer 始终固定在底部 */
-  height: clamp(26rem, 72vh, 34rem);
-  overflow: hidden;
-}
-
-.settings-tabs {
-  padding: 0.75rem 1rem 0;
-  flex-shrink: 0;
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.25rem 1rem calc(var(--safe-area-bottom, 0px) + 1rem);
 }
 
 /* 分段控件（同快捷键配置弹窗） */
@@ -305,43 +243,6 @@ function handleConfirm() {
   background: var(--mobile-bg-card);
   color: var(--mobile-text-primary);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
-}
-
-.settings-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0.75rem 1rem;
-  border-bottom: 1px solid var(--mobile-border);
-}
-
-.settings-header h2 {
-  font-size: var(--font-size-lg);
-  font-weight: 600;
-  color: var(--mobile-text-primary);
-  margin: 0;
-}
-
-.close-btn {
-  padding: 0.25rem;
-  background: none;
-  border: none;
-  color: var(--mobile-text-muted);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: color 0.2s ease;
-}
-
-.close-btn:hover {
-  color: var(--mobile-text-primary);
-}
-
-.settings-content {
-  flex: 1;
-  overflow-y: auto;
-  padding: 1rem;
 }
 
 .settings-section {
@@ -578,44 +479,5 @@ function handleConfirm() {
 .toggle-thumb.on {
   transform: translateX(calc(var(--toggle-w) - var(--toggle-h)));
   background: var(--mobile-text-on-accent);
-}
-
-/* Footer */
-.settings-footer {
-  display: flex;
-  gap: 0.75rem;
-  padding: 0.75rem 1rem;
-  border-top: 1px solid var(--mobile-border);
-}
-
-.settings-footer-btn {
-  flex: 1;
-  padding: var(--footer-btn-py);
-  border-radius: 0.5rem;
-  font-size: clamp(0.8125rem, 0.875rem, 1rem);
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.settings-footer-btn.cancel {
-  background: var(--mobile-bg-elevated);
-  border: 1px solid var(--mobile-border);
-  color: var(--mobile-text-muted);
-}
-
-.settings-footer-btn.cancel:hover {
-  background: var(--mobile-bg-hover);
-  color: var(--mobile-text-primary);
-}
-
-.settings-footer-btn.confirm {
-  background: var(--mobile-accent);
-  border: none;
-  color: var(--mobile-text-on-accent);
-}
-
-.settings-footer-btn.confirm:hover {
-  opacity: 0.9;
 }
 </style>

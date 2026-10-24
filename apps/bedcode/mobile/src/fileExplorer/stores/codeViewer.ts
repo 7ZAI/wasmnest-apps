@@ -91,7 +91,10 @@ export const useCodeViewerStore = defineStore('codeViewer', () => {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(settings.value))
     } catch (e) {
-      useFileExplorerHost().logger.warn('[CodeViewer] Failed to save settings to localStorage:', e)
+      // #17 即改即存：持久化失败必须显性提示（内存态已生效、重进后回退），不静默吞
+      const host = useFileExplorerHost()
+      host.logger.warn('[CodeViewer] Failed to save settings to localStorage:', e)
+      host.toast.error(host.t('codeViewer.settingsSaveFailed'))
     }
   }
 
