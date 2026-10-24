@@ -615,7 +615,9 @@ fn drain_for(endpoint_id: &str, client_id: &str) -> Result<(), String> {
                 // 就是请求游标，截断时是环驻留起点（`next_offset - data.len()`）。
                 // 重锚基准必须取后者（#10）。
                 let block_start = if fetched.truncated {
-                    fetched.next_offset.saturating_sub(fetched.data.len() as u64)
+                    fetched
+                        .next_offset
+                        .saturating_sub(fetched.data.len() as u64)
                 } else {
                     cursor
                 };
@@ -818,7 +820,9 @@ pub fn on_session_terminated(session_id: &str, reason: &str, exit_code: Option<i
                 // 终态（这是尾帧路径独有的静默缺口——drain 路径有
                 // 截断必重锚，退出路径早前漏了）。
                 let block_start = if fetched.truncated {
-                    fetched.next_offset.saturating_sub(fetched.data.len() as u64)
+                    fetched
+                        .next_offset
+                        .saturating_sub(fetched.data.len() as u64)
                 } else {
                     *cursor
                 };
