@@ -173,7 +173,10 @@ pub(crate) fn parse_pi_session(content: &str) -> ParsedSession {
                         NormalizedEvent {
                             ts,
                             role: ROLE_SYSTEM,
-                            text: format!("compaction · {}", truncate_text(&summary, MESSAGE_TEXT_CAP)),
+                            text: format!(
+                                "compaction · {}",
+                                truncate_text(&summary, MESSAGE_TEXT_CAP)
+                            ),
                             model: None,
                             tokens: None,
                             error: false,

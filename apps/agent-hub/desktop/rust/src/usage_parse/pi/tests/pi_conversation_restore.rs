@@ -37,7 +37,10 @@ fn pi_assistant_content_restores_thinking_text_toolcall() {
     assert_eq!(s.events[1].model.as_deref(), Some("deepseek-v4-flash"));
     assert!(s.events[1].tokens.is_some());
     // 工具调用独立成卡：名称 + 参数摘要 + 调用 id（与结果配对的键）
-    assert_eq!(s.events[2].text, "tool_use · read · {\"path\":\"src/lib.rs\"}");
+    assert_eq!(
+        s.events[2].text,
+        "tool_use · read · {\"path\":\"src/lib.rs\"}"
+    );
     assert_eq!(s.events[2].tool_use_id.as_deref(), Some("call_1"));
     assert!(!s.events[2].error);
 }
@@ -86,7 +89,10 @@ fn pi_full_turn_restore() {
     assert_eq!(roles, vec!["user", "assistant", "tool", "tool"]);
     assert_eq!(s.events[0].text, "修复 bug");
     assert_eq!(s.events[1].text, "看一下入口文件。");
-    assert_eq!(s.events[2].text, "tool_use · read · {\"path\":\"src/main.rs\"}");
+    assert_eq!(
+        s.events[2].text,
+        "tool_use · read · {\"path\":\"src/main.rs\"}"
+    );
     // 结果卡与 claude 配对形态同构，前端同一套工具卡切片
     assert_eq!(s.events[3].text, "tool_result · read · 42 行");
     assert_eq!(s.events[3].tool_use_id.as_deref(), Some("call_1"));
@@ -145,7 +151,10 @@ fn pi_thinking_only_aborted_turn() {
     let s = parse_pi_session(&content);
     let roles: Vec<&str> = s.events.iter().map(|e| e.role).collect();
     assert_eq!(roles, vec!["thinking", "system"]);
-    assert_eq!(s.events[1].text, "stop_reason · aborted · Operation aborted");
+    assert_eq!(
+        s.events[1].text,
+        "stop_reason · aborted · Operation aborted"
+    );
 }
 
 /// aborted 且有工具调用：不出 stop_reason（失败由工具卡呈现，pi TUI 同语义）
