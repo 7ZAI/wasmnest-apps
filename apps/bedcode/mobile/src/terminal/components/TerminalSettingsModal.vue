@@ -1,7 +1,7 @@
 <template>
   <Teleport to="body">
     <Transition name="center-modal">
-    <div v-if="visible" class="settings-modal-overlay mobile-ui" @click.self="$emit('cancel')">
+    <div v-if="visible" class="settings-modal-overlay mobile-ui" @click.self="requestClose">
       <div class="settings-modal modal-panel" :style="safeAreaStyle">
       <div class="settings-header">
         <h2>{{ t('terminal.terminalSettings') }}</h2>
@@ -124,6 +124,18 @@
       </div>
     </div>
     </Transition>
+
+    <!-- 脏稿守卫（#16）：遮罩误触不再静默丢弃未确认修改 -->
+    <ConfirmDialog
+      :model-value="showDiscardConfirm"
+      :title="t('terminal.discardChangesTitle')"
+      :message="t('terminal.discardChangesMessage')"
+      :confirm-text="t('terminal.discardChangesConfirm')"
+      :cancel-text="t('common.button.cancel')"
+      variant="danger"
+      @update:model-value="showDiscardConfirm = $event"
+      @confirm="discardAndClose"
+    />
   </Teleport>
 </template>
 
@@ -135,12 +147,13 @@
  */
 defineOptions({ name: 'TerminalSettingsModal' })
 
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { getMobileApi } from '@binblink/wasmnest-plugin-sdk-mobile'
 import { useSwipeTabs } from '@binblink/wasmnest-plugin-sdk-mobile/ui/swipe-tabs'
 import { t } from '../host'
 import { TERMINAL_THEMES, resolveThemeLabel } from '../config/themes'
 import Toggle from './Toggle.vue'
+import ConfirmDialog from './ConfirmDialog.vue'
 
 /** 设置分组 Tab：外观（字体/主题）与杂项配置（快捷栏/工具栏） */
 type SettingsTab = 'appearance' | 'misc'
@@ -192,6 +205,31 @@ const tempToolbarItems = ref<string[]>([...props.toolbarItems])
 const tempOnboardingPending = ref(props.onboardingPending)
 const activeTab = ref<SettingsTab>('appearance')
 
+/** 脏稿守卫（#16）：遮罩误触时的丢弃确认开关 */
+const showDiscardConfirm = ref(false)
+
+/** 草稿是否偏离打开时状态（工具栏项为集合语义，排序后比较） */
+const isDirty = computed(
+  () =>
+    tempFontSize.value !== props.fontSize ||
+    tempLetterSpacing.value !== props.letterSpacing ||
+    tempTheme.value !== (props.isThemeUserSet ? props.theme : 'system') ||
+    tempQuickBarCount.value !== props.quickBarCount ||
+    tempOnboardingPending.value !== props.onboardingPending ||
+    [...tempToolbarItems.value].sort().join('\u0000') !== [...props.toolbarItems].sort().join('\u0000'),
+)
+
+/** 遮罩点击：干净直接关；有草稿先确认再丢。头部关闭与底部取消是显式意图，保持直接关闭 */
+function requestClose() {
+  if (isDirty.value) showDiscardConfirm.value = true
+  else emit('cancel')
+}
+
+function discardAndClose() {
+  showDiscardConfirm.value = false
+  emit('cancel')
+}
+
 // 内容区左右滑动切换 Tab：左滑 → 杂项配置，右滑 → 外观
 const { onTouchStart, onTouchMove, onTouchEnd } = useSwipeTabs((dir) => {
   if (dir === 'left' && activeTab.value === 'appearance') activeTab.value = 'misc'
@@ -209,6 +247,7 @@ watch(() => props.visible, (visible) => {
     tempOnboardingPending.value = props.onboardingPending
     // 每次打开回到「外观」页，避免停留在上一回的分组
     activeTab.value = 'appearance'
+    showDiscardConfirm.value = false
   }
 })
 

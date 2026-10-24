@@ -131,13 +131,15 @@
       @cancel="showSettings = false"
     />
 
-    <!-- Clear Confirm Modal -->
-    <TerminalConfirmModal
-      :visible="showClearConfirm"
-      :message="t('terminal.clearScreen') + '?'"
-      :safe-area-style="confirmModalStyle"
+    <!-- 清屏确认（#16：TerminalConfirmModal 退役，统一 ConfirmDialog；文案专用 key 替代拼接） -->
+    <ConfirmDialog
+      v-model="showClearConfirm"
+      :title="t('terminal.clearScreen')"
+      :message="t('terminal.clearScreenConfirm')"
+      :confirm-text="t('terminal.clearScreen')"
+      :cancel-text="t('common.button.cancel')"
+      variant="warning"
       @confirm="handleClearConfirm"
-      @cancel="showClearConfirm = false"
     />
 
     <!-- 正统渲染端覆盖确认：服务端裁决本端非正统（另一端正渲染输出）时弹出，
@@ -248,7 +250,6 @@ import { reconnectDisplaySeconds } from './utils/reconnectCountdown'
 import type { ToolbarItemConfig, TerminalSettings } from './components/TerminalSettingsModal.vue'
 import TerminalHeader from './components/TerminalHeader.vue'
 import TerminalSettingsModal from './components/TerminalSettingsModal.vue'
-import TerminalConfirmModal from './components/TerminalConfirmModal.vue'
 import TerminalInputBar from './components/TerminalInputBar.vue'
 // issue #24：FileSidebar 自宿主提供组件迁入本 app fileExplorer 域，直接 import
 import FileSidebar from '../fileExplorer/components/FileSidebar.vue'
@@ -405,11 +406,6 @@ const safeAreaTop = computed(() => safeArea.value.top || 0)
 
 // 弹窗安全区域样式
 const settingsModalStyle = computed(() => ({
-  paddingTop: `${safeArea.value.top}px`,
-  paddingBottom: `${safeArea.value.bottom}px`,
-}))
-
-const confirmModalStyle = computed(() => ({
   paddingTop: `${safeArea.value.top}px`,
   paddingBottom: `${safeArea.value.bottom}px`,
 }))

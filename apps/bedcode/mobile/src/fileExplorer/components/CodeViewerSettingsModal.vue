@@ -5,7 +5,7 @@
       v-if="visible"
       class="settings-modal-overlay mobile-ui"
       :style="{ zIndex: zIndex }"
-      @click.self="emit('close')"
+      @click.self="requestClose"
     >
     <div class="settings-modal modal-panel" :style="modalStyle">
       <div class="settings-header">
@@ -129,6 +129,18 @@
       </div>
     </div>
     </Transition>
+
+    <!-- 脏稿守卫（#16）：遮罩误触不再静默丢弃未确认修改 -->
+    <ConfirmDialog
+      :model-value="showDiscardConfirm"
+      :title="t('codeViewer.discardChangesTitle')"
+      :message="t('codeViewer.discardChangesMessage')"
+      :confirm-text="t('codeViewer.discardChangesConfirm')"
+      :cancel-text="t('common.button.cancel')"
+      variant="danger"
+      @update:model-value="showDiscardConfirm = $event"
+      @confirm="discardAndClose"
+    />
   </Teleport>
 </template>
 
@@ -143,6 +155,7 @@ import { ref, computed, watch, inject, type Ref } from 'vue'
 // issue #24：本组件随宿主提供组件五件套自移动宿主迁入，挂载契约形状不变
 // （文案经域内 host.t 相对键；safeArea 沿宿主组件树 inject）
 import { useFileExplorerHost } from '../host'
+import ConfirmDialog from '../../terminal/components/ConfirmDialog.vue'
 import { useSwipeTabs } from '../composables/useSwipeTabs'
 import { useCodeViewerStore, CODE_THEMES, type CodeViewerSettings } from '../stores/codeViewer'
 import { resolveThemeLabel } from '../utils/themeLabel'
@@ -167,6 +180,29 @@ const safeArea = inject<Ref<{ top: number; bottom: number }>>('safeArea')!
 
 const localSettings = ref<CodeViewerSettings>({ ...store.settings })
 
+/** 脏稿守卫（#16）：遮罩误触不再静默丢弃未确认修改（逐字段比较，键数变化也算脏） */
+const showDiscardConfirm = ref(false)
+const isDirty = computed(() => {
+  const draft = localSettings.value
+  const saved = store.settings
+  const draftKeys = Object.keys(draft) as (keyof CodeViewerSettings)[]
+  return (
+    draftKeys.length !== Object.keys(saved).length ||
+    draftKeys.some((key) => draft[key] !== saved[key])
+  )
+})
+
+/** 遮罩点击：干净直接关；有草稿先确认再丢。头部关闭与底部取消是显式意图，保持直接关闭 */
+function requestClose() {
+  if (isDirty.value) showDiscardConfirm.value = true
+  else emit('close')
+}
+
+function discardAndClose() {
+  showDiscardConfirm.value = false
+  emit('close')
+}
+
 // ==================== Tab 状态 ====================
 
 /** 设置分组 Tab：排版（字体/行距/缩进/行号）与代码主题 */
@@ -184,6 +220,7 @@ watch(() => props.visible, (show) => {
     localSettings.value = { ...store.settings }
     // 每次打开回到「排版」页，避免停留在上一回的分组
     activeTab.value = 'editor'
+    showDiscardConfirm.value = false
   }
 })
 

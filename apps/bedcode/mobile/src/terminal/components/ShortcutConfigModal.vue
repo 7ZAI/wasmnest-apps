@@ -119,7 +119,7 @@
 
           <!-- Footer: 恢复默认 -->
           <div class="scm-footer">
-            <button class="ghost-btn" @click="handleReset">
+            <button class="ghost-btn" @click="showResetConfirm = true">
               <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
               </svg>
@@ -289,23 +289,26 @@
     </div>
     </Transition>
 
-      <!-- 删除确认弹窗 -->
-      <Transition name="center-modal">
-      <div v-if="deleteTarget" class="delete-confirm-overlay" @click.self="confirmDeleteCode = ''">
-        <div class="delete-confirm-modal modal-panel">
-          <div class="delete-icon-wrap">
-            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-            </svg>
-          </div>
-          <p class="delete-confirm-text">{{ t('shortcutConfig.deleteConfirm', { label: deleteTarget.label }) }}</p>
-          <div class="delete-confirm-buttons">
-            <button class="delete-confirm-btn cancel" @click="confirmDeleteCode = ''">{{ t('common.button.cancel') }}</button>
-            <button class="delete-confirm-btn confirm" @click="handleDelete(deleteTarget.code)">{{ t('shortcutConfig.deleteShortcut') }}</button>
-          </div>
-        </div>
-      </div>
-      </Transition>
+      <!-- 删除确认 / 恢复默认确认（#16：内嵌第四套确认弹窗退役，统一 ConfirmDialog） -->
+      <ConfirmDialog
+        :model-value="!!deleteTarget"
+        :title="t('shortcutConfig.deleteConfirmTitle')"
+        :message="t('shortcutConfig.deleteConfirm', { label: deleteTarget?.label ?? '' })"
+        :confirm-text="t('shortcutConfig.deleteShortcut')"
+        :cancel-text="t('common.button.cancel')"
+        variant="danger"
+        @update:model-value="confirmDeleteCode = ''"
+        @confirm="deleteTarget && handleDelete(deleteTarget.code)"
+      />
+      <ConfirmDialog
+        v-model="showResetConfirm"
+        :title="t('shortcutConfig.resetDefaults')"
+        :message="t('shortcutConfig.resetConfirmMessage')"
+        :confirm-text="t('shortcutConfig.resetDefaults')"
+        :cancel-text="t('common.button.cancel')"
+        variant="danger"
+        @confirm="handleReset"
+      />
 
       <!-- 快捷键说明弹窗 -->
       <ShortcutHelpModal :visible="showHelp" @close="showHelp = false" />
@@ -321,6 +324,7 @@ import { ref, computed, watch } from 'vue'
 import { useSwipeTabs } from '@binblink/wasmnest-plugin-sdk-mobile/ui/swipe-tabs'
 import { t } from '../host'
 import { useInputAssistantStore } from '../inputAssistant'
+import ConfirmDialog from './ConfirmDialog.vue'
 import ShortcutHelpModal from './ShortcutHelpModal.vue'
 
 const props = defineProps<{
@@ -365,9 +369,12 @@ function handleDelete(code: string) {
 
 function handleReset() {
   store.resetShortcutConfig()
+  showResetConfirm.value = false
 }
 
 const confirmDeleteCode = ref('')
+/** 恢复默认确认（#16）：一键清空全部自定义与可见性配置，执行前必须确认 */
+const showResetConfirm = ref(false)
 const deleteTarget = computed(() =>
   store.shortcutConfig.find(s => s.code === confirmDeleteCode.value)
 )
@@ -537,6 +544,7 @@ watch(() => props.visible, (show) => {
     clearSelection()
     isCapturing.value = false
     confirmDeleteCode.value = ''
+    showResetConfirm.value = false
     showHelp.value = false
   }
 })
@@ -954,81 +962,6 @@ watch(() => props.visible, (show) => {
 .add-btn:disabled {
   opacity: 0.4;
   cursor: not-allowed;
-}
-
-/* ==================== 删除确认弹窗 ==================== */
-
-.delete-confirm-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.6);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 110;
-  padding: 1rem;
-}
-
-.delete-confirm-modal {
-  background: var(--mobile-bg-card);
-  border: 1px solid var(--mobile-border);
-  border-radius: 1rem;
-  padding: 1.5rem;
-  width: 100%;
-  max-width: 20rem;
-  text-align: center;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
-}
-
-.delete-icon-wrap {
-  width: 3rem;
-  height: 3rem;
-  margin: 0 auto 0.75rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 9999px;
-  background: var(--mobile-danger-bg, rgba(239, 68, 68, 0.1));
-  color: var(--mobile-danger-color, #ef4444);
-}
-
-.delete-confirm-text {
-  font-size: var(--font-size-base);
-  color: var(--mobile-text-primary);
-  margin: 0 0 1.25rem;
-  line-height: 1.5;
-}
-
-.delete-confirm-buttons {
-  display: flex;
-  gap: 0.75rem;
-}
-
-.delete-confirm-btn {
-  flex: 1;
-  height: 2.625rem;
-  border-radius: 0.625rem;
-  font-size: var(--font-size-base);
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.delete-confirm-btn.cancel {
-  background: var(--mobile-bg-elevated);
-  border: 1px solid var(--mobile-border);
-  color: var(--mobile-text-muted);
-}
-
-.delete-confirm-btn.confirm {
-  background: var(--mobile-error);
-  border: none;
-  color: #ffffff;
-}
-
-.delete-confirm-btn.confirm:active {
-  transform: scale(0.97);
-  filter: brightness(0.9);
 }
 
 /* ==================== 过渡动画 ==================== */
