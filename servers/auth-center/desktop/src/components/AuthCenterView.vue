@@ -2,9 +2,10 @@
 /**
  * 认证中心主界面（桌面服务型 wasm）
  *
- * 本版本是**就位状态 + 认证方式 + 接入应用 + 五个数据面**：配对码 / 二维码、可信
- * 设备、连接历史、入场密钥代次都接真实命令（`auth-center.*`），接入应用清单是声明
- * （`consumers.ts`）+ 宿主 `plugin_list_loaded` 运行态。
+ * 本版本是**就位状态 + 认证方式 + 接入应用 + 入场密钥代次**：密钥代次接真实
+ * 命令（`auth-center.*`），接入应用清单是声明（`consumers.ts`）+ 宿主
+ * `plugin_list_loaded` 运行态。配对码 / 二维码、可信设备、连接历史**不设页面**：
+ * 命令与互调 api 面原样保留，由 BedCode 设备中心等消费方经互调取用。
  *
  * **注册已接管**（issue #6 切换）：本插件在 activate 末尾注册为认证中心，
  * `/api/auth/*` 也由本插件登记；BedCode 已同批去注册。就位状态卡按真实三态呈现——
@@ -17,9 +18,6 @@ import { computed, inject, onMounted, ref } from 'vue'
 import type { AuthCenterContext } from '../appContext'
 import type { CenterState, CenterStatus } from '../types'
 import ConsumersCard from './ConsumersCard.vue'
-import PairingCard from './PairingCard.vue'
-import TrustCard from './TrustCard.vue'
-import HistoryCard from './HistoryCard.vue'
 import KeyCard from './KeyCard.vue'
 
 const context = inject<AuthCenterContext>('pluginContext')!
@@ -155,9 +153,6 @@ onMounted(load)
       </section>
 
       <ConsumersCard />
-      <PairingCard />
-      <TrustCard />
-      <HistoryCard />
       <KeyCard />
     </main>
   </div>

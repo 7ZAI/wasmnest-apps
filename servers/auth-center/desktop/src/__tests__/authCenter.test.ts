@@ -2,8 +2,8 @@
  * AuthCenterView 契约测试（挂载包组件级）
  *
  * 只断言**外部可观察行为**：三态渲染、原因上屏、失败态不被当成「未就位」、
- * 缺失字段渲染 `—`、六个数据面的取数/动作接线、锚点存在。不测内部实现（不 mock
- * 内部模块，只按命令名路由假宿主）。
+ * 缺失字段渲染 `—`、接入应用与密钥代次的取数/动作接线、锚点存在。不测内部实现
+ * （不 mock 内部模块，只按命令名路由假宿主）。
  */
 import { flushPromises, mount } from '@vue/test-utils'
 import { describe, expect, it, vi } from 'vitest'
@@ -73,14 +73,10 @@ function payload(overrides: Partial<CenterStatus> = {}): CenterStatus {
   }
 }
 
-/** 六域默认空数据（只测某一个面时，其余面给「确实没有」而不是抛错） */
+/** 页面仍会挂载的卡片默认空数据（只测某一个面时，其余面给「确实没有」而不是抛错） */
 function defaults(status: CenterStatus = payload()): Record<string, Handler> {
   return {
     'auth-center.status': () => status,
-    'auth-center.pairing-code.status': () => null,
-    'auth-center.qr-code.status': () => null,
-    'auth-center.trust.list': () => ({ devices: [], peerError: null }),
-    'auth-center.devices.list': () => [],
     'auth-center.keys.status': () => ({ kid: 'g1', previousKid: null }),
   }
 }
@@ -278,230 +274,6 @@ describe('接入应用卡片', () => {
     await wrapper.get('[data-testid="auth-center-consumers-refresh"]').trigger('click')
     await flushPromises()
     expect(hostInvoke).toHaveBeenCalledTimes(2)
-  })
-})
-
-describe('配对码 / 二维码卡片', () => {
-  it('生成后码与剩余秒数上屏；清除后回落 —（不是空串）', async () => {
-    let current: unknown = null
-    const { appInvoke, calls } = route({
-      ...defaults(),
-      'auth-center.pairing-code.generate': () => {
-        current = { code: '123456', created_at: '2026-10-22T00:00:00Z', expires_in: 60 }
-        return current
-      },
-      'auth-center.pairing-code.clear': () => {
-        current = null
-        return { cleared: true }
-      },
-    })
-    const wrapper = await mountWith(appInvoke)
-
-    expect(wrapper.get('[data-testid="auth-center-pairing-code"]').text()).toBe('—')
-
-    await wrapper.get('[data-testid="auth-center-pairing-generate"]').trigger('click')
-    await flushPromises()
-    expect(wrapper.get('[data-testid="auth-center-pairing-code"]').text()).toBe('123456')
-    expect(wrapper.get('[data-testid="auth-center-pairing-code-remaining"]').text()).toContain('60')
-
-    await wrapper.get('[data-testid="auth-center-pairing-clear"]').trigger('click')
-    await flushPromises()
-    expect(wrapper.get('[data-testid="auth-center-pairing-code"]').text()).toBe('—')
-    expect(calls.some((c) => c.command === 'auth-center.pairing-code.clear')).toBe(true)
-  })
-
-  it('生成失败：原因上屏且不伪造码', async () => {
-    const { appInvoke } = route({
-      ...defaults(),
-      'auth-center.pairing-code.generate': () => {
-        throw new Error('no entropy')
-      },
-    })
-    const wrapper = await mountWith(appInvoke)
-
-    await wrapper.get('[data-testid="auth-center-pairing-generate"]').trigger('click')
-    await flushPromises()
-
-    expect(wrapper.get('[data-testid="auth-center-pairing-code-error"]').text()).toContain(
-      'no entropy',
-    )
-    expect(wrapper.get('[data-testid="auth-center-pairing-code"]').text()).toBe('—')
-  })
-
-  it('QR：生成后 token 上屏，剩余秒数取自 remaining', async () => {
-    const { appInvoke } = route({
-      ...defaults(),
-      'auth-center.qr-code.generate': () => ({ token: 'abcdef', ttl: 300, remaining: 299 }),
-    })
-    const wrapper = await mountWith(appInvoke)
-
-    await wrapper.get('[data-testid="auth-center-qr-generate"]').trigger('click')
-    await flushPromises()
-
-    expect(wrapper.get('[data-testid="auth-center-qr-token"]').text()).toBe('abcdef')
-    expect(wrapper.get('[data-testid="auth-center-qr-remaining"]').text()).toContain('299')
-  })
-})
-
-describe('可信设备卡片', () => {
-  it('两种来源分别上屏（kind 判别可见），撤销按 id 调用并重新取数', async () => {
-    let revoked = false
-    const { appInvoke, calls } = route({
-      ...defaults(),
-      'auth-center.trust.list': () => ({
-        devices: [
-          // 撤销后 pairing 段不再包含它（软删即从活跃集合消失），peer 段不受影响
-          ...(revoked
-            ? []
-            : [
-                {
-                  kind: 'pairing',
-                  id: 'p-1',
-                  name: 'Pixel',
-                  fingerprint: 'fp-1',
-                  addedAt: '2026-10-01T00:00:00Z',
-                },
-              ]),
-          {
-            kind: 'peer',
-            id: 'aabb',
-            name: 'Laptop',
-            fingerprintShort: 'aabbccdd',
-            addedAt: '2026-10-02T00:00:00Z',
-          },
-        ],
-        peerError: null,
-      }),
-      'auth-center.trust.revoke': () => {
-        revoked = true
-        return { removed: true, kind: 'pairing' }
-      },
-    })
-    const wrapper = await mountWith(appInvoke)
-
-    expect(wrapper.get('[data-testid="auth-center-trust-item-p-1"]').attributes('data-kind')).toBe(
-      'pairing',
-    )
-    expect(wrapper.get('[data-testid="auth-center-trust-item-aabb"]').attributes('data-kind')).toBe(
-      'peer',
-    )
-    expect(wrapper.get('[data-testid="auth-center-trust-count"]').text()).toContain('2')
-
-    await wrapper.get('[data-testid="auth-center-trust-revoke-p-1"]').trigger('click')
-    await flushPromises()
-
-    expect(calls.find((c) => c.command === 'auth-center.trust.revoke')?.args).toEqual({ id: 'p-1' })
-    expect(wrapper.find('[data-testid="auth-center-trust-item-p-1"]').exists()).toBe(false)
-  })
-
-  it('列表为空显示「暂无可信设备」；读取失败显示原因并保留上一次数据', async () => {
-    let fail = false
-    const { appInvoke } = route({
-      ...defaults(),
-      'auth-center.trust.list': () => {
-        if (fail) throw new Error('records unavailable')
-        return {
-          devices: [{ kind: 'pairing', id: 'p-1', name: 'Pixel', addedAt: '2026-10-01T00:00:00Z' }],
-          peerError: null,
-        }
-      },
-    })
-    const wrapper = await mountWith(appInvoke)
-
-    fail = true
-    await wrapper.get('[data-testid="auth-center-trust-refresh"]').trigger('click')
-    await flushPromises()
-    expect(wrapper.get('[data-testid="auth-center-trust-error"]').text()).toContain(
-      'records unavailable',
-    )
-    expect(wrapper.find('[data-testid="auth-center-trust-item-p-1"]').exists()).toBe(true)
-  })
-
-  it('peer 段失败：原因单独上屏，pairing 段照常展示', async () => {
-    const { appInvoke } = route({
-      ...defaults(),
-      'auth-center.trust.list': () => ({
-        devices: [{ kind: 'pairing', id: 'p-1', name: 'Pixel', addedAt: '2026-10-01T00:00:00Z' }],
-        peerError: 'peer engine not started',
-      }),
-    })
-    const wrapper = await mountWith(appInvoke)
-
-    expect(wrapper.get('[data-testid="auth-center-trust-peer-error"]').text()).toContain(
-      'peer engine not started',
-    )
-    expect(wrapper.find('[data-testid="auth-center-trust-item-p-1"]').exists()).toBe(true)
-  })
-})
-
-describe('连接历史卡片', () => {
-  const device = {
-    id: 'p-1',
-    deviceName: 'Pixel',
-    deviceFingerprint: 'fp-1',
-    pairedAt: '2026-10-01T00:00:00Z',
-    connectCount: 3,
-  }
-
-  it('设备为空：显示「暂无已配对设备」而不是历史空表', async () => {
-    const wrapper = await mountWith(route(defaults()).appInvoke)
-    expect(wrapper.find('[data-testid="auth-center-history-empty-devices"]').exists()).toBe(true)
-    expect(wrapper.find('[data-testid="auth-center-history-no-events"]').exists()).toBe(false)
-  })
-
-  it('选中设备即取该设备历史；清空按 deviceId 调用', async () => {
-    let cleared = false
-    const { appInvoke, calls } = route({
-      ...defaults(),
-      'auth-center.devices.list': () => [device],
-      'auth-center.history.list': (args) => {
-        if (cleared) return []
-        expect(args).toEqual({ deviceId: 'p-1' })
-        return [
-          {
-            deviceId: 'p-1',
-            authMethod: 'pairing_code',
-            result: 'success',
-            address: '192.168.1.5:9000',
-            connectedAt: '2026-10-10T00:00:00Z',
-          },
-        ]
-      },
-      'auth-center.history.clear': () => {
-        cleared = true
-        return { cleared: true }
-      },
-    })
-    const wrapper = await mountWith(appInvoke)
-
-    const items = wrapper.findAll('[data-testid="auth-center-history-item"]')
-    expect(items).toHaveLength(1)
-    expect(items[0].attributes('data-result')).toBe('success')
-    expect(items[0].text()).toContain('配对码')
-
-    await wrapper.get('[data-testid="auth-center-history-clear"]').trigger('click')
-    await flushPromises()
-
-    expect(calls.find((c) => c.command === 'auth-center.history.clear')?.args).toEqual({
-      deviceId: 'p-1',
-    })
-    expect(wrapper.find('[data-testid="auth-center-history-no-events"]').exists()).toBe(true)
-  })
-
-  it('历史读取失败：原因上屏（不冒充「没有记录」）', async () => {
-    const { appInvoke } = route({
-      ...defaults(),
-      'auth-center.devices.list': () => [device],
-      'auth-center.history.list': () => {
-        throw new Error('history store degraded')
-      },
-    })
-    const wrapper = await mountWith(appInvoke)
-
-    expect(wrapper.get('[data-testid="auth-center-history-error"]').text()).toContain(
-      'history store degraded',
-    )
-    expect(wrapper.find('[data-testid="auth-center-history-no-events"]').exists()).toBe(false)
   })
 })
 

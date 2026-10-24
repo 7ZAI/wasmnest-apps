@@ -116,7 +116,9 @@ wasmnest-apps/
 > （`plugin.json.api` ↔ `#[plugin_api] AuthCenterApi`，19 条，含宿主
 > `auth-method-invoke` 的 `auth-grant`）+ 认证记录库（`auth_pairings` /
 > `auth_biometric_keys` / `auth_connection_history`，插件私有库 = 唯一真源）。
-> 页面数据面（配对码 / QR、可信设备、连接历史、密钥代次）已接线；「接入应用」卡展示
+> 页面数据面只保留密钥代次；配对码 / QR、可信设备、连接历史**不设页面**（命令与
+> 互调 api 面保留，由 BedCode 设备中心等消费方经互调取用——2026-10-25 用户裁定
+> 页面收敛）；「接入应用」卡展示
 > 消费方（bedcode / file-transfer）与宿主运行态（`plugin_list_loaded`），清单在
 > `src/consumers.ts` 声明式登记。原「决策计数」占位已按用户裁定删除。
 >
