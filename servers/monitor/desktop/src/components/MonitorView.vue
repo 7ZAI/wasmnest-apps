@@ -61,7 +61,6 @@ const runningText = computed(() =>
 const statesKnown = computed(() => rows.value.some((row) => row.state !== 'unknown'))
 const serviceCount = computed(() => rows.value.filter((row) => isServiceKind(row.kind)).length)
 const appCount = computed(() => rows.value.filter((row) => row.kind === 'business-app').length)
-const roleSummaryVisible = computed(() => appCount.value + serviceCount.value > 0)
 const unavailableCount = computed(() => rows.value.filter((row) => !row.metricsAvailable).length)
 
 /** 台账过滤：全部 / 服务（L1+L2）/ 应用（L3）。只影响展示，取数始终是全量快照。 */
@@ -104,14 +103,11 @@ const heroLead = computed(() => {
 const heroProof = computed(() => {
   if (error.value && rows.value.length > 0) return t('monitor.hero.proofStale')
   if (error.value) return t('monitor.error.hint')
-  if (initialLoading.value) return t('monitor.subtitle')
+  // 加载中 / 正常态留空：骨架与 KPI 卡已把数字说全，不写第二遍（§4.4 布局自解释）
+  if (initialLoading.value) return ''
   if (rows.value.length === 0) return t('monitor.empty.hint')
   if (!statesKnown.value && hostInfoWarning.value) return t('monitor.hero.proofUnknown')
-  return t('monitor.hero.proof', {
-    plugins: formatNumber(summary.value.pluginCount),
-    calls: formatNumber(summary.value.callsTotal),
-    traps: formatNumber(summary.value.trapsTotal),
-  })
+  return ''
 })
 
 const heroTone = computed(() => {
@@ -369,7 +365,7 @@ onBeforeUnmount(() => {
             </div>
           </div>
 
-          <p class="mn-proof mn-rise">{{ heroProof }}</p>
+          <p v-if="heroProof" class="mn-proof mn-rise">{{ heroProof }}</p>
 
           <div v-if="error" class="mn-error" role="alert" data-testid="monitor-error">
             <p class="mn-error-message">{{ error }}</p>
@@ -464,9 +460,6 @@ onBeforeUnmount(() => {
           <div>
             <h2 id="plugins-title" class="mn-section-title">{{ t('monitor.ledger.title') }}</h2>
             <p class="mn-section-hint">{{ t('monitor.ledger.hint') }}</p>
-            <p v-if="roleSummaryVisible" class="mn-role-summary" data-testid="monitor-role-summary">
-              {{ t('monitor.ledger.roleSummary', { apps: appCount, services: serviceCount }) }}
-            </p>
             <div class="mn-filter" role="group" :aria-label="t('monitor.filter.aria')" data-ui>
               <button
                 v-for="option in filterOptions"

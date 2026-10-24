@@ -200,11 +200,8 @@ describe('MonitorView（桌面界面契约）', () => {
     expect(
       serviceRow.find('[data-testid="monitor-role-com.wasmnest.auth-center"]').text(),
     ).toBe('monitor.role.internalBusiness')
-    // 应用行不出服务徽标；摘要仍给出应用 / 服务口径
+    // 应用行不出服务徽标；角色分布由筛选按钮计数表达（不再单列文字摘要）
     expect(wrapper.find('[data-testid="monitor-role-com.wasmnest.monitor"]').exists()).toBe(false)
-    expect(wrapper.find('[data-testid="monitor-role-summary"]').text()).toBe(
-      'monitor.ledger.roleSummary(apps=1,services=1)',
-    )
     expect(wrapper.find('[data-testid="monitor-kpi-unavailable"]').text()).toBe(
       'monitor.kpi.pluginsUnavailable(n=1)',
     )

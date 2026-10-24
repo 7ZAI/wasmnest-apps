@@ -235,13 +235,8 @@ function stateTone(state: PluginDisplayState): string {
           ></div>
         </div>
         <div class="mn-memory-notes">
-          <span>{{ t('monitor.section.memory') }}</span>
           <span
             >{{ t('monitor.metric.memoryPeak') }} {{ formatBytes(metrics.memory_peak_bytes) }}</span
-          >
-          <span
-            >{{ t('monitor.metric.memoryLimit') }}
-            {{ quotaMemory === null ? '—' : formatBytes(quotaMemory) }}</span
           >
           <span v-if="growDeniedText" class="is-warning">{{ growDeniedText }}</span>
         </div>

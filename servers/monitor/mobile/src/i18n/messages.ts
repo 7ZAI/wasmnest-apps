@@ -51,7 +51,6 @@ export type MessageSchema = {
   'monitor.metric.activation': string
   'monitor.metric.activationMax': string
   'monitor.metric.memoryPeak': string
-  'monitor.metric.memoryLimit': string
   'monitor.metric.memoryUsage': string
   'monitor.metric.memoryDenied': string
   'monitor.metric.tableDenied': string
@@ -98,7 +97,6 @@ export type MessageSchema = {
   'monitor.hero.noTraps': string
   'monitor.hero.unknown': string
   'monitor.hero.stale': string
-  'monitor.hero.proof': string
   'monitor.hero.proofUnknown': string
   'monitor.hero.proofStale': string
   'monitor.hero.proofMobile': string
@@ -111,7 +109,6 @@ export type MessageSchema = {
   'monitor.signal.note': string
   'monitor.signal.peak': string
   'monitor.ledger.title': string
-  'monitor.ledger.hint': string
   'monitor.ledger.calls': string
   'monitor.ledger.select': string
   'monitor.role.basicService': string

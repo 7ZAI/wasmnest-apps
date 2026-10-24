@@ -44,6 +44,18 @@ const {
 const localeTag = computed(() => (locale.value === 'en' ? 'en-US' : 'zh-CN'))
 const initialLoading = computed(() => loading.value && lastUpdated.value === null)
 
+/** 手动刷新中：只有用户点击才驱动按钮加载态，后台轮询不改变按钮视觉（否则每秒闪动弹跳） */
+const manualRefreshing = ref(false)
+async function manualRefresh(): Promise<void> {
+  if (manualRefreshing.value) return
+  manualRefreshing.value = true
+  try {
+    await refresh()
+  } finally {
+    manualRefreshing.value = false
+  }
+}
+
 const updatedText = computed(() =>
   lastUpdated.value === null
     ? tx('monitor.never')
@@ -181,13 +193,10 @@ const heroLead = computed(() => {
 const heroProof = computed(() => {
   if (error.value && rows.value.length > 0) return tx('monitor.hero.proofStale')
   if (error.value) return tx('monitor.error.hint')
-  if (initialLoading.value) return tx('monitor.hero.proofMobile')
+  // 加载中 / 正常态留空：骨架与摘要卡已把数字说全，不写第二遍（§4.4 布局自解释）
+  if (initialLoading.value) return ''
   if (rows.value.length === 0) return tx('monitor.empty.hint')
-  return tx('monitor.hero.proof', {
-    plugins: formatNumber(summary.value.pluginCount),
-    calls: formatNumber(summary.value.callsTotal),
-    traps: formatNumber(summary.value.trapsTotal),
-  })
+  return ''
 })
 
 const heroTone = computed(() => {
@@ -264,7 +273,7 @@ onBeforeUnmount(() => {
             "
           >
             <h2 v-if="heroLead" id="mnm-lead" class="mnm-lead mnm-rise">{{ heroLead }}</h2>
-            <p class="mnm-proof mnm-rise">{{ heroProof }}</p>
+            <p v-if="heroProof" class="mnm-proof mnm-rise">{{ heroProof }}</p>
 
             <div class="mnm-meta mnm-rise">
               <span
@@ -289,13 +298,14 @@ onBeforeUnmount(() => {
               <button
                 type="button"
                 class="mnm-refresh"
-                :disabled="loading"
+                :disabled="manualRefreshing"
+                :aria-busy="manualRefreshing || undefined"
                 data-testid="mobile-monitor-refresh"
-                @click="refresh"
+                @click="manualRefresh"
               >
                 <svg
                   class="mnm-refresh-icon"
-                  :class="{ 'is-spinning': loading }"
+                  :class="{ 'is-spinning': manualRefreshing }"
                   viewBox="0 0 24 24"
                   fill="none"
                   stroke="currentColor"
@@ -309,7 +319,14 @@ onBeforeUnmount(() => {
                     d="M20 9a8 8 0 0 0-14.9-2M4 15a8 8 0 0 0 14.9 2"
                   />
                 </svg>
-                {{ loading ? tx('monitor.refreshing') : tx('monitor.refresh') }}
+                <span class="mnm-refresh-label">
+                  <span :class="{ 'is-hidden': manualRefreshing }">{{
+                    tx('monitor.refresh')
+                  }}</span>
+                  <span :class="{ 'is-hidden': !manualRefreshing }">{{
+                    tx('monitor.refreshing')
+                  }}</span>
+                </span>
               </button>
             </div>
 
@@ -383,7 +400,6 @@ onBeforeUnmount(() => {
             <section class="mnm-plugins">
               <header class="mnm-section-head">
                 <h2 class="mnm-section-title">{{ tx('monitor.ledger.title') }}</h2>
-                <p class="mnm-section-hint">{{ tx('monitor.ledger.hint') }}</p>
                 <p class="mnm-section-note">{{ tx('monitor.hero.proofMobile') }}</p>
               </header>
               <div class="mnm-filter" role="group" :aria-label="tx('monitor.filter.aria')" data-ui>
@@ -492,6 +508,8 @@ onBeforeUnmount(() => {
   color: var(--mnm-ink);
   font-size: 15px;
   line-height: 1.5;
+  /* 指标数字统一等宽（含页头摘要 / 插件卡片等嵌入文本）：每秒刷新不抖动布局 */
+  font-variant-numeric: tabular-nums;
   -webkit-tap-highlight-color: transparent;
 }
 
@@ -703,6 +721,20 @@ onBeforeUnmount(() => {
   animation: mnm-spin 900ms linear infinite;
 }
 
+/* 两个标签叠在同一格：按钮宽度始终按较长文案预留，手动刷新时不发生横向跳动 */
+.mnm-refresh-label {
+  display: inline-grid;
+  place-items: center;
+}
+
+.mnm-refresh-label > span {
+  grid-area: 1 / 1;
+}
+
+.mnm-refresh-label > .is-hidden {
+  visibility: hidden;
+}
+
 .mnm-error {
   display: flex;
   flex-direction: column;
@@ -830,13 +862,6 @@ onBeforeUnmount(() => {
   line-height: 1.2;
   letter-spacing: -0.03em;
   color: var(--mnm-ink);
-}
-
-.mnm-section-hint {
-  margin: 6px 0 0;
-  font-size: 15px;
-  line-height: 1.5;
-  color: var(--mnm-ink-2);
 }
 
 .mnm-section-note {

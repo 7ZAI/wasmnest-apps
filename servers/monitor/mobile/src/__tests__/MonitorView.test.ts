@@ -103,6 +103,73 @@ describe('MonitorView（移动界面契约）', () => {
     expect(wrapper.find('[data-testid="mobile-monitor-live"]').exists()).toBe(false)
   })
 
+  it('后台轮询不驱动刷新按钮加载态（不闪动弹跳）', async () => {
+    vi.useFakeTimers()
+    let release!: (value: unknown) => void
+    const execute = vi
+      .fn()
+      .mockResolvedValueOnce(snapshot({ a: metrics() }))
+      .mockImplementationOnce(
+        () =>
+          new Promise<unknown>((resolve) => {
+            release = resolve
+          }),
+      )
+    const wrapper = mountView(makeContext(execute))
+
+    await vi.advanceTimersByTimeAsync(0)
+    const button = wrapper.find('[data-testid="mobile-monitor-refresh"]')
+    expect(button.attributes('disabled')).toBeUndefined()
+    expect(button.find('.mnm-refresh-icon').classes()).not.toContain('is-spinning')
+
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(execute).toHaveBeenCalledTimes(2)
+    // 后台请求挂起期间：按钮保持空闲态，文案 / 禁用 / 图标都不随轮询变化
+    const labels = button.find('.mnm-refresh-label').findAll('span')
+    expect(labels[0].classes()).not.toContain('is-hidden')
+    expect(labels[1].classes()).toContain('is-hidden')
+    expect(button.attributes('disabled')).toBeUndefined()
+    expect(button.find('.mnm-refresh-icon').classes()).not.toContain('is-spinning')
+
+    release(snapshot({ a: metrics() }))
+    await flushPromises()
+  })
+
+  it('手动刷新期间按钮进入「刷新中…」态并恢复', async () => {
+    vi.useFakeTimers()
+    let release!: (value: unknown) => void
+    const execute = vi
+      .fn()
+      .mockResolvedValueOnce(snapshot({ a: metrics() }))
+      .mockImplementationOnce(
+        () =>
+          new Promise<unknown>((resolve) => {
+            release = resolve
+          }),
+      )
+    const wrapper = mountView(makeContext(execute))
+
+    await vi.advanceTimersByTimeAsync(0)
+    const button = wrapper.find('[data-testid="mobile-monitor-refresh"]')
+    await button.trigger('click')
+
+    expect(execute).toHaveBeenCalledTimes(2)
+    expect(button.attributes('disabled')).toBeDefined()
+    expect(button.attributes('aria-busy')).toBe('true')
+    expect(button.find('.mnm-refresh-icon').classes()).toContain('is-spinning')
+    const labels = button.find('.mnm-refresh-label').findAll('span')
+    expect(labels[0].classes()).toContain('is-hidden')
+    expect(labels[1].classes()).not.toContain('is-hidden')
+
+    release(snapshot({ a: metrics() }))
+    await flushPromises()
+
+    expect(button.attributes('disabled')).toBeUndefined()
+    expect(button.attributes('aria-busy')).toBeUndefined()
+    expect(labels[0].classes()).not.toContain('is-hidden')
+    expect(labels[1].classes()).toContain('is-hidden')
+  })
+
   it('空快照：诚实空态', async () => {
     const wrapper = mountView(makeContext(vi.fn(async () => snapshot({}))))
 

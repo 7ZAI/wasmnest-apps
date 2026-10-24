@@ -49,7 +49,6 @@ const en: MessageSchema = {
   'monitor.metric.activation': 'Activation total',
   'monitor.metric.activationMax': 'Activation max',
   'monitor.metric.memoryPeak': 'Peak',
-  'monitor.metric.memoryLimit': 'Limit',
   'monitor.metric.memoryUsage': 'Limit usage',
   'monitor.metric.memoryDenied': 'Memory growth denied {n}×',
   'monitor.metric.tableDenied': 'Table growth denied {n}×',
@@ -95,7 +94,6 @@ const en: MessageSchema = {
   'monitor.hero.noTraps': 'No traps recorded',
   'monitor.hero.unknown': 'Runtime state unknown',
   'monitor.hero.stale': 'Data is stale',
-  'monitor.hero.proof': '{plugins} wasm · {calls} calls · {traps} traps',
   'monitor.hero.proofUnknown':
     'Mobile cannot read the host wasm list; rows below show plugin ids from metrics only.',
   'monitor.hero.proofStale':
@@ -110,7 +108,6 @@ const en: MessageSchema = {
   'monitor.signal.note': 'Rate is the delta between polls and lives only in this session.',
   'monitor.signal.peak': 'Peak {n}/s',
   'monitor.ledger.title': 'wasm',
-  'monitor.ledger.hint': 'Open a row to inspect its full metrics.',
   'monitor.ledger.calls': '{n} calls',
   'monitor.ledger.select': 'Inspect {name} metrics',
   'monitor.role.basicService': 'Basic service',

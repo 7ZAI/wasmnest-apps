@@ -68,7 +68,6 @@ onUnmounted(() => {
 
     <div v-else-if="!hasData" class="mnpv-state">
       <span class="mnpv-state-text">{{ t('monitor.preview.noPlugins') }}</span>
-      <span class="mnpv-hint">{{ t('monitor.preview.noPluginsHint') }}</span>
     </div>
 
     <div v-else class="mnpv-grid">
