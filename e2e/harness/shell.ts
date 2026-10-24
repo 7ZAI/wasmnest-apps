@@ -30,7 +30,8 @@ export interface HomeAppCard {
   status: string
 }
 
-/** 主屏应用网格里的卡片列表（第一个 `role="list"` = 应用网格，系统网格在其后） */
+/** 主屏应用网格里的卡片列表（第一个 `role="list"` = 应用网格；系统宫格在其后）。
+    宿主系统级服务（L1/L2）不进应用网格，见 `homeSystemCards`。 */
 export async function homeAppCards(): Promise<HomeAppCard[]> {
   return browser.execute(() => {
     const grid = document.querySelector('[role="list"]')
@@ -48,13 +49,32 @@ export async function homeAppCards(): Promise<HomeAppCard[]> {
   })
 }
 
-/** 主屏是否已渲染（应用网格出现） */
-export async function waitForHome(timeout = DEFAULT_TIMEOUT): Promise<void> {
-  await browser.waitUntil(async () => (await homeAppCards()).length > 0, {
-    timeout,
-    interval: 150,
-    timeoutMsg: '宿主主屏未渲染（应用网格为空）',
+/** 主屏系统宫格条目列表（第二个 `role="list"`：宿主系统页 + 宿主系统级服务，
+    条目名 = 宿主本地化名，如 zh-CN 下「认证中心 / 运行监控」）。 */
+export async function homeSystemCards(): Promise<HomeAppCard[]> {
+  return browser.execute(() => {
+    const grids = Array.from(document.querySelectorAll('[role="list"]'))
+    if (grids.length < 2) return []
+    const items = Array.from(grids[1].querySelectorAll('[role="listitem"]'))
+    const out: Array<{ name: string; status: string }> = []
+    for (const item of items) {
+      const nm = item.querySelector('.nm')?.textContent?.trim() || ''
+      out.push({ name: nm, status: '' })
+    }
+    return out
   })
+}
+
+/** 主屏是否已渲染（应用网格或系统宫格任一出现卡片） */
+export async function waitForHome(timeout = DEFAULT_TIMEOUT): Promise<void> {
+  await browser.waitUntil(
+    async () => (await homeAppCards()).length > 0 || (await homeSystemCards()).length > 0,
+    {
+      timeout,
+      interval: 150,
+      timeoutMsg: '宿主主屏未渲染（应用网格 / 系统宫格均为空）',
+    },
+  )
 }
 
 /** 回主屏（壳路由 '/'） */
@@ -100,6 +120,45 @@ export async function openApp(displayName: string, timeout = DEFAULT_TIMEOUT): P
       timeout,
       interval: 150,
       timeoutMsg: `点开「${displayName}」后壳路由未离开主屏（应用可能装载失败）`,
+    },
+  )
+}
+
+/**
+ * 点主屏系统宫格条目，打开宿主系统级服务（如 Monitor / Auth Center）
+ *
+ * @param displayName 系统宫格显示名（宿主本地化名，如 zh-CN 下 `运行监控`）
+ * @throws 找不到条目时抛错（fail-visible：静默跳过会把「服务没装上」伪装成「用例通过」）
+ */
+export async function openSystemApp(displayName: string, timeout = DEFAULT_TIMEOUT): Promise<void> {
+  const clicked = await browser.execute((name: string) => {
+    const grids = Array.from(document.querySelectorAll('[role="list"]'))
+    if (grids.length < 2) return false
+    const items = Array.from(grids[1].querySelectorAll('[role="listitem"]'))
+    const hit = items.find((el) => {
+      const nm = (el.querySelector('.nm')?.textContent || '').trim()
+      return nm === name
+    }) as HTMLElement | undefined
+    if (!hit) return false
+    hit.click()
+    return true
+  }, displayName)
+
+  if (!clicked) {
+    const cards = await homeSystemCards()
+    throw new Error(
+      `主屏系统宫格找不到「${displayName}」。当前系统宫格条目：${JSON.stringify(cards)}`,
+    )
+  }
+  await browser.waitUntil(
+    async () => {
+      const href = await browser.execute(() => window.location.pathname)
+      return typeof href === 'string' && href !== '/' && href !== ''
+    },
+    {
+      timeout,
+      interval: 150,
+      timeoutMsg: `点开系统服务「${displayName}」后壳路由未离开主屏（应用可能装载失败）`,
     },
   )
 }

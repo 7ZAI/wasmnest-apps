@@ -23,7 +23,7 @@ import {
   waitForHostReady,
 } from '../harness/driver'
 import { expectEqual, expectInSet } from '../harness/expect'
-import { goHome, homeAppCards, openApp } from '../harness/shell'
+import { goHome, homeAppCards, homeSystemCards, openSystemApp } from '../harness/shell'
 import {
   APP_NAME,
   FILTER_ALL,
@@ -35,6 +35,7 @@ import {
   SELF_QUOTA_NOTE,
   SELF_QUOTA_TOGGLE,
   SELF_ROLE,
+  SYS_ENTRY_NAME,
 } from '../pages/monitor'
 
 describe('Monitor（桌面端 · 宿主内挂载）', () => {
@@ -42,20 +43,27 @@ describe('Monitor（桌面端 · 宿主内挂载）', () => {
     await waitForHostReady()
     // 每条用例从主屏重新进入：挂载实例与页面状态归零
     await goHome()
-    await openApp(APP_NAME)
+    // monitor 是宿主系统级服务：主屏应用网格不显示它，入口在主屏「系统」区
+    await openSystemApp(SYS_ENTRY_NAME)
     await waitFor('monitor-view')
   })
 
-  it('主屏可见 Monitor 应用卡，点卡后挂载运行监控页', async () => {
+  it('主屏「系统」区显示 Monitor（运行监控）入口；应用网格不含系统服务', async () => {
     await goHome()
-    const cards = await homeAppCards()
+    const sysCards = await homeSystemCards()
     expectEqual(
-      cards.some((card) => card.name === APP_NAME),
+      sysCards.some((card) => card.name === SYS_ENTRY_NAME),
       true,
-      '主屏存在 Monitor 应用卡',
+      '主屏系统宫格存在 Monitor（运行监控）入口',
+    )
+    const appCards = await homeAppCards()
+    expectEqual(
+      appCards.some((card) => card.name === APP_NAME),
+      false,
+      '主屏应用网格不含系统服务 Monitor',
     )
 
-    await openApp(APP_NAME)
+    await openSystemApp(SYS_ENTRY_NAME)
     await waitFor('monitor-view')
     expectEqual(await visible('monitor-refresh'), true, '刷新按钮可见')
     expectEqual(await visible('monitor-live'), true, '实时状态可见')
