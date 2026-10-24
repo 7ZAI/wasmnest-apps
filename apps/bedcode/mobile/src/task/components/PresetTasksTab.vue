@@ -181,9 +181,7 @@
         >
           <div class="absolute inset-0 bg-[var(--mobile-overlay-heavy)]" @click="showFileExplorer = false"></div>
           <div class="relative w-full h-full bg-[var(--mobile-bg-card)] border border-[var(--mobile-border)] rounded-2xl shadow-xl overflow-hidden flex flex-col modal-panel">
-            <component
-              :is="hostComponents.FileExplorer"
-              v-if="hostComponents.FileExplorer"
+            <FileExplorer
               :session-id="fileExplorerSessionId"
               mode="emit"
               :title="effectiveDirLabel"
@@ -268,12 +266,15 @@
  * 未连接时的引导由「toast + 跳转连接页」改为 toast + 向 app 域发 `open-connection`
  * （与会话页的 `@open-connection` 同一通道，页签切换归 app 域）。
  */
-import { ref, computed, onMounted, nextTick, inject } from 'vue'
+import { ref, computed, onMounted, nextTick } from 'vue'
 import { getMobileApi, getPresetTasks } from '@binblink/wasmnest-plugin-sdk-mobile'
 import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-mobile'
 import type { PresetTask } from '../../terminal/model'
 import PresetTaskCard from './PresetTaskCard.vue'
 import RepeatableToggle from '../../terminal/components/RepeatableToggle.vue'
+// issue #24：FileExplorer 自宿主提供组件（wasmnestHostComponents provide/inject）迁入本 app
+// fileExplorer 域，改为直接 import；挂载契约（props / events）不变
+import FileExplorer from '../../fileExplorer/components/FileExplorer.vue'
 import Modal from '../../host/components/ui/Modal.vue'
 import Button from '../../host/components/ui/Button.vue'
 
@@ -286,8 +287,6 @@ const t = (key: string): string => props.context.i18n.t(key)
 const toast = (message: string, type: 'info' | 'success' | 'warning' | 'error' = 'info') =>
   props.context.dialogs.showToast(message, type)
 
-/** 宿主壳 provide 的通用组件（FileExplorer 属代码浏览域，不随终端域迁移） */
-const hostComponents = inject<{ FileExplorer?: any }>('wasmnestHostComponents', {})
 
 const connection = getMobileApi()
 const { tasks, load, addTask, updateTask, deleteTask, executeTask, reconcileWithQueue } =

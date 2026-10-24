@@ -87,9 +87,7 @@
             </div>
           </div>
 
-          <component
-            :is="hostComponents.FileSidebar"
-            v-if="hostComponents.FileSidebar"
+          <FileSidebar
             class="sidebar-overlay"
             :class="{ 'sidebar-hidden': !showSidebar }"
             :session-id="sessionId"
@@ -252,6 +250,8 @@ import TerminalHeader from './components/TerminalHeader.vue'
 import TerminalSettingsModal from './components/TerminalSettingsModal.vue'
 import TerminalConfirmModal from './components/TerminalConfirmModal.vue'
 import TerminalInputBar from './components/TerminalInputBar.vue'
+// issue #24：FileSidebar 自宿主提供组件迁入本 app fileExplorer 域，直接 import
+import FileSidebar from '../fileExplorer/components/FileSidebar.vue'
 import TaskPickerModal from './components/TaskPickerModal.vue'
 import ShortcutConfigModal from './components/ShortcutConfigModal.vue'
 import TerminalHelpModal from './components/TerminalHelpModal.vue'
@@ -277,8 +277,8 @@ const { isLandscape } = useOrientation()
 const { store: bufferStore, registerRealtimeHandler, unregisterRealtimeHandler, subscribeSession, unsubscribeSession, handleDisconnect, handleSessionStopped, markSessionRunning, sendInput } = useTerminalBuffer()
 const assistStore = useInputAssistantStore()
 
-/** 宿主壳 provide 的通用组件（FileSidebar 属代码浏览域，不随终端域迁移） */
-const hostComponents = inject<{ FileSidebar?: any }>('wasmnestHostComponents', {})
+// issue #24：FileSidebar 自宿主提供组件（wasmnestHostComponents provide/inject）迁入本 app
+// fileExplorer 域，改为直接 import；挂载契约（props / events）不变
 
 /** 当前会话 id：props 优先，缺省取宿主活动会话（壳内运行面路径） */
 const sessionId = computed(() => props.sessionId || connection.activeSessionId.value || '')

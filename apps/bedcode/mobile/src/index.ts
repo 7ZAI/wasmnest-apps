@@ -13,6 +13,10 @@
  *   输入助手 / 样式与文案，票 15 自宿主 src/ 整体迁入）
  * - `src/task/**`：任务域（原 auto-task 插件整体并入，票 16）——任务队列面板 /
  *   任务页「预设任务 + 定时任务 + 任务记录」/ 桌面任务域只读投影（ADR 0012「手机看、桌面管」）
+ * - `src/fileExplorer/**`：文件浏览器域（issue #24：宿主提供组件五件套自移动宿主迁入）
+ *   ——FileExplorer / FileSidebar / 文件查看弹窗 / 代码查看设置 / codeViewer store，
+ *   终端侧栏与任务面三处运行位直接 import 渲染（宿主 wasmnestHostComponents
+ *   provide/inject 面随迁移整面退役，挂载契约形状不变）
  *
  * 插件业务面（终端订阅协议客户端 + 认证/配对编排）在 WASM 后端（rust/src/）。
  *
@@ -21,6 +25,7 @@
  */
 import type { Disposable, PluginContext } from '@binblink/wasmnest-plugin-sdk-mobile'
 import { activateAppDomain } from './app/activate'
+import { activateFileExplorerDomain } from './fileExplorer/activate'
 import { activateHostPageDomain } from './host/activate'
 import { activateTaskDomain, deactivateTaskDomain } from './task/activate'
 import { activateTerminalDomain } from './terminal/activate'
@@ -31,12 +36,14 @@ export { devMock } from './task/devMock'
 let terminalDomain: Disposable | null = null
 let hostDomain: Disposable | null = null
 let appDomain: Disposable | null = null
+let fileExplorerDomain: Disposable | null = null
 
 export async function activate(context: PluginContext): Promise<void> {
   context.logger.info('WasmNest plugin activating (remote-terminal-consumer, mobile)')
   // 内容域先于壳域激活：运行面组件 setup 时要能取到 host / terminal / task 三域文案
   hostDomain = activateHostPageDomain(context)
   terminalDomain = activateTerminalDomain(context)
+  fileExplorerDomain = activateFileExplorerDomain(context)
   await activateTaskDomain(context)
   appDomain = activateAppDomain(context)
   context.logger.info('WasmNest plugin activated')
@@ -49,6 +56,8 @@ export function deactivate(): void {
   hostDomain = null
   terminalDomain?.dispose()
   terminalDomain = null
+  fileExplorerDomain?.dispose()
+  fileExplorerDomain = null
   deactivateTaskDomain()
 }
 

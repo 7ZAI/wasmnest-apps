@@ -121,9 +121,7 @@
       <div v-if="showFileExplorer && fileExplorerSessionId" class="fixed inset-0 z-[100] flex items-center justify-center p-[10%] mobile-ui">
         <div class="absolute inset-0 bg-[var(--mobile-overlay-heavy)]" @click="showFileExplorer = false"></div>
         <div class="relative w-full h-full bg-[var(--mobile-bg-card)] border border-[var(--mobile-border)] rounded-2xl shadow-xl overflow-hidden flex flex-col modal-panel">
-          <component
-            :is="hostComponents.FileExplorer"
-            v-if="hostComponents.FileExplorer"
+          <FileExplorer
             :session-id="fileExplorerSessionId"
             mode="emit"
             :title="effectiveDirLabel"
@@ -146,8 +144,11 @@
  * 否则显示目录下拉菜单供用户选择（任务页场景）。
  */
 
-import { ref, computed, watch, nextTick, inject } from 'vue'
+import { ref, computed, watch, nextTick } from 'vue'
 import RepeatableToggle from './RepeatableToggle.vue'
+// issue #24：FileExplorer 自宿主提供组件（wasmnestHostComponents provide/inject）迁入本 app
+// fileExplorer 域，改为直接 import；挂载契约（props / events）不变
+import FileExplorer from '../../fileExplorer/components/FileExplorer.vue'
 import { t } from '../host'
 import type { PresetTask } from '../model'
 
@@ -179,9 +180,6 @@ const emit = defineEmits<{
   save: [data: PresetTask | { content: string; repeatable: boolean }]
   close: []
 }>()
-
-/** 宿主壳 provide 的通用组件（FileExplorer 属代码浏览域，不随终端域迁移） */
-const hostComponents = inject<{ FileExplorer?: any }>('wasmnestHostComponents', {})
 
 // ==================== AI 提示词模板 ====================
 
