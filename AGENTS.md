@@ -12,9 +12,11 @@
 | 写或改 Rust 后端（crate / 命令面 / 权限 / 构建目标 / 日志错误 / 测试） | **`docs/BACKEND.md`** |
 | 做桌面端 E2E（真实宿主内脚本点界面 / 加测试锚点 / 判据纪律） | **`docs/E2E.md`** |
 | 判断优先级、安全红线、提交与完成定义 | 本文件 |
-| 通用规范：git 提交 / 注释命名 / 测试与验证 / 版本号管理 / issue 管理（四仓共享真源） | **`../wasmnest/docs/public/`**（`git.md` / `commenting.md` / `testing.md` / `versioning.md` / `issues.md`） |
+| 通用规范：git 提交 / 注释命名 / 测试与验证 / 版本号管理 / issue 管理 / LayerFS 开发流程（四仓共享真源） | **`../wasmnest/docs/public/`**（`git.md` / `commenting.md` / `testing.md` / `versioning.md` / `issues.md` / `layerfs.md`） |
 
 三份子文档与本文件同仓同级维护；**公共规范（`../wasmnest/docs/public/`）与各仓硬约束同级，通用内容不在本仓复制**；本文件的机制描述若与子文档或真源冲突，以真源为准并回来修正**。
+
+**LayerFS 强制工作面（2026-10-24）**：本仓项目文件（代码 / 文档 / 配置）的一切读写与命令一律走 LayerFS MCP（`layerfs_*`）；流程与门禁真源 = `../wasmnest/docs/public/layerfs.md`，与本文件硬约束同级。工具不可用（无工具 / `layerfs_status` 失败 / `sudo` 被 no_new_privs 阻断）⇒ **停手报告**，禁止回退宿主 Edit/Write。唯一例外：该规范自身的 bootstrap 与工具配置；落地同步只允许按 public 文档 §6 执行。
 
 ---
 
@@ -198,7 +200,7 @@
 | 移动运行面契约 | `../wasmnest/wasmnest-mobile/packages/plugin-sdk-mobile/src/types.ts`、`../wasmnest/wasmnest-mobile/src/shell/registry.ts` |
 | 权限词汇 / manifest 校验 | `../wasmnest/wasmnest-desktop/packages/plugin-sdk-desktop/rust/src/permission.rs`、同 SDK `bin/{manifest-gen.js,manifest-validate.js,wasm-hash.js}` |
 | 跨仓版本 / 发布 | `../wasmnest/release-manifest.json`、`../wasmnest/scripts/check-release-manifest.mjs` |
-| 四仓通用规范（git 提交 / 注释命名 / 测试验证 / 版本号管理 / issue 管理） | `../wasmnest/docs/public/{git,commenting,testing,versioning,issues}.md` |
+| 四仓通用规范（git 提交 / 注释命名 / 测试验证 / 版本号管理 / issue 管理 / LayerFS 开发流程） | `../wasmnest/docs/public/{git,commenting,testing,versioning,issues,layerfs}.md` |
 | 契约包名与版本真源 | `../wasmnest-lib/contracts/wasmnest-plugin-package.rs`、`../wasmnest-lib/wasmnest-wasm-core/wit/core.wit` |
 | 跨端互连测试 | `../wasmnest-test/cross-end-tests/` |
 
