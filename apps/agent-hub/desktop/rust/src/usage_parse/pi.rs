@@ -364,7 +364,7 @@ fn parse_pi_assistant(session: &mut ParsedSession, msg: &Value, ts: Option<i64>)
                     model: None,
                     tokens: None,
                     error: false,
-                    tool_use_id: (!tid.is_empty()).then_some(tid),
+                    tool_use_id: (!tid.is_empty()).then_some(tid.to_string()),
                 },
             );
         }
