@@ -151,6 +151,8 @@ function emitAction(key: string) {
 }
 
 .back-btn {
+  min-width: 2.75rem;
+  min-height: 2.75rem;
   padding: 0.5rem;
   margin-left: -0.5rem;
   color: var(--mobile-text-secondary);
@@ -168,7 +170,9 @@ function emitAction(key: string) {
 }
 
 .help-btn {
-  padding: 0.375rem;
+  min-width: 2.75rem;
+  min-height: 2.75rem;
+  padding: 0.5rem;
   color: var(--mobile-text-muted);
   background: none;
   border: none;
@@ -206,6 +210,8 @@ function emitAction(key: string) {
 .task-btn,
 .folder-btn,
 .overflow-btn {
+  min-width: 2.75rem;
+  min-height: 2.75rem;
   padding: 0.5rem;
   border-radius: 0.5rem;
   background: var(--mobile-bg-elevated);

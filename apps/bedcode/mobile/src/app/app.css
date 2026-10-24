@@ -54,3 +54,14 @@
     transition-delay: 0s;
   }
 }
+
+/* ==================== 弹层 z 层级（#18 单一来源） ==================== */
+/* 终端页内局部层级（不入 token，随组件就近维护）：25 header / 29 溢出菜单背板 /
+   30 溢出菜单 / 40 输入条；sheet 嵌套层（如代码查看设置 130）经组件 zIndex prop
+   显式覆盖。 */
+:root {
+  /* 50 = 居中确认弹窗（ConfirmDialog） */
+  --mobile-z-modal: 50;
+  /* 100 = bottom sheet（设置 / 配置 / 帮助） */
+  --mobile-z-sheet: 100;
+}

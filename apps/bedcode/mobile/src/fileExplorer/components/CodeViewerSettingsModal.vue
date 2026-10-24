@@ -8,7 +8,12 @@
         @click.self="emit('close')"
       >
         <div class="absolute inset-0 bg-[var(--mobile-overlay-light)]" @click="emit('close')"></div>
-        <div class="relative bg-[var(--mobile-bg-card)] border border-[var(--mobile-border)] rounded-t-2xl w-full max-w-lg max-h-[min(85vh,44rem)] flex flex-col shadow-xl modal-panel">
+        <div
+          class="relative bg-[var(--mobile-bg-card)] border border-[var(--mobile-border)] rounded-t-2xl w-full max-w-lg max-h-[min(85vh,44rem)] flex flex-col shadow-xl modal-panel"
+          role="dialog"
+          aria-modal="true"
+          :aria-label="t('codeViewer.settingsTitle')"
+        >
           <!-- 拖拽指示条 -->
           <div class="flex justify-center pt-2">
             <div class="w-10 h-1 rounded-full bg-[var(--mobile-border)]"></div>
@@ -24,24 +29,15 @@
             </button>
           </div>
 
-          <!-- Tab 切换：排版 / 代码主题（形态对齐快捷键配置弹窗） -->
+          <!-- Tab 切换：排版 / 代码主题（SegmentedTabs 收敛件，#18） -->
           <div class="px-4 pb-3 flex-shrink-0">
-            <div class="segmented">
-              <button
-                class="segmented-btn"
-                :class="{ active: activeTab === 'editor' }"
-                @click="activeTab = 'editor'"
-              >
-                {{ t('codeViewer.tabEditor') }}
-              </button>
-              <button
-                class="segmented-btn"
-                :class="{ active: activeTab === 'theme' }"
-                @click="activeTab = 'theme'"
-              >
-                {{ t('codeViewer.tabTheme') }}
-              </button>
-            </div>
+            <SegmentedTabs
+              v-model="activeTab"
+              :tabs="[
+                { key: 'editor', label: t('codeViewer.tabEditor') },
+                { key: 'theme', label: t('codeViewer.tabTheme') },
+              ]"
+            />
           </div>
 
           <!-- ==================== Tab: 排版 ==================== -->
@@ -50,11 +46,14 @@
               <!-- 字体大小 -->
               <div class="settings-section">
                 <label class="settings-label">{{ t('codeViewer.fontSize') }}</label>
-                <div class="font-size-control">
-                  <button class="size-btn" :disabled="store.settings.fontSize <= 6" @click.stop="apply({ fontSize: store.settings.fontSize - 1 })">-</button>
-                  <span class="size-value">{{ store.settings.fontSize }}px</span>
-                  <button class="size-btn" :disabled="store.settings.fontSize >= 24" @click.stop="apply({ fontSize: store.settings.fontSize + 1 })">+</button>
-                </div>
+                <StepperControl
+                  :model-value="store.settings.fontSize"
+                  :min="6"
+                  :max="24"
+                  unit="px"
+                  :label="t('codeViewer.fontSize')"
+                  @update:model-value="apply({ fontSize: $event })"
+                />
               </div>
 
               <!-- 行间距 -->
@@ -89,21 +88,14 @@
                 </div>
               </div>
 
-              <!-- 行号显示 -->
+              <!-- 行号显示（Toggle 收敛件，#18：开关形态全 app 统一） -->
               <div class="settings-section">
-                <div class="toggle-row">
+                <div class="flex items-center justify-between">
                   <span class="settings-label" style="margin-bottom:0">{{ t('codeViewer.lineNumbers') }}</span>
-                  <button
-                    class="toggle-btn"
-                    :class="{ active: store.settings.showLineNumbers }"
-                    :aria-pressed="store.settings.showLineNumbers"
-                    @click.stop="apply({ showLineNumbers: !store.settings.showLineNumbers })"
-                  >
-                    <span
-                      class="toggle-thumb"
-                      :class="{ on: store.settings.showLineNumbers }"
-                    ></span>
-                  </button>
+                  <Toggle
+                    :model-value="store.settings.showLineNumbers"
+                    @update:model-value="apply({ showLineNumbers: $event })"
+                  />
                 </div>
               </div>
             </div>
@@ -120,6 +112,7 @@
                     :key="id"
                     class="theme-btn"
                     :class="{ active: store.settings.theme === id }"
+                    :aria-pressed="store.settings.theme === id"
                     @click.stop="apply({ theme: id })"
                   >
                     <span class="theme-preview" :style="{ background: config.background, color: config.foreground }">Aa</span>
@@ -144,19 +137,24 @@
  * 关闭不丢已生效修改。Tab 不再每次打开重置：无丢稿风险后，停留页即用户上下文。
  */
 import { ref } from 'vue'
+import { useSwipeTabs } from '@binblink/wasmnest-plugin-sdk-mobile/ui/swipe-tabs'
 import { useFileExplorerHost } from '../host'
-import { useSwipeTabs } from '../composables/useSwipeTabs'
 import { useCodeViewerStore, CODE_THEMES, type CodeViewerSettings } from '../stores/codeViewer'
 import { resolveThemeLabel } from '../utils/themeLabel'
+// #18 收敛件与开关沿 SettingsPage 跨域引 Toggle 先例，自终端域取用；
+// 本地 useSwipeTabs 拷贝退役，统一走 SDK（与终端域同源）
+import SegmentedTabs from '../../terminal/components/SegmentedTabs.vue'
+import StepperControl from '../../terminal/components/StepperControl.vue'
+import Toggle from '../../terminal/components/Toggle.vue'
 
 const { t } = useFileExplorerHost()
 
 const props = withDefaults(defineProps<{
   visible: boolean
-  /** 覆盖层 z-index，默认 100（bottom sheet 层级）；嵌套在高层级弹窗中时应传入更高值 */
-  zIndex?: number
+  /** 覆盖层 z-index，默认 bottom sheet 层级 token；嵌套在高层级弹窗中时应传入更高值 */
+  zIndex?: number | string
 }>(), {
-  zIndex: 100,
+  zIndex: 'var(--mobile-z-sheet)',
 })
 
 const emit = defineEmits<{
@@ -202,48 +200,12 @@ function apply(patch: Partial<CodeViewerSettings>) {
 }
 
 .settings-content {
-  --size-btn: 2.75rem;
-  --thumb-size: clamp(1.25rem, 1.5rem, 1.75rem); /* 默认 24px，满足手指滑动触摸目标 */
-  --toggle-w: clamp(2.25rem, 2.75rem, 3.25rem);
-  --toggle-h: clamp(1.25rem, 1.5rem, 1.75rem);
-
   flex: 1;
   overflow-y: auto;
   padding: 0.25rem 1rem calc(var(--safe-area-bottom, 0px) + 1rem);
 }
 
-/* 分段控件（同快捷键配置弹窗） */
-.segmented {
-  display: flex;
-  gap: 0.25rem;
-  padding: 0.25rem;
-  background: var(--mobile-bg-elevated);
-  border: 1px solid var(--mobile-border);
-  border-radius: 0.75rem;
-}
-
-.segmented-btn {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.375rem;
-  height: 2.25rem;
-  font-size: var(--font-size-sm);
-  font-weight: 500;
-  border-radius: 0.5rem;
-  color: var(--mobile-text-muted);
-  transition: all 0.2s ease;
-  background: none;
-  border: none;
-  cursor: pointer;
-}
-
-.segmented-btn.active {
-  background: var(--mobile-bg-card);
-  color: var(--mobile-text-primary);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
-}
+/* 分段控件/步进器/开关样式随 SegmentedTabs / StepperControl / Toggle 收敛件内聚（#18） */
 
 .settings-section {
   margin-bottom: 1.5rem;
@@ -261,41 +223,7 @@ function apply(patch: Partial<CodeViewerSettings>) {
   margin-bottom: 0.75rem;
 }
 
-/* 字体大小控制 */
-.font-size-control {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-}
-
-.size-btn {
-  width: var(--size-btn);
-  height: var(--size-btn);
-  border-radius: 0.5rem;
-  background: var(--mobile-bg-elevated);
-  border: 1px solid var(--mobile-border);
-  color: var(--mobile-text-primary);
-  font-size: clamp(1rem, 1.25rem, 1.5rem);
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.size-btn:hover:not(:disabled) {
-  background: var(--mobile-bg-hover);
-}
-
-.size-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.size-value {
-  flex: 1;
-  text-align: center;
-  font-size: clamp(1rem, 1.125rem, 1.25rem);
-  font-weight: 500;
-  color: var(--mobile-text-primary);
-}
+/* 字体大小控制（步进器随 StepperControl 收敛件内聚，#18） */
 
 /* 主题网格 */
 .theme-grid {
@@ -377,12 +305,7 @@ function apply(patch: Partial<CodeViewerSettings>) {
   font-weight: 600;
 }
 
-/* 行号 toggle */
-.toggle-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
+/* 行号开关随 Toggle 收敛件内聚（#18） */
 
 /* 行间距滑块 */
 .slider-control {
@@ -445,39 +368,5 @@ function apply(patch: Partial<CodeViewerSettings>) {
   font-size: clamp(0.625rem, 0.75rem, 0.875rem);
   color: var(--mobile-text-muted);
   text-align: right;
-}
-
-/* 开关样式与桌面端 SettingsView 对齐：方形墨色轨道 + 方形滑块（尺寸保留移动端 clamp 触控规格） */
-.toggle-btn {
-  width: var(--toggle-w);
-  height: var(--toggle-h);
-  border-radius: 0.25rem;
-  background: var(--mobile-bg-primary);
-  border: 1px solid var(--mobile-border-hover);
-  cursor: pointer;
-  position: relative;
-  transition: background-color 0.2s ease, border-color 0.2s ease;
-  flex-shrink: 0;
-}
-
-.toggle-btn.active {
-  background: var(--mobile-accent);
-  border-color: var(--mobile-accent);
-}
-
-.toggle-thumb {
-  position: absolute;
-  top: 0.1875rem;
-  left: 0.1875rem;
-  width: calc(var(--toggle-h) - 0.5rem);
-  height: calc(var(--toggle-h) - 0.5rem);
-  border-radius: 0.125rem;
-  background: var(--mobile-bg-tertiary);
-  transition: transform 0.2s ease, background-color 0.2s ease;
-}
-
-.toggle-thumb.on {
-  transform: translateX(calc(var(--toggle-w) - var(--toggle-h)));
-  background: var(--mobile-text-on-accent);
 }
 </style>

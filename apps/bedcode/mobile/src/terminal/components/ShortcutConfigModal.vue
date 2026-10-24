@@ -3,11 +3,11 @@
     <Transition name="bottom-sheet">
     <div
       v-if="visible"
-      class="fixed inset-0 z-[100] flex items-end justify-center mobile-ui"
+      class="fixed inset-0 z-[var(--mobile-z-sheet)] flex items-end justify-center mobile-ui"
       @click.self="emit('close')"
     >
       <div class="absolute inset-0 bg-[var(--mobile-overlay-light)]" @click="emit('close')"></div>
-      <div class="scm-panel relative bg-[var(--mobile-bg-card)] border border-[var(--mobile-border)] rounded-t-2xl w-full max-w-lg h-[min(85vh,44rem)] flex flex-col shadow-xl modal-panel">
+      <div class="scm-panel relative bg-[var(--mobile-bg-card)] border border-[var(--mobile-border)] rounded-t-2xl w-full max-w-lg h-[min(85vh,44rem)] flex flex-col shadow-xl modal-panel" role="dialog" aria-modal="true" :aria-label="t('shortcutConfig.title')">
         <!-- 拖拽指示条 -->
         <div class="flex justify-center pt-2">
           <div class="w-10 h-1 rounded-full bg-[var(--mobile-border)]"></div>
@@ -38,25 +38,15 @@
           </div>
         </div>
 
-        <!-- Tab 切换 -->
+        <!-- Tab 切换（SegmentedTabs 收敛件，#18；徽标显快捷键总数） -->
         <div class="px-4 pb-3">
-          <div class="segmented">
-            <button
-              class="segmented-btn"
-              :class="{ active: activeTab === 'list' }"
-              @click="activeTab = 'list'"
-            >
-              {{ t('shortcutConfig.tabList') }}
-              <span class="segmented-badge">{{ store.shortcutConfig.length }}</span>
-            </button>
-            <button
-              class="segmented-btn"
-              :class="{ active: activeTab === 'add' }"
-              @click="activeTab = 'add'"
-            >
-              {{ t('shortcutConfig.tabAdd') }}
-            </button>
-          </div>
+          <SegmentedTabs
+            v-model="activeTab"
+            :tabs="[
+              { key: 'list', label: t('shortcutConfig.tabList'), badge: store.shortcutConfig.length },
+              { key: 'add', label: t('shortcutConfig.tabAdd') },
+            ]"
+          />
         </div>
 
         <!-- ==================== Tab: 快捷键列表 ==================== -->
@@ -72,14 +62,10 @@
                     <kbd class="kbd-chip">{{ part }}</kbd>
                   </template>
                 </div>
-                <button
-                  class="switch"
-                  :class="{ on: item.visible }"
-                  :aria-label="item.visible ? t('shortcutConfig.visible') : t('shortcutConfig.hidden')"
-                  @click="toggleVisibility(item.code)"
-                >
-                  <span class="switch-knob"></span>
-                </button>
+                <Toggle
+                  :model-value="item.visible"
+                  @update:model-value="toggleVisibility(item.code)"
+                />
               </div>
             </div>
 
@@ -94,14 +80,10 @@
                   </template>
                 </div>
                 <div class="flex items-center gap-2">
-                  <button
-                    class="switch"
-                    :class="{ on: item.visible }"
-                    :aria-label="item.visible ? t('shortcutConfig.visible') : t('shortcutConfig.hidden')"
-                    @click="toggleVisibility(item.code)"
-                  >
-                    <span class="switch-knob"></span>
-                  </button>
+                  <Toggle
+                    :model-value="item.visible"
+                    @update:model-value="toggleVisibility(item.code)"
+                  />
                   <button
                     class="delete-btn"
                     :aria-label="t('shortcutConfig.deleteShortcut')"
@@ -310,8 +292,15 @@
         @confirm="handleReset"
       />
 
-      <!-- 快捷键说明弹窗 -->
-      <ShortcutHelpModal :visible="showHelp" @close="showHelp = false" />
+      <!-- 快捷键说明（#18：MarkdownSheetModal 收敛件，ShortcutHelpModal 退役） -->
+      <MarkdownSheetModal
+        :visible="showHelp"
+        :title="t('shortcutHelp.title')"
+        :close-label="t('common.button.close')"
+        :markdown-zh="zhShortcutHelp"
+        :markdown-en="enShortcutHelp"
+        @close="showHelp = false"
+      />
   </Teleport>
 </template>
 
@@ -325,7 +314,12 @@ import { useSwipeTabs } from '@binblink/wasmnest-plugin-sdk-mobile/ui/swipe-tabs
 import { t } from '../host'
 import { useInputAssistantStore } from '../inputAssistant'
 import ConfirmDialog from './ConfirmDialog.vue'
-import ShortcutHelpModal from './ShortcutHelpModal.vue'
+import MarkdownSheetModal from './MarkdownSheetModal.vue'
+import SegmentedTabs from './SegmentedTabs.vue'
+import Toggle from './Toggle.vue'
+// #18：帮助文档资产随 ShortcutHelpModal 退役迁入（markdown-body.css 仍由域 activate 统一注入）
+import zhShortcutHelp from '../assets/shortcut-help.zh-CN.md?raw'
+import enShortcutHelp from '../assets/shortcut-help.en.md?raw'
 
 const props = defineProps<{
   visible: boolean
@@ -579,50 +573,7 @@ watch(() => props.visible, (show) => {
   transform: scale(0.92);
 }
 
-/* ==================== 分段选择器 ==================== */
-
-.segmented {
-  display: flex;
-  gap: 0.25rem;
-  padding: 0.25rem;
-  background: var(--mobile-bg-elevated);
-  border: 1px solid var(--mobile-border);
-  border-radius: 0.75rem;
-}
-
-.segmented-btn {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.375rem;
-  height: 2.25rem;
-  font-size: var(--font-size-sm);
-  font-weight: 500;
-  border-radius: 0.5rem;
-  color: var(--mobile-text-muted);
-  transition: all 0.2s ease;
-}
-
-.segmented-btn.active {
-  background: var(--mobile-bg-card);
-  color: var(--mobile-text-primary);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
-}
-
-.segmented-badge {
-  min-width: 1.25rem;
-  height: 1.25rem;
-  padding: 0 0.3125rem;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: var(--font-size-sm);
-  font-weight: 600;
-  border-radius: 9999px;
-  background: var(--mobile-accent-muted);
-  color: var(--mobile-accent);
-}
+/* 分段控件样式随 SegmentedTabs 收敛件内聚（#18） */
 
 /* ==================== 快捷键列表 ==================== */
 
@@ -691,45 +642,11 @@ watch(() => props.visible, (show) => {
   font-size: var(--font-size-base);
 }
 
-/* 显示/隐藏开关 */
-.switch {
-  position: relative;
-  width: 2.5rem;
-  height: 1.375rem;
-  border-radius: 9999px;
-  background: var(--mobile-bg-secondary);
-  border: 1px solid var(--mobile-border);
-  cursor: pointer;
-  flex-shrink: 0;
-  transition: background-color 0.2s ease, border-color 0.2s ease;
-  padding: 0;
-}
-
-.switch.on {
-  background: var(--mobile-accent);
-  border-color: var(--mobile-accent);
-}
-
-.switch-knob {
-  position: absolute;
-  top: 50%;
-  left: 0.125rem;
-  transform: translateY(-50%);
-  width: 1rem;
-  height: 1rem;
-  border-radius: 9999px;
-  background: #ffffff;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
-  transition: left 0.2s ease;
-}
-
-.switch.on .switch-knob {
-  left: calc(100% - 1.125rem);
-}
+/* 显示/隐藏开关随 Toggle 收敛件内聚（#18） */
 
 .delete-btn {
-  width: 2rem;
-  height: 2rem;
+  width: 2.75rem;
+  height: 2.75rem;
   display: flex;
   align-items: center;
   justify-content: center;

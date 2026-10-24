@@ -41,35 +41,17 @@
             @update:model-value="onToggle(item.key, $event)"
           />
 
-          <!-- 数值项：步进按钮（区间在 settingsModel 归一，UI 只管给合法输入） -->
-          <div v-else-if="item.kind === 'number'" class="flex items-center gap-2 flex-shrink-0">
-            <button
-              type="button"
-              class="w-9 h-9 rounded-lg text-lg leading-none transition-colors active:opacity-70"
-              :style="stepperStyle"
-              :aria-label="`${t(item.labelKey)} -1`"
-              :disabled="ctrl.saving.value || Number(ctrl.values[item.key]) <= (item.min ?? 0)"
-              @click="onStep(item.key, -1)"
-            >
-              −
-            </button>
-            <span
-              class="min-w-[3ch] text-center text-sm tabular-nums"
-              :style="{ color: 'var(--mobile-text-primary)' }"
-            >
-              {{ ctrl.values[item.key] }}
-            </span>
-            <button
-              type="button"
-              class="w-9 h-9 rounded-lg text-lg leading-none transition-colors active:opacity-70"
-              :style="stepperStyle"
-              :aria-label="`${t(item.labelKey)} +1`"
-              :disabled="ctrl.saving.value || Number(ctrl.values[item.key]) >= (item.max ?? Infinity)"
-              @click="onStep(item.key, 1)"
-            >
-              +
-            </button>
-          </div>
+          <!-- 数值项：步进器（StepperControl 收敛件，#18；44px 触控目标） -->
+          <StepperControl
+            v-else-if="item.kind === 'number'"
+            :model-value="Number(ctrl.values[item.key])"
+            :min="item.min ?? 0"
+            :max="item.max ?? Infinity"
+            :label="t(item.labelKey)"
+            :disabled="ctrl.saving.value"
+            class="flex-shrink-0"
+            @update:model-value="onStepValue(item.key, $event)"
+          />
 
           <!-- 枚举项：分段选择。flex-wrap 是必需的——主色色板 5 档在窄屏一行放不下，
                不换行会把标签列挤到 0 宽。窄屏时整行换行，宽屏仍保持同行。
@@ -167,6 +149,7 @@
  */
 import { onMounted } from 'vue'
 import Toggle from '../terminal/components/Toggle.vue'
+import StepperControl from '../terminal/components/StepperControl.vue'
 import { SETTING_GROUPS, SETTINGS_BY_KEY } from './settingsModel'
 import { useAppSettings } from './useAppSettings'
 
@@ -176,12 +159,6 @@ const t = ctrl.t
 const warnStyle = {
   background: 'var(--mobile-bg-card)',
   color: 'var(--mobile-error)',
-}
-
-const stepperStyle = {
-  background: 'var(--mobile-bg-primary)',
-  border: '1px solid var(--mobile-border)',
-  color: 'var(--mobile-text-primary)',
 }
 
 function segmentStyle(active: boolean) {
@@ -224,9 +201,8 @@ function onToggle(key: string, next: boolean): void {
   })
 }
 
-function onStep(key: string, delta: number): void {
-  const current = Number(ctrl.values[key]) || 0
-  void ctrl.set(key, current + delta).catch(() => {
+function onStepValue(key: string, value: number): void {
+  void ctrl.set(key, value).catch(() => {
     ctrl.dialogs.showToast(t('settings.saveFailed'), 'error')
   })
 }

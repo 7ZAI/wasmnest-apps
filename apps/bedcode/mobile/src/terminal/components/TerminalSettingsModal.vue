@@ -3,11 +3,16 @@
     <Transition name="bottom-sheet">
       <div
         v-if="visible"
-        class="fixed inset-0 z-[100] flex items-end justify-center mobile-ui"
+        class="fixed inset-0 z-[var(--mobile-z-sheet)] flex items-end justify-center mobile-ui"
         @click.self="emit('close')"
       >
         <div class="absolute inset-0 bg-[var(--mobile-overlay-light)]" @click="emit('close')"></div>
-        <div class="relative bg-[var(--mobile-bg-card)] border border-[var(--mobile-border)] rounded-t-2xl w-full max-w-lg max-h-[min(85vh,44rem)] flex flex-col shadow-xl modal-panel">
+        <div
+          class="relative bg-[var(--mobile-bg-card)] border border-[var(--mobile-border)] rounded-t-2xl w-full max-w-lg max-h-[min(85vh,44rem)] flex flex-col shadow-xl modal-panel"
+          role="dialog"
+          aria-modal="true"
+          :aria-label="t('terminal.terminalSettings')"
+        >
           <!-- 拖拽指示条 -->
           <div class="flex justify-center pt-2">
             <div class="w-10 h-1 rounded-full bg-[var(--mobile-border)]"></div>
@@ -23,24 +28,15 @@
             </button>
           </div>
 
-          <!-- Tab 切换：外观 / 杂项配置（形态对齐快捷键配置弹窗） -->
+          <!-- Tab 切换：外观 / 杂项配置（SegmentedTabs 收敛件，#18） -->
           <div class="px-4 pb-3 flex-shrink-0">
-            <div class="segmented">
-              <button
-                class="segmented-btn"
-                :class="{ active: activeTab === 'appearance' }"
-                @click="activeTab = 'appearance'"
-              >
-                {{ t('terminal.tabAppearance') }}
-              </button>
-              <button
-                class="segmented-btn"
-                :class="{ active: activeTab === 'misc' }"
-                @click="activeTab = 'misc'"
-              >
-                {{ t('terminal.tabMisc') }}
-              </button>
-            </div>
+            <SegmentedTabs
+              v-model="activeTab"
+              :tabs="[
+                { key: 'appearance', label: t('terminal.tabAppearance') },
+                { key: 'misc', label: t('terminal.tabMisc') },
+              ]"
+            />
           </div>
 
           <!-- ==================== Tab: 外观 ==================== -->
@@ -49,22 +45,28 @@
               <!-- Font Size -->
               <div class="settings-section">
                 <label class="settings-label">{{ t('terminal.fontSize') }}</label>
-                <div class="font-size-control">
-                  <button class="size-btn" :disabled="fontSize <= 10" @click.stop="emitChange({ fontSize: fontSize - 1 })">-</button>
-                  <span class="size-value">{{ fontSize }}px</span>
-                  <button class="size-btn" :disabled="fontSize >= 24" @click.stop="emitChange({ fontSize: fontSize + 1 })">+</button>
-                </div>
+                <StepperControl
+                  :model-value="fontSize"
+                  :min="10"
+                  :max="24"
+                  unit="px"
+                  :label="t('terminal.fontSize')"
+                  @update:model-value="emitChange({ fontSize: $event })"
+                />
               </div>
 
               <!-- Letter Spacing（字间距）：xterm letterSpacing 选项，格宽同步膨胀；
                    小屏/小字号下 CJK 字间留白仅剩字体字怀，可加间距拉开 -->
               <div class="settings-section">
                 <label class="settings-label">{{ t('terminal.letterSpacing') }}</label>
-                <div class="font-size-control">
-                  <button class="size-btn" :disabled="letterSpacing <= 0" @click.stop="emitChange({ letterSpacing: letterSpacing - 1 })">-</button>
-                  <span class="size-value">{{ letterSpacing }}px</span>
-                  <button class="size-btn" :disabled="letterSpacing >= 4" @click.stop="emitChange({ letterSpacing: letterSpacing + 1 })">+</button>
-                </div>
+                <StepperControl
+                  :model-value="letterSpacing"
+                  :min="0"
+                  :max="4"
+                  unit="px"
+                  :label="t('terminal.letterSpacing')"
+                  @update:model-value="emitChange({ letterSpacing: $event })"
+                />
               </div>
 
               <!-- Theme -->
@@ -76,6 +78,7 @@
                     :key="name"
                     class="theme-btn"
                     :class="{ active: currentThemeKey === name }"
+                    :aria-pressed="currentThemeKey === name"
                     @click.stop="selectTheme(name)"
                   >
                     <span class="theme-preview" :style="getThemePreviewStyle(name)">Aa</span>
@@ -92,11 +95,13 @@
               <!-- Quick Bar Count -->
               <div class="settings-section">
                 <label class="settings-label">{{ t('terminal.shortcutCount') }}</label>
-                <div class="font-size-control">
-                  <button class="size-btn" :disabled="quickBarCount <= 3" @click.stop="emitChange({ quickBarCount: quickBarCount - 1 })">-</button>
-                  <span class="size-value">{{ quickBarCount }}</span>
-                  <button class="size-btn" :disabled="quickBarCount >= 10" @click.stop="emitChange({ quickBarCount: quickBarCount + 1 })">+</button>
-                </div>
+                <StepperControl
+                  :model-value="quickBarCount"
+                  :min="3"
+                  :max="10"
+                  :label="t('terminal.shortcutCount')"
+                  @update:model-value="emitChange({ quickBarCount: $event })"
+                />
               </div>
 
               <!-- Header Toolbar Items -->
@@ -109,6 +114,7 @@
                     :key="item.key"
                     class="toolbar-toggle-btn"
                     :class="{ active: toolbarItems.includes(item.key) }"
+                    :aria-pressed="toolbarItems.includes(item.key)"
                     @click.stop="toggleToolbarItem(item.key)"
                   >
                     <span>{{ t(item.label) }}</span>
@@ -153,6 +159,8 @@ import { useSwipeTabs } from '@binblink/wasmnest-plugin-sdk-mobile/ui/swipe-tabs
 import { t } from '../host'
 import { TERMINAL_THEMES, resolveThemeLabel } from '../config/themes'
 import Toggle from './Toggle.vue'
+import SegmentedTabs from './SegmentedTabs.vue'
+import StepperControl from './StepperControl.vue'
 
 /** 设置分组 Tab：外观（字体/主题）与杂项配置（快捷栏/工具栏） */
 type SettingsTab = 'appearance' | 'misc'
@@ -265,42 +273,9 @@ function getThemePreviewStyle(themeName: string): { background: string; color: s
   color: var(--mobile-text-primary);
 }
 
-/* 分段控件（同快捷键配置弹窗） */
-.segmented {
-  display: flex;
-  gap: 0.25rem;
-  padding: 0.25rem;
-  background: var(--mobile-bg-elevated);
-  border: 1px solid var(--mobile-border);
-  border-radius: 0.75rem;
-}
-
-.segmented-btn {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.375rem;
-  height: 2.25rem;
-  font-size: var(--font-size-sm);
-  font-weight: 500;
-  border-radius: 0.5rem;
-  color: var(--mobile-text-muted);
-  transition: all 0.2s ease;
-  background: none;
-  border: none;
-  cursor: pointer;
-}
-
-.segmented-btn.active {
-  background: var(--mobile-bg-card);
-  color: var(--mobile-text-primary);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
-}
+/* 分段控件与步进器样式随 SegmentedTabs / StepperControl 收敛件内聚（#18） */
 
 .settings-content {
-  --size-btn: 2.75rem;
-
   flex: 1;
   overflow-y: auto;
   padding: 0.25rem 1rem calc(var(--safe-area-bottom, 0px) + 1rem);
@@ -322,40 +297,7 @@ function getThemePreviewStyle(themeName: string): { background: string; color: s
   margin-bottom: 0.75rem;
 }
 
-.font-size-control {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-}
-
-.size-btn {
-  width: var(--size-btn);
-  height: var(--size-btn);
-  border-radius: 0.5rem;
-  background: var(--mobile-bg-elevated);
-  border: 1px solid var(--mobile-border);
-  color: var(--mobile-text-primary);
-  font-size: clamp(1rem, 1.25rem, 1.5rem);
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.size-btn:hover:not(:disabled) {
-  background: var(--mobile-bg-hover);
-}
-
-.size-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.size-value {
-  flex: 1;
-  text-align: center;
-  font-size: clamp(1rem, 1.125rem, 1.25rem);
-  font-weight: 500;
-  color: var(--mobile-text-primary);
-}
+/* 步进器样式随 StepperControl 收敛件内聚（#18） */
 
 .theme-grid {
   display: grid;

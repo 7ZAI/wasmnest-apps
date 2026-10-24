@@ -7,10 +7,19 @@
  *
  * 组件根为 Teleport(to=body)，断言走 document。
  */
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { nextTick } from 'vue'
+
+// #18 起组件改走 SDK swipe-tabs（本地拷贝退役）：替身避免导入链与滑动行为
+vi.mock('@binblink/wasmnest-plugin-sdk-mobile/ui/swipe-tabs', () => ({
+  useSwipeTabs: () => ({
+    onTouchStart: () => {},
+    onTouchMove: () => {},
+    onTouchEnd: () => {},
+  }),
+}))
 
 import CodeViewerSettingsModal from '../components/CodeViewerSettingsModal.vue'
 import { useCodeViewerStore, CODE_THEMES } from '../stores/codeViewer'
@@ -70,7 +79,10 @@ describe('CodeViewerSettingsModal 即改即存（#17）', () => {
     expect(store.settings.tabSize).toBe(2)
     expect(readStorage()?.tabSize).toBe(2)
 
-    await click('.toggle-btn') // 行号默认开 → 关
+    // 行号开关收敛为 Toggle（#18）：原生 checkbox change 驱动翻转
+    document.querySelector('input[type="checkbox"]')!.dispatchEvent(new Event('change', { bubbles: true }))
+    await nextTick()
+    await nextTick()
     expect(store.settings.showLineNumbers).toBe(false)
     expect(readStorage()?.showLineNumbers).toBe(false)
   })

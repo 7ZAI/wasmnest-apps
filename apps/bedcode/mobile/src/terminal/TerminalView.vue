@@ -174,8 +174,15 @@
 
   <!-- Shortcut Config -->
   <ShortcutConfigModal :visible="showShortcutConfig" @close="showShortcutConfig = false" />
-  <!-- 便捷功能教程弹窗（标题栏 ? 入口） -->
-  <TerminalHelpModal :visible="showHelp" @close="showHelp = false" />
+  <!-- 便捷功能教程（#18：MarkdownSheetModal 收敛件，TerminalHelpModal 退役） -->
+  <MarkdownSheetModal
+    :visible="showHelp"
+    :title="t('terminalHelp.title')"
+    :close-label="t('common.button.close')"
+    :markdown-zh="zhTerminalHelp"
+    :markdown-en="enTerminalHelp"
+    @close="showHelp = false"
+  />
   <!-- 新手引导（聚光灯分步导览：首次进入自动展示；「查看完整教程」接帮助弹窗） -->
   <TerminalOnboardingTour
     :visible="showOnboarding"
@@ -254,7 +261,10 @@ import TerminalInputBar from './components/TerminalInputBar.vue'
 import FileSidebar from '../fileExplorer/components/FileSidebar.vue'
 import TaskPickerModal from './components/TaskPickerModal.vue'
 import ShortcutConfigModal from './components/ShortcutConfigModal.vue'
-import TerminalHelpModal from './components/TerminalHelpModal.vue'
+import MarkdownSheetModal from './components/MarkdownSheetModal.vue'
+// #18：帮助文档资产随 TerminalHelpModal 退役迁入（markdown-body.css 仍由域 activate 统一注入）
+import zhTerminalHelp from './assets/terminal-help.zh-CN.md?raw'
+import enTerminalHelp from './assets/terminal-help.en.md?raw'
 import TerminalOnboardingTour from './components/TerminalOnboardingTour.vue'
 import { selectionFrameColor } from './config/themes'
 
