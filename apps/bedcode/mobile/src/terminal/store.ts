@@ -81,6 +81,11 @@ export interface SessionBuffer {
   /** 会话是否已停止 */
   sessionStopped: boolean
   /**
+   * 控制面停止已到、数据面停止帧未到（#12B 宽限窗）：字节照常交付
+   * （sessionStopped 才丢弃），数据面停止帧到达或宽限到期后收尾
+   */
+  stopPending: boolean
+  /**
    * 链路断开且正在退避重试（`terminal-state` detail=reconnecting）
    *
    * **为什么要显式建模**：phase 在退避期间恒为 `connecting`，与「首次订阅中」
@@ -164,6 +169,14 @@ export const SUBSCRIBE_ACK_TIMEOUT_MS = 5000
  */
 export const RECONNECT_STALL_TIMEOUT_MS = 60_000
 
+/**
+ * 控制面停止事件的宽限窗（ms）：桌面侧数据面（尾帧 + session_stopped 帧走
+ * WS 通道）先行、控制面（session:stopped 走宿主事件总线）后发，但两条投递
+ * 通道之间没有强序——控制面事件可能先到。宽限窗内不丢字节、不断链，
+ * 等数据面停止帧收尾；到期仍无数据面信号则兑底强收（#12B）
+ */
+export const SESSION_STOP_GRACE_MS = 1500
+
 export const useTerminalBufferStore = defineStore('terminalBuffer', () => {
   // ==================== State ====================
 
@@ -199,6 +212,11 @@ export const useTerminalBufferStore = defineStore('terminalBuffer', () => {
    */
   const pageChannelReady = new Map<string, Promise<void>>()
 
+  /** sessionId → 页面通道登记失败（markPageEntered catch 写入，登记成功清除）。
+   *  #13：登记失败若被订阅路径无视，整段重放会被宿主窄转发层 `no page channel`
+   *  丢弃，且订阅去重阻止自愈 → 终端永久空白。订阅前查此标记就地重登记 */
+  const pageChannelFailed = new Set<string>()
+
   /** 等页面通道登记落定的上限（登记是本地 IPC 往返，正常毫秒级；超时则按现状继续，
    *  不阻塞订阅与重试路径） */
   const PAGE_CHANNEL_READY_TIMEOUT_MS = 2000
@@ -213,6 +231,9 @@ export const useTerminalBufferStore = defineStore('terminalBuffer', () => {
 
   /** sessionId → 最近一次重连相关事件的时刻（`reconnecting` 停滞判据；非响应式） */
   const reconnectSince = new Map<string, number>()
+
+  /** sessionId → 控制面停止宽限定时器（markSessionStopped 写入，收口即删；非响应式） */
+  const stopGraceTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
   // ==================== 链路调试统计（终端字节对账，5s 节流） ====================
 
@@ -477,6 +498,8 @@ export const useTerminalBufferStore = defineStore('terminalBuffer', () => {
       buffer.reconnecting = false
       buffer.reconnectInMs = null
       buffer.reconnectReceivedAt = null
+      // 数据面停止帧已到：立即收口宽限窗（尾帧已按序落屏，无尾帧可等）
+      finalizeSessionStopped(payload.session_id)
     }
     if (payload.detail === 'unsubscribed') {
       buffer.subscribed = false
@@ -512,6 +535,7 @@ export const useTerminalBufferStore = defineStore('terminalBuffer', () => {
         lastRenderedOffset: null,
         receivedBytes: 0,
         sessionStopped: false,
+        stopPending: false,
         // 重连态**不**从 knownPhases 继承：继承的是 phase，而 phase=connecting
         // 分不清「首次订阅中」与「断线退避中」，必须由 reconnecting 事件单独置位
         reconnecting: false,
@@ -615,19 +639,26 @@ export const useTerminalBufferStore = defineStore('terminalBuffer', () => {
    * 幂等性由调用方守卫：页面挂载 / 会话恢复运行触发；重试路径见
    * useTerminalSubscription（订阅成功即停）
    */
-  async function subscribeSession(sessionId: string): Promise<null> {
+  async function subscribeSession(sessionId: string, opts?: { force?: boolean }): Promise<null> {
     const buffer = ensureBuffer(sessionId)
-    if (buffer.sessionStopped) return null
+    if (buffer.sessionStopped || buffer.stopPending) return null
     try {
       ensureEventListeners()
     } catch (e) {
       logger.warn('[terminalBuffer] event listener init failed:', e)
     }
 
+    // 手动刷新的显式 fresh subscribe（#14）：force 绕过「一页一代一次」去重——
+    // 用户明确要求重播；重放世代计数照常累加，onStateEvent 的 subscribed 分支
+    // 据 hasRenderedContent 在重放前清屏，旧内容不与新重放叠加
+    if (opts?.force) {
+      buffer.subscribing = false
+      subscribeRequestedAt.delete(sessionId)
+    }
     // 订阅确认看门狗：invoke 成功但 `subscribed` 丢失时，下面的 subscribing
     // 去重会让重试链永久空转（每 3s 调一次、每次都被跳过）——终端永久空白。
     // 超窗视为本轮意图失效，放下一轮重试重新 subscribe。
-    if (buffer.subscribing) {
+    if (!opts?.force && buffer.subscribing) {
       const startedAt = subscribeRequestedAt.get(sessionId) ?? 0
       if (Date.now() - startedAt >= SUBSCRIBE_ACK_TIMEOUT_MS) {
         logger.warn(
@@ -647,9 +678,10 @@ export const useTerminalBufferStore = defineStore('terminalBuffer', () => {
     // 页面挂载路径**不会**被 ③ 误跳：`registerRealtimeHandler` 已把
     // hasRenderedContent 复位；会话重启/停止后重新订阅时 subscribed 也为假。
     if (
-      buffer.subscribing ||
-      buffer.reconnecting ||
-      (buffer.subscribed && buffer.hasRenderedContent)
+      !opts?.force &&
+      (buffer.subscribing ||
+        buffer.reconnecting ||
+        (buffer.subscribed && buffer.hasRenderedContent))
     ) {
       logger.debug(
         `[terminalBuffer] subscribe skipped (${sessionId}): subscribing=${buffer.subscribing} ` +
@@ -664,6 +696,22 @@ export const useTerminalBufferStore = defineStore('terminalBuffer', () => {
     // 登记→订阅的确定序：见 `pageChannelReady` 注释（通道未登记时的整段重放会被
     // 宿主窄转发层丢弃且当前无自愈路径）
     await waitForPageChannel(sessionId)
+    // 通道登记失败的自愈（#13）：登记失败时照发订阅，整段重放会被宿主窄
+    // 转发层丢弃且订阅去重阻止重试 → 永久空白。就地重登记一次（宿主以最后
+    // 一次登记为准）；仍失败则本轮订阅意图作废，交由 3s 重试链下一轮再试
+    //（通道重试随重试链自然续命）
+    if (pageChannelFailed.has(sessionId)) {
+      logger.warn(
+        `[terminalBuffer] page channel registration failed (${sessionId}): re-register before subscribe`,
+      )
+      markPageEntered(sessionId)
+      await waitForPageChannel(sessionId)
+      if (pageChannelFailed.has(sessionId)) {
+        buffer.subscribing = false
+        subscribeRequestedAt.delete(sessionId)
+        return null
+      }
+    }
     let invoked = true
     await invokeTerminal('terminal-session.subscribe', { sessionId }).catch((e) => {
       logger.warn(`[terminalBuffer] subscribe ${sessionId} failed:`, e)
@@ -724,6 +772,7 @@ export const useTerminalBufferStore = defineStore('terminalBuffer', () => {
   function markPageLeft(sessionId: string) {
     // 先作废代际（在途帧不得写进已卸载的 xterm），再注销通道与链路。
     // 代际先删：异步登记完成的 openTerminalStream 见 token 不匹配即自行注销
+    cancelStopGrace(sessionId)
     pageTokens.delete(sessionId)
     subscribeRequestedAt.delete(sessionId)
     reconnectSince.delete(sessionId)
@@ -757,13 +806,19 @@ export const useTerminalBufferStore = defineStore('terminalBuffer', () => {
       })
       .then((stream) => {
         if (pageTokens.get(sessionId) === token) {
+          pageChannelFailed.delete(sessionId)
           pageStreams.set(sessionId, stream)
         } else {
-          // 登记完成前页面已离开 / 已换代：立即注销本代通道（不留悬挂推送）
-          stream.dispose()
+          // 登记完成前页面已离开 / 已换代：本代通道已无用。**不得 dispose**：
+          // terminal_page_unsubscribe 按会话键控，此刻新代通道可能已登记落定，
+          // 旧注销会把新通道摘掉（#13：新通道被摘后重放/实时全部
+          // `no page channel` 丢弃且不可自愈）。宿主窄转发表同一会话以最后
+          // 一次登记为准，旧通道已被顶替；悬挂槽位由 leave / 会话删除 /
+          // unsubscribe-all 清理
         }
       })
       .catch((e) => {
+        pageChannelFailed.add(sessionId)
         logger.warn(`[terminalBuffer] page subscribe ${sessionId} failed:`, e)
       })
     // 登记落定信号（成功/失败都落定）：订阅路径据此把「登记 → 订阅」排成确定序；
@@ -809,6 +864,7 @@ export const useTerminalBufferStore = defineStore('terminalBuffer', () => {
   /** 全部未订阅（设备断开时；Rust 链路全部关闭，重连后由页面重新订阅） */
   function markAllUnsubscribed() {
     invokeTerminal('terminal-session.unsubscribe-all', {}).catch(() => {})
+    for (const sessionId of [...stopGraceTimers.keys()]) cancelStopGrace(sessionId)
     knownPhases.clear()
     for (const buffer of buffers.values()) {
       buffer.subscribed = false
@@ -816,14 +872,40 @@ export const useTerminalBufferStore = defineStore('terminalBuffer', () => {
     }
   }
 
-  /** 标记会话停止：关闭链路 + 游标重置（同 id 重启新流坐标空间）。
+  /** 标记会话停止：**先入宽限窗**（#12B）——控制面事件可能先于数据面尾帧到达，
+   *  立即断链会让在途最后一段输出被 deliverRawBytes 的 sessionStopped 门控丢弃。
+   *  宽限期内字节照常落屏；数据面停止帧到达或宽限到期后由 finalize 收尾。
    *  hasRenderedContent 保留——xterm 仍显示最终输出，重启后重播前需清屏提示 */
   function markSessionStopped(sessionId: string) {
-    knownPhases.delete(sessionId)
-    subscribeRequestedAt.delete(sessionId)
-    reconnectSince.delete(sessionId)
     const buffer = buffers.get(sessionId)
-    if (buffer) {
+    if (!buffer || buffer.sessionStopped || buffer.stopPending) return
+    buffer.stopPending = true
+    stopGraceTimers.set(
+      sessionId,
+      setTimeout(() => {
+        stopGraceTimers.delete(sessionId)
+        finalizeSessionStopped(sessionId)
+      }, SESSION_STOP_GRACE_MS),
+    )
+  }
+
+  /** 作废宽限窗（数据面停止帧到达 / 会话重启 running / 页面与会话清理时） */
+  function cancelStopGrace(sessionId: string) {
+    const timer = stopGraceTimers.get(sessionId)
+    if (timer) {
+      clearTimeout(timer)
+      stopGraceTimers.delete(sessionId)
+    }
+    const buffer = buffers.get(sessionId)
+    if (buffer) buffer.stopPending = false
+  }
+
+  /** 停止收尾（宽限到期兑底 or 数据面停止帧即时收口，幂等）：关链路 + 终态信念落定 */
+  function finalizeSessionStopped(sessionId: string) {
+    cancelStopGrace(sessionId)
+    const buffer = buffers.get(sessionId)
+    if (buffer && !buffer.sessionStopped) {
+      knownPhases.delete(sessionId)
       buffer.sessionStopped = true
       buffer.subscribed = false
       buffer.phase = 'idle'
@@ -837,6 +919,8 @@ export const useTerminalBufferStore = defineStore('terminalBuffer', () => {
   /** 标记会话恢复运行：复位停止信念。**不在此订阅**——后台会话不得常拉，
    *  订阅由页面驱动（TerminalView watch(isSessionActive) → subscribeWithRetry） */
   function markSessionRunning(sessionId: string) {
+    // 会话重启：作废未收口的停止宽限（stop 事件后紧跟 running 的重启竞态）
+    cancelStopGrace(sessionId)
     const buffer = buffers.get(sessionId)
     if (buffer) {
       buffer.sessionStopped = false
@@ -845,6 +929,7 @@ export const useTerminalBufferStore = defineStore('terminalBuffer', () => {
 
   /** 清理单个会话（会话删除时）：Rust 链路一并清 */
   function clearBuffer(sessionId: string) {
+    cancelStopGrace(sessionId)
     knownPhases.delete(sessionId)
     subscribeRequestedAt.delete(sessionId)
     reconnectSince.delete(sessionId)

@@ -162,8 +162,9 @@ export function useTerminalSubscription(ctx: TerminalKernelContext, deps: Termin
     }
   }
 
-  /** 订阅 + 失败自动重试（页面存活且会话活跃期间有效） */
-  async function subscribeWithRetry() {
+  /** 订阅 + 失败自动重试（页面存活且会话活跃期间有效）；`force` = 显式 fresh
+   *  subscribe（手动刷新的数据层兑底：绕过「一页一代一次」去重，#14） */
+  async function subscribeWithRetry(opts?: { force?: boolean }) {
     const sid = ctx.getSessionId()
     if (!sid || isMockSession(sid)) return
     // 断线重连中：插件在 ws:open 后自行重订阅（含清屏重放），本端再发一次
@@ -181,7 +182,7 @@ export function useTerminalSubscription(ctx: TerminalKernelContext, deps: Termin
     }
     // 订阅入口可重入（onMounted / isSessionActive / isConnected 三条路径）：
     // store 侧按「一页一代一次」去重，跳过时不改变信念，也不会误报失败
-    await subscribeSession(sid)
+    await subscribeSession(sid, opts)
     const buffer = bufferStore.getBuffer(sid)
 
     // 已订阅（成功或此前已订阅）：复位重试状态

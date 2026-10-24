@@ -35,7 +35,9 @@ pub(crate) fn build_subscribe_frame(session_id: &str) -> String {
 }
 
 /// 流控 ack 帧 `{"type":"ack","offset":N}`（offset = 本地已渲染字节数；
-/// 桌面插件 ack 只作 drain 触发、忽略 offset 值）
+/// 桌面插件据此做**背压记账**（`note_acked_local`：`acked = base + offset`），
+/// 该帧同时是 drain 触发源——旧注释「只作 drain 触发、忽略 offset 值」是
+/// 过时口径（#14，勿据此改实现））
 pub(crate) fn build_ack_frame(offset: u64) -> String {
     serde_json::json!({ "type": "ack", "offset": offset }).to_string()
 }

@@ -52,6 +52,8 @@ const mocks = vi.hoisted(() => {
     /** 页面通道登记落定控制：true = 登记挂起，由用例显式落定（验证「登记→订阅」序） */
     deferStreamRegistration: false,
     pendingStreamResolvers: [] as (() => void)[],
+    /** 页面通道登记失败控制：true = openTerminalStream 直接拒绝（#13 失败路径） */
+    failStreamRegistration: false,
   }
 })
 
@@ -88,6 +90,9 @@ vi.mock('@binblink/wasmnest-plugin-sdk-mobile', () => ({
       }
       mocks.streamCalls.push(entry)
       const handle = { dispose: entry.dispose }
+      if (mocks.failStreamRegistration) {
+        return Promise.reject(new Error('terminal_page_subscribe failed (mock)'))
+      }
       if (mocks.deferStreamRegistration) {
         return new Promise<typeof handle>((resolve) => {
           mocks.pendingStreamResolvers.push(() => resolve(handle))
@@ -100,7 +105,7 @@ vi.mock('@binblink/wasmnest-plugin-sdk-mobile', () => ({
 
 const { cmd, eventHandlers } = mocks
 
-import { useTerminalBufferStore } from '../store'
+import { SESSION_STOP_GRACE_MS, useTerminalBufferStore } from '../store'
 
 // 票 12：事件源 = com.wasmnest.terminal-session 插件 emit（事件名用短命名空间
 // `terminal-session`——Tauri 事件名不允许 `.`，插件 reverse-DNS id 不能直接进事件名）。
@@ -149,6 +154,7 @@ describe('terminalBuffer store（票 05：新协议 + 本地字节计数）', ()
     mocks.streamCalls.length = 0
     mocks.deferStreamRegistration = false
     mocks.pendingStreamResolvers.length = 0
+    mocks.failStreamRegistration = false
     // 预注册事件监听：subscribeSession（任意路径触发）即 ensureEventListeners，
     // 挂载/测试中 emitState/emitRaw 依赖监听已就位（惰性注册是异步的）
     await store.subscribeSession('s1')
@@ -502,6 +508,71 @@ describe('terminalBuffer store（票 05：新协议 + 本地字节计数）', ()
     })
   })
 
+  describe('手动刷新 force 重播（#14）', () => {
+    it('subscribeSession force：已订阅且有内容仍重播（无 force 被一页一代去重跳过）', async () => {
+      store.registerRealtimeHandler('s1', { onOutput: () => {} })
+      emitState('s1', 'live', 'subscribed')
+      emitRaw('s1', 'A')
+      cmd.terminalSubscribe.mockClear()
+
+      // 无 force：被「一页一代只回放一次」去重跳过（③ subscribed && hasContent）
+      await store.subscribeSession('s1')
+      expect(cmd.terminalSubscribe).not.toHaveBeenCalled()
+
+      // force：手动刷新的显式 fresh subscribe（重放世代清屏语义不变）
+      await store.subscribeSession('s1', { force: true })
+      expect(cmd.terminalSubscribe).toHaveBeenCalledWith('s1')
+    })
+  })
+
+  describe('页面通道登记失败自愈（#13）', () => {
+    it('登记失败：订阅前就地重登记一次，成功则正常订阅', async () => {
+      mocks.failStreamRegistration = true
+      // registerRealtimeHandler 内部已触发 markPageEntered（第 1 次登记，失败）
+      store.registerRealtimeHandler('s1', { onOutput: () => {} })
+      await flushAsync()
+      expect(mocks.streamCalls.length).toBe(1)
+      mocks.failStreamRegistration = false
+
+      // 订阅路径感知失败：就地重登记（第 2 次，成功）后才发订阅
+      emitState('s1', 'live', 'subscribed')
+      await store.subscribeSession('s1')
+      await flushAsync()
+      expect(mocks.streamCalls.length).toBe(2)
+      expect(cmd.terminalSubscribe).toHaveBeenCalledWith('s1')
+    })
+
+    it('登记失败且重登记仍失败：本轮订阅意图作废（不发 subscribe，交重试链）', async () => {
+      mocks.failStreamRegistration = true
+      // registerRealtimeHandler 内部已触发 markPageEntered（第 1 次登记，失败）
+      store.registerRealtimeHandler('s1', { onOutput: () => {} })
+      await flushAsync()
+      emitState('s1', 'live', 'subscribed')
+      cmd.terminalSubscribe.mockClear()
+
+      await store.subscribeSession('s1')
+      await flushAsync()
+      expect(mocks.streamCalls.length).toBe(2) // 首次 + 重登记
+      expect(cmd.terminalSubscribe).not.toHaveBeenCalled()
+      expect(store.getBuffer('s1')!.subscribing).toBe(false)
+    })
+
+    it('换代落定的旧代通道不得 dispose（session 键控注销会摘掉新代通道，#13）', async () => {
+      // 第一次登记挂起（未落定）
+      mocks.deferStreamRegistration = true
+      store.markPageEntered('s1')
+      // 换代：第二次登记立即落定（成为当前通道）
+      store.markPageEntered('s1')
+      await flushAsync()
+      expect(mocks.streamCalls.length).toBe(2)
+      // 第一代此刻落定：token 不匹配 → 只弃句柄，不得注销（会摘掉第二代通道）
+      for (const resolve of mocks.pendingStreamResolvers.splice(0)) resolve()
+      await flushAsync()
+      expect(mocks.streamCalls[0].disposed).toBe(false)
+      expect(mocks.streamCalls[1].disposed).toBe(false)
+    })
+  })
+
   describe('生命周期（页面进出 = 关闭链路）', () => {
     it('markPageLeft：注销页面流（dispose）+ terminalUnsubscribe（关闭连接，不得后台常拉）', async () => {
       store.registerRealtimeHandler('s1', { onOutput: () => {} })
@@ -526,12 +597,24 @@ describe('terminalBuffer store（票 05：新协议 + 本地字节计数）', ()
       expect(store.getBuffer('s1')!.lastRenderedOffset).toBeNull()
     })
 
-    it('markSessionStopped：terminalUnsubscribe + 游标重置', () => {
-      store.markSessionStopped('s1')
-      expect(cmd.terminalUnsubscribe).toHaveBeenCalledWith('s1')
-      const buffer = store.getBuffer('s1')!
-      expect(buffer.sessionStopped).toBe(true)
-      expect(buffer.lastRenderedOffset).toBeNull()
+    it('markSessionStopped：宽限窗内不断链，到期收尾（terminalUnsubscribe + 游标重置，#12B）', async () => {
+      vi.useFakeTimers()
+      try {
+        cmd.terminalUnsubscribe.mockClear()
+        store.markSessionStopped('s1')
+        const buffer = store.getBuffer('s1')!
+        // 宽限窗内：终态未落定、链路未关（在途尾帧照常交付）
+        expect(buffer.stopPending).toBe(true)
+        expect(buffer.sessionStopped).toBe(false)
+        expect(cmd.terminalUnsubscribe).not.toHaveBeenCalled()
+        await vi.advanceTimersByTimeAsync(SESSION_STOP_GRACE_MS)
+        // 到期兑底收尾：关链路 + 终态信念落定
+        expect(cmd.terminalUnsubscribe).toHaveBeenCalledWith('s1')
+        expect(buffer.sessionStopped).toBe(true)
+        expect(buffer.lastRenderedOffset).toBeNull()
+      } finally {
+        vi.useRealTimers()
+      }
     })
 
     it('markAllUnsubscribed：全量 terminalUnsubscribeAll（设备断开）', () => {

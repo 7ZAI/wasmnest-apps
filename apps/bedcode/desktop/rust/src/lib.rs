@@ -1117,12 +1117,15 @@ impl WasmPlugin for SessionPlugin {
                 .and_then(|v| v.as_i64())
                 .map(|c| c as i32);
             if !pty_id.is_empty() {
-                session::on_pty_exit(&pty_id, &reason, exit_code);
-                // 票 04：WS 终端连接收尾（尽力尾帧 + session_stopped 停止帧）
-                // 在会话终态收尾之后驱动（停止帧必须在尾帧之后）
+                // 票 04 + #12B：数据面先行——WS 终端收尾（尾帧有界取净 +
+                // session_stopped 停止帧）先于会话终态收尾，控制面
+                // `session:stopped` 广播在两帧之后才发出（移动端据此把
+                // 「在途尾帧被丢弃」收敛为「先落屏再停止」；跨通道仍无
+                // 强序，移动端另有宽限窗兑底）
                 if let Some(session_id) = session::session_id_by_pty(&pty_id) {
                     ws_terminal::on_session_terminated(&session_id, &reason, exit_code);
                 }
+                session::on_pty_exit(&pty_id, &reason, exit_code);
             }
             return Ok(());
         }

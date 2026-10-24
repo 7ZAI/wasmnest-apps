@@ -76,7 +76,7 @@ vi.mock('@binblink/wasmnest-plugin-sdk-mobile', () => ({
 
 const { cmd, eventHandlers } = mocks
 
-import { useTerminalBufferStore } from '../store'
+import { SESSION_STOP_GRACE_MS, useTerminalBufferStore } from '../store'
 import { useTerminalBuffer } from '../composables/useTerminalBuffer'
 import type { Terminal } from '@xterm/xterm'
 
@@ -148,19 +148,28 @@ describe('useTerminalBuffer（票 05：新协议）', () => {
     expect(store.getBuffer('s1')!.subscribed).toBe(false)
   })
 
-  it('handleSessionStopped：标记停止 + 取消订阅（handler 保留供重启渲染）', async () => {
+  it('handleSessionStopped：入宽限窗等数据面尾帧，到期收尾（#12B：控制面先行不丢在途字节）', async () => {
     await terminalBuffer.subscribeSession('s1')
     emitState('s1', 'live')
     store.registerRealtimeHandler('s1', { onOutput: vi.fn() })
 
+    cmd.terminalUnsubscribe.mockClear()
     await terminalBuffer.handleSessionStopped('s1')
     await flushAsync()
-
+    const buf = store.getBuffer('s1')!
+    // 宽限窗内：字节门控未关、链路未断（在途尾帧照常落屏）
+    expect(buf.stopPending).toBe(true)
+    expect(buf.sessionStopped).toBe(false)
+    expect(cmd.terminalUnsubscribe).not.toHaveBeenCalled()
+    // 等真实宽限定时器到期（1.5s + 余量 < 5s 用例超时；不用 fake timers——
+    // 超时放弃时 finally 不可靠，泄漏会级联本文件其余用例）
+    await new Promise((r) => setTimeout(r, SESSION_STOP_GRACE_MS + 150))
+    await flushAsync()
+    // 到期收尾：关链路 + 终态落定；handler 生命周期归视图：会话停止不注销
     expect(cmd.terminalUnsubscribe).toHaveBeenCalledWith('s1')
-    expect(store.getBuffer('s1')!.sessionStopped).toBe(true)
-    expect(store.getBuffer('s1')!.subscribed).toBe(false)
-    expect(store.getBuffer('s1')!.lastRenderedOffset).toBeNull()
-    // handler 生命周期归视图：会话停止不注销
+    expect(buf.sessionStopped).toBe(true)
+    expect(buf.subscribed).toBe(false)
+    expect(buf.lastRenderedOffset).toBeNull()
     expect(store.realtimeHandlers.has('s1')).toBe(true)
   })
 

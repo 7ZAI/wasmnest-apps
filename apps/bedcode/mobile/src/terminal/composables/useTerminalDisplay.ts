@@ -418,7 +418,9 @@ export function useTerminalDisplay(ctx: TerminalKernelContext, deps: TerminalDis
         // 订阅信念对账：Rust 幂等订阅不发状态事件，长时间未收事件的会话需主动
         // 拉状态收敛（否则刷新后输入仍可能被 subscribed 门控拒绝）
         await deps.bufferStore.reconcileState(sid)
-        await deps.subscription.subscribeWithRetry()
+        // force：刷新声明的「数据层兑底」必须真的重播——store 的「一页一代
+        // 一次」去重会让无 force 的调用被跳过而 toast 仍报成功（#14）
+        await deps.subscription.subscribeWithRetry({ force: true })
       }
     }
     toast.success(t('terminal.refreshed'))

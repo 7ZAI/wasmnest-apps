@@ -60,6 +60,11 @@ pub(crate) const EVENT_TERMINAL_STATE: &str = "plugin:terminal-session:terminal-
 /// 重锚事件（重放世代切换 / 环淘汰：前端清屏 + 本地计数归零 + 一次性提示）
 pub(crate) const EVENT_TERMINAL_RESYNC: &str = "plugin:terminal-session:terminal-resync";
 
+/// prewarm 闲置回收的软上限（#14）：宿主出站 WS 上限 32，反复 prewarm 未进页
+/// 的会话会累积闲置连接直至建连直接失败。在册条数逼近该值时，prewarm 先回收
+/// 「只预热未订阅」的闲置链路（订阅中 / 重连等待中的不动）
+const PREWARM_LINK_SOFT_LIMIT: usize = 24;
+
 /// 自动重连 config（宿主退避参数；数值对齐退役前 `DEFAULT_INITIAL_DELAY_MS` /
 /// `DEFAULT_MAX_DELAY_MS`，下限钳制在宿主侧强制——1s 下限是自愈风暴教训）
 const AUTO_RECONNECT_CONFIG: &str = r#"{"baseMs":1000,"maxMs":30000}"#;
@@ -204,25 +209,43 @@ impl LinkManager {
             return Ok(());
         }
         let frame = build_subscribe_frame(session_id);
-        let mut mgr = LINK_MANAGER.lock().expect("link manager lock");
-        if let Some(link) = mgr.links.get_mut(session_id) {
-            if !link.stopped {
-                if let Some(handle) = link.handle.clone() {
-                    // 链路已在运行：fresh subscribe（桌面端重播环窗口）；
+        // 锁内只裁决与快照；ws_send / ws_close / connect / emit 一律锁外
+        //（#14：持锁做宿主调用，宿主回调重入即自锁死锁，与桌面 drain_for 同款）
+        enum Action {
+            /// 链路已在运行：fresh subscribe（桌面端重播环窗口）
+            Fresh(String),
+            /// 已停止 / 断开等待中：不复用旧条目，重建（携带待关闭的旧句柄）
+            Rebuild(Vec<String>),
+        }
+        let action = {
+            let mut mgr = LINK_MANAGER.lock().expect("link manager lock");
+            match mgr.links.get_mut(session_id) {
+                Some(link) if !link.stopped && link.handle.is_some() => {
                     // 端口标志清掉——从此刻起断线重连需恢复订阅
                     link.prewarmed = false;
-                    h.ws_send_text(&handle, &frame)
-                        .map_err(|e| anyhow::anyhow!("resubscribe send failed: {}", e.message))?;
-                    h.log_debug(&format!("terminal fresh subscribe frame sent (session {session_id})"));
-                    return Ok(());
+                    Action::Fresh(link.handle.clone().expect("上方已判 is_some"))
                 }
+                Some(link) => {
+                    let stale = link.handle.take();
+                    mgr.links.remove(session_id);
+                    Action::Rebuild(stale.into_iter().collect())
+                }
+                None => Action::Rebuild(Vec::new()),
             }
-            // 已停止或断开等待中：不复用旧条目（重建）；断开中的重连会话由
-            // 显式 close 取消（重建即新连接）
-            if let Some(old) = link.handle.take() {
-                let _ = h.ws_close(&old, "{}");
+        };
+        if let Action::Fresh(handle) = &action {
+            h.ws_send_text(handle, &frame)
+                .map_err(|e| anyhow::anyhow!("resubscribe send failed: {}", e.message))?;
+            h.log_debug(&format!(
+                "terminal fresh subscribe frame sent (session {session_id})"
+            ));
+            return Ok(());
+        }
+        if let Action::Rebuild(stale) = &action {
+            // 断开中的重连会话由显式 close 取消（重建即新连接）
+            for old in stale {
+                let _ = h.ws_close(old, "{}");
             }
-            mgr.links.remove(session_id);
         }
 
         let handle = connect_link(h)?;
@@ -233,7 +256,11 @@ impl LinkManager {
         // 订阅失败经 error 帧显性表达——会话不存在 → 主动断开借宿主退避重试
         h.ws_send_text(&handle, &frame)
             .map_err(|e| anyhow::anyhow!("subscribe send failed: {}", e.message))?;
-        mgr.links.insert(session_id.to_string(), link);
+        LINK_MANAGER
+            .lock()
+            .expect("link manager lock")
+            .links
+            .insert(session_id.to_string(), link);
         emit_state(h, session_id, LinkPhase::Auth, 0, "subscribed_sent");
         Ok(())
     }
@@ -253,22 +280,61 @@ impl LinkManager {
         if session_id.is_empty() {
             return Ok(());
         }
-        let mut mgr = LINK_MANAGER.lock().expect("link manager lock");
-        if let Some(link) = mgr.links.get_mut(session_id) {
-            if !link.stopped && link.handle.is_some() {
-                return Ok(());
+        // 锁内只裁决：幂等判定 + 摘旧句柄 + 近上限时选好待回收的闲置预热链路；
+        // ws_close / connect / emit 一律锁外（与 subscribe 同款，#14）
+        let mut stale_handles: Vec<String> = Vec::new();
+        let mut reclaimed_idle = 0usize;
+        {
+            let mut mgr = LINK_MANAGER.lock().expect("link manager lock");
+            if let Some(link) = mgr.links.get_mut(session_id) {
+                if !link.stopped && link.handle.is_some() {
+                    return Ok(());
+                }
+                if let Some(old) = link.handle.take() {
+                    stale_handles.push(old);
+                }
+                mgr.links.remove(session_id);
             }
-            if let Some(old) = link.handle.take() {
-                let _ = h.ws_close(&old, "{}");
+            // 出站 WS 上限防护（#14）：在册条数逼近软上限时，回收「只预热未
+            // 订阅」的闲置链路（prewarmed=true 且仍在册 = 用户从未进页）
+            if mgr.links.len() + 1 >= PREWARM_LINK_SOFT_LIMIT {
+                let victims: Vec<String> = mgr
+                    .links
+                    .iter()
+                    .filter(|(sid, l)| {
+                        l.prewarmed && l.handle.is_some() && sid.as_str() != session_id
+                    })
+                    .map(|(sid, _)| sid.clone())
+                    .collect();
+                for sid in victims {
+                    if let Some(link) = mgr.links.get_mut(&sid) {
+                        if let Some(old) = link.handle.take() {
+                            stale_handles.push(old);
+                        }
+                        mgr.links.remove(&sid);
+                        reclaimed_idle += 1;
+                    }
+                }
             }
-            mgr.links.remove(session_id);
+        }
+        for old in &stale_handles {
+            let _ = h.ws_close(old, "{}");
+        }
+        if reclaimed_idle > 0 {
+            h.log_debug(&format!(
+                "terminal prewarm reclaimed {reclaimed_idle} idle prewarmed link(s) (soft limit {PREWARM_LINK_SOFT_LIMIT})"
+            ));
         }
         let handle = connect_link(h)?;
         let mut link = LinkState::new(session_id.to_string());
         link.handle = Some(handle.clone());
         link.last_handle = Some(handle);
         link.prewarmed = true;
-        mgr.links.insert(session_id.to_string(), link);
+        LINK_MANAGER
+            .lock()
+            .expect("link manager lock")
+            .links
+            .insert(session_id.to_string(), link);
         // phase=connecting + detail=prewarmed：前端只会看到「未订阅但已建连」，
         // 真正的 subscribed 由页面挂载后的 subscribe 回包提供
         emit_state(h, session_id, LinkPhase::Connecting, 0, "prewarmed");
@@ -281,17 +347,22 @@ impl LinkManager {
         if session_id.is_empty() {
             return;
         }
-        let mut mgr = LINK_MANAGER.lock().expect("link manager lock");
-        if let Some(link) = mgr.links.get_mut(session_id) {
+        // 锁内只摘句柄；ws_close / emit 一律锁外（#14）
+        let handle = {
+            let mut mgr = LINK_MANAGER.lock().expect("link manager lock");
+            let Some(link) = mgr.links.get_mut(session_id) else {
+                return;
+            };
             link.stopped = true;
             link.phase = LinkPhase::Idle;
             link.waiting_reconnect = false;
-            if let Some(handle) = link.handle.take() {
-                // 显式 close = 宿主取消 auto-reconnect（重连会话随句柄取消）
-                let _ = h.ws_close(&handle, "{}");
-            }
-            emit_state(h, session_id, LinkPhase::Idle, 0, "unsubscribed");
+            link.handle.take()
+        };
+        if let Some(handle) = handle {
+            // 显式 close = 宿主取消 auto-reconnect（重连会话随句柄取消）
+            let _ = h.ws_close(&handle, "{}");
         }
+        emit_state(h, session_id, LinkPhase::Idle, 0, "unsubscribed");
     }
 
     /// 全部取消（设备手动断开 / 连接关闭）
@@ -358,19 +429,28 @@ impl LinkManager {
     /// - ack 是尽力投递的进度确认，发送失败只留痕不报错（丢失由后续推进
     ///   或重连恢复补上）。
     pub(crate) fn ack_rendered(h: &WasmHost, session_id: &str, offset: u64) {
-        let mut mgr = LINK_MANAGER.lock().expect("link manager lock");
-        let Some(link) = mgr.links.get_mut(session_id) else {
+        // 锁内只记账与节流裁决；ws_send / log 一律锁外（#14）
+        let ack = {
+            let mut mgr = LINK_MANAGER.lock().expect("link manager lock");
+            let Some(link) = mgr.links.get_mut(session_id) else {
+                return;
+            };
+            link.frontend_rendered = link.frontend_rendered.max(offset);
+            if !should_send_ack(link.frontend_rendered, link.last_acked_offset) {
+                return;
+            }
+            link.last_acked_offset = link.frontend_rendered;
+            Some((link.frontend_rendered, link.handle.clone()))
+        };
+        let Some((ack_offset, handle)) = ack else {
             return;
         };
-        link.frontend_rendered = link.frontend_rendered.max(offset);
-        if !should_send_ack(link.frontend_rendered, link.last_acked_offset) {
-            return;
-        }
-        link.last_acked_offset = link.frontend_rendered;
-        let ack_offset = link.frontend_rendered;
-        if let Some(handle) = link.handle.clone() {
+        if let Some(handle) = handle {
             if let Err(e) = h.ws_send_text(&handle, &build_ack_frame(ack_offset)) {
-                h.log_warn(&format!("terminal ack frame send failed (session {session_id}): {}", e.message));
+                h.log_warn(&format!(
+                    "terminal ack frame send failed (session {session_id}): {}",
+                    e.message
+                ));
             }
         }
     }
@@ -671,8 +751,10 @@ fn handle_control_text(h: &WasmHost, session_id: &str, text: &str) {
 /// 收妥即计数会让背压失效（见 `protocol.rs::ACK_BYTES_THRESHOLD` 注释）。
 fn ingest_output(h: &WasmHost, session_id: &str, data: &[u8]) {
     let len = data.len() as u64;
-    let mut mgr = LINK_MANAGER.lock().expect("link manager lock");
-    let forwarded = {
+    // 锁内只计数与门控判定；宿主转发在锁外（#14：持锁做宿主调用，
+    // 回调重入即死锁）
+    {
+        let mut mgr = LINK_MANAGER.lock().expect("link manager lock");
         let Some(link) = mgr.links.get_mut(session_id) else {
             return;
         };
@@ -680,9 +762,10 @@ fn ingest_output(h: &WasmHost, session_id: &str, data: &[u8]) {
             return; // fresh subscribe 前的旧流残留
         }
         link.cursor += len;
-        h.terminal_stream_forward_output(session_id, data).is_ok()
-    };
+    }
+    let forwarded = h.terminal_stream_forward_output(session_id, data).is_ok();
     if forwarded {
+        let mut mgr = LINK_MANAGER.lock().expect("link manager lock");
         // 页面真的收到了字节 = 在屏内容事实（`subscribed` 时据此决定重放前清屏）
         mgr.page_content.insert(session_id.to_string());
     }

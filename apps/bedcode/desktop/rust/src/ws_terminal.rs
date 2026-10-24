@@ -65,10 +65,11 @@
 //!
 //! ## 尾帧与停止帧
 //!
-//! `pty:exit` 事件在宿主环摘除**之后**发布（host-pty 单一发布者不变量），
-//! 故退出时点的尾帧 = 退出前最后一次成功 drain 已下发的字节；exit 处理仍做
-//! 一次尽力 `ring-fetch`（窗口竞态下已摘除 → debug 跳过），随后向该会话的
-//! 全部订阅连接下发 `session_stopped` 停止帧（尾帧在前、停止帧在后）。
+//! `pty:exit` 事件先发布、宿主环后释放（lib 侧退出只读窗口，#12A），退出
+//! 处理做**有界循环 fetch** 把退出前未 drain 的尾段取净下发，随后向该会话的
+//! 全部订阅连接下发 `session_stopped` 停止帧（尾帧在前、停止帧在后）。控制面
+//! `session:stopped` 事件在两帧之后才广播（lib.rs 侧顺序），移动端另有宽限
+//! 窗兑底跨通道乱序（#12B）。
 //!
 //! ## 连接生命周期
 //!
@@ -99,6 +100,11 @@ const MAX_FETCH_BYTES: u32 = 16 * 1024;
 /// 单轮 drain 的最大 fetch 次数（≈128 KiB 预算：每帧回调不无限拉取，
 /// 慢消费的积压靠下一轮 drain 续拉）
 const MAX_FETCHES_PER_CYCLE: u32 = 8;
+
+/// 退出尾帧的单连接 fetch 次数上限（16 × 16 KiB = 256 KiB 预算）：取净
+/// 「最后一段未 drain 的输出」足够覆盖；10 MiB 环全量补发会让慢客户端邮箱
+/// 爆炸。预算用尽 warn 留痕（fail-visible），客户端重进页面可整段重放补齐
+const EXIT_TAIL_MAX_FETCHES: u32 = 16;
 
 /// 连续抑制轮数上限（抗记账错位死锁）：达上限仍等不到 ack 回落 → 强制放行一轮
 ///
@@ -778,9 +784,10 @@ pub fn watermark_rows() -> Vec<WsWatermarkRow> {
 
 // ==================== PTY 退出 → 尾帧 + 停止帧 ====================
 
-/// 会话终止（`<owner>::pty:exit` 驱动，lib.rs 在 session::on_pty_exit 后调用）：
-/// 尽力尾帧 fetch（环可能已摘除）→ 向该会话全部订阅连接下发 `session_stopped`
-/// 停止帧（tail 在前、停止帧在后）；订阅置空、游标归零（客户端可重订阅）
+/// 会话终止（`<owner>::pty:exit` 驱动，lib.rs 在 session::on_pty_exit 前调用，
+/// #12B 数据面先行）：尾帧有界循环取净（lib 只读窗口内环仍可读）→ 向该会话
+/// 全部订阅连接下发 `session_stopped` 停止帧（tail 在前、停止帧在后）；
+/// 订阅置空、游标归零（客户端可重订阅）
 #[cfg(target_arch = "wasm32")]
 pub fn on_session_terminated(session_id: &str, reason: &str, exit_code: Option<i32>) {
     // 锁内只拷贝状态、锁外做宿主调用（drain_for 同款规矩）：
@@ -807,60 +814,81 @@ pub fn on_session_terminated(session_id: &str, reason: &str, exit_code: Option<i
             })
             .collect()
     };
-    // 锁外：尽力尾帧（环可能在最后一次 fetch 后被摘除 → 跳过）
+    // 锁外：尾帧**有界循环取净**（#12：lib 侧退出事件先发布后释放环，退出时点
+    // 环仍可读；此前的单次 fetch 在 10 MiB 环下必然取不净）。发送失败停本人
+    //（break，防同段空转重发）；追平 / 预算用尽 / 句柄不在册（只读窗口外的
+    // 回收竞态）退出循环
     for (endpoint_id, client_id, pty_id, sid, cursor) in &mut snapshots {
         if pty_id.is_empty() {
             continue;
         }
-        match WasmHost.pty_ring_fetch(pty_id, *cursor, MAX_FETCH_BYTES) {
-            Ok(Some(fetched)) => {
-                // 退出路径的**截断必须上报**：慢客户端在退出时点已被
-                // 淘汰过，尾帧就是从环中段开始的；不补 `ring_resync`
-                // 客户端就会把「半截屏 + session_stopped」当成完整
-                // 终态（这是尾帧路径独有的静默缺口——drain 路径有
-                // 截断必重锚，退出路径早前漏了）。
-                let block_start = if fetched.truncated {
-                    fetched
-                        .next_offset
-                        .saturating_sub(fetched.data.len() as u64)
-                } else {
-                    *cursor
-                };
-                if fetched.truncated {
-                    if let Err(e) = send_text(
-                        endpoint_id,
-                        client_id,
-                        &ring_resync_payload(*cursor, block_start).to_string(),
-                    ) {
-                        // 重锚帧没发出去：客户端基准未切换，此时裸发尾帧会让后续
-                        // ack 全按旧基准解释——跳过尾帧（warn 已留痕）
-                        WasmHost.log_warn(&format!(
-                            "ws terminal: 退出尾帧 ring_resync 发送失败，跳过尾帧（client_id={client_id}）: {e}"
-                        ));
-                        continue;
-                    }
-                }
-                if !fetched.data.is_empty() {
-                    if let Err(e) =
-                        WasmHost.ws_send_binary_to_client(endpoint_id, client_id, &fetched.data)
-                    {
-                        WasmHost.log_warn(&format!(
-                            "ws terminal: 退出尾帧下发失败（已重锚但尾帧丢失，客户端终屏为空；client_id={client_id}, bytes={}）: {}",
-                            fetched.data.len(),
-                            e.message
-                        ));
-                    } else {
-                        // 只有真的送达才推进（退出路径无下一轮，账目仍要对得起诊断面）
-                        *cursor = fetched.next_offset;
-                    }
-                }
-            }
-            Ok(None) => {}
-            Err(e) => {
-                WasmHost.log_debug(&format!(
-                    "ws terminal: 退出尾帧 fetch 失败（跳过，client_id={client_id}）: {}",
-                    e.message
+        let mut fetches = 0u32;
+        loop {
+            if fetches >= EXIT_TAIL_MAX_FETCHES {
+                WasmHost.log_warn(&format!(
+                    "ws terminal: 退出尾帧预算用尽（client_id={client_id}, fetches={fetches}，预算 {EXIT_TAIL_MAX_FETCHES}×{MAX_FETCH_BYTES}B），环内可能仍有未取净输出"
                 ));
+                break;
+            }
+            fetches += 1;
+            match WasmHost.pty_ring_fetch(pty_id, *cursor, MAX_FETCH_BYTES) {
+                Ok(Some(fetched)) => {
+                    // 退出路径的**截断必须上报**：慢客户端在退出时点已被
+                    // 淘汰过，尾帧就是从环中段开始的；不补 `ring_resync`
+                    // 客户端就会把「半截屏 + session_stopped」当成完整
+                    // 终态（这是尾帧路径独有的静默缺口——drain 路径有
+                    // 截断必重锚，退出路径早前漏了）。
+                    let block_start = if fetched.truncated {
+                        fetched
+                            .next_offset
+                            .saturating_sub(fetched.data.len() as u64)
+                    } else {
+                        *cursor
+                    };
+                    if fetched.truncated {
+                        if let Err(e) = send_text(
+                            endpoint_id,
+                            client_id,
+                            &ring_resync_payload(*cursor, block_start).to_string(),
+                        ) {
+                            // 重锚帧没发出去：客户端基准未切换，此时裸发尾帧会让后续
+                            // ack 全按旧基准解释——放弃本连接尾帧（warn 已留痕）
+                            WasmHost.log_warn(&format!(
+                                "ws terminal: 退出尾帧 ring_resync 发送失败，跳过尾帧（client_id={client_id}）: {e}"
+                            ));
+                            break;
+                        }
+                    }
+                    if !fetched.data.is_empty() {
+                        if let Err(e) = WasmHost
+                            .ws_send_binary_to_client(endpoint_id, client_id, &fetched.data)
+                        {
+                            // 慢客户端：停本人（已重锚的先告警留痕），不空转重发同段
+                            WasmHost.log_warn(&format!(
+                                "ws terminal: 退出尾帧下发失败（已重锚但尾帧丢失，客户端终屏为空；client_id={client_id}, bytes={}）: {}",
+                                fetched.data.len(),
+                                e.message
+                            ));
+                            break;
+                        }
+                    }
+                    // 游标推进不依赖本块非空：truncated + 空块时游标也必须前进
+                    //（否则同段重截断 → 死循环）；送达失败已 break 不会到这里
+                    *cursor = fetched.next_offset;
+                    if fetched.data.is_empty() {
+                        break; // 追平（fetch 返回空块但未报截断）
+                    }
+                }
+                Ok(None) => break, // 追平（游标 == 产出端）
+                Err(e) => {
+                    // 句柄已摘除（只读窗口外的回收竞态）／会话已清理：
+                    // 已取到的部分照发，剩余放弃（debug 留痕）
+                    WasmHost.log_debug(&format!(
+                        "ws terminal: 退出尾帧 fetch 失败（跳过，client_id={client_id}）: {}",
+                        e.message
+                    ));
+                    break;
+                }
             }
         }
     }
