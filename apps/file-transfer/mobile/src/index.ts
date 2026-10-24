@@ -8,7 +8,7 @@
  *      嵌入旧宿主——票 2026-10-09-mobile-host-into-wasm-apps）
  *   4. 保留设置动态路由与设置区贡献（设置仍可达；退役随旧宿主同批）
  *
- * 应用主题：registerSurface 的 accent 声明本应用的主题色（文件夹蓝，与
+ * 应用主题：registerSurface 的 accent 声明本应用的功能色（雾青，与
  * styles.css 的 .ft-app token 段同源）——壳可消费（应用图标色调等），应用
  * 内部界面由 .ft-app 作用域自持，不写回平台 --mobile-* token。
  *
@@ -53,8 +53,8 @@ export async function activate(context: PluginContext): Promise<void> {
   }
 
   // 3. 宿主壳运行面：独立页面（不再是旧宿主工具箱页；appId = 插件 id 由宿主代填）
-  //    accent = 应用主题色（Folder blue #2563EB，与 styles.css .ft-app token 段同源）
-  context.ui.registerSurface({ component: FileTransferView, accent: '#2563EB' })
+  //    accent = 应用功能色（雾青 #356873，与 styles.css .ft-app token 段同源）
+  context.ui.registerSurface({ component: FileTransferView, accent: '#356873' })
 
   // 4. 设置二级页动态路由：header: true — 用宿主的 SettingsSubPage 页头（返回 + 标题
   //    + 平台底色 + 安全区）。插件自绘页头拿不到 Android 安全区，标题会压进系统状态栏，

@@ -128,8 +128,6 @@ function handleDeviceSetActive(nodeId: string): void {
   void devices.switchPeer(nodeId)
 }
 
-
-
 /** 历史「打开所在文件夹」：优先本地路径（wire 有 localPath，dev-shell 演示链路），
  * 否则真机凭文件名经宿主 MediaStore 按名解析（接收落点不在 wire 上） */
 async function handleOpenLocation(id: string): Promise<void> {
@@ -305,7 +303,6 @@ onUnmounted(() => {
 <template>
   <!-- data-testid：真机 E2E 锚点（移动端统一 mobile- 前缀，见 docs/E2E.md §10.5 / §11.5） -->
   <div class="fv2-view mobile-ui ft-app" data-testid="mobile-ft-root">
-
     <!-- 顶栏：活跃对端 + 连接状态 + 设置入口 -->
     <PeerHeader
       :peer-name="peerLabel"
@@ -313,6 +310,7 @@ onUnmounted(() => {
       :online-label="t('transfer.peer.online')"
       :offline-label="t('transfer.peer.offline')"
       :upload-label="t('transfer.v2.upload.cta')"
+      :settings-label="t('transfer.settings.title')"
       :upload-disabled="!tasks.peerOnline.value"
       @peer-tap="tab = 'devices'"
       @upload="uploadFile()"

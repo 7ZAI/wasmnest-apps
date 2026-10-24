@@ -39,9 +39,7 @@ const emit = defineEmits<{
 
 /** 方向图标：↑ 上传 / ↓ 下载（单色 stroke 1.75，与 spec 9.2 视觉一致） */
 const directionIcon = computed(() =>
-  props.direction === 'upload'
-    ? 'M5 10l7-7m0 0l7 7m-7-7v18'
-    : 'M19 14l-7 7m0 0l-7-7m7 7V3',
+  props.direction === 'upload' ? 'M5 10l7-7m0 0l7 7m-7-7v18' : 'M19 14l-7 7m0 0l-7-7m7 7V3',
 )
 
 /** 方向 chip class（反色区分：upload = accent / download = info） */
@@ -74,44 +72,52 @@ function onAction(kind: TaskAction['kind']): void {
 
 <template>
   <div class="fv2-card">
-    <!-- 主行：方向 chip + 名称 + 状态 chip -->
+    <!-- 标题行：方向箭头 + 名称 + 状态（圆点 + 文字） -->
     <div class="flex items-center gap-2 min-w-0">
       <div class="fv2-dir-chip" :class="directionChipClass">
-        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" :d="directionIcon" />
+        <svg aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="1.8"
+            :d="directionIcon"
+          />
         </svg>
       </div>
       <span class="fv2-card-name" :title="name">{{ name }}</span>
       <span class="fv2-card-state shrink-0" :class="stateClass">{{ stateLabel }}</span>
     </div>
 
-    <!-- 元信息行（大小/速率/时间） -->
-    <div class="fv2-card-meta">{{ meta }}</div>
+    <!-- 正文行：左侧元信息 / 进度 / 原因，右侧文字操作（44px 触控区） -->
+    <div class="fv2-card-main">
+      <div class="fv2-card-info">
+        <div class="fv2-card-meta">{{ meta }}</div>
 
-    <!-- 进度条（仅传输/接收中可见） -->
-    <div v-if="progress !== null || indeterminate" class="fv2-progress-track">
-      <div
-        class="fv2-progress-bar"
-        :class="progressBarClass"
-        :style="{ width: progressWidth + '%' }"
-      />
-    </div>
+        <!-- 进度条（仅传输/接收中可见） -->
+        <div v-if="progress !== null || indeterminate" class="fv2-progress-track">
+          <div
+            class="fv2-progress-bar"
+            :class="progressBarClass"
+            :style="{ width: progressWidth + '%' }"
+          />
+        </div>
 
-    <!-- 失败原因（独立行） -->
-    <div v-if="reason" class="fv2-card-reason">{{ reason }}</div>
+        <!-- 失败原因（独立行） -->
+        <div v-if="reason" class="fv2-card-reason">{{ reason }}</div>
+      </div>
 
-    <!-- 操作按钮行（44px 触控目标） -->
-    <div v-if="actions.length > 0" class="fv2-card-actions">
-      <button
-        v-for="a in actions"
-        :key="a.kind + a.label"
-        type="button"
-        class="fv2-card-action"
-        :class="a.variant === 'tint' ? 'fv2-card-action--tint' : 'fv2-card-action--neutral'"
-        @click="onAction(a.kind)"
-      >
-        {{ a.label }}
-      </button>
+      <div v-if="actions.length > 0" class="fv2-card-actions">
+        <button
+          v-for="a in actions"
+          :key="a.kind + a.label"
+          type="button"
+          class="fv2-card-action"
+          :class="a.variant === 'tint' ? 'fv2-card-action--tint' : 'fv2-card-action--neutral'"
+          @click="onAction(a.kind)"
+        >
+          {{ a.label }}
+        </button>
+      </div>
     </div>
   </div>
 </template>

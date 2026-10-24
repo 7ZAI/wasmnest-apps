@@ -42,22 +42,43 @@ defineEmits<{
          退出文档流，进场分支立即接管布局，高度恒定平滑过渡 -->
     <Transition name="fv2-bar-swap">
       <!-- 多选操作：浏览 tab 勾选后出现 -->
-      <div v-if="mode === 'select'" key="select" class="flex items-center gap-3">
-        <button class="fv2-btn-neutral flex-shrink-0" @click="$emit('clear-selection')">
+      <div v-if="mode === 'select'" key="select" class="flex items-center gap-2">
+        <button class="fv2-btn-text flex-shrink-0" @click="$emit('clear-selection')">
           {{ clearLabel }}
         </button>
         <button class="fv2-btn-primary flex-1" @click="$emit('download')">
           <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
+            />
           </svg>
           <span class="truncate">{{ downloadLabel }}</span>
         </button>
       </div>
 
       <!-- 活跃传输：总体进度，整体可点回到传输 tab -->
-      <button v-else-if="mode === 'active'" key="active" class="fv2-mini" @click="$emit('open-queue')">
-        <svg class="w-5 h-5 flex-shrink-0 text-[var(--ft-accent-text)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
+      <button
+        v-else-if="mode === 'active'"
+        key="active"
+        class="fv2-mini"
+        @click="$emit('open-queue')"
+      >
+        <svg
+          class="w-5 h-5 flex-shrink-0 text-[var(--ft-accent-text)]"
+          aria-hidden="true"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="1.8"
+            d="M13 5l7 7-7 7M5 5l7 7-7 7"
+          />
         </svg>
         <div class="flex-1 min-w-0">
           <div class="flex items-center justify-between gap-2">
@@ -65,14 +86,26 @@ defineEmits<{
             <span class="fv2-mini-speed flex-shrink-0">{{ speedLabel }}</span>
           </div>
           <div class="fv2-progress mt-1">
-            <div class="fv2-progress-fill ft-progress-active" :style="{ width: overallPercent + '%' }"></div>
+            <div
+              class="fv2-progress-fill ft-progress-active"
+              :style="{ width: overallPercent + '%' }"
+            ></div>
           </div>
         </div>
-        <span class="flex-shrink-0" style="font-size: var(--font-size-xs); color: var(--ft-text-muted)">
-          {{ viewQueueLabel }}
-        </span>
-        <svg class="w-4 h-4 flex-shrink-0" style="color: var(--ft-text-muted)" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+        <span class="fv2-mini-speed flex-shrink-0">{{ viewQueueLabel }}</span>
+        <svg
+          class="w-4 h-4 flex-shrink-0 text-[var(--ft-text-muted)]"
+          aria-hidden="true"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="1.8"
+            d="M9 5l7 7-7 7"
+          />
         </svg>
       </button>
 
@@ -80,17 +113,23 @@ defineEmits<{
       <div v-else key="upload" class="flex items-center gap-3">
         <button class="fv2-btn-primary flex-1" :disabled="offline" @click="$emit('upload')">
           <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"
+            />
           </svg>
           <span class="truncate">{{ uploadLabel }}</span>
         </button>
-        <button
-          v-if="queueHint"
-          class="fv2-btn-neutral flex-shrink-0"
-          @click="$emit('open-queue')"
-        >
+        <button v-if="queueHint" class="fv2-btn-neutral flex-shrink-0" @click="$emit('open-queue')">
           <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7h16M4 12h16M4 17h10" />
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M4 7h16M4 12h16M4 17h10"
+            />
           </svg>
           {{ queueHint }}
         </button>

@@ -10,11 +10,7 @@
  * 只更新计数不重复弹（spec §14.4）。
  */
 import { ref, type Ref } from 'vue'
-import type {
-  Disposable,
-  PluginContext,
-  PluginDialogHandle,
-} from '@binblink/wasmnest-plugin-sdk-desktop'
+import type { Disposable, PluginContext } from '@binblink/wasmnest-plugin-sdk-desktop'
 import {
   isPermissionGranted,
   requestPermission,
@@ -263,53 +259,13 @@ export function useReceiving(context: PluginContext) {
     await context.commands.execute('file-transfer.cancel-receiving', { sessionId })
   }
   /**
-   * 清空历史二次确认（宿主全局弹窗渲染）：返回是否确认。
-   *
-   * 破坏性且不可撤销 ⇒ 与移动端同构补确认（桌面先例：TrustedPeersSection
-   * 撤销确认）；遮罩/Escape 关闭等同取消。
-   */
-  function confirmClearHistory(): Promise<boolean> {
-    return new Promise<boolean>((resolve) => {
-      let handle: PluginDialogHandle | null = null
-      let settled = false
-      const finish = (confirmed: boolean): void => {
-        if (settled) return
-        settled = true
-        handle?.close()
-        handle = null
-        resolve(confirmed)
-      }
-      handle = context.ui.showDialog({
-        // 警告三角（Heroicons outline exclamation-triangle）
-        icon: 'M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z',
-        title: context.i18n.t('transfer.history.clearConfirmTitle'),
-        message: context.i18n.t('transfer.history.clearConfirmBody'),
-        actions: [
-          {
-            label: context.i18n.t('transfer.task.cancel'),
-            kind: 'default',
-            onClick: () => finish(false),
-          },
-          {
-            label: context.i18n.t('transfer.history.clear'),
-            kind: 'danger',
-            onClick: () => finish(true),
-          },
-        ],
-        onClose: () => finish(false),
-      })
-    })
-  }
-
-  /**
-   * 清空历史（破坏性操作，插件侧只删终态条目）
+   * 清空历史（破坏性操作，插件侧只删终态条目；调用方先过确认框）
    *
    * 命令成功后本地重拉三列表：以插件持久层为准刷新 UI，不依赖单一事件送达
    * （事件丢失/组件重挂会表现为「点了没反应」）。失败时记录并**向上抛**——
    * 宿主全局 unhandledrejection 处理器会把原因写进 frontend 日志，避免静默。
    */
   async function clearHistory(): Promise<void> {
-    if (!(await confirmClearHistory())) return
     try {
       await context.commands.execute('file-transfer.clear-history', {})
       await refresh()

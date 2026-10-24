@@ -160,12 +160,12 @@ watch(() => props.settingsApi.settings.value.approvalTimeoutSec, syncTimeoutInpu
 
       <!-- 系统目录树选择器：通栏主按钮（图标 + 文案，44px+ 触控目标） -->
       <button
-        class="ft-touch-btn w-full gap-2 rounded-xl text-[var(--ft-on-accent)] bg-[var(--ft-accent)] active:opacity-80 active:scale-[0.98] transition-all disabled:opacity-50 ft-settings-btn"
+        class="fv2-btn-primary w-full ft-settings-btn"
         :disabled="picking"
         @click="handlePickRoot()"
       >
-        <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+        <svg class="w-4 h-4 flex-shrink-0" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
         </svg>
         {{ picking ? t('transfer.settings.picking') : t('transfer.settings.pickRoot') }}
       </button>

@@ -181,7 +181,7 @@ const emptyIconPath = computed(() => {
   if (props.notice) return 'M12 9v2m0 4h.01M12 3l9.5 16.5H2.5L12 3z'
   switch (emptyKind.value) {
     case 'error': return 'M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z'
-    case 'notSharing': return 'M4.72 4.39a9.5 9.5 0 0114.56 0M7.82 5.52a6.5 6.5 0 018.36 0M10.8 7.21a3.5 3.5 0 012.4 0M12 20h.01'
+    case 'notSharing': return 'M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z'
     default: return 'M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z'
   }
 })
@@ -219,7 +219,7 @@ const pullArrowStyle = computed(() => ({
   <div class="flex-1 min-h-0 flex flex-col">
     <!-- 存储权限提示横幅（对端共享目录位于 Android 顶层存储时） -->
     <div v-if="notice" class="fv2-notice">
-      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <svg aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M12 3l9.5 16.5H2.5L12 3z" />
       </svg>
       <div class="fv2-notice-body">
@@ -248,11 +248,11 @@ const pullArrowStyle = computed(() => ({
     </div>
 
     <!-- 目录工具行：文件数 + 全选切换（仅根内目录且有文件时显示） -->
-    <div v-if="currentRoot && fileEntries.length > 0" class="flex items-center justify-between px-5 py-1">
-      <span class="fv2-crumb">{{ fileEntries.length }} · {{ formatBytes(dirTotalSize, t) }}</span>
+    <div v-if="currentRoot && fileEntries.length > 0" class="fv2-browse-tools">
+      <span class="fv2-browse-count">{{ fileEntries.length }} · {{ formatBytes(dirTotalSize, t) }}</span>
       <button class="fv2-btn-text" @click="emit('toggle-all')">
-        <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+        <svg class="w-4 h-4 flex-shrink-0" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M5 13l4 4L19 7" />
         </svg>
         {{ allFilesSelected ? t('transfer.table.clearSelection') : t('transfer.table.selectAll') }}
       </button>
@@ -261,7 +261,7 @@ const pullArrowStyle = computed(() => ({
     <!-- 滚动区：下拉刷新 + 列表/空态 -->
     <div
       ref="scrollEl"
-      class="flex-1 overflow-y-auto min-h-0 overscroll-behavior-none"
+      class="flex-1 overflow-y-auto min-h-0 overscroll-behavior-none px-4"
       @touchstart.passive="onPullStart"
       @touchmove.passive="onPullMove"
       @touchend="onPullEnd"
@@ -310,14 +310,10 @@ const pullArrowStyle = computed(() => ({
       <!-- 文件 / 目录行 -->
       <div v-else class="group-card">
         <button
-          v-for="(entry, idx) in entries"
+          v-for="entry in entries"
           :key="entry.name"
           class="fv2-file"
-          :class="{
-            'fv2-file--selected': !entry.isDir && selected.has(entry.name),
-            'group-card-divider': false,
-          }"
-          :style="idx > 0 ? { borderTop: '1px solid var(--ft-group-divider)' } : undefined"
+          :class="{ 'fv2-file--selected': !entry.isDir && selected.has(entry.name) }"
           @click="onRowTap(entry)"
         >
           <!-- 类型图标（按扩展名匹配，目录/未知回退） -->
@@ -330,19 +326,19 @@ const pullArrowStyle = computed(() => ({
 
           <!-- 勾选框（仅文件） / 进入箭头（目录） -->
           <span v-if="!entry.isDir" class="fv2-check" :class="{ 'fv2-check--checked': selected.has(entry.name) }">
-            <svg v-if="selected.has(entry.name)" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg v-if="selected.has(entry.name)" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" />
             </svg>
           </span>
           <svg
             v-else
-            class="w-4 h-4 flex-shrink-0"
-            style="color: var(--ft-text-muted)"
+            class="w-4 h-4 flex-shrink-0 text-[var(--ft-text-muted)]"
+            aria-hidden="true"
             fill="none"
             stroke="currentColor"
             viewBox="0 0 24 24"
           >
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M9 5l7 7-7 7" />
           </svg>
         </button>
       </div>

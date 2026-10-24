@@ -8,24 +8,20 @@
  * devices-changed 事件驱动。
  */
 import { ref, computed, watch, inject, onMounted, onUnmounted } from 'vue'
-import type {
-  PluginContext,
-  PluginDialogHandle,
-  PluginDialogOptions,
-} from '@binblink/wasmnest-plugin-sdk-desktop'
+import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-desktop'
 import RemoteFileTable from './RemoteFileTable.vue'
 import TaskPanel from './TaskPanel.vue'
 import SettingsPanel from './SettingsPanel.vue'
 import PeerDevicesPanel from './PeerDevicesPanel.vue'
+import BatchRequestDialog from './BatchRequestDialog.vue'
+import ConfirmDialog from './ConfirmDialog.vue'
 import { useTasks } from '../composables/useTasks'
 import { useReceiving } from '../composables/useReceiving'
 import { useRemoteFs } from '../composables/useRemoteFs'
 import { useSettings } from '../composables/useSettings'
 import { usePeerDevices } from '../composables/usePeerDevices'
 import { useBatchPrompt } from '../composables/useBatchPrompt'
-import { formatBytes } from '../utils/format'
 import { toast } from 'vue-sonner'
-import type { PendingBatch } from '../types'
 
 const context = inject<PluginContext>('pluginContext')!
 const t = (key: string, params?: Record<string, any>) => context.i18n.t(key, params)
@@ -121,13 +117,13 @@ const peerNames = computed<Record<string, string>>(() => {
 })
 
 /** 批请求应答：批准成功才弹出传输队列展示接收任务（失败无副作用，不误开队列） */
-function handleBatchApprove(batchId: string): void {
-  void approveBatch(batchId).then((ok) => {
-    if (ok) queueVisible.value = true
-  })
+async function handleBatchApprove(batchId: string): Promise<boolean> {
+  const ok = await approveBatch(batchId)
+  if (ok) queueVisible.value = true
+  return ok
 }
-function handleBatchReject(batchId: string): void {
-  void rejectBatch(batchId)
+function handleBatchReject(batchId: string): Promise<boolean> {
+  return rejectBatch(batchId)
 }
 
 const peerStatusLabel = computed(() => {
@@ -252,8 +248,6 @@ onUnmounted(() => {
   stopPeer()
   stopTasks()
   stopReceiving()
-  batchDialog?.close()
-  batchDialog = null
 })
 
 /** 激活设备变化驱动目录加载/清空 */
@@ -268,65 +262,38 @@ watch(
   },
 )
 
-// ==================== 传入批请求全局弹窗（宿主通用弹窗，预设模式） ====================
+// ==================== 传入批请求弹窗（挂载包自持渲染） ====================
 
 /**
- * 待确认批提示：由 useBatchPrompt 选择当前批，经宿主全局弹窗渲染
- *（任何页面可见；计调式基于批创建时间 + 超时配置，迟到/切换后仍准确）。
- * 超时默认拒绝由宿主 TTL 执行（reason=timeout），前端仅标记并推进。
+ * 待确认批提示：useBatchPrompt 选择当前批（按创建时间先到先弹；超时批由
+ * 宿主 TTL 结算后不再重复）。弹窗由 BatchRequestDialog 自持渲染——旧宿主
+ * 全局弹窗（context.ui.showDialog）已随挂载包形态退役。
  */
 const prompt = useBatchPrompt(batches)
-let batchDialog: PluginDialogHandle | null = null
+/** 模板直接消费的当前批（顶层 ref 自动解包） */
+const currentBatch = prompt.current
+const batchTimeoutMs = computed(() => settings.value.approvalTimeoutSec * 1000)
 
-function buildBatchDialogOptions(batch: PendingBatch): PluginDialogOptions {
-  const timeoutMs = settings.value.approvalTimeoutSec * 1000
-  return {
-    title: t('transfer.request.title'),
-    icon: 'M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3',
-    message: t('transfer.request.body', {
-      name: batch.peerName || t('transfer.peer.unknown'),
-      count: batch.files?.length ?? 1,
-      size: formatBytes(batch.totalSize),
-    }),
-    // 倒计时基于批创建时间 + 配置超时（迟到打开/排队续算仍准确）
-    countdownLabel: t('transfer.request.countdown'),
-    deadlineAt: batch.createdAt + timeoutMs,
-    actions: [
-      {
-        label: t('transfer.request.rejectAll'),
-        kind: 'default',
-        onClick: () => handleBatchReject(batch.batchId),
-      },
-      {
-        label: t('transfer.request.acceptAll'),
-        kind: 'primary',
-        onClick: () => handleBatchApprove(batch.batchId),
-      },
-    ],
-    // 必须明确选择「接收全部 / 拒绝全部」（无背景关闭、无关闭按钮）
-    closable: false,
-    closeOnBackdrop: false,
-    onTimeout: () => prompt.markTimeout(),
-    onClose: () => {
-      batchDialog = null
-    },
-  }
+async function acceptCurrentBatch(): Promise<void> {
+  const cur = prompt.current.value
+  if (!cur) return
+  // 成功才标记已提示（失败保留弹窗可重试；批仍在宿主 pending 表内）
+  if (await handleBatchApprove(cur.batchId)) prompt.markAnswered()
 }
 
-// 当前批变化 → 开 / 热更新 / 关（关闭动作由 onClose 清句柄，下一批自动重开）
-watch(
-  () => prompt.current.value,
-  (cur) => {
-    if (cur && !batchDialog) {
-      batchDialog = context.ui.showDialog(buildBatchDialogOptions(cur))
-    } else if (cur && batchDialog) {
-      batchDialog.update(buildBatchDialogOptions(cur))
-    } else if (!cur && batchDialog) {
-      batchDialog.close()
-      batchDialog = null
-    }
-  },
-)
+async function rejectCurrentBatch(): Promise<void> {
+  const cur = prompt.current.value
+  if (!cur) return
+  if (await handleBatchReject(cur.batchId)) prompt.markAnswered()
+}
+
+/** 清空历史二次确认（破坏性操作，确认框自持渲染） */
+const showClearHistoryConfirm = ref(false)
+
+function handleClearHistoryConfirm(): void {
+  showClearHistoryConfirm.value = false
+  void clearHistoryEntries()
+}
 </script>
 
 <template>
@@ -574,12 +541,35 @@ watch(
           @resume="resume"
           @resume-all="resumeAll"
           @cancel-receiving="cancelReceiving"
-          @clear-history="clearHistoryEntries"
+          @clear-history="showClearHistoryConfirm = true"
           @open-folder="handleOpenFolder"
           @close="queueVisible = false"
         />
       </Transition>
     </div>
+
+    <!-- 入站批请求：宿主全局弹窗退役后由挂载包自持渲染（倒计时 + 批级应答） -->
+    <BatchRequestDialog
+      v-if="currentBatch"
+      :key="currentBatch.batchId"
+      :batch="currentBatch"
+      :timeout-ms="batchTimeoutMs"
+      @accept="acceptCurrentBatch"
+      @reject="rejectCurrentBatch"
+      @timeout="prompt.markTimeout()"
+    />
+
+    <!-- 清空历史确认（破坏性操作） -->
+    <ConfirmDialog
+      v-if="showClearHistoryConfirm"
+      :title="t('transfer.history.clearConfirmTitle')"
+      :message="t('transfer.history.clearConfirmBody')"
+      :confirm-label="t('transfer.history.clear')"
+      :cancel-label="t('transfer.task.cancel')"
+      danger
+      @confirm="handleClearHistoryConfirm"
+      @cancel="showClearHistoryConfirm = false"
+    />
 
     <!-- v2：接收中 toast（batch 立即弹；per-file 3s 窗口合并去重由 composable 处理） -->
     <Teleport to="body">

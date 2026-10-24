@@ -45,43 +45,72 @@ function dotClass(row: DeviceRow): string {
 /** 行内元信息（三态 + 地址；无能力节点优先给出能力标注 + IP 便于诊断） */
 function metaText(row: DeviceRow): string {
   if (!row.fileTransfer) {
-    return row.addr ? `${t('transfer.devices.capNone')} · ${row.addr}` : t('transfer.devices.capNone')
+    return row.addr
+      ? `${t('transfer.devices.capNone')} · ${row.addr}`
+      : t('transfer.devices.capNone')
   }
   switch (row.status) {
     case 'connected':
-      return row.addr ? `${t('transfer.devices.connected')} · ${row.addr}` : t('transfer.devices.connected')
+      return row.addr
+        ? `${t('transfer.devices.connected')} · ${row.addr}`
+        : t('transfer.devices.connected')
     case 'connecting':
       return t('transfer.devices.connecting')
     default:
       if (row.recent) {
-        return row.addr ? `${t('transfer.devices.recentSeen')} · ${row.addr}` : t('transfer.devices.recentSeen')
+        return row.addr
+          ? `${t('transfer.devices.recentSeen')} · ${row.addr}`
+          : t('transfer.devices.recentSeen')
       }
-      return row.addr ? `${t('transfer.devices.online')} · ${row.addr}` : t('transfer.devices.online')
+      return row.addr
+        ? `${t('transfer.devices.online')} · ${row.addr}`
+        : t('transfer.devices.online')
   }
 }
 </script>
 
 <template>
   <div class="flex-1 min-h-0 flex flex-col">
-    <!-- 标题行：标题 + 副标题 + 行尾探索发现按钮（空态时隐藏，避免与空态内标题/CTA 重复） -->
-    <div v-if="rows.length > 0" class="flex-shrink-0 flex items-center gap-2 px-4 pt-1 pb-2">
-      <h3 class="page-title flex-shrink-0" style="font-size: var(--font-size-lg)">
-        {{ t('transfer.devices.title') }}</h3>
-      <span class="flex-1 min-w-0 truncate" style="font-size: var(--font-size-xs); color: var(--ft-text-muted)">
-        {{ t('transfer.v2.devices.subtitle') }}</span>
-      <button class="fv2-btn-tint flex-shrink-0" :disabled="scanning" @click="emit('scan')">
+    <!-- 标题行：标题 + 副标题 + 行尾探索发现（空态时隐藏，避免与空态内标题/CTA 重复） -->
+    <div v-if="rows.length > 0" class="fv2-section-head flex-shrink-0">
+      <div class="flex-1 min-w-0">
+        <h2 class="fv2-section-title">{{ t('transfer.devices.title') }}</h2>
+        <p class="fv2-section-sub truncate">{{ t('transfer.v2.devices.subtitle') }}</p>
+      </div>
+      <button
+        class="fv2-btn-text fv2-btn-text--accent flex-shrink-0"
+        :disabled="scanning"
+        @click="emit('scan')"
+      >
         <svg
           v-if="scanning"
-          class="w-4 h-4 flex-shrink-0"
-          style="animation: fv2-spin 0.8s linear infinite"
+          class="w-4 h-4 flex-shrink-0 fv2-scan-icon"
+          aria-hidden="true"
           fill="none"
           stroke="currentColor"
           viewBox="0 0 24 24"
         >
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="1.8"
+            d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+          />
         </svg>
-        <svg v-else class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+        <svg
+          v-else
+          class="w-4 h-4 flex-shrink-0"
+          aria-hidden="true"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="1.8"
+            d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+          />
         </svg>
         {{ scanning ? t('transfer.devices.scanning') : t('transfer.devices.scan') }}
       </button>
@@ -93,7 +122,7 @@ function metaText(row: DeviceRow): string {
       <div v-if="rows.length === 0" class="h-full flex flex-col">
         <div class="fv2-empty">
           <div class="fv2-empty-icon">
-            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path
                 stroke-linecap="round"
                 stroke-linejoin="round"
@@ -105,8 +134,19 @@ function metaText(row: DeviceRow): string {
           <p class="fv2-empty-title">{{ t('transfer.devices.title') }}</p>
           <p class="fv2-empty-hint">{{ t('transfer.devices.empty') }}</p>
           <button class="fv2-empty-action fv2-btn-primary" @click="emit('scan')">
-            <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            <svg
+              class="w-4 h-4 flex-shrink-0"
+              aria-hidden="true"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.8"
+                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+              />
             </svg>
             {{ t('transfer.devices.scan') }}
           </button>
@@ -114,65 +154,68 @@ function metaText(row: DeviceRow): string {
       </div>
 
       <template v-else>
-        <div v-for="row in rows" :key="row.nodeId" class="group-card fv2-device">
-          <div class="fv2-device-body">
-            <!-- 状态点 -->
-            <span class="fv2-dev-dot flex-shrink-0" :class="dotClass(row)"></span>
+        <div class="fv2-device-list">
+          <div v-for="row in rows" :key="row.nodeId" class="fv2-device-row">
+            <!-- 状态点：绿=已连接 / 琥珀=握手中 / 淡绿=在线未连接 / 灰=离线 -->
+            <span
+              class="fv2-dev-dot flex-shrink-0"
+              :class="dotClass(row)"
+              aria-hidden="true"
+            ></span>
 
             <div class="flex-1 min-w-0">
-              <!-- 设备名 + 短指纹（指纹用 muted 而非 disabled：小字号下
-                   disabled 对比度不足 4.5:1，指纹是需核对的信息不是装饰） -->
-              <div class="flex items-center gap-1.5 min-w-0">
+              <div class="fv2-device-line">
                 <span class="fv2-device-name truncate">{{ row.deviceName }}</span>
-                <span class="flex-shrink-0" style="font-size: var(--font-size-xs); color: var(--ft-text-muted)">
-                  {{ shortFingerprint(row.nodeId) }}
+                <span class="fv2-device-fp">{{ shortFingerprint(row.nodeId) }}</span>
+                <span v-if="row.isActive" class="fv2-device-tag">
+                  {{ t('transfer.devices.activeCurrent') }}
                 </span>
               </div>
               <p class="fv2-device-meta truncate">{{ metaText(row) }}</p>
               <!-- 拨号终态反馈：拒绝 / 不可达 -->
               <p v-if="row.dialError" class="fv2-device-error">
-                {{ row.dialError === 'denied' ? t('transfer.devices.denied') : t('transfer.devices.unreachable') }}
+                {{
+                  row.dialError === 'denied'
+                    ? t('transfer.devices.denied')
+                    : t('transfer.devices.unreachable')
+                }}
               </p>
             </div>
 
-            <!-- 活跃 / 无能力 标签 -->
-            <span v-if="row.isActive" class="ft-chip ft-color-active flex-shrink-0">
-              {{ t('transfer.devices.activeCurrent') }}
-            </span>
-          </div>
-
-          <!-- 行操作 -->
-          <div class="fv2-device-actions">
-            <button
-              v-if="row.status === 'connected' && !row.isActive"
-              class="fv2-btn-neutral"
-              @click="emit('set-active', row.nodeId)"
-            >
-              {{ t('transfer.devices.setActive') }}
-            </button>
-            <button
-              v-if="row.status === 'connected'"
-              class="fv2-btn-neutral fv2-btn-neutral--danger"
-              @click="emit('disconnect', row.nodeId)"
-            >
-              {{ t('transfer.devices.disconnect') }}
-            </button>
-            <span v-else-if="row.status === 'connecting'" class="flex-1 flex items-center justify-center fv2-device-meta">
-              {{ t('transfer.devices.connecting') }}
-            </span>
-            <button
-              v-else
-              class="fv2-btn-primary"
-              :disabled="!row.fileTransfer"
-              @click="emit('connect', row.nodeId)"
-            >
-              {{ t('transfer.devices.connect') }}
-            </button>
+            <!-- 行内操作：连接 / 设为当前 / 断开，全部为文字按钮（44px 命中区） -->
+            <div class="fv2-device-actions">
+              <template v-if="row.status === 'connected'">
+                <button
+                  v-if="!row.isActive"
+                  class="fv2-btn-text"
+                  @click="emit('set-active', row.nodeId)"
+                >
+                  {{ t('transfer.devices.setActive') }}
+                </button>
+                <button
+                  class="fv2-btn-text fv2-btn-text--danger"
+                  @click="emit('disconnect', row.nodeId)"
+                >
+                  {{ t('transfer.devices.disconnect') }}
+                </button>
+              </template>
+              <span v-else-if="row.status === 'connecting'" class="fv2-device-meta">
+                {{ t('transfer.devices.connecting') }}
+              </span>
+              <button
+                v-else
+                class="fv2-btn-text fv2-btn-text--accent"
+                :disabled="!row.fileTransfer"
+                @click="emit('connect', row.nodeId)"
+              >
+                {{ t('transfer.devices.connect') }}
+              </button>
+            </div>
           </div>
         </div>
 
         <!-- 信任提示（列表尾部一次性说明） -->
-        <p class="fv2-device-meta px-1 pt-1 pb-2" style="line-height: 1.5">
+        <p class="fv2-device-meta px-1 pt-3 pb-2 fv2-trust-hint">
           {{ t('transfer.devices.trustHint') }}
         </p>
       </template>

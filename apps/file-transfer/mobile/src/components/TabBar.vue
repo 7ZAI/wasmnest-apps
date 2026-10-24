@@ -42,7 +42,7 @@ const TABS: Array<{ key: MainTab; icon: string }> = [
 </script>
 
 <template>
-  <div class="flex-shrink-0 px-4 pb-2">
+  <div class="flex-shrink-0 px-4">
     <div class="fv2-tabs">
       <button
         v-for="tab in TABS"
@@ -54,13 +54,13 @@ const TABS: Array<{ key: MainTab; icon: string }> = [
         :data-testid="`mobile-ft-tab-${tab.key}`"
         @click="$emit('update:modelValue', tab.key)"
       >
-        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" :d="tab.icon" />
+        <svg aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" :d="tab.icon" />
         </svg>
         <span>{{
           tab.key === 'transfers' ? transfers : tab.key === 'browse' ? browse : devices
         }}</span>
-        <!-- 传输中角标：仅 >0 时渲染，避免空占位。
+        <!-- 数量角标：仅 >0 时渲染，避免空占位。
              两个角标相互独立（非 else-if）：有活跃传输时设备数仍应可见 -->
         <span v-if="tab.key === 'transfers' && activeCount > 0" class="fv2-tab-badge">
           {{ activeCount }}

@@ -1,7 +1,7 @@
 /**
  * 待确认批提示选择器（接收端应答，spec 14.4）
  *
- * 由宿主全局弹窗渲染（FileTransferView 经 context.ui.showDialog 预设模式），
+ * 由挂载包自持弹窗渲染（FileTransferView 装配 BatchRequestDialog），
  * 本 composable 只负责「当前应提示哪一批」的状态机：
  * - 多个 pending 批按创建时间升序逐个提示（先到先弹）；
  * - 已提示过的批（超时/应答后 host 移除前）不再重复弹出；

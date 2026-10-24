@@ -8,17 +8,14 @@
  *
  * 编排逻辑在 useTrustedPeers；本组件只负责渲染与确认框状态。
  */
-import { computed, inject, onMounted, ref, watch } from 'vue'
-import type {
-  PluginContext,
-  PluginDialogHandle,
-  PluginDialogOptions,
-} from '@binblink/wasmnest-plugin-sdk-desktop'
+import { computed, inject, onMounted, ref } from 'vue'
+import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-desktop'
 import {
   formatTrustedDate,
   useTrustedPeers,
   type TrustedPeer,
 } from '../composables/useTrustedPeers'
+import ConfirmDialog from './ConfirmDialog.vue'
 
 const context = inject<PluginContext>('pluginContext')!
 const t = (key: string, params?: Record<string, any>) => context.i18n.t(key, params)
@@ -29,47 +26,12 @@ const { peers, loadState, errorKey, revokingIds, refresh, revoke } = useTrustedP
 const confirmTarget = ref<TrustedPeer | null>(null)
 /** 确认后撤销提交中（按钮禁用防重复提交） */
 const confirming = ref(false)
-/** 撤销确认宿主全局弹窗句柄 */
-let confirmDialog: PluginDialogHandle | null = null
 
-function buildConfirmOptions(peer: TrustedPeer): PluginDialogOptions {
-  return {
-    // 警告三角图标（Heroicons outline exclamation-triangle）
-    icon: 'M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z',
-    title: t('transfer.trusted.revokeTitle'),
-    message: t('transfer.trusted.revokeBody', { name: displayName(peer) }),
-    actions: [
-      { label: t('transfer.trusted.cancel'), kind: 'default', disabled: confirming.value, onClick: cancelConfirm },
-      {
-        label: t('transfer.trusted.revoke'),
-        kind: 'danger',
-        disabled: confirming.value,
-        onClick: confirmRevoke,
-      },
-    ],
-    // 遮罩/Escape 等同取消（沿用旧行为）
-    onClose: () => {
-      confirmTarget.value = null
-      if (confirmDialog) {
-        confirmDialog = null
-      }
-    },
-  }
-}
-
-watch(
-  () => [confirmTarget.value, confirming.value] as const,
-  ([target]) => {
-    if (target && !confirmDialog) {
-      confirmDialog = context.ui.showDialog(buildConfirmOptions(target))
-    } else if (target && confirmDialog) {
-      // 确认中状态变化（禁用按钮）也经 update 联动
-      confirmDialog.update(buildConfirmOptions(target))
-    } else if (!target && confirmDialog) {
-      confirmDialog.close()
-      confirmDialog = null
-    }
-  },
+const confirmTitle = computed(() => t('transfer.trusted.revokeTitle'))
+const confirmMessage = computed(() =>
+  confirmTarget.value
+    ? t('transfer.trusted.revokeBody', { name: displayName(confirmTarget.value) })
+    : '',
 )
 
 /** 跟随宿主语言本地化加入时间 */
@@ -164,5 +126,18 @@ onMounted(() => {
       </p>
       <p class="ft-settings-helper">{{ t('transfer.devices.trustHint') }}</p>
     </template>
+
+    <!-- 撤销确认：宿主全局弹窗退役后由挂载包自持渲染 -->
+    <ConfirmDialog
+      v-if="confirmTarget"
+      :title="confirmTitle"
+      :message="confirmMessage"
+      :confirm-label="t('transfer.trusted.revoke')"
+      :cancel-label="t('transfer.trusted.cancel')"
+      :busy="confirming"
+      danger
+      @confirm="confirmRevoke"
+      @cancel="cancelConfirm"
+    />
   </section>
 </template>

@@ -2,14 +2,12 @@
 /**
  * ConsentDialog — 首连确认内容组件（spec 决策 6）
  *
- * 经宿主全局弹窗（context.ui.showDialog 组件模式）渲染：宿主提供遮罩/卡片/
- * 队列/z-index，本组件只负责内容——设备名（无名以短指纹兜底 + 身份提示）、
- * 完整节点 ID 指纹核对区、秒级倒计时；接受 / 拒绝（含关闭）均经 useConsent
- * 结算并推进队列。编排常驻于插件激活期，弹窗由 index.ts 根据
- * currentRequest 开关（用户不在任何页面都能看到并操作，无需跳转面板）。
+ * 由 AppRoot 自持渲染（遮罩/卡片在 AppRoot，Teleport 到 body）：本组件只负责
+ * 内容——设备名（无名以短指纹兜底 + 身份提示）、完整节点 ID 指纹核对区、
+ * 秒级倒计时；接受 / 拒绝（含关闭）均经 useConsent 结算并推进队列。
  *
- * 注意：宿主卡片自带背景/圆角/内边距（showDialog bodyClass），本组件不再
- * 包裹卡片，仅保留「位置相对」的 close 按钮锚点。
+ * 注意：卡片背景/圆角/内边距由 AppRoot 的 .ft-consent-sheet 提供，本组件
+ * 仅保留「位置相对」的 close 按钮锚点。
  */
 import { computed, inject, onBeforeUnmount, ref } from 'vue'
 import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-desktop'
