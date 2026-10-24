@@ -4,7 +4,7 @@
  * 页面经 `inject('pluginContext')` 取数；命令 / 存储由宿主经 AppMountEnv 注入，
  * 本模块只做一次适配。
  *
- * 额外暴露 `hostInvoke`：宿主面命令（无附加凭证）。本 app 用它读取
+ * 额外暴露 `hostInvoke`：宿主面命令（env.invoke 白名单代理，ADR 0058 方案 A）。本 app 用它读取
  * `plugin_list_loaded` 把指标里的 plugin_id 补成「应用名 + 运行态」——
  * 当前运行态不在指标快照里（见 spec：不为它新增宿主业务状态）。
  */

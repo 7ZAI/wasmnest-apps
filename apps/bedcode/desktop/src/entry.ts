@@ -39,7 +39,7 @@ export interface AppMountEnv {
   appId: string
   /** 挂载契约版本（本包声明值；宿主装载时据此判定兼容性） */
   mountContract: string
-  /** 宿主面命令（invoke 原样，无附加凭证）：get_app_settings 等 */
+  /** 宿主面命令（白名单代理，ADR 0058 方案 A）：plugin_list_loaded / get_app_settings 等；真源在桌面宿主 APP_FRONTEND_INVOKE_WHITELIST */
   invoke: <T = unknown>(command: string, args?: Record<string, unknown>) => Promise<T>
   /** 插件面命令（plugin_invoke，本 app 通道令牌已绑定） */
   appInvoke: <T = unknown>(command: string, ...args: unknown[]) => Promise<T>
