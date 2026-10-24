@@ -61,12 +61,14 @@ fn pi_tool_result_and_user_events() {
     assert_eq!(s.title.as_deref(), Some("修复 bug"));
     let roles: Vec<&str> = s.events.iter().map(|e| e.role).collect();
     assert_eq!(roles, vec!["user", "tool"]);
-    assert!(s.events[1].text.starts_with("bash ·"));
+    // 对话还原改版：与 claude 配对形态同构（`tool_result · 名称 · 输出`）
+    assert!(s.events[1].text.starts_with("tool_result · bash ·"));
     // A4：非错误结果不标记 error，toolCallId 保留为配对键
     assert!(!s.events[1].error);
     assert_eq!(s.events[1].tool_use_id.as_deref(), Some("c1"));
 }
-/// A1：pi assistant toolCall 块不再丢——事件文本含工具名与参数摘要
+/// A1：pi assistant toolCall 块不再丢——独立工具事件含工具名与参数摘要
+/// （对话还原改版：不再揉进助手正文；同消息的 thinking 也独立成事件）
 #[test]
 fn pi_tool_call_blocks_shown_with_args() {
     let content = format!(
@@ -88,17 +90,21 @@ fn pi_tool_call_blocks_shown_with_args() {
         .to_string()
     );
     let s = parse_pi_session(&content);
-    assert_eq!(s.events.len(), 1);
+    assert_eq!(s.events.len(), 2);
+    assert_eq!(s.events[0].role, "thinking");
+    assert_eq!(s.events[0].text, "看看文件在哪里");
+    assert_eq!(s.events[1].role, "tool");
     assert!(
-        s.events[0].text.contains("tool_use · read"),
-        "toolCall 应出现（A1 丢失修复）: {}",
-        s.events[0].text
+        s.events[1].text.contains("tool_use · read"),
+        "toolCall 应独立成卡（A1 丢失修复）: {}",
+        s.events[1].text
     );
     assert!(
-        s.events[0].text.contains("code-map.md"),
+        s.events[1].text.contains("code-map.md"),
         "参数摘要应可见: {}",
-        s.events[0].text
+        s.events[1].text
     );
+    assert_eq!(s.events[1].tool_use_id.as_deref(), Some("call_aa"));
 }
 /// A4①：pi toolResult isError=true → error 标记；图片块占位不丢
 #[test]

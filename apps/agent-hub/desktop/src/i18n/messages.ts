@@ -533,6 +533,8 @@ export type MessageSchema = {
   'hub.lg.noRaw': string
   'hub.lg.role.user': string
   'hub.lg.role.assistant': string
+  /** pi 思考事件（assistant content 的 thinking 块；默认折叠 + 弱化样式） */
+  'hub.lg.role.thinking': string
   'hub.lg.role.tool': string
   'hub.lg.role.system': string
 

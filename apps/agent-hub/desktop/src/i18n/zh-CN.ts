@@ -497,6 +497,7 @@ const zhCN: MessageSchema = {
   'hub.lg.noRaw': '该会话无原始 JSONL（SQLite 来源没有「原始行」这个概念）。',
   'hub.lg.role.user': '用户',
   'hub.lg.role.assistant': '助手',
+  'hub.lg.role.thinking': '思考',
   'hub.lg.role.tool': '工具',
   'hub.lg.role.system': '系统',
 

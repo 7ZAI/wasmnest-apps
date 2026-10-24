@@ -2085,6 +2085,53 @@ describe('A4 SessionLogsTab：查询 / 重置 / 翻页 / 详情 / 原始页签',
     w.unmount()
   })
 
+  // pi 对话还原：user 消息的图片附件以 `[non-text:image]` 占位进 wire，
+  // user / system 行与工具卡身同走本地化（此前只有工具卡身接 t）
+  it('user 行的非文本块占位走 i18n key（pi 图片附件不再静默消失）', async () => {
+    const w = mountComponent(SessionLogsTab, {
+      usage: usageStub({
+        openedSession: ref(
+          openedWithMessages([{ role: 'user', text: '看这张图\n[non-text:image]', ts: 1 }]),
+        ) as never,
+      }),
+    })
+    await flushPromises()
+    const body = w.get('.ah-msg.role-user .ah-msg-text').text()
+    expect(body).toContain('看这张图')
+    expect(body).toContain('hub.lg.nonTextBlock(kind=image)')
+    expect(body).not.toContain('[non-text:image]')
+    w.unmount()
+  })
+
+  // ------ pi 对话还原：思考行（thinking） ------
+
+  // pi TUI 口径：thinking 只给占位、点开才展开——不看长度恒默认收起，
+  // 与助手正文的 500 字阈值无关（短思考也收起，不与正文抢注意力）
+  it('思考行不看长度恒默认收起，展开/收起可控，且不进 markdown 容器', async () => {
+    const w = mountComponent(SessionLogsTab, {
+      usage: usageStub({
+        openedSession: ref(
+          openedWithMessages([
+            { role: 'thinking', text: '**草稿**推理', ts: 1 },
+            { role: 'assistant', text: '回答', ts: 2 },
+          ]),
+        ) as never,
+      }),
+    })
+    await flushPromises()
+    const el = w.get('[data-testid="lg-msg-thinking"]')
+    expect(el.classes()).toContain('is-collapsed')
+    expect(el.text()).toContain('**草稿**推理')
+    // 思考行是草稿推理：不排版（markdown 容器只有 assistant 行一个）
+    expect(w.findAll('.ah-md')).toHaveLength(1)
+    // 恒给展开控件（短思考也收起）
+    expect(w.findAll('.ah-msg-expand')).toHaveLength(1)
+    await w.get('.ah-msg-expand').trigger('click')
+    await flushPromises()
+    expect(w.get('[data-testid="lg-msg-thinking"]').classes()).not.toContain('is-collapsed')
+    w.unmount()
+  })
+
   // 残留歧义（无法完全消除）：工具输出是不可信文本，若 agent 输出里恰好出现
   // `[non-text:x]` 字面量，它会被当占位本地化。这里把真实行为精确钉住——
   // **只有 token 那一组被替换，其余字符一字不改**。

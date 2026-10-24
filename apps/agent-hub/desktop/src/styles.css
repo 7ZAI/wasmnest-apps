@@ -2968,6 +2968,27 @@
   padding: 10px 14px;
 }
 
+/* 思考（pi）：弱化虚线框 + 斜体，不与正文抢注意力（pi TUI 口径：
+   thinking 默认隐藏、展开后弱化呈现；折叠预览复用 .is-collapsed 3 行 clamp） */
+.ah-msg.role-thinking {
+  align-self: flex-start;
+  align-items: flex-start;
+  max-width: 78%;
+}
+
+.ah-msg.role-thinking .ah-msg-body {
+  background: transparent;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-button);
+  padding: 6px 10px;
+}
+
+.ah-msg.role-thinking .ah-msg-text {
+  font-size: var(--font-size-tag);
+  font-style: italic;
+  color: var(--ah-text-data);
+}
+
 /* 工具：全宽紧凑卡片（左侧竖条区分），正文等宽小字 */
 .ah-msg.role-tool {
   align-self: stretch;

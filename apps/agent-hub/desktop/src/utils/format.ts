@@ -134,8 +134,11 @@ type Translate = (key: string, params?: Record<string, unknown>) => string
  * **为什么整组替换而不是「包含即替换」**：工具输出是不可信文本，若 agent 输出里恰好
  * 出现 `[non-text:x]` 字面量，只有「整组匹配」才不会被误当占位改写——宁可漏报，
  * 不可篡改真实输出。
+ *
+ * 调用面：工具卡身（`splitToolText`）之外，user / system 行也走本函数——
+ * pi 对话还原后 user 消息的图片附件同样以 `[non-text:<kind>]` 占位进 wire。
  */
-function renderNonTextBlocks(text: string, t: Translate): string {
+export function renderNonTextBlocks(text: string, t: Translate): string {
   if (!text.includes('[non-text')) return text
   return text.replace(
     NON_TEXT_TOKEN_RE,

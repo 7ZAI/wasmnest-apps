@@ -124,7 +124,7 @@ const NON_TEXT_KIND_OK: fn(char) -> bool =
 /// ① token 形状——否则 `kind` 里带 `]` / 换行能伪造出第二个 token；
 /// ② 语义诚实——「过滤非法字符」会把 `x][non-text:evil` 变成看起来像类型名的
 ///    `non-textevil`，宁可退化成无 kind 形态也不谎报类型。
-fn non_text_placeholder(kind: &str) -> String {
+pub(super) fn non_text_placeholder(kind: &str) -> String {
     if kind.is_empty() || kind.len() > 40 || !kind.chars().all(NON_TEXT_KIND_OK) {
         return NON_TEXT_TOKEN_GENERIC.to_string();
     }

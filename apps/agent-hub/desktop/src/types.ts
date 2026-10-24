@@ -741,10 +741,15 @@ export interface UsageSessionPage {
   limit: number
 }
 
-/** 归一事件（read-usage-session 返回行；tokens 仅助手事件携带） */
+/**
+ * 归一事件（read-usage-session 返回行；tokens 仅助手事件携带）
+ *
+ * `thinking` 角色由 pi 适配器产出（assistant content 的 thinking 块独立成
+ * 事件，对话还原口径对齐 pi TUI：默认折叠、弱化样式）；其余三家不产出。
+ */
 export interface NormalizedEventView {
   ts: number | null
-  role: 'user' | 'assistant' | 'tool' | 'system'
+  role: 'user' | 'assistant' | 'thinking' | 'tool' | 'system'
   text: string
   model: string | null
   /** 工具事件为 true（claude tool_result.is_error / pi toolResult.isError）；非工具事件缺省 */

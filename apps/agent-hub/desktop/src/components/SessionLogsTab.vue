@@ -26,6 +26,7 @@ import {
   formatTokens,
   looksTruncated,
   RAW_LINE_COLLAPSE_CHARS,
+  renderNonTextBlocks,
   splitToolText,
 } from '../utils/format'
 import { markdownPlainPreview, renderMarkdown } from '../utils/markdown'
@@ -454,26 +455,31 @@ watch(opened, () => {
 /**
  * 聊天视图的行模型（一次算全：工具卡切片 + 折叠阈值 + markdown 正文 + 截断提示）
  *
- * 四条展示规则都落在这里，模板只做渲染：
+ * 展示规则都落在这里，模板只做渲染：
  * - **折叠**：助手正文按 500 字、工具卡身按 400 字（工具输出上限 1000，见 format.ts）；
- *   超阈值默认收起，切换会话由上方 watch 重置。
- * - **markdown**：只渲染助手正文（用户行是「我说的话」、工具行是命令原文，都不该排版）。
- *   折叠态给剥标记的纯文本——CSS line-clamp 只对纯文本可靠（块级子元素上
- *   `-webkit-line-clamp` 会数不准行），展开态才产出结构化 HTML。
+ *   超阈值默认收起，切换会话由下方 watch 重置。思考行（pi）**不看长度恒默认收起**
+ *   （pi TUI 口径：thinking 只给「Thinking...」占位，点开才展开），展开态弱化呈现。
+ * - **markdown**：只渲染助手正文（用户行是「我说的话」、工具行是命令原文、思考行
+ *   是草稿推理，都不该排版）。折叠态给剥标记的纯文本——CSS line-clamp 只对纯文本
+ *   可靠（块级子元素上 `-webkit-line-clamp` 会数不准行），展开态才产出结构化 HTML。
+ * - **占位本地化**：非文本块占位 token（pi 图片附件 `[non-text:image]` 等）在工具卡身
+ *   （splitToolText 内）与 user / system 行都按当前语言渲染。
  * - **截断提示**：guest 在上限处补省略号收尾，这里据此提示「完整原文见原始 JSONL」。
- * - **空泡丢弃**：pi 每一轮都会写一条 `content: []` 的空助手消息（带空 usage 对象），
- *   实测单会话 58/83 条——渲染出来就是一串「助手 / 模型 / ↑0 ↓0 ⚡0 +0」的噪音气泡。
- *   正文空且五项 token 全为 0 的助手行整条不渲染；零 token 行本身也不再出
+ * - **空泡丢弃**：正文空且五项 token 全为 0 的助手行整条不渲染（pi 纯工具/纯思考轮
+ *   的空泡已在 guest 侧不再产出，此处是历史数据兜底）；零 token 行本身也不再出
  *   （token 明细只在真有量时才有信息，“0 0 0 0” 只会让人以为统计坏了）。
  */
 const chatRows = computed(() => {
   const events = opened.value?.events ?? []
   return events
     .map((e, i) => {
-      // 传入 t：工具卡身里的非文本块占位 token（`[non-text:image]`）按当前语言本地化
+      // 传入 t：非文本块占位 token（`[non-text:image]`）按当前语言本地化
       const card = e.role === 'tool' ? splitToolText(e.text, t) : null
-      const collapsible =
-        e.role === 'assistant'
+      // 思考行恒默认收起（不看长度）；其余角色按阈值
+      const isThinking = e.role === 'thinking'
+      const collapsible = isThinking
+        ? e.text.trim().length > 0
+        : e.role === 'assistant'
           ? e.text.length > COLLAPSE_THRESHOLD_CHARS
           : card
             ? card.body.length > COLLAPSE_THRESHOLD_TOOL_CHARS
@@ -486,7 +492,9 @@ const chatRows = computed(() => {
           : renderMarkdown(e.text)
         : card
           ? card.body
-          : e.text
+          : isThinking
+            ? e.text
+            : renderNonTextBlocks(e.text, t)
       const truncated = looksTruncated(e.text)
       const tokens = e.tokens
       const hasTokens =
@@ -944,12 +952,13 @@ function toggleExpand(i: number) {
                     data-testid="lg-msg-md"
                     v-html="row.bodyText"
                   ></div>
-                  <!-- 工具卡身 / 用户 / 系统：纯文本（命令原文不该排版） -->
+                  <!-- 工具卡身 / 用户 / 系统 / 思考：纯文本（命令原文与草稿推理不该排版） -->
                   <div
                     v-else-if="row.bodyText"
                     :id="msgId(row.i)"
                     class="ah-msg-text"
                     :class="{ 'is-collapsed': row.collapsed }"
+                    :data-testid="row.e.role === 'thinking' ? 'lg-msg-thinking' : undefined"
                   >{{ row.bodyText }}</div>
                   <!-- 模型输出 / 工具卡身折叠：超阈值默认收起，点击展开/收起 -->
                   <button

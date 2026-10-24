@@ -502,6 +502,7 @@ const en: MessageSchema = {
   'hub.lg.noRaw': 'No raw JSONL for this session (SQLite sources have no raw lines).',
   'hub.lg.role.user': 'User',
   'hub.lg.role.assistant': 'Assistant',
+  'hub.lg.role.thinking': 'Thinking',
   'hub.lg.role.tool': 'Tool',
   'hub.lg.role.system': 'System',
 

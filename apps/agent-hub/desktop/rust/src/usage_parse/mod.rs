@@ -54,6 +54,9 @@ pub(crate) use types::{ModelUsage, NormalizedEvent, ParsedSession};
 /// 事件角色（wire 形状小写，与前端 NormalizedEvent.role 对应）
 pub(crate) const ROLE_USER: &str = "user";
 pub(crate) const ROLE_ASSISTANT: &str = "assistant";
+/// 思考事件（pi assistant content 的 thinking 块；前端默认折叠 + 弱化样式，
+/// 对齐 pi TUI 的 thinking 显隐口径。claude/codex/opencode 不产出该角色）
+pub(crate) const ROLE_THINKING: &str = "thinking";
 pub(crate) const ROLE_TOOL: &str = "tool";
 pub(crate) const ROLE_SYSTEM: &str = "system";
 
