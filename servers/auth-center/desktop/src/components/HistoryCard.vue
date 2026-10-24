@@ -120,7 +120,6 @@ onMounted(refresh)
         </button>
       </div>
     </div>
-    <p class="ac-hint">{{ t('history.hint') }}</p>
 
     <p v-if="devicesError" class="ac-error" role="alert" data-testid="auth-center-history-devices-error">
       {{ t('error.body', { message: devicesError }) }}

@@ -7,7 +7,7 @@
  * （`consumers.ts`）+ 宿主 `plugin_list_loaded` 运行态。
  *
  * **注册已接管**（issue #6 切换）：本插件在 activate 末尾注册为认证中心，
- * `/api/auth/*` 也由本插件登记；BedCode 已同批去注册。顶部横幅按真实三态呈现——
+ * `/api/auth/*` 也由本插件登记；BedCode 已同批去注册。就位状态卡按真实三态呈现——
  * 已就位 / 确知未就位（带原因）/ 读不到，不用固定文案冒充状态。
  *
  * 失败语义（issue #6 D3）：读不到就落 `unknown` 三态 + 原因，保留重试；不把
@@ -40,12 +40,6 @@ const state = computed<CenterState>(() => {
 })
 
 const stateLabel = computed(() => t(`status.${state.value}`))
-const stateHint = computed(() => t(`status.${state.value}.hint`))
-/** 顶部横幅按真实三态取文案：只有「首次加载中」才显示读取中，失败落 unknown */
-const bannerText = computed(() => {
-  if (!status.value && !error.value) return t('banner.loading')
-  return t(`banner.${state.value}`)
-})
 
 /** 缺失字段一律 `—`（不是 0 / 空串） */
 const reasonText = computed(() => status.value?.reason || t('status.none'))
@@ -100,8 +94,6 @@ onMounted(load)
     </header>
 
     <main class="ac-wrap ac-main">
-      <p class="ac-banner" data-testid="auth-center-banner">{{ bannerText }}</p>
-
       <section class="ac-card" data-testid="auth-center-status">
         <div class="ac-card-head">
           <h2 class="ac-h2">{{ t('status.title') }}</h2>
@@ -119,7 +111,6 @@ onMounted(load)
             <span class="ac-dot" aria-hidden="true"></span>
             <span>{{ stateLabel }}</span>
           </p>
-          <p class="ac-hint" data-testid="auth-center-state-hint">{{ stateHint }}</p>
 
           <dl class="ac-meta">
             <div>
@@ -147,7 +138,6 @@ onMounted(load)
 
       <section class="ac-card" data-testid="auth-center-methods">
         <h2 class="ac-h2">{{ t('methods.title') }}</h2>
-        <p class="ac-hint">{{ t('methods.hint') }}</p>
         <ul v-if="methods.length > 0" class="ac-methods">
           <li
             v-for="method in methods"

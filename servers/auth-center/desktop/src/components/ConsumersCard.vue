@@ -106,7 +106,6 @@ onMounted(load)
         </button>
       </div>
     </div>
-    <p class="ac-hint">{{ t('consumers.hint') }}</p>
 
     <p v-if="error" class="ac-error" role="alert" data-testid="auth-center-consumers-error">
       {{ t('error.body', { message: error }) }}

@@ -3,8 +3,8 @@
  * 入场密钥代次卡片（`auth-center.keys.status` / `.rotate`）
  *
  * 只展示**代次标识**（`g<n>`），永不展示密钥材料（凭据红线：`kid` 是代次号，
- * 不是密钥片段）。轮换的语义是「换签发密钥 + 上一代留在宽限期继续验签」，
- * 不撤销既有 token——页面必须把这句话写在按钮旁边，否则用户会以为轮换 = 强制所有设备重配。
+ * 不是密钥片段）。轮换的语义由「当前代次 + 上一代」两行数据本身呈现：
+ * 上一代仍在场 = 仍参与验签；不写解释性文案。
  */
 import { computed, inject, onMounted, ref } from 'vue'
 import type { AuthCenterContext } from '../appContext'
@@ -69,7 +69,6 @@ onMounted(load)
         </button>
       </div>
     </div>
-    <p class="ac-hint">{{ t('keys.hint') }}</p>
 
     <dl class="ac-meta">
       <div>

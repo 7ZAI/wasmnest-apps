@@ -41,6 +41,5 @@ onMounted(async () => {
       <span class="ac-dot" aria-hidden="true"></span>
       <span>{{ t(`status.${state}`) }}</span>
     </p>
-    <p class="ac-preview-hint">{{ t('preview.hint') }}</p>
   </div>
 </template>

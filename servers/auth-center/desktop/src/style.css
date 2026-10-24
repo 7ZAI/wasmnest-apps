@@ -92,16 +92,6 @@
   padding-bottom: 40px;
 }
 
-.ac-banner {
-  margin: 0;
-  padding: 12px 14px;
-  border-radius: var(--radius-card);
-  background: var(--bg-card);
-  border-left: 3px solid var(--color-primary);
-  color: var(--text-secondary);
-  font-size: calc(13px * var(--ui-scale));
-}
-
 .ac-card {
   padding: 18px 20px 20px;
   border-radius: var(--radius-card);
@@ -525,12 +515,6 @@
 
 .ac-preview-state.is-unknown .ac-dot {
   background: var(--color-danger-ink);
-}
-
-.ac-preview-hint {
-  margin: 0;
-  color: var(--text-tertiary);
-  font-size: calc(11px * var(--ui-scale));
 }
 
 @media (max-width: 720px) {

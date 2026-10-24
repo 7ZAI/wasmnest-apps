@@ -137,7 +137,6 @@ onMounted(refresh)
         {{ t('refresh') }}
       </button>
     </div>
-    <p class="ac-hint">{{ t('pairing.hint') }}</p>
 
     <div class="ac-split">
       <div class="ac-block">

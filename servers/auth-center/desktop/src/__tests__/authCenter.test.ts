@@ -120,7 +120,6 @@ describe('AuthCenterView 就位三态', () => {
     expect(wrapper.get('[data-testid="auth-center-owner"]').text()).toContain(
       'com.wasmnest.auth-center',
     )
-    expect(wrapper.get('[data-testid="auth-center-banner"]').text()).toContain('已就位')
     expect(
       wrapper.get('[data-testid="auth-center-method-pairing_code"]').attributes('data-available'),
     ).toBe('yes')
@@ -174,7 +173,6 @@ describe('AuthCenterView 就位三态', () => {
     expect(wrapper.get('[data-testid="auth-center-state"]').attributes('data-state')).toBe(
       'unknown',
     )
-    expect(wrapper.get('[data-testid="auth-center-banner"]').text()).toContain('读不到')
     expect(wrapper.get('[data-testid="auth-center-error"]').text()).toContain('host not ready')
 
     await wrapper.get('[data-testid="auth-center-retry"]').trigger('click')
@@ -184,7 +182,6 @@ describe('AuthCenterView 就位三态', () => {
     expect(wrapper.get('[data-testid="auth-center-state"]').attributes('data-state')).toBe(
       'registered',
     )
-    expect(wrapper.get('[data-testid="auth-center-banner"]').text()).toContain('已就位')
     expect(wrapper.find('[data-testid="auth-center-error"]').exists()).toBe(false)
   })
 
