@@ -58,3 +58,6 @@ desktop.ini
 
 # 平台 SDK 本地 link 状态（scripts/link-platform-sdk.mjs 写入，提交前 unlink）
 .platform-sdk-link.json
+
+# 会话临时 scratch（不入库）
+.scratch/
