@@ -761,8 +761,8 @@ pub(crate) fn enqueue(
     }
 }
 
-/// 发送入店（宿主只回传输句柄）——最小条目占位 + retryMeta，
-/// 引擎事件到达后按 batchId 补全文件清单/大小/时间戳
+/// 发送入店（宿主只回传输句柄）——最小条目占位 + retryMeta（文件清单取源路径，
+/// 引擎 send 事件不带 files），引擎事件到达后按 batchId 补全大小/时间戳
 fn insert_send_entry(
     h: &WasmHost,
     node_id: &str,
@@ -780,13 +780,23 @@ fn send_row(
     meta: RetryMeta,
     detail: Option<String>,
 ) -> TransferEntry {
+    // 发送批的文件名只有插件知道（引擎 send 事件不带 files）：不在这里落源清单，
+    // 任务卡与历史会一直显示占位名 "file"。用回放凭证里的路径建最小文件项，
+    // 单文件大小与批总量由首个 progress 事件补正。
+    let files: Vec<serde_json::Value> = match &meta {
+        RetryMeta::Send { paths } => paths
+            .iter()
+            .map(|p| serde_json::json!({ "path": p, "size": 0 }))
+            .collect(),
+        RetryMeta::Pull { .. } => vec![],
+    };
     TransferEntry {
         batch_id: batch_id.to_string(),
         node_id: node_id.to_string(),
         peer_name: String::new(),
         direction: "send".to_string(),
         status: status.to_string(),
-        files: vec![],
+        files,
         total_bytes: 0,
         transferred_bytes: 0,
         rate_bps: 0.0,
@@ -874,13 +884,19 @@ pub(crate) fn pause_task(h: &WasmHost, args: &serde_json::Value) -> Result<serde
     Ok(serde_json::Value::Bool(true))
 }
 
-/// 恢复单个暂停任务：宿主入队并经并发闸门启动（接收端按已写偏移续传）。
+/// 恢复单个暂停任务：调宿主续流（接收端按已写偏移续传）。
+///
+/// 宿主调用成功后本端乐观标记 paused → running 并派发视图：引擎只在收到对端
+/// Resume 帧时直推 `resumed` 事件，本端命令不回环；不写回会让任务卡永久停在
+/// 「已暂停」，再次点恢复也无可见变化。
 /// 返回 `true` 字面量（口径同 [`pause_task`]）。
 pub(crate) fn resume_task(h: &WasmHost, args: &serde_json::Value) -> Result<serde_json::Value> {
     let batch_id =
         args.get("taskId").and_then(|v| v.as_str()).unwrap_or_default().to_string();
     h.peer_resume_transfer(&batch_id)?;
-    // 状态推进由引擎快照事件（pending → running）接管，本地无需乐观改写
+    let mut guard = ensure_loaded(h);
+    let changed = transfer_store::mark_resumed(&mut guard, &batch_id);
+    flush(h, guard, changed);
     Ok(serde_json::Value::Bool(true))
 }
 
@@ -896,13 +912,22 @@ pub(crate) fn resume_all_tasks(h: &WasmHost) -> Result<serde_json::Value> {
             .map(|e| e.batch_id.clone())
             .collect()
     };
-    let mut resumed = 0usize;
+    let mut resumed_ids: Vec<String> = Vec::new();
     for batch_id in paused_ids {
         if h.peer_resume_transfer(&batch_id).is_ok() {
-            resumed += 1;
+            resumed_ids.push(batch_id);
         }
     }
-    Ok(serde_json::json!({ "resumed": resumed }))
+    // 与单条恢复同口径的乐观落态（引擎本端不回推 resumed 事件）
+    let changed = {
+        let mut guard = ensure_loaded(h);
+        resumed_ids.iter().filter(|id| transfer_store::mark_resumed(&mut guard, id)).count() > 0
+    };
+    if changed {
+        let guard = ensure_loaded(h);
+        flush(h, guard, true);
+    }
+    Ok(serde_json::json!({ "resumed": resumed_ids.len() }))
 }
 
 /// 重试 = 批元数据回放重调原语：
@@ -1437,6 +1462,27 @@ mod tests {
         let ids: Vec<&str> =
             super::history_view(&store).iter().map(|e| e.batch_id.as_str()).collect();
         assert_eq!(ids, vec!["b-new", "b-old"]);
+    }
+
+    /// 发送批行的展示名来源：引擎 send 事件不带 files，行必须在入店时用回放
+    /// 凭证的源路径落最小文件项，否则任务卡/历史永远显示占位名 "file"。
+    #[test]
+    fn send_row_carries_source_file_names_for_display() {
+        let row = super::send_row(
+            "aa",
+            "b1",
+            "running",
+            transfer_store::RetryMeta::Send {
+                paths: vec!["/home/u/a.bin".into(), "/home/u/b.bin".into()],
+            },
+            None,
+        );
+        assert_eq!(row.files.len(), 2);
+        assert_eq!(row.files[0]["path"], "/home/u/a.bin");
+        assert_eq!(row.files[1]["path"], "/home/u/b.bin");
+        // 单文件大小与批总量由首个 progress 事件补正（目录展开前本端未知）
+        assert_eq!(row.files[0]["size"], 0);
+        assert_eq!(row.total_bytes, 0);
     }
 
     /// list-remote 根/相对路径解析：dirId 权威、根内同名子目录不误剥离、

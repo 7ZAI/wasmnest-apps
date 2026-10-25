@@ -272,6 +272,24 @@ fn mark_paused_hits_running_only_and_keeps_progress() {
 }
 
 #[test]
+fn mark_resumed_hits_paused_only_and_keeps_progress() {
+    // 本端恢复只写数据面帧、引擎不回推 resumed 事件，插件必须自行乐观落态；
+    // 否则任务卡永久停在暂停态（真机：恢复后按钮不变、再次点击无效果）
+    let mut store = vec![
+        entry(dto("pz", "send", "paused", 1)),
+        entry(dto("run", "send", "running", 2)),
+        entry(dto("done", "send", "completed", 3)),
+    ];
+    store[0].transferred_bytes = 2048;
+    assert!(mark_resumed(&mut store, "pz"));
+    assert!(!mark_resumed(&mut store, "run"), "非暂停态不改写");
+    assert!(!mark_resumed(&mut store, "done"), "终态不得复活");
+    assert!(!mark_resumed(&mut store, "zz"));
+    assert_eq!(store[0].status, "running");
+    assert_eq!(store[0].transferred_bytes, 2048, "恢复保留断点偏移");
+}
+
+#[test]
 fn active_views_include_paused_send_entries() {
     // paused 显示在「正在发送」队列（用户可继续/取消）
     let store = vec![
