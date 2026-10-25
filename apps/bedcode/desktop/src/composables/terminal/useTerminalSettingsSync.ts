@@ -119,7 +119,7 @@ export function useTerminalSettingsSync(
       })
       bgImageUrl.value = url
     } catch (e) {
-      logger.error('[terminal-session] Failed to resolve background image URL:', e)
+      logger.error('[bedcode] Failed to resolve background image URL:', e)
       bgImageUrl.value = ''
     }
   }

@@ -48,17 +48,17 @@ use crate::read_primary_target;
 
 // ==================== 事件名（前端 listen；payload 形状与退役前逐字段一致） ====================
 //
-// 命名空间用短名 `terminal-session`（`plugin:terminal-session:<action>`，与
+// 命名空间用短名 `bedcode`（`plugin:bedcode:<action>`，与
 // `plugin:file-transfer:*` 同约定），**不能**直接拼插件 id：`PLUGIN_ID` 是
-// reverse-DNS（`com.wasmnest.terminal-session`），Tauri 事件名校验只允许
+// reverse-DNS（`com.wasmnest.bedcode`），Tauri 事件名校验只允许
 // alphanumeric / `-` / `/` / `:` / `_`，`.` 会被拒绝——宿主 `emit_event` 发不出、
 // 前端 `listen` 抛 `invalid args event`，状态事件静默断链（终端输入被 subscribed
 // 门控全拒）。契约锁见文件末尾 `event_names_tauri_legal_and_match_frontend_contract`。
 
 /// 状态变更事件（phase / detail / retry_in_ms）
-pub(crate) const EVENT_TERMINAL_STATE: &str = "plugin:terminal-session:terminal-state";
+pub(crate) const EVENT_TERMINAL_STATE: &str = "plugin:bedcode:terminal-state";
 /// 重锚事件（重放世代切换 / 环淘汰：前端清屏 + 本地计数归零 + 一次性提示）
-pub(crate) const EVENT_TERMINAL_RESYNC: &str = "plugin:terminal-session:terminal-resync";
+pub(crate) const EVENT_TERMINAL_RESYNC: &str = "plugin:bedcode:terminal-resync";
 
 /// prewarm 闲置回收的软上限（#14）：宿主出站 WS 上限 32，反复 prewarm 未进页
 /// 的会话会累积闲置连接直至建连直接失败。在册条数逼近该值时，prewarm 先回收
@@ -845,11 +845,11 @@ mod tests {
 
     /// 事件名契约锁（2026-10-15 回归）：宿主 `emit_event` 原样透传事件名、无映射，
     /// 且 Tauri 事件名校验只允许 alphanumeric / `-` / `/` / `:` / `_`。插件 id 是
-    /// reverse-DNS（`com.wasmnest.terminal-session`），直接拼进事件名会含 `.`：
+    /// reverse-DNS（`com.wasmnest.bedcode`），直接拼进事件名会含 `.`：
     /// 宿主 `app_handle.emit()` 被拒（只记 error，guest 收不到失败），前端
     /// `listen()` 抛 `invalid args event` —— 终端订阅状态永不到达，
     /// `buffer.subscribed` 恒 false，任何输入都被 `sendInput` 门控拒绝。
-    /// 故事件名用短命名空间 `plugin:terminal-session`，并与 `store.ts` 逐字一致。
+    /// 故事件名用短命名空间 `plugin:bedcode`，并与 `store.ts` 逐字一致。
     #[test]
     fn event_names_tauri_legal_and_match_frontend_contract() {
         for name in [EVENT_TERMINAL_STATE, EVENT_TERMINAL_RESYNC] {

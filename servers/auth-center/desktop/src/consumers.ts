@@ -14,7 +14,7 @@ import type { AuthCenterConsumer, HostPluginInfo } from './types'
 
 export const AUTH_CENTER_CONSUMERS: readonly AuthCenterConsumer[] = [
   {
-    id: 'com.wasmnest.terminal-session',
+    id: 'com.wasmnest.bedcode',
     name: 'BedCode',
     surfaces: ['device-center', 'trust', 'history', 'keys'],
   },

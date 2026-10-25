@@ -33,7 +33,7 @@ import { PLATFORM_UI_SCALE } from '@/utils/terminalInitialSize'
 
 /** 插件渲染端字体栈真源（宿主不 import 插件，此处按文件读取做一致性锁） */
 const PLUGIN_THEMES_PATH = 'src/utils/terminal/terminalThemes.ts'
-// desktop-host-frontend-downsink（2026-10-17）：宿主前端整体下沉 terminal-session
+// desktop-host-frontend-downsink（2026-10-17）：宿主前端整体下沉 bedcode
 // wasm-app，旧「宿主」实现 src/utils/terminalInitialSize.ts 随宿主 src/ 退役，
 // 现已与渲染端同处 app 工程（@/utils/terminalInitialSize）
 const HOST_INITIAL_SIZE_PATH = 'src/utils/terminalInitialSize.ts'

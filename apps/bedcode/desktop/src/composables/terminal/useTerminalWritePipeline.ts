@@ -200,7 +200,7 @@ export function useTerminalWritePipeline(
         // 历史头部被环形缓冲淘汰：用户无感知（对齐成熟终端不提示），仅留
         // 后台日志便于排查「会话开头输出缺失」
         options.logTruncated(
-          `[terminal-session] 终端历史已被环形缓冲截断，会话开头输出不可用`,
+          `[bedcode] 终端历史已被环形缓冲截断，会话开头输出不可用`,
           minOffset,
         )
       },

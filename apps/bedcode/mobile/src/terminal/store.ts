@@ -33,7 +33,7 @@ import { logger, events, invokeTerminal } from './host'
 
 // ==================== Types ====================
 
-/** Rust 侧链路状态快照（terminal-session.get-state 响应；与插件 Rust 域同形） */
+/** Rust 侧链路状态快照（bedcode.get-state 响应；与插件 Rust 域同形） */
 export interface TerminalLinkState {
   sessionId: string
   phase: string
@@ -143,16 +143,16 @@ const PHASE_RANK: Record<SessionBuffer['phase'], number> = {
 // ==================== Store ====================
 
 /**
- * 终端状态事件名（事件源 = `com.wasmnest.terminal-session` 插件 emit）。
+ * 终端状态事件名（事件源 = `com.wasmnest.bedcode` 插件 emit）。
  *
- * 命名空间用短名 `terminal-session`（`plugin:terminal-session:<action>`，与
+ * 命名空间用短名 `bedcode`（`plugin:bedcode:<action>`，与
  * `plugin:file-transfer:*` 同约定），**不能**直接用插件 id：Tauri 事件名只允许
  * alphanumeric / `-` / `/` / `:` / `_`，reverse-DNS id 里的 `.` 会被 Tauri 拒绝
  * （emit 静默失败 + `listen` 抛 `invalid args event`）。
  */
-const TERMINAL_STATE_EVENT = 'plugin:terminal-session:terminal-state'
+const TERMINAL_STATE_EVENT = 'plugin:bedcode:terminal-state'
 /** 重锚事件名（ring_resync / 重订阅回包） */
-const TERMINAL_RESYNC_EVENT = 'plugin:terminal-session:terminal-resync'
+const TERMINAL_RESYNC_EVENT = 'plugin:bedcode:terminal-resync'
 
 /**
  * 订阅确认看门狗（ms）：invoke 成功但 `subscribed` 迟迟不到（桌面回帧发送失败 /
@@ -203,7 +203,7 @@ export const useTerminalBufferStore = defineStore('terminalBuffer', () => {
   /**
    * sessionId → 页面通道登记落定信号（markPageEntered 写入，settle 即删）
    *
-   * 为什么需要：通道登记（`terminal_page_subscribe`）与订阅（`terminal-session.subscribe`）
+   * 为什么需要：通道登记（`terminal_page_subscribe`）与订阅（`bedcode.subscribe`）
    * 是两条独立异步调用——若订阅先落地，桌面端会立即从环窗口起点**整段重放**，
    * 而宿主的窄转发表里还没有通道 → 全部重放字节被 `dropped_no_channel` 丢弃；
    * 此时插件已回 `subscribed`（subscribe_ack 置真），订阅意向去重会阻止重发，
@@ -597,7 +597,7 @@ export const useTerminalBufferStore = defineStore('terminalBuffer', () => {
   /** 主动拉取 Rust 链路状态并对账（订阅/刷新路径的收敛兜底） */
   async function reconcileState(sessionId: string): Promise<void> {
     try {
-      const state = (await invokeTerminal('terminal-session.get-state', { sessionId })) as TerminalLinkState
+      const state = (await invokeTerminal('bedcode.get-state', { sessionId })) as TerminalLinkState
       if (!buffers.has(sessionId)) return
       applyLinkState(sessionId, state)
     } catch (e: any) {
@@ -713,7 +713,7 @@ export const useTerminalBufferStore = defineStore('terminalBuffer', () => {
       }
     }
     let invoked = true
-    await invokeTerminal('terminal-session.subscribe', { sessionId }).catch((e) => {
+    await invokeTerminal('bedcode.subscribe', { sessionId }).catch((e) => {
       logger.warn(`[terminalBuffer] subscribe ${sessionId} failed:`, e)
       invoked = false
     })
@@ -759,7 +759,7 @@ export const useTerminalBufferStore = defineStore('terminalBuffer', () => {
   function ackRendered(sessionId: string) {
     const buffer = buffers.get(sessionId)
     if (!buffer || buffer.lastRenderedOffset === null) return
-    invokeTerminal('terminal-session.ack-rendered', {
+    invokeTerminal('bedcode.ack-rendered', {
       sessionId,
       offset: buffer.lastRenderedOffset,
     }).catch((e) => {
@@ -782,7 +782,7 @@ export const useTerminalBufferStore = defineStore('terminalBuffer', () => {
       stream.dispose()
     }
     // 段1 关闭连接：桌面环窗口保留输出，重进时重订阅回放补齐
-    invokeTerminal('terminal-session.unsubscribe', { sessionId }).catch((e) => {
+    invokeTerminal('bedcode.unsubscribe', { sessionId }).catch((e) => {
       logger.warn(`[terminalBuffer] unsubscribe ${sessionId} failed:`, e)
     })
   }
@@ -852,7 +852,7 @@ export const useTerminalBufferStore = defineStore('terminalBuffer', () => {
     knownPhases.delete(sessionId)
     subscribeRequestedAt.delete(sessionId)
     reconnectSince.delete(sessionId)
-    invokeTerminal('terminal-session.unsubscribe', { sessionId }).catch(() => {})
+    invokeTerminal('bedcode.unsubscribe', { sessionId }).catch(() => {})
     const buffer = buffers.get(sessionId)
     if (buffer) {
       buffer.subscribed = false
@@ -863,7 +863,7 @@ export const useTerminalBufferStore = defineStore('terminalBuffer', () => {
 
   /** 全部未订阅（设备断开时；Rust 链路全部关闭，重连后由页面重新订阅） */
   function markAllUnsubscribed() {
-    invokeTerminal('terminal-session.unsubscribe-all', {}).catch(() => {})
+    invokeTerminal('bedcode.unsubscribe-all', {}).catch(() => {})
     for (const sessionId of [...stopGraceTimers.keys()]) cancelStopGrace(sessionId)
     knownPhases.clear()
     for (const buffer of buffers.values()) {
@@ -913,7 +913,7 @@ export const useTerminalBufferStore = defineStore('terminalBuffer', () => {
       buffer.lastRenderedOffset = null
       buffer.receivedBytes = 0
     }
-    invokeTerminal('terminal-session.unsubscribe', { sessionId }).catch(() => {})
+    invokeTerminal('bedcode.unsubscribe', { sessionId }).catch(() => {})
   }
 
   /** 标记会话恢复运行：复位停止信念。**不在此订阅**——后台会话不得常拉，
@@ -933,7 +933,7 @@ export const useTerminalBufferStore = defineStore('terminalBuffer', () => {
     knownPhases.delete(sessionId)
     subscribeRequestedAt.delete(sessionId)
     reconnectSince.delete(sessionId)
-    invokeTerminal('terminal-session.remove', { sessionId }).catch(() => {})
+    invokeTerminal('bedcode.remove', { sessionId }).catch(() => {})
     buffers.delete(sessionId)
     realtimeHandlers.delete(sessionId)
     frameStats.delete(sessionId)
@@ -944,7 +944,7 @@ export const useTerminalBufferStore = defineStore('terminalBuffer', () => {
     knownPhases.clear()
     subscribeRequestedAt.clear()
     reconnectSince.clear()
-    invokeTerminal('terminal-session.unsubscribe-all', {}).catch(() => {})
+    invokeTerminal('bedcode.unsubscribe-all', {}).catch(() => {})
     buffers.clear()
     realtimeHandlers.clear()
     frameStats.clear()
@@ -1001,7 +1001,7 @@ export const useTerminalBufferStore = defineStore('terminalBuffer', () => {
       logger.warn(`[terminalBuffer] sendInput: session ${sessionId} not subscribed`)
       return false
     }
-    invokeTerminal('terminal-session.send-input', {
+    invokeTerminal('bedcode.send-input', {
       sessionId,
       data,
       specialKey: specialKey ?? null,

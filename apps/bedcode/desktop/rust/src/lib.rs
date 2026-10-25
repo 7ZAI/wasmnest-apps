@@ -1,7 +1,7 @@
 //! WasmNest Plugin (WASM, Desktop)
 //!
 //! 应用显示名 BedCode、目录 `wasm-apps/bedcode/`，插件 id 与 crate 名仍是
-//! `com.wasmnest.terminal-session` / `bedcode-plugin-terminal-session`（宿主按 id 寻址，不受改名影响）。
+//! `com.wasmnest.bedcode` / `bedcode-plugin-terminal-session`（宿主按 id 寻址，不受改名影响）。
 //!
 //! 把「谁能连 → 连上有什么 → 会话里跑什么」三域的产品语义收敛为单一权威插件
 //! （spec `.scratch/2026-09-19-terminal-session-plugin`）。
@@ -100,7 +100,7 @@ use pairing::qr::QrTokenManager;
 use std::sync::{Mutex, OnceLock};
 
 /// 插件互调 api 声明（ADR 0017）：trait 方法名 ↔ manifest.api 条目
-/// （`com.wasmnest.terminal-session.<method>`，`#[api(...)]` 覆盖为连字符名），宏在编译期
+/// （`com.wasmnest.bedcode.<method>`，`#[api(...)]` 覆盖为连字符名），宏在编译期
 /// 比对防漂移。
 ///
 /// api 面按域分组命名（spec D2「配对 / 信任 / 同意 / 会话 / 任务」）——票 05 落
@@ -769,7 +769,7 @@ fn resolve_endpoint_path(endpoint_id: &str) -> Option<String> {
 }
 
 impl WasmPlugin for SessionPlugin {
-    const ID: &'static str = "com.wasmnest.terminal-session";
+    const ID: &'static str = "com.wasmnest.bedcode";
 
     fn manifest() -> PluginManifest {
         // ADR-0005 单一真源：plugin.json（与 `#[plugin_api]` 防漂移比对同一份）
@@ -1961,7 +1961,7 @@ impl WasmPlugin for SessionPlugin {
             }
 
             // ==================== 票 16：HTTP 端点入口（path 段与旧插件逐字一致） ====
-            // 宿主 `ANY /api/plugin/com.wasmnest.terminal-session/{path}` 命中后调本命令，
+            // 宿主 `ANY /api/plugin/com.wasmnest.bedcode/{path}` 命中后调本命令，
             // `path` 即去掉前缀的相对段。分派表与 [`http_routes::ROUTES`]（ABI v29 单一
             // 事实源）同源（task::HTTP_ENDPOINTS + [BUSINESS_HTTP_ENDPOINTS] 等分派常量，
             // 契约用例锁死）。
@@ -2246,7 +2246,7 @@ mod tests {
     fn manifest_identity_matches_plugin_constants() {
         let manifest = SessionPlugin::manifest();
         assert_eq!(manifest.id, SessionPlugin::ID);
-        assert_eq!(manifest.id, "com.wasmnest.terminal-session");
+        assert_eq!(manifest.id, "com.wasmnest.bedcode");
         assert_eq!(manifest.rust_library, "bedcode_plugin_terminal_session");
         assert_eq!(env!("CARGO_PKG_NAME"), "bedcode-plugin-terminal-session");
     }
@@ -2395,7 +2395,7 @@ mod tests {
     fn invoke_command_status_roundtrips_manifest_and_rejects_unknown() {
         let status = SessionPlugin::invoke_command("session.status", serde_json::json!({}))
             .expect("session.status 可调用");
-        assert_eq!(status["plugin"], "com.wasmnest.terminal-session");
+        assert_eq!(status["plugin"], "com.wasmnest.bedcode");
         assert_eq!(
             status["domains"],
             serde_json::json!([

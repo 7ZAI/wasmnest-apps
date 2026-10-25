@@ -10,7 +10,7 @@
 //! - **桌面前端**：`host-events.emit`（Tauri 事件，事件名见 SDK
 //!   `EVENT_SESSION_*` 常量，插件前端经 `context.events.on` 订阅）；
 //! - **插件内部 / 跨插件消费者**：`host-bus.publish` **属主私有 topic**
-//!   `com.wasmnest.terminal-session::session:<kind>`（跨属主订阅被宿主总线门禁拒绝，
+//!   `com.wasmnest.bedcode::session:<kind>`（跨属主订阅被宿主总线门禁拒绝，
 //!   他人既订不到也伪投递不进）；
 //! - **移动端（WS）**：[`crate::ws_events::broadcast_event`]（向声明端点
 //!   `session-control` 的全体客户端广播，帧壳 `{"type":"event",...}`，载荷同形
@@ -42,7 +42,7 @@ use wasmnest_plugin_api::host::{HostBus, HostEvents, HostLog};
 use wasmnest_plugin_api::wasm_host::WasmHost;
 
 /// 属主插件 id（bus 私有 topic 的属主段；与 `SessionPlugin::ID` 同值）
-pub const PLUGIN_ID: &str = "com.wasmnest.terminal-session";
+pub const PLUGIN_ID: &str = "com.wasmnest.bedcode";
 
 // ==================== 载荷构造（纯函数，native 可测） ====================
 
@@ -217,7 +217,7 @@ mod tests {
         {
             assert_eq!(
                 owned_topic(PLUGIN_ID, EVENT_SESSION_CREATED),
-                "com.wasmnest.terminal-session::session:created"
+                "com.wasmnest.bedcode::session:created"
             );
         }
     }

@@ -1,5 +1,5 @@
 /**
- * BedCode（com.wasmnest.terminal-session）桌面端 E2E
+ * BedCode（com.wasmnest.bedcode）桌面端 E2E
  *
  * 跑法（应用仓根）：
  *   node scripts/e2e.mjs --app bedcode

@@ -250,7 +250,7 @@ const context = inject<PluginContext>('pluginContext')!
 /**
  * 翻译：经 `context.i18n.t` 自动补插件 ID 前缀（与插件其余组件同一模式）。
  *
- * 禁止改用 vue-i18n 的 `useI18n()`：插件文案注册时带 `com.wasmnest.terminal-session.`
+ * 禁止改用 vue-i18n 的 `useI18n()`：插件文案注册时带 `com.wasmnest.bedcode.`
  * 前缀（宿主 `context.i18n.registerMessages` 隔离机制），无前缀查询在宿主命名空间下
  * 查无此 key → 界面直接显示 key 原文（2026-09-26 修复）。
  */
@@ -325,12 +325,12 @@ const requestResizeImpl: ResizeRequester = async (sessionId, cols, rows, force) 
       await new Promise((resolve) => setTimeout(resolve, RESIZE_RETRY_DELAY_MS))
       const outcome = await invokeResize(sessionId, cols, rows, force)
       console.warn(
-        `[terminal-session] resize 首次失败、重试成功 session=${sessionId} ${cols}x${rows}: ${describeCommandError(e)}`,
+        `[bedcode] resize 首次失败、重试成功 session=${sessionId} ${cols}x${rows}: ${describeCommandError(e)}`,
       )
       return outcome
     } catch (e2) {
       console.warn(
-        `[terminal-session] resize 命令失败（已重试），回退 applied session=${sessionId} ${cols}x${rows}: ${describeCommandError(e2)}`,
+        `[bedcode] resize 命令失败（已重试），回退 applied session=${sessionId} ${cols}x${rows}: ${describeCommandError(e2)}`,
       )
       return { status: 'applied', canonical: { kind: 'desktop' } }
     }
@@ -468,7 +468,7 @@ function sendAck(sessionId: string): void {
     context.commands.execute('session.output.ack', { sessionId, offset }),
   ).catch((e) => {
     console.warn(
-      `[terminal-session] output ack failed session=${sessionId} offset=${offset}: ${describeCommandError(e)}`,
+      `[bedcode] output ack failed session=${sessionId} offset=${offset}: ${describeCommandError(e)}`,
     )
   })
 }
@@ -504,7 +504,7 @@ function noteParked(sessionId: string, unacked: number): void {
     parkedSince = now
     zombieWarned = false
     console.warn(
-      `[terminal-session] 输出背压：进入驻留 session=${sessionId} unacked=${unacked}`,
+      `[bedcode] 输出背压：进入驻留 session=${sessionId} unacked=${unacked}`,
     )
     return
   }
@@ -512,7 +512,7 @@ function noteParked(sessionId: string, unacked: number): void {
     zombieWarned = true
     // 新架构无订阅连接可回收：按旧语义继续拉取，仅告警暴露"长期不 ack"
     console.warn(
-      `[terminal-session] 输出背压超时（驻留 ${OUTPUT_PARK_ZOMBIE_MS}ms 未解除）session=${sessionId}，继续拉取等待 ack`,
+      `[bedcode] 输出背压超时（驻留 ${OUTPUT_PARK_ZOMBIE_MS}ms 未解除）session=${sessionId}，继续拉取等待 ack`,
     )
   }
 }
@@ -543,7 +543,7 @@ function logUnparkWatermarks(sessionId: string, parkedMs: number): void {
         : undefined
       if (!row) {
         console.info(
-          `[terminal-session] 输出背压：退出驻留 session=${sessionId} 驻留=${parkedMs}ms（无水位快照）`,
+          `[bedcode] 输出背压：退出驻留 session=${sessionId} 驻留=${parkedMs}ms（无水位快照）`,
         )
         return
       }
@@ -558,7 +558,7 @@ function logUnparkWatermarks(sessionId: string, parkedMs: number): void {
         truncatedCount?: number
       }
       console.info(
-        `[terminal-session] 输出背压：退出驻留 session=${sessionId} 驻留=${parkedMs}ms ` +
+        `[bedcode] 输出背压：退出驻留 session=${sessionId} 驻留=${parkedMs}ms ` +
           `unacked=${r.unacked ?? 0} pushed=${r.pushed ?? 0} acked=${r.acked ?? 0} ` +
           `驻留次数=${r.parkCount ?? 0} 抑制次数=${r.throttledPulls ?? 0} ` +
           `环淘汰=${r.truncatedCount ?? 0}`,
@@ -566,7 +566,7 @@ function logUnparkWatermarks(sessionId: string, parkedMs: number): void {
     })
     .catch((e) => {
       console.warn(
-        `[terminal-session] output watermarks failed session=${sessionId}: ${describeCommandError(e)}`,
+        `[bedcode] output watermarks failed session=${sessionId}: ${describeCommandError(e)}`,
       )
     })
 }
@@ -1013,7 +1013,7 @@ onMounted(async () => {
 
   // 渲染链路诊断（排查模糊/回退问题时日志可见 renderer 与 DPR）
   console.info(
-    `[terminal-session] renderer=${kernel.webglAddonRef.value ? 'webgl' : 'dom'} ` +
+    `[bedcode] renderer=${kernel.webglAddonRef.value ? 'webgl' : 'dom'} ` +
       `dpr=${window.devicePixelRatio} fontSize=${settings.fontSize.value} ` +
       `isLinux=${kernel.isLinux.value}`,
   )

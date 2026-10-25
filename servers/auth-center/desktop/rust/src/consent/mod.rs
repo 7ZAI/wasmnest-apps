@@ -18,7 +18,7 @@
 //! - 命令面 `auth-center.consent.decide`（与 bedcode `session.consent.decide` 同形，
 //!   供宿主闭环测试 / 调试直调与本 app 页面使用）。
 //! - 互调 api `com.wasmnest.auth-center.consent-decide` 已声明——消费方是 file-transfer
-//!   （搬迁前的契约是 `com.wasmnest.terminal-session.consent-decide`）。
+//!   （搬迁前的契约是 `com.wasmnest.bedcode.consent-decide`）。
 //!   **声明 ≠ 已切换**：消费方仍按旧名调 bedcode，改指必须与注册切换同一次发布，
 //!   否则中间任一时刻都会出现「调用方按旧名、提供方按新名」的静默断链。
 //!

@@ -29,18 +29,18 @@ vi.mock('@tauri-apps/api/event', () => ({
 
 /** 业务分组的标题序列（顺序与静态表一一对应：外观 100 → 配对 200 → 链路加密 300 → 会话 400） */
 const SECTION_TITLES = [
-  i18n.global.t('com.wasmnest.terminal-session.appearance.settings.title'),
-  i18n.global.t('com.wasmnest.terminal-session.pairing.settings.title'),
+  i18n.global.t('com.wasmnest.bedcode.appearance.settings.title'),
+  i18n.global.t('com.wasmnest.bedcode.pairing.settings.title'),
   i18n.global.t('settings.linkCrypto.title'),
-  i18n.global.t('com.wasmnest.terminal-session.session.settings.title'),
+  i18n.global.t('com.wasmnest.bedcode.session.settings.title'),
 ]
 
 /** app 直连上下文（配对 / 会话两分组经 inject('pluginContext') 取数与取文案） */
 function makeContext(): PluginContext {
   return {
-    id: 'com.wasmnest.terminal-session',
+    id: 'com.wasmnest.bedcode',
     i18n: {
-      t: (key: string) => i18n.global.t(`com.wasmnest.terminal-session.${key}`),
+      t: (key: string) => i18n.global.t(`com.wasmnest.bedcode.${key}`),
       getI18n: () => i18n,
     },
     commands: { execute: vi.fn(async () => ({})) },
@@ -52,7 +52,7 @@ function makeContext(): PluginContext {
 /** 宿主挂载环境（链路加密分组经 inject('appEnv') 调宿主面命令） */
 function makeEnv(): AppMountEnv {
   return {
-    appId: 'com.wasmnest.terminal-session',
+    appId: 'com.wasmnest.bedcode',
     invoke: vi.fn(async () => undefined),
     appInvoke: vi.fn(async () => undefined),
     appStorageGet: vi.fn(async () => undefined),
@@ -106,11 +106,11 @@ describe('SettingsView 业务分组渲染', () => {
     const wrapper = await mountView()
     // 配对分组正文：二维码有效期行（文案经注入上下文解析）
     expect(wrapper.text()).toContain(
-      i18n.global.t('com.wasmnest.terminal-session.pairing.settings.qrValidity'),
+      i18n.global.t('com.wasmnest.bedcode.pairing.settings.qrValidity'),
     )
     // 会话分组正文：默认执行环境行
     expect(wrapper.text()).toContain(
-      i18n.global.t('com.wasmnest.terminal-session.session.settings.defaultEnvironment'),
+      i18n.global.t('com.wasmnest.bedcode.session.settings.defaultEnvironment'),
     )
     // 外观分组正文：主题色板行（应用自持）
     expect(wrapper.text()).toContain(i18n.global.t('settings.appearance.palette'))

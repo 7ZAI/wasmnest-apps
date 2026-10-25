@@ -4,7 +4,7 @@
  * 数据面全部走宿主投影与插件命令（零宿主 Tauri 直连）：
  * - 连接引擎面：mobileApi（connectDevice / connectionStatus / onConnectionEvent /
  *   connectionHistory / mDNS 原始事实 / 生物凭证状态）
- * - 配对 / 会话：插件命令面（terminal-session.request-pairing / verify-pairing-code /
+ * - 配对 / 会话：插件命令面（bedcode.request-pairing / verify-pairing-code /
  *   list-sessions / start-session / stop-session / remove-session）
  * - 配对事件：context.events（ws_pairing_request / ws_paired / ws_auth_failed 白名单）
  *
@@ -27,7 +27,7 @@ import { getMobileApi } from '@binblink/wasmnest-plugin-sdk-mobile'
 import { connectionErrorKey, ensureCommandOk, type CommandResult } from './errors'
 
 /** 插件命令 id 前缀（manifest contributes.commands） */
-const CMD = 'terminal-session.'
+const CMD = 'bedcode.'
 
 /** 错误对象 → 日志文本（旧前端 `logger.error('[域] 动作失败:', e)` 的文本化口径） */
 function errText(e: unknown): string {

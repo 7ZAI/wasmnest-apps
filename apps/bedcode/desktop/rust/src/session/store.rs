@@ -295,7 +295,7 @@ pub(crate) mod tests {
                 started_at: None,
                 stopped_at: None,
                 canonical_renderer: Some(RendererSource::Desktop),
-                owner: Some("com.wasmnest.terminal-session".to_string()),
+                owner: Some("com.wasmnest.bedcode".to_string()),
                 updated_at: "2026-09-23T09:00:00Z".to_string(),
             }
         }

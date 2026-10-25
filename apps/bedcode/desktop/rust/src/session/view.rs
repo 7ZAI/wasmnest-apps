@@ -114,7 +114,7 @@ mod tests {
             started_at: Some("2026-09-23T00:00:05Z".to_string()),
             stopped_at: None,
             canonical_renderer: Some(crate::actions::RendererSource::Desktop),
-            owner: Some("com.wasmnest.terminal-session".to_string()),
+            owner: Some("com.wasmnest.bedcode".to_string()),
             updated_at: "2026-09-23T00:00:05Z".to_string(),
         }
     }

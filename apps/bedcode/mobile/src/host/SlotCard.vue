@@ -45,7 +45,7 @@ const api = getMobileApi()
 const count = computed(() => api.activeSessions.value?.length ?? 0)
 
 /** 插件前缀键（本域 activate 期注册；键名见 host/i18n.ts） */
-const PREFIX = 'com.wasmnest.terminal-session.'
+const PREFIX = 'com.wasmnest.bedcode.'
 /** 兜底键：宿主壳首页自有标题文案（双语，壳不依赖插件注册顺序） */
 const HOST_FALLBACK_KEY = 'shell.home.slotsTitle'
 

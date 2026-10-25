@@ -118,7 +118,7 @@ async function selectPalette(value: AppPalette): Promise<void> {
   try {
     await setAppPalette(value)
   } catch {
-    toast.error(t('com.wasmnest.terminal-session.appearance.settings.saveFailed'))
+    toast.error(t('appearance.settings.saveFailed'))
   }
 }
 

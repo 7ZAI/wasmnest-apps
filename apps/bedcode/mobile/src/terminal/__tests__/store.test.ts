@@ -30,13 +30,13 @@ const mocks = vi.hoisted(() => {
     })),
   }
   const dispatch: Record<string, (args: any) => unknown> = {
-    'terminal-session.subscribe': (a) => cmd.terminalSubscribe(a?.sessionId),
-    'terminal-session.unsubscribe': (a) => cmd.terminalUnsubscribe(a?.sessionId),
-    'terminal-session.unsubscribe-all': () => cmd.terminalUnsubscribeAll(),
-    'terminal-session.remove': (a) => cmd.terminalRemove(a?.sessionId),
-    'terminal-session.send-input': (a) => cmd.terminalSendInput(a?.sessionId, a?.data, a?.specialKey),
-    'terminal-session.ack-rendered': (a) => cmd.terminalAckRendered(a?.sessionId, a?.offset),
-    'terminal-session.get-state': (a) => cmd.terminalGetState(a?.sessionId),
+    'bedcode.subscribe': (a) => cmd.terminalSubscribe(a?.sessionId),
+    'bedcode.unsubscribe': (a) => cmd.terminalUnsubscribe(a?.sessionId),
+    'bedcode.unsubscribe-all': () => cmd.terminalUnsubscribeAll(),
+    'bedcode.remove': (a) => cmd.terminalRemove(a?.sessionId),
+    'bedcode.send-input': (a) => cmd.terminalSendInput(a?.sessionId, a?.data, a?.specialKey),
+    'bedcode.ack-rendered': (a) => cmd.terminalAckRendered(a?.sessionId, a?.offset),
+    'bedcode.get-state': (a) => cmd.terminalGetState(a?.sessionId),
   }
   return {
     cmd,
@@ -107,11 +107,11 @@ const { cmd, eventHandlers } = mocks
 
 import { SESSION_STOP_GRACE_MS, useTerminalBufferStore } from '../store'
 
-// 票 12：事件源 = com.wasmnest.terminal-session 插件 emit（事件名用短命名空间
-// `terminal-session`——Tauri 事件名不允许 `.`，插件 reverse-DNS id 不能直接进事件名）。
+// 票 12：事件源 = com.wasmnest.bedcode 插件 emit（事件名用短命名空间
+// `bedcode`——Tauri 事件名不允许 `.`，插件 reverse-DNS id 不能直接进事件名）。
 // 与 store 内常量保持字面同步（store 不导出这两个常量，此处按事件名字面锁）
-const TERMINAL_STATE_EVENT = 'plugin:terminal-session:terminal-state'
-const TERMINAL_RESYNC_EVENT = 'plugin:terminal-session:terminal-resync'
+const TERMINAL_STATE_EVENT = 'plugin:bedcode:terminal-state'
+const TERMINAL_RESYNC_EVENT = 'plugin:bedcode:terminal-resync'
 
 /** 取会话最近一次经 openTerminalStream 登记的页面流 */
 function pageStream(sessionId: string) {
@@ -164,7 +164,7 @@ describe('terminalBuffer store（票 05：新协议 + 本地字节计数）', ()
 
   describe('订阅触发（fresh subscribe 语义：已订阅也重播）', () => {
     it('subscribeSession 等在途页面通道登记落定后才发订阅（否则整段重放被无通道丢弃）', async () => {
-      // 页面通道登记（terminal_page_subscribe）与订阅（terminal-session.subscribe）
+      // 页面通道登记（terminal_page_subscribe）与订阅（bedcode.subscribe）
       // 是两条独立异步调用：订阅先落地时桌面端立即整段重放，而宿主窄转发表还没有
       // 通道 → 全部重放字节被 dropped_no_channel 丢弃且无自愈路径（历史缺失）。
       // 先让 beforeEach 那条在途订阅落定（否则重复意图去重会拦下本次调用）

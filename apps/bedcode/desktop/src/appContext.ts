@@ -9,7 +9,7 @@
  * 与旧 PluginContext 的差异（均为随机制退役的收窄）：
  * - `ui.*` 贡献面注册 / `http.*` 端点注册：删除（静态表替代）；
  * - 权限快速失败 / 激活态门禁：删除（仲裁在 Rust 侧照旧）；
- * - `i18n.t`：查本 app 自足实例的 `com.wasmnest.terminal-session.*` 命名空间；
+ * - `i18n.t`：查本 app 自足实例的 `com.wasmnest.bedcode.*` 命名空间；
  * - `commands.execute`：env.appInvoke（令牌已绑定本 app）；
  * - `storage`：env.appStorageGet/Set/Delete（凭证已绑定）。
  */

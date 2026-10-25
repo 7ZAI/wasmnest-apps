@@ -235,13 +235,13 @@
  * 状态徽章 + 运行时长 + 任务状态 + 停止/删除）、停止/删除二次确认、终端准备 LoadingDialog。
  *
  * 数据面（与旧实现同源）：会话列表 / 配置走宿主连接域投影（`activeSessions` /
- * `sessionConfigs`），启动 / 停止 / 删除走插件命令面（`terminal-session.*`）。
+ * `sessionConfigs`），启动 / 停止 / 删除走插件命令面（`bedcode.*`）。
  *
  * 与旧实现的三处**有意**差异：
  * 1. 会话可见性判据用 `isPaired`（已认证）而非 `isConnected`（传输层）：未认证时
  *    受保护端点一律 401，列出会话只会得到空列表 + 报错噪音（旧实现在「已连未配对」
  *    时会展示空列表）
- * 2. 打开终端前预热**传输面**（`terminal-session.prewarm`，只建连、不发 subscribe 帧）：
+ * 2. 打开终端前预热**传输面**（`bedcode.prewarm`，只建连、不发 subscribe 帧）：
  *    桌面端每次 subscribe 都从环窗口起点整段重放，预热期页面通道尚未登记，那笔重放
  *    注定被丢弃（长会话可达数 MB）；真正的订阅由终端页挂载后发出
  * 3. 启动会话沿用「留在会话页」的老行为（列表刷新 + toast），但**补回终端上限校验**
@@ -439,7 +439,7 @@ function handleSessionClick(session: any): void {
 
   if (isSessionActive(session?.status)) {
     void ctrl.context.commands
-      .execute('terminal-session.prewarm', { sessionId: session.id })
+      .execute('bedcode.prewarm', { sessionId: session.id })
       .catch((e) => logger.warn(`[host] terminal prewarm failed: ${errText(e)}`))
   }
 

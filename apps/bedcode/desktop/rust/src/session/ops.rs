@@ -390,14 +390,14 @@ mod tests {
             "会话",
             true,
             None,
-            Some("com.wasmnest.terminal-session"),
+            Some("com.wasmnest.bedcode"),
             now(),
         );
         assert_eq!(rec.status, SessionStatus::Running);
         assert_eq!(rec.started_at.as_deref(), Some(now()));
         assert_eq!(rec.stopped_at, None);
         assert_eq!(rec.canonical_renderer, Some(RendererSource::Desktop));
-        assert_eq!(rec.owner.as_deref(), Some("com.wasmnest.terminal-session"));
+        assert_eq!(rec.owner.as_deref(), Some("com.wasmnest.bedcode"));
         assert!(rec.pty_id.is_none(), "P1 阶段 PTY 句柄仍由宿主内部持有");
     }
 

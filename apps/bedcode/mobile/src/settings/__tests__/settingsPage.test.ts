@@ -39,7 +39,7 @@ let useAppSettings: (
 /** 最小插件上下文替身（i18n 回显 key；toast/confirm 记录调用） */
 function makePluginContext() {
   return {
-    id: 'com.wasmnest.terminal-session',
+    id: 'com.wasmnest.bedcode',
     i18n: { t: (key: string) => key },
     logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
     dialogs: { showToast: vi.fn(), showConfirm: vi.fn(async () => true) },

@@ -50,13 +50,13 @@ const mocks = vi.hoisted(() => {
     })),
   }
   const dispatch: Record<string, (args: any) => unknown> = {
-    'terminal-session.subscribe': (a) => cmd.terminalSubscribe(a?.sessionId),
-    'terminal-session.unsubscribe': (a) => cmd.terminalUnsubscribe(a?.sessionId),
-    'terminal-session.unsubscribe-all': () => cmd.terminalUnsubscribeAll(),
-    'terminal-session.remove': (a) => cmd.terminalRemove(a?.sessionId),
-    'terminal-session.send-input': (a) => cmd.terminalSendInput(a?.sessionId, a?.data, a?.specialKey),
-    'terminal-session.ack-rendered': (a) => cmd.terminalAckRendered(a?.sessionId, a?.offset),
-    'terminal-session.get-state': (a) => cmd.terminalGetState(a?.sessionId),
+    'bedcode.subscribe': (a) => cmd.terminalSubscribe(a?.sessionId),
+    'bedcode.unsubscribe': (a) => cmd.terminalUnsubscribe(a?.sessionId),
+    'bedcode.unsubscribe-all': () => cmd.terminalUnsubscribeAll(),
+    'bedcode.remove': (a) => cmd.terminalRemove(a?.sessionId),
+    'bedcode.send-input': (a) => cmd.terminalSendInput(a?.sessionId, a?.data, a?.specialKey),
+    'bedcode.ack-rendered': (a) => cmd.terminalAckRendered(a?.sessionId, a?.offset),
+    'bedcode.get-state': (a) => cmd.terminalGetState(a?.sessionId),
   }
   return {
     cmd,
@@ -131,14 +131,14 @@ function emitRaw(sessionId: string, data: string) {
 
 /** 模拟移动端 Rust 链路状态事件 */
 function emitState(sessionId: string, phase: string, detail?: string) {
-  for (const h of eventHandlers['plugin:terminal-session:terminal-state'] ?? []) {
+  for (const h of eventHandlers['plugin:bedcode:terminal-state'] ?? []) {
     h({ session_id: sessionId, phase, detail })
   }
 }
 
 /** 模拟移动端 Rust 重锚事件（ring_resync） */
 function emitResync(sessionId: string, offset: number) {
-  for (const h of eventHandlers['plugin:terminal-session:terminal-resync'] ?? []) {
+  for (const h of eventHandlers['plugin:bedcode:terminal-resync'] ?? []) {
     h({ session_id: sessionId, offset })
   }
 }
@@ -246,7 +246,7 @@ describe('终端流：terminalBuffer store × useTerminalBuffer × xterm × 输�
     expect(store.getBuffer('s1')!.lastRenderedOffset).toBeNull()
   })
 
-  it('输入回传：sendInput → 插件命令 terminal-session.send-input（票 12：协议客户端迁插件）', async () => {
+  it('输入回传：sendInput → 插件命令 bedcode.send-input（票 12：协议客户端迁插件）', async () => {
     const store = useTerminalBufferStore()
 
     // 订阅 + 链路 live

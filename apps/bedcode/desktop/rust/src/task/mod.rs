@@ -881,7 +881,7 @@ mod tests {
                 "SDK 脚本名常量与随包文件名漂移: {constant} ≠ {file}"
             );
             assert!(
-                content.contains("com.wasmnest.terminal-session"),
+                content.contains("com.wasmnest.bedcode"),
                 "{file} 未指向合并插件 id"
             );
             assert!(

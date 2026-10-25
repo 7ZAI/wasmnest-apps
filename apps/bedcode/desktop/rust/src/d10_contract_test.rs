@@ -76,7 +76,7 @@ use wasmnest_server_websocket::endpoint::EndpointAuth as WsEndpointAuth;
 use serde_json::{json, Value};
 
 /// 本插件 id（与 `plugin.json` 的 `id` 逐字一致；命名空间段由宿主注入）
-const PLUGIN_ID: &str = "com.wasmnest.terminal-session";
+const PLUGIN_ID: &str = "com.wasmnest.bedcode";
 
 /// 唯一被 `AuthCenter` 认可的 token（见文件头「一个魔 token 做 A/B」）
 const VALID_TOKEN: &str = "d10-pilot-valid-device-token";

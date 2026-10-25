@@ -33,7 +33,7 @@ const __dirname = dirname(__filename)
 const ROOT = resolve(__dirname, '..')
 /** 默认产物根目录：本仓内、且不在 vite outDir（dist）之下 */
 const DEFAULT_PLUGINS_DIR = join('.build', 'plugins')
-const PLUGIN_ID = 'com.wasmnest.terminal-session'
+const PLUGIN_ID = 'com.wasmnest.bedcode'
 const RUST_LIB_NAME = 'bedcode_plugin_terminal_session'
 
 // 插件调试模式：WASMNEST_PLUGIN_DEBUG=1 → wasm 以 debug profile 构建（保留 DWARF，

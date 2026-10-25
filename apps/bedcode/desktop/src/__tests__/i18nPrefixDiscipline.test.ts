@@ -5,7 +5,7 @@
  * ID 前缀**，插件组件若直接用 `useI18n()` 会在宿主命名空间下查无此 key → 回显
  * key 原文。故锁「插件前端不得直接 import vue-i18n」。
  *
- * 新判据（下沉后，D5「消息 key 自带 com.wasmnest.terminal-session.* 命名空间 +
+ * 新判据（下沉后，D5「消息 key 自带 com.wasmnest.bedcode.* 命名空间 +
  * 薄取文案函数」）：app 自持唯一 i18n 实例，宿主机制组件经 `useI18n()` 查顶层
  * key、app 域经直连上下文的薄 t() 自动补命名空间——两种形态都合法。锁的对象
  * 从「import 纪律」改为「命名空间纪律」：
@@ -91,7 +91,7 @@ describe('i18n 命名空间纪律锁', () => {
     expect(appContext).toMatch(/i18n\.global\.t\(`\$\{MESSAGE_NAMESPACE\}\.\$\{key\}`/)
     // 且 MESSAGE_NAMESPACE 的值就是插件 ID（与 manifest.id 同源）
     const i18nIndex = readFileSync(join(APP_SRC, 'i18n', 'index.ts'), 'utf-8')
-    expect(i18nIndex).toContain("export const MESSAGE_NAMESPACE = 'com.wasmnest.terminal-session'")
+    expect(i18nIndex).toContain("export const MESSAGE_NAMESPACE = 'com.wasmnest.bedcode'")
   })
 
   it('L3 静态表两种命名域不混用（app 域带前缀 / 宿主机制项不带）', () => {

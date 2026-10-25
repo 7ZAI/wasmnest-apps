@@ -767,13 +767,14 @@ fn pi_extension_port_matches(content: &str, port: u16) -> bool {
 
 /// 模板版本标记：内容升级时递增模板内标记，旧部署副本据此自动重部署
 /// （端口匹配检查无法发现脚本内容更新）。
-/// v4（票 17）：回调前缀改指 `com.wasmnest.terminal-session`——随包脚本内容在票 16 已改，
+/// v4（票 17）：回调前缀改指当时代插件 `terminal-session`（今 `bedcode`）——随包脚本内容在票 16 已改，
 /// 但**版本 bump 刻意压到 auto-task 后端退役之后**（双轨期两侧各自比对自己那份常量，
 /// 先 bump 会出现「你改回旧前缀、我改回新前缀」的来回覆盖）。此处递增即把已写入
 /// 用户项目的集成副本重写成新前缀。随包脚本首行标记必须与本常量同值
 /// （`task::tests::shipped_hook_scripts_point_at_this_plugin` 逐脚本对账）。
 /// v7：补 NON_RETRYABLE_LIMIT_PATTERN 守卫（限额/额度类错误不再误推 retrying）。
-pub(crate) const PI_EXTENSION_TEMPLATE_VERSION: &str = "7";
+/// v8：插件 id 改名（com.wasmnest.terminal-session → com.wasmnest.bedcode，2026-10-25），模板随包重写、已部署副本自动重部署。
+pub(crate) const PI_EXTENSION_TEMPLATE_VERSION: &str = "8";
 
 /// 检查已部署扩展是否携带当前模板版本标记
 fn pi_extension_version_matches(content: &str) -> bool {
@@ -993,7 +994,8 @@ fn opencode_plugin_port_matches(content: &str, port: u16) -> bool {
 /// 模板版本标记：内容升级时递增模板内标记，旧部署副本据此自动重部署
 /// （端口匹配检查无法发现脚本内容更新）
 /// v5：补 NON_RETRYABLE_LIMIT_PATTERN 守卫（限额/额度类错误不再误推 retrying）。
-pub(crate) const OPENCODE_PLUGIN_TEMPLATE_VERSION: &str = "5";
+/// v6：插件 id 改名（com.wasmnest.terminal-session → com.wasmnest.bedcode，2026-10-25），已部署副本自动重部署。
+pub(crate) const OPENCODE_PLUGIN_TEMPLATE_VERSION: &str = "6";
 
 /// 检查已部署插件是否携带当前模板版本标记
 fn opencode_plugin_version_matches(content: &str) -> bool {
@@ -1234,7 +1236,8 @@ pub fn cleanup_codex_hooks(host: &WasmHost, working_dir: &str) -> AgentIntegrati
 
 /// 模板版本标记：内容升级时递增模板内标记，旧部署副本据此自动重部署
 /// （端口匹配检查无法发现脚本内容更新）
-pub(crate) const CODEX_HOOK_TEMPLATE_VERSION: &str = "3";
+/// v4：插件 id 改名（com.wasmnest.terminal-session → com.wasmnest.bedcode，2026-10-25），已部署副本自动重部署。
+pub(crate) const CODEX_HOOK_TEMPLATE_VERSION: &str = "4";
 
 /// 检查已部署脚本是否携带当前模板版本标记
 fn codex_hook_version_matches(content: &str) -> bool {
@@ -1656,7 +1659,8 @@ fn build_codex_hooks_config(
 
 /// 模板版本标记：内容升级时递增模板内标记，旧部署副本据此自动重部署
 /// （端口匹配检查无法发现脚本内容更新）。v1：修复 HTTP 重试路径缺失的 `import time`
-pub(crate) const CLAUDE_HOOK_TEMPLATE_VERSION: &str = "5";
+/// v6：插件 id 改名（com.wasmnest.terminal-session → com.wasmnest.bedcode，2026-10-25），已部署副本自动重部署。
+pub(crate) const CLAUDE_HOOK_TEMPLATE_VERSION: &str = "6";
 
 /// 检查已部署脚本是否携带当前模板版本标记
 fn claude_hook_version_matches(content: &str) -> bool {

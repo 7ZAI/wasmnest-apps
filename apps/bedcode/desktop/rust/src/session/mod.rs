@@ -189,7 +189,7 @@ pub fn note_created(
         name,
         start,
         source_device,
-        Some("com.wasmnest.terminal-session"),
+        Some("com.wasmnest.bedcode"),
         &crate::config::model::now_rfc3339(),
     );
     let mut record = record;
@@ -262,7 +262,7 @@ pub fn note_annotation(session_id: &str, key: &str, value: &str) -> Result<(), S
         true => Ok(()),
         false => Err(user_facing_string(
             // ADR 0030 决定 6：业务码 = 插件 i18n 注册后的完整 key（宿主只透传不解释）
-            "com.wasmnest.terminal-session.session.error.sessionNotFound",
+            "com.wasmnest.bedcode.session.error.sessionNotFound",
             serde_json::json!({ "sessionId": session_id }),
         )),
     }
@@ -388,7 +388,7 @@ static PENDING_STOP_SOURCE: Mutex<Vec<(String, String)>> = Mutex::new(Vec::new()
 pub fn close_via_pty(session_id: &str, source_device: Option<&str>) -> Result<(), String> {
     let record = REGISTRY.get(&WasmHost, session_id)?.ok_or_else(|| {
         user_facing_string(
-            "com.wasmnest.terminal-session.session.error.sessionNotFound",
+            "com.wasmnest.bedcode.session.error.sessionNotFound",
             serde_json::json!({ "sessionId": session_id }),
         )
     })?;
@@ -469,7 +469,7 @@ pub fn input_via_pty(
 ) -> Result<(), String> {
     let record = REGISTRY.get(&WasmHost, session_id)?.ok_or_else(|| {
         user_facing_string(
-            "com.wasmnest.terminal-session.session.error.sessionNotFound",
+            "com.wasmnest.bedcode.session.error.sessionNotFound",
             serde_json::json!({ "sessionId": session_id }),
         )
     })?;

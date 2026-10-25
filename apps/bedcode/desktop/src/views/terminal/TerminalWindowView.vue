@@ -416,7 +416,7 @@ const context = inject<PluginContext>('pluginContext')!
 /**
  * 翻译：经 `context.i18n.t` 自动补插件 ID 前缀（与插件其余组件同一模式）。
  *
- * 禁止改用 vue-i18n 的 `useI18n()`：插件文案注册时带 `com.wasmnest.terminal-session.`
+ * 禁止改用 vue-i18n 的 `useI18n()`：插件文案注册时带 `com.wasmnest.bedcode.`
  * 前缀，无前缀查询在宿主命名空间下查无此 key → 标题栏 tooltip / 状态文案直接显示
  * key 原文（2026-09-26 修复）。
  */
@@ -614,7 +614,7 @@ async function loadSessionInfo() {
     // 兑底，这里再兜一层读时路径，覆盖已存在的空名行）
     sessionName.value = (result as SessionInfo).name?.trim() || t('session.terminal.defaultName')
   } catch (e) {
-    console.error('[terminal-session] Failed to load session info:', e)
+    console.error('[bedcode] Failed to load session info:', e)
     sessionName.value = t('session.terminal.defaultName')
   } finally {
     isLoading.value = false
@@ -636,7 +636,7 @@ async function stopSession() {
     toast.info(t('session.terminal.stopped'))
     await appWindow.close()
   } catch (e) {
-    console.error(`[terminal-session] failed to stop session ${sessionId}:`, e)
+    console.error(`[bedcode] failed to stop session ${sessionId}:`, e)
     toast.error(t('session.terminal.stopFailed'))
   }
 }
@@ -662,7 +662,7 @@ async function closeWindow() {
   try {
     await appWindow.close()
   } catch (e) {
-    console.error('[terminal-session] Close error:', e)
+    console.error('[bedcode] Close error:', e)
   }
 }
 
@@ -734,12 +734,12 @@ async function closeWindowForSessionShutdown() {
   if (shutdownClosed) return
   shutdownClosed = true
   console.info(
-    `[terminal-session] session stopped, closing terminal window (session=${sessionId})`,
+    `[bedcode] session stopped, closing terminal window (session=${sessionId})`,
   )
   try {
     await context.session.closeTerminal(sessionId)
   } catch (e) {
-    console.error('[terminal-session] Failed to close window after session stopped:', e)
+    console.error('[bedcode] Failed to close window after session stopped:', e)
     // 关窗失败不重试（可能窗口已由宿主回收），轮询会在会话数据失效时报错停止
   }
 }

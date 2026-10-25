@@ -190,7 +190,7 @@ describe('AuthCenterView 就位三态', () => {
 })
 
 describe('接入应用卡片', () => {
-  const BEDCODE = 'com.wasmnest.terminal-session'
+  const BEDCODE = 'com.wasmnest.bedcode'
   const FILE_TRANSFER = 'com.wasmnest.file-transfer'
 
   function hostRoute(infos: unknown[] | (() => never)) {

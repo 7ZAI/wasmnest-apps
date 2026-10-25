@@ -1212,7 +1212,7 @@
 
 /* 队列 4 tab 满宽分段控件（用户要求：tabs 区域整体宽度 = 传输列表侧边栏宽度）。
    容器 display:flex（块级）随 .ft-queue-body 拉伸到侧边栏全宽，四项 flex:1
-   均分——与 terminal-session DeviceCenterView/TaskHistoryView 的满宽分段控件
+   均分——与 bedcode DeviceCenterView/TaskHistoryView 的满宽分段控件
    同款（容器 flex + 单项 flex-1 等分，页签导航而非工具按钮）。
    早前是 inline-flex + align-self:flex-start 收缩条（整条约 180px 浮在面板
    左侧，tabs 区域宽度小于侧边栏）；按用户需求改为满宽。flex 项在 flex column

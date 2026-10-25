@@ -81,7 +81,7 @@ const eventDispose = vi.fn()
 
 function makeContext(): PluginContext {
   return {
-    id: 'com.wasmnest.terminal-session',
+    id: 'com.wasmnest.bedcode',
     // i18n 桩直返 key；getI18n 返回注册表桩（完整 key → 短 key，模拟
     // registerMessages 扁平命中）供 resolvePluginErrorText 解析（ADR 0030）
     i18n: {
@@ -89,8 +89,8 @@ function makeContext(): PluginContext {
       getI18n: () => ({
         global: {
           t: (key: string) =>
-            key.startsWith('com.wasmnest.terminal-session.')
-              ? key.slice('com.wasmnest.terminal-session.'.length)
+            key.startsWith('com.wasmnest.bedcode.')
+              ? key.slice('com.wasmnest.bedcode.'.length)
               : key,
         },
       }),

@@ -159,7 +159,7 @@ function makeContext(): TestContext {
     // 插件组件统一经 context.i18n.t 取文案（带插件 ID 前缀）；桩为恒等 t
     i18n: { t: (key: string) => key, getI18n: () => undefined, registerMessages: vi.fn() },
     _disposables: [],
-    id: 'com.wasmnest.terminal-session',
+    id: 'com.wasmnest.bedcode',
     extensionPath: '',
     // 返回对象带注入器：测试用例设置拉取响应队列
     __setPullResponses: (items: (unknown | null)[]) => {

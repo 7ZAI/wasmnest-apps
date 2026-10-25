@@ -9,7 +9,7 @@
 //! 超出本票边界（spec §2 非目标「不动 WIT / ABI」）。
 //!
 //! 故复用本插件**既有**的 `host-process` 通道（安装域已在跑 `npm install -g`），
-//! 以同步 `sqlite3 -json -readonly` 查表。语义与 git 域（terminal-session
+//! 以同步 `sqlite3 -json -readonly` 查表。语义与 git 域（bedcode
 //! `file_browse::GitPort`）同款：`process_run_sync` 同步拿 stdout。
 //!
 //! # 外部依赖与降级

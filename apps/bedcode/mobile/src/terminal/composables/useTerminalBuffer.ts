@@ -2,7 +2,7 @@
  * Terminal Buffer Composable
  *
  * TerminalView 用的 composable — 管理会话终端输出订阅与实时输出写入。
- * 订阅协议由终端插件持有（com.wasmnest.terminal-session，票 12 迁入）：
+ * 订阅协议由终端插件持有（com.wasmnest.bedcode，票 12 迁入）：
  * 进入终端页 fresh subscribe → 插件回放环窗口（历史与实时同一条流，裸字节）；
  * 离开关闭连接。前端只消费段2 Channel 的裸字节并按本地计数回发 ack；
  * `ring_resync`（terminal-resync 事件）是唯一重锚信号（清屏 + 基准重置）。

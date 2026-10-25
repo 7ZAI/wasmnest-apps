@@ -1,5 +1,5 @@
 {
-  "id": "com.wasmnest.terminal-session",
+  "id": "com.wasmnest.bedcode",
   "name": "BedCode",
   "version": "0.0.1",
   "platform": "mobile",
@@ -23,71 +23,71 @@
   "contributes": {
     "commands": [
       {
-        "id": "terminal-session.prewarm",
+        "id": "bedcode.prewarm",
         "title": "Prewarm Session Terminal Link"
       },
       {
-        "id": "terminal-session.subscribe",
+        "id": "bedcode.subscribe",
         "title": "Subscribe Session Terminal"
       },
       {
-        "id": "terminal-session.unsubscribe",
+        "id": "bedcode.unsubscribe",
         "title": "Unsubscribe Session Terminal"
       },
       {
-        "id": "terminal-session.unsubscribe-all",
+        "id": "bedcode.unsubscribe-all",
         "title": "Unsubscribe All Terminals"
       },
       {
-        "id": "terminal-session.remove",
+        "id": "bedcode.remove",
         "title": "Remove Session Terminal Link"
       },
       {
-        "id": "terminal-session.send-input",
+        "id": "bedcode.send-input",
         "title": "Send Terminal Input"
       },
       {
-        "id": "terminal-session.ack-rendered",
+        "id": "bedcode.ack-rendered",
         "title": "Ack Rendered Bytes"
       },
       {
-        "id": "terminal-session.get-state",
+        "id": "bedcode.get-state",
         "title": "Get Terminal Link State"
       },
       {
-        "id": "terminal-session.request-pairing",
+        "id": "bedcode.request-pairing",
         "title": "Request Pairing"
       },
       {
-        "id": "terminal-session.verify-pairing-code",
+        "id": "bedcode.verify-pairing-code",
         "title": "Verify Pairing Code"
       },
       {
-        "id": "terminal-session.authenticate-with-qr",
+        "id": "bedcode.authenticate-with-qr",
         "title": "Authenticate With QR Token"
       },
       {
-        "id": "terminal-session.authenticate-with-biometric",
+        "id": "bedcode.authenticate-with-biometric",
         "title": "Authenticate With Biometric"
       },
       {
-        "id": "terminal-session.list-sessions",
+        "id": "bedcode.list-sessions",
         "title": "List Sessions"
       },
       {
-        "id": "terminal-session.start-session",
+        "id": "bedcode.start-session",
         "title": "Start Session"
       },
       {
-        "id": "terminal-session.stop-session",
+        "id": "bedcode.stop-session",
         "title": "Stop Session"
       },
       {
-        "id": "terminal-session.remove-session",
+        "id": "bedcode.remove-session",
         "title": "Remove Session"
       },
       {
-        "id": "terminal-session.send-http-input",
+        "id": "bedcode.send-http-input",
         "title": "Send Session Input (HTTP)"
       }
     ],

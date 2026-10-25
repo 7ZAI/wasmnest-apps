@@ -33,7 +33,7 @@
 //! **互调 api 面已声明**（[`AuthCenterApi`] + `plugin.json.api`，20 条）：配对码 /
 //! QR / 信任 / 首连确认 / 认证记录 / 就位状态 / 密钥轮换 / `auth-grant`（宿主
 //! `auth-method-invoke` 的零解析窄转发目标）。声明名从
-//! `com.wasmnest.terminal-session.*` 变为 `com.wasmnest.auth-center.*`——
+//! `com.wasmnest.bedcode.*` 变为 `com.wasmnest.auth-center.*`——
 //! **消费方（bedcode 设备中心 / file-transfer consent）已与本次切换同批改指**。
 //!
 //! **注册已接管**：`activate` 末尾调 `auth_center_register`（就位 = 前面全部硬失败
@@ -464,7 +464,7 @@ fn dispatch_command(name: &str, args: serde_json::Value) -> anyhow::Result<serde
 /// 在编译期比对防漂移（`plugin.json` 是唯一真源）。
 ///
 /// **契约由 bedcode 的两段面拆出**：配对码 / QR / 信任 / 首连确认 / 认证记录原本是
-/// `com.wasmnest.terminal-session.*`，已随六域搬迁与本切换票改指本插件；消费方
+/// `com.wasmnest.bedcode.*`，已随六域搬迁与本切换票改指本插件；消费方
 /// （bedcode 设备中心 / file-transfer）同批改指，不存在「按旧名调用」的中间态。
 ///
 /// 每条命令面（`auth-center.*`）都复用同一实现体，两条触发面不重复编排：

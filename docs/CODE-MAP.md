@@ -105,7 +105,7 @@ wasmnest-apps/
 | --- | --- | --- | --- | --- | --- | --- |
 | agent-hub | `com.wasmnest.agent-hub` | desktop | `desktop/src/entry.ts` | `rust-ts` | `wasmnest_plugin_agent_hub` | `wasmnest-plugin-agent-hub` @ `apps/agent-hub/desktop/rust` |
 | ai-chatbox | `com.wasmnest.ai-chatbox` | desktop + mobile | `entry.ts` / `index.ts` | 桌面 `rust-ts`；移动 `wasm` | `wasmnest_plugin_ai_chatbox`（两端同名） | `wasmnest-plugin-ai-chatbox` @ `desktop/rust`；`wasmnest_plugin_ai_chatbox` @ `mobile/rust` |
-| bedcode（显示名 BedCode） | `com.wasmnest.terminal-session` | desktop + mobile | `entry.ts` / `index.ts` | 桌面 `rust-ts`；移动 `wasm` | `bedcode_plugin_terminal_session`（两端同名） | `bedcode-plugin-terminal-session` @ `desktop/rust`；`bedcode_plugin_terminal_session` @ `mobile/rust` |
+| bedcode（显示名 BedCode） | `com.wasmnest.bedcode` | desktop + mobile | `entry.ts` / `index.ts` | 桌面 `rust-ts`；移动 `wasm` | `bedcode_plugin_terminal_session`（两端同名） | `bedcode-plugin-terminal-session` @ `desktop/rust`；`bedcode_plugin_terminal_session` @ `mobile/rust` |
 | file-transfer | `com.wasmnest.file-transfer` | desktop + mobile（`platform: "both"`） | `entry.ts` / `index.ts` | 桌面 `rust-ts`；移动 `wasm` | `wasmnest_plugin_file_transfer`（两端同名） | 单产物 `wasmnest-plugin-file-transfer` @ `apps/file-transfer/rust/plugin`；共享核 `wasmnest-file-transfer-core` @ `apps/file-transfer/rust/core` |
 | monitor（**`servers/` 分组**） | `com.wasmnest.monitor` | desktop + mobile | `entry.ts` / `index.ts` | 桌面 `rust-ts`；移动 `wasm` | `wasmnest_plugin_monitor`（两端同名） | `wasmnest-plugin-monitor` @ `servers/monitor/desktop/rust`；`wasmnest_plugin_monitor` @ `servers/monitor/mobile/rust` |
 | auth-center（**`servers/` 分组**） | `com.wasmnest.auth-center` | desktop | `servers/auth-center/desktop/src/entry.ts` | `rust-ts` | `wasmnest_plugin_auth_center` | `wasmnest-plugin-auth-center` @ `servers/auth-center/desktop/rust` |
@@ -147,7 +147,7 @@ wasmnest-apps/
 
 ### 命名纪律
 
-- **目录 slug ≠ 插件 id**：`bedcode` 目录 → `com.wasmnest.terminal-session`。仅显示名 / rustLib 名 / 目录 slug 豁免，**id 不豁免**（ADR 0056）。新建应用一律 `com.wasmnest.<slug>`。
+- **插件 id = 目录 slug**（`com.wasmnest.<slug>`）：2026-10-25 起唯一历史例外已归一——`bedcode` 由 `com.wasmnest.terminal-session` 改名 `com.wasmnest.bedcode`。仅显示名 / rustLib 名豁免（ADR 0056）。新建应用一律 `com.wasmnest.<slug>`。
 - **`rustLibrary` = Cargo 包名的下划线归一化**：cargo 把包名里的 `-` 归一化成 `_` 生成产物。例：Cargo `bedcode-plugin-terminal-session` → 产物 `bedcode_plugin_terminal_session.wasm` → `rustLibrary` 填后者。**填连字符形式会找不到产物**。
 - 新增 / 改名应用时同步五处：`plugin.json`、`package.json`、Cargo 包名、`rustLibrary`、i18n 命名空间，外加平台仓 `release-manifest.json`。
 

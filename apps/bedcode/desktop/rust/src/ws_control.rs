@@ -15,7 +15,7 @@
 //!
 //! ## 帧协议（声明端点 `contributes.wsEndpoints: session-control`）
 //!
-//! 客户端经 `/ws/plugin/com.wasmnest.terminal-session/session-control` 直连时，
+//! 客户端经 `/ws/plugin/com.wasmnest.bedcode/session-control` 直连时，
 //! 文本帧即动作 JSON（与旧 `Message::SessionControl.payload.action` 逐字同形）：
 //!
 //! ```json

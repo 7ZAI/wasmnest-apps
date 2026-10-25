@@ -1,7 +1,7 @@
 //! WasmNest Plugin (WASM, Mobile) — 远程终端控制端（票 12）
 //!
 //! 应用显示名 BedCode、目录 `wasm-apps/bedcode/`，插件 id 与 crate 名仍是
-//! `com.wasmnest.terminal-session` / `bedcode_plugin_terminal_session`（宿主按 id 寻址，不受改名影响）。
+//! `com.wasmnest.bedcode` / `bedcode_plugin_terminal_session`（宿主按 id 寻址，不受改名影响）。
 //!
 //! 终端订阅协议客户端从宿主 `terminal_link.rs`（1,363 行，已退役）整体迁入
 //! 本插件：subscribe / ack / ring_resync / special-key 翻译（keys.rs）/
@@ -27,9 +27,9 @@
 //!
 //! ## 生命周期
 //!
-//! - 进入终端页 → `terminal-session.subscribe`：建连（宿主代发 auth）→ 发
+//! - 进入终端页 → `bedcode.subscribe`：建连（宿主代发 auth）→ 发
 //!   subscribe 帧 → fresh subscribe 回放环窗口，收 `subscribed` 即 live。
-//! - 离开终端页 → `terminal-session.unsubscribe`：对句柄 `close`（宿主取消
+//! - 离开终端页 → `bedcode.unsubscribe`：对句柄 `close`（宿主取消
 //!   自动重连）——不得后台常拉。
 //! - 意外断开 → 宿主自动重连 → `ws:open`（新句柄）→ 本插件重新订阅并按
 //!   重订阅语义发 `terminal-resync`（重播与已在屏内容不重叠）。
@@ -51,13 +51,13 @@ mod session;
 
 pub(crate) use link::LINK_MANAGER;
 
-/// 插件 id（D6 选项 A：与桌面 `com.wasmnest.terminal-session` 同名——两端同
+/// 插件 id（D6 选项 A：与桌面 `com.wasmnest.bedcode` 同名——两端同
 /// id 职责不同，本端是远程终端控制端，契约独立不因同名互相约束，C8）
-pub(crate) const PLUGIN_ID: &str = "com.wasmnest.terminal-session";
+pub(crate) const PLUGIN_ID: &str = "com.wasmnest.bedcode";
 
 /// 终端端点路径（桌面 manifest `contributes.wsEndpoints` 声明；URL = 主连接
 /// 目标 + 本路径，见 commands::build_terminal_url）
-pub(crate) const TERMINAL_WS_PATH: &str = "/ws/plugin/com.wasmnest.terminal-session/terminal";
+pub(crate) const TERMINAL_WS_PATH: &str = "/ws/plugin/com.wasmnest.bedcode/terminal";
 
 /// ws 状态事件 topic（属主私有）：`<plugin-id>:ws:open|error|close|reconnect-scheduled`
 fn ws_topic(event: &str) -> String {

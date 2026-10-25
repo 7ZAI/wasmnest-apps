@@ -4,7 +4,7 @@
  * 桌面宿主前端整体下沉后，侧边栏菜单是 app 内的静态单一事实源。本测试钉：
  * - 菜单项 = 设备配对 / 终端会话 / Agent任务 / 设置 四项，order 即视觉顺序；
  * - 菜单路径与静态路由表一一对应（改表不改路由 = 死链，反之 = 死菜单）；
- * - app 域项走 `com.wasmnest.terminal-session.*` 命名空间 key，宿主机制项
+ * - app 域项走 `com.wasmnest.bedcode.*` 命名空间 key，宿主机制项
  *   （设置）走顶层 key——两种命名域不得混用；
  * - 连接历史 / 终端窗口是深链页，不进菜单。
  */
@@ -33,9 +33,9 @@ describe('useSidebarMenu（静态表）', () => {
   })
 
   it('app 域菜单项走命名空间 key，宿主机制项（设置）走顶层 key', () => {
-    expect(sidebarMenuItems[0].labelKey).toBe('com.wasmnest.terminal-session.pairing.sidebar.title')
-    expect(sidebarMenuItems[1].labelKey).toBe('com.wasmnest.terminal-session.session.sidebar.title')
-    expect(sidebarMenuItems[2].labelKey).toBe('com.wasmnest.terminal-session.task.historyTitle')
+    expect(sidebarMenuItems[0].labelKey).toBe('com.wasmnest.bedcode.pairing.sidebar.title')
+    expect(sidebarMenuItems[1].labelKey).toBe('com.wasmnest.bedcode.session.sidebar.title')
+    expect(sidebarMenuItems[2].labelKey).toBe('com.wasmnest.bedcode.task.historyTitle')
     expect(sidebarMenuItems[3].labelKey).toBe('desktop.sidebar.settings')
   })
 

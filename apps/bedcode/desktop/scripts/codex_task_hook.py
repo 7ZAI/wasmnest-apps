@@ -61,7 +61,7 @@ HTTP 说明:
     且项目 `.codex/` 配置层本身需被信任；首次使用需用户确认一次。
 
 模板版本标记：内容升级时递增，宿主据此对旧部署副本自动重部署（hooks.rs）。
-# @wasmnest-template-version 3
+# @wasmnest-template-version 4
 """
 
 import json
@@ -90,7 +90,7 @@ HTTP_TIMEOUT_SECONDS = 3
 HTTP_RETRY_ATTEMPTS = 3
 HTTP_RETRY_DELAY_SECONDS = 0.5
 LOG_RETENTION_DAYS = 7
-PLUGIN_ID = "com.wasmnest.terminal-session"
+PLUGIN_ID = "com.wasmnest.bedcode"
 PLUGIN_API_PREFIX = "/api/plugin/{}".format(PLUGIN_ID)
 
 # 任务终态集合 — 一旦进入终态，不应被其他事件降级
@@ -245,7 +245,7 @@ def push_task_status(session_id, status, reason, logger, questions=None, wasmnes
 def query_session_mode(session_id, logger):
     """查询会话自动授权模式。
 
-    通过 HTTP GET /api/plugin/com.wasmnest.terminal-session/session-mode 查询。
+    通过 HTTP GET /api/plugin/com.wasmnest.bedcode/session-mode 查询。
     返回 True 表示自动授权模式，False 表示手动模式。
     查询失败默认返回 False（手动模式，安全优先）。
     """
@@ -272,7 +272,7 @@ def query_session_mode(session_id, logger):
 def query_task_status(session_id, logger):
     """查询当前任务状态。
 
-    通过 HTTP GET /api/plugin/com.wasmnest.terminal-session/task-status 查询。
+    通过 HTTP GET /api/plugin/com.wasmnest.bedcode/task-status 查询。
     用于终止 hook 判断当前状态，避免盲目覆盖。
     查询失败返回 None（未知状态，由调用方决定默认行为）。
     """

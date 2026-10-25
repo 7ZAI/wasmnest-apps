@@ -1,4 +1,4 @@
-# BedCode（`com.wasmnest.terminal-session`）
+# BedCode（`com.wasmnest.bedcode`）
 
 终端会话中心：配对与信任、会话配置与生命周期编排、任务队列与 Agent 集成的单一权威。桌面为服务端（会话宿主），移动为远程终端控制端，双端协作。
 

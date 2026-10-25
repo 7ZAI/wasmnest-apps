@@ -2,7 +2,7 @@
   <div class="h-full flex flex-col bg-[var(--bg-page)]" data-testid="chat-config-page">
     <!-- 顶栏：标题随视图流转（设置页/模板选择/表单）
          标题**左对齐**紧跟返回按钮，与宿主「← 返回 X」及各 wasm 应用
-         （agent-hub / terminal-session）的页头一致。原先用 justify-between +
+         （agent-hub / bedcode）的页头一致。原先用 justify-between +
          右侧 w-20 空洞做居中，标题实际只在左侧按钮恰好 80px 宽时才真居中——
          i18n 换文案（EN 的 "Back to chat"）就偏。 -->
     <header

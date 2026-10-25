@@ -24,7 +24,7 @@
  * 序列并按帧统一提交渲染），应用侧包裹反而会与 TUI 应用自身的 2026 序列嵌套。
  *
  * 背压水位上报（`onParsed`）：每块经 xterm 解析**完成**（write 回调）后上报字节数，
- * 是 `terminal-session.ack-rendered` 的唯一数据源——上游（桌面插件）按此放行下一批，
+ * 是 `bedcode.ack-rendered` 的唯一数据源——上游（桌面插件）按此放行下一批，
  * 故禁止改成「入队即计数」（那会让背压退化为无界 WebView 队列）。
  *
  * 单次 write 上限 MAX_WRITE_CHUNK：超过则拆块（writeInChunks），让 xterm
@@ -86,7 +86,7 @@ export interface WriteCoalescerOptions {
   /**
    * 解析完成回调（**分块粒度**，字节数 = 该块长度）
    *
-   * 背压水位（`terminal-session.ack-rendered`）的唯一推进点：必须是「xterm 解析
+   * 背压水位（`bedcode.ack-rendered`）的唯一推进点：必须是「xterm 解析
    * 完成」而不是「收到字节」，否则 WebView 解析跟不上时上游照旧全速灌入（真实
    * 缓冲退化为 WebView 消息队列，背压失效）。世代失效（dispose 清屏/重锚）后
    * 在飞分块的完成回调不再上报——那块字节属于旧世代。

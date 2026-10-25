@@ -37,13 +37,13 @@ const mocks = vi.hoisted(() => {
     })),
   }
   const dispatch: Record<string, (args: any) => unknown> = {
-    'terminal-session.subscribe': (a) => cmd.terminalSubscribe(a?.sessionId),
-    'terminal-session.unsubscribe': (a) => cmd.terminalUnsubscribe(a?.sessionId),
-    'terminal-session.unsubscribe-all': () => cmd.terminalUnsubscribeAll(),
-    'terminal-session.remove': (a) => cmd.terminalRemove(a?.sessionId),
-    'terminal-session.send-input': (a) => cmd.terminalSendInput(a?.sessionId, a?.data, a?.specialKey),
-    'terminal-session.ack-rendered': (a) => cmd.terminalAckRendered(a?.sessionId, a?.offset),
-    'terminal-session.get-state': (a) => cmd.terminalGetState(a?.sessionId),
+    'bedcode.subscribe': (a) => cmd.terminalSubscribe(a?.sessionId),
+    'bedcode.unsubscribe': (a) => cmd.terminalUnsubscribe(a?.sessionId),
+    'bedcode.unsubscribe-all': () => cmd.terminalUnsubscribeAll(),
+    'bedcode.remove': (a) => cmd.terminalRemove(a?.sessionId),
+    'bedcode.send-input': (a) => cmd.terminalSendInput(a?.sessionId, a?.data, a?.specialKey),
+    'bedcode.ack-rendered': (a) => cmd.terminalAckRendered(a?.sessionId, a?.offset),
+    'bedcode.get-state': (a) => cmd.terminalGetState(a?.sessionId),
   }
   return {
     cmd,
@@ -77,7 +77,7 @@ const toastMock = mocks.toast
 
 /** 注入 terminal-state 事件（store 的 events.on 回调直接收 payload） */
 function emitState(payload: Record<string, unknown>): void {
-  for (const fn of eventHandlers['plugin:terminal-session:terminal-state'] ?? []) fn(payload)
+  for (const fn of eventHandlers['plugin:bedcode:terminal-state'] ?? []) fn(payload)
 }
 
 function makeCtx(overrides?: Partial<TerminalKernelContext>): TerminalKernelContext {

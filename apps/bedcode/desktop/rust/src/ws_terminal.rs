@@ -1,6 +1,6 @@
 //! WS 终端流端点（websocket 业务下沉票 04）
 //!
-//! 客户端经 `/ws/plugin/com.wasmnest.terminal-session/terminal` 直连（manifest
+//! 客户端经 `/ws/plugin/com.wasmnest.bedcode/terminal` 直连（manifest
 //! `contributes.wsEndpoints` 声明，`auth: jwt` 由宿主校验）。**终端协议完全归
 //! 本插件**：输入直写 PTY、输出经 `ring-fetch` 按**每连接独立游标**拉取并以
 //! 二进制帧下发、ACK/截断重同步/停止帧全部插件定义；宿主只转原始帧

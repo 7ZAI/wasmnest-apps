@@ -2,7 +2,7 @@
  * 任务域（原 auto-task 插件，票 16 并入本 app）对端桌面端 REST API 强类型封装
  *
  * 宿主 shared runtime 只暴露通用能力（连接状态 + httpRequest 请求通道），
- * 本模块承载任务域业务端点（/api/plugin/com.wasmnest.terminal-session/...）与 DTO 形状，
+ * 本模块承载任务域业务端点（/api/plugin/com.wasmnest.bedcode/...）与 DTO 形状，
  * 使插件业务代码内聚于插件工程、宿主与 SDK 不感知具体业务细节。
  *
  * 基址变更（票 16，D6 强制③）：只切移动端基址（本文件常量），原 auto-task 插件
@@ -53,7 +53,7 @@ export interface ScheduledJob {
   error: string | null
 }
 
-const AUTO_TASK_BASE = '/api/plugin/com.wasmnest.terminal-session'
+const AUTO_TASK_BASE = '/api/plugin/com.wasmnest.bedcode'
 
 function host(): MobileHostApi {
   return getMobileApi() as MobileHostApi

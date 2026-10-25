@@ -76,7 +76,7 @@ function makeEnv(options: EnvOptions = {}): EnvHarness {
   }
 
   const env: AppPreviewEnv = {
-    appId: 'com.wasmnest.terminal-session',
+    appId: 'com.wasmnest.bedcode',
     lastRoute: options.lastRoute,
     locale: options.locale ?? 'zh-CN',
     theme: options.theme ?? 'light',

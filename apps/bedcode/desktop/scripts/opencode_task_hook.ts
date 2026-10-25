@@ -55,9 +55,9 @@ import type { Plugin } from '@opencode-ai/plugin'
 // 部署时由宿主按当前端口改写（hooks.rs replace_opencode_plugin_port），勿手改
 const WASMNEST_PORT = 8765 // @wasmnest-port
 // 模板版本标记：内容升级时递增，宿主据此对旧部署副本自动重部署（hooks.rs）
-// @wasmnest-template-version 5
+// @wasmnest-template-version 6
 
-const PLUGIN_ID = 'com.wasmnest.terminal-session'
+const PLUGIN_ID = 'com.wasmnest.bedcode'
 const HOST = '127.0.0.1'
 const HTTP_TIMEOUT_MS = 3000
 // 终态推送（completed/interrupted）丢失会中断队列调度链，必须重试保证送达

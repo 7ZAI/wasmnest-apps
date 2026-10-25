@@ -6,7 +6,7 @@
  * + 任务页「预设任务 / 定时任务 / 任务记录」三页签注册 + i18n 注册。
  *
  * 数据面（ADR 0012「手机看、桌面管」）：本域不落本地业务真源，全部经
- * `task/api.ts` 的 HTTP 客户端访问桌面端 `com.wasmnest.terminal-session` 端点；
+ * `task/api.ts` 的 HTTP 客户端访问桌面端 `com.wasmnest.bedcode` 端点；
  * WS 三事件（scheduled / queue / status 变更）驱动刷新。
  *
  * 文案口径（spec D6 强制⑥）：本 app 是「远程终端控制端」，任务域是桌面任务域的
@@ -188,22 +188,22 @@ function unmountPanel() {
 
 /** 注入面板与任务页样式（宿主不加载插件 dist/style.css，运行时注入一次） */
 function injectPanelStyle() {
-  if (!document.getElementById('terminal-session-task-panel-style')) {
+  if (!document.getElementById('bedcode-task-panel-style')) {
     const styleEl = document.createElement('style')
-    styleEl.id = 'terminal-session-task-panel-style'
+    styleEl.id = 'bedcode-task-panel-style'
     styleEl.textContent = panelCss
     document.head.appendChild(styleEl)
   }
-  if (!document.getElementById('terminal-session-task-toolbox-style')) {
+  if (!document.getElementById('bedcode-task-toolbox-style')) {
     const styleEl = document.createElement('style')
-    styleEl.id = 'terminal-session-task-toolbox-style'
+    styleEl.id = 'bedcode-task-toolbox-style'
     styleEl.textContent = toolboxCss
     document.head.appendChild(styleEl)
   }
   // 日期选择器样式（基础样式 + 主题覆盖，同样运行时注入）
-  if (!document.getElementById('terminal-session-task-datepicker-style')) {
+  if (!document.getElementById('bedcode-task-datepicker-style')) {
     const styleEl = document.createElement('style')
-    styleEl.id = 'terminal-session-task-datepicker-style'
+    styleEl.id = 'bedcode-task-datepicker-style'
     styleEl.textContent = datepickerCss + DATEPICKER_THEME_OVERRIDES
     document.head.appendChild(styleEl)
   }
@@ -306,8 +306,8 @@ export function deactivateTaskDomain(): void {
   capsuleDisposable?.dispose()
   capsuleDisposable = null
   unmountPanel()
-  document.getElementById('terminal-session-task-panel-style')?.remove()
-  document.getElementById('terminal-session-task-toolbox-style')?.remove()
-  document.getElementById('terminal-session-task-datepicker-style')?.remove()
+  document.getElementById('bedcode-task-panel-style')?.remove()
+  document.getElementById('bedcode-task-toolbox-style')?.remove()
+  document.getElementById('bedcode-task-datepicker-style')?.remove()
   _ctx?.logger.info('Task domain deactivated')
 }

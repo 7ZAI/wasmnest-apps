@@ -68,15 +68,15 @@ function makeHost(provided: unknown = ctx) {
 
 describe('配对流程状态机', () => {
   it('requestPairing：调用插件命令并进入 requested 态', async () => {
-    ctx.respond('terminal-session.request-pairing', { ok: true })
+    ctx.respond('bedcode.request-pairing', { ok: true })
     const host = makeHost()
     await host.requestPairing()
-    expect(ctx.commands.execute).toHaveBeenCalledWith('terminal-session.request-pairing')
+    expect(ctx.commands.execute).toHaveBeenCalledWith('bedcode.request-pairing')
     expect(host.pairingStage.value).toBe('requested')
   })
 
   it('verifyPairingCode accepted=true：回 idle、清码、返回 true', async () => {
-    ctx.respond('terminal-session.verify-pairing-code', { accepted: true })
+    ctx.respond('bedcode.verify-pairing-code', { accepted: true })
     const host = makeHost()
     host.pairingCode.value = 'ABC123'
     const ok = await host.verifyPairingCode('ABC123')
@@ -87,7 +87,7 @@ describe('配对流程状态机', () => {
   })
 
   it('verifyPairingCode accepted=false：回 idle + 错误文案 + false（反例）', async () => {
-    ctx.respond('terminal-session.verify-pairing-code', { accepted: false })
+    ctx.respond('bedcode.verify-pairing-code', { accepted: false })
     const host = makeHost()
     const ok = await host.verifyPairingCode('BAD')
     expect(ok).toBe(false)
@@ -125,26 +125,26 @@ describe('配对流程状态机', () => {
 
 describe('会话命令错误归一', () => {
   it('startSession code!=0：抛带 message 的错误', async () => {
-    ctx.respond('terminal-session.start-session', { code: -1, message: 'network down' })
+    ctx.respond('bedcode.start-session', { code: -1, message: 'network down' })
     const host = makeHost()
     await expect(host.startSession('cfg1')).rejects.toThrow('network down')
   })
 
   it('startSession code!=0 无 message：抛兜底 i18n key（供调用方 toast）', async () => {
-    ctx.respond('terminal-session.start-session', { code: -1 })
+    ctx.respond('bedcode.start-session', { code: -1 })
     const host = makeHost()
     await expect(host.startSession('cfg1')).rejects.toThrow('hub.startFailed')
   })
 
   it('startSession code=0：返回新会话 id', async () => {
-    ctx.respond('terminal-session.start-session', { code: 0, data: { sessionId: 's1' } })
+    ctx.respond('bedcode.start-session', { code: 0, data: { sessionId: 's1' } })
     const host = makeHost()
     await expect(host.startSession('cfg1')).resolves.toBe('s1')
   })
 
   it('stopSession / removeSession code!=0：抛错', async () => {
-    ctx.respond('terminal-session.stop-session', { code: 1, message: 'no such session' })
-    ctx.respond('terminal-session.remove-session', { code: 1, message: 'forbidden' })
+    ctx.respond('bedcode.stop-session', { code: 1, message: 'no such session' })
+    ctx.respond('bedcode.remove-session', { code: 1, message: 'forbidden' })
     const host = makeHost()
     await expect(host.stopSession('s1')).rejects.toThrow('no such session')
     await expect(host.removeSession('s1')).rejects.toThrow('forbidden')
@@ -153,18 +153,18 @@ describe('会话命令错误归一', () => {
 
 describe('扫码认证（插件命令面）', () => {
   it('authenticateWithQr accepted=true：透传 token 且返回 true', async () => {
-    ctx.respond('terminal-session.authenticate-with-qr', { accepted: true })
+    ctx.respond('bedcode.authenticate-with-qr', { accepted: true })
     const host = makeHost()
 
     await expect(host.authenticateWithQr('tok-1')).resolves.toBe(true)
-    expect(ctx.commands.execute).toHaveBeenCalledWith('terminal-session.authenticate-with-qr', {
+    expect(ctx.commands.execute).toHaveBeenCalledWith('bedcode.authenticate-with-qr', {
       token: 'tok-1',
     })
     expect(ctx.logger.warn).not.toHaveBeenCalled()
   })
 
   it('authenticateWithQr accepted=false：返回 false 且落 warn（不抛）', async () => {
-    ctx.respond('terminal-session.authenticate-with-qr', { accepted: false })
+    ctx.respond('bedcode.authenticate-with-qr', { accepted: false })
     const host = makeHost()
 
     await expect(host.authenticateWithQr('bad')).resolves.toBe(false)
@@ -172,7 +172,7 @@ describe('扫码认证（插件命令面）', () => {
   })
 
   it('authenticateWithQr code!=0：抛服务端 message（错误码归一）', async () => {
-    ctx.respond('terminal-session.authenticate-with-qr', { code: 403, message: 'expired token' })
+    ctx.respond('bedcode.authenticate-with-qr', { code: 403, message: 'expired token' })
     const host = makeHost()
 
     await expect(host.authenticateWithQr('t')).rejects.toThrow('expired token')

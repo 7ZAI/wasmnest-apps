@@ -156,6 +156,6 @@ export function makeWslDistro(overrides: Partial<WslDistroFixture> = {}): WslDis
 //
 // `DeviceConnectionInfo` / `DeviceConnectionEvent` 宿主 DTO 已随 websocket 业务下沉
 // 票 07 删除：设备派生视图（在线判定 + 连接历史 + 事件）由
-// `com.wasmnest.terminal-session` 插件自驱（`devices-connect-list` api / 命令面
+// `com.wasmnest.bedcode` 插件自驱（`devices-connect-list` api / 命令面
 // `session.devices.connect-list`，事件 `device:connected|disconnected`），
 // 前端不再依赖宿主设备 DTO 线协议。

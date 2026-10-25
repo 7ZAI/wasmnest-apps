@@ -18,7 +18,7 @@ import { ref } from 'vue'
  * 翻译函数（由调用方注入，带插件 ID 前缀的 `context.i18n.t`）
  *
  * 不可在本模块内用 vue-i18n 的 `useI18n()`：插件文案带
- * `com.wasmnest.terminal-session.` 前缀，无前缀查询拿不到值（显示 key 原文）。
+ * `com.wasmnest.bedcode.` 前缀，无前缀查询拿不到值（显示 key 原文）。
  */
 export type TerminalTranslateFn = (key: string, params?: Record<string, unknown>) => string
 

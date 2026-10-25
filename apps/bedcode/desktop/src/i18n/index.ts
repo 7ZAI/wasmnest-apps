@@ -7,7 +7,7 @@
  *    key，独立包必须自足）；
  * 2. 本 app 域消息（zh-CN / en）：session.* / pairing.* / task.* 三命名空间。
  *
- * **扁平 key 机制**（D5 遗留约定）：app 域消息以 `com.wasmnest.terminal-session.<key>`
+ * **扁平 key 机制**（D5 遗留约定）：app 域消息以 `com.wasmnest.bedcode.<key>`
  * 的扁平点号 key 注册（vue-i18n 的 `t` 可直接取文案；`te` 不识别扁平形态，故判
  * 「是否注册」用 `t !== key`）。语言由宿主经 env.locale / handle.setLocale 注入。
  */
@@ -28,7 +28,7 @@ export const messages: Record<string, MessageSchema> = {
 }
 
 /** app 域消息在统一实例里的命名空间前缀 */
-export const MESSAGE_NAMESPACE = 'com.wasmnest.terminal-session'
+export const MESSAGE_NAMESPACE = 'com.wasmnest.bedcode'
 
 /** 域消息表 → 扁平命名空间 key 表（`<namespace>.<key>`，供 merge 进实例） */
 function toNamespacedFlat(table: MessageSchema): Record<string, string> {

@@ -1,5 +1,5 @@
 /**
- * com.wasmnest.terminal-session 工程契约测试（票 03；桌面宿主前端下沉后改写）
+ * com.wasmnest.bedcode 工程契约测试（票 03；桌面宿主前端下沉后改写）
  *
  * 被测契约（全部是外部可见产物与边界，不测内部实现）：
  * - C1 身份一致：manifest.id / 构建脚本 PLUGIN_ID / manifest.rustLibrary /
@@ -65,8 +65,8 @@ flattenKeys(hostZhCN, '', DECLARED_MESSAGE_KEYS)
 
 describe('C1 工程身份五处一致', () => {
   it('manifest id 与构建脚本 PLUGIN_ID、默认产物目录与 --out 语义一致', () => {
-    expect(manifest.id).toBe('com.wasmnest.terminal-session')
-    expect(buildScript).toContain(`const PLUGIN_ID = 'com.wasmnest.terminal-session'`)
+    expect(manifest.id).toBe('com.wasmnest.bedcode')
+    expect(buildScript).toContain(`const PLUGIN_ID = 'com.wasmnest.bedcode'`)
     // G2（宿主运行时可分发化）：默认产物写**本仓** `.build/plugins`，写平台宿主 resources
     // 必须显式 `--out`。落点刻意不在 vite outDir（dist）内——dist 每次前端构建都被清空，
     // 产物落在里面等于每构建一次就自己删掉自己。
@@ -128,59 +128,59 @@ describe('C1 工程身份五处一致', () => {
       'ws:server',
     ])
     expect(manifest.api).toEqual([
-      'com.wasmnest.terminal-session.pairing-code-generate',
-      'com.wasmnest.terminal-session.pairing-code-status',
-      'com.wasmnest.terminal-session.pairing-code-verify',
-      'com.wasmnest.terminal-session.pairing-code-clear',
-      'com.wasmnest.terminal-session.qr-code-generate',
-      'com.wasmnest.terminal-session.qr-code-status',
-      'com.wasmnest.terminal-session.qr-code-verify',
-      'com.wasmnest.terminal-session.qr-code-clear',
-      'com.wasmnest.terminal-session.trust-list',
-      'com.wasmnest.terminal-session.trust-revoke',
-      'com.wasmnest.terminal-session.consent-decide',
-      'com.wasmnest.terminal-session.config-list',
-      'com.wasmnest.terminal-session.config-upsert',
-      'com.wasmnest.terminal-session.config-delete',
-      'com.wasmnest.terminal-session.quick-actions-import',
-      'com.wasmnest.terminal-session.auth-records-import',
-      'com.wasmnest.terminal-session.devices-list',
-      'com.wasmnest.terminal-session.history-list',
-      'com.wasmnest.terminal-session.connection-touch',
-      'com.wasmnest.terminal-session.connection-close',
+      'com.wasmnest.bedcode.pairing-code-generate',
+      'com.wasmnest.bedcode.pairing-code-status',
+      'com.wasmnest.bedcode.pairing-code-verify',
+      'com.wasmnest.bedcode.pairing-code-clear',
+      'com.wasmnest.bedcode.qr-code-generate',
+      'com.wasmnest.bedcode.qr-code-status',
+      'com.wasmnest.bedcode.qr-code-verify',
+      'com.wasmnest.bedcode.qr-code-clear',
+      'com.wasmnest.bedcode.trust-list',
+      'com.wasmnest.bedcode.trust-revoke',
+      'com.wasmnest.bedcode.consent-decide',
+      'com.wasmnest.bedcode.config-list',
+      'com.wasmnest.bedcode.config-upsert',
+      'com.wasmnest.bedcode.config-delete',
+      'com.wasmnest.bedcode.quick-actions-import',
+      'com.wasmnest.bedcode.auth-records-import',
+      'com.wasmnest.bedcode.devices-list',
+      'com.wasmnest.bedcode.history-list',
+      'com.wasmnest.bedcode.connection-touch',
+      'com.wasmnest.bedcode.connection-close',
       // v32（ADR 0031）：组合式认证原语 `auth-method-invoke` 的转发目标——宿主
       // `invoke_auth_method` 按 `format!("{}.auth-grant", center_owner)` 组装请求 topic，
       // 「未声明 api 不可调」门禁会直接拒掉它。**必须**在此声明，否则其他插件的
       // 组合式认证调用会在总线门禁处静默失败（无声明 = 没有 API 面）
-      'com.wasmnest.terminal-session.auth-grant',
-      'com.wasmnest.terminal-session.session-create',
-      'com.wasmnest.terminal-session.session-restart',
-      'com.wasmnest.terminal-session.session-remove',
-      'com.wasmnest.terminal-session.session-rename',
-      'com.wasmnest.terminal-session.session-resize',
-      'com.wasmnest.terminal-session.annotate',
-      'com.wasmnest.terminal-session.devices-connect-list',
+      'com.wasmnest.bedcode.auth-grant',
+      'com.wasmnest.bedcode.session-create',
+      'com.wasmnest.bedcode.session-restart',
+      'com.wasmnest.bedcode.session-remove',
+      'com.wasmnest.bedcode.session-rename',
+      'com.wasmnest.bedcode.session-resize',
+      'com.wasmnest.bedcode.annotate',
+      'com.wasmnest.bedcode.devices-connect-list',
       // 会话引擎下沉 P1：登记域读取面（宿主窄转发层真源切换时的取数口，形状 = SessionInfoView）
-      'com.wasmnest.terminal-session.session-list',
-      'com.wasmnest.terminal-session.session-get',
+      'com.wasmnest.bedcode.session-list',
+      'com.wasmnest.bedcode.session-get',
       // 会话引擎下沉 P1-b：停止（登记 Stopping + host-pty.kill）与输入写入
-      'com.wasmnest.terminal-session.session-close',
-      'com.wasmnest.terminal-session.session-input',
+      'com.wasmnest.bedcode.session-close',
+      'com.wasmnest.bedcode.session-input',
       // 票 08（websocket 业务下沉）：一次性历史快照（宿主不再直读会话输出环）
-      'com.wasmnest.terminal-session.session-history',
+      'com.wasmnest.bedcode.session-history',
       // 票 09b：WS 会话控制词表分派（宿主 /ws/event SessionControl 的声明式路由接线）
-      'com.wasmnest.terminal-session.session-ws-control',
+      'com.wasmnest.bedcode.session-ws-control',
     ])
     // 桥接锚点：宿主 auth_center 以 trust-list 探活（配对 / trust / policy 同一桥接门），
     // 改名即两侧失联（永久静默降级）
-    expect(manifest.api).toContain('com.wasmnest.terminal-session.trust-list')
+    expect(manifest.api).toContain('com.wasmnest.bedcode.trust-list')
     // 消费方契约：file-transfer 经互调消费这两条（未声明 api 不可调，缺一即整片被拒）
-    expect(manifest.api).toContain('com.wasmnest.terminal-session.consent-decide')
+    expect(manifest.api).toContain('com.wasmnest.bedcode.consent-decide')
     // manifest.api 与 Rust trait 的 `#[api(...)]` 声明同源（宏在编译期比对，
     // 此处守「源码在但清单漏项」这一侧，避免宿主按旧清单调用）
     const apiDeclarations = readFileSync(resolve(PLUGIN_ROOT, 'rust/src/lib.rs'), 'utf-8')
     for (const api of manifest.api as string[]) {
-      const short = api.replace('com.wasmnest.terminal-session.', '')
+      const short = api.replace('com.wasmnest.bedcode.', '')
       expect(apiDeclarations, `trait 缺 #[api("${short}")]`).toContain(`#[api("${short}")]`)
     }
     // 命令面声明与后端 dispatch 分支同源（缺 declaration 的命名）
@@ -320,7 +320,7 @@ describe('C2 构建链收口到共享配置', () => {
 /** 测试用挂载环境（命令/存储经 mock 桩；页面注入契约逐字验证） */
 function makeEnv(overrides: Partial<Parameters<typeof createAppContext>[0]> = {}) {
   return {
-    appId: 'com.wasmnest.terminal-session',
+    appId: 'com.wasmnest.bedcode',
     mountContract: '1',
     invoke: vi.fn(async () => ({ ui: { terminal_font_size: 14, terminal_letter_spacing: 0 } })),
     appInvoke: vi.fn(async () => ({})),
@@ -337,10 +337,10 @@ function makeEnv(overrides: Partial<Parameters<typeof createAppContext>[0]> = {}
 describe('C3 入口契约（挂载包形态：mountApp + 直连上下文 + 内存路由）', () => {
   it('app 直连上下文提供与旧 PluginContext 同形的取数面', () => {
     const ctx = createAppContext(makeEnv()) as any
-    expect(ctx.id).toBe('com.wasmnest.terminal-session')
+    expect(ctx.id).toBe('com.wasmnest.bedcode')
     // 命令通道：execute 走 app 命令通道（无前端 handler 注册表）
     expect(typeof ctx.commands.execute).toBe('function')
-    // i18n：t 自动补 com.wasmnest.terminal-session.* 命名空间（D5 静态化）
+    // i18n：t 自动补 com.wasmnest.bedcode.* 命名空间（D5 静态化）
     expect(ctx.i18n.t('session.sidebar.title')).toBe('终端会话')
     expect(ctx.i18n.t('session.sidebar.title', {})).toBe('终端会话')
     // 宿主机制文案经顶层 key 直查（同一实例两个消息集）
@@ -465,7 +465,7 @@ describe('C5 静态侧边栏菜单表与设置分组表（D3/D4）', () => {
       expect(paths.has(item.path), `菜单 ${item.id} 的路由 ${item.path} 不在路由表`).toBe(true)
     }
     // app 域菜单项走命名空间 key，宿主机制项（设置）走顶层 key
-    expect(sidebarMenuItems[0].labelKey).toBe('com.wasmnest.terminal-session.pairing.sidebar.title')
+    expect(sidebarMenuItems[0].labelKey).toBe('com.wasmnest.bedcode.pairing.sidebar.title')
     expect(sidebarMenuItems[3].labelKey).toBe('desktop.sidebar.settings')
   })
 
@@ -474,10 +474,10 @@ describe('C5 静态侧边栏菜单表与设置分组表（D3/D4）', () => {
     expect(sorted.map((s) => s.key)).toEqual(['appearance', 'pairing', 'linkCrypto', 'session'])
     expect(sorted.map((s) => s.order)).toEqual([100, 200, 300, 400])
     // 业务分组携带标题 key（仅正文组件，外壳由设置页统一渲染）
-    expect(sorted[0].titleKey).toBe('com.wasmnest.terminal-session.appearance.settings.title')
-    expect(sorted[1].titleKey).toBe('com.wasmnest.terminal-session.pairing.settings.title')
+    expect(sorted[0].titleKey).toBe('com.wasmnest.bedcode.appearance.settings.title')
+    expect(sorted[1].titleKey).toBe('com.wasmnest.bedcode.pairing.settings.title')
     expect(sorted[2].titleKey).toBe('settings.linkCrypto.title')
-    expect(sorted[3].titleKey).toBe('com.wasmnest.terminal-session.session.settings.title')
+    expect(sorted[3].titleKey).toBe('com.wasmnest.bedcode.session.settings.title')
     expect(SECTION_ORDERS).toEqual({ appearance: 100, pairing: 200, linkCrypto: 300, session: 400 })
   })
 })

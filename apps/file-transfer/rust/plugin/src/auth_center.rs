@@ -108,7 +108,7 @@ pub(crate) struct ConsentDecision {
 // ==================== 互调 client（ADR 0017：manifest 声明即契约） ====================
 // 以认证中心 manifest 为防漂移比对源。本插件是**消费方**（manifest 属对侧插件包），
 // 判据为 `trait ⊆ manifest`：只镜像本插件真正调用的 api，调对侧未声明的条目仍编译失败，
-// 而对侧新增 api 不再连带本插件红（票 13 裁定——此前精确相等把「改 terminal-session」
+// 而对侧新增 api 不再连带本插件红（票 13 裁定——此前精确相等把「改 bedcode」
 // 变成「同时改一个不消费它的插件」）。
 //
 // 仅 wasm 目标声明：native（cargo test）不消费 client，跳过宏展开避免

@@ -33,7 +33,7 @@ vi.mock('html5-qrcode', () => ({ Html5Qrcode: class {} }))
 function makePluginContext() {
   const listeners = new Map<string, Set<(payload?: unknown) => void>>()
   return {
-    id: 'com.wasmnest.terminal-session',
+    id: 'com.wasmnest.bedcode',
     commands: { execute: vi.fn(async () => ({})) },
     events: {
       on: (event: string, handler: (payload?: unknown) => void) => {
@@ -130,7 +130,7 @@ describe('C-C1/C-C2/C-C3/C-C7/C-C8 连接页形态与流程契约', () => {
     const wrapper = mountSection(DevicesSection)
     await settle()
 
-    expect(ctx.commands.execute).toHaveBeenCalledWith('terminal-session.request-pairing')
+    expect(ctx.commands.execute).toHaveBeenCalledWith('bedcode.request-pairing')
     // 配对弹窗 Teleport 到 body
     expect(document.body.textContent).toContain('hub.pairingCodeTitle')
     wrapper.unmount()
@@ -158,7 +158,7 @@ describe('C-C1/C-C2/C-C3/C-C7/C-C8 连接页形态与流程契约', () => {
 
     expect(connectDevice).toHaveBeenCalledWith({ address: '10.0.0.9', port: 8765, name: 'desk-9' })
     expect(api.authenticateWithStoredToken).toHaveBeenCalledTimes(1)
-    expect(ctx.commands.execute).not.toHaveBeenCalledWith('terminal-session.request-pairing')
+    expect(ctx.commands.execute).not.toHaveBeenCalledWith('bedcode.request-pairing')
     expect(document.body.textContent).not.toContain('hub.pairingCodeTitle')
     wrapper.unmount()
   })
@@ -179,7 +179,7 @@ describe('C-C1/C-C2/C-C3/C-C7/C-C8 连接页形态与流程契约', () => {
     await row!.trigger('click')
     await settle()
 
-    expect(ctx.commands.execute).toHaveBeenCalledWith('terminal-session.request-pairing')
+    expect(ctx.commands.execute).toHaveBeenCalledWith('bedcode.request-pairing')
     expect(document.body.textContent).toContain('hub.pairingCodeTitle')
     wrapper.unmount()
   })
@@ -210,7 +210,7 @@ describe('C-C1/C-C2/C-C3/C-C7/C-C8 连接页形态与流程契约', () => {
 
     expect(connectDevice).toHaveBeenCalledWith({ address: '10.0.0.5', port: 9000, name: '10.0.0.5' })
     // 手动连接必须走认证流程（不允许静默用存量凭据）
-    expect(ctx.commands.execute).toHaveBeenCalledWith('terminal-session.request-pairing')
+    expect(ctx.commands.execute).toHaveBeenCalledWith('bedcode.request-pairing')
     wrapper.unmount()
   })
 })
@@ -278,7 +278,7 @@ describe('C-C4/C-C5/C-C6/C-C9 会话页形态与动作契约', () => {
     expect(api.activeSessionId.value).toBe('s-7')
     // 预热只建连（不发 subscribe）：桌面端每次 subscribe 都整段重放，预热期
     // 页面通道未登记 ⇒ 走 subscribe 预热等于白传一遍大块历史
-    expect(ctx.commands.execute).toHaveBeenCalledWith('terminal-session.prewarm', { sessionId: 's-7' })
+    expect(ctx.commands.execute).toHaveBeenCalledWith('bedcode.prewarm', { sessionId: 's-7' })
     wrapper.unmount()
   })
 
@@ -295,7 +295,7 @@ describe('C-C4/C-C5/C-C6/C-C9 会话页形态与动作契约', () => {
     await startBtn!.trigger('click')
     await settle()
 
-    expect(ctx.commands.execute).not.toHaveBeenCalledWith('terminal-session.start-session', expect.anything())
+    expect(ctx.commands.execute).not.toHaveBeenCalledWith('bedcode.start-session', expect.anything())
     expect(ctx.dialogs.showToast).toHaveBeenCalledWith('hub.maxReached', 'error')
     wrapper.unmount()
   })
@@ -309,7 +309,7 @@ describe('C-C10 扫码认证路径（自持 token，不走配对码兜底）', (
       api.connectionStatus.value = 'connected'
     }
     ctx.commands.execute = vi.fn(async (id: string) =>
-      id === 'terminal-session.authenticate-with-qr' ? { accepted: true } : {},
+      id === 'bedcode.authenticate-with-qr' ? { accepted: true } : {},
     )
 
     const wrapper = mountSection(DevicesSection)
@@ -329,10 +329,10 @@ describe('C-C10 扫码认证路径（自持 token，不走配对码兜底）', (
     await resultCard!.trigger('click')
     await settle()
 
-    expect(ctx.commands.execute).toHaveBeenCalledWith('terminal-session.authenticate-with-qr', {
+    expect(ctx.commands.execute).toHaveBeenCalledWith('bedcode.authenticate-with-qr', {
       token: 'one-shot',
     })
-    expect(ctx.commands.execute).not.toHaveBeenCalledWith('terminal-session.request-pairing')
+    expect(ctx.commands.execute).not.toHaveBeenCalledWith('bedcode.request-pairing')
     wrapper.unmount()
   })
 })
@@ -348,8 +348,8 @@ describe('C-C11 首选认证方式（设置项驱动的弹窗选择）', () => {
     const wrapper = mountSection(DevicesSection)
     await settle()
 
-    expect(ctx.commands.execute).toHaveBeenCalledWith('terminal-session.authenticate-with-biometric')
-    expect(ctx.commands.execute).not.toHaveBeenCalledWith('terminal-session.request-pairing')
+    expect(ctx.commands.execute).toHaveBeenCalledWith('bedcode.authenticate-with-biometric')
+    expect(ctx.commands.execute).not.toHaveBeenCalledWith('bedcode.request-pairing')
     expect(document.body.textContent).toContain('hub.authBiometric')
     wrapper.unmount()
   })
@@ -365,8 +365,8 @@ describe('C-C11 首选认证方式（设置项驱动的弹窗选择）', () => {
     const wrapper = mountSection(DevicesSection)
     await settle()
 
-    expect(ctx.commands.execute).toHaveBeenCalledWith('terminal-session.request-pairing')
-    expect(ctx.commands.execute).not.toHaveBeenCalledWith('terminal-session.authenticate-with-biometric')
+    expect(ctx.commands.execute).toHaveBeenCalledWith('bedcode.request-pairing')
+    expect(ctx.commands.execute).not.toHaveBeenCalledWith('bedcode.authenticate-with-biometric')
     wrapper.unmount()
   })
 })

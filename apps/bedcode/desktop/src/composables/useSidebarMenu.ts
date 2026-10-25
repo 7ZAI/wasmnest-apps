@@ -6,7 +6,7 @@
  * 槽位值，保证视觉顺序不变：
  * 设备配对 100 / 终端会话 200 / Agent任务 210 / 设置 9999。
  *
- * 文案 key 两种命名域并存：本 app 域消息经 `com.wasmnest.terminal-session.`
+ * 文案 key 两种命名域并存：本 app 域消息经 `com.wasmnest.bedcode.`
  * 前缀（MESSAGE_NAMESPACE），宿主机制文案（设置项）直取顶层 key。
  */
 

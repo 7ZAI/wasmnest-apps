@@ -52,7 +52,7 @@ const execute = vi.fn(defaultExecute)
 
 function makeContext(): PluginContext {
   return {
-    id: 'com.wasmnest.terminal-session',
+    id: 'com.wasmnest.bedcode',
     i18n: {
       t: (key: string) => key,
       getI18n: () => ({ global: { locale: { value: 'zh-CN' }, t: (key: string) => key } }),

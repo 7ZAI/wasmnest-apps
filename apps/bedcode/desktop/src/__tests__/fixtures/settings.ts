@@ -8,7 +8,7 @@
  *
  * 消费方差异：前端 stores/settings.ts 的 Settings 类型是 AppConfig 的子集视图
  * （只取 network/ui 两个小节；session 段已从 Rust DTO 整体退役——默认值真源在
- *  `com.wasmnest.terminal-session` 插件存储，2026-09-25 随宿主业务配置下沉删除）。
+ *  `com.wasmnest.bedcode` 插件存储，2026-09-25 随宿主业务配置下沉删除）。
  *  channels/terminal/log 前端不消费，fixture 一并建模防漂移。
  *
  * 命名规则：serde 默认 snake_case。
