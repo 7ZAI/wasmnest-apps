@@ -664,6 +664,22 @@ pub fn mark_paused(entries: &mut [TransferEntry], batch_id: &str) -> bool {
     false
 }
 
+/// 恢复乐观标记：paused 条目改标 `running`。
+///
+/// 与 [`mark_paused`] 对称：引擎只在收到**对端** Resume 帧时直推 `resumed`
+/// 事件，本端 resume 命令只写数据面帧、不回环事件；而 `progress` 归约刻意
+/// 不把 paused 打回 running（防残留进度弹回暂停态）。缺了这一步，恢复后任务
+/// 卡会永久停在「已暂停」，再次点恢复也无可见变化（引擎对在册会话恒回成功）。
+pub fn mark_resumed(entries: &mut [TransferEntry], batch_id: &str) -> bool {
+    for e in entries.iter_mut() {
+        if e.batch_id == batch_id && e.status == "paused" {
+            e.status = "running".to_string();
+            return true;
+        }
+    }
+    false
+}
+
 /// 重试回填：新批 ID 替换旧批（同一逻辑传输一条历史），状态复位 running。
 /// 只允许携带 `retry_meta` 的终态条目（即本端发起的失败/被拒/取消/中断批）。
 /// 返回是否命中。
