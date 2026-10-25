@@ -89,8 +89,8 @@ const ROLE_RANK: Record<PluginKindRole, number> = {
 /** 宿主清单有、指标快照无时只补这些异常态，正常未运行的应用不进入运行时台账 */
 const HOST_ONLY_VISIBLE_STATES = new Set<PluginDisplayState>(['error', 'degraded', 'approval'])
 
-/** 携带 wasm Store 的产物形态；ts-only 没有运行时指标 */
-const WASM_PLUGIN_TYPES = new Set(['rust', 'rust-ts', 'wasm'])
+/** 携带 wasm Store 的产物形态（语言无关三档，wasmnest-apps#21）；frontend 没有运行时指标 */
+const WASM_PLUGIN_TYPES = new Set(['backend', 'full'])
 
 /** manifest kind → 展示角色（兼容历史别名 system / application） */
 export function normalizePluginKind(raw: unknown): PluginKindRole {
@@ -199,7 +199,7 @@ export function mergePluginRows(
     const state = stateOfInfo(info)
     const displayState = displayStateOf(state.raw)
     if (!HOST_ONLY_VISIBLE_STATES.has(displayState)) continue
-    // 明确 ts-only 的插件不进入 wasm 运行时台账；缺 pluginType 的老宿主按异常态兜底
+    // 明确纯前端（frontend）的插件不进入 wasm 运行时台账；缺 pluginType 的老宿主按异常态兜底
     if (isWasmBearingPluginType(info.pluginType) === false) continue
     rows.push({
       id,

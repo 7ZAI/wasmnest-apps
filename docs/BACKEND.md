@@ -39,7 +39,7 @@ wasmnest-plugin-api-mobile = { path = "../../../../../wasmnest/wasmnest-mobile/p
 ```
 
 - **只 `cdylib`，不加 `rlib`**：一旦声明可链接形式，cargo 会连带为宿主目标构建 x86_64 cdylib，而本 crate 的 wit-bindgen 导出名在 ELF version script 里非法 ⇒ 链接期直接失败（bedcode 票 08 实测）。因此跨端契约测试写成 `src/*_test.rs` 的 `#[cfg(test)]` 模块，而不是 `tests/*.rs` 集成目标。
-- **`rustLibrary` = Cargo 包名的下划线归一化**：`bedcode-plugin-terminal-session` → `bedcode_plugin_terminal_session.wasm`。填连字符形式会找不到产物（`manifest-validate` 也要求 `pluginType=rust-ts` 时必须给 `rustLibrary`）。
+- **`rustLibrary` = Cargo 包名的下划线归一化**：`bedcode-plugin-terminal-session` → `bedcode_plugin_terminal_session.wasm`。填连字符形式会找不到产物（`manifest-validate` 也要求 `pluginType=full` 时必须给 `rustLibrary`；键名暂保留历史拼写，见 wasmnest-apps#21 键位子决策）。
 - **相对路径深度随目录层级变**：file-transfer 的 rust 层历史上移过两次（`desktop/rust` → `rust-plugin` → `rust/plugin`），SDK path 现在是 5 级上溯。移动这些目录时，`Cargo.toml` 的 SDK path、`lib.rs` 的 `include_str!`、`auth_center.rs` 的 `#[plugin_api(manifest = …)]` **三处必须同改**。
 
 ---
@@ -95,7 +95,7 @@ pub(crate) trait SessionCenterApi {
 
 - `plugin.json` 必填：`id`（另有反域名格式校验）、`name`、`version`、`platform`、`main`、`pluginType`、`permissions`、`contributes`（真源 = SDK `bin/manifest-validate.js`；宿主反序列化无缺省，缺失即拒装）。
 - `platform`：按工程所在端取 `desktop` / `mobile`；仅真正的双端单产物工程（file-transfer）写 **`both`** —— 注意它的 **desktop 与 mobile 两份 plugin.json 都写 `both`**。写错会被两端宿主在扫描与 zip 安装两条入口 fail-visible 拒绝。
-- `pluginType`：桌面内置应用 `rust-ts`（必须给 `rustLibrary`）；移动应用 `wasm`。
+- `pluginType`：语言无关三档 `frontend` / `backend` / `full`（2026-10-26 重定义，wasmnest-apps#21；旧值 rust / rust-ts / ts-only / wasm 已退役）——内置应用一律 `full`（必须给 `rustLibrary`）。
 - `wasmHash`：由构建链注入**产物目录**的 `plugin.json`（`bin/wasm-hash.js` 按 `<rustLibrary>.wasm` 现算 SHA-256）；**源清单不写该键**，手写会被 `manifest-validate` 告警且发布打包复核不一致即失败。
 - **权限无默认授予**：必须在 `permissions` 显式声明（`storage` 也一样）。词汇唯一真源 = 平台 SDK `permission.rs`；`manifest-gen` 的映射表是消费方，**词汇表没有的位加载即抛错**，不得自造。
 - 高风险面按域拆分（`pty:spawn` / `pty:io`、`ws:client` / `ws:server`、`task:run`），需要多少声明多少；文件系统走宿主授权链（预授权目录 → 已授权前缀 → 弹窗），**不要试图绕过**。

@@ -41,7 +41,7 @@ export function info(overrides: Partial<HostPluginInfo> = {}): HostPluginInfo {
     id: 'com.wasmnest.a',
     name: 'App A',
     version: '0.0.1',
-    pluginType: 'rust-ts',
+    pluginType: 'full',
     kind: 'business-app',
     state: { state: 'activated' },
     ...overrides,

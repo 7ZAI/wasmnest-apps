@@ -150,26 +150,26 @@ describe('mergePluginRows（指标 + 宿主清单）', () => {
     ])
   })
 
-  it('宿主有、快照无的 wasm 插件补无指标行；ts-only 与正常未运行不补', () => {
+  it('宿主有、快照无的 wasm 插件补无指标行；纯前端与正常未运行不补', () => {
     const rows = mergePluginRows(snapshot({ live: metrics() }), [
       info({ id: 'live', name: 'Live' }),
       info({
         id: 'auth',
         name: 'Auth Center',
         kind: 'internal-business',
-        pluginType: 'rust-ts',
+        pluginType: 'full',
         state: { state: 'error', error: 'auth center not registered' },
       }),
       info({
         id: 'ts',
-        name: 'TS only',
-        pluginType: 'ts-only',
+        name: 'Frontend only',
+        pluginType: 'frontend',
         state: { state: 'error', error: 'frontend failed' },
       }),
       info({
         id: 'idle',
         name: 'Idle app',
-        pluginType: 'rust-ts',
+        pluginType: 'full',
         state: { state: 'deactivated' },
       }),
     ])

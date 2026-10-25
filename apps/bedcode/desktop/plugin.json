@@ -7,7 +7,7 @@
   "author": "WasmNest",
   "main": "index.js",
   "type": "business-app",
-  "pluginType": "rust-ts",
+  "pluginType": "full",
   "backgroundTransport": true,
   "rustLibrary": "bedcode_plugin_terminal_session",
   "icon": "icon.svg",

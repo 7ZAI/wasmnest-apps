@@ -7,7 +7,7 @@
   "author": "WasmNest",
   "icon": "icon.svg",
   "main": "index.js",
-  "pluginType": "wasm",
+  "pluginType": "full",
   "rustLibrary": "bedcode_plugin_terminal_session",
   "permissions": [
     "auth",

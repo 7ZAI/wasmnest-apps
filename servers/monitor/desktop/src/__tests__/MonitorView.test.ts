@@ -186,7 +186,7 @@ describe('MonitorView（桌面界面契约）', () => {
         id: 'com.wasmnest.auth-center',
         name: 'Auth Center',
         kind: 'internal-business',
-        pluginType: 'rust-ts',
+        pluginType: 'full',
         state: { state: 'error', error: 'auth center not registered' },
       }),
     ])
