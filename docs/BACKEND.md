@@ -1,9 +1,9 @@
-# BACKEND —— Rust（WASM）后端规范
+# BACKEND —— WASM 后端规范（Rust / Go）
 
-> 适用范围：各 app 的 `rust/` crate 与 `apps/file-transfer/rust/{core,plugin}`。
+> 适用范围：各 app 的 `rust/` crate 与 `apps/file-transfer/rust/{core,plugin}`；Go 后端路线见 §9（试点 `apps/ai-chatbox/desktop/go`）。
 > 结构导航见 `docs/CODE-MAP.md`；前端规范见 `docs/FRONTEND.md`；裁决与硬约束见 `AGENTS.md`。
 >
-> SDK 的 API / 类型真源在平台仓（`wasmnest-{desktop,mobile}/packages/plugin-sdk-*/rust`）；WIT / ABI 真源在能力仓，**都不在本仓改**。
+> SDK 的 API / 类型真源在平台仓（Rust：`wasmnest-{desktop,mobile}/packages/plugin-sdk-*/rust`；Go：`wasmnest-desktop/packages/plugin-sdk-desktop/go`）；WIT / ABI 真源在能力仓，**都不在本仓改**。
 
 ---
 
@@ -136,3 +136,29 @@ pnpm run test:rust                                        # 仅 bedcode/desktop 
 4. 若供其他应用组合，加进 `plugin.json.api` 并对侧加 `#[plugin_api]`。
 5. 前端调用点改用新命令（`docs/FRONTEND.md` §4：只能经 `appInvoke` / `context.commands.execute`）。
 6. 跑该 crate `cargo test` + 一次构建产物写出。
+
+---
+
+## 9. Go 后端路线（TinyGo wasip2，issue #21）
+
+> 工程布局 / SDK 壳用法 / 工具链坑的细则真源 = 平台仓 `packages/plugin-sdk-desktop/go/README.md` 与试点工程 `apps/ai-chatbox/desktop/go/README.md`，本节只给选型判据与仓内接线。
+
+**适用面**：桌面 app 后端（试点 ai-chatbox）。命令分发 / 清单 / 生命周期 / abi-form 等框架性导出由 Go SDK 壳（`sdk.Entry`）替实现，应用只写命令表与业务逻辑。宿主实例化路径与 Rust 产物完全同一条（语言不是判据，形态才是——`pluginType` 三形态见 §5）。
+
+**工具链（钉版 = Phase 0 spike 实证组合）**：Go 1.27.3 / TinyGo 0.43.0 / wasm-tools 1.240.0 / wit-bindgen-go v0.7.0。TinyGo 组件化**必须有外部 wasm-tools**（缺失报 `component embed failed`）。
+
+**仓内接线**：
+
+- 工程形态：`apps/<slug>/desktop/go/`（Go 模块）。可移植逻辑（无 build tag）与组件目标（`//go:build wasip2`，文件名后缀用 `wasip2` **不用** `_wasm`——GOARCH 隐式约束）分文件，原生 `go test ./...` 只测可移植面。
+- 依赖形态：`go.mod` `replace` 把 SDK 壳指回平台仓源码（首期不发布；R1 兄弟布局上溯深度与 npm `file:` 依赖同深度减一，Go 模块住在 `go/` 下多一级）。平台仓 feature 分支未合流时，本地经 gitignored `go.work` + `WASMNEST_SDK_GO_DIR` 指向 worktree（见试点工程 README）。
+- 构建链：`pnpm run build:go`（= `build.js --go-only`）→ 清单嵌入副本同步（`go:embed` 不能上溯目录，`plugin.json` 由 build.js 复制进 `go/`）→ SDK 侧 `tools/assemble-wit.mjs` 组装 wit → `tinygo build -target=wasip2 -wit-world go-plugin`。产物名沿用清单 `rustLibrary` 键位（键名中性化另裁，issue #21），wasmHash 注入 / 产物目录 / dev:host / E2E / 打包链与 Rust 版零适配。
+- 测试边界：**与 Rust 同口径——原生 `go test` 不覆盖组件路径**；涉及绑定 / 组件面的改动必须跑一次 TinyGo 构建产出组件（`wasm-tools validate`）才算验证。CI 面：`ci.yml` go-test job（native）+ app-build 按 `go/` 目录自动装工具链。
+
+**与 Rust 版的纪律差异**（选型前必读）：
+
+- 未知命令显性报错经 `sdk.CommandTable`（默认行为，同 Rust §3 纪律）。
+- 跨边界失败：错误串经 SDK 转 `{"error":"…"}` 信封（与 Rust 宏同口径转义）；ai-chatbox 口径下错误串是诊断信息，**信封形状才是契约**。
+- 跨插件互调宏（§3）**没有 Go 等价物**——Go app 不参与互调，`plugin.json.api` 不声明。
+- `WASMNEST_PLUGIN_DEBUG=1` 对 Go 产物暂无调试档等价物（按 release 构建并告警）。
+- TinyGo 已知限制：硬编码 wasi:cli/command world（多一个无害 `wasi:cli/run` 导出）；goroutine 走 asyncify 调度器；stdlib 为子集。宿主 WASI 面默认全开是其运行前提（收紧会首先破坏 Go 产物，见 issue #21 Further Notes）。
+- 宿主能力调用：core 九机制接口走 `sdk.Host*` 惯用包装；能力域接口有包装的用包装（`HostHTTPFetch`），没有的经 `gen/wasmnest/plugin/host-*` 直用——**不为没有调用者的面预制包装**。
