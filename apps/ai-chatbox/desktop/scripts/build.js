@@ -1,21 +1,28 @@
 /**
  * AI Chatbox 插件统一构建脚本
  *
- * 串联：vite build → cargo build (WASM) → 复制产物到本仓默认产物目录 `.build/plugins`
+ * 串联：vite build → tinygo build（WASM 组件，issue #21 Solution 4 构建链接入）
+ *      → 复制产物到本仓默认产物目录 `.build/plugins`
+ *
+ * 后端构建（TinyGo 步骤替换 cargo，其余复用）：
+ *   1. 工具链预检（tinygo / wasm-tools / Go 在 PATH；缺失 fail-visible + PATH 提示）；
+ *   2. 清单嵌入副本同步：go:embed 不能上溯目录，plugin.json 由本脚本复制进 go/；
+ *   3. wit 包组装：SDK 壳 tools/assemble-wit.mjs --out .build/go-wit（与绑定生成
+ *      同一脚本，派生产物不入库）；
+ *   4. tinygo build -target=wasip2 -wit-world go-plugin → `<rustLibrary>.wasm`
+ *      （产物名沿用清单 rustLibrary 键位——键名中性化另裁，见 issue #21）。
+ *
+ * TinyGo 产物的调试档等价物首期不做（spec #21 Implementation Decisions）：
+ * WASMNEST_PLUGIN_DEBUG=1 时按 release 构建并告警。
  */
 
 import { execSync } from 'child_process'
-import { cpSync, copyFileSync, mkdirSync, existsSync, mkdtempSync, rmSync } from 'fs'
+import { cpSync, copyFileSync, mkdirSync, existsSync, mkdtempSync, readFileSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { resolve, dirname, basename, join, sep } from 'path'
 import { fileURLToPath } from 'url'
 import { startPluginWatch } from '@binblink/wasmnest-plugin-sdk-desktop/bin/plugin-watch.js'
-import {
-  WASM_TARGET,
-  WASM_TARGET_DIR,
-  wasip3CargoEnv,
-} from '../../../../scripts/plugin-wasm-config.mjs'
-import { injectWasmHash } from '@binblink/wasmnest-plugin-sdk-desktop/bin/wasm-hash.js'
+import { injectWasmHash, wasmFileName } from '@binblink/wasmnest-plugin-sdk-desktop/bin/wasm-hash.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -23,14 +30,21 @@ const ROOT = resolve(__dirname, '..')
 /** 默认产物根目录：本仓内、且不在 vite outDir（dist）之下 */
 const DEFAULT_PLUGINS_DIR = join('.build', 'plugins')
 const PLUGIN_ID = 'com.wasmnest.ai-chatbox'
-const RUST_LIB_NAME = 'wasmnest_plugin_ai_chatbox'
+// 产物 wasm 文件名由清单 rustLibrary 声明（宿主按该名装载；Go 版沿用同一键位）
+const WASM_NAME = wasmFileName(JSON.parse(readFileSync(resolve(ROOT, 'plugin.json'), 'utf-8')))
 
-// 插件调试模式：WASMNEST_PLUGIN_DEBUG=1 → wasm 以 debug profile 构建（保留
-// DWARF，宿主开启 backtrace 行号栈用）；release 构建忽略（宿主侧以
-// cfg!(debug_assertions) 兜底，见 wasm_runtime.rs plugin_debug_mode）
+// 插件调试模式：WASMNEST_PLUGIN_DEBUG=1 → Rust 版 wasm 以 debug profile 构建
+// （保留 DWARF）。Go 版 TinyGo 产物首期无调试档等价物，按 release 构建并告警
+// （宿主侧以 cfg!(debug_assertions) 兜底，见 wasm_runtime.rs plugin_debug_mode）。
 const DEBUG_MODE = !!process.env.WASMNEST_PLUGIN_DEBUG
-const WASM_PROFILE = DEBUG_MODE ? 'debug' : 'release'
-const WASM_PROFILE_DIR = `${WASM_TARGET_DIR}/${WASM_TARGET}/${WASM_PROFILE}`
+// TinyGo 构建输出与 wit 组装的中间区（gitignore 内 .build/）
+const GO_BUILD_DIR = join('.build', 'go')
+const GO_WIT_DIR = join('.build', 'go-wit')
+// SDK Go 壳模块（首期源码取用，go.mod replace 同一目标；R1 兄弟布局 4 级上溯，
+// 与 npm 侧 file: 依赖同深度）。WASMNEST_SDK_GO_DIR 为本地覆盖口（同
+// WASMNEST_HOST_BIN 约定）：平台仓 feature worktree 未合流时指 worktree 路径。
+const SDK_GO_DIR = process.env.WASMNEST_SDK_GO_DIR ||
+  resolve(ROOT, '../../../../wasmnest/wasmnest-desktop/packages/plugin-sdk-desktop/go')
 
 // ==================== 产物目标目录（G2：默认写本仓，不依赖平台仓） ====================
 // 默认 = 本 app 工程内 `.build/plugins/<appId>/`（已 gitignore）。**刻意不落 `dist/`**：
@@ -54,7 +68,7 @@ function run(cmd, options = {}) {
   try {
     execSync(cmd, { stdio: 'inherit', cwd: ROOT, ...options })
   } catch (e) {
-    console.error(`[build] 命令失败: ${cmd} (cwd=${ROOT})`)
+    console.error(`[build] 命令失败: ${cmd} (cwd=${options.cwd || ROOT})`)
     throw e
   }
 }
@@ -66,10 +80,10 @@ function run(cmd, options = {}) {
  * 不在构建前把它挪出来，清空后无处复用 = 产物目录里只剩前端包，宿主装不上该 app。
  */
 function preservePreviousWasm() {
-  const prev = resolve(RESOURCES_DIR, `${RUST_LIB_NAME}.wasm`)
+  const prev = resolve(RESOURCES_DIR, WASM_NAME)
   if (!existsSync(prev)) return null
   const tmp = mkdtempSync(join(tmpdir(), 'wasmnest-wasm-keep-'))
-  const kept = join(tmp, `${RUST_LIB_NAME}.wasm`)
+  const kept = join(tmp, WASM_NAME)
   copyFileSync(prev, kept)
   return kept
 }
@@ -79,13 +93,54 @@ function buildFrontend() {
   run('pnpm exec vite build')
 }
 
-function buildRust() {
-  console.log('\n[build] ====== Building Rust backend (WASM) ======')
-  // 票 03：桌面插件统一 wasm32-wasip3（WASI 0.3；pinned nightly 提供 std，
-  // 产物 cdylib 直出 Component，免 componentize）。宿主 async store 实例化（票 02）。
+/** 工具链预检：缺失即退出并给出可执行出路（不猜默认值，不静默降级） */
+function requireTools(names) {
+  const missing = []
+  for (const name of names) {
+    try {
+      execSync(`which ${name}`, { stdio: 'pipe' })
+    } catch {
+      missing.push(name)
+    }
+  }
+  if (missing.length) {
+    console.error(`[build] ERROR: 工具链缺失: ${missing.join(', ')}`)
+    console.error(`[build]   钉版组合（issue #21 Phase 0 实证）：Go 1.27.3 / TinyGo 0.43.0 / wasm-tools 1.240.0`)
+    console.error(`[build]   PATH 需含 Go / TinyGo / wasm-tools（本机安装示例：`)
+    console.error(`[build]   export PATH="$HOME/.local/toolchains/go/bin:$HOME/.local/toolchains/tinygo/bin:$HOME/go/bin:$PATH"）`)
+    process.exit(1)
+  }
+}
+
+/**
+ * Go 后端构建（TinyGo wasip2 组件）：
+ *   清单副本同步 → wit 组装 → tinygo build → `.build/go/<rustLibrary>.wasm`
+ */
+function buildGo() {
+  console.log('\n[build] ====== Building Go backend (TinyGo wasip2) ======')
+  if (DEBUG_MODE) {
+    console.warn('[build] ⚠ WASMNEST_PLUGIN_DEBUG=1：TinyGo 产物首期无调试档等价物，按 release 构建（spec #21）')
+  }
+  requireTools(['go', 'tinygo', 'wasm-tools'])
+
+  // SDK Go 壳模块（wit 组装脚本随包分发）；缺失 = 平台仓未含 go/（分支未检出/未合流）
+  if (!existsSync(SDK_GO_DIR)) {
+    console.error(`[build] ERROR: SDK Go 模块缺失: ${SDK_GO_DIR}`)
+    console.error(`[build]   平台仓需检出含 plugin-sdk-desktop/go 的分支（feat/go-backend-support，合流后主树即有）`)
+    process.exit(1)
+  }
+
+  // 清单嵌入副本：go:embed 不能上溯目录，从工程根同步（embed 缺文件 = Go 编译错，fail-visible）
+  run(`cp plugin.json go/plugin.json`)
+
+  // wit 包组装（SDK 侧脚本，幂等全量重建；契约真源仍在能力仓 WIT）
+  run(`node ${join(SDK_GO_DIR, 'tools', 'assemble-wit.mjs')} --out ${resolve(ROOT, GO_WIT_DIR)}`)
+
+  // TinyGo 组件化（wasi:cli/command 由 TinyGo 运行时自带；导入面 = 代码实际引用面，
+  // 链接器剪除未引用的 wasmimport 包装）
   run(
-    `cargo build --target ${WASM_TARGET} --target-dir ${WASM_TARGET_DIR} --no-default-features --features wasm --manifest-path rust/Cargo.toml${DEBUG_MODE ? '' : ' --release'}`,
-    { env: wasip3CargoEnv() },
+    `tinygo build -target=wasip2 -wit-package ${resolve(ROOT, GO_WIT_DIR)} -wit-world go-plugin -o ${resolve(ROOT, GO_BUILD_DIR, WASM_NAME)} .`,
+    { cwd: resolve(ROOT, 'go') },
   )
 }
 
@@ -96,28 +151,20 @@ function copyArtifacts(opts = {}) {
   // 也没有上一份好产物（宿主随即装不上该 app，且 wasm 无处可回捞）。
   //
   // 候选顺序（`wasmRebuilt` = 本次是否真的重建了 wasm）：
-  //   1. 本次构建 profile 的产物
-  //   2. 另一 profile 的产物
-  //   3. **仅前端构建时**：复用上一份留在产物目录里的 wasm —— `--frontend-only`
-  //      的语义就是「只改前端，wasm 保持现状」；共享 wasm target 被 cargo clean 清掉
-  //      （平台仓 15G 阈值自动清理）时这是唯一正确的来源。
-  const candidates = [
-    resolve(ROOT, WASM_PROFILE_DIR, `${RUST_LIB_NAME}.wasm`),
-    resolve(
-      ROOT,
-      `${WASM_TARGET_DIR}/${WASM_TARGET}/${DEBUG_MODE ? 'release' : 'debug'}`,
-      `${RUST_LIB_NAME}.wasm`,
-    ),
-  ]
+  //   1. 本次 TinyGo 构建输出
+  //   2. **仅前端构建时**：复用上一份留在产物目录里的 wasm —— `--frontend-only`
+  //      的语义就是「只改前端，wasm 保持现状」。
+  const candidates = [resolve(ROOT, GO_BUILD_DIR, WASM_NAME)]
   if (opts.wasmRebuilt === false) {
     // 本次构建没动 wasm：目标目录里仍在的那份优先（原位复用），其次用构建前保全到
     // 临时目录的那份（vite 清空 outDir 时唯一来源）。
     if (opts.keptWasm && existsSync(opts.keptWasm)) candidates.unshift(opts.keptWasm)
-    candidates.unshift(resolve(RESOURCES_DIR, `${RUST_LIB_NAME}.wasm`))
+    candidates.unshift(resolve(RESOURCES_DIR, WASM_NAME))
   }
   const wasmSource = candidates.find((p) => existsSync(p))
   if (!wasmSource) {
     console.error(`[build] ERROR: WASM file not found at ${candidates.join(' or ')}`)
+    console.error(`[build]   首次构建请跑全量：node scripts/build.js（Go 后端产物在 ${GO_BUILD_DIR}/）`)
     process.exit(1)
   }
 
@@ -149,8 +196,8 @@ function copyArtifacts(opts = {}) {
     cpSync(iconSrc, resolve(RESOURCES_DIR, 'icon.svg'))
   }
 
-  cpSync(wasmKeep, resolve(RESOURCES_DIR, `${RUST_LIB_NAME}.wasm`))
-  console.log(`[build] Copied WASM: ${RUST_LIB_NAME}.wasm (from ${wasmSource})`)
+  cpSync(wasmKeep, resolve(RESOURCES_DIR, WASM_NAME))
+  console.log(`[build] Copied WASM: ${WASM_NAME} (from ${wasmSource})`)
 
   // WASM 内容摘要写进产物清单（票 14：只写产物，源 plugin.json 不带该键）
   injectWasmHash(RESOURCES_DIR, { log: (m) => console.log(`[build] ${m}`) })
@@ -159,35 +206,36 @@ function copyArtifacts(opts = {}) {
   console.log(`[build]   - index.js`)
   console.log(`[build]   - plugin.json`)
   console.log(`[build]   - icon.svg`)
-  console.log(`[build]   - ${RUST_LIB_NAME}.wasm`)
+  console.log(`[build]   - ${WASM_NAME}`)
 }
 
 // ==================== Main ====================
 
 const watchMode = argv.includes('--watch')
 const frontendOnly = argv.includes('--frontend-only')
-const rustOnly = argv.includes('--rust-only')
+const goOnly = argv.includes('--go-only')
 
 if (watchMode) {
   // 前端 watch 构建：改源码自动重建 + 复制产物（配合宿主 PluginDevWatcher 触发前端热重载）。
-  // vite 子进程 + fs.watch 保持事件循环常驻，Ctrl+C 退出
+  // vite 子进程 + fs.watch 保持事件循环常驻，Ctrl+C 退出。
+  // watch 只重建前端（与 Rust 版同语义）：Go 后端改动需一次性 `node scripts/build.js` 全量构建。
   startPluginWatch({
     root: ROOT,
     resourcesDir: RESOURCES_DIR,
     extraFiles: ['icon.svg'],
-    wasmFile: `${WASM_PROFILE_DIR}/${RUST_LIB_NAME}.wasm`,
+    wasmFile: `${GO_BUILD_DIR}/${WASM_NAME}`,
   })
 } else if (frontendOnly) {
   // 先保全上一份 wasm 再让 vite 清空 outDir：仅前端构建语义 = 「wasm 保持现状」
   const keptWasm = preservePreviousWasm()
   buildFrontend()
   copyArtifacts({ wasmRebuilt: false, keptWasm })
-} else if (rustOnly) {
-  buildRust()
+} else if (goOnly) {
+  buildGo()
   copyArtifacts()
 } else {
   buildFrontend()
-  buildRust()
+  buildGo()
   copyArtifacts()
 }
 
