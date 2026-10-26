@@ -1,0 +1,42 @@
+[package]
+name = "wasmnest-plugin-auth-center"
+version = "0.0.1"
+license = "MIT"
+description = "Auth Center — the single arbiter for inbound connections (wasip3 service plugin)"
+authors = ["WasmNest"]
+edition = "2021"
+
+[features]
+# 默认走 wasm（应用产物）；`native` 只给本 crate 的单测用（纯函数 + 命令分发），
+# 与 bedcode 同口径：native 测试不展开 `#[plugin_api]` 宏、不产 wasm 产物。
+default = ["wasm"]
+wasm = []
+native = []
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+wasmnest-plugin-api = { version = "=0.0.1", features = ["wasm"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+# 入场凭证密码学（自 bedcode `pairing` 域随域搬迁，版本锚定与那边一致）：
+# - HS256 自实现（jsonwebtoken 因 ring 不可 wasm 编译）：hmac + sha2
+# - base64url（URL_SAFE_NO_PAD）：base64
+# - 随机熵（密钥环代次生成）：getrandom 0.4（wasip3 → wasi:random）
+# - hex（密钥落库表示）：hex
+# 对照测试逐字断言 token / 摘要，升级需两仓一起评估（wire 冻结向量在
+# `pairing/jwt/tests/wire_adr_0033.rs`）。
+hmac = "0.12"
+sha2 = "0.10"
+base64 = "0.21"
+hex = "0.4"
+getrandom = "0.4"
+# 生物凭证验签（B-downsink：公钥真源自私有库 `auth_biometric_keys`，验签执行点
+# 也在插件内 —— WASM 内 P-256 验签，与搬迁前 bedcode 的实现同构）
+p256 = { version = "0.13", features = ["ecdsa", "pkcs8"] }
+
+[dev-dependencies]
+# 生物验签单测：临时 P-256 密钥对生成（`SigningKey::random`）
+rand = "0.8"

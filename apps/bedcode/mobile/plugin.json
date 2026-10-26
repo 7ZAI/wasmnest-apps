@@ -1,0 +1,102 @@
+{
+  "id": "com.wasmnest.bedcode",
+  "name": "BedCode",
+  "version": "0.0.1",
+  "platform": "mobile",
+  "description": "远程终端控制端：订阅桌面端会话的终端输出并发送输入，内置自动任务面板\n· 终端流：订阅回放 + 实时输出，断线自动重连并补齐环窗口\n· 输入：可打印文本与特殊键（Ctrl+C / 方向键 / 功能键）直达桌面 PTY\n· 流控：渲染背压 ack，输出风暴期自动驻留防卡顿\n· 任务：任务页「预设任务 / 定时任务 / 任务记录」，后两者为桌面端任务域的只读视图\n使用：两端连接后进入会话终端页即自动订阅；离开页面自动断开（不在后台常拉）。自动任务在会话工具栏「自动任务」入口打开，选目标会话后创建任务入队，开启自动执行即按队列顺序调度。",
+  "author": "WasmNest",
+  "icon": "icon.svg",
+  "main": "index.js",
+  "pluginType": "wasm",
+  "rustLibrary": "bedcode_plugin_terminal_session",
+  "permissions": [
+    "auth",
+    "bus",
+    "network:http",
+    "session:read",
+    "storage",
+    "terminal:output",
+    "ui:back",
+    "ui:route",
+    "ws:client"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "id": "bedcode.prewarm",
+        "title": "Prewarm Session Terminal Link"
+      },
+      {
+        "id": "bedcode.subscribe",
+        "title": "Subscribe Session Terminal"
+      },
+      {
+        "id": "bedcode.unsubscribe",
+        "title": "Unsubscribe Session Terminal"
+      },
+      {
+        "id": "bedcode.unsubscribe-all",
+        "title": "Unsubscribe All Terminals"
+      },
+      {
+        "id": "bedcode.remove",
+        "title": "Remove Session Terminal Link"
+      },
+      {
+        "id": "bedcode.send-input",
+        "title": "Send Terminal Input"
+      },
+      {
+        "id": "bedcode.ack-rendered",
+        "title": "Ack Rendered Bytes"
+      },
+      {
+        "id": "bedcode.get-state",
+        "title": "Get Terminal Link State"
+      },
+      {
+        "id": "bedcode.request-pairing",
+        "title": "Request Pairing"
+      },
+      {
+        "id": "bedcode.verify-pairing-code",
+        "title": "Verify Pairing Code"
+      },
+      {
+        "id": "bedcode.authenticate-with-qr",
+        "title": "Authenticate With QR Token"
+      },
+      {
+        "id": "bedcode.authenticate-with-biometric",
+        "title": "Authenticate With Biometric"
+      },
+      {
+        "id": "bedcode.list-sessions",
+        "title": "List Sessions"
+      },
+      {
+        "id": "bedcode.start-session",
+        "title": "Start Session"
+      },
+      {
+        "id": "bedcode.stop-session",
+        "title": "Stop Session"
+      },
+      {
+        "id": "bedcode.remove-session",
+        "title": "Remove Session"
+      },
+      {
+        "id": "bedcode.send-http-input",
+        "title": "Send Session Input (HTTP)"
+      }
+    ],
+    "routes": [
+      {
+        "id": "tasks",
+        "component": "AutoTaskToolboxView",
+        "header": true
+      }
+    ]
+  }
+}

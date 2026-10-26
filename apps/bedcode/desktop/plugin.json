@@ -1,0 +1,212 @@
+{
+  "id": "com.wasmnest.bedcode",
+  "name": "BedCode",
+  "version": "0.0.1",
+  "platform": "desktop",
+  "description": "BedCode 终端会话中心：会话配置与生命周期编排、任务队列与 Agent 集成。\n认证 / 配对 / 信任域已迁至 com.wasmnest.auth-center（issue #6）：设备配对、连接历史与就位状态在 BedCode 页面上保留，数据经互调消费认证中心；BedCode 不再注册为认证中心。\n使用：侧边栏「设备配对 / 连接历史 / 终端会话 / Agent任务」四目录；会话创建时自动安装项目 hooks 同步任务状态；终端工具栏按钮打开任务队列弹窗；设置页贡献分组管理配对码 TTL、QR 有效期与 hooks。",
+  "author": "WasmNest",
+  "main": "index.js",
+  "type": "business-app",
+  "pluginType": "rust-ts",
+  "backgroundTransport": true,
+  "rustLibrary": "bedcode_plugin_terminal_session",
+  "icon": "icon.svg",
+  "permissions": [
+    "auth",
+    "broadcast",
+    "connection:read",
+    "fs:read",
+    "fs:write",
+    "network:http",
+    "peer",
+    "process:run",
+    "pty:io",
+    "pty:spawn",
+    "session:read",
+    "storage",
+    "task:run",
+    "terminal:input",
+    "timer:schedule",
+    "ui:input",
+    "ui:settings",
+    "ui:sidebar",
+    "ws:server"
+  ],
+  "dependencies": [
+    "host-pty"
+  ],
+  "ptyQuota": 8,
+  "api": [
+    "com.wasmnest.bedcode.pairing-code-generate",
+    "com.wasmnest.bedcode.pairing-code-status",
+    "com.wasmnest.bedcode.pairing-code-verify",
+    "com.wasmnest.bedcode.pairing-code-clear",
+    "com.wasmnest.bedcode.qr-code-generate",
+    "com.wasmnest.bedcode.qr-code-status",
+    "com.wasmnest.bedcode.qr-code-verify",
+    "com.wasmnest.bedcode.qr-code-clear",
+    "com.wasmnest.bedcode.trust-list",
+    "com.wasmnest.bedcode.trust-revoke",
+    "com.wasmnest.bedcode.consent-decide",
+    "com.wasmnest.bedcode.config-list",
+    "com.wasmnest.bedcode.config-upsert",
+    "com.wasmnest.bedcode.config-delete",
+    "com.wasmnest.bedcode.quick-actions-import",
+    "com.wasmnest.bedcode.auth-records-import",
+    "com.wasmnest.bedcode.devices-list",
+    "com.wasmnest.bedcode.history-list",
+    "com.wasmnest.bedcode.connection-touch",
+    "com.wasmnest.bedcode.connection-close",
+    "com.wasmnest.bedcode.auth-grant",
+    "com.wasmnest.bedcode.session-create",
+    "com.wasmnest.bedcode.session-restart",
+    "com.wasmnest.bedcode.session-remove",
+    "com.wasmnest.bedcode.session-rename",
+    "com.wasmnest.bedcode.session-resize",
+    "com.wasmnest.bedcode.annotate",
+    "com.wasmnest.bedcode.devices-connect-list",
+    "com.wasmnest.bedcode.session-list",
+    "com.wasmnest.bedcode.session-get",
+    "com.wasmnest.bedcode.session-close",
+    "com.wasmnest.bedcode.session-input",
+    "com.wasmnest.bedcode.session-history",
+    "com.wasmnest.bedcode.session-ws-control"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "id": "session.status",
+        "title": "Session Center Status"
+      },
+      {
+        "id": "session.task.scheduler-tick",
+        "title": "Task scheduler tick (host timer)"
+      },
+      {
+        "id": "session.task.cleanup-project-hooks",
+        "title": "Cleanup project hooks"
+      },
+      {
+        "id": "session.task.get-status",
+        "title": "Get task status"
+      },
+      {
+        "id": "session.task.history-list",
+        "title": "List task history"
+      },
+      {
+        "id": "session.task.history-stats",
+        "title": "Task history statistics"
+      },
+      {
+        "id": "session.task.running-sessions",
+        "title": "List running sessions"
+      },
+      {
+        "id": "session.task.set-platform",
+        "title": "Set host platform"
+      },
+      {
+        "id": "session.task.set-auto-mode",
+        "title": "Set auto mode"
+      },
+      {
+        "id": "session.task.session-settings",
+        "title": "Get session settings"
+      },
+      {
+        "id": "session.task.supported-agents",
+        "title": "List supported agents"
+      },
+      {
+        "id": "session.task.session-configs",
+        "title": "List session configs with agent support"
+      },
+      {
+        "id": "session.task.preset-list",
+        "title": "List preset tasks"
+      },
+      {
+        "id": "session.task.preset-create",
+        "title": "Create preset task"
+      },
+      {
+        "id": "session.task.preset-delete",
+        "title": "Delete preset task"
+      },
+      {
+        "id": "session.task.preset-update",
+        "title": "Update preset task"
+      },
+      {
+        "id": "session.task.preset-enqueue",
+        "title": "Enqueue preset task"
+      },
+      {
+        "id": "session.task.queue-list",
+        "title": "List task queue"
+      },
+      {
+        "id": "session.task.queue-add",
+        "title": "Add task to queue"
+      },
+      {
+        "id": "session.task.queue-cancel",
+        "title": "Cancel queue task"
+      },
+      {
+        "id": "session.task.queue-remove",
+        "title": "Remove queue task"
+      },
+      {
+        "id": "session.task.queue-clear",
+        "title": "Clear task queue"
+      },
+      {
+        "id": "session.task.queue-update",
+        "title": "Update queue task prompt"
+      },
+      {
+        "id": "session.task.queue-reorder",
+        "title": "Reorder task queue"
+      },
+      {
+        "id": "session.task.scheduled-list",
+        "title": "List scheduled jobs"
+      },
+      {
+        "id": "session.task.scheduled-create",
+        "title": "Create scheduled job"
+      },
+      {
+        "id": "session.task.scheduled-delete",
+        "title": "Delete scheduled job"
+      },
+      {
+        "id": "session.task.scheduled-reset",
+        "title": "Reset scheduled job"
+      }
+    ],
+    "wsEndpoints": [
+      {
+        "path": "session-control",
+        "auth": "jwt"
+      },
+      {
+        "path": "terminal",
+        "auth": "jwt"
+      }
+    ],
+    "lifecycle": {
+      "onStartup": false,
+      "onShutdown": false
+    },
+    "provides": [
+      "task:status-changed",
+      "session:mode-changed",
+      "task:queue-changed",
+      "task:scheduled-changed",
+      "task:preset-changed"
+    ]
+  }
+}

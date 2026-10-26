@@ -1,0 +1,1498 @@
+/**
+ * File Transfer 插件全局样式 (Mobile)
+ *
+ * 经 index.ts 以 `?inline` 导入并注入 document.head（宿主不加载插件 dist/style.css）。
+ *
+ * 结构（三层）：
+ *   1. 应用主题 token（.ft-app 作用域）——file-transfer 作为宿主壳独立应用
+ *      （registerSurface）自持的配色，不写回宿主 --mobile-* 平台 token
+ *   2. 领域语义类（四色状态 ft-color-* / ft-progress-*）——状态语义色
+ *   3. V2 布局与交互类（fv2-* 前缀）
+ *
+ * 设计依据（ui-ux-pro-max 检索 + 宿主 warm 墨纸体系）：
+ *   - Flat / typography-focused / 单一强调色：彩色只表达状态，界面强调走墨/纸对比
+ *   - 表面与文字绑定宿主 --mobile-* token：用户切换色板/明暗时应用自动跟随
+ *   - 主操作 ink/paper（与宿主确认对话框主按钮同源）；雾青只用于进度、选择、焦点
+ *   - ux「file transfer progress task list」→ 多步过程必须可见进度
+ *   - ux「empty state no data」→ 空态给引导信息与动作，不留空白
+ *   - ux「multi-select list action bar」（Bulk Actions）→ 多选批量操作
+ *   - ux「press feedback micro-interaction tap response」→ 按压须有即时反馈；
+ *     ux「list item entrance stagger animation」→ 循环动画只留给加载指示、
+ *     必须尊重 prefers-reduced-motion、动画只动 transform/opacity
+ */
+
+/* ==================== 应用主题 token（独立 app 配色） ==================== */
+/* file-transfer 是壳内独立应用：表面 / 文字 / 状态色全部绑定宿主 --mobile-* token，
+   跟随用户色板与明暗主题；应用只持有一个功能色（雾青），用于进度、选择与焦点。
+   边界：绝不覆写宿主 --mobile-* 平台 token——平台 token 归用户色板，应用 accent
+   归应用（ShellSurfaceContribution.accent 契约）。
+
+   取向（ui-ux-pro-max：Flat / typography-focused / 单一强调色）：
+   - 只保留一个功能色；其它颜色只表达状态（绿=完成 / 琥珀=暂停警告 / 红=失败 / 紫=拒绝）
+   - 主操作走「墨/纸」对比（浅色=墨底纸字，深色=纸底墨字），与宿主确认对话框同源
+   - 深色不再自造冷蓝灰，直接继承宿主暖墨底，避免与宿主设置页 / 弹窗跳色 */
+.ft-app {
+  /* 表面与文字：全部跟随宿主主题 token（深浅两套由宿主统一切换） */
+  --ft-bg-primary: var(--mobile-bg-primary);
+  --ft-bg-secondary: var(--mobile-bg-secondary);
+  --ft-bg-tertiary: var(--mobile-bg-elevated);
+  --ft-bg-card: var(--mobile-bg-card);
+  --ft-bg-elevated: var(--mobile-bg-elevated);
+  --ft-text-primary: var(--mobile-text-primary);
+  /* 次级/弱化文字比宿主默认档再提一点对比度（宿主 muted 在深色面约 3.2:1，
+     12px 的指纹、说明文字不达标）；两档都保持暖色系 */
+  --ft-text-secondary: #a69e8b;
+  --ft-text-muted: #9c9482;
+  --ft-text-disabled: var(--mobile-text-disabled);
+  --ft-border: var(--mobile-border);
+  --ft-border-strong: var(--mobile-border-hover);
+  --ft-group-divider: var(--mobile-group-divider);
+  --ft-group-row-active: var(--mobile-group-row-active);
+
+  /* 主操作（墨/纸）：浅色墨底纸字、深色纸底墨字；与宿主确认对话框主按钮同源 */
+  --ft-action-bg: var(--mobile-text-primary);
+  --ft-action-fg: var(--mobile-bg-primary);
+
+  /* 功能色（雾青）：只用于进行中进度、选择、焦点与少量方向提示 */
+  --ft-accent: #356873;
+  --ft-accent-text: #8fc0c6;
+  --ft-accent-muted: rgba(143, 192, 198, 0.14);
+  --ft-on-accent: #f5f4f0;
+
+  /* 状态语义色：色相沿用宿主四色，文字/圆点取可读档（宿主 success/warning/error
+     在浅色卡片上仅 3.1–3.7:1，12px 状态文字不达标） */
+  --ft-success: #4ade80;
+  --ft-warning: #f5a623;
+  --ft-error: #f87171;
+  --ft-violet: #b9a0ff;
+  --ft-warning-muted: var(--mobile-warning-muted);
+  --ft-error-muted: var(--mobile-error-muted);
+
+  /* 文件类型 chip：目录用应用功能色（雾青），其余沿用宿主文件系统图标色板
+     （图片=绿 / 视频=琥珀 / 音频=紫 / PDF=红） */
+  --ft-chip-dir: var(--ft-accent-text);
+  --ft-chip-dir-bg: var(--ft-accent-muted);
+  --ft-chip-image: var(--mobile-chip-emerald);
+  --ft-chip-image-bg: var(--mobile-chip-emerald-bg);
+  --ft-chip-video: var(--mobile-chip-amber);
+  --ft-chip-video-bg: var(--mobile-chip-amber-bg);
+  --ft-chip-audio: var(--mobile-chip-violet);
+  --ft-chip-audio-bg: var(--mobile-chip-violet-bg);
+  --ft-chip-doc: var(--mobile-chip-red);
+  --ft-chip-doc-bg: var(--mobile-chip-red-bg);
+}
+
+html:not(.dark) .ft-app {
+  --ft-accent: #2a5b66;
+  --ft-accent-text: #2a5b66;
+  --ft-accent-muted: rgba(42, 91, 102, 0.1);
+  --ft-on-accent: #faf8f2;
+  /* 浅色面同样把次级/弱化文字压到 ≥4.5:1（宿主 secondary 在页面底约 4.2:1） */
+  --ft-text-secondary: #6b6455;
+  --ft-text-muted: #756c5c;
+  --ft-success: #047857;
+  --ft-warning: #b45309;
+  --ft-error: #b91c1c;
+  --ft-violet: #6d28d9;
+  /* 文件类型图标同样取加深档（浅色 tint 底上维持 ≥3:1 的非文本对比） */
+  --ft-chip-image: #047857;
+  --ft-chip-video: #b45309;
+  --ft-chip-audio: #6d28d9;
+  --ft-chip-doc: #b91c1c;
+}
+
+/* ==================== 状态四色体系（spec 9.3） ==================== */
+/* 状态文本色（chip / 文案） */
+.ft-color-active {
+  color: var(--ft-accent-text);
+}
+.ft-color-queued {
+  color: var(--ft-text-muted);
+}
+.ft-color-paused {
+  color: var(--ft-warning);
+}
+.ft-color-completed {
+  color: var(--ft-success);
+}
+.ft-color-failed {
+  color: var(--ft-error);
+}
+.ft-color-rejected {
+  color: var(--ft-violet);
+}
+.ft-color-cancelled {
+  color: var(--ft-text-disabled);
+}
+
+/* 进度条底色（按状态着色） */
+.ft-progress-active {
+  background-color: var(--ft-accent);
+}
+.ft-progress-queued {
+  background-color: var(--ft-text-muted);
+}
+.ft-progress-paused {
+  background-color: var(--ft-warning);
+}
+.ft-progress-completed {
+  background-color: var(--ft-success);
+}
+.ft-progress-failed {
+  background-color: var(--ft-error);
+}
+.ft-progress-rejected {
+  background-color: var(--ft-violet);
+}
+.ft-progress-cancelled {
+  background-color: var(--ft-text-disabled);
+}
+
+/* ==================== 触控目标流式缩放（手机 ~360px / 平板 ~768px+） ==================== */
+/* 44px 触控目标恒定（clamp 下限 2.75rem 不随屏幕缩小）；视觉上限 3rem 只在平板长高。
+   基准用 cqw 而非 100vw：设置页等嵌入面以组件自身宽度为准（容器声明见
+   SettingsSection 的 .ft-settings），跟手缩放与宿主 fluid type scale 同节奏 */
+.ft-touch-btn {
+  min-height: clamp(2.75rem, 2.75rem + (100cqw - 400px) / 800 * 4, 3rem);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/**
+ * File Transfer V2 样式（并行设计层）
+ *
+ * 与 ../styles.css 分工：
+ *   ../styles.css — 领域语义类（四色状态 ft-color-* / ft-progress-*）与
+ *                   应用主题 token（.ft-app），V2 布局共用，经 index.ts 一并注入
+ *   本节          — V2 专属布局与交互样式（fv2-* 前缀），不复用旧版 ft-* 布局类
+ *
+ * 设计取向（ui-ux-pro-max 关键词：Flat / typography-focused / icon-heavy）：
+ *   - 扁平：无渐变、无多层阴影；层级靠底色分层 + 1px 描边表达
+ *   - 字号统一走宿主 `--font-size-*` 流式 token（.mobile-ui 作用域），
+ *     组件内不内联 clamp，避免双真源
+ *   - 触控目标恒定 ≥44px（2.75rem）；图标视觉 20px，命中区 44px
+ *   - 过渡 150–250ms，仅过渡 color / opacity / transform（禁 transition-all 上容器）
+ */
+
+/* ==================== 页面根 ==================== */
+/* 声明为查询容器：为将来嵌入面板/抽屉留正确基准（本页当前作为整屏工具页） */
+.fv2-view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--ft-bg-primary);
+  container-type: inline-size;
+}
+
+/* ==================== 图标按钮 ==================== */
+/* 视觉 20px 图标 + 44px 命中区；按压只改底色与轻微缩放（不改布局，防抖动） */
+.fv2-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 9999px;
+  color: var(--ft-text-secondary);
+  flex-shrink: 0;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease,
+    transform 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.fv2-icon-btn:active {
+  background: var(--ft-bg-tertiary);
+  color: var(--ft-text-primary);
+  transform: scale(0.94);
+}
+
+.fv2-icon-btn > svg {
+  width: 1.375rem;
+  height: 1.375rem;
+}
+
+.fv2-icon-btn--emphasis {
+  color: var(--ft-text-primary);
+}
+
+.fv2-icon-btn:disabled {
+  opacity: 0.4;
+}
+
+/* ==================== 按钮族 ==================== */
+/* 主按钮：墨/纸实心（浅色墨底纸字、深色纸底墨字），扁平无边框无阴影。
+   与宿主确认对话框主按钮同源，避免应用内出现第二套「主色」 */
+.fv2-btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-height: 3rem;
+  padding: 0 1.25rem;
+  border-radius: 0.75rem;
+  background: var(--ft-action-bg);
+  color: var(--ft-action-fg);
+  font-size: var(--font-size-base);
+  font-weight: 500;
+  transition:
+    opacity 0.15s ease,
+    transform 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.fv2-btn-primary:active {
+  opacity: 0.86;
+  transform: scale(0.99);
+}
+
+.fv2-btn-primary:disabled {
+  opacity: 0.38;
+}
+
+/* 次级按钮：1px 描边 + 透明底（取消等），不抢主操作的视觉重量 */
+.fv2-btn-neutral {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-height: 2.75rem;
+  padding: 0 1rem;
+  border: 1px solid var(--ft-border);
+  border-radius: 0.75rem;
+  background: transparent;
+  color: var(--ft-text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease,
+    transform 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.fv2-btn-neutral:active {
+  background: var(--ft-bg-tertiary);
+  color: var(--ft-text-primary);
+  transform: scale(0.99);
+}
+
+/* 强调次级（accent tint 底 + accent 文字）：重试等需要被看见的次级操作 */
+.fv2-btn-tint {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-height: 2.75rem;
+  padding: 0 1rem;
+  border-radius: 0.75rem;
+  background: var(--ft-accent-muted);
+  color: var(--ft-accent-text);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  transition:
+    opacity 0.15s ease,
+    transform 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.fv2-btn-tint:active {
+  opacity: 0.8;
+  transform: scale(0.99);
+}
+
+/* 文字按钮（筛选、清空选择、行内操作等无底操作） */
+.fv2-btn-text {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  min-height: 2.75rem;
+  padding: 0 0.75rem;
+  border-radius: 0.5rem;
+  color: var(--ft-text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease,
+    transform 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.fv2-btn-text:active {
+  background: var(--ft-bg-tertiary);
+  color: var(--ft-text-primary);
+  transform: scale(0.98);
+}
+
+.fv2-btn-text--accent {
+  color: var(--ft-accent-text);
+}
+
+.fv2-btn-text--danger {
+  color: var(--ft-error);
+}
+
+.fv2-btn-text:disabled {
+  color: var(--ft-text-disabled);
+  opacity: 0.55;
+}
+
+/* ==================== 顶栏 ==================== */
+/* 对端选择器：两行（名称 / 连接状态）替代原来的名称 + 胶囊；
+   整块 44px 可点，状态不再是独立小胶囊，顶栏因此少一个彩色块 */
+.fv2-peer-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 2.75rem;
+  padding: 0 0.375rem;
+  border-radius: 0.625rem;
+  min-width: 0;
+  max-width: 62%;
+  transition:
+    background-color 0.15s ease,
+    transform 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.fv2-peer-chip:active {
+  background: var(--ft-bg-tertiary);
+  transform: scale(0.99);
+}
+
+.fv2-peer-copy {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.2;
+  text-align: left;
+}
+
+.fv2-peer-name {
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  color: var(--ft-text-primary);
+  letter-spacing: -0.02em;
+}
+
+/* 连接状态：圆点 + 文字（颜色不是唯一指示）；在线绿点保留极轻呼吸 */
+.fv2-peer-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3125rem;
+  margin-top: 0.1875rem;
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+  color: var(--ft-text-secondary);
+  white-space: nowrap;
+}
+
+.fv2-peer-state--online {
+  color: var(--ft-success);
+}
+
+.fv2-peer-dot {
+  width: 0.4375rem;
+  height: 0.4375rem;
+  border-radius: 9999px;
+  background: var(--ft-text-disabled);
+}
+
+.fv2-peer-state--online .fv2-peer-dot {
+  background: var(--ft-success);
+  animation: fv2-dot-pulse 2.4s ease-in-out infinite;
+}
+
+.fv2-peer-chevron {
+  width: 0.9375rem;
+  height: 0.9375rem;
+  flex-shrink: 0;
+  color: var(--ft-text-muted);
+}
+
+@keyframes fv2-dot-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+/* ==================== 分段 Tab 栏 ==================== */
+/* 下划线页签替代整块灰底 + 蓝色实心胶囊：页签区从「一块彩色面板」
+   退成一条 1px 基线，内容前移、界面呼吸感更强；激活 = 主文字色 + 雾青短线。 */
+.fv2-tabs {
+  display: flex;
+  gap: 0.25rem;
+  border-bottom: 1px solid var(--ft-border);
+}
+
+.fv2-tab {
+  position: relative;
+  flex: 1 1 0;
+  min-height: 2.75rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  padding: 0 0.25rem 0.625rem;
+  color: var(--ft-text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  transition:
+    color 0.2s ease,
+    opacity 0.15s ease,
+    transform 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.fv2-tab:active {
+  opacity: 0.7;
+  transform: scale(0.98);
+}
+
+/* 选中：文字提到主色 + 底部 2px 雾青指示线（唯一的导航强调） */
+.fv2-tab--active {
+  color: var(--ft-text-primary);
+  font-weight: 600;
+}
+
+.fv2-tab--active::after {
+  content: '';
+  position: absolute;
+  left: 28%;
+  right: 28%;
+  bottom: -1px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--ft-accent-text);
+}
+
+.fv2-tab > svg {
+  width: 1.125rem;
+  height: 1.125rem;
+  flex-shrink: 0;
+}
+
+/* Tab 计数：只做提示，不抢页签文字；等宽数字防跳动 */
+.fv2-tab-badge {
+  font-size: 0.6875rem;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.62;
+}
+
+.fv2-tab--active .fv2-tab-badge {
+  opacity: 1;
+}
+
+/* ==================== 分段切换（方向感动画） ==================== */
+/* 切换带方向：向右前进（传输→浏览→设备）新页自右推入、旧页向左退出，回退反向。
+   位移量经 CSS 变量由父级按方向注入（FileTransferView 的 slideVars），
+   一套过渡类服务两个方向。离场分支绝对定位退出文档流（包含块 = 横滑区），
+   进场分支同帧接管布局，内容区高度不塌陷。 */
+.fv2-tab-enter-active,
+.fv2-tab-leave-active {
+  transition:
+    opacity 0.18s ease,
+    transform 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.fv2-tab-enter-from {
+  opacity: 0;
+  transform: translateX(var(--fv2-enter-x, 14px));
+}
+
+.fv2-tab-leave-to {
+  opacity: 0;
+  transform: translateX(var(--fv2-leave-x, -14px));
+}
+
+.fv2-tab-leave-active {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+/* ==================== 筛选 chip（传输 tab 内） ==================== */
+.fv2-filters {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem 0.5rem;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.fv2-filters::-webkit-scrollbar {
+  display: none;
+}
+
+.fv2-filter {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  min-height: 2.75rem;
+  padding: 0 0.75rem;
+  border: 1px solid transparent;
+  border-radius: 9999px;
+  background: transparent;
+  color: var(--ft-text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease,
+    transform 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.fv2-filter:active {
+  opacity: 0.8;
+  transform: scale(0.98);
+}
+
+/* 激活 = 墨/纸实心（与主按钮同源），筛选项不再使用功能色 */
+.fv2-filter--active {
+  background: var(--ft-action-bg);
+  border-color: var(--ft-action-bg);
+  color: var(--ft-action-fg);
+}
+
+/* 计数（tabular-nums 防跳动）；激活态保持全不透明 */
+.fv2-filter-count {
+  font-size: 0.6875rem;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.7;
+}
+
+.fv2-filter--active .fv2-filter-count {
+  opacity: 0.85;
+}
+
+/* 横滑区：禁止浏览器默认水平手势，垂直滚动保留（与宿主 MobileSwipeContainer 同模式）。
+   position: relative = 分段过渡离场分支（absolute inset:0）的包含块 */
+.fv2-swipe-zone {
+  position: relative;
+  touch-action: pan-y;
+}
+
+/* ==================== 任务卡 ==================== */
+/* 元信息（数字等宽对齐，速率/进度切换不跳动）；浏览 tab 文件行副标题复用 */
+.fv2-file-meta {
+  margin-top: 0.125rem;
+  font-size: var(--font-size-xs);
+  color: var(--ft-text-secondary);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.4;
+}
+
+/* 进度轨道 + 填充（填充颜色由 ft-progress-* 状态类提供） */
+.fv2-progress {
+  height: 0.1875rem;
+  border-radius: 9999px;
+  background: var(--ft-bg-tertiary);
+  overflow: hidden;
+}
+
+.fv2-progress-fill {
+  height: 100%;
+  border-radius: 9999px;
+  transition: width 0.3s ease;
+}
+
+/* 不确定进度呼吸动画（TaskCard 的 .fv2-progress-indeterminate 消费） */
+@keyframes fv2-progress-breathe {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* ==================== 任务卡（TaskCard，v2） ==================== */
+/* 卡片：宿主 group-card 语言（底 + 1px 描边 + 14px 圆角），不做受光内描边。
+   版面：标题行（方向 / 名称 / 状态）+ 正文行（元信息与进度在左，文字操作在右）。
+   操作从「两个整行大按钮」收敛为右对齐文字按钮，单卡高度约降 1/3。 */
+.fv2-card {
+  margin-bottom: 0.5rem;
+  padding: 0.75rem 0.875rem;
+  background: var(--ft-bg-card);
+  border: 1px solid var(--ft-border);
+  border-radius: 0.875rem;
+}
+
+/* 桌面预览（dev-shell 鼠标环境）悬停提亮边框；触屏无悬停不生效 */
+@media (hover: hover) {
+  .fv2-card:hover {
+    border-color: var(--ft-border-strong);
+  }
+}
+
+/* 方向图标：不再使用彩色方块底，只用 16px 线性箭头（颜色区分上传/下载） */
+.fv2-dir-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.125rem;
+  height: 1.125rem;
+  flex-shrink: 0;
+}
+
+.fv2-dir-chip > svg {
+  width: 1rem;
+  height: 1rem;
+}
+
+.fv2-dir-chip--accent {
+  color: var(--ft-accent-text);
+}
+
+.fv2-dir-chip--info {
+  color: var(--ft-text-secondary);
+}
+
+/* 名称：flex 收缩 + 省略号（长文件名不撑破卡片） */
+.fv2-card-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-size-base);
+  font-weight: 500;
+  color: var(--ft-text-primary);
+  letter-spacing: -0.01em;
+  line-height: 1.35;
+}
+
+/* 状态：圆点 + 状态色文字（无底色 pill，避免卡片上出现第三种色块） */
+.fv2-card-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3125rem;
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+  flex-shrink: 0;
+}
+
+.fv2-card-state::before {
+  content: '';
+  width: 0.375rem;
+  height: 0.375rem;
+  border-radius: 9999px;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+/* 正文行：左侧信息列 + 右侧文字操作列（操作 44px 触控区，纵向居中） */
+.fv2-card-main {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.25rem;
+}
+
+.fv2-card-info {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* 元信息行（大小/速率/时间，tabular-nums 防跳动） */
+.fv2-card-meta {
+  font-size: var(--font-size-xs);
+  color: var(--ft-text-secondary);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.4;
+}
+
+/* 进度轨道 + 填充（填充底色由 ft-progress-* 状态类提供） */
+.fv2-progress-track {
+  height: 0.1875rem;
+  margin-top: 0.5rem;
+  border-radius: 9999px;
+  background: var(--ft-bg-tertiary);
+  overflow: hidden;
+}
+
+.fv2-progress-bar {
+  height: 100%;
+  border-radius: 9999px;
+  transition: width 0.3s ease;
+}
+
+/* 不确定进度（offset=0 运行中）：呼吸动画（只动 opacity，合成层友好；
+   减弱动效处理见文件末尾汇总块） */
+.fv2-progress-indeterminate {
+  animation: fv2-progress-breathe 1.6s ease-in-out infinite;
+}
+
+/* 失败/拒绝原因块：左色条 + 极浅红底，尺寸比正文小一档 */
+.fv2-card-reason {
+  margin-top: 0.375rem;
+  padding: 0.375rem 0.5rem;
+  border-radius: 0.375rem;
+  border-left: 2px solid var(--ft-error);
+  background: var(--ft-error-muted);
+  font-size: var(--font-size-xs);
+  line-height: 1.5;
+  color: var(--ft-error);
+}
+
+/* 操作列：右对齐文字按钮（44px 触控区），不占整行 */
+.fv2-card-actions {
+  display: flex;
+  gap: 0.125rem;
+  flex-shrink: 0;
+  align-items: center;
+}
+
+.fv2-card-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.75rem;
+  padding: 0 0.5rem;
+  border-radius: 0.5rem;
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  background: transparent;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease,
+    transform 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.fv2-card-action:active {
+  background: var(--ft-bg-tertiary);
+  transform: scale(0.97);
+}
+
+.fv2-card-action--tint {
+  color: var(--ft-accent-text);
+}
+
+.fv2-card-action--neutral {
+  color: var(--ft-text-secondary);
+}
+
+/* ==================== 设备行 ==================== */
+/* 设备列表 = 一个分组卡里的多行（不再是「一设备一卡 + 整行大按钮」）。
+   行内：状态点 + 名称/指纹/地址 + 右侧文字操作（44px 命中区） */
+.fv2-device-list {
+  overflow: hidden;
+  background: var(--ft-bg-card);
+  border: 1px solid var(--ft-border);
+  border-radius: 0.875rem;
+}
+
+.fv2-device-row {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  padding: 0.625rem 0.875rem;
+  min-height: 4rem;
+}
+
+.fv2-device-row + .fv2-device-row {
+  border-top: 1px solid var(--ft-group-divider);
+}
+
+/* 设备名 + 指纹同行（指纹是核对信息，不用 disabled 色） */
+.fv2-device-line {
+  display: flex;
+  align-items: baseline;
+  gap: 0.375rem;
+  min-width: 0;
+}
+
+.fv2-device-name {
+  font-size: var(--font-size-base);
+  font-weight: 500;
+  color: var(--ft-text-primary);
+  letter-spacing: -0.01em;
+}
+
+.fv2-device-fp {
+  flex-shrink: 0;
+  font-size: var(--font-size-xs);
+  color: var(--ft-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 「当前」标记：极轻描边文字，不用色块 */
+.fv2-device-tag {
+  flex-shrink: 0;
+  padding: 0 0.375rem;
+  border: 1px solid var(--ft-border);
+  border-radius: 9999px;
+  font-size: 0.625rem;
+  line-height: 1.4;
+  color: var(--ft-text-secondary);
+}
+
+/* 设备元信息（地址 / 状态） */
+.fv2-device-meta {
+  margin-top: 0.125rem;
+  font-size: var(--font-size-xs);
+  color: var(--ft-text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 拨号失败行内错误 */
+.fv2-device-error {
+  margin-top: 0.125rem;
+  font-size: var(--font-size-xs);
+  color: var(--ft-error);
+}
+
+/* 行内操作：文字按钮，不再有整行填充按钮 */
+.fv2-device-actions {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  flex-shrink: 0;
+}
+
+.fv2-device-actions .fv2-btn-text {
+  padding: 0 0.5rem;
+}
+
+.fv2-scan-icon {
+  animation: fv2-spin 0.8s linear infinite;
+}
+
+.fv2-trust-hint {
+  line-height: 1.55;
+  white-space: normal;
+}
+
+/* 设备状态点 */
+.fv2-dev-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 9999px;
+  flex-shrink: 0;
+}
+
+.fv2-dev-dot--connected {
+  background: var(--ft-success);
+}
+
+/* 握手中：琥珀色 + 旋转（transform 合成层） */
+.fv2-dev-dot--connecting {
+  background: transparent;
+  border: 2px solid color-mix(in srgb, var(--ft-warning) 35%, transparent);
+  border-top-color: var(--ft-warning);
+  width: 0.875rem;
+  height: 0.875rem;
+  animation: fv2-spin 0.8s linear infinite;
+}
+
+/* 在线未连接：降饱和绿，与已连接区分 */
+.fv2-dev-dot--reachable {
+  background: color-mix(in srgb, var(--ft-success) 55%, var(--ft-bg-tertiary));
+}
+
+.fv2-dev-dot--offline {
+  background: var(--ft-text-disabled);
+}
+
+.fv2-dev-dot--nocap {
+  background: var(--ft-text-disabled);
+}
+
+@keyframes fv2-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ==================== 文件行（浏览 tab） ==================== */
+.fv2-file {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0.625rem 0.875rem;
+  min-height: 3.5rem;
+  text-align: left;
+  transition: background-color 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.fv2-file + .fv2-file {
+  border-top: 1px solid var(--ft-group-divider);
+}
+
+.fv2-file:active {
+  background: var(--ft-group-row-active);
+}
+
+/* 勾选行底色：雾青 10% tint（与复选框同源） */
+.fv2-file--selected {
+  background: var(--ft-accent-muted);
+}
+
+.fv2-file-name {
+  font-size: var(--font-size-base);
+  font-weight: 500;
+  color: var(--ft-text-primary);
+  letter-spacing: -0.01em;
+  line-height: 1.35;
+}
+
+/* 勾选框：只过渡受影响属性 */
+.fv2-check {
+  width: 1.375rem;
+  height: 1.375rem;
+  border-radius: 9999px;
+  border: 2px solid var(--ft-border-strong);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition:
+    border-color 0.15s ease,
+    background-color 0.15s ease;
+}
+
+.fv2-check > svg {
+  width: 0.875rem;
+  height: 0.875rem;
+}
+
+/* 勾选弹入：轻微回弹（spring 曲线）落入，比线性缩放更有实物感；
+   对勾晚 50ms 二次缩放进入，形成「先落底、再打勾」的两段节奏 */
+.fv2-check--checked {
+  background: var(--ft-accent);
+  border-color: var(--ft-accent);
+  color: var(--ft-on-accent);
+  animation: fv2-check-pop 0.28s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.fv2-check--checked > svg {
+  animation: fv2-check-mark 0.22s 0.05s ease-out both;
+}
+
+@keyframes fv2-check-pop {
+  from {
+    transform: scale(0.55);
+  }
+}
+
+@keyframes fv2-check-mark {
+  from {
+    transform: scale(0.4);
+    opacity: 0;
+  }
+}
+
+/* ==================== 面包屑 ==================== */
+.fv2-crumbs {
+  display: flex;
+  align-items: center;
+  gap: 0.125rem;
+  padding: 0.5rem 1rem 0.25rem;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.fv2-crumbs::-webkit-scrollbar {
+  display: none;
+}
+
+.fv2-crumb {
+  flex-shrink: 0;
+  max-width: 7rem;
+  min-height: 2.75rem;
+  padding: 0 0.375rem;
+  border-radius: 0.5rem;
+  color: var(--ft-text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease,
+    transform 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.fv2-crumb:active {
+  background: var(--ft-bg-tertiary);
+  color: var(--ft-text-primary);
+  transform: scale(0.98);
+}
+
+.fv2-crumb--current {
+  color: var(--ft-text-primary);
+  font-weight: 600;
+}
+
+.fv2-crumb-sep {
+  width: 0.875rem;
+  height: 0.875rem;
+  flex-shrink: 0;
+  color: var(--ft-text-muted);
+}
+
+/* 浏览工具行（文件数 / 全选） */
+.fv2-browse-tools {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0 1rem 0.25rem;
+}
+
+.fv2-browse-count {
+  font-size: var(--font-size-xs);
+  color: var(--ft-text-secondary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* 页面分区标题（设备页等）：标题 + 说明两行，操作在行尾 */
+.fv2-section-head {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem 0.5rem;
+}
+
+.fv2-section-title {
+  margin: 0;
+  font-size: var(--font-size-xl);
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  color: var(--ft-text-primary);
+  line-height: 1.2;
+}
+
+.fv2-section-sub {
+  margin: 0.1875rem 0 0;
+  font-size: var(--font-size-xs);
+  color: var(--ft-text-secondary);
+  line-height: 1.4;
+}
+
+/* ==================== 提示横幅（存储权限等） ==================== */
+.fv2-notice {
+  display: flex;
+  gap: 0.625rem;
+  align-items: flex-start;
+  margin: 0.75rem 1rem 0;
+  padding: 0.75rem 0.875rem;
+  border-radius: 0.75rem;
+  background: color-mix(in srgb, var(--ft-warning) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ft-warning) 30%, transparent);
+}
+
+.fv2-notice > svg {
+  width: 1.25rem;
+  height: 1.25rem;
+  flex-shrink: 0;
+  color: var(--ft-warning);
+  margin-top: 0.125rem;
+}
+
+.fv2-notice-body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.fv2-notice-title {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--ft-text-primary);
+}
+
+.fv2-notice-text {
+  margin-top: 0.125rem;
+  font-size: var(--font-size-xs);
+  line-height: 1.5;
+  color: var(--ft-text-secondary);
+}
+
+/* ==================== 空态 / 加载态 ==================== */
+/* flex:1 撑满内容区，空态垂直居中；列表态不参与撑高 */
+.fv2-empty {
+  flex: 1 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  padding: 2rem 1.5rem 2.5rem;
+  text-align: center;
+}
+
+/* 空态图标底：卡片面 + 1px 描边（不再用灰蒙蒙的 currentColor 方块）。
+   警示 / 错误态只换图标前景与描边色，底色保持同一套中性面 */
+.fv2-empty-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 3.5rem;
+  height: 3.5rem;
+  border-radius: 1rem;
+  margin-bottom: 0.75rem;
+  background: var(--ft-bg-card);
+  border: 1px solid var(--ft-border);
+  color: var(--ft-text-secondary);
+}
+
+.fv2-empty-icon > svg {
+  width: 1.75rem;
+  height: 1.75rem;
+}
+
+.fv2-empty-icon--warning {
+  color: var(--ft-warning);
+  border-color: color-mix(in srgb, var(--ft-warning) 28%, transparent);
+  background: var(--ft-warning-muted);
+}
+
+.fv2-empty-icon--error {
+  color: var(--ft-error);
+  border-color: color-mix(in srgb, var(--ft-error) 28%, transparent);
+  background: var(--ft-error-muted);
+}
+
+/* 空态标题：加大字号 + 收紧字距 + 均衡换行（避免末行孤词）；
+   说明文案用 pretty 换行减少参差 */
+.fv2-empty-title {
+  font-size: var(--font-size-xl);
+  font-weight: 600;
+  color: var(--ft-text-primary);
+  letter-spacing: -0.025em;
+  line-height: 1.25;
+  text-wrap: balance;
+}
+
+.fv2-empty-hint {
+  font-size: var(--font-size-sm);
+  color: var(--ft-text-secondary);
+  line-height: 1.55;
+  max-width: 18rem;
+  text-wrap: pretty;
+}
+
+.fv2-empty-action {
+  margin-top: 1rem;
+}
+
+/* spinner（细线圆环） */
+.fv2-spinner {
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 9999px;
+  border: 2px solid var(--ft-border-strong);
+  border-top-color: var(--ft-accent-text);
+  animation: fv2-spin 0.8s linear infinite;
+}
+
+.fv2-spinner--sm {
+  width: 1.25rem;
+  height: 1.25rem;
+  border-width: 2px;
+}
+
+/* ==================== 底部行动条 ==================== */
+/* 常驻底栏：上传 CTA / 选择操作 / 迷你传输进度三态互斥 */
+.fv2-footer {
+  position: relative; /* 三态交叉渐变的离场分支以本条为包含块（SummaryBar scoped） */
+  flex-shrink: 0;
+  border-top: 1px solid var(--ft-border);
+  background: color-mix(in srgb, var(--ft-bg-secondary) 92%, transparent);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  padding: 0.75rem 1rem calc(0.75rem + var(--safe-area-bottom, 0px));
+}
+
+/* 迷你传输条：整体可点（切到传输 tab） */
+.fv2-mini {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  min-height: 2.75rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.75rem;
+  transition:
+    background-color 0.15s ease,
+    transform 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.fv2-mini:active {
+  background: var(--ft-bg-tertiary);
+  transform: scale(0.99);
+}
+
+.fv2-mini-title {
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  color: var(--ft-text-primary);
+  letter-spacing: -0.01em;
+}
+
+.fv2-mini-speed {
+  font-size: var(--font-size-xs);
+  color: var(--ft-text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ==================== 全部继续（存在已暂停任务时） ==================== */
+/* 行尾文字动作（不是通栏横幅）：琥珀播放图标提示可恢复，文字保持次级 */
+.fv2-resume-all {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0 1rem 0.25rem;
+}
+
+.fv2-resume-all-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  min-height: 2.75rem;
+  padding: 0 0.5rem;
+  border-radius: 0.5rem;
+  color: var(--ft-text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease,
+    transform 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.fv2-resume-all-btn > svg {
+  color: var(--ft-warning);
+}
+
+.fv2-resume-all-btn:active {
+  background: var(--ft-bg-tertiary);
+  color: var(--ft-text-primary);
+  transform: scale(0.98);
+}
+
+/* ==================== 任务卡入场（错峰浮入） ==================== */
+/* TransitionGroup + 索引延迟：列表首mount / 筛选切换时卡片自下浮入，
+   错峰 45ms、最多错到第 7 张（长列表尾部不让人久等）。
+   move 类让筛选后剩余卡片平滑让位（FLIP），只动 transform/opacity。 */
+.fv2-card-in-enter-active {
+  transition:
+    opacity 0.28s ease,
+    transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+  transition-delay: calc(var(--card-i, 0) * 45ms);
+}
+
+.fv2-card-in-enter-from {
+  opacity: 0;
+  transform: translateY(12px) scale(0.98);
+}
+
+.fv2-card-in-leave-active {
+  transition: opacity 0.15s ease;
+}
+
+.fv2-card-in-leave-to {
+  opacity: 0;
+}
+
+.fv2-card-in-move {
+  transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ==================== 下拉刷新箭头（跟手旋转） ==================== */
+/* 拖动中 1:1 跟随手指（无过渡）；松手未达阈值时带 snap 类弹性回正 */
+.fv2-pull-arrow {
+  flex-shrink: 0;
+  color: var(--ft-text-secondary);
+}
+
+.fv2-pull-arrow--snap {
+  transition:
+    transform 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+    color 0.2s ease;
+}
+
+/* 指示器容器高度同样跟手：snap 类控制松手后的回弹过渡 */
+.fv2-pull--snap {
+  transition:
+    height 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 0.2s ease;
+}
+
+/* ==================== 键盘焦点（外接键盘 / webview 辅助功能） ==================== */
+/* 焦点环用 accent-text：深浅主题均可见；offset 让环不贴边 */
+.ft-app button:focus-visible,
+.ft-app input:focus-visible {
+  outline: 2px solid var(--ft-accent-text);
+  outline-offset: 2px;
+}
+
+/* ==================== 平板适配（容器查询） ==================== */
+/* 结构层不换形（仍是单列），仅把内容列收敛到舒适读宽并居中——大屏上
+   通栏元素会被拉得过宽，失去分组紧凑感。底栏保持通栏（底色/分隔线连贯），
+   只把内部内容对齐到同一列。基准容器 = .fv2-view（container-type: inline-size）。 */
+@container (min-width: 640px) {
+  .fv2-view > *:not(.fv2-footer) {
+    width: 100%;
+    max-width: 44rem;
+    margin-inline: auto;
+  }
+
+  .fv2-footer > * {
+    width: 100%;
+    max-width: 44rem;
+    margin-inline: auto;
+  }
+}
+
+/* ==================== 减弱动效 ==================== */
+/* 系统开启「减弱动态效果」时：装饰性循环动画与位移动画退化为纯透明度切换
+   （进度反馈不丢失，但不产生运动）。spinner 保留——它是状态指示而非装饰 */
+@media (prefers-reduced-motion: reduce) {
+  .fv2-peer-dot,
+  .fv2-progress-indeterminate,
+  .fv2-check--checked,
+  .fv2-check--checked > svg {
+    animation: none;
+  }
+
+  .fv2-tab-enter-active,
+  .fv2-tab-leave-active {
+    transition: opacity 0.12s ease;
+  }
+
+  .fv2-tab-enter-from,
+  .fv2-tab-leave-to {
+    transform: none;
+  }
+
+  .fv2-card-in-enter-active,
+  .fv2-card-in-leave-active,
+  .fv2-card-in-move {
+    transition: none;
+    transition-delay: 0s;
+  }
+
+  .fv2-card-in-enter-from {
+    transform: none;
+  }
+
+  .fv2-pull-arrow--snap,
+  .fv2-pull--snap {
+    transition: none;
+  }
+}
+
+/* ==================== 平台设置页变体（.ft-app.ft-host-page） ==================== */
+/* 设置页是**平台设置二级页**（宿主 SettingsSubPage 提供页头 / 底色 / 安全区），
+   不是应用自持运行面：结构面（底 / 卡片 / 描边 / 行高）跟着宿主设置流走，
+   避免一页自造底色插在宿主设置流里跳色（2026-10-15 真机反馈）。
+   文字仍用应用的可读暖色阶（宿主 light muted 对比度偏低，12px 说明文字不达标）。
+   选择器写两条：浅色主题由 `html:not(.dark) .ft-app` 定义，特异性比 `.ft-app` 高，
+   不跟一条同结构的浅色选择器就压不住它。 */
+.ft-app.ft-host-page,
+html:not(.dark) .ft-app.ft-host-page {
+  --ft-bg-primary: var(--mobile-bg-primary);
+  --ft-bg-secondary: var(--mobile-bg-secondary);
+  --ft-bg-tertiary: var(--mobile-bg-elevated);
+  --ft-bg-card: var(--mobile-bg-card);
+  --ft-bg-elevated: var(--mobile-bg-elevated);
+  --ft-border: var(--mobile-border);
+  --ft-group-divider: var(--mobile-group-border);
+  --ft-group-row-active: var(--mobile-bg-tertiary);
+  /* 错误色不跟随宿主（宿主浅色 error 仅 3.7:1，危险操作文字需可读） */
+  --ft-error-muted: var(--mobile-error-muted);
+}
+
+/* ==================== 宿主结构类的 .ft-app 主题覆写 ==================== */
+/* 设置页（SettingsSection / SettingsPage / TrustedPeersSection）沿用宿主的
+   结构类（settings-group / settings-row / settings-label / settings-desc /
+   settings-section-title / settings-value / page-title）与下拉控件外观——
+   结构属性（间距 / 高度 / flex）不动，只把颜色消费切到 --ft-* 主题。
+   作用域锁在 .ft-app：壳内其他界面仍走宿主 token，平台色板不受影响。 */
+.ft-app .page-title,
+.ft-app .settings-section-title,
+.ft-app .settings-label,
+.ft-app .settings-value {
+  color: var(--ft-text-primary);
+}
+
+.ft-app .settings-section-title,
+.ft-app .settings-desc {
+  color: var(--ft-text-muted);
+}
+
+.ft-app .settings-group {
+  background: var(--ft-bg-card);
+  border-color: var(--ft-border);
+}
+
+.ft-app .settings-row + .settings-row {
+  border-top-color: var(--ft-group-divider);
+}
+
+.ft-app button.settings-row:active {
+  background: var(--ft-group-row-active);
+}
+
+/* 列表容器（BrowseTab 文件列表 / DevicesTab 设备列表沿用宿主 group-card 结构） */
+.ft-app .group-card {
+  background: var(--ft-bg-card);
+  border-color: var(--ft-border);
+}
+
+.ft-app .group-row-btn:active {
+  background: var(--ft-group-row-active);
+}
+
+.ft-app .settings-select {
+  background: var(--ft-bg-elevated);
+  border-color: var(--ft-border);
+  color: var(--ft-text-primary);
+}
+
+/* 文件类型 chip（FileTypeIcon）：沿用宿主文件系统图标色板（目录=纸墨，
+   图片/视频/音频/PDF 语义色），文档杂项=次级文本色。底色取自 --ft-chip-* */
+.ft-app .chip-cyan {
+  color: var(--ft-chip-dir);
+  background: var(--ft-chip-dir-bg);
+}
+.ft-app .chip-emerald {
+  color: var(--ft-chip-image);
+  background: var(--ft-chip-image-bg);
+}
+.ft-app .chip-amber {
+  color: var(--ft-chip-video);
+  background: var(--ft-chip-video-bg);
+}
+.ft-app .chip-violet {
+  color: var(--ft-chip-audio);
+  background: var(--ft-chip-audio-bg);
+}
+.ft-app .chip-red {
+  color: var(--ft-chip-doc);
+  background: var(--ft-chip-doc-bg);
+}
+.ft-app .chip-zinc {
+  color: var(--ft-text-secondary);
+  background: var(--ft-bg-tertiary);
+}

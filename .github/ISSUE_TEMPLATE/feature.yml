@@ -1,0 +1,37 @@
+name: 功能 / 任务
+description: 新功能、新应用、产品语义变更请求。必填：需求 / 归属 / 验收条件。
+title: "[feat] "
+labels: ["kind:feature"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## 归属裁决
+        - 产品语义（会话 / 终端 / 文件传输 / AI / Agent）→ 本仓应用；机制 → 能力仓；端差异 / 装配 → 平台仓。
+        - 宿主薄壳判据：命中 B1–B6 任一即业务代码，必须落应用，不许推给宿主。
+  - type: textarea
+    id: need
+    attributes:
+      label: 需求描述
+      description: 要解决什么问题、给谁用
+    validations:
+      required: true
+  - type: input
+    id: app
+    attributes:
+      label: 落点 app 与端
+      description: app slug（如 bedcode）+ 桌面 / 移动 / 双端；跨应用互调需声明双方 slug
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: 验收条件
+      description: 可验证的完成标准：测试（vitest / cargo test）/ 命令 / 真实宿主目验；暂时缺写「待补」
+    validations:
+      required: true
+  - type: textarea
+    id: related
+    attributes:
+      label: 相关契约与锁
+      description: 依赖的 SDK 绑定 / 权限 / WIT、涉及的锁（hostAppBoundaryLock / i18n drift…）、相关 issue（owner/repo#n）

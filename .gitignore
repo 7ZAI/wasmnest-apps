@@ -1,0 +1,63 @@
+# 应用仓（wasmnest-apps）：各 app 保留独立 pnpm workspace（lock/依赖图各自维护），
+# 根只放编排脚本与共享 lint 配置。
+
+# 依赖与构建产物
+**/node_modules/
+**/dist/
+**/dist-ssr/
+**/target/
+**/coverage/
+**/.vite/
+*.tsbuildinfo
+.eslintcache
+.stylelintcache
+
+# 插件构建产物（index.js / plugin.json / wasm 由 build 脚本生成，不入库；
+# 平台仓宿主 resources 里的副本在平台仓 .gitignore 管辖）
+**/rust/target/
+
+# 构建 / 运行期产物目录（G2：build.js 默认写 app 内 `.build/plugins`；
+# dev:host 写 .dev-host/plugins）。两者都是生成物，误提交 = 把整包产物带进仓库。
+**/.build/
+**/.dev-host/
+
+# link-platform-sdk 的 marker：link 状态（SDK 指回本地平台仓）是本机开发态，
+# 入库等于把「默认走发布物」的口径悄悄改回「默认走平台仓源码」。
+.platform-sdk-link.json
+
+# AI agent
+*.codebuddy/
+
+# 日志与临时文件
+*.log
+logs/
+tmp/
+temp/
+*.tmp
+*.bak
+*.backup
+
+# E2E 失败现场（截图 / logcat / 产物目录）：本地排查用，不入库
+e2e/artifacts/
+
+# IDE / OS
+.idea/
+*.swp
+*.swo
+*.sublime-workspace
+*.sublime-project
+*.iml
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 环境文件（绝不入库密钥）
+.env
+.env.*
+!.env.example
+
+# 平台 SDK 本地 link 状态（scripts/link-platform-sdk.mjs 写入，提交前 unlink）
+.platform-sdk-link.json
+
+# 会话临时 scratch（不入库）
+.scratch/

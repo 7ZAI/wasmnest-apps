@@ -1,0 +1,195 @@
+# ==============================================================================
+# 应用仓 CI：lint + 各 app 前端单测 + Rust crate native 单测
+# （不产出发布包；构建走 app-build / app-release）
+#
+# 为什么需要跨仓检出：应用仓的依赖图与构建脚本**不自足**——
+# `package.json` 的 `file:../../../../wasmnest/...`、WIT 生成物、SDK 的 `dist/`
+# 都来自平台仓 / 能力仓（详见 docs/CI.md）。
+#
+# ref 口径：CI 只做校验，默认跟平台仓 `vars.WASMNEST_PLATFORM_REF`（未设则 `dev`）、
+# 能力仓 `vars.WASMNEST_LIB_REF`（未设则 `dev`）。发布流程（app-build / app-release）
+# 才按 `release-manifest.json` 的精确 tag 钉住跨仓版本。
+# ==============================================================================
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [dev, main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: wasmnest-apps
+
+jobs:
+  verify:
+    name: lint + 单测
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: 检出应用仓
+        uses: actions/checkout@v4
+        with:
+          path: wasmnest-apps
+          fetch-depth: 1
+
+      - name: 装配跨仓依赖（平台仓 / 能力仓）
+        env:
+          CROSS_REPO_TOKEN: ${{ secrets.CROSS_REPO_TOKEN }}
+        run: |
+          node scripts/ci/fetch-cross-repo.mjs \
+            --platform-ref "${{ vars.WASMNEST_PLATFORM_REF || 'dev' }}" \
+            --lib-ref "${{ vars.WASMNEST_LIB_REF || 'dev' }}"
+
+      - name: 安装 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: 安装 pnpm（版本 = 应用仓 packageManager）
+        uses: pnpm/action-setup@v4
+        with:
+          package_json_file: wasmnest-apps/package.json
+
+      - name: 缓存 pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/share/pnpm/store
+          key: pnpm-store-${{ runner.os }}-${{ hashFiles('wasmnest-apps/**/pnpm-lock.yaml', 'wasmnest/**/pnpm-lock.yaml') }}
+          restore-keys: |
+            pnpm-store-${{ runner.os }}-
+
+      - name: 安装应用仓根依赖
+        run: pnpm install --frozen-lockfile
+
+      - name: 补齐平台侧生成物（WIT 拼装 + 双端 SDK dist）
+        run: node scripts/ci/prepare-platform.mjs --ends all
+
+      - name: 安装各工程依赖（apps + servers，每个工程独立 workspace）
+        run: |
+          set -euo pipefail
+          # nullglob：`servers/*/mobile/package.json` 这类「当前无人匹配」的模式展开成空，
+          # 否则字面量会被当成路径传进 cd（缺一个端目录就整步失败）。
+          shopt -s nullglob
+          for pkg in apps/*/desktop/package.json apps/*/mobile/package.json \
+                     servers/*/desktop/package.json servers/*/mobile/package.json; do
+            dir="$(dirname "$pkg")"
+            echo "::group::pnpm install $dir"
+            (cd "$dir" && pnpm install --frozen-lockfile)
+            echo "::endgroup::"
+          done
+
+      - name: eslint（0 error 口径）
+        run: pnpm run lint
+
+      - name: 各工程单测（逐工程串行，缺脚本打印 skip）
+        run: pnpm run test:run
+
+  # Rust native 单测：逐 crate `cargo test --manifest-path`（口径同 AGENTS.md 命令表）。
+  # 测试跑宿主 target，不覆盖 wasm32 宏路径（native 测试边界见 AGENTS.md 完成定义）；
+  # desktop crate 声明 crates.io SDK（=0.0.1，未发布 → 见下方临时 patch 步），mobile
+  # crate 经 path 依赖平台仓 SDK（`../../../../../wasmnest/...`，R1 兄弟布局）→ 仍需
+  # 跨仓装配，但无需 pnpm / 前端生成物（SDK crate 的 wit/ 已入库，app crate 无 build.rs）。
+  rust-test:
+    name: rust 单测（native）
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      SCCACHE_GHA_ENABLED: 'true'
+    steps:
+      - name: 检出应用仓
+        uses: actions/checkout@v4
+        with:
+          path: wasmnest-apps
+          fetch-depth: 1
+
+      - name: 装配跨仓依赖（平台仓 / 能力仓）
+        env:
+          CROSS_REPO_TOKEN: ${{ secrets.CROSS_REPO_TOKEN }}
+        run: |
+          node scripts/ci/fetch-cross-repo.mjs \
+            --platform-ref "${{ vars.WASMNEST_PLATFORM_REF || 'dev' }}" \
+            --lib-ref "${{ vars.WASMNEST_LIB_REF || 'dev' }}"
+
+      - name: 安装 sccache（.cargo/config.toml 强制 rustc-wrapper，不绕过）
+        uses: mozilla-actions/sccache-action@v0.0.9
+
+      - name: 安装 Rust stable（宿主 native 测试，无需 wasm target）
+        uses: dtolnay/rust-toolchain@stable
+
+      # bedcode/desktop 等的 dev-deps（wasmnest-lib server crate）拖 tauri → Linux 宿主
+      # 编译 gtk/glib sys crate，runner 缺系统头文件。包集与平台仓 test.yml 的
+      # 「安装 Linux 宿主系统依赖」同口径（改动需两仓同步）。
+      - name: 安装 Linux 宿主系统依赖（gtk/glib sys crate 的 build script 需要）
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev libjavascriptcoregtk-4.1-dev \
+            libappindicator3-dev librsvg2-dev patchelf \
+            libsoup-3.0-dev libssl-dev pkg-config libgtk-3-dev build-essential
+
+      # SDK 尚未发布 crates.io（平台仓 sdk-publish.yml 已实现未执行），desktop crate
+      # 的 `wasmnest-plugin-api = "0.0.1"` 在 CI 无法从 registry 解析；本地开发同场景
+      # 由 link:platform 写 [patch]（不可提交）解决。这里在 CI 内给 .cargo/config.toml
+      # 追加等价 patch（指向本次检出的平台仓 SDK，不改 package.json / 不写 marker）。
+      # SDK 发布 crates.io 后：删除本步 + docs/CI.md §7 对应行（同提交）。
+      - name: SDK 未发布期的 cargo patch（指向已检出平台仓 SDK）
+        run: |
+          set -euo pipefail
+          sdk="$GITHUB_WORKSPACE/wasmnest/wasmnest-desktop/packages/plugin-sdk-desktop"
+          test -f "$sdk/rust/Cargo.toml" || {
+            echo "::error::平台仓检出缺 SDK crate（$sdk/rust）——检查 fetch-cross-repo 与平台仓布局"; exit 1;
+          }
+          {
+            echo ''
+            echo '# >>> ci rust-test 临时 patch（SDK 发布 crates.io 后随 workflow 本步一起删除） >>>'
+            echo '[patch.crates-io]'
+            echo "wasmnest-plugin-api = { path = \"$sdk/rust\" }"
+            echo "wasmnest-plugin-api-macros = { path = \"$sdk/rust-macros\" }"
+            echo '# <<< ci rust-test 临时 patch <<<'
+          } >> .cargo/config.toml
+
+      - name: 逐 crate cargo test（file-transfer 嵌套 crate 依赖图最小，放最前 fail-fast）
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          # 枚举口径：端内 crate = <group>/<slug>/<end>/rust/Cargo.toml（分组拓扑真源
+          # scripts/lib/projects.mjs）；file-transfer 特例：双端同构 rust 层住
+          # <slug>/rust/{core,plugin}（不在端目录下，无 desktop/rust）。
+          # 标准布局的新 app 自动被 glob 覆盖，无需改本文件；.build / .worktrees 不在 glob 内。
+          manifests=(
+            apps/file-transfer/rust/*/Cargo.toml
+            apps/*/desktop/rust/Cargo.toml
+            apps/*/mobile/rust/Cargo.toml
+            servers/*/desktop/rust/Cargo.toml
+            servers/*/mobile/rust/Cargo.toml
+          )
+          if [ ${#manifests[@]} -eq 0 ]; then
+            echo "::error::未枚举到任何 crate 的 Cargo.toml（分组拓扑变更？看 scripts/lib/projects.mjs）"
+            exit 1
+          fi
+          # 【登记】bedcode/desktop 暂不进本门禁（issue #7）：
+          #   dev-deps 钉能力仓 git tag lib-v0.0.2，其中 server-base 的 advertise/stop
+          #   还是 sync 版；apps dev 代码已按 lib dev 的 async 版实现（本地靠
+          #   link:platform 的 [patch."https://github.com/7ZAI/wasmnest-lib"] 指回本地
+          #   源码，CI 按钉住的 tag 解析即 E0195）。出路：能力仓发布含 async trait 的
+          #   lib-v0.0.3 → 本仓改钉新 tag（与平台 release-manifest repos.lib.tag 同轴）
+          #   → 删除本排除并移回门禁。
+          excluded='apps/bedcode/desktop/rust/Cargo.toml'
+          for m in "${manifests[@]}"; do
+            if [ "$m" = "$excluded" ]; then
+              echo "::warning::skip $m —— lib-v0.0.2 tag 未含 async trait（登记与出路见 issue #7，tag 升级后移回）"
+              continue
+            fi
+            echo "::group::cargo test --manifest-path $m"
+            cargo test --manifest-path "$m"
+            echo "::endgroup::"
+          done

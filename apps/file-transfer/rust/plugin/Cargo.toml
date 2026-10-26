@@ -1,0 +1,29 @@
+# 双端同构 wasm 产物源（ADR 0050 单产物）：本 crate **不属于 desktop / mobile 任何一端**，
+# 与双端共享业务核 `../core` 同住应用级 rust 层（`apps/file-transfer/rust/{core,plugin}`）；
+# 两端目录下只剩各自前端（`apps/file-transfer/{desktop,mobile}/src`）。桌面构建链
+# `desktop/scripts/build.js` 与移动端 `package.json` 的 `wasmnest.sharedRustManifest`
+# 都指向本文件。
+[package]
+name = "wasmnest-plugin-file-transfer"
+version = "0.0.1"
+license = "MIT"
+description = "File Transfer Plugin — 内网文件传输"
+authors = ["WasmNest"]
+edition = "2021"
+
+[features]
+default = ["native"]
+native = []
+wasm = []
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+wasmnest-plugin-api = { version = "=0.0.1", features = ["wasm"] }
+# 双端共享业务核（ADR 0044）：可共享面收敛为一份，双端差异面全部经端口 trait 注入
+wasmnest-file-transfer-core = { path = "../core" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+tracing = "0.1"
