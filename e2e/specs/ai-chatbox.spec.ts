@@ -32,6 +32,13 @@ describe('AI Chatbox（桌面端 · 宿主内挂载）', () => {
     await goHome()
     await openApp(APP_NAME)
     await waitFor('chat-view')
+    // 壳回主屏只 detach 不销毁实例：上一用例停在配置页会随实例带回来。
+    // 统一先回到聊天态，保证用例起点一致（docs/E2E.md §6 用例隔离）。
+    if (await visible('chat-config-page')) {
+      await click('chat-config-back')
+      await waitGone('chat-config-page')
+    }
+    await waitFor('chat-sidebar')
   })
 
   it('聊天区渲染：对话列表与输入框就位', async () => {
