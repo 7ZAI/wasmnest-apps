@@ -323,12 +323,14 @@ watch(
             class="ah-input ah-mono"
             type="text"
             :placeholder="t('hub.speed.addCustomPlaceholder')"
+            data-testid="inst-custom-url"
             @keyup.enter="onAddCustom"
           />
           <button
             type="button"
             class="ah-btn ah-btn-ghost ah-btn-sm"
             :disabled="!customUrl.trim()"
+            data-testid="inst-custom-add"
             @click="onAddCustom"
           >
             {{ t('hub.speed.addCustom') }}
@@ -374,6 +376,7 @@ watch(
           type="button"
           class="ah-btn ah-btn-ghost ah-btn-sm"
           :disabled="checking || activeRun !== null"
+          data-testid="inst-check-updates"
           @click="emit('check-updates')"
         >
           {{ checking ? t('hub.inst.checking') : t('hub.inst.check') }}
@@ -386,12 +389,22 @@ watch(
       </div>
 
       <label class="ah-mirror-tmp">
-        <input v-model="useMirror" type="checkbox" />
+        <input
+          v-model="useMirror"
+          type="checkbox"
+          data-testid="inst-use-mirror"
+          :data-checked="useMirror"
+        />
         <span>{{ t('hub.mirror.tmp') }}</span>
       </label>
 
       <div class="ah-inst-rows">
-        <div v-for="row in rows" :key="row.cli" class="ah-inst-row">
+        <div
+          v-for="row in rows"
+          :key="row.cli"
+          class="ah-inst-row"
+          :data-testid="`inst-row-${row.cli}`"
+        >
           <span class="ah-cli-name">
             <CliIcon :cli-id="row.cli" />
             <span class="ah-cli-name-text">{{ row.name }}</span>

@@ -91,6 +91,7 @@ wasmnest-apps/
 ├─ .husky/pre-commit               暂存前端文件 eslint --quiet（error 阻断）
 ├─ eslint.config.js                前端资源访问红线（双端共用一份）
 └─ docs/                           CODE-MAP.md / FRONTEND.md / BACKEND.md / E2E.md / CI.md
+                                   / verification/（按 app 的端到端功能验证模板与报告口径）
 ```
 
 **每个 app 保留独立 pnpm workspace**（各有 `pnpm-lock.yaml` 与 `pnpm-workspace.yaml`，不合并）；根 `package.json` 只做编排，根 `node_modules` 只服务 lint / husky。

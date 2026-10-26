@@ -54,6 +54,7 @@ function dotClass(row: DeviceRow): string {
         class="ft-text-btn ft-dev-scan-btn"
         :disabled="props.scanning"
         :title="t('transfer.devices.scan')"
+        data-testid="ft-peer-scan"
         @click="emit('scan')"
       >
         <!-- 扫描中：旋转圆环占位（GPU 合成 transform） -->
@@ -84,7 +85,7 @@ function dotClass(row: DeviceRow): string {
     </div>
 
     <!-- 空态：发现缓存无节点 -->
-    <div v-if="rows.length === 0" class="ft-dev-empty">
+    <div v-if="rows.length === 0" class="ft-dev-empty" data-testid="ft-peer-empty">
       {{ t('transfer.devices.empty') }}
     </div>
 
@@ -101,31 +102,28 @@ function dotClass(row: DeviceRow): string {
             <span class="ft-dot" :class="dotClass(row)"></span>
             <span class="ft-dev-name">{{ row.deviceName }}</span>
             <span class="ft-dev-fp">{{ shortFingerprint(row.nodeId) }}</span>
-            <span
-              v-if="row.isActive"
-              class="ft-dev-tag ft-dev-tag--active"
-            >
+            <span v-if="row.isActive" class="ft-dev-tag ft-dev-tag--active">
               {{ t('transfer.devices.activeCurrent') }}
             </span>
-            <span
-              v-else-if="!row.fileTransfer"
-              class="ft-dev-tag"
-            >
+            <span v-else-if="!row.fileTransfer" class="ft-dev-tag">
               {{ t('transfer.devices.capNone') }}
             </span>
           </div>
           <div class="ft-dev-meta">
             <template v-if="row.status === 'connected'">
-              {{ t('transfer.devices.connected') }}<template v-if="row.addr"> · {{ row.addr }}</template>
+              {{ t('transfer.devices.connected')
+              }}<template v-if="row.addr"> · {{ row.addr }}</template>
             </template>
             <template v-else-if="row.status === 'connecting'">
               {{ t('transfer.devices.connecting') }}
             </template>
             <template v-else-if="row.recent">
-              {{ t('transfer.devices.recentSeen') }}<template v-if="row.addr"> · {{ row.addr }}</template>
+              {{ t('transfer.devices.recentSeen')
+              }}<template v-if="row.addr"> · {{ row.addr }}</template>
             </template>
             <template v-else>
-              {{ t('transfer.devices.online') }}<template v-if="row.addr"> · {{ row.addr }}</template>
+              {{ t('transfer.devices.online')
+              }}<template v-if="row.addr"> · {{ row.addr }}</template>
             </template>
           </div>
           <!-- 拨号终态反馈：拒绝 / 不可达（行内错误，非全局 toast） -->

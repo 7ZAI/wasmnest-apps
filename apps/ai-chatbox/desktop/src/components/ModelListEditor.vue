@@ -7,9 +7,11 @@
         :key="i"
         class="flex items-center gap-2 px-3 h-[36px] bg-[var(--bg-input)] border border-[var(--border-input)] rounded-input"
       >
-        <span class="flex-1 min-w-0 truncate text-sm text-[var(--text-primary)] font-mono">{{
-          m
-        }}</span>
+        <span
+          class="flex-1 min-w-0 truncate text-sm text-[var(--text-primary)] font-mono"
+          data-testid="provider-form-model"
+          >{{ m }}</span
+        >
         <button
           class="p-1 text-[var(--text-tertiary)] hover:text-[var(--color-danger)] rounded transition-colors flex-shrink-0"
           :title="t('com.wasmnest.ai-chatbox.removeModel')"

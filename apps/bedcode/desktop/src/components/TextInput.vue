@@ -1,5 +1,5 @@
 <template>
-  <div class="form-group">
+  <div class="form-group" :data-testid="testid">
     <label
       v-if="label"
       :for="id"
@@ -34,7 +34,13 @@
       </div>
     </div>
 
-    <p v-if="error" class="mt-1 text-xs text-red-500">{{ error }}</p>
+    <p
+      v-if="error"
+      class="mt-1 text-xs text-red-500"
+      :data-testid="testid ? `${testid}-error` : undefined"
+    >
+      {{ error }}
+    </p>
     <p v-else-if="help" class="mt-1 text-xs text-[var(--text-tertiary)]">{{ help }}</p>
   </div>
 </template>
@@ -58,12 +64,14 @@ interface Props {
   required?: boolean
   error?: string
   help?: string
+  testid?: string
 }
 
 const props = withDefaults(defineProps<Props>(), {
   type: 'text',
   disabled: false,
   required: false,
+  testid: '',
 })
 
 const emit = defineEmits<{

@@ -8,9 +8,11 @@
 /** 应用显示名（= monitor/desktop/plugin.json `name`） */
 export const APP_NAME = 'Monitor'
 
-/** 主屏系统宫格条目名（宿主本地化名，zh-CN 默认宿主；monitor 是系统级服务，
-    不进应用网格、只住在主屏「系统」区） */
-export const SYS_ENTRY_NAME = '运行监控'
+/** 主屏系统宫格条目名（宿主本地化名；zh-CN「运行监控」/ en「Monitor」） */
+export const SYS_ENTRY_NAMES = ['运行监控', 'Monitor'] as const
+
+/** 默认 zh-CN 名（兼容既有调用；查找入口优先用 SYS_ENTRY_NAMES） */
+export const SYS_ENTRY_NAME = SYS_ENTRY_NAMES[0]
 
 /** 插件 id（= 产物目录名 / 快照 plugins 键） */
 export const MONITOR_PLUGIN_ID = 'com.wasmnest.monitor'

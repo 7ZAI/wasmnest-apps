@@ -14,8 +14,11 @@ export function expectEqual(actual: unknown, expected: unknown, context: string)
 
 /** 带失败上下文的「属于集合」断言（同样不接受第二参数） */
 export function expectInSet(actual: unknown, allowed: unknown[], context: string): void {
-  expect({ [context]: actual, 允许值: allowed }).toEqual({
+  // 不能把 actual/allowed 同时放进 received 与 expected 的同名键——那样两边恒等，
+  // 断言永远通过。用 holds 显式表达「actual 属于 allowed」。
+  expect({ [context]: actual, 允许值: allowed, holds: allowed.includes(actual) }).toEqual({
     [context]: actual,
-    允许值: expect.arrayContaining(allowed),
+    允许值: allowed,
+    holds: true,
   })
 }

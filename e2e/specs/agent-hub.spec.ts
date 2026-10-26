@@ -20,9 +20,14 @@ import {
   click,
   exists,
   isDisabled,
+  setValue,
   text,
+  value,
   visible,
   waitFor,
+  waitForAttr,
+  waitForDisabled,
+  waitForEnabled,
   waitForHostReady,
   waitGone,
 } from '../harness/driver'
@@ -35,6 +40,7 @@ import {
   labelSet,
   openTab,
   selectedTab,
+  type HubCli,
   type HubTab,
 } from '../pages/agentHub'
 
@@ -49,6 +55,9 @@ describe('Agent Hub（桌面端 · 宿主内挂载）', () => {
     await goHome()
     await openApp(APP_NAME)
     await waitFor('hub-view')
+    // 壳回主屏只 detach 不销毁实例：上一用例停在别的分区会随实例带回来。
+    // 每条用例统一回到概览，后续断言不依赖执行顺序。
+    await openTab('overview')
   })
 
   it('主屏可见 Agent Hub 应用卡，点卡后应用挂载并落地概览分区', async () => {
@@ -95,6 +104,7 @@ describe('Agent Hub（桌面端 · 宿主内挂载）', () => {
       ...labelSet('hub.card.installedNoSessions'),
       ...labelSet('hub.card.notInstalled'),
       ...labelSet('hub.card.error'),
+      ...labelSet('hub.card.unavailable'),
       ...labelSet('hub.card.detecting'),
       ...labelSet('hub.card.idle'),
     ]
@@ -106,13 +116,17 @@ describe('Agent Hub（桌面端 · 宿主内挂载）', () => {
     }
   })
 
-  it('概览：卸载动作两击确认——第一击进入确认态，不直接执行', async () => {
+  it('概览：卸载动作两击确认——第一击进入确认态，不直接执行', async function () {
     // 卸载按钮只在「已装且可自动卸载」的卡片上渲染（未安装的 CLI 没有该按钮），
     // 故按实际渲染的卡片断言，不假设某台机器装了哪个 CLI。
-    const withButton = HUB_CLIS.filter((c) => exists(`cli-uninstall-${c}`))
+    const withButton = (
+      await Promise.all(
+        HUB_CLIS.map(async (c) => ((await exists(`cli-uninstall-${c}`)) ? c : null)),
+      )
+    ).filter((c): c is HubCli => c !== null)
     if (withButton.length === 0) {
       // 本机没有可自动卸载的 CLI：该分支不可测，显式跳过而不是假绿。
-      return
+      this.skip()
     }
     const cli = withButton[0]
     const before = await text(`cli-uninstall-${cli}`)
@@ -186,12 +200,79 @@ describe('Agent Hub（桌面端 · 宿主内挂载）', () => {
     ).length
     expectEqual(initiallyPressed, 1, '初始恰好选中一个时间范围')
 
-    await click('range-90')
-    await waitFor('range-90')
-    expectEqual(await pressedOf(90), 'true', '新时间范围选中')
+    // 选一个与当前不同的档位，才能证明「切换」而不是重复点当前值。
+    const target = (await pressedOf(90)) === 'true' ? 30 : 90
+    await click(`range-${target}`)
+    await waitForAttr(`range-${target}`, 'aria-pressed', 'true', 5_000)
     const stillPressed = (await Promise.all(ranges.map(pressedOf))).filter(
       (v) => v === 'true',
     ).length
     expectEqual(stillPressed, 1, '切换后仍恰好选中一个时间范围')
+  })
+
+  it('安装与更新：CLI 行常驻、临时镜像默认开且可切换、自定义源空值禁用', async () => {
+    await openTab('install')
+    for (const cli of HUB_CLIS) {
+      await waitFor(`inst-row-${cli}`)
+    }
+    expectEqual(await attr('inst-use-mirror', 'data-checked'), 'true', '临时镜像默认开启')
+    await click('inst-use-mirror')
+    await waitForAttr('inst-use-mirror', 'data-checked', 'false', 5_000)
+    await click('inst-use-mirror')
+    await waitForAttr('inst-use-mirror', 'data-checked', 'true', 5_000)
+
+    expectEqual(await isDisabled('inst-custom-add'), true, '自定义源空值不可添加')
+    await setValue('inst-custom-url', 'https://registry.example.invalid')
+    await waitForEnabled('inst-custom-add')
+    expectEqual(await isDisabled('inst-custom-add'), false, '填入 URL 后可添加')
+    await setValue('inst-custom-url', '')
+    await waitForDisabled('inst-custom-add')
+    expectEqual(await isDisabled('inst-custom-add'), true, '清空后重新禁用')
+    expectEqual(await visible('inst-check-updates'), true, '检查更新入口可见')
+  })
+
+  it('供应商：模板快选回填字段，空表单不可保存', async () => {
+    await openTab('providers')
+    await click('new-preset')
+    await waitFor('preset-editor')
+    expectEqual(await isDisabled('preset-save'), true, '空名称不可保存')
+
+    await click('preset-template-deepseek')
+    await waitForAttr('preset-style-openai', 'aria-pressed', 'true', 5_000)
+    expectEqual(await value('preset-name'), 'DeepSeek', '模板回填名称')
+    expectEqual(
+      (await value('preset-baseurl'))?.includes('api.deepseek.com'),
+      true,
+      '模板回填 Base URL',
+    )
+    expectEqual((await value('preset-models'))?.includes('deepseek-chat'), true, '模板回填模型列表')
+    expectEqual(await isDisabled('preset-save'), false, '名称就绪后保存可用')
+
+    await click('preset-editor-close')
+    await waitGone('preset-editor')
+  })
+
+  it('使用统计：指标选择始终恰好一个，切换后选中态跟随', async () => {
+    await openTab('stats')
+    const metrics = [
+      'tokens',
+      'sessions',
+      'tokens_in',
+      'tokens_out',
+      'tokens_cache_read',
+      'tokens_cache_write',
+      'tokens_reasoning',
+      'duration_ms',
+      'cost_total',
+    ]
+    const pressedOf = async (m: string) => attr(`metric-${m}`, 'aria-pressed')
+    const selected = async () =>
+      (await Promise.all(metrics.map(pressedOf))).filter((v) => v === 'true')
+    expectEqual((await selected()).length, 1, '初始恰好选中一个指标')
+
+    const target = (await pressedOf('tokens')) === 'true' ? 'sessions' : 'tokens'
+    await click(`metric-${target}`)
+    await waitForAttr(`metric-${target}`, 'aria-pressed', 'true', 5_000)
+    expectEqual((await selected()).length, 1, '切换后仍恰好选中一个指标')
   })
 })

@@ -1136,6 +1136,8 @@ function onConfigQueueLiveChanged() {
               ? 'bg-[var(--bg-card)] text-[var(--text-primary)] shadow-sm'
               : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
           "
+          :aria-selected="activeTab === tab.key"
+          :data-testid="`tasks-tab-${tab.key}`"
           @click="activeTab = tab.key"
         >
           {{ tab.label }}
@@ -1147,7 +1149,11 @@ function onConfigQueueLiveChanged() {
          定位上下文，直接标在视图根上会从页头顶部（标题与 tab 条所在行）开始绘制。 -->
     <div class="page-swap flex-1 flex flex-col min-h-0">
       <Transition name="page">
-        <div v-if="activeTab === 'current'" class="flex-1 flex flex-col min-h-0">
+        <div
+          v-if="activeTab === 'current'"
+          class="flex-1 flex flex-col min-h-0"
+          data-testid="tasks-panel-current"
+        >
           <!-- 滚动内容：创建任务 / 当前任务 / 执行任务 -->
           <div class="flex-1 overflow-y-auto px-4 py-3 space-y-4 min-h-0">
             <!-- 创建新任务 -->
@@ -1717,7 +1723,11 @@ function onConfigQueueLiveChanged() {
         </div>
 
         <!-- Tab2 任务日志 -->
-        <div v-else-if="activeTab === 'records'" class="flex-1 flex flex-col min-h-0">
+        <div
+          v-else-if="activeTab === 'records'"
+          class="flex-1 flex flex-col min-h-0"
+          data-testid="tasks-panel-records"
+        >
           <!-- 筛选条 -->
           <div class="px-4 pt-3 flex-shrink-0 space-y-2">
             <div class="grid grid-cols-3 gap-1.5 items-start">
@@ -1956,7 +1966,11 @@ function onConfigQueueLiveChanged() {
         </div>
 
         <!-- Tab3 定时任务 -->
-        <div v-else-if="activeTab === 'scheduled'" class="flex-1 overflow-y-auto px-4 py-3 space-y-3">
+        <div
+          v-else-if="activeTab === 'scheduled'"
+          class="flex-1 overflow-y-auto px-4 py-3 space-y-3"
+          data-testid="tasks-panel-scheduled"
+        >
           <!-- 新建/收起 -->
           <button
             class="w-full h-8 rounded-[6px] bg-[var(--color-primary)] text-[var(--color-primary-contrast)] text-xs font-medium transition-opacity duration-200 hover:opacity-90"
@@ -2273,7 +2287,7 @@ function onConfigQueueLiveChanged() {
         </div>
 
         <!-- Tab4 统计 -->
-        <div v-else class="flex-1 overflow-y-auto px-4 py-3">
+        <div v-else class="flex-1 overflow-y-auto px-4 py-3" data-testid="tasks-panel-stats">
           <!-- 加载中 -->
           <div v-if="!stats" class="flex justify-center py-8">
             <span class="text-sm text-[var(--text-tertiary)]">{{ t('task.loading') }}</span>

@@ -188,14 +188,22 @@ function preflightHost({ mode, hostFlag }) {
         fail(e.message)
       }
       if (!existsSync(result.bin)) {
-        console.error(runtimeMissingHint({ version: result.version || '<lock 版本>', channel: 'crates-io' }))
+        console.error(
+          runtimeMissingHint({ version: result.version || '<lock 版本>', channel: 'crates-io' }),
+        )
         process.exit(1)
       }
       bin = result.bin
     }
-    if (!existsSync(bin)) fail(`宿主 runtime 二进制不存在：${bin}`, '安装：node scripts/install-runtime.mjs --from <平台仓根>')
+    if (!existsSync(bin))
+      fail(
+        `宿主 runtime 二进制不存在：${bin}`,
+        '安装：node scripts/install-runtime.mjs --from <平台仓根>',
+      )
     console.log(`[e2e] 宿主产物（runtime crate）：${bin}`)
-    console.log('[e2e]   注：runtime 通道无 host-version.json，版本在安装时按 lock 钉住；挂载契约由宿主装载时校验')
+    console.log(
+      '[e2e]   注：runtime 通道无 host-version.json，版本在安装时按 lock 钉住；挂载契约由宿主装载时校验',
+    )
     return { bin, dir: dirname(bin), meta: null, source: 'runtime' }
   }
 
@@ -292,7 +300,10 @@ function platformDirsOrDie() {
   }
   const hostDir = `${platformRoot}/wasmnest-desktop`
   if (!existsSync(hostDir)) {
-    fail(`平台宿主工程不存在：${hostDir}`, '改用 --host-mode packed（宿主来自下载缓存 / host:pack 产物）')
+    fail(
+      `平台宿主工程不存在：${hostDir}`,
+      '改用 --host-mode packed（宿主来自下载缓存 / host:pack 产物）',
+    )
   }
   return { platformRoot, hostDir }
 }
@@ -349,7 +360,9 @@ function buildApp(app, { mode, skip, full, pluginsDir }) {
     return
   }
   const args = planBuildArgs({ mode, full, pluginsDir })
-  console.log(`[e2e] 构建 ${app.slug}（${full ? '前端 + wasm' : '仅前端'}${mode === 'cargo' ? '' : ` → ${pluginsDir}`}）…`)
+  console.log(
+    `[e2e] 构建 ${app.slug}（${full ? '前端 + wasm' : '仅前端'}${mode === 'cargo' ? '' : ` → ${pluginsDir}`}）…`,
+  )
   const r = spawnSync('node', ['scripts/build.js', ...args], {
     cwd: app.dir,
     stdio: 'inherit',
@@ -436,7 +449,9 @@ async function main() {
     )
   }
   const host = preflightHost({ mode, hostFlag: args.host })
-  console.log(`[e2e] 宿主模式：${mode}${needsDevServer(mode) ? '（需要平台前端 dev server）' : '（不启 dev server，前端已嵌入宿主二进制）'}`)
+  console.log(
+    `[e2e] 宿主模式：${mode}${needsDevServer(mode) ? '（需要平台前端 dev server）' : '（不启 dev server，前端已嵌入宿主二进制）'}`,
+  )
   for (const app of apps) {
     console.log(`[e2e] 被测 app：${app.slug}（${app.name} / ${app.pluginId}）`)
   }
@@ -444,8 +459,7 @@ async function main() {
   // staging 方案先定：packed / runtime 用临时目录（跑完整体删除，平台工作树零写入），
   // cargo 用平台 target 下的 e2e 目录（历史行为）。
   const platform = needsDevServer(mode) ? platformDirsOrDie() : null
-  const stagingDir =
-    mode === 'cargo' ? null : mkdtempSync(join(tmpdir(), 'wasmnest-e2e-plugins-'))
+  const stagingDir = mode === 'cargo' ? null : mkdtempSync(join(tmpdir(), 'wasmnest-e2e-plugins-'))
   const staging = planStaging({ mode, stagingDir, platformRoot: platform?.platformRoot })
   const platformResourcesDir =
     mode === 'cargo' ? `${platform.hostDir}/src-tauri/resources/plugins/desktop` : null
@@ -486,25 +500,42 @@ async function main() {
         pluginsDir: staging.pluginsDir,
         platformResourcesDir,
       })
-      const runEnv = { ...env, WASMNEST_PLUGINS_DIR: staging.pluginsDir }
 
-      const wdioArgs = ['exec', 'wdio', 'run', 'e2e/wdio.conf.ts']
-      // 用例按 app 分文件；传了 --spec 则以调用方的为准。
-      if (args.spec) {
-        wdioArgs.push('--spec', args.spec)
-      } else {
-        wdioArgs.push('--spec', `e2e/specs/${app.slug}.spec.ts`)
+      // packed / runtime：全量模式下 base staging 会按需装多个 app；每个 wdio 仍只应
+      // 看到被测 app。这里为每个 app 复制到独立临时目录，跑完删除——单跑与全量同语义。
+      let isolatedDir = null
+      let appPluginsDir = staging.pluginsDir
+      if (mode !== 'cargo') {
+        isolatedDir = mkdtempSync(join(tmpdir(), `wasmnest-e2e-${app.slug}-`))
+        cpSync(join(staging.pluginsDir, app.pluginId), join(isolatedDir, app.pluginId), {
+          recursive: true,
+        })
+        appPluginsDir = isolatedDir
       }
 
-      console.log(`[e2e] 启动 wdio：${app.slug}`)
-      const r = spawnSync('pnpm', wdioArgs, {
-        cwd: APPS_ROOT,
-        stdio: 'inherit',
-        env: runEnv,
-      })
-      if (r.status !== 0) {
-        failed += 1
-        console.error(`[e2e] ✗ ${app.slug} 用例未全绿`)
+      try {
+        const runEnv = { ...env, WASMNEST_PLUGINS_DIR: appPluginsDir }
+
+        const wdioArgs = ['exec', 'wdio', 'run', 'e2e/wdio.conf.ts']
+        // 用例按 app 分文件；传了 --spec 则以调用方的为准。
+        if (args.spec) {
+          wdioArgs.push('--spec', args.spec)
+        } else {
+          wdioArgs.push('--spec', `e2e/specs/${app.slug}.spec.ts`)
+        }
+
+        console.log(`[e2e] 启动 wdio：${app.slug}`)
+        const r = spawnSync('pnpm', wdioArgs, {
+          cwd: APPS_ROOT,
+          stdio: 'inherit',
+          env: runEnv,
+        })
+        if (r.status !== 0) {
+          failed += 1
+          console.error(`[e2e] ✗ ${app.slug} 用例未全绿`)
+        }
+      } finally {
+        if (isolatedDir) rmSync(isolatedDir, { recursive: true, force: true })
       }
     }
   } finally {

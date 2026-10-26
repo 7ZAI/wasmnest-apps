@@ -18,6 +18,7 @@
               class="w-7 h-7 flex items-center justify-center rounded-btn border border-[var(--border-input)] text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
               :disabled="config.codeFontSize <= CODE_FONT_SIZE_MIN"
               :aria-label="t('com.wasmnest.ai-chatbox.decrease')"
+              data-testid="code-font-size-decrease"
               @click="update({ codeFontSize: config.codeFontSize - 1 })"
             >
               <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -39,6 +40,7 @@
               class="w-7 h-7 flex items-center justify-center rounded-btn border border-[var(--border-input)] text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
               :disabled="config.codeFontSize >= CODE_FONT_SIZE_MAX"
               :aria-label="t('com.wasmnest.ai-chatbox.increase')"
+              data-testid="code-font-size-increase"
               @click="update({ codeFontSize: config.codeFontSize + 1 })"
             >
               <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -129,6 +131,7 @@
           <SegmentedControl
             :options="thinkingModeOptions"
             :model-value="config.thinkingMode"
+            testid-prefix="thinking-mode"
             @change="(v: string) => update({ thinkingMode: v as PluginConfig['thinkingMode'] })"
           />
         </div>
@@ -137,6 +140,7 @@
         <div
           v-if="config.thinkingMode === 'enabled'"
           class="flex items-center justify-between gap-4 px-3.5 py-2.5 min-h-[3rem]"
+          data-testid="reasoning-effort-row"
         >
           <span class="text-sm text-[var(--text-primary)]">
             {{ t('com.wasmnest.ai-chatbox.reasoningEffort') }}
@@ -144,6 +148,7 @@
           <SegmentedControl
             :options="effortOptions"
             :model-value="config.reasoningEffort"
+            testid-prefix="reasoning-effort"
             @change="
               (v: string) => update({ reasoningEffort: v as PluginConfig['reasoningEffort'] })
             "
@@ -157,6 +162,7 @@
           <SegmentedControl
             :options="showReasoningOptions"
             :model-value="config.showReasoning ? 'on' : 'off'"
+            testid-prefix="show-reasoning"
             @change="(v: string) => update({ showReasoning: v === 'on' })"
           />
         </div>
@@ -348,6 +354,7 @@ const SegmentedControl = defineComponent({
   props: {
     options: { type: Array as () => { value: string; label: string }[], required: true },
     modelValue: { type: String, required: true },
+    testidPrefix: { type: String, default: null },
   },
   emits: ['change'],
   setup(props, { emit }) {
@@ -367,6 +374,8 @@ const SegmentedControl = defineComponent({
                 (opt.value === props.modelValue
                   ? 'bg-brand text-[var(--color-primary-contrast)] font-medium'
                   : 'text-[var(--text-secondary)] hover:bg-[var(--bg-input)]'),
+              'aria-pressed': opt.value === props.modelValue,
+              'data-testid': props.testidPrefix ? `${props.testidPrefix}-${opt.value}` : undefined,
               onClick: () => emit('change', opt.value),
             },
             opt.label,
