@@ -12,7 +12,8 @@
 #   - 构建链复用各 app 自己的 `package.json` 脚本（见 `scripts/ci/build-app.mjs` 头注）；
 #   - 产物 = `dist/release/<slug>-<end>-v<version>.zip` + 同名元数据 JSON。
 #
-# 工具链：stable（wasm32-unknown-unknown）+ pinned nightly（wasm32-wasip3，桌面 non-file-transfer）。
+# 工具链：stable（wasm32-unknown-unknown）+ pinned nightly（wasm32-wasip3，桌面 non-file-transfer）；
+# Go 后端工程（desktop/go/ 存在）另装钉版 Go / TinyGo / wasm-tools（issue #21）。
 # `.cargo/config.toml` 强制 `rustc-wrapper = sccache`，因此 CI 必须装 sccache（不绕过）。
 # ==============================================================================
 name: build-app
@@ -152,6 +153,37 @@ jobs:
       - name: 安装本端依赖
         run: pnpm install --frozen-lockfile
         working-directory: ${{ steps.project.outputs.dir }}
+
+      # Go 后端工程（go/ 目录存在即判定，标准布局新 app 自动覆盖；钉版组合 =
+      # 平台仓 SDK go/README.md 的 Phase 0 实证：Go 1.27.3 / TinyGo 0.43.0 /
+      # wasm-tools 1.240.0，issue #21）。非 Go 工程零开销跳过。
+      - name: 检测 Go 后端工程
+        if: matrix.end == 'desktop'
+        run: |
+          if [ -d "${{ steps.project.outputs.dir }}/go" ]; then
+            echo "GO_BACKEND=1" >> "$GITHUB_ENV"
+          else
+            echo "非 Go 后端工程，跳过工具链安装"
+          fi
+
+      - name: 安装 Go（钉版 1.27.3）
+        if: env.GO_BACKEND == '1'
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.3'
+
+      - name: 安装 TinyGo（钉版 0.43.0，wasip2 组件构建）
+        if: env.GO_BACKEND == '1'
+        run: |
+          curl -fsSL https://github.com/tinygo-org/tinygo/releases/download/v0.43.0/tinygo0.43.0.linux-amd64.tar.gz \
+            | tar -xz -C /usr/local
+          echo "/usr/local/tinygo/bin" >> "$GITHUB_PATH"
+
+      - name: 安装 wasm-tools（钉版 1.240.0，TinyGo 组件化外部依赖）
+        if: env.GO_BACKEND == '1'
+        uses: bytecodealliance/actions/wasm-tools/setup@v1
+        with:
+          version: '1.240.0'
 
       - name: 构建 + 打包
         id: build

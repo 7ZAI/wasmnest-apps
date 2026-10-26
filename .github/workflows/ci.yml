@@ -193,3 +193,54 @@ jobs:
             cargo test --manifest-path "$m"
             echo "::endgroup::"
           done
+
+  # Go native 单测：逐 Go 后端工程 `go test ./...`（issue #21；口径同 rust-test：
+  # native 面不覆盖组件路径，绑定/组件面由 TinyGo 构建产物 + 桌面 E2E 证明）。
+  # SDK Go 模块经 go.mod replace 指平台仓（R1 兄弟布局），故需跨仓检出；
+  # go.work 为本地逃生阀（gitignore），CI 按提交的 go.mod replace 解析。
+  go-test:
+    name: go 单测（native）
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: 检出应用仓
+        uses: actions/checkout@v4
+        with:
+          path: wasmnest-apps
+          fetch-depth: 1
+
+      - name: 装配跨仓依赖（平台仓 / 能力仓）
+        env:
+          CROSS_REPO_TOKEN: ${{ secrets.CROSS_REPO_TOKEN }}
+        run: |
+          node scripts/ci/fetch-cross-repo.mjs \
+            --platform-ref "${{ vars.WASMNEST_PLATFORM_REF || 'dev' }}" \
+            --lib-ref "${{ vars.WASMNEST_LIB_REF || 'dev' }}"
+
+      - name: 安装 Go（钉版 = SDK go/README.md 实证组合）
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.3'
+
+      - name: 逐 Go 工程 go test（清单嵌入副本先同步）
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          gomods=(apps/*/desktop/go/go.mod servers/*/desktop/go/go.mod)
+          if [ ${#gomods[@]} -eq 0 ]; then
+            echo "无 Go 后端工程，跳过"
+            exit 0
+          fi
+          sdk="$GITHUB_WORKSPACE/wasmnest/wasmnest-desktop/packages/plugin-sdk-desktop/go"
+          if [ ! -d "$sdk" ]; then
+            # 【登记】issue #21 feature 分支合流前，平台 dev 检出缺 SDK Go 模块属预期；
+            # 合流后本守卫自动移除（保留无害）。
+            echo "::warning::skip —— 平台仓检出缺 SDK Go 模块（$sdk），issue #21 合流前登记跳过"
+            exit 0
+          fi
+          for gomod in "${gomods[@]}"; do
+            dir="$(dirname "$gomod")"
+            echo "::group::go test $dir"
+            (cd "$dir" && cp ../plugin.json plugin.json && go test ./...)
+            echo "::endgroup::"
+          done
