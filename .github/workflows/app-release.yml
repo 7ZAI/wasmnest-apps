@@ -132,7 +132,10 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
+          # 本 job 不检出仓（只下载 artifact），`gh` 找不到 git remote 会报
+          # 「fatal: not a git repository」⇒ 必须显式 --repo。
           gh release create "$TAG" \
+            --repo "${{ github.repository }}" \
             --verify-tag \
             --title "${{ needs.resolve.outputs.app }} v${{ needs.resolve.outputs.version }}" \
             --notes-file release-notes.md \
