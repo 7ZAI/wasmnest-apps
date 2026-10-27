@@ -130,12 +130,6 @@ jobs:
             --platform-ref "${{ vars.WASMNEST_PLATFORM_REF || 'dev' }}" \
             --lib-ref "${{ vars.WASMNEST_LIB_REF || 'dev' }}"
 
-      # dev 线：`file:` 依赖指向平台仓源码，其 `dist/` 不入库 ⇒ 必须先构建，否则
-      # eslint 解析 SDK 时找不到入口。uat 线用发布物（自带 dist），跳过。
-      - name: 补齐平台侧生成物（仅 dev 线）
-        if: needs.discover.outputs.repoNeedsPlatform == 'true'
-        run: node scripts/ci/prepare-platform.mjs --ends all
-
       - name: 安装 Node
         uses: actions/setup-node@v4
         with:
@@ -156,6 +150,13 @@ jobs:
 
       - name: 安装应用仓根依赖
         run: pnpm install --frozen-lockfile
+
+      # dev 线：`file:` 依赖指向平台仓源码，其 `dist/` 不入库 ⇒ 必须先构建（本步内部要调
+      # pnpm，故必须排在 pnpm 安装之后）；否则 eslint / 测试解析 SDK 入口会失败。
+      # uat 线用发布物（自带 dist），跳过。
+      - name: 补齐平台侧生成物（仅 dev 线）
+        if: needs.discover.outputs.repoNeedsPlatform == 'true'
+        run: node scripts/ci/prepare-platform.mjs --ends all
 
       - name: 安装各工程依赖（apps + servers，每个工程独立 workspace）
         run: |
@@ -200,12 +201,6 @@ jobs:
           node scripts/ci/fetch-cross-repo.mjs \
             --platform-ref "${{ vars.WASMNEST_PLATFORM_REF || 'dev' }}" \
             --lib-ref "${{ vars.WASMNEST_LIB_REF || 'dev' }}"
-
-      # dev 线：`file:` 依赖指向平台仓源码，其 `dist/` 不入库 ⇒ 必须先构建，否则
-      # eslint 解析 SDK 时找不到入口。uat 线用发布物（自带 dist），跳过。
-      - name: 补齐平台侧生成物（仅 dev 线）
-        if: needs.discover.outputs.repoNeedsPlatform == 'true'
-        run: node scripts/ci/prepare-platform.mjs --ends all
 
       - name: 安装 Node
         uses: actions/setup-node@v4
