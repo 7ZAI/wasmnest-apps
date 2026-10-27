@@ -43,15 +43,18 @@ on:
         required: false
         default: ''
       platform-ref:
-        description: 平台仓 ref（tag 更可复现；默认 dev）
+        description: >-
+          平台仓 ref（留空 = 仓库变量 WASMNEST_PLATFORM_REF，再缺省 dev）
         type: string
         required: false
-        default: dev
+        default: ''
       lib-ref:
-        description: 能力仓 ref（auto = 平台仓 release-manifest.json 的 repos.lib.tag）
+        description: >-
+          能力仓 ref（留空 = 仓库变量 WASMNEST_LIB_REF，再缺省 auto；
+          auto = 平台仓 release-manifest.json 的 repos.lib.tag）
         type: string
         required: false
-        default: auto
+        default: ''
       publish:
         description: 构建成功后创建 tag + GitHub Release
         type: boolean
@@ -93,6 +96,8 @@ jobs:
           APP: ${{ inputs.app }}
           END: ${{ inputs.end }}
           VERSION: ${{ inputs.version }}
+          PLATFORM_REF: ${{ inputs.platform-ref || vars.WASMNEST_PLATFORM_REF || 'dev' }}
+          LIB_REF: ${{ inputs.lib-ref || vars.WASMNEST_LIB_REF || 'auto' }}
         run: |
           set -euo pipefail
           # 工程存在性 / 分组由 resolver 判（未登记时它自己列出全部可选 slug）——
@@ -110,6 +115,7 @@ jobs:
           echo "ends=$ends" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "构建范围: $APP / $ends / v$version"
+          echo "跨仓 ref: 平台仓=$PLATFORM_REF（输入 / 仓库变量 / 缺省 dev），能力仓=$LIB_REF"
 
   build:
     name: 构建
@@ -120,8 +126,8 @@ jobs:
       ends: ${{ needs.resolve.outputs.ends }}
       version: ${{ needs.resolve.outputs.version }}
       apps-ref: ${{ inputs.apps-ref }}
-      platform-ref: ${{ inputs.platform-ref }}
-      lib-ref: ${{ inputs.lib-ref }}
+      platform-ref: ${{ inputs.platform-ref || vars.WASMNEST_PLATFORM_REF || 'dev' }}
+      lib-ref: ${{ inputs.lib-ref || vars.WASMNEST_LIB_REF || 'auto' }}
     secrets: inherit
 
   publish:

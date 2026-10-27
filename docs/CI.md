@@ -41,7 +41,7 @@ app 也不需要去 Settings → Branches 维护检查列表。
 | ---------------------------------------------------- | --------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
 | Actions 默认权限                                     | Settings → Actions → General → Workflow permissions | 需为 **Read and write**（否则 `publish` / Release 建 tag 会 403）                                |
 | `CROSS_REPO_TOKEN`（可选）                           | Settings → Secrets and variables → Actions          | 兄弟仓私有 / 需要跨仓读时的 PAT；公开仓可匿名检出，不配也能跑                                    |
-| `WASMNEST_PLATFORM_REF` / `WASMNEST_LIB_REF`（可选） | 同上 → Variables                                    | 钉住 CI 跟的平台仓 / 能力仓 ref；未设时 CI 用 `dev`，发布用 `auto`（= 平台 manifest 的 lib tag） |
+| `WASMNEST_PLATFORM_REF` / `WASMNEST_LIB_REF`（可选） | 同上 → Variables                                    | 钉住 CI / 手动构建跟的平台仓 / 能力仓 ref。**当前设为 `WASMNEST_PLATFORM_REF=uat`**：平台仓 `origin/dev` 的 `release-manifest.json` 仍钉能力仓 `lib-v0.0.2`（该 tag 已从远端删除），跟 `dev` 会在跨仓装配就红。解析顺序恒为「workflow 输入 → 仓库变量 → 缺省」（`ci.yml` 缺省 `dev`，`app-build.yml` 缺省 `dev` / `auto`） |
 
 ---
 
@@ -81,6 +81,8 @@ per-app tag 只是**分发版本**，二者互不影响。
 
 用 `app-build.yml`（手动）：填工程 slug（`apps/` 应用或 `servers/` 服务，可选值见
 `node scripts/ci/app-info.mjs --list`）+ 端，跑完从 run 页面下载 artifact。
+`platform-ref` / `lib-ref` 留空即取仓库变量（当前平台仓 = `uat`），`resolve` 步骤会把
+**实际使用的跨仓 ref 打进日志**，每次 run 自证。
 勾 `publish` 等价于「构建 + 建 tag + 发 Release」，tag 已存在时**失败**（不覆盖）。
 
 ---
