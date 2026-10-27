@@ -7,3 +7,5 @@ allowBuilds:
   esbuild: true
   # vue-demi：vue-echarts / vue-i18n 等运行时切换 Vue 指向所需
   vue-demi: true
+minimumReleaseAgeExclude:
+  - '@binblink/wasmnest-plugin-sdk-desktop@0.0.1'

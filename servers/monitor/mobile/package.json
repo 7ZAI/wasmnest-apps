@@ -12,7 +12,7 @@
     "test": "vitest"
   },
   "dependencies": {
-    "@binblink/wasmnest-plugin-sdk-mobile": "file:../../../../wasmnest/wasmnest-mobile/packages/plugin-sdk-mobile"
+    "@binblink/wasmnest-plugin-sdk-mobile": "0.0.1"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^6.0.0",

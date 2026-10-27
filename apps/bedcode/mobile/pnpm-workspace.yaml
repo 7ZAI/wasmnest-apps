@@ -7,3 +7,5 @@ packages:
 allowBuilds:
   esbuild: true
   vue-demi: true
+minimumReleaseAgeExclude:
+  - '@binblink/wasmnest-plugin-sdk-mobile@0.0.1'

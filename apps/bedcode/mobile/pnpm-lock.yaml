@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@binblink/wasmnest-plugin-sdk-mobile':
-        specifier: file:../../../../wasmnest/wasmnest-mobile/packages/plugin-sdk-mobile
-        version: file:../../../../wasmnest/wasmnest-mobile/packages/plugin-sdk-mobile(vite@8.3.3(terser@5.51.2))(vue@3.5.43(typescript@5.9.3))
+        specifier: 0.0.1
+        version: 0.0.1(vite@8.3.3(terser@5.51.2))(vue@3.5.43(typescript@5.9.3))
       '@shikijs/langs':
         specifier: ^4.2.0
         version: 4.5.0
@@ -98,8 +98,8 @@ packages:
     resolution: {integrity: sha512-Vj1jF3cPfxg7OAfoI7QnVKLoILlm2JF9pnVHrX8qx7AHMiYWT+NDAA7jChlNgRS4WTLc/fD1lXLmPixluj+3Gg==}
     engines: {node: '>=6.9.0'}
 
-  '@binblink/wasmnest-plugin-sdk-mobile@file:../../../../wasmnest/wasmnest-mobile/packages/plugin-sdk-mobile':
-    resolution: {directory: ../../../../wasmnest/wasmnest-mobile/packages/plugin-sdk-mobile, type: directory}
+  '@binblink/wasmnest-plugin-sdk-mobile@0.0.1':
+    resolution: {integrity: sha512-XB9rqx5lmQbczeV6aEQjamr/B24rwftbXXPyp9OlcCfeRN0cZyEKLyNu+qJnDyaI76mtuLvRd98F5kjv9MyoNg==, tarball: https://registry.npmjs.org/@binblink/wasmnest-plugin-sdk-mobile/-/wasmnest-plugin-sdk-mobile-0.0.1.tgz}
     hasBin: true
     peerDependencies:
       vite: ^8.0.0
@@ -1375,7 +1375,7 @@ snapshots:
       '@babel/helper-string-parser': 7.29.7
       '@babel/helper-validator-identifier': 7.29.7
 
-  '@binblink/wasmnest-plugin-sdk-mobile@file:../../../../wasmnest/wasmnest-mobile/packages/plugin-sdk-mobile(vite@8.3.3(terser@5.51.2))(vue@3.5.43(typescript@5.9.3))':
+  '@binblink/wasmnest-plugin-sdk-mobile@0.0.1(vite@8.3.3(terser@5.51.2))(vue@3.5.43(typescript@5.9.3))':
     dependencies:
       magic-string: 0.30.21
       vite: 8.3.3(terser@5.51.2)
