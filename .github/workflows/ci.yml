@@ -279,6 +279,11 @@ jobs:
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    # 本 job 不检出仓，也不用仓内文件；必须把仓级 `defaults.run.working-directory`
+    # （= wasmnest-apps）重置成 `.`，否则 runner 上那个目录不存在、bash 直接起不来。
+    defaults:
+      run:
+        working-directory: .
     steps:
       - name: 汇总上游结果（任一非 success 即失败）
         env:
