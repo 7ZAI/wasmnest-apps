@@ -61,7 +61,7 @@
           v-if="activeProviderId === p.id"
           class="flex-shrink-0 rounded-full bg-[var(--mobile-bg-tertiary)] px-2 py-0.5 text-[var(--font-size-xs)] leading-none text-[var(--mobile-text-secondary)]"
         >
-          {{ t('mobile.plugin.aiChatbox.activeProvider') }}
+          {{ t('com.wasmnest.ai-chatbox.chat.activeProvider') }}
         </span>
         <svg
           class="w-4 h-4 flex-shrink-0 text-[var(--mobile-text-muted)]"
@@ -80,7 +80,7 @@
       data-testid="provider-summary-add"
       @click="emit('add')"
     >
-      <span>{{ t('mobile.plugin.aiChatbox.addProvider') }}</span>
+      <span>{{ t('com.wasmnest.ai-chatbox.chat.addProvider') }}</span>
       <svg
         class="w-4 h-4 flex-shrink-0 text-[var(--mobile-text-muted)]"
         fill="none"
@@ -101,8 +101,8 @@
  * 底部「添加供应商」发出 add 事件，由设置页直接切到模板选择。
  * 折叠态由组件自持（默认展开），切换不落 storage——纯展示状态。
  *
- * 文案使用本应用自持的 i18n 键（activate 期经 registerMessages 带
- * `com.wasmnest.ai-chatbox.` 前缀注册）；当前使用标记沿用宿主移动端文案键。
+ * 文案全部走本应用自持的 i18n 键（activate 期经 registerMessages 带
+ * `com.wasmnest.ai-chatbox.` 前缀注册）；宿主不再持有本应用文案。
  */
 import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'

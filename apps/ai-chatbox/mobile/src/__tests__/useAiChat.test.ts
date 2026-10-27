@@ -341,7 +341,7 @@ describe('useAiChat', () => {
     const eventName = streamEventOf(mock)
     mock.emitStream(eventName, { error: 'This model maximum context length is 8192 tokens', done: true })
 
-    expect(chat.lastError.value).toBe('mobile.plugin.aiChatbox.contextLimitExceeded')
+    expect(chat.lastError.value).toBe('com.wasmnest.ai-chatbox.chat.contextLimitExceeded')
   })
 
   it('命令执行失败：错误分类为授权失效', async () => {
@@ -358,7 +358,7 @@ describe('useAiChat', () => {
     await config.setActiveProvider('p1')
 
     await chat.sendMessage('hi')
-    expect(chat.lastError.value).toBe('mobile.plugin.aiChatbox.authRevoked')
+    expect(chat.lastError.value).toBe('com.wasmnest.ai-chatbox.chat.authRevoked')
   })
 
   it('发送前校验：apiKey 为空 → apiKeyRequired 提示，不发请求', async () => {
@@ -368,7 +368,7 @@ describe('useAiChat', () => {
 
     await chat.sendMessage('hi')
 
-    expect(chat.lastError.value).toBe('mobile.plugin.aiChatbox.apiKeyRequired')
+    expect(chat.lastError.value).toBe('com.wasmnest.ai-chatbox.chat.apiKeyRequired')
     expect(mock.calls.some(c => c.command === 'ai-chatbox.chat-stream')).toBe(false)
   })
 
@@ -379,7 +379,7 @@ describe('useAiChat', () => {
 
     await chat.sendMessage('hi')
 
-    expect(chat.lastError.value).toBe('mobile.plugin.aiChatbox.baseUrlInvalid')
+    expect(chat.lastError.value).toBe('com.wasmnest.ai-chatbox.chat.baseUrlInvalid')
     expect(mock.calls.some(c => c.command === 'ai-chatbox.chat-stream')).toBe(false)
   })
 
@@ -707,7 +707,7 @@ describe('限流自动重试（429/503/529 指数退避，默认 maxRetries=3 / 
     mock.emitStream(streamEventOf(mock), { error: 'API error 429: rate limited', done: true })
     expect(chat.rateLimitRetry.value).toBeNull()
     expect(chat.sending.value).toBe(false)
-    expect(chat.lastError.value).toBe('mobile.plugin.aiChatbox.rateLimitExhausted')
+    expect(chat.lastError.value).toBe('com.wasmnest.ai-chatbox.chat.rateLimitExhausted')
     expect(streamCallCount(mock)).toBe(4)
   })
 
@@ -722,7 +722,7 @@ describe('限流自动重试（429/503/529 指数退避，默认 maxRetries=3 / 
 
     expect(chat.rateLimitRetry.value).toBeNull()
     expect(chat.sending.value).toBe(false)
-    expect(chat.lastError.value).toBe('mobile.plugin.aiChatbox.rateLimitAborted')
+    expect(chat.lastError.value).toBe('com.wasmnest.ai-chatbox.chat.rateLimitAborted')
 
     // 退避定时器已取消：推进任意时间不产生第二次 chat-stream
     vi.advanceTimersByTime(60000)
@@ -768,7 +768,7 @@ describe('限流自动重试（429/503/529 指数退避，默认 maxRetries=3 / 
 
     expect(chat.rateLimitRetry.value).toBeNull()
     expect(chat.sending.value).toBe(false)
-    expect(chat.lastError.value).toBe('mobile.plugin.aiChatbox.contextLimitExceeded')
+    expect(chat.lastError.value).toBe('com.wasmnest.ai-chatbox.chat.contextLimitExceeded')
     vi.advanceTimersByTime(60000)
     expect(streamCallCount(mock)).toBe(1)
   })
