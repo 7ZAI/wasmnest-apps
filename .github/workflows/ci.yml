@@ -11,13 +11,14 @@
 #   - Rust native 单测仍逐 crate 串行（各 crate 共用 `target/wasm-apps` 与依赖图，
 #     串行既快又避免互相争抢）。
 #
-# 依赖口径（uat / 发布线）：双端 SDK 与能力仓 crate **全部按已发布版本解析**
-# （npm `0.0.1` / crate `=0.0.1`），`Cargo.lock` 带 `source` + `checksum` ⇒ 本工作流
-# 不做跨仓装配、不写任何 `[patch]`。（dev 线把内部依赖写成 `file:` / `path`，那一支
-# 需要在每个 job 里装配平台仓 / 能力仓，见该分支的 workflow。）
-#
-# 唯一的例外是**测试要读平台仓真源**的几个工程（宿主的 i18n / 主题 CSS 不在发布物里）：
-# `discover` 会把它们标成 `needsPlatform`，只有这些 job 才检出平台仓 / 能力仓。
+# 依赖口径（按分支，本工作流两条线同一份）：
+#   - **uat / 发布线**：内部依赖写具体版本（npm `0.0.1` / crate `=0.0.1`），只靠 registry
+#     即可解析 ⇒ 不需要跨仓装配、不需要任何 `[patch]`；
+#   - **dev / 联调线**：内部依赖写本地相对路径（npm `file:` / crate `path`）⇒ 每个 job
+#     都要先装配平台仓 / 能力仓。
+# `discover` 直接读依赖声明算出这个仓库级开关（`repoNeedsPlatform`），再 OR 上
+# 「本工程测试要读平台仓真源」（宿主 i18n / 主题 CSS 不在 npm 包里）的逐工程判据——
+# 两条分支同一份 workflow，不靠人手改。
 # ==============================================================================
 name: ci
 
@@ -47,6 +48,7 @@ jobs:
     timeout-minutes: 10
     outputs:
       projects: ${{ steps.projects.outputs.matrix }}
+      repoNeedsPlatform: ${{ steps.projects.outputs.repoNeedsPlatform }}
     steps:
       - name: 检出应用仓
         uses: actions/checkout@v4
@@ -66,12 +68,21 @@ jobs:
           # needsPlatform：该工程的测试 / 测试配置读平台仓源码（宿主 i18n、主题 CSS 等）。
           # 这是 deterministic 的源码判据，不靠人工维护清单。
           platform_re='WASMNEST_PLATFORM_ROOT|\.\./\.\./\.\./\.\./wasmnest'
+          # 仓库级判据：内部依赖是否写成「本地相对路径」（dev 线）
+          #   npm: `"@binblink/wasmnest-plugin-sdk-*": "file:../wasmnest/..."`
+          #   rust: `wasmnest-plugin-api(-mobile) = { path = "../../../../../wasmnest/..." }`
+          repo_needs=false
+          if grep -qE '"file:\.\./(\.\./)*wasmnest/' package.json 2>/dev/null; then repo_needs=true; fi
+          if grep -rqE 'path = "\.\./\.\./\.\./\.\./\.\./wasmnest/' \
+               --include=Cargo.toml apps servers 2>/dev/null; then repo_needs=true; fi
+          echo "仓库级跨仓依赖（内部依赖写成 file:/path）: $repo_needs"
+          echo "repoNeedsPlatform=$repo_needs" >> "$GITHUB_OUTPUT"
           matrix='{"include":[]}'
           while read -r slug; do
             [ -n "$slug" ] || continue
             dir=$(node scripts/ci/app-info.mjs --app "$slug" --field dir)   # <group>/<slug>
             group=${dir%%/*}
-            if grep -rqE "$platform_re" "$dir" \
+            if [ "$repo_needs" = true ] || grep -rqE "$platform_re" "$dir" \
                  --include='*.ts' --include='*.mts' --include='*.js' --include='*.mjs' --include='*.vue' \
                  --exclude-dir=node_modules --exclude-dir=dist 2>/dev/null; then
               needs=true
@@ -84,8 +95,8 @@ jobs:
             while read -r end; do
               [ -n "$end" ] || continue
               matrix=$(jq -c --arg slug "$slug" --arg group "$group" --arg dir "$dir" --arg end "$end" \
-                --argjson needs "$needs" \
-                '.include += [{slug:$slug, group:$group, dir:$dir, end:$end, needsPlatform:$needs}]' <<<"$matrix")
+                --argjson needs "$needs" --argjson sdkdist "$repo_needs" \
+                '.include += [{slug:$slug, group:$group, dir:$dir, end:$end, needsPlatform:$needs, needsSdkDist:$sdkdist}]' <<<"$matrix")
             done < <(node scripts/ci/app-info.mjs --app "$slug" --field ends | jq -r '.[]')
           done < <(node scripts/ci/app-info.mjs --list)
           if [ "$(jq '.include | length' <<<"$matrix")" = "0" ]; then
@@ -99,6 +110,7 @@ jobs:
   # eslint 是仓级口径（0 error），一次覆盖全部工程与 scripts/，故不拆矩阵、也不涉跨仓。
   lint:
     name: eslint（0 error）
+    needs: discover
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
@@ -107,6 +119,16 @@ jobs:
         with:
           path: wasmnest-apps
           fetch-depth: 1
+
+      # dev 线的 `file:` 依赖在 install 时就要兄弟仓；uat 线不需要（发布物自带 dist）。
+      - name: 装配跨仓依赖（平台仓 / 能力仓）
+        if: needs.discover.outputs.repoNeedsPlatform == 'true'
+        env:
+          CROSS_REPO_TOKEN: ${{ secrets.CROSS_REPO_TOKEN }}
+        run: |
+          node scripts/ci/fetch-cross-repo.mjs \
+            --platform-ref "${{ vars.WASMNEST_PLATFORM_REF || 'dev' }}" \
+            --lib-ref "${{ vars.WASMNEST_LIB_REF || 'dev' }}"
 
       - name: 安装 Node
         uses: actions/setup-node@v4
@@ -128,6 +150,13 @@ jobs:
 
       - name: 安装应用仓根依赖
         run: pnpm install --frozen-lockfile
+
+      # dev 线：`file:` 依赖指向平台仓源码，其 `dist/` 不入库 ⇒ 必须先构建（本步内部要调
+      # pnpm，故必须排在 pnpm 安装之后）；否则 eslint / 测试解析 SDK 入口会失败。
+      # uat 线用发布物（自带 dist），跳过。
+      - name: 补齐平台侧生成物（仅 dev 线）
+        if: needs.discover.outputs.repoNeedsPlatform == 'true'
+        run: node scripts/ci/prepare-platform.mjs --ends all
 
       - name: 安装各工程依赖（apps + servers，每个工程独立 workspace）
         run: |
@@ -191,6 +220,11 @@ jobs:
           restore-keys: |
             pnpm-store-${{ runner.os }}-
 
+      # dev 线：`file:` 依赖的 SDK `dist/` 不入库，跑测试前必须构建（uat 线自带）。
+      - name: 补齐平台侧生成物（仅 dev 线）
+        if: matrix.needsSdkDist
+        run: node scripts/ci/prepare-platform.mjs --ends "${{ matrix.end }}"
+
       - name: 安装本端依赖
         env:
           PROJECT_DIR: ${{ matrix.dir }}
@@ -206,22 +240,23 @@ jobs:
 
       - name: 单测（缺 test:run 打印 skip，不静默略过）
         env:
-          # runner 只有 2 核 ⇒ vitest 默认 maxWorkers=1，几十个测试文件全挤在同一个
-          # fork 进程里跑，模块缓存不断累积（bedcode 桌面 39 个文件实测顶到 6GB 后
-          # OOM 崩掉，而不是用例失败）。强制多个 worker = 每个文件跑在自己进程里，
-          # 峰值内存摊到多个堆上；堆上限同时留余量。
-          NODE_OPTIONS: --max-old-space-size=3072
+          # 内存预算：runner 16G / 2 核。bedcode 桌面的套件（39 文件 / 448 用例，含
+          # xterm + shiki）峰值很高——单 fork 全挤在一起会顶到 4~6G 后 OOM；4 worker ×
+          # 3G 的堆上限又太贴边（实测时绿时红）。取 2 worker × 6G：文件在 2 个进程间
+          # 摊开、每个进程堆余量充足，本地连跑 3 次稳定绿。
+          NODE_OPTIONS: --max-old-space-size=6144
         run: >-
           node scripts/run-apps.mjs test:run
-          --only="${{ matrix.dir }}/${{ matrix.end }}" -- --maxWorkers=4
+          --only="${{ matrix.dir }}/${{ matrix.end }}" -- --maxWorkers=2
 
   # Rust native 单测：逐 crate `cargo test --manifest-path`（口径同 AGENTS.md 命令表）。
   # 测试跑宿主 target，不覆盖 wasm32 宏路径（native 测试边界见 AGENTS.md 完成定义）。
-  # 双端 SDK 与能力仓 crate 全部按 crates.io 发布物精确版本解析（`=0.0.1`），发布物自带
-  # `wit/`、SDK 无 build.rs ⇒ 本 job **不需要跨仓检出，也没有任何 [patch]**。
-  # 若日后有用例回归 `path` 依赖（如 dev 线的写法），这里会以「找不到 path crate」显性失败。
+  # 依赖来源随分支（见文件头）：uat 线解析发布物（无需兄弟仓），dev 线是 `path` 依赖
+  # ⇒ 由 `discover` 的 `repoNeedsPlatform` 决定是否先装配兄弟仓；两条线都**不需要** `[patch]`
+  # （uat 用发布物自带 `wit/`，dev 直接读平台 / 能力仓源码）。
   rust-test:
     name: rust 单测（native）
+    needs: discover
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
@@ -232,6 +267,17 @@ jobs:
         with:
           path: wasmnest-apps
           fetch-depth: 1
+
+      # dev 线的 crate 依赖是 `path = "../../../../../wasmnest/..."` / `.../wasmnest-lib/...`，
+      # 没有兄弟仓就解析不了；uat 线钉发布物，不需要这一步。
+      - name: 装配跨仓依赖（平台仓 / 能力仓）
+        if: needs.discover.outputs.repoNeedsPlatform == 'true'
+        env:
+          CROSS_REPO_TOKEN: ${{ secrets.CROSS_REPO_TOKEN }}
+        run: |
+          node scripts/ci/fetch-cross-repo.mjs \
+            --platform-ref "${{ vars.WASMNEST_PLATFORM_REF || 'dev' }}" \
+            --lib-ref "${{ vars.WASMNEST_LIB_REF || 'dev' }}"
 
       - name: 安装 sccache（.cargo/config.toml 强制 rustc-wrapper，不绕过）
         uses: mozilla-actions/sccache-action@v0.0.9

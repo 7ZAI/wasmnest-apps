@@ -26,9 +26,10 @@ CI 与之一致：`ci.yml` 先用 `discover` 从唯一枚举点（`scripts/lib/p
 `eslint` 保持仓级一条（`eslint .`，0 error），Rust native 单测仍逐 crate 串行（共用
 `target/wasm-apps`）。
 
-测试步骤固定 `--maxWorkers=4` + `NODE_OPTIONS=--max-old-space-size=3072`：GitHub runner
+测试步骤固定 `--maxWorkers=2` + `NODE_OPTIONS=--max-old-space-size=6144`：GitHub runner
 只有 2 核，vitest 默认 `maxWorkers=1` 会把几十个测试文件挤进同一个 fork，模块缓存累积
-（bedcode 桌面 39 个文件实测涨到 6GB 后整 job OOM，看起来像用例失败）。
+（bedcode 桌面 39 个文件实测涨到 6GB 后整 job OOM，看起来像用例失败）；而 `4 worker ×
+3G` 的堆上限太贴边（时绿时红）。2 worker × 6G 在 16G runner 上是稳定档位。
 
 逐工程 job 的名字随工程增减而变，因此分支保护的必需检查指向**固定名的汇总门**：
 `gate`（`lint + 单测`，`needs: [lint, test]` + `if: always()`，任一上游非 success 即失败）。
@@ -89,18 +90,22 @@ per-app tag 只是**分发版本**，二者互不影响。
 
 ## 3. 跨仓装配（CI 什么时候需要检出兄弟仓）
 
-uat / 发布线的**依赖**是自足的：双端 SDK 包与能力仓 crate 全部按已发布版本解析（见下表），
-`node scripts/ci/app-info.mjs`、`build-app.mjs` 等脚本地只靠本仓就能跑 → **不需要**任何
-`[patch]`，也不需要为了依赖去检兄弟仓。仍会用到兄弟仓的只有三类：
+**是否需要兄弟仓由依赖声明自己说话**，不靠分支名：`ci.yml` 的 `discover` 会读
+`package.json`（`file:`）与各 `Cargo.toml`（`path = "../../../../../wasmnest/..."`）算出
+仓库级开关 `repoNeedsPlatform` ——
+`uat` / 发布线写发布物版本 ⇒ `false`（不需要任何 `[patch]`，也不需要为依赖检兄弟仓）；
+`dev` / 联调线写本地相对路径 ⇒ `true`（每个 job 都先装配）。同一份 workflow 两条线通用。
+
+即使 `false`，仍会用到兄弟仓的有三类：
 
 1. **构建链读平台仓真源**：`file-transfer/mobile` 的 build 脚本、WIT 拼装、移动端产物落点
    （→ `app-build*` / `app-release` 必跑 `fetch-cross-repo.mjs` + `prepare-platform.mjs`）；
-2. **少数测试读平台仓源码**（宿主 i18n 目录 / 主题 CSS 不在 npm 包里）：`ci.yml` 的
-   `discover` 会算出 `needsPlatform`，只给这些工程做跨仓检出；
+2. **少数测试读平台仓源码**（宿主 i18n 目录 / 主题 CSS 不在 npm 包里）：`discover` 会按
+   源码算出逐工程 `needsPlatform`（与上面的仓库级开关取 OR），只给需要的工程做跨仓检出；
 3. 平台仓 / 能力仓版本真源（`release-manifest.json`、`host-runtime.lock.json`）。
 
-> `dev` 线把内部依赖写成 `file:` / `path`（同机联调口径），那一支的 CI 需要**每个 job**
-> 都先装配兄弟仓；两条分支的 `ci.yml` 在这里有意不同。
+> 两句口径别混：`dev` 与内部依赖版本号是互斥的（dev 只写 path / `file:`，版本号只在 uat
+> 与发布 tag 上出现）；合并 uat → dev 时保留 dev 的依赖声明，其余按 uat 落地。
 
 当需要装配时，布局固定为 R1 兄弟目录：
 
