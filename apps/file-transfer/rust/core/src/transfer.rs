@@ -69,6 +69,9 @@ pub struct TransferEntry {
     /// `send` | `receive`
     pub direction: String,
     /// running / pending / paused / completed / failed / rejected / cancelled / interrupted
+    ///
+    /// `pending` 双读：receive = 入站待应答批；send = 本端已发起、等待对端确认的批
+    /// （接收策略 ask 的应答窗口），首个 progress 事件推进为 running。
     pub status: String,
     #[serde(default)]
     pub files: Vec<Value>,
@@ -351,7 +354,8 @@ fn terminal_status_of(direction: &str, state: &Value) -> (String, Option<String>
 /// - **建行锚点**：`pull-served`（send 供流记账）、`offer-pending`（入站待应答，
 ///   status=pending）、`pull-started`（本端拉取批次，status=running）——三者都是
 ///   「只有引擎知道 batch_id」的锚点，故由引擎事件建行，插件不自铸无主会话；
-/// - **推进事件**：`progress`（pending→running、字节/速率/总量补正、paused 保持）、
+/// - **推进事件**：`progress`（pending→running —— send 批在此刻对端已放行、数据面
+///   开始，字节/速率/总量补正、paused 保持）、
 ///   `terminal`（结算；paused 保留——用户暂停语义，completed+满字节例外）、
 ///   `paused` / `resumed`（wire 帧同步）；
 /// - 无建行信息的 `progress` / `terminal`（插件激活晚于会话发起）**不凭空建行**，
@@ -620,8 +624,8 @@ pub fn clear_terminal(entries: &mut Vec<TransferEntry>) -> usize {
     before - entries.len()
 }
 
-/// 发送视图（`tasks-changed` / `list-tasks` 共用）：仅进行中条目（running/pending/paused）；
-/// 终态条目一律归历史视图，不再滞留活动队列。
+/// 发送视图（`tasks-changed` / `list-tasks` 共用）：仅进行中条目（running/pending/paused，
+/// pending = 等待对端确认）；终态条目一律归历史视图，不再滞留活动队列。
 pub fn active_send_entries(entries: &[TransferEntry]) -> Vec<&TransferEntry> {
     entries
         .iter()
@@ -664,7 +668,8 @@ pub fn mark_paused(entries: &mut [TransferEntry], batch_id: &str) -> bool {
     false
 }
 
-/// 重试回填：新批 ID 替换旧批（同一逻辑传输一条历史），状态复位 running。
+/// 重试回填：新批 ID 替换旧批（同一逻辑传输一条历史），状态复位 pending
+/// （新批同样先等对端确认，首个 progress 推进 running）。
 /// 只允许携带 `retry_meta` 的终态条目（即本端发起的失败/被拒/取消/中断批）。
 /// 返回是否命中。
 pub fn apply_retry(
@@ -676,7 +681,7 @@ pub fn apply_retry(
     for e in entries.iter_mut() {
         if e.batch_id == old_batch_id && e.is_terminal() && e.retry_meta.is_some() {
             e.batch_id = new_batch_id.to_string();
-            e.status = "running".to_string();
+            e.status = "pending".to_string();
             e.transferred_bytes = 0;
             e.rate_bps = 0.0;
             e.detail = None;

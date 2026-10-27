@@ -63,6 +63,8 @@ export default {
 
   // ==================== Task states (spec 9.3 four-color) ====================
   'transfer.task.state.queued': 'Queued',
+  'transfer.task.state.awaitingPeer': 'Waiting for peer',
+  'transfer.task.awaitingPeerHint': 'Waiting for the other device to accept — transfer starts automatically once accepted.',
   'transfer.task.state.transferring': 'Transferring',
   'transfer.task.state.paused': 'Paused',
   'transfer.task.state.resumable': 'Resumable',

@@ -20,8 +20,8 @@ function displayName(files: unknown): string {
   return extra > 0 ? `${name} +${extra}` : name
 }
 
-/** 引擎状态 → 前端状态（running=传输中、pending=排队、paused=已暂停，其余终态直传；
- * 未知状态回落 failed——避免新状态静默渲染成无法识别的 chip） */
+/** 引擎状态 → 前端状态（running=传输中、pending=等待对端确认（send 占位批）、
+ * paused=已暂停，其余终态直传；未知状态回落 failed——避免新状态静默渲染成无法识别的 chip） */
 function mapState(status: string): TaskStateName {
   if (status === 'running' || status === 'transferring') return 'transferring'
   if (['pending', 'paused', 'completed', 'failed', 'rejected', 'cancelled', 'interrupted'].includes(status)) {

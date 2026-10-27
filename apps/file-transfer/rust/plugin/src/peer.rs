@@ -603,17 +603,23 @@ fn launch_send(
     let target = ensure_target(h, node_id, endpoint)?;
     let settings = settings_store::load(h)?;
     let batch_id = h.peer_send_files(&target, &send_payload(&settings, &paths))?;
-    // 返回已收窄为传输句柄；先入店最小条目占位，引擎快照事件随即补全明细
-    insert_send_entry(h, node_id, &batch_id, RetryMeta::Send { paths })
+    // 返回已收窄为传输句柄；先入店占位行（pending = 等待对端确认），
+    // 首个 progress 事件推进 running 并补全真实明细
+    insert_send_entry(h, node_id, &batch_id, paths)
 }
 
-/// 发送方向 running 批数（插件并发闸门的槽位口径；与宿主闸门同语义：
-/// 只数本端发起的 running，serve 供流记账行不计——它无 retryMeta 且属
-/// 响应式供流）
-fn running_send_count(guard: &[TransferEntry]) -> usize {
+/// 发送槽位占用数（插件并发闸门的槽位口径；与宿主闸门同语义）：
+/// 本端发起且占槽的 running + pending（pending = 已发起、等待对端确认的批，
+/// 引擎会话已建立，同样占槽）；paused 释放槽位（既有口径）；serve 供流记账行
+/// 无 retryMeta、属响应式供流，不计。
+fn occupied_send_slots(guard: &[TransferEntry]) -> usize {
     guard
         .iter()
-        .filter(|e| e.direction == "send" && e.status == "running" && e.retry_meta.is_some())
+        .filter(|e| {
+            e.direction == "send"
+                && matches!(e.status.as_str(), "running" | "pending")
+                && e.retry_meta.is_some()
+        })
         .count()
 }
 
@@ -649,7 +655,7 @@ fn send_slot_available(h: &WasmHost) -> bool {
     let limit = settings_store::load(h)
         .map(|s| settings_store::clamp_concurrency(s.concurrency))
         .unwrap_or(settings_store::DEFAULT_CONCURRENCY);
-    transfer_store::send_slot_open(running_send_count(&guard), limit)
+    transfer_store::send_slot_open(occupied_send_slots(&guard), limit)
 }
 
 /// 并发闸门放行：running < 设置并发上限时逐个出队发起（每次发起后槽位
@@ -761,15 +767,31 @@ pub(crate) fn enqueue(
     }
 }
 
-/// 发送入店（宿主只回传输句柄）——最小条目占位 + retryMeta，
-/// 引擎事件到达后按 batchId 补全文件清单/大小/时间戳
+/// 发送入店（宿主只回传输句柄）——占位行 + retryMeta。
+///
+/// 状态取 `pending`（等待对端确认）：引擎在接收策略 ask 的应答窗口内不发任何
+/// 数据事件，首个 progress 到达才说明对端已放行（归约推进 running）。
+/// 文件清单按本地路径预填：引擎进度/终态事件不带 `files`，任务卡与历史
+/// 展示名依赖占位行自带的这份清单。
 fn insert_send_entry(
     h: &WasmHost,
     node_id: &str,
     batch_id: &str,
-    meta: RetryMeta,
+    paths: Vec<String>,
 ) -> Result<serde_json::Value> {
-    insert_send_row(h, send_row(node_id, batch_id, "running", meta, None))
+    let files = send_files_of(&paths);
+    let meta = RetryMeta::Send { paths };
+    let mut row = send_row(node_id, batch_id, "pending", meta, None);
+    row.files = files;
+    insert_send_row(h, row)
+}
+
+/// 发送批展示清单（`files[].path` = 本地路径；前端取 basename 展示）
+fn send_files_of(paths: &[String]) -> Vec<serde_json::Value> {
+    paths
+        .iter()
+        .map(|p| serde_json::json!({ "path": p }))
+        .collect()
 }
 
 /// 本端发起的 send 行构造（发起与「排队批派发失败落终态」共用一个形状单点）
@@ -813,16 +835,16 @@ fn insert_failed_send_entry(
     detail: &str,
 ) -> Result<serde_json::Value> {
     let batch_id = next_local_failure_id();
-    insert_send_row(
-        h,
-        send_row(
-            node_id,
-            &batch_id,
-            "failed",
-            RetryMeta::Send { paths },
-            Some(format!("send dispatch failed: {detail}")),
-        ),
-    )
+    let files = send_files_of(&paths);
+    let mut row = send_row(
+        node_id,
+        &batch_id,
+        "failed",
+        RetryMeta::Send { paths },
+        Some(format!("send dispatch failed: {detail}")),
+    );
+    row.files = files;
+    insert_send_row(h, row)
 }
 
 /// 本地终态行序号（wasm32 无时钟，用进程内自增序号保证 batchId 唯一）
@@ -1928,11 +1950,11 @@ mod tests {
         assert_eq!(percent_decode("%E4%B8%AD%E6%96%87"), "中文");
     }
 
-    /// 插件并发闸门的槽位口径（票 06）：只数「本端发起且 running 且带
-    /// retryMeta」的批——serve 供流记账行（无 retryMeta）、paused/pending/
-    /// 终态行、以及接收方向都不占发送槽
+    /// 插件并发闸门的槽位口径（票 06）：数「本端发起且 running/pending 且带
+    /// retryMeta」的批——pending = 等待对端确认，会话已建立同样占槽；
+    /// serve 供流记账行（无 retryMeta）、paused/终态行、接收方向不占发送槽
     #[test]
-    fn running_send_count_counts_only_initiated_running_sends() {
+    fn occupied_send_slots_counts_running_and_pending_awaiting_peer() {
         let mk = |id: &str, direction: &str, status: &str, retry: bool| {
             let mut e: super::TransferEntry = serde_json::from_value(serde_json::json!({
                 "batchId": id, "direction": direction, "status": status,
@@ -1953,7 +1975,17 @@ mod tests {
             mk("done", "send", "completed", true),
             mk("recv", "receive", "running", true),
         ];
-        assert_eq!(super::running_send_count(&store), 2);
+        assert_eq!(super::occupied_send_slots(&store), 3);
+    }
+
+    /// 发送占位行预填本地文件清单：引擎进度/终态事件不带 files，
+    /// 等待确认期间的任务卡名称必须来自占位行本身
+    #[test]
+    fn send_files_of_keeps_display_paths() {
+        let files = super::send_files_of(&["/tmp/a.zip".into(), "/tmp/b.mp4".into()]);
+        assert_eq!(files.len(), 2);
+        assert_eq!(files[0]["path"], "/tmp/a.zip");
+        assert_eq!(files[1]["path"], "/tmp/b.mp4");
     }
 
     /// 票 08：排队发送批派发失败落终态行——本地序号唯一、failed 行可见且

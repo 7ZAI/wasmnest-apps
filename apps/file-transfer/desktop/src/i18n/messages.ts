@@ -59,6 +59,8 @@ export type MessageSchema = {
 
   // ==================== 任务状态 ====================
   'transfer.task.state.queued': string
+  'transfer.task.state.awaitingPeer': string
+  'transfer.task.awaitingPeerHint': string
   'transfer.task.state.transferring': string
   'transfer.task.state.paused': string
   'transfer.task.state.resumable': string

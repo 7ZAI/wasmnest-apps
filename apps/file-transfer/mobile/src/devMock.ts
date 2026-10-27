@@ -211,8 +211,8 @@ const devMock: DevMockWithPeer = {
     // 消费，dev-shell mock 按此实现 list-tasks / list-receiving / list-history
     // 命令骨架 + 快照事件补发）。覆盖传输 tab 四象限：发送中（进度+速率）、
     // 接收中、历史（完成/失败/取消，相对时间；失败/被拒/中断可重试）。
-    // 注意：wire status 非 runner 态只有 running（→transferring）与终态，
-    // 没有 queued（TASK_STATE_KEYS 无该键，注入会渲染 undefined）；
+    // 注意：wire status 非终态有 running / paused / pending（send 方向 pending =
+    // 等待对端确认）；没有 queued（TASK_STATE_KEYS 无该键，注入会渲染 undefined）；
     // 终态条目一律归 history（引擎视图口径：活动列表只含进行中）
     tasks: {
       // 发送方向任务列表（file-transfer.list-tasks，仅进行中）

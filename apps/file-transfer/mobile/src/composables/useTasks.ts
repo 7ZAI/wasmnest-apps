@@ -107,7 +107,8 @@ function mapWireBatch(raw: any): PendingBatch {
   }
 }
 
-/** 引擎状态 → 前端状态（running=传输中、pending=排队、paused=已暂停，其余终态直传） */
+/** 引擎状态 → 前端状态（running=传输中、pending=等待对端确认（send 占位批）、
+ * paused=已暂停，其余终态直传） */
 function mapState(status: string): TaskStateName {
   if (status === 'running' || status === 'transferring') return 'transferring'
   if (status === 'pending' || status === 'paused') return status

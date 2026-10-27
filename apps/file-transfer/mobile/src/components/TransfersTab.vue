@@ -110,12 +110,36 @@ const emptyTitle = computed(() => {
 
 // ==================== 发送 / 全部（Task → 卡片） ====================
 
-/** 任务元信息：已传/总大小 + 速率（仅传输中带速率） */
+/** 上传批等待对端确认（接收策略 ask 的应答窗口；插件在首个进度事件前沿用 pending） */
+function isAwaitingPeer(task: Task): boolean {
+  return task.direction === 'upload' && task.state === 'pending'
+}
+
+/** 状态 chip 文案：pending 的发送批等待确认，按方向给友好文案 */
+function taskStateLabel(task: Task): string {
+  return isAwaitingPeer(task)
+    ? t('transfer.task.state.awaitingPeer')
+    : t(TASK_STATE_KEYS[task.state])
+}
+
+/** 任务元信息：已传/总大小 + 速率（仅传输中带速率；等待确认时无字节可报） */
 function taskMeta(task: Task): string {
+  if (isAwaitingPeer(task)) return ''
   const size = task.size > 0
     ? `${formatBytes(task.offset, t)} / ${formatBytes(task.size, t)}`
     : formatBytes(task.offset, t)
   return task.state === 'transferring' ? `${size} · ${formatSpeed(task.rateBps ?? 0, t)}` : size
+}
+
+/** 卡面进度：等待确认/终态不显示进度条 */
+function taskProgress(task: Task): number | null {
+  if (isAwaitingPeer(task) || isTerminalState(task.state)) return null
+  return progressPercent(task.offset, task.size) ?? 0
+}
+
+/** 等待确认的友好提示行（非错误态，单独样式） */
+function taskHint(task: Task): string | null {
+  return isAwaitingPeer(task) ? t('transfer.task.awaitingPeerHint') : null
 }
 
 /** 失败/拒绝原因文案（reason wire → 展示文案 key） */
@@ -344,11 +368,12 @@ function onCardAction(kind: TaskAction['kind'], id: string): void {
             :direction="task.direction"
             :name="basename(task.remotePath)"
             :meta="taskMeta(task)"
-            :state-label="t(TASK_STATE_KEYS[task.state])"
+            :state-label="taskStateLabel(task)"
             :state-class="TASK_STATE_COLOR_CLASS[task.state]"
-            :progress="isTerminalState(task.state) ? null : (progressPercent(task.offset, task.size) ?? 0)"
+            :progress="taskProgress(task)"
             :progress-class="TASK_STATE_PROGRESS_CLASS[task.state]"
             :reason="taskReason(task)"
+            :hint="taskHint(task)"
             :actions="taskActions(task)"
             @action="onCardAction"
           />

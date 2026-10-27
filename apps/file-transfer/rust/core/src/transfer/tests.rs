@@ -388,7 +388,7 @@ fn apply_retry_replays_terminal_entry() {
     let mut store = [old, act];
     assert!(apply_retry(&mut store, "old", "new", 99));
     assert_eq!(store[0].batch_id, "new");
-    assert_eq!(store[0].status, "running");
+    assert_eq!(store[0].status, "pending", "重试后重新等对端确认，非直接 running");
     assert_eq!(store[0].updated_at_ms, 99);
     // 进行中条目不可重试
     assert!(!apply_retry(&mut store, "act", "new2", 100));
@@ -774,7 +774,7 @@ fn apply_retry_keeps_meta_and_never_revives_active_entries() {
     let mut store = vec![send_terminal("old", "failed", Some(send_meta()))];
     assert!(apply_retry(&mut store, "old", "new", 42));
     assert_eq!(store[0].batch_id, "new");
-    assert_eq!(store[0].status, "running");
+    assert_eq!(store[0].status, "pending");
     assert_eq!(
         store[0].retry_meta,
         Some(send_meta()),
