@@ -127,4 +127,13 @@ describe('C-P6 i18n 双语同步', () => {
     expect(zhKeys.length).toBeGreaterThan(0)
     expect(enKeys).toEqual(zhKeys)
   })
+
+  it('should_registerRunTimeKeys_when_sessionCardRenders（useRunTime 引用的键必须双语在场）', () => {
+    const expected = ['hub.runTimeSeconds', 'hub.runTimeMinutesSeconds', 'hub.runTimeHoursMinutes']
+    for (const locale of [messagesZhCN, messagesEn]) {
+      expect(keyPaths(locale as unknown as Record<string, unknown>)).toEqual(
+        expect.arrayContaining(expected),
+      )
+    }
+  })
 })

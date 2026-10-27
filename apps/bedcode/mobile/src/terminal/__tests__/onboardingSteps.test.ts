@@ -3,15 +3,14 @@
  *
  * 防回归：组件引用的 titleKey/descKey/tryHintKey 必须在 zh-CN 与 en 两份
  * 语言文件中都存在（此前发生过步骤标题 key 漏加、真机渲染裸 key 的问题）。
- * key 定义在 config/terminalOnboardingSteps.ts（mobile.terminal.* 前缀在
- * 组件内拼接，此处按裸 key 断言）。
+ * key 定义在 config/terminalOnboardingSteps.ts（裸 key），落在本应用 domain 的
+ * `terminal.*` 命名空间（2026-10-27：文案归 app 自持，不再读宿主 locales）。
  */
 import { describe, it, expect } from 'vitest'
 import { TERMINAL_ONBOARDING_STEPS } from '../config/onboardingSteps'
-import zhCNMobile from '@host/locales/zh-CN/mobile'
-import enMobile from '@host/locales/en/mobile'
+import { messagesEn, messagesZhCN } from '../i18n'
 
-const catalogs = { 'zh-CN': zhCNMobile, en: enMobile } as const
+const catalogs = { 'zh-CN': messagesZhCN, en: messagesEn } as const
 
 function resolve(catalog: Record<string, unknown>, key: string): unknown {
   return key.split('.').reduce<unknown>((node, part) => {
@@ -36,17 +35,17 @@ describe('terminal onboarding steps i18n completeness', () => {
   })
 
   for (const [locale, catalog] of Object.entries(catalogs)) {
-    it(`resolves all step keys in ${locale} under mobile.terminal`, () => {
+    it(`resolves all step keys in ${locale} under terminal.*`, () => {
       for (const step of TERMINAL_ONBOARDING_STEPS) {
         const keys = [step.titleKey, step.descKey]
         // tryHintKey 可选：声明了才要求 i18n 可解析（不静默放行缺失 key）
         if (step.tryHintKey) keys.push(step.tryHintKey)
         for (const key of keys) {
-          const value = resolve(catalog, `mobile.terminal.${key}`)
-          expect(value, `${locale}: mobile.terminal.${key} 缺失`).toBeDefined()
+          const value = resolve(catalog, `terminal.${key}`)
+          expect(value, `${locale}: terminal.${key} 缺失`).toBeDefined()
           expect(
             typeof value === 'string' && value.length > 0,
-            `${locale}: mobile.terminal.${key} 非空`,
+            `${locale}: terminal.${key} 非空`,
           ).toBe(true)
         }
       }

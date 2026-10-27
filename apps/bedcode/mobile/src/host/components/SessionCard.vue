@@ -92,6 +92,7 @@ const isRunning = computed(
 const { runTime: elapsed } = useRunTime(
   () => props.session.startedAt || props.session.createdAt || props.session.started_at || props.session.created_at,
   isRunning,
+  t,
 )
 
 const statusChipClass = computed(() => {
