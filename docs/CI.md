@@ -21,9 +21,14 @@
 `app` 输入不再维护固定下拉框）。
 
 CI 与之一致：`ci.yml` 先用 `discover` 从唯一枚举点（`scripts/lib/projects.mjs`，经
-`node scripts/ci/app-info.mjs --list` 暴露）生成工程矩阵，再**一个工程一个 `test` job**
-（`fail-fast: false`）——谁红谁挂牌，新增 app / 服务不需要改工作流。`eslint` 保持仓级
-一条（`eslint .`，0 error），Rust native 单测仍逐 crate 串行（共用 `target/wasm-apps`）。
+`node scripts/ci/app-info.mjs --list` 暴露）生成矩阵，再**一个「工程 × 端」一个 `test` job**
+（`fail-fast: false`）——谁红谁挂牌，新增 app / 服务（或新增一端）都不需要改工作流。
+`eslint` 保持仓级一条（`eslint .`，0 error），Rust native 单测仍逐 crate 串行（共用
+`target/wasm-apps`）。
+
+测试步骤固定 `--maxWorkers=4` + `NODE_OPTIONS=--max-old-space-size=3072`：GitHub runner
+只有 2 核，vitest 默认 `maxWorkers=1` 会把几十个测试文件挤进同一个 fork，模块缓存累积
+（bedcode 桌面 39 个文件实测涨到 6GB 后整 job OOM，看起来像用例失败）。
 
 逐工程 job 的名字随工程增减而变，因此分支保护的必需检查指向**固定名的汇总门**：
 `gate`（`lint + 单测`，`needs: [lint, test]` + `if: always()`，任一上游非 success 即失败）。
