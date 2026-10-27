@@ -45,7 +45,7 @@
 - 桌面 `build.js` / `dev-host.js` / `scripts/e2e.mjs` / `e2e/wdio.conf.ts` **禁止 import `scripts/platform-paths.mjs`**（G2 导入锁，`scripts/__tests__/g2-import-lock.test.mjs` 机器判）；`platform-paths.mjs` 只留给 CI / 平台集成脚本。
 - 平台仓读应用源码的**唯一入口**是两个 resolver（见 `docs/CODE-MAP.md` §1），禁止在调用方散落硬编码。
 - **ABI / WIT 真源不在本仓**：核心 WIT 在能力仓，端组合与 SDK 生成物在平台仓（`rust/wit` 是生成物，禁止手改）。应用只是 SDK 绑定使用方——改契约不在本仓进行。
-- 平台仓读本仓源码的**锁**（改本仓结构 / 文案前先看）：见 `docs/CODE-MAP.md` §5。关键三条：桌面边界锁（`hostAppBoundaryLock`，逐字校验六个桌面 `entry.ts`，含 `servers/auth-center`）、i18n drift 锁（宿主 ↔ `apps/bedcode/desktop/src/i18n/host-*` 逐字一致）、Tailwind content 覆盖锁。
+- 平台仓读本仓源码的**锁**（改本仓结构 / 文案前先看）：见 `docs/CODE-MAP.md` §5。关键两条：桌面边界锁（`hostAppBoundaryLock`，逐字校验六个桌面 `entry.ts`，含 `servers/auth-center`）、Tailwind content 覆盖锁。（原 i18n drift 锁已于 2026-10-27 随「宿主不装应用文案」迁移退役。）
 
 ---
 
@@ -155,7 +155,7 @@
 | 改移动应用界面 / 运行面 | `docs/FRONTEND.md` §2 + 平台 `plugin-sdk-mobile/src/types.ts`（`UIRegistry`）+ `wasmnest-mobile/src/shell/registry.ts`；优先 dev-shell 预览 |
 | 写 / 改 Rust 后端 / 新增命令 | `docs/BACKEND.md`（尤其 §8 检查清单）+ 该 crate + SDK rust crate；命令面与 `plugin.json` 同步 |
 | 改 manifest / 权限 | `docs/BACKEND.md` §5 + SDK `rust/src/permission.rs`（唯一词汇真源）——**不得自造词汇表外的权限字符串** |
-| 改 i18n | `docs/FRONTEND.md` §3（注意 `bedcode/mobile` 按域分散、bedcode desktop 有宿主副本 drift 锁） |
+| 改 i18n | `docs/FRONTEND.md` §3（注意 `bedcode/mobile` 按域分散；宿主不装应用文案，桌面仅 `errors.*` 机制副本） |
 | 改 WIT / ABI / 契约 | **不在本仓改**：去能力仓（WIT 真源）与平台仓（端组合 / SDK 生成物）；改完重拼并按当前 SDK **全量重建**本仓相关 app 产物（版本进入 import 名，旧产物实例化期被点名） |
 | 新增桌面应用 | 复制现有桌面 app 骨架（改五处命名，见 `docs/CODE-MAP.md` §3）→ 平台仓：`useShellApps.ts` 路由表 + `hostAppBoundaryLock.test.ts` 清单 + `plugin-build.js` 的 `PLUGINS` + `dev-run.js` 的 `PLUGIN_WATCH_CMDS` + `release-manifest.json` |
 | 新增服务型 wasm（`servers/`） | 同上，且工程放 `servers/<slug>/<end>`（`scripts/lib/projects.mjs` 自动枚举）；平台侧上述五处的条目要带 `group: 'servers'`（`app-paths.mjs` 的 `appDir(slug, end, { group })`），`release-manifest.json` 的 `path` 写 `servers/<slug>` |

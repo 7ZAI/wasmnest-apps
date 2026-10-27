@@ -15,7 +15,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { nextTick, ref } from 'vue'
 import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-mobile'
-import { activateTaskDomain, deactivateTaskDomain } from '../activate'
+import { activateTaskDomain, deactivateTaskDomain, isAutoTaskSupported } from '../activate'
 import AutoTaskToolboxView from '../components/AutoTaskToolboxView.vue'
 import {
   installMockMobileApi,
@@ -125,13 +125,13 @@ describe('C-T4 停用回收', () => {
 
 describe('C-T5 适配 agent 白名单门控（受保护端点）', () => {
   /** 计数 supported-agents 请求（其余路径不计数） */
-  function makeCounter() {
+  function makeCounter(agents: string[] = ['claude', 'pi', 'codex', 'opencode']) {
     const state = { count: 0 }
     return {
       state,
       httpRequest: async (path: string) => {
         if (path.includes('/supported-agents')) state.count += 1
-        return { code: 0, message: 'ok', data: { agents: ['claude-code'] } }
+        return { code: 0, message: 'ok', data: { agents } }
       },
     }
   }
@@ -171,5 +171,31 @@ describe('C-T5 适配 agent 白名单门控（受保护端点）', () => {
     await nextTick()
 
     expect(counter.state.count).toBe(1)
+  })
+})
+
+describe('C-T6 自动任务入口的 agent 白名单判定', () => {
+  it('should_map_claude_code_to_backend_name_when_checking_supported', async () => {
+    installMockMobileApi({
+      isConnected: true,
+      isPaired: true,
+      httpRequest: async () => ({
+        code: 0,
+        message: 'ok',
+        data: { agents: ['claude', 'pi', 'codex', 'opencode'] },
+      }),
+    })
+    await activateTaskDomain(fake.ctx)
+
+    expect(isAutoTaskSupported('claude_code')).toBe(true)
+    expect(isAutoTaskSupported('pi')).toBe(true)
+    expect(isAutoTaskSupported('opencode')).toBe(true)
+    expect(isAutoTaskSupported('generic')).toBe(false)
+    expect(isAutoTaskSupported(null)).toBe(false)
+  })
+
+  it('should_hide_entry_before_whitelist_loaded', () => {
+    // 未认证：白名单未拉取，任何 agent 都不得判定为支持（任务端点本身要 JWT）
+    expect(isAutoTaskSupported('claude_code')).toBe(false)
   })
 })

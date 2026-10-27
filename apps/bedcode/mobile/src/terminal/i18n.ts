@@ -147,7 +147,8 @@ export const messagesZhCN = {
     "toolbarRefresh": "刷新",
     "toolbarSettings": "设置",
     "toolbarShortcut": "快捷键",
-    "toolbarTask": "任务"
+    "toolbarTask": "任务",
+    "toolbarAutoTask": "自动任务"
   },
   "terminalHelp": {
     "title": "终端便捷功能指南"
@@ -314,7 +315,8 @@ export const messagesEn = {
     "toolbarRefresh": "Refresh",
     "toolbarSettings": "Settings",
     "toolbarShortcut": "Shortcut",
-    "toolbarTask": "Task"
+    "toolbarTask": "Task",
+    "toolbarAutoTask": "Auto Tasks"
   },
   "terminalHelp": {
     "title": "Terminal Quick Guide"

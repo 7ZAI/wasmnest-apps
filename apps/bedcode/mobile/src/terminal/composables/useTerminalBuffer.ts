@@ -218,10 +218,11 @@ export function useTerminalBuffer() {
    * 逻辑收敛到 store（插件命令驱动 + terminal-state 事件同步，票 12）
    *
    * @param sessionId - 会话 ID
+   * @param opts.force - 显式 fresh subscribe（手动刷新 #14）：绕过「一页一代一次」去重
    * @returns 始终 null（订阅确认经事件/对账异步到达）
    */
-  async function subscribeSession(sessionId: string): Promise<null> {
-    return store.subscribeSession(sessionId)
+  async function subscribeSession(sessionId: string, opts?: { force?: boolean }): Promise<null> {
+    return store.subscribeSession(sessionId, opts)
   }
 
   /**

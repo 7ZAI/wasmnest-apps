@@ -13,7 +13,8 @@
  * no-op，用户感知为「输入没反应」且无线索；这里按原因分别提示并留 warn 日志。
  */
 import { ref } from 'vue'
-import { getMobileApi, getPresetTasks } from '@binblink/wasmnest-plugin-sdk-mobile'
+import { getMobileApi } from '@binblink/wasmnest-plugin-sdk-mobile'
+import { usePresetTasks } from '../../task/presetApi'
 import { logger, t, toast } from '../host'
 import { useInputAssistantStore } from '../inputAssistant'
 import { isMockSession } from './useMockTerminal'
@@ -34,6 +35,7 @@ export function useTerminalInput(ctx: TerminalKernelContext, deps: TerminalInput
   const connection = getMobileApi()
   const assistStore = useInputAssistantStore()
   const { sendInput } = deps
+  const { sendTask, executeTask } = usePresetTasks()
 
   /** 侧栏「插入引用」待填入路径：TerminalInputBar 消费后置回 null */
   const pendingRefPath = ref<string | null>(null)
@@ -92,7 +94,7 @@ export function useTerminalInput(ctx: TerminalKernelContext, deps: TerminalInput
       return
     }
     try {
-      await getPresetTasks().sendTask(task, ctx.getSessionId())
+      await sendTask(task, ctx.getSessionId())
     } catch {
       toast.error(t('toolbox.sendFailed'))
     }
@@ -104,7 +106,7 @@ export function useTerminalInput(ctx: TerminalKernelContext, deps: TerminalInput
       return
     }
     try {
-      await getPresetTasks().executeTask(task, ctx.getSessionId())
+      await executeTask(task, ctx.getSessionId())
     } catch {
       toast.error(t('toolbox.sendFailed'))
     }

@@ -980,6 +980,13 @@
   color: var(--text-tertiary);
 }
 
+/* 等待对端确认的友好提示（非错误态：正文次级色，比 reason 的弱化色更易读） */
+.ft-task-hint {
+  margin-top: 5px;
+  font-size: var(--font-size-tag);
+  color: var(--text-secondary);
+}
+
 /* ==================== 过渡动画 ==================== */
 
 /* 页面状态切换（空态 ↔ 工作台）已收归宿主页面过渡体系（src/style.css 的 .page-* /

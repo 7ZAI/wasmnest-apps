@@ -13,7 +13,7 @@
     <nav class="flex-1 py-4 overflow-y-auto overflow-x-hidden px-3">
       <!-- ==================== SECTION: NAVIGATION（内置 + 插件统一排序） ==================== -->
       <h4 v-if="!collapsed" class="wb-sidebar-section px-2 mb-2">
-        {{ $t('desktop.sidebar.navigation') }}
+        {{ t('sidebar.navigation') }}
       </h4>
       <ul class="space-y-0.5" :class="collapsed && 'mt-1'">
         <li v-for="item in menuItems" :key="item.id">
@@ -66,7 +66,7 @@
         }}</span>
         <button
           class="w-7 h-7 flex items-center justify-center rounded-md text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] transition-colors"
-          :title="$t('desktop.sidebar.collapse')"
+          :title="t('sidebar.collapse')"
           @click="toggleSidebar()"
         >
           <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -83,7 +83,7 @@
       <div v-else class="flex justify-center">
         <button
           class="w-7 h-7 flex items-center justify-center rounded-md text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] transition-colors"
-          :title="$t('desktop.sidebar.expand')"
+          :title="t('sidebar.expand')"
           @click="toggleSidebar()"
         >
           <svg class="w-3.5 h-3.5 rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -113,7 +113,7 @@
  */
 import { onMounted, onUnmounted, computed } from 'vue'
 import { useRoute } from 'vue-router'
-import { useI18n } from 'vue-i18n'
+import { useAppI18n } from '@/composables/useAppI18n'
 import { useSidebarMenu, type SidebarMenuItem } from '@/composables/useSidebarMenu'
 import {
   collapsed,
@@ -125,7 +125,7 @@ import {
 import { useServer } from '@/composables/useServer'
 
 const route = useRoute()
-const { t } = useI18n()
+const t = useAppI18n()
 const { menuItems } = useSidebarMenu()
 
 const { isResizing, dragWidth, onResizeStart } = useSidebarResize()
@@ -171,11 +171,11 @@ const statusDotClass = computed(() => {
 const statusText = computed(() => {
   switch (status.value) {
     case 'running':
-      return t('desktop.sidebar.serviceRunning')
+      return t('sidebar.serviceRunning')
     case 'starting':
-      return t('desktop.sidebar.serviceStarting')
+      return t('sidebar.serviceStarting')
     default:
-      return t('desktop.sidebar.serviceStopped')
+      return t('sidebar.serviceStopped')
   }
 })
 </script>

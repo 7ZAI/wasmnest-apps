@@ -5,3 +5,5 @@ packages:
   - .
 allowBuilds:
   esbuild: true
+minimumReleaseAgeExclude:
+  - '@binblink/wasmnest-plugin-sdk-desktop@0.0.1'

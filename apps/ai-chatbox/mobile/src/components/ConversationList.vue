@@ -3,11 +3,11 @@
     <!-- 头部：标题 + 关闭（左侧贴边抽屉） -->
     <div class="flex items-center justify-between pl-4 pr-2 pt-2 pb-1.5 border-b border-[var(--mobile-border)]">
       <span class="text-[var(--font-size-base)] font-medium text-[var(--mobile-text-primary)]">
-        {{ t('mobile.plugin.aiChatbox.conversations') }}
+        {{ t('com.wasmnest.ai-chatbox.chat.conversations') }}
       </span>
       <button
         class="w-11 h-11 flex items-center justify-center text-[var(--mobile-text-secondary)] active:opacity-80 rounded-lg transition-opacity"
-        :title="t('mobile.plugin.aiChatbox.close')"
+        :title="t('com.wasmnest.ai-chatbox.chat.close')"
         @click="$emit('close')"
       >
         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -25,7 +25,7 @@
         <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
           <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
         </svg>
-        {{ t('mobile.plugin.aiChatbox.newConversation') }}
+        {{ t('com.wasmnest.ai-chatbox.chat.newConversation') }}
       </button>
     </div>
 
@@ -67,7 +67,7 @@
         <span class="flex items-center flex-shrink-0">
           <button
             class="w-11 h-11 flex items-center justify-center text-[var(--mobile-text-muted)] active:opacity-80 rounded-lg"
-            :title="t('mobile.plugin.aiChatbox.rename')"
+            :title="t('com.wasmnest.ai-chatbox.chat.rename')"
             @click.stop="startRename(conv)"
           >
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -76,7 +76,7 @@
           </button>
           <button
             class="w-11 h-11 flex items-center justify-center text-[var(--mobile-text-muted)] active:opacity-80 rounded-lg"
-            :title="t('mobile.plugin.aiChatbox.delete')"
+            :title="t('com.wasmnest.ai-chatbox.chat.delete')"
             @click.stop="$emit('delete', conv)"
           >
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -92,8 +92,8 @@
             <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
           </svg>
         </div>
-        <p class="text-xs text-[var(--mobile-text-muted)]">{{ t('mobile.plugin.aiChatbox.noConversations') }}</p>
-        <p class="text-xs text-[var(--mobile-text-muted)]/70 mt-2">{{ t('mobile.plugin.aiChatbox.noConversationsHint') }}</p>
+        <p class="text-xs text-[var(--mobile-text-muted)]">{{ t('com.wasmnest.ai-chatbox.chat.noConversations') }}</p>
+        <p class="text-xs text-[var(--mobile-text-muted)]/70 mt-2">{{ t('com.wasmnest.ai-chatbox.chat.noConversationsHint') }}</p>
       </div>
     </div>
   </div>
@@ -134,8 +134,8 @@ const renameInputRef = ref<HTMLInputElement | null>(null)
 
 /** 新对话占位标题（i18n key）显示为默认文案 */
 function displayTitle(title: string): string {
-  if (!title || title === 'mobile.plugin.aiChatbox.newConversation') {
-    return t('mobile.plugin.aiChatbox.newConversation')
+  if (!title || title === 'com.wasmnest.ai-chatbox.chat.newConversation') {
+    return t('com.wasmnest.ai-chatbox.chat.newConversation')
   }
   return title
 }
@@ -146,18 +146,18 @@ function relativeTime(iso: string): string {
   const ts = new Date(iso).getTime()
   if (Number.isNaN(ts)) return ''
   const diffMin = Math.floor((Date.now() - ts) / 60000)
-  if (diffMin < 1) return t('mobile.plugin.aiChatbox.timeJustNow')
-  if (diffMin < 60) return t('mobile.plugin.aiChatbox.timeMinutesAgo', { n: diffMin })
+  if (diffMin < 1) return t('com.wasmnest.ai-chatbox.chat.timeJustNow')
+  if (diffMin < 60) return t('com.wasmnest.ai-chatbox.chat.timeMinutesAgo', { n: diffMin })
   const hours = Math.floor(diffMin / 60)
-  if (hours < 24) return t('mobile.plugin.aiChatbox.timeHoursAgo', { n: hours })
+  if (hours < 24) return t('com.wasmnest.ai-chatbox.chat.timeHoursAgo', { n: hours })
   const days = Math.floor(hours / 24)
-  if (days < 30) return t('mobile.plugin.aiChatbox.timeDaysAgo', { n: days })
+  if (days < 30) return t('com.wasmnest.ai-chatbox.chat.timeDaysAgo', { n: days })
   return new Date(ts).toLocaleDateString(locale.value === 'zh-CN' ? 'zh-CN' : 'en-US')
 }
 
 function startRename(conv: ConversationMeta): void {
   editingId.value = conv.id
-  renameDraft.value = conv.title === 'mobile.plugin.aiChatbox.newConversation' ? '' : conv.title
+  renameDraft.value = conv.title === 'com.wasmnest.ai-chatbox.chat.newConversation' ? '' : conv.title
   nextTick(() => {
     renameInputRef.value?.focus()
   })

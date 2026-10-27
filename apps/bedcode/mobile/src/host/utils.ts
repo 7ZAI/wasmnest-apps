@@ -78,6 +78,25 @@ export function formatLastConnected(
   return `${String(d.getFullYear())}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
+/**
+ * 运行时长（秒）→ 友好文案（x秒 / x分x秒 / x小时x分）
+ *
+ * 与 `formatLastConnected` 同口径：文案经 `t` 注入保持纯函数；键为 `hub.runTime*`。
+ * 负值（两端时钟偏差导致 start 在将来）按 0 处理，不显示负数。
+ */
+export function formatRunTime(
+  totalSeconds: number,
+  t: (key: string, params?: Record<string, unknown>) => string,
+): string {
+  const diff = Math.max(0, Math.floor(totalSeconds))
+  if (diff < 60) return t('hub.runTimeSeconds', { n: diff })
+  if (diff < 3600) return t('hub.runTimeMinutesSeconds', { m: Math.floor(diff / 60), s: diff % 60 })
+  return t('hub.runTimeHoursMinutes', {
+    h: Math.floor(diff / 3600),
+    m: Math.floor((diff % 3600) / 60),
+  })
+}
+
 /** 会话状态展示 label key（hub.status*）；未知状态归「已停止」 */
 export function sessionStatusKey(status: string): string {
   switch (status) {

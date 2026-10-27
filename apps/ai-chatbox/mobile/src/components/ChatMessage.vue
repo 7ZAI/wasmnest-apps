@@ -37,7 +37,7 @@
           class="thinking-toggle"
           :aria-expanded="reasoningExpanded"
           :aria-controls="`thinking-body-${uid}`"
-          :title="t('mobile.plugin.aiChatbox.thinkingProcess')"
+          :title="t('com.wasmnest.ai-chatbox.chat.thinkingProcess')"
           @click="reasoningExpanded = !reasoningExpanded"
         >
           <svg
@@ -49,7 +49,7 @@
           >
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
           </svg>
-          <span class="truncate">{{ t('mobile.plugin.aiChatbox.thinkingProcess') }}</span>
+          <span class="truncate">{{ t('com.wasmnest.ai-chatbox.chat.thinkingProcess') }}</span>
         </button>
         <!-- 思考内容为模型 scratchpad 草稿，非成品 Markdown：纯文本展示（预换行），
              不经过渲染管线，天然免疫 prompt injection 的 HTML 注入 -->
@@ -73,8 +73,8 @@
       <div class="flex items-center gap-0.5" :class="isUser ? 'justify-end' : ''">
         <button
           class="w-9 h-9 flex items-center justify-center text-[var(--mobile-text-secondary)] active:opacity-80 rounded-xl transition-opacity"
-          :title="t('mobile.plugin.aiChatbox.copy')"
-          :aria-label="t('mobile.plugin.aiChatbox.copy')"
+          :title="t('com.wasmnest.ai-chatbox.chat.copy')"
+          :aria-label="t('com.wasmnest.ai-chatbox.chat.copy')"
           @click="copyContent"
         >
           <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -83,8 +83,8 @@
         </button>
         <button
           class="w-9 h-9 flex items-center justify-center text-[var(--mobile-text-secondary)] active:opacity-80 rounded-xl transition-opacity"
-          :title="t('mobile.plugin.aiChatbox.delete')"
-          :aria-label="t('mobile.plugin.aiChatbox.delete')"
+          :title="t('com.wasmnest.ai-chatbox.chat.delete')"
+          :aria-label="t('com.wasmnest.ai-chatbox.chat.delete')"
           @click="$emit('delete', message)"
         >
           <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -95,8 +95,8 @@
         <button
           v-if="showRegenerate"
           class="w-9 h-9 flex items-center justify-center text-[var(--mobile-text-secondary)] active:opacity-80 rounded-xl transition-opacity"
-          :title="t('mobile.plugin.aiChatbox.regenerate')"
-          :aria-label="t('mobile.plugin.aiChatbox.regenerate')"
+          :title="t('com.wasmnest.ai-chatbox.chat.regenerate')"
+          :aria-label="t('com.wasmnest.ai-chatbox.chat.regenerate')"
           @click="$emit('regenerate')"
         >
           <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -259,13 +259,13 @@ function enhanceCodeBlocks(): void {
       langEl.textContent = lang
       const btn = document.createElement('button')
       btn.className = 'md-copy-btn'
-      btn.textContent = t('mobile.plugin.aiChatbox.copy')
+      btn.textContent = t('com.wasmnest.ai-chatbox.chat.copy')
       btn.addEventListener('click', () => {
         const text = code.innerText ?? ''
         navigator.clipboard.writeText(text).catch(() => {})
-        btn.textContent = t('mobile.plugin.aiChatbox.copied')
+        btn.textContent = t('com.wasmnest.ai-chatbox.chat.copied')
         setTimeout(() => {
-          btn.textContent = t('mobile.plugin.aiChatbox.copy')
+          btn.textContent = t('com.wasmnest.ai-chatbox.chat.copy')
         }, 1500)
       })
       header.append(langEl, btn)

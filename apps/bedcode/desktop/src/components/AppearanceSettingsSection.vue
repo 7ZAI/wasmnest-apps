@@ -4,7 +4,7 @@
     <div class="px-5 py-3.5 flex items-start justify-between gap-6">
       <div class="flex-shrink-0">
         <span class="text-[calc(13px*var(--ui-scale))] text-[var(--text-primary)]">{{
-          t('settings.appearance.palette')
+          t('appearance.palette')
         }}</span>
       </div>
       <div class="flex items-start gap-2 flex-wrap justify-end">
@@ -58,9 +58,9 @@
  * 深浅色不在此分组：那是宿主的窗口级主题（宿主系统页持有），应用只消费。
  */
 import { computed, inject, onMounted } from 'vue'
-import { useI18n } from 'vue-i18n'
 import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-desktop'
 import { toast } from 'vue-sonner'
+import { useAppI18n } from '@/composables/useAppI18n'
 import {
   APP_PALETTES,
   loadAppPalette,
@@ -70,36 +70,36 @@ import {
 } from '@/composables/useAppPalette'
 
 const context = inject<PluginContext | null>('pluginContext', null)
-const { t } = useI18n()
+const t = useAppI18n()
 const { palette } = useAppPalette()
 
-/** 色板元数据：label 复用宿主机制文案副本，色块取色板自身色值以便预览切换后效果 */
+/** 色板元数据：label 取本应用自持文案，色块取色板自身色值以便预览切换后效果 */
 const PALETTE_META: Record<
   AppPalette,
   { labelKey: string; swatches: { page: string; card: string; primary: string } }
 > = {
   warm: {
-    labelKey: 'settings.appearance.paletteWarm',
+    labelKey: 'appearance.paletteWarm',
     swatches: { page: '#F5F4F0', card: '#FDFCFA', primary: '#1D1A14' },
   },
   cool: {
-    labelKey: 'settings.appearance.paletteCool',
+    labelKey: 'appearance.paletteCool',
     swatches: { page: '#F3F5F7', card: '#FBFCFD', primary: '#2563EB' },
   },
   forest: {
-    labelKey: 'settings.appearance.paletteForest',
+    labelKey: 'appearance.paletteForest',
     swatches: { page: '#F6F5EF', card: '#FDFCF7', primary: '#3E6B4F' },
   },
   ocean: {
-    labelKey: 'settings.appearance.paletteOcean',
+    labelKey: 'appearance.paletteOcean',
     swatches: { page: '#F2F7F9', card: '#FAFCFD', primary: '#0E7490' },
   },
   sunset: {
-    labelKey: 'settings.appearance.paletteSunset',
+    labelKey: 'appearance.paletteSunset',
     swatches: { page: '#FBF5EF', card: '#FEFAF5', primary: '#D9532A' },
   },
   violet: {
-    labelKey: 'settings.appearance.paletteViolet',
+    labelKey: 'appearance.paletteViolet',
     swatches: { page: '#F7F5FB', card: '#FCFBFE', primary: '#6D4FC6' },
   },
 }

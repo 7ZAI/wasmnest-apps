@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@binblink/wasmnest-plugin-sdk-desktop':
-        specifier: file:../../../../wasmnest/wasmnest-desktop/packages/plugin-sdk-desktop
-        version: file:../../../../wasmnest/wasmnest-desktop/packages/plugin-sdk-desktop(vite@8.3.4(esbuild@0.28.2)(jiti@1.21.7)(terser@5.51.2))(vue@3.5.44(typescript@5.9.3))
+        specifier: 0.0.1
+        version: 0.0.1(vite@8.3.4(esbuild@0.28.2)(jiti@1.21.7)(terser@5.51.2))(vue@3.5.44(typescript@5.9.3))
       '@tauri-apps/api':
         specifier: ^2.11.0
         version: 2.12.4
@@ -129,8 +129,8 @@ packages:
     resolution: {integrity: sha512-Vj1jF3cPfxg7OAfoI7QnVKLoILlm2JF9pnVHrX8qx7AHMiYWT+NDAA7jChlNgRS4WTLc/fD1lXLmPixluj+3Gg==}
     engines: {node: '>=6.9.0'}
 
-  '@binblink/wasmnest-plugin-sdk-desktop@file:../../../../wasmnest/wasmnest-desktop/packages/plugin-sdk-desktop':
-    resolution: {directory: ../../../../wasmnest/wasmnest-desktop/packages/plugin-sdk-desktop, type: directory}
+  '@binblink/wasmnest-plugin-sdk-desktop@0.0.1':
+    resolution: {integrity: sha512-nMgKwnWYgmW7bd1Tocir9wX1yoo7CXkZdZzY6af+k6X0EWC114H4oE+sB1CU0J0JK+IRXRKnq1w5+acL38QePQ==, tarball: https://registry.npmjs.org/@binblink/wasmnest-plugin-sdk-desktop/-/wasmnest-plugin-sdk-desktop-0.0.1.tgz}
     hasBin: true
     peerDependencies:
       vite: ^8.0.0
@@ -1713,7 +1713,7 @@ snapshots:
       '@babel/helper-string-parser': 7.29.7
       '@babel/helper-validator-identifier': 7.29.7
 
-  '@binblink/wasmnest-plugin-sdk-desktop@file:../../../../wasmnest/wasmnest-desktop/packages/plugin-sdk-desktop(vite@8.3.4(esbuild@0.28.2)(jiti@1.21.7)(terser@5.51.2))(vue@3.5.44(typescript@5.9.3))':
+  '@binblink/wasmnest-plugin-sdk-desktop@0.0.1(vite@8.3.4(esbuild@0.28.2)(jiti@1.21.7)(terser@5.51.2))(vue@3.5.44(typescript@5.9.3))':
     dependencies:
       magic-string: 0.30.21
       marked: 18.1.1

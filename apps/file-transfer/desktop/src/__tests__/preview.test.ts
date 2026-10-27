@@ -163,6 +163,33 @@ describe('PreviewCard — 只读摘要渲染', () => {
     expect(calls.some((command) => SIDE_EFFECT_COMMAND.test(command))).toBe(false)
   })
 
+  it('发送方向 pending（等待对端确认）在预览中显示等待文案，而非「排队」', async () => {
+    const { env } = makeEnv(
+      okResponders({
+        'file-transfer.list-tasks': () => [
+          {
+            batchId: 't9',
+            peerName: '客厅电脑',
+            direction: 'send',
+            status: 'pending',
+            files: [{ path: '/home/me/report.pdf' }],
+            totalBytes: 4096,
+            transferredBytes: 0,
+            rateBps: 0,
+          },
+        ],
+        'file-transfer.list-receiving': () => [],
+      }),
+    )
+    const wrapper = mount(PreviewCard, { props: { env } })
+    await flushPromises()
+
+    const text = wrapper.text()
+    expect(text).toContain('report.pdf')
+    expect(text).toContain('等待对方确认')
+    expect(text).not.toContain('排队')
+  })
+
   it('env.theme=light 时把主题标记透传到预览根节点', async () => {
     const { env } = makeEnv(okResponders(), { theme: 'light' })
     const wrapper = mount(PreviewCard, { props: { env } })

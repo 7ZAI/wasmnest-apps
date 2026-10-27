@@ -1,11 +1,11 @@
 <template>
   <div class="h-full flex flex-col items-center justify-center gap-4 bg-[var(--bg-page)]">
     <p class="text-[calc(13px*var(--ui-scale))] font-semibold text-[var(--text-primary)]">
-      {{ t('desktop.notFound.title') }}
+      {{ t('notFound.title') }}
     </p>
-    <p class="text-xs text-[var(--text-tertiary)]">{{ t('desktop.notFound.body') }}</p>
+    <p class="text-xs text-[var(--text-tertiary)]">{{ t('notFound.body') }}</p>
     <button class="wb-btn-ghost" @click="router.push('/sessions')">
-      {{ t('desktop.notFound.back') }}
+      {{ t('notFound.back') }}
     </button>
   </div>
 </template>
@@ -17,9 +17,9 @@
  * 退役面（/plugins 应用中心、/shell 设备壳、/plugin/* 插件视图路由）直接访问时
  * 落此页：显性 not-found，不白屏、不静默回落。
  */
-import { useI18n } from 'vue-i18n'
+import { useAppI18n } from '@/composables/useAppI18n'
 import { useRouter } from 'vue-router'
 
-const { t } = useI18n()
+const t = useAppI18n()
 const router = useRouter()
 </script>

@@ -17,7 +17,7 @@
       :session-name="sessionName"
       :is-selection-mode="isSelectionMode"
       :visible-items="visibleToolbarItems"
-      :all-items="ALL_TOOLBAR_ITEMS"
+      :all-items="availableToolbarItems"
       :show-sidebar="showSidebar"
       @back="handleBack"
       @action="handleToolbarAction"
@@ -233,7 +233,9 @@
 defineOptions({ name: 'TerminalView' })
 
 import { ref, computed, inject, type Ref, onMounted, onUnmounted, watch, nextTick } from 'vue'
-import { getMobileApi, getPresetTasks, getRouter } from '@binblink/wasmnest-plugin-sdk-mobile'
+import { getMobileApi, getRouter } from '@binblink/wasmnest-plugin-sdk-mobile'
+import { usePresetTasks } from '../task/presetApi'
+import { isAutoTaskSupported } from '../task/activate'
 import { logger, t, toast } from './host'
 // xterm.css / terminal.css 由域 activate 统一注入（?inline 运行时挂载）
 import { isMockSession, useMockTerminal } from './composables/useMockTerminal'
@@ -358,12 +360,13 @@ const reconnectBannerText = computed(() =>
 // 安全区域从 App.vue inject
 const safeArea = inject<Ref<{ top: number; bottom: number }>>('safeArea')!
 
-const { tasks: presetTasks } = getPresetTasks()
+const { tasks: presetTasks } = usePresetTasks()
 
 // ==================== Header Toolbar Config ====================
 
 const ALL_TOOLBAR_ITEMS: ToolbarItemConfig[] = [
   { key: 'task', label: 'terminal.toolbarTask', icon: 'task' },
+  { key: 'autoTask', label: 'terminal.toolbarAutoTask', icon: 'autoTask' },
   { key: 'shortcut', label: 'terminal.toolbarShortcut', icon: 'shortcut' },
   { key: 'clear', label: 'terminal.toolbarClear', icon: 'clear' },
   { key: 'refresh', label: 'terminal.toolbarRefresh', icon: 'refresh' },
@@ -371,9 +374,18 @@ const ALL_TOOLBAR_ITEMS: ToolbarItemConfig[] = [
   { key: 'folder', label: 'terminal.toolbarFolder', icon: 'folder' },
 ]
 
+/** 本会话可用的工具栏项：「自动任务」按当前会话 agent 白名单门控（桌面任务域只适配
+ *  claude/pi/codex/opencode）；其它工具项不受限。overflow 菜单取本列表，故门控
+ *  对「设置里未固定」的项同样生效（否则溢出菜单可绕过可见性判定） */
+const availableToolbarItems = computed(() =>
+  ALL_TOOLBAR_ITEMS.filter(
+    item => item.key !== 'autoTask' || isAutoTaskSupported(sessionAgentType.value),
+  ),
+)
+
 const visibleToolbarItems = computed(() => {
   const items = assistStore.settings.headerToolbarItems || ['folder', 'settings']
-  return ALL_TOOLBAR_ITEMS.filter(item => items.includes(item.key))
+  return availableToolbarItems.value.filter(item => items.includes(item.key))
 })
 
 // ==================== State（模板 ref 与页面级开关） ====================
@@ -398,6 +410,15 @@ const session = computed(() => {
 // 会话的 config_id：WS 事件推送的会话对象为 camelCase（configId），
 // HTTP /api/sessions 响应为 snake_case（config_id），两端来源需兼容（同 DevicesView 等）
 const sessionConfigId = computed(() => session.value?.config_id ?? session.value?.configId)
+
+/** 当前会话的 Agent 类型（终端命令预设域识别；未知/无配置为 null） */
+const sessionAgentType = computed(() => {
+  const configId = sessionConfigId.value
+  if (!configId) return null
+  const config = connection.sessionConfigs.value.find((c: any) => c.id === configId)
+  if (!config) return null
+  return assistStore.getEffectiveAgentType(configId, config.command)
+})
 
 const sessionName = computed(() => session.value?.name || sessionId.value || t('terminal.titleDesktop'))
 

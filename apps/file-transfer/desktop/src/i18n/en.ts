@@ -56,6 +56,8 @@ const en: MessageSchema = {
 
   // ==================== Task states ====================
   'transfer.task.state.queued': 'Queued',
+  'transfer.task.state.awaitingPeer': 'Waiting for peer',
+  'transfer.task.awaitingPeerHint': 'Waiting for the other device to accept — transfer starts automatically once accepted.',
   'transfer.task.state.transferring': 'Transferring',
   'transfer.task.state.paused': 'Paused',
   'transfer.task.state.resumable': 'Resumable',
@@ -67,6 +69,7 @@ const en: MessageSchema = {
   'transfer.task.pause': 'Pause',
   'transfer.task.resume': 'Resume',
   'transfer.task.cancel': 'Cancel',
+  'transfer.task.cancelledToast': 'Task cancelled',
   'transfer.task.remove': 'Remove task',
   'transfer.task.openDir': 'Open local folder',
   'transfer.task.retry': 'Retry',

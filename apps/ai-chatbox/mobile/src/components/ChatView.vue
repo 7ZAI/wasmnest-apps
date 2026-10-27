@@ -26,7 +26,7 @@
       <header class="flex items-center justify-between px-2 pb-2 pt-1 border-b border-[var(--mobile-border)] bg-[var(--mobile-bg-secondary)]/90 backdrop-blur-xl" :style="{ paddingTop: `${safeAreaTop}px` }">
         <button
           class="w-11 h-11 -ml-1 flex items-center justify-center text-[var(--mobile-text-secondary)] active:opacity-80 rounded-xl transition-opacity"
-          :title="t('mobile.plugin.aiChatbox.conversations')"
+          :title="t('com.wasmnest.ai-chatbox.chat.conversations')"
           @click="showConversationDrawer = true"
         >
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -44,7 +44,7 @@
           <button
             v-if="hasProvider"
             class="w-11 h-11 flex items-center justify-center text-[var(--mobile-text-secondary)] active:opacity-80 rounded-xl transition-opacity"
-            :title="t('mobile.plugin.aiChatbox.newConversation')"
+            :title="t('com.wasmnest.ai-chatbox.chat.newConversation')"
             @click="onNewConversation"
           >
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
@@ -76,13 +76,13 @@
             <path d="M9 13v2" />
           </svg>
         </div>
-        <p class="text-[var(--font-size-base)] text-[var(--mobile-text-secondary)] mb-1">{{ t('mobile.plugin.aiChatbox.pleaseConfigure') }}</p>
-        <p class="text-xs text-[var(--mobile-text-muted)] mb-4">{{ t('mobile.plugin.aiChatbox.emptyHint') }}</p>
+        <p class="text-[var(--font-size-base)] text-[var(--mobile-text-secondary)] mb-1">{{ t('com.wasmnest.ai-chatbox.chat.pleaseConfigure') }}</p>
+        <p class="text-xs text-[var(--mobile-text-muted)] mb-4">{{ t('com.wasmnest.ai-chatbox.chat.emptyHint') }}</p>
         <button
           class="h-12 px-5 text-[var(--font-size-base)] bg-[var(--mobile-accent)] text-[var(--mobile-text-on-accent)] active:opacity-80 rounded-xl transition-opacity"
           @click="openConfigPage('templates')"
         >
-          {{ t('mobile.plugin.aiChatbox.configureModel') }}
+          {{ t('com.wasmnest.ai-chatbox.chat.configureModel') }}
         </button>
       </div>
 
@@ -95,7 +95,7 @@
                 <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
               </svg>
             </div>
-            <p class="text-[var(--font-size-sm)] text-[var(--mobile-text-muted)]">{{ t('mobile.plugin.aiChatbox.startNewChat') }}</p>
+            <p class="text-[var(--font-size-sm)] text-[var(--mobile-text-muted)]">{{ t('com.wasmnest.ai-chatbox.chat.startNewChat') }}</p>
           </div>
 
           <!-- 全局错误条（授权失效/请求失败等） -->
@@ -149,7 +149,7 @@
               </svg>
               <span class="flex-1 min-w-0 text-xs leading-snug">
                 {{
-                  t('mobile.plugin.aiChatbox.rateLimitRetryIn', {
+                  t('com.wasmnest.ai-chatbox.chat.rateLimitRetryIn', {
                     seconds: rateLimitRetry.countdownSec,
                     attempt: rateLimitRetry.attempt,
                     max: rateLimitRetry.maxRetries,
@@ -160,14 +160,14 @@
                 class="flex-shrink-0 h-11 px-3 text-xs rounded-lg border border-[color-mix(in_srgb,currentColor_40%,transparent)] active:bg-[color-mix(in_srgb,currentColor_12%,transparent)] transition-colors"
                 @click="abortRateLimitRetry"
               >
-                {{ t('mobile.plugin.aiChatbox.rateLimitStop') }}
+                {{ t('com.wasmnest.ai-chatbox.chat.rateLimitStop') }}
               </button>
             </div>
           </Transition>
           <ChatInput
             :disabled="sending || !hasProvider"
             :streaming="isStreaming"
-            :placeholder="t('mobile.plugin.aiChatbox.inputPlaceholder')"
+            :placeholder="t('com.wasmnest.ai-chatbox.chat.inputPlaceholder')"
             :model-value="currentModelKey"
             :model-options="modelOptions"
             :show-model="hasProvider"
@@ -317,11 +317,11 @@ const drawerPanelStyle = computed(() => ({
 /** 当前对话标题（无对话选中时显示面板名；新对话占位显示默认文案） */
 const currentTitle = computed(() => {
   if (!currentConversation.value) {
-    return t('mobile.plugin.aiChatbox.title')
+    return t('com.wasmnest.ai-chatbox.chat.title')
   }
   const title = currentConversation.value.title
-  if (!title || title === 'mobile.plugin.aiChatbox.newConversation') {
-    return t('mobile.plugin.aiChatbox.newConversation')
+  if (!title || title === 'com.wasmnest.ai-chatbox.chat.newConversation') {
+    return t('com.wasmnest.ai-chatbox.chat.newConversation')
   }
   return title
 })
@@ -391,9 +391,9 @@ async function onRenameConversation(conv: ConversationMeta, title: string): Prom
 /** 删除对话：移动端先确认（宿主弹窗）再删 */
 async function onDeleteConversation(conv: ConversationMeta): Promise<void> {
   const ok = await context.dialogs.showConfirm({
-    title: t('mobile.plugin.aiChatbox.delete'),
-    message: t('mobile.plugin.aiChatbox.confirmDeleteShort'),
-    confirmText: t('mobile.plugin.aiChatbox.delete'),
+    title: t('com.wasmnest.ai-chatbox.chat.delete'),
+    message: t('com.wasmnest.ai-chatbox.chat.confirmDeleteShort'),
+    confirmText: t('com.wasmnest.ai-chatbox.chat.delete'),
     variant: 'danger',
   })
   if (!ok) return

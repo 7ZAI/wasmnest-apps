@@ -12,13 +12,12 @@
  * 文案口径（spec D6 强制⑥）：本 app 是「远程终端控制端」，任务域是桌面任务域的
  * 只读投影视图，不自称会话/任务权威。
  */
-import { createApp, type App, watch } from 'vue'
+import { createApp, ref, type App, watch } from 'vue'
 import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-mobile'
 import { getMobileApi } from '@binblink/wasmnest-plugin-sdk-mobile'
 import { getAutoTaskApi } from './api'
 import AutoTaskPanelHost from './components/AutoTaskPanelHost.vue'
 import AutoTaskToolboxView from './components/AutoTaskToolboxView.vue'
-import { autoTaskPanelVisible } from './state'
 import { messages } from './i18n'
 import panelCss from './panel.css?inline'
 import toolboxCss from './toolbox.css?inline'
@@ -214,8 +213,25 @@ let routeDisposable: { dispose(): void } | null = null
 /** 壳内胶囊菜单项：从应用菜单直达任务页 */
 let capsuleDisposable: { dispose(): void } | null = null
 let stopConnectionWatch: (() => void) | null = null
-/** 适配 agent 白名单缓存（连接建立后拉取刷新，供任务入口判定使用） */
-let supportedAgents: string[] = []
+/** 适配 agent 白名单缓存（权威来源桌面端 AGENT_PROFILES；连接认证后拉取） */
+const supportedAgents = ref<string[]>([])
+
+/**
+ * 当前会话 agent 是否支持自动任务（终端工具栏「自动任务」入口的可见性判据）
+ *
+ * 入参是终端命令预设域识别出的 AgentType（`claude_code` / `pi` / `codex` /
+ * `opencode` / `generic`），桌面任务域的 agent 名是 `claude` / `pi` / ...——
+ * 只有 claude 的命名不同。白名单尚未拉取（未认证）时返回 false：任务队列端点
+ * 本身要 JWT，未认证时入口打开也无可用动作。
+ *
+ * 白名单是 ref：入口可见性由 TerminalView 的 computed 消费，拉取完成后必须
+ * 触发重算（plain array 不会建立依赖，入口会一直隐藏到下次无关更新）。
+ */
+export function isAutoTaskSupported(agentType: string | null | undefined): boolean {
+  if (!agentType || agentType === 'generic') return false
+  const backendName = agentType === 'claude_code' ? 'claude' : agentType
+  return supportedAgents.value.includes(backendName)
+}
 
 // ==================== 激活 ====================
 
@@ -229,7 +245,8 @@ export async function activateTaskDomain(context: PluginContext): Promise<void> 
     context.i18n.registerMessages(locale, msgs)
   }
 
-  // 从后端获取适配 agent 白名单（权威来源桌面端 Rust AGENT_PROFILES），缓存后供任务面板判定使用
+  // 从后端获取适配 agent 白名单（权威来源桌面端 Rust AGENT_PROFILES），
+  // 供终端工具栏「自动任务」入口判定可见性
   const mobileApi = getMobileApi()
   const api = getAutoTaskApi()
 
@@ -238,7 +255,7 @@ export async function activateTaskDomain(context: PluginContext): Promise<void> 
     try {
       const result = await api.httpListSupportedAgents()
       if (result.code === 0 && result.data) {
-        supportedAgents = result.data.agents || []
+        supportedAgents.value = result.data.agents || []
       }
     } catch (e) {
       // 机制对齐：失败必须经 logger（禁止 console/静默吞错）
@@ -301,6 +318,7 @@ export async function activateTaskDomain(context: PluginContext): Promise<void> 
 export function deactivateTaskDomain(): void {
   stopConnectionWatch?.()
   stopConnectionWatch = null
+  supportedAgents.value = []
   routeDisposable?.dispose()
   routeDisposable = null
   capsuleDisposable?.dispose()

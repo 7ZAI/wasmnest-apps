@@ -14,7 +14,7 @@
     "test": "vitest"
   },
   "dependencies": {
-    "@binblink/wasmnest-plugin-sdk-desktop": "file:../../../../wasmnest/wasmnest-desktop/packages/plugin-sdk-desktop",
+    "@binblink/wasmnest-plugin-sdk-desktop": "0.0.1",
     "vue-i18n": "^9.14.0",
     "@tauri-apps/api": "^2.11.0"
   },

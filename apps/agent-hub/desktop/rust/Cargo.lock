@@ -293,6 +293,8 @@ dependencies = [
 [[package]]
 name = "wasmnest-plugin-api"
 version = "0.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6dfbb6d62dc0504c43a96de143f3839bcece1f8987f24a27f67335d8098ffdb5"
 dependencies = [
  "anyhow",
  "inventory",
@@ -305,6 +307,8 @@ dependencies = [
 [[package]]
 name = "wasmnest-plugin-api-macros"
 version = "0.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a94d2f9aaf6f1327532e1d905f5143bb9544946ab93ba8585598f4dbaa38a7e4"
 dependencies = [
  "proc-macro2",
  "quote",

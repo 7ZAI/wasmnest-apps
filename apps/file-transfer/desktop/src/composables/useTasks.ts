@@ -7,6 +7,7 @@
  */
 import { ref, computed, type Ref } from 'vue'
 import type { Disposable, PluginContext } from '@binblink/wasmnest-plugin-sdk-desktop'
+import { toast } from 'vue-sonner'
 import { resolvePluginErrorText } from '../utils/pluginError'
 import type { Task, TaskStateName } from '../types'
 import { isTerminalState } from '../types'
@@ -20,8 +21,8 @@ function displayName(files: unknown): string {
   return extra > 0 ? `${name} +${extra}` : name
 }
 
-/** 引擎状态 → 前端状态（running=传输中、pending=排队、paused=已暂停，其余终态直传；
- * 未知状态回落 failed——避免新状态静默渲染成无法识别的 chip） */
+/** 引擎状态 → 前端状态（running=传输中、pending=等待对端确认（send 占位批）、
+ * paused=已暂停，其余终态直传；未知状态回落 failed——避免新状态静默渲染成无法识别的 chip） */
 function mapState(status: string): TaskStateName {
   if (status === 'running' || status === 'transferring') return 'transferring'
   if (['pending', 'paused', 'completed', 'failed', 'rejected', 'cancelled', 'interrupted'].includes(status)) {
@@ -68,6 +69,7 @@ export function useTasks(context: PluginContext) {
   const peerName = ref('') as Ref<string>
 
   let dispTasks: Disposable | null = null
+  let dispPeerCancelled: Disposable | null = null
 
   /** 任务/速率快照整表替换（对端名镜像自活跃条目，供迷你条展示） */
   function applySnapshot(list: any[]): void {
@@ -190,12 +192,18 @@ export function useTasks(context: PluginContext) {
     dispTasks = context.events.on('plugin:file-transfer:tasks-changed', (payload: unknown) => {
       if (Array.isArray(payload)) applySnapshot(payload)
     })
+    // 对端取消：插件已把任务行落 cancelled 并归档历史，这里只补用户可感的提示
+    dispPeerCancelled = context.events.on('plugin:file-transfer:peer-cancelled', () => {
+      toast.info(context.i18n.t('transfer.task.cancelledToast'))
+    })
     void refresh()
   }
 
   function stop(): void {
     dispTasks?.dispose()
     dispTasks = null
+    dispPeerCancelled?.dispose()
+    dispPeerCancelled = null
     totalSpeed.value = 0
   }
 

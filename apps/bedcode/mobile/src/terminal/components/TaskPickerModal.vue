@@ -6,7 +6,8 @@
  * 也可新建/编辑任务
  */
 import { ref, computed } from 'vue'
-import { getMobileApi, getPresetTasks } from '@binblink/wasmnest-plugin-sdk-mobile'
+import { getMobileApi } from '@binblink/wasmnest-plugin-sdk-mobile'
+import { usePresetTasks } from '../../task/presetApi'
 import type { PresetTask } from '../model'
 import { t } from '../host'
 import TaskEditDialog from './TaskEditDialog.vue'
@@ -27,7 +28,7 @@ const emit = defineEmits<{
   close: []
 }>()
 
-const { addTask, updateTask } = getPresetTasks()
+const { addTask, updateTask } = usePresetTasks()
 
 const expandedTaskId = ref<string | null>(null)
 

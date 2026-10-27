@@ -32,11 +32,11 @@ describe('useSidebarMenu（静态表）', () => {
     }
   })
 
-  it('app 域菜单项走命名空间 key，宿主机制项（设置）走顶层 key', () => {
-    expect(sidebarMenuItems[0].labelKey).toBe('com.wasmnest.bedcode.pairing.sidebar.title')
-    expect(sidebarMenuItems[1].labelKey).toBe('com.wasmnest.bedcode.session.sidebar.title')
-    expect(sidebarMenuItems[2].labelKey).toBe('com.wasmnest.bedcode.task.historyTitle')
-    expect(sidebarMenuItems[3].labelKey).toBe('desktop.sidebar.settings')
+  it('菜单 key 一律为 app 域相对键（渲染处补命名空间）', () => {
+    expect(sidebarMenuItems[0].labelKey).toBe('pairing.sidebar.title')
+    expect(sidebarMenuItems[1].labelKey).toBe('session.sidebar.title')
+    expect(sidebarMenuItems[2].labelKey).toBe('task.historyTitle')
+    expect(sidebarMenuItems[3].labelKey).toBe('sidebar.settings')
   })
 
   it('深链页（连接历史 / 终端窗口）不进菜单', () => {

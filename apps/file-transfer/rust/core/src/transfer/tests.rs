@@ -272,6 +272,24 @@ fn mark_paused_hits_running_only_and_keeps_progress() {
 }
 
 #[test]
+fn mark_resumed_hits_paused_only_and_keeps_progress() {
+    let mut store = vec![
+        entry(dto("paused", "send", "paused", 1)),
+        entry(dto("run", "send", "running", 2)),
+        entry(dto("done", "send", "cancelled", 3)),
+    ];
+    store[0].transferred_bytes = 2048;
+    assert!(mark_resumed(&mut store, "paused"));
+    assert_eq!(store[0].status, "running");
+    // 恢复保留已传字节（引擎进度事件随后续推）
+    assert_eq!(store[0].transferred_bytes, 2048);
+    assert!(!mark_resumed(&mut store, "run"), "running 幂等不改写");
+    assert!(!mark_resumed(&mut store, "done"), "终态不复活");
+    assert!(!mark_resumed(&mut store, "zz"));
+    assert_eq!(store[2].status, "cancelled");
+}
+
+#[test]
 fn active_views_include_paused_send_entries() {
     // paused 显示在「正在发送」队列（用户可继续/取消）
     let store = vec![
@@ -388,7 +406,7 @@ fn apply_retry_replays_terminal_entry() {
     let mut store = [old, act];
     assert!(apply_retry(&mut store, "old", "new", 99));
     assert_eq!(store[0].batch_id, "new");
-    assert_eq!(store[0].status, "running");
+    assert_eq!(store[0].status, "pending", "重试后重新等对端确认，非直接 running");
     assert_eq!(store[0].updated_at_ms, 99);
     // 进行中条目不可重试
     assert!(!apply_retry(&mut store, "act", "new2", 100));
@@ -586,6 +604,76 @@ fn terminal_keeps_paused_entries_unless_fully_completed() {
     assert_eq!(full[0].status, "completed");
 }
 
+/// 暂停行收到**对端**显式取消：必须落终态（暂停行不能永久卡住、双端状态须一致）；
+/// 本端取消（`byPeer=false`，暂停兜底的会话中断确认）仍保持 paused 可恢复。
+#[test]
+fn terminal_settles_paused_entries_on_peer_cancel_only() {
+    let mut peer_cancelled = vec![entry(json!({
+        "batchId": "b", "direction": "receive", "status": "paused",
+        "totalBytes": 10u64, "transferredBytes": 4u64,
+    }))];
+    assert!(reduce_event(
+        &mut peer_cancelled,
+        "receive",
+        &terminal("b", json!({ "type": "cancelled", "byPeer": true }), 3),
+        ""
+    ));
+    assert_eq!(peer_cancelled[0].status, "cancelled");
+    assert_eq!(
+        peer_cancelled[0].detail.as_deref(),
+        Some("cancelled-by-sender"),
+        "对端取消原因码照常落 detail"
+    );
+
+    let mut self_cancelled = vec![entry(json!({
+        "batchId": "b", "direction": "send", "status": "paused",
+        "totalBytes": 10u64, "transferredBytes": 4u64,
+    }))];
+    assert!(!reduce_event(
+        &mut self_cancelled,
+        "send",
+        &terminal("b", json!({ "type": "cancelled", "byPeer": false }), 3),
+        ""
+    ));
+    assert_eq!(self_cancelled[0].status, "paused", "暂停兜底中断确认不落终态");
+}
+
+/// 对端取消判据：只认 `terminal` + `cancelled` + `byPeer=true`，其余一律不命中
+#[test]
+fn peer_cancelled_batch_id_only_matches_peer_terminal_cancel() {
+    let ev = |kind: &str, state: Value| json!({ "kind": kind, "batchId": "b-1", "state": state });
+    assert_eq!(
+        peer_cancelled_batch_id(&ev("terminal", json!({ "type": "cancelled", "byPeer": true }))),
+        Some("b-1")
+    );
+    assert_eq!(
+        peer_cancelled_batch_id(&ev("terminal", json!({ "type": "cancelled", "byPeer": false }))),
+        None,
+        "本端取消不是对端取消"
+    );
+    assert_eq!(
+        peer_cancelled_batch_id(&ev("terminal", json!({ "type": "completed" }))),
+        None
+    );
+    assert_eq!(
+        peer_cancelled_batch_id(&ev("paused", json!({ "type": "cancelled", "byPeer": true }))),
+        None,
+        "非 terminal 事件不命中"
+    );
+    assert_eq!(
+        peer_cancelled_batch_id(&json!({
+            "kind": "terminal", "state": { "type": "cancelled", "byPeer": true }
+        })),
+        None,
+        "缺 batchId 不命中"
+    );
+    assert_eq!(
+        peer_cancelled_batch_id(&json!({ "kind": "terminal", "batchId": "b-1" })),
+        None,
+        "缺 state 不命中"
+    );
+}
+
 /// paused/resumed 帧同步：只在合法迁移时改写；终态条目不被复活
 #[test]
 fn pause_frames_only_transition_legal_states() {
@@ -774,7 +862,7 @@ fn apply_retry_keeps_meta_and_never_revives_active_entries() {
     let mut store = vec![send_terminal("old", "failed", Some(send_meta()))];
     assert!(apply_retry(&mut store, "old", "new", 42));
     assert_eq!(store[0].batch_id, "new");
-    assert_eq!(store[0].status, "running");
+    assert_eq!(store[0].status, "pending");
     assert_eq!(
         store[0].retry_meta,
         Some(send_meta()),

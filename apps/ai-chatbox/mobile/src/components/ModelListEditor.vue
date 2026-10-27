@@ -10,7 +10,7 @@
         <span class="flex-1 min-w-0 truncate text-[var(--font-size-base)] text-[var(--mobile-text-primary)] font-mono">{{ m }}</span>
         <button
           class="w-10 h-10 flex items-center justify-center text-[var(--mobile-text-muted)] active:opacity-80 rounded-lg transition-opacity flex-shrink-0"
-          :title="t('mobile.plugin.aiChatbox.removeModel')"
+          :title="t('com.wasmnest.ai-chatbox.chat.removeModel')"
           @click="removeModel(i)"
         >
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -20,7 +20,7 @@
       </div>
     </div>
     <div v-else class="px-3 py-2 text-xs text-[var(--mobile-text-muted)]">
-      {{ t('mobile.plugin.aiChatbox.noModels') }}
+      {{ t('com.wasmnest.ai-chatbox.chat.noModels') }}
     </div>
 
     <!-- 添加模型 -->
@@ -29,7 +29,7 @@
         v-model="draft"
         type="text"
         class="flex-1 min-h-[44px] px-3 text-[var(--font-size-base)] bg-[var(--mobile-input-bg)] text-[var(--mobile-text-primary)] border border-[var(--mobile-input-border)] rounded-xl placeholder:text-[var(--mobile-input-placeholder)] focus:outline-none focus:border-[var(--mobile-input-focus)] transition-colors"
-        :placeholder="t('mobile.plugin.aiChatbox.modelId')"
+        :placeholder="t('com.wasmnest.ai-chatbox.chat.modelId')"
         @keydown.enter="addModel"
       />
       <button
@@ -37,7 +37,7 @@
         :disabled="!draft.trim()"
         @click="addModel"
       >
-        {{ t('mobile.plugin.aiChatbox.addModel') }}
+        {{ t('com.wasmnest.ai-chatbox.chat.addModel') }}
       </button>
     </div>
   </div>

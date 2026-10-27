@@ -21,8 +21,7 @@ import { readFileSync, readdirSync } from 'node:fs'
 import { resolve, join } from 'node:path'
 import router from '@/router'
 import { messages } from '@/i18n'
-import hostZhCN from '@/i18n/host-zh-CN'
-import hostEn from '@/i18n/host-en'
+import { mechanismZhCN, mechanismEn } from '@/i18n/mechanism'
 import { createAppContext } from '@/appContext'
 import { sidebarMenuItems, MENU_ORDERS } from '@/composables/useSidebarMenu'
 import { settingsSections, SECTION_ORDERS } from '@/composables/useSettingsSections'
@@ -48,7 +47,7 @@ function frontendSources(): { file: string; code: string }[] {
     .map((p) => ({ file: p, code: stripComments(readFileSync(join(srcDir, p), 'utf-8')) }))
 }
 
-/** 消息树全部叶子 key（宿主机制文案 + app 域消息两个集合的并集） */
+/** 消息树全部叶子 key（机制文案 + app 域消息两个集合的并集） */
 function flattenKeys(node: unknown, prefix: string, out: Set<string>): void {
   if (node && typeof node === 'object' && !Array.isArray(node)) {
     for (const [key, value] of Object.entries(node)) {
@@ -61,7 +60,7 @@ function flattenKeys(node: unknown, prefix: string, out: Set<string>): void {
 
 const DECLARED_MESSAGE_KEYS = new Set<string>()
 flattenKeys(messages['zh-CN'], '', DECLARED_MESSAGE_KEYS)
-flattenKeys(hostZhCN, '', DECLARED_MESSAGE_KEYS)
+flattenKeys(mechanismZhCN, '', DECLARED_MESSAGE_KEYS)
 
 describe('C1 工程身份五处一致', () => {
   it('manifest id 与构建脚本 PLUGIN_ID、默认产物目录与 --out 语义一致', () => {
@@ -343,8 +342,8 @@ describe('C3 入口契约（挂载包形态：mountApp + 直连上下文 + 内�
     // i18n：t 自动补 com.wasmnest.bedcode.* 命名空间（D5 静态化）
     expect(ctx.i18n.t('session.sidebar.title')).toBe('终端会话')
     expect(ctx.i18n.t('session.sidebar.title', {})).toBe('终端会话')
-    // 宿主机制文案经顶层 key 直查（同一实例两个消息集）
-    expect(ctx.i18n.getI18n().global.t('desktop.sidebar.settings')).toBe('设置')
+    // 机制文案（错误信封 errors.*）经顶层 key 直查（app 自持机制副本，不再带宿主壳文案）
+    expect(ctx.i18n.getI18n().global.t('errors.host.internal')).toBe('操作未完成，请稍后重试')
     // 存储 / 事件 / 窗口原语四件在场
     expect(typeof ctx.storage.get).toBe('function')
     expect(typeof ctx.storage.set).toBe('function')
@@ -464,9 +463,9 @@ describe('C5 静态侧边栏菜单表与设置分组表（D3/D4）', () => {
     for (const item of sidebarMenuItems) {
       expect(paths.has(item.path), `菜单 ${item.id} 的路由 ${item.path} 不在路由表`).toBe(true)
     }
-    // app 域菜单项走命名空间 key，宿主机制项（设置）走顶层 key
-    expect(sidebarMenuItems[0].labelKey).toBe('com.wasmnest.bedcode.pairing.sidebar.title')
-    expect(sidebarMenuItems[3].labelKey).toBe('desktop.sidebar.settings')
+    // 菜单 key 一律为 app 域相对键（渲染处经 useAppI18n 补命名空间）
+    expect(sidebarMenuItems[0].labelKey).toBe('pairing.sidebar.title')
+    expect(sidebarMenuItems[3].labelKey).toBe('sidebar.settings')
   })
 
   it('设置分组 = 静态表：业务四分组、order 升序、带标题 key（平台分组归宿主系统页）', () => {
@@ -474,10 +473,10 @@ describe('C5 静态侧边栏菜单表与设置分组表（D3/D4）', () => {
     expect(sorted.map((s) => s.key)).toEqual(['appearance', 'pairing', 'linkCrypto', 'session'])
     expect(sorted.map((s) => s.order)).toEqual([100, 200, 300, 400])
     // 业务分组携带标题 key（仅正文组件，外壳由设置页统一渲染）
-    expect(sorted[0].titleKey).toBe('com.wasmnest.bedcode.appearance.settings.title')
-    expect(sorted[1].titleKey).toBe('com.wasmnest.bedcode.pairing.settings.title')
-    expect(sorted[2].titleKey).toBe('settings.linkCrypto.title')
-    expect(sorted[3].titleKey).toBe('com.wasmnest.bedcode.session.settings.title')
+    expect(sorted[0].titleKey).toBe('appearance.settings.title')
+    expect(sorted[1].titleKey).toBe('pairing.settings.title')
+    expect(sorted[2].titleKey).toBe('linkCrypto.title')
+    expect(sorted[3].titleKey).toBe('session.settings.title')
     expect(SECTION_ORDERS).toEqual({ appearance: 100, pairing: 200, linkCrypto: 300, session: 400 })
   })
 })
@@ -500,7 +499,7 @@ describe('C6 前端调用面与后端/文案同源（票 17）', () => {
     expect(dangling, `前端调用了后端不存在的命令: ${dangling.join(', ')}`).toEqual([])
   })
 
-  it('前端 t() 用到的每个文案 key 都在两语言表里（宿主机制集 + app 域集）', () => {
+  it('前端 t() 用到的每个文案 key 都在两语言表里（机制集 + app 域集）', () => {
     const used = new Set<string>()
     for (const { code } of frontendSources()) {
       for (const m of code.matchAll(/(?:^|[^A-Za-z0-9_.])t\('([\w.]+)'/g)) used.add(m[1])
@@ -510,11 +509,13 @@ describe('C6 前端调用面与后端/文案同源（票 17）', () => {
     expect(missing, `调用了未登记的文案 key: ${missing.join(', ')}`).toEqual([])
   })
 
-  it('宿主机制消息集双语键集逐字相等（随下沉迁入的同步校验）', () => {
+  it('机制文案与 app 域消息双语键集逐字相等（zh-CN / en 同步校验）', () => {
     const zh = new Set<string>()
     const en = new Set<string>()
-    flattenKeys(hostZhCN, '', zh)
-    flattenKeys(hostEn, '', en)
+    flattenKeys(mechanismZhCN, '', zh)
+    flattenKeys(mechanismEn, '', en)
+    flattenKeys(messages['zh-CN'], '', zh)
+    flattenKeys(messages.en, '', en)
     expect([...en].sort()).toEqual([...zh].sort())
   })
 

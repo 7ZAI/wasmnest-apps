@@ -110,7 +110,7 @@
               v-for="task in presetTasks"
               :key="task.id"
               class="atp-preset-chip"
-              :disabled="!activeSessionId || !canEnqueue(task)"
+              :disabled="!activeSessionId || !activeSessionRunning || !canEnqueue(task)"
               @click="handleAddFromPreset(task)"
             >
               <span class="atp-preset-chip-text">{{ task.content }}</span>
@@ -130,12 +130,12 @@
               type="text"
               :placeholder="t('inputPlaceholder')"
               class="atp-manual-input"
-              :disabled="!activeSessionId"
+              :disabled="!activeSessionId || !activeSessionRunning"
               @keydown.enter="handleAddManual"
             />
             <button
               class="atp-add-btn"
-              :disabled="!activeSessionId || !manualInput.trim()"
+              :disabled="!activeSessionId || !activeSessionRunning || !manualInput.trim()"
               @click="handleAddManual"
             >
               <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -260,9 +260,10 @@
  *   DOM 事件），面板整体上移避开系统输入法
  */
 import { ref, computed, watch, nextTick, inject, onMounted, onUnmounted } from 'vue'
-import { getMobileApi, getPresetTasks } from '@binblink/wasmnest-plugin-sdk-mobile'
+import { getMobileApi } from '@binblink/wasmnest-plugin-sdk-mobile'
 import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-mobile'
 import { getAutoTaskApi } from '../api'
+import { usePresetTasks } from '../presetApi'
 import { autoTaskPanelVisible } from '../state'
 
 const context = inject<PluginContext>('pluginContext')!
@@ -289,7 +290,7 @@ interface CurrentTask {
 
 // ==================== State ====================
 
-const { tasks: presetTasks, markEnqueued, markCompletedByTaskId, markInterruptedByTaskId, revertToUnusedByTaskId, reconcileWithQueue, canEnqueue } = getPresetTasks().usePresetTasks()
+const { tasks: presetTasks, markEnqueued, markCompletedByTaskId, markInterruptedByTaskId, revertToUnusedByTaskId, reconcileWithQueue, canEnqueue, saveToStorage } = usePresetTasks()
 const queue = ref<QueueTaskItem[]>([])
 // 当前处理中的队列项（waiting/executing）：displayTask 的补充来源，
 // 队列项进入 waiting/executing 后不在 pending 列表，但仍在处理中需要展示
@@ -317,6 +318,14 @@ const errorMessage = ref('')
 
 // 当前活动会话（宿主共享 ref，进入终端会话时由宿主更新）
 const activeSessionId = computed(() => mobileApi.activeSessionId.value ?? '')
+
+/** 活动会话是否仍在运行：stopped/error 的会话不能入队，对账也不适用 */
+const activeSessionRunning = computed(() =>
+  (mobileApi.activeSessions.value || []).some(
+    (s: any) =>
+      s.id === activeSessionId.value && (s.status === 'running' || s.status === 'waitingInput'),
+  ),
+)
 
 // 状态显示
 const statusLabel: Record<string, string> = {
@@ -422,8 +431,12 @@ async function refresh() {
     await Promise.all([loadQueue(), loadCurrentTask(), loadSessionSettings()])
     // 对账：本地执行中的预设，其队列项已不在桌面 pending 队列（完成/被删/丢失）
     // 且未收到完成广播 → 落 interrupted（幂等；pending 列表是权威的排队信号，
-    // 仅判定本会话入队的预设，防多会话误中断）
-    await reconcileWithQueue(activeSessionId.value)
+    // 仅判定本会话入队的预设，防多会话误中断）。
+    // 仅对运行中的会话对账：会话被轮换关闭后队列已迁到新会话，查旧会话只会
+    // 得到空队列，把仍在执行的任务误判为中断。
+    if (activeSessionRunning.value) {
+      await reconcileWithQueue(activeSessionId.value)
+    }
   } finally {
     loading.value = false
   }
@@ -439,7 +452,7 @@ watch(autoTaskPanelVisible, (val) => {
 // ==================== Actions ====================
 
 async function handleAddFromPreset(task: any) {
-  if (!activeSessionId.value || !canEnqueue(task)) return
+  if (!activeSessionId.value || !activeSessionRunning.value || !canEnqueue(task)) return
   const result = await api.httpTaskQueueAdd(activeSessionId.value, task.content)
   if (result.code === 0 && result.data?.task_id) {
     // 入队即视为已执行（可靠信号，不等完成广播）：记录队列项 id 与所在会话
@@ -451,7 +464,7 @@ async function handleAddFromPreset(task: any) {
 }
 
 async function handleAddManual() {
-  if (!activeSessionId.value || !manualInput.value.trim()) return
+  if (!activeSessionId.value || !activeSessionRunning.value || !manualInput.value.trim()) return
   const result = await api.httpTaskQueueAdd(activeSessionId.value, manualInput.value.trim())
   if (result.code === 0) {
     manualInput.value = ''
@@ -580,7 +593,7 @@ async function commitReorder(items: QueueTaskItem[]) {
 // ==================== Toggles ====================
 
 async function toggleAutoExecute() {
-  if (!activeSessionId.value) return
+  if (!activeSessionId.value || !activeSessionRunning.value) return
   const target = !autoExecute.value
   const result = await api.httpSetSessionMode(activeSessionId.value, target, undefined)
   if (result.code === 0) {
@@ -591,7 +604,7 @@ async function toggleAutoExecute() {
 }
 
 async function toggleAutoAnswer() {
-  if (!activeSessionId.value) return
+  if (!activeSessionId.value || !activeSessionRunning.value) return
   const target = !autoAnswer.value
   const result = await api.httpSetSessionMode(activeSessionId.value, undefined, target)
   if (result.code === 0) {
@@ -683,9 +696,9 @@ onUnmounted(() => {
   window.removeEventListener('wasmnest:task_queue_changed', handleTaskQueueChanged)
 })
 
-/** 桌面端任务队列变更（宿主转发的 CustomEvent）——完成/取消/回退按 task_id 匹配预设。
+/** 桌面端任务队列变更（宿主转发的 CustomEvent）——完成/取消/回退/轮换按 task_id 匹配预设。
  * 不校验 session_id：预设可入队到任意会话（活动会话切换后广播仍应生效），
- * 匹配唯一性由队列项 UUID 保证（手动输入项无本地记录，自然忽略） */
+ * 匹配唯一性由队列项 UUID 保证（手动输入项无本地记录，自然忽略）。 */
 function handleTaskQueueChanged(e: Event) {
   const detail = (e as CustomEvent).detail as {
     session_id: string
@@ -694,16 +707,33 @@ function handleTaskQueueChanged(e: Event) {
     task_id?: string | null
     status?: string | null
   }
-  if (!detail?.task_id) return
-  if (detail.action === 'done') {
-    markCompletedByTaskId(detail.task_id)
-  } else if (detail.action === 'cancel' || detail.action === 'interrupted') {
-    // 队列项被放弃（等待超时取消 / 会话终止兜底）：对应预设落中断
-    markInterruptedByTaskId(detail.task_id)
-  } else if (detail.action === 'revert') {
-    // clear 发送失败回退 pending：任务重新排队，刷新队列重新显示
-    loadQueue()
+  if (detail?.task_id) {
+    if (detail.action === 'done') {
+      markCompletedByTaskId(detail.task_id)
+    } else if (detail.action === 'cancel' || detail.action === 'interrupted') {
+      // 队列项被放弃（等待超时取消 / 会话终止兜底）：对应预设落中断
+      markInterruptedByTaskId(detail.task_id)
+    } else if (detail.action === 'rotate') {
+      // 会话轮换：桌面端把队列项迁到新会话执行，预设的会话归属同步过去，
+      // 否则对账会拿旧会话的空队列把仍在执行的任务误判为中断
+      remapPendingSessionByTaskId(detail.task_id, detail.session_id)
+    }
   }
+  // 桌面端驱动的队列推进（自动执行 dequeue/done、轮换、其他端增删改）不会经过
+  // 本面板的动作函数：面板可见时按事件刷新，否则队列视图会停在旧快照
+  if (autoTaskPanelVisible.value) {
+    void loadQueue()
+    void loadCurrentTask()
+  }
+}
+
+/** 轮换广播：把预设记录的入队会话改到新会话（对账按 pendingSessionId 匹配） */
+function remapPendingSessionByTaskId(taskId: string, sessionId: string | undefined): void {
+  if (!sessionId) return
+  const task = presetTasks.value.find((t: any) => t.pendingTaskId === taskId)
+  if (!task || task.pendingSessionId === sessionId) return
+  task.pendingSessionId = sessionId
+  saveToStorage()
 }
 </script>
 

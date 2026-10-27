@@ -7,7 +7,7 @@
     <div class="px-5 py-3.5 flex items-center justify-between gap-4">
       <div class="min-w-0">
         <span class="text-[calc(13px*var(--ui-scale))] text-[var(--text-primary)]">{{
-          t('settings.linkCrypto.master')
+          t('linkCrypto.master')
         }}</span>
       </div>
       <button
@@ -74,10 +74,10 @@
     >
       <div class="min-w-0">
         <span class="text-[calc(13px*var(--ui-scale))] text-[var(--text-primary)]">{{
-          t('settings.linkCrypto.plaintextFallback')
+          t('linkCrypto.plaintextFallback')
         }}</span>
         <p class="text-xs text-[var(--text-tertiary)] mt-0.5">
-          {{ t('settings.linkCrypto.plaintextFallbackDesc') }}
+          {{ t('linkCrypto.plaintextFallbackDesc') }}
         </p>
       </div>
       <button
@@ -107,10 +107,10 @@
     <div class="px-5 py-3.5 flex items-center justify-between gap-4">
       <div class="min-w-0">
         <span class="text-[calc(13px*var(--ui-scale))] text-[var(--text-primary)]">{{
-          t('settings.linkCrypto.fingerprint')
+          t('linkCrypto.fingerprint')
         }}</span>
         <p class="text-xs text-[var(--text-tertiary)] mt-0.5">
-          {{ t('settings.linkCrypto.fingerprintDesc') }}
+          {{ t('linkCrypto.fingerprintDesc') }}
         </p>
       </div>
       <span
@@ -132,13 +132,13 @@
  * 乐观更新失败回滚：不产生「UI 已开 / 后端未生效」的半启用状态。
  */
 import { inject, onMounted } from 'vue'
-import { useI18n } from 'vue-i18n'
 import { toast } from 'vue-sonner'
+import { useAppI18n } from '@/composables/useAppI18n'
 import type { AppMountEnv } from '@/entry'
 import { useLinkCryptoConfig, type LinkCryptoConfig } from '@/composables/useLinkCrypto'
 
 const env = inject<AppMountEnv | null>('appEnv', null)
-const { t } = useI18n()
+const t = useAppI18n()
 const { config, fingerprint, load, save } = useLinkCryptoConfig(env?.invoke.bind(env))
 
 /** 通道子开关元数据：字段名与 Rust serde snake_case 一致（deny_unknown_fields） */
@@ -149,18 +149,18 @@ const channels: Array<{
 }> = [
   {
     field: 'encrypt_http',
-    labelKey: 'settings.linkCrypto.encryptHttp',
-    descKey: 'settings.linkCrypto.encryptHttpDesc',
+    labelKey: 'linkCrypto.encryptHttp',
+    descKey: 'linkCrypto.encryptHttpDesc',
   },
   {
     field: 'encrypt_ws_terminal',
-    labelKey: 'settings.linkCrypto.encryptWsTerminal',
-    descKey: 'settings.linkCrypto.encryptWsTerminalDesc',
+    labelKey: 'linkCrypto.encryptWsTerminal',
+    descKey: 'linkCrypto.encryptWsTerminalDesc',
   },
   {
     field: 'encrypt_ws_event',
-    labelKey: 'settings.linkCrypto.encryptWsEvent',
-    descKey: 'settings.linkCrypto.encryptWsEventDesc',
+    labelKey: 'linkCrypto.encryptWsEvent',
+    descKey: 'linkCrypto.encryptWsEventDesc',
   },
 ]
 
@@ -177,7 +177,7 @@ async function update(patch: Partial<LinkCryptoConfig>): Promise<void> {
     await save(next)
   } catch {
     config.value = prev
-    toast.error(t('settings.linkCrypto.saveFailed'))
+    toast.error(t('linkCrypto.saveFailed'))
   }
 }
 
