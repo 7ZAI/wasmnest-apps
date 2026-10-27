@@ -32,15 +32,23 @@
 crate-type = ["cdylib"]          # 只 cdylib；**不要加 rlib**
 
 [dependencies]
-# 桌面（apps/<slug>/desktop/rust 深度 = 5 级上溯）
+# 内部 crate 的写法**按分支**（同一份代码两条线，别互相覆盖）：
+#
+#   uat / 发布线：写具体版本（与平台仓 release-manifest 的 repos.lib.tag 同轴）
+#     wasmnest-plugin-api        = { version = "=0.0.1", features = ["wasm"] }
+#     wasmnest-plugin-api-mobile = { version = "=0.0.1", features = ["wasm"] }
+#
+#   dev / 联调线：写本地 path（同机联调，四仓同层）
+#     wasmnest-plugin-api        = { path = "../../../../../wasmnest/wasmnest-desktop/packages/plugin-sdk-desktop/rust", features = ["wasm"] }
+#     wasmnest-plugin-api-mobile = { path = "../../../../../wasmnest/wasmnest-mobile/packages/plugin-sdk-mobile/rust", features = ["wasm"] }
 wasmnest-plugin-api = { path = "../../../../../wasmnest/wasmnest-desktop/packages/plugin-sdk-desktop/rust", features = ["wasm"] }
-# 移动
 wasmnest-plugin-api-mobile = { path = "../../../../../wasmnest/wasmnest-mobile/packages/plugin-sdk-mobile/rust", features = ["wasm"] }
 ```
 
 - **只 `cdylib`，不加 `rlib`**：一旦声明可链接形式，cargo 会连带为宿主目标构建 x86_64 cdylib，而本 crate 的 wit-bindgen 导出名在 ELF version script 里非法 ⇒ 链接期直接失败（bedcode 票 08 实测）。因此跨端契约测试写成 `src/*_test.rs` 的 `#[cfg(test)]` 模块，而不是 `tests/*.rs` 集成目标。
 - **`rustLibrary` = Cargo 包名的下划线归一化**：`bedcode-plugin-terminal-session` → `bedcode_plugin_terminal_session.wasm`。填连字符形式会找不到产物（`manifest-validate` 也要求 `pluginType=rust-ts` 时必须给 `rustLibrary`）。
-- **相对路径深度随目录层级变**：file-transfer 的 rust 层历史上移过两次（`desktop/rust` → `rust-plugin` → `rust/plugin`），SDK path 现在是 5 级上溯。移动这些目录时，`Cargo.toml` 的 SDK path、`lib.rs` 的 `include_str!`、`auth_center.rs` 的 `#[plugin_api(manifest = …)]` **三处必须同改**。
+- **内部 crate 的版本只在 uat / 发布线写**：`uat` 上是 `=0.0.1`（`Cargo.lock` 带 `source = registry` + `checksum`，fresh clone / CI 只靠 registry 就能解析）；**`dev` 上一律本地 path，不写版本**（四仓同机联调口径，`Cargo.lock` 里这些 crate 没有 `source`）。合并 uat → dev 时**必须**把这几处保留成 dev 的 path 形式，别把版本号带进来。
+- **目录移动时仍要同改的两处**：`lib.rs` 的 `include_str!`、`auth_center.rs` 的 `#[plugin_api(manifest = …)]`（file-transfer 的 rust 层历史上移过两次：`desktop/rust` → `rust-plugin` → `rust/plugin`，这两处曾跟着一起断）。
 
 ---
 
