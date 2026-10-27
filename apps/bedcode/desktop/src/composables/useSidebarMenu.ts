@@ -6,12 +6,11 @@
  * 槽位值，保证视觉顺序不变：
  * 设备配对 100 / 终端会话 200 / Agent任务 210 / 设置 9999。
  *
- * 文案 key 两种命名域并存：本 app 域消息经 `com.wasmnest.bedcode.`
- * 前缀（MESSAGE_NAMESPACE），宿主机制文案（设置项）直取顶层 key。
+ * 文案 key 全部为 app 域相对键（渲染处经 `useAppI18n()` 补
+ * `com.wasmnest.bedcode.` 命名空间）；宿主文案不随 app 打包。
  */
 
 import { computed, type ComputedRef } from 'vue'
-import { MESSAGE_NAMESPACE } from '@/i18n'
 
 /** 统一侧边栏菜单项 */
 export interface SidebarMenuItem {
@@ -19,7 +18,7 @@ export interface SidebarMenuItem {
   id: string
   /** 路由路径 */
   path: string
-  /** 显示文本 i18n key（完整 key，含 app 域命名空间前缀） */
+  /** 显示文本 i18n key（app 域相对 key，渲染时补命名空间） */
   labelKey: string
   /** SVG path d 属性（Heroicons outline 风格，viewBox 0 0 24 24） */
   icon: string
@@ -54,28 +53,28 @@ export const sidebarMenuItems: SidebarMenuItem[] = [
   {
     id: 'pairing',
     path: '/pairing',
-    labelKey: `${MESSAGE_NAMESPACE}.pairing.sidebar.title`,
+    labelKey: 'pairing.sidebar.title',
     icon: PAIRING_ICON,
     order: MENU_ORDERS.pairing,
   },
   {
     id: 'sessions',
     path: '/sessions',
-    labelKey: `${MESSAGE_NAMESPACE}.session.sidebar.title`,
+    labelKey: 'session.sidebar.title',
     icon: SESSIONS_ICON,
     order: MENU_ORDERS.sessions,
   },
   {
     id: 'tasks',
     path: '/tasks',
-    labelKey: `${MESSAGE_NAMESPACE}.task.historyTitle`,
+    labelKey: 'task.historyTitle',
     icon: TASKS_ICON,
     order: MENU_ORDERS.tasks,
   },
   {
     id: 'settings',
     path: '/settings',
-    labelKey: 'desktop.sidebar.settings',
+    labelKey: 'sidebar.settings',
     icon: SETTINGS_ICON,
     order: MENU_ORDERS.settings,
   },

@@ -8,12 +8,11 @@
  * - 链路加密——终端业务数据面的设置（加密引擎仍是宿主平台原语）。
  *
  * 分组标题：分组只渲染正文（旧扩展点约定：外壳与标题由宿主统一渲染），
- * 本表为它们携带 titleKey，由设置页统一包外壳。app 域 key 带扁平命名空间前缀，
- * 宿主机制文案副本（host-zh-CN / host-en）的 key 直接取顶层。
+ * 本表为它们携带 titleKey（app 域相对 key），由设置页经 `useAppI18n()`
+ * 补命名空间后统一包外壳。
  */
 
 import { computed, type ComputedRef } from 'vue'
-import { MESSAGE_NAMESPACE } from '@/i18n'
 import AppearanceSettingsSection from '@/components/AppearanceSettingsSection.vue'
 import LinkCryptoSettingsSection from '@/components/LinkCryptoSettingsSection.vue'
 import PairingSettingsSection from '@/components/PairingSettingsSection.vue'
@@ -42,26 +41,25 @@ export const settingsSections: Omit<SettingsSectionEntry, 'props'>[] = [
     key: 'appearance',
     order: SECTION_ORDERS.appearance,
     component: AppearanceSettingsSection,
-    titleKey: `${MESSAGE_NAMESPACE}.appearance.settings.title`,
+    titleKey: 'appearance.settings.title',
   },
   {
     key: 'pairing',
     order: SECTION_ORDERS.pairing,
     component: PairingSettingsSection,
-    titleKey: `${MESSAGE_NAMESPACE}.pairing.settings.title`,
+    titleKey: 'pairing.settings.title',
   },
   {
     key: 'linkCrypto',
     order: SECTION_ORDERS.linkCrypto,
     component: LinkCryptoSettingsSection,
-    // 宿主机制文案副本里的平台文案（app 独立包已合并，无需重复定义）
-    titleKey: 'settings.linkCrypto.title',
+    titleKey: 'linkCrypto.title',
   },
   {
     key: 'session',
     order: SECTION_ORDERS.session,
     component: SessionSettingsSection,
-    titleKey: `${MESSAGE_NAMESPACE}.session.settings.title`,
+    titleKey: 'session.settings.title',
   },
 ]
 

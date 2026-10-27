@@ -31,6 +31,7 @@ interface WireDeviceEntry {
 interface WireTaskEntry {
   batchId?: unknown
   peerName?: unknown
+  direction?: unknown
   status?: unknown
   files?: unknown
   totalBytes?: unknown
@@ -112,9 +113,14 @@ function fileNameOf(files: unknown): string {
   return extra > 0 ? `${name} +${extra}` : name
 }
 
-function stateKeyOf(status: string): string {
+/** send 方向 pending = 等待对端确认；receive 方向 pending = 待应答（预览不出现，兜底排队） */
+function stateKeyOf(status: string, direction: string): string {
   if (status === 'running' || status === 'transferring') return 'transfer.task.state.transferring'
-  if (status === 'pending') return 'transfer.task.state.queued'
+  if (status === 'pending') {
+    return direction === 'send'
+      ? 'transfer.task.state.awaitingPeer'
+      : 'transfer.task.state.queued'
+  }
   return 'transfer.task.state.paused'
 }
 function stateRank(stateKey: string): number {
@@ -136,7 +142,7 @@ function mapTasks(raw: unknown): PreviewTask[] {
       id: asString(task.batchId) || `task-${out.length}`,
       name: fileNameOf(task.files),
       peerName: asString(task.peerName),
-      stateKey: stateKeyOf(status),
+      stateKey: stateKeyOf(status, asString(task.direction)),
       rateBps: asNumber(task.rateBps),
       percent: total > 0 ? Math.min(100, Math.max(0, Math.round((done / total) * 100))) : 0,
     })

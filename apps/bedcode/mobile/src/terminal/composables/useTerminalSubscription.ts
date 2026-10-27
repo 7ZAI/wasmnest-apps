@@ -34,7 +34,7 @@ export interface TerminalSubscriptionDeps {
   /** 终端缓冲 store（Pinia 单例，由组件经 useTerminalBuffer 注入） */
   bufferStore: ReturnType<typeof useTerminalBufferStore>
   /** 会话订阅入口（fresh subscribe 语义；订阅确认经事件异步到达） */
-  subscribeSession: (sessionId: string) => Promise<null>
+  subscribeSession: (sessionId: string, opts?: { force?: boolean }) => Promise<null>
 }
 
 export function useTerminalSubscription(ctx: TerminalKernelContext, deps: TerminalSubscriptionDeps) {

@@ -54,6 +54,8 @@ const zhCN: MessageSchema = {
 
   // ==================== 任务状态 ====================
   'transfer.task.state.queued': '排队',
+  'transfer.task.state.awaitingPeer': '等待对方确认',
+  'transfer.task.awaitingPeerHint': '正在等待对方确认，对方接受后将自动开始传输',
   'transfer.task.state.transferring': '传输中',
   'transfer.task.state.paused': '已暂停',
   'transfer.task.state.resumable': '可恢复',
@@ -65,6 +67,7 @@ const zhCN: MessageSchema = {
   'transfer.task.pause': '暂停',
   'transfer.task.resume': '恢复',
   'transfer.task.cancel': '取消',
+  'transfer.task.cancelledToast': '任务已取消',
   'transfer.task.remove': '删除任务',
   'transfer.task.openDir': '打开本地目录',
   'transfer.task.retry': '重新排队',

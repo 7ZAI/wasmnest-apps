@@ -1,6 +1,6 @@
 import { shallowRef } from 'vue'
 import { logger } from '@/utils/frontendLogger'
-import i18n from '@/i18n'
+import i18n, { MESSAGE_NAMESPACE } from '@/i18n'
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { listen, emitTo, type UnlistenFn } from '@tauri-apps/api/event'
@@ -94,7 +94,9 @@ export function useSessionWindows() {
     // 先隐藏创建，等页面内容就绪后再显示，避免加载过程中的闪屏
     const terminalWindow = new WebviewWindow(windowLabel, {
       url: `/terminal-window/${session.id}`,
-      title: i18n.global.t('common.misc.terminalTitle', { name: session.name }),
+      title: i18n.global.t(`${MESSAGE_NAMESPACE}.session.terminal.windowTitleWithName`, {
+        name: session.name,
+      }),
       width: terminalWidth,
       height: terminalHeight,
       x: terminalX,

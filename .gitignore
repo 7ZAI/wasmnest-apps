@@ -25,6 +25,11 @@
 # 入库等于把「默认走发布物」的口径悄悄改回「默认走平台仓源码」。
 .platform-sdk-link.json
 
+# ai-chatbox 桌面 Go 后端实验区：`go.work` 是 feat/go-backend-support 期间的逃生阀
+# （把 SDK replace 到兄弟 worktree `../wasmnest-go-backend`），文件自带「不入库」声明。
+# 该 feature 合流进主线后删掉本规则与目录，届时 Go 版源码按常规源码入库。
+apps/ai-chatbox/desktop/go/
+
 # AI agent
 *.codebuddy/
 

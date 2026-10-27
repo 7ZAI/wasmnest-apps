@@ -149,7 +149,10 @@ src/
 - 新增 / 修改文案**必须 zh-CN 与 en 同步**；用户可见文案禁止硬编码。
 - 桌面：集中式 `src/i18n/{index,zh-CN,en,messages}.ts`，`appContext.ts` 里 `t()` 按扁平命名空间补前缀（如 `com.wasmnest.agent-hub.*`）。
 - 移动：除 `file-transfer/mobile`（集中式 `src/i18n/`）外，**`bedcode/mobile` 按域分散**（`src/<domain>/i18n.ts`，在各自 `activate` 里注册）。改文案前先 `rg` 定位，不要假设集中目录。
-- **`apps/bedcode/desktop/src/i18n/host-{zh-CN,en}.ts` 是宿主消息集的逐字副本**（drift 锁）：改平台宿主 `src/i18n/host-*.ts` 必须同批改本仓副本，反之亦然。
+- **宿主不装应用文案**：应用可见文案一律归本仓自持（2026-10-27 迁移）。
+  - 桌面 `bedcode` 不再维护宿主消息集副本：业务 / 设置 / 服务器 / 侧边栏 / 配色等文案在 `src/i18n/{zh-CN,en}.ts`，错误信封 `errors.*` 的机制副本在 `src/i18n/mechanism.ts`（宿主机制契约，code 即 key）。
+  - 引用宿主壳命名空间（`desktop.*` / `shell.*` / `common.*`）即取不到文案、界面上回显 key 原文——`i18nPrefixDiscipline.test.ts` L4 机器判。
+  - 移动端同理：`wasmnest-mobile/src/locales/**` 只剩宿主壳 / 机制文案；应用 domain 文案（bedcode `hub.*` / `terminal.*` / `task.*` 等、ai-chatbox `chat.*`）由各自 app 注册。
 
 ---
 

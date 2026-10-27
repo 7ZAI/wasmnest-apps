@@ -9,7 +9,7 @@
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
         </svg>
-        {{ view === 'settings' ? t('mobile.plugin.aiChatbox.backToChat') : t('mobile.plugin.aiChatbox.back') }}
+        {{ view === 'settings' ? t('com.wasmnest.ai-chatbox.chat.backToChat') : t('com.wasmnest.ai-chatbox.chat.back') }}
       </button>
       <h3 class="text-[var(--font-size-base)] font-medium text-[var(--mobile-text-primary)]">{{ headerTitle }}</h3>
       <div class="w-16"></div>
@@ -32,7 +32,7 @@
 
       <!-- 视图二：模板选择（添加供应商直达；4 预设 + 自定义） -->
       <div v-else-if="view === 'templates'" key="templates" class="flex-1 overflow-y-auto px-4 py-4">
-        <p class="text-xs text-[var(--mobile-text-secondary)] mb-5">{{ t('mobile.plugin.aiChatbox.selectTemplate') }}</p>
+        <p class="text-xs text-[var(--mobile-text-secondary)] mb-5">{{ t('com.wasmnest.ai-chatbox.chat.selectTemplate') }}</p>
         <div class="grid grid-cols-2 gap-2.5">
           <button
             v-for="preset in PROVIDER_PRESETS"
@@ -54,7 +54,7 @@
                 <path stroke-linecap="round" stroke-linejoin="round" d="M12 5v14M5 12h14" />
               </svg>
             </span>
-            <span class="text-[var(--font-size-sm)] text-[var(--mobile-text-primary)]">{{ t('mobile.plugin.aiChatbox.customTemplate') }}</span>
+            <span class="text-[var(--font-size-sm)] text-[var(--mobile-text-primary)]">{{ t('com.wasmnest.ai-chatbox.chat.customTemplate') }}</span>
           </button>
         </div>
       </div>
@@ -143,10 +143,10 @@ const existingNames = computed(() => props.providers.map(p => p.name))
 /** 顶栏标题随视图与模式切换 */
 const headerTitle = computed(() => {
   if (view.value === 'settings') return t('com.wasmnest.ai-chatbox.settingsTitle')
-  if (view.value === 'templates') return t('mobile.plugin.aiChatbox.selectTemplate')
+  if (view.value === 'templates') return t('com.wasmnest.ai-chatbox.chat.selectTemplate')
   return editingMode.value === 'edit'
-    ? t('mobile.plugin.aiChatbox.editProvider')
-    : t('mobile.plugin.aiChatbox.addProvider')
+    ? t('com.wasmnest.ai-chatbox.chat.editProvider')
+    : t('com.wasmnest.ai-chatbox.chat.addProvider')
 })
 
 /** 返回：设置页 → 聊天；模板选择 → 设置页；表单（添加）→ 模板选择；表单（编辑）→ 设置页 */

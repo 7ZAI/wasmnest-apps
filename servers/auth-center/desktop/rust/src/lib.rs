@@ -76,7 +76,7 @@ use std::sync::{Mutex, OnceLock};
 // topic）——trait 不在作用域内时宏展开会报「no method bus_subscribe」。
 use wasmnest_plugin_api::host::{HostAuth, HostBus, HostLog};
 use wasmnest_plugin_api::types::PluginManifest;
-use wasmnest_plugin_api::{plugin_api, CommandArgs, WasmHost, WasmPlugin};
+use wasmnest_plugin_api::{plugin_api, BusMessage, CommandArgs, WasmHost, WasmPlugin};
 
 const PLUGIN_ID: &str = "com.wasmnest.auth-center";
 
@@ -838,6 +838,15 @@ impl WasmPlugin for AuthCenterPlugin {
         dispatch_command(name, args)
     }
 
+    /// 互调 api 面：把宿主投递的请求转给宏生成的分派器（否则无人回响应）
+    ///
+    /// `activate` 里的 `AuthCenterApiDispatcher::register()` 只订阅请求 topic；
+    /// 默认 `on_message` 静默吞消息，消费方会全部按 5s 超时收敛。
+    fn on_message(msg: &BusMessage) -> anyhow::Result<()> {
+        AuthCenterApiDispatcher::dispatch::<Self>(msg)?;
+        Ok(())
+    }
+
     /// 认证策略导出（宿主 `auth-policy` 能力，自 bedcode `policy` 域搬入）
     ///
     /// 宿主只对在册认证中心调本导出，故本插件注册成功后它就是**生产路径**；
@@ -1220,6 +1229,32 @@ mod tests {
     }
 
     // ==================== 互调 api 面 / 记录域 / HTTP 入口接线 ====================
+
+    /// 接线锁：互调请求必须在 `on_message` 里分派给宏生成的 dispatcher
+    ///
+    /// `AuthCenterApiDispatcher::register()` 只订阅请求 topic；宿主投递到
+    /// `on_message` 后若不分派，请求无人处理、无人回响应，消费方（bedcode
+    /// 设备中心 / file-transfer consent）全部按 5s 超时收敛——2026-10-26 dev
+    /// 实证：三条命令全超时，而同 guest 的 `/api/auth/pairing` HTTP 命令面正常。
+    /// 两端缺一不可：只订阅不分派 = 静默丢请求；只分派不订阅 = 请求到不了。
+    #[test]
+    fn api_dispatch_is_wired_in_on_message() {
+        let src = include_str!("lib.rs");
+        assert!(
+            src.contains("AuthCenterApiDispatcher::register()?"),
+            "activate 必须订阅互调请求 topic（否则请求到不了本插件）"
+        );
+        let on_message_start = src
+            .find("    fn on_message(msg: &BusMessage) -> anyhow::Result<()> {")
+            .expect("WasmPlugin 必须实现 on_message（默认实现静默丢弃互调请求）");
+        let tail = &src[on_message_start..];
+        let body_end = tail.find("\n    }\n").expect("on_message 函数体边界");
+        let body = &tail[..body_end];
+        assert!(
+            body.contains("AuthCenterApiDispatcher::dispatch::<Self>(msg)"),
+            "on_message 必须分派给 AuthCenterApiDispatcher（否则消费方请求 5s 超时）"
+        );
+    }
 
     /// manifest 的 api 清单必须与 trait 声明**精确一致**（声明方口径）
     ///

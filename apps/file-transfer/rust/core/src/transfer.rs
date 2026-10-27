@@ -69,6 +69,9 @@ pub struct TransferEntry {
     /// `send` | `receive`
     pub direction: String,
     /// running / pending / paused / completed / failed / rejected / cancelled / interrupted
+    ///
+    /// `pending` 双读：receive = 入站待应答批；send = 本端已发起、等待对端确认的批
+    /// （接收策略 ask 的应答窗口），首个 progress 事件推进为 running。
     pub status: String,
     #[serde(default)]
     pub files: Vec<Value>,
@@ -343,6 +346,25 @@ fn terminal_status_of(direction: &str, state: &Value) -> (String, Option<String>
     }
 }
 
+/// 引擎终态 `state` 是否为对端显式取消（`type=cancelled` + `byPeer=true`）。
+fn is_peer_cancel(state: &Value) -> bool {
+    state.get("type").and_then(|v| v.as_str()) == Some("cancelled")
+        && state.get("byPeer").and_then(|v| v.as_bool()).unwrap_or(false)
+}
+
+/// 对端取消事件判据（`terminal` + [`is_peer_cancel`]）：命中返回 batchId。
+/// 插件据此派发 `peer-cancelled` 事件，前端提示「任务已取消」——判据留在核内，
+/// 与终态结算共用同一份 byPeer 口径。
+pub fn peer_cancelled_batch_id(event: &Value) -> Option<&str> {
+    if event.get("kind").and_then(|v| v.as_str()) != Some("terminal") {
+        return None;
+    }
+    if !is_peer_cancel(event.get("state")?) {
+        return None;
+    }
+    event.get("batchId").and_then(|v| v.as_str())
+}
+
 /// 事件归约：引擎原始事件（`peer:transfer-event` / `peer:receive-event`）→ store 状态推进。
 ///
 /// `direction` 按事件 topic 定向；`peer_name` 仅建行事件需要（运行时从设备缓存解析后传入，
@@ -351,7 +373,8 @@ fn terminal_status_of(direction: &str, state: &Value) -> (String, Option<String>
 /// - **建行锚点**：`pull-served`（send 供流记账）、`offer-pending`（入站待应答，
 ///   status=pending）、`pull-started`（本端拉取批次，status=running）——三者都是
 ///   「只有引擎知道 batch_id」的锚点，故由引擎事件建行，插件不自铸无主会话；
-/// - **推进事件**：`progress`（pending→running、字节/速率/总量补正、paused 保持）、
+/// - **推进事件**：`progress`（pending→running —— send 批在此刻对端已放行、数据面
+///   开始，字节/速率/总量补正、paused 保持）、
 ///   `terminal`（结算；paused 保留——用户暂停语义，completed+满字节例外）、
 ///   `paused` / `resumed`（wire 帧同步）；
 /// - 无建行信息的 `progress` / `terminal`（插件激活晚于会话发起）**不凭空建行**，
@@ -480,12 +503,13 @@ pub fn reduce_event(
             if entry.is_terminal() {
                 return false;
             }
-            // 用户暂停分支：终态事件只是中断确认——不落终态（completed+满字节例外）
+            // 用户暂停分支：终态事件只是中断确认——不落终态（completed+满字节例外）；
+            // 对端显式取消是真实终态，必须结算（否则暂停行永久停在 paused、双端分叉）
             let full_completed = entry.status == "paused"
                 && state.get("type").and_then(|v| v.as_str()) == Some("completed")
                 && entry.total_bytes > 0
                 && entry.transferred_bytes >= entry.total_bytes;
-            if entry.status == "paused" && !full_completed {
+            if entry.status == "paused" && !full_completed && !is_peer_cancel(state) {
                 return false;
             }
             let (status, detail, reject_reason) = terminal_status_of(direction, state);
@@ -620,8 +644,8 @@ pub fn clear_terminal(entries: &mut Vec<TransferEntry>) -> usize {
     before - entries.len()
 }
 
-/// 发送视图（`tasks-changed` / `list-tasks` 共用）：仅进行中条目（running/pending/paused）；
-/// 终态条目一律归历史视图，不再滞留活动队列。
+/// 发送视图（`tasks-changed` / `list-tasks` 共用）：仅进行中条目（running/pending/paused，
+/// pending = 等待对端确认）；终态条目一律归历史视图，不再滞留活动队列。
 pub fn active_send_entries(entries: &[TransferEntry]) -> Vec<&TransferEntry> {
     entries
         .iter()
@@ -664,7 +688,23 @@ pub fn mark_paused(entries: &mut [TransferEntry], batch_id: &str) -> bool {
     false
 }
 
-/// 重试回填：新批 ID 替换旧批（同一逻辑传输一条历史），状态复位 running。
+/// 恢复乐观标记：paused 条目改标 `running`（命令生效后立即反馈）。
+///
+/// 恢复命令只向对端写 Resume 帧，引擎**不会**向发起方回送 `resumed` 事件——
+/// 不在此处推进，发起恢复的一端会永久停在「已暂停」，而对端已恢复（双端分叉）。
+pub fn mark_resumed(entries: &mut [TransferEntry], batch_id: &str) -> bool {
+    for e in entries.iter_mut() {
+        if e.batch_id == batch_id && e.status == "paused" {
+            e.status = "running".to_string();
+            e.rate_bps = 0.0;
+            return true;
+        }
+    }
+    false
+}
+
+/// 重试回填：新批 ID 替换旧批（同一逻辑传输一条历史），状态复位 pending
+/// （新批同样先等对端确认，首个 progress 推进 running）。
 /// 只允许携带 `retry_meta` 的终态条目（即本端发起的失败/被拒/取消/中断批）。
 /// 返回是否命中。
 pub fn apply_retry(
@@ -676,7 +716,7 @@ pub fn apply_retry(
     for e in entries.iter_mut() {
         if e.batch_id == old_batch_id && e.is_terminal() && e.retry_meta.is_some() {
             e.batch_id = new_batch_id.to_string();
-            e.status = "running".to_string();
+            e.status = "pending".to_string();
             e.transferred_bytes = 0;
             e.rate_bps = 0.0;
             e.detail = None;

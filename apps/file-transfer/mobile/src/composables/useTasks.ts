@@ -107,7 +107,8 @@ function mapWireBatch(raw: any): PendingBatch {
   }
 }
 
-/** 引擎状态 → 前端状态（running=传输中、pending=排队、paused=已暂停，其余终态直传） */
+/** 引擎状态 → 前端状态（running=传输中、pending=等待对端确认（send 占位批）、
+ * paused=已暂停，其余终态直传） */
 function mapState(status: string): TaskStateName {
   if (status === 'running' || status === 'transferring') return 'transferring'
   if (status === 'pending' || status === 'paused') return status
@@ -135,6 +136,7 @@ export function useTasks(context: PluginContext) {
   let dispBatches: Disposable | null = null
   let dispReceiving: Disposable | null = null
   let dispHistory: Disposable | null = null
+  let dispPeerCancelled: Disposable | null = null
 
   /** 任务/速率快照整表替换 */
   function applySnapshot(list: any[]): void {
@@ -400,6 +402,10 @@ export function useTasks(context: PluginContext) {
     dispHistory = context.events.on('plugin:file-transfer:history-changed', (payload: unknown) => {
       if (Array.isArray(payload)) applyHistorySnapshot(payload, false)
     })
+    // 对端取消：插件已把任务行落 cancelled 并归档历史，这里只补用户可感的提示
+    dispPeerCancelled = context.events.on('plugin:file-transfer:peer-cancelled', () => {
+      context.dialogs.showToast(context.i18n.t('transfer.task.cancelledToast'), 'info')
+    })
     void refresh()
     void refreshReceiving()
     void queryPeer()
@@ -431,6 +437,8 @@ export function useTasks(context: PluginContext) {
     dispReceiving = null
     dispHistory?.dispose()
     dispHistory = null
+    dispPeerCancelled?.dispose()
+    dispPeerCancelled = null
     totalSpeed.value = 0
   }
 

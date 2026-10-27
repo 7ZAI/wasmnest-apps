@@ -2,7 +2,7 @@
   <div class="space-y-5">
     <div class="flex items-center justify-between">
       <h4 class="text-[var(--font-size-lg)] font-medium text-[var(--mobile-text-primary)]">
-        {{ mode === 'edit' ? t('mobile.plugin.aiChatbox.editProvider') : t('mobile.plugin.aiChatbox.addProvider') }}
+        {{ mode === 'edit' ? t('com.wasmnest.ai-chatbox.chat.editProvider') : t('com.wasmnest.ai-chatbox.chat.addProvider') }}
       </h4>
       <span
         v-if="mode === 'edit'"
@@ -13,7 +13,7 @@
     <!-- 名称 -->
     <div>
       <label class="block text-xs font-medium mb-1.5 text-[var(--mobile-text-secondary)]">
-        {{ t('mobile.plugin.aiChatbox.name') }}
+        {{ t('com.wasmnest.ai-chatbox.chat.name') }}
       </label>
       <input
         v-model="form.name"
@@ -25,7 +25,7 @@
     <!-- Base URL -->
     <div>
       <label class="block text-xs font-medium mb-1.5 text-[var(--mobile-text-secondary)]">
-        {{ t('mobile.plugin.aiChatbox.baseUrl') }}
+        {{ t('com.wasmnest.ai-chatbox.chat.baseUrl') }}
       </label>
       <input
         v-model="form.baseUrl"
@@ -38,7 +38,7 @@
     <!-- API Key -->
     <div>
       <label class="block text-xs font-medium mb-1.5 text-[var(--mobile-text-secondary)]">
-        {{ t('mobile.plugin.aiChatbox.apiKey') }}
+        {{ t('com.wasmnest.ai-chatbox.chat.apiKey') }}
       </label>
       <div class="flex gap-2">
         <input
@@ -51,11 +51,11 @@
           class="min-h-[44px] px-3 text-[var(--font-size-sm)] rounded-xl bg-[var(--mobile-bg-tertiary)] text-[var(--mobile-text-secondary)] active:opacity-80 transition-opacity flex-shrink-0"
           @click="showKey = !showKey"
         >
-          {{ showKey ? t('mobile.plugin.aiChatbox.hide') : t('mobile.plugin.aiChatbox.show') }}
+          {{ showKey ? t('com.wasmnest.ai-chatbox.chat.hide') : t('com.wasmnest.ai-chatbox.chat.show') }}
         </button>
       </div>
       <p class="mt-1.5 text-xs text-[var(--mobile-text-muted)]">
-        {{ t('mobile.plugin.aiChatbox.apiKeyHint') }}
+        {{ t('com.wasmnest.ai-chatbox.chat.apiKeyHint') }}
       </p>
     </div>
 
@@ -67,14 +67,14 @@
           :disabled="fetching || !form.baseUrl || !form.apiKey"
           @click="onFetchModels"
         >
-          {{ fetching ? t('mobile.plugin.aiChatbox.fetchingModels') : t('mobile.plugin.aiChatbox.fetchModels') }}
+          {{ fetching ? t('com.wasmnest.ai-chatbox.chat.fetchingModels') : t('com.wasmnest.ai-chatbox.chat.fetchModels') }}
         </button>
         <button
           class="min-h-[44px] px-4 text-[var(--font-size-sm)] rounded-xl bg-[var(--mobile-bg-tertiary)] text-[var(--mobile-text-secondary)] active:opacity-80 transition-opacity disabled:opacity-40 flex-shrink-0"
           :disabled="testing || !form.baseUrl || !form.apiKey"
           @click="onTestConnection"
         >
-          {{ testing ? t('mobile.plugin.aiChatbox.testing') : t('mobile.plugin.aiChatbox.testConnection') }}
+          {{ testing ? t('com.wasmnest.ai-chatbox.chat.testing') : t('com.wasmnest.ai-chatbox.chat.testConnection') }}
         </button>
       </div>
       <p v-if="fetchError" class="text-xs text-[var(--mobile-error)] break-words">
@@ -84,13 +84,13 @@
         v-else-if="testResult !== null"
         class="text-xs break-words"
         :class="testOk ? 'text-[var(--mobile-success)]' : 'text-[var(--mobile-error)]'"
-      >{{ testOk ? t('mobile.plugin.aiChatbox.testOk') : testResult }}</p>
+      >{{ testOk ? t('com.wasmnest.ai-chatbox.chat.testOk') : testResult }}</p>
     </div>
 
     <!-- 模型列表 -->
     <div>
       <label class="block text-xs font-medium mb-1.5 text-[var(--mobile-text-secondary)]">
-        {{ t('mobile.plugin.aiChatbox.modelList') }}
+        {{ t('com.wasmnest.ai-chatbox.chat.modelList') }}
       </label>
       <ModelListEditor v-model:models="form.models" />
     </div>
@@ -102,7 +102,7 @@
         class="min-h-[44px] px-4 text-[var(--font-size-sm)] rounded-xl bg-[var(--mobile-error-muted)] text-[var(--mobile-error)] active:opacity-80 transition-opacity"
         @click="askDelete"
       >
-        {{ t('mobile.plugin.aiChatbox.deleteProvider') }}
+        {{ t('com.wasmnest.ai-chatbox.chat.deleteProvider') }}
       </button>
       <span v-else></span>
       <button
@@ -110,7 +110,7 @@
         :disabled="!canSave"
         @click="save"
       >
-        {{ t('mobile.plugin.aiChatbox.saveProvider') }}
+        {{ t('com.wasmnest.ai-chatbox.chat.saveProvider') }}
       </button>
     </div>
   </div>
@@ -195,10 +195,10 @@ async function onFetchModels(): Promise<void> {
     if (result.length > 0) {
       form.models = result
     } else {
-      fetchError.value = t('mobile.plugin.aiChatbox.fetchModelsEmpty')
+      fetchError.value = t('com.wasmnest.ai-chatbox.chat.fetchModelsEmpty')
     }
   } catch (e: any) {
-    fetchError.value = `${t('mobile.plugin.aiChatbox.fetchModelsFailed')}: ${String(e?.message || e)}`
+    fetchError.value = `${t('com.wasmnest.ai-chatbox.chat.fetchModelsFailed')}: ${String(e?.message || e)}`
   } finally {
     fetching.value = false
   }
@@ -224,9 +224,9 @@ async function onTestConnection(): Promise<void> {
 async function askDelete(): Promise<void> {
   if (!props.initialValues) return
   const ok = await context.dialogs.showConfirm({
-    title: t('mobile.plugin.aiChatbox.confirmDeleteTitle'),
-    message: t('mobile.plugin.aiChatbox.confirmDeleteBody', { name: props.initialValues.name }),
-    confirmText: t('mobile.plugin.aiChatbox.delete'),
+    title: t('com.wasmnest.ai-chatbox.chat.confirmDeleteTitle'),
+    message: t('com.wasmnest.ai-chatbox.chat.confirmDeleteBody', { name: props.initialValues.name }),
+    confirmText: t('com.wasmnest.ai-chatbox.chat.delete'),
     variant: 'danger',
   })
   if (ok) emit('delete', props.initialValues.id)

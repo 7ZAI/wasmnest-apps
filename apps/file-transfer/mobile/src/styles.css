@@ -749,6 +749,14 @@ html:not(.dark) .ft-app {
   color: var(--ft-error);
 }
 
+/* 友好提示（非错误态，如等待对端确认）：无底色，正文次级色 */
+.fv2-card-hint {
+  margin-top: 0.375rem;
+  font-size: var(--font-size-xs);
+  line-height: 1.5;
+  color: var(--ft-text-secondary);
+}
+
 /* 操作列：右对齐文字按钮（44px 触控区），不占整行 */
 .fv2-card-actions {
   display: flex;

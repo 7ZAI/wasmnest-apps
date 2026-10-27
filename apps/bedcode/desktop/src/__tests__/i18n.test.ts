@@ -25,16 +25,24 @@ describe('插件 i18n 键集', () => {
     expect(zhKeys.length).toBeGreaterThan(40)
   })
 
-  it('所有键落在 session.* / pairing.* / task.* / appearance.* 命名空间（注册时再经插件 ID 前缀隔离）', () => {
+  it('所有键落在 app 域命名空间（注册时再经插件 ID 前缀隔离）', () => {
     // spec D6 按域前缀：会话域 session.*（票 13）、设备与配对域 pairing.*（票 14）、
     // 任务域 task.*（票 17：旧 auto-task 插件的扁平 key 加前缀后并入）、
-    // 外观域 appearance.*（设置归属修正 2026-10-19：主题色板归本 app）
+    // 外观域 appearance.*（设置归属修正 2026-10-19：主题色板归本 app）、
+    // 服务器 / 侧边栏 / 链路加密 / 应用兜底（2026-10-27：自宿主文案迁入 app 自持）。
+    const APP_NAMESPACES = [
+      'session.',
+      'pairing.',
+      'task.',
+      'appearance.',
+      'server.',
+      'sidebar.',
+      'linkCrypto.',
+      'notFound.',
+      'settings.',
+    ]
     const stray = [...zhKeys, ...enKeys].filter(
-      (k) =>
-        !k.startsWith('session.') &&
-        !k.startsWith('pairing.') &&
-        !k.startsWith('task.') &&
-        !k.startsWith('appearance.'),
+      (k) => !APP_NAMESPACES.some((ns) => k.startsWith(ns)) && k !== 'runtimeUnexpected',
     )
     expect(stray, `越界键：${stray.join(', ')}`).toEqual([])
   })

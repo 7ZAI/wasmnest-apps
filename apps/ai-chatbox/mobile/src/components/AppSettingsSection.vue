@@ -3,19 +3,19 @@
     <!-- 分组：代码渲染 -->
     <div class="mt-3">
       <h3 class="text-xs font-medium text-[var(--mobile-text-secondary)] mb-2">
-        {{ t('mobile.plugin.aiChatbox.codeRendering') }}
+        {{ t('com.wasmnest.ai-chatbox.chat.codeRendering') }}
       </h3>
       <div class="space-y-3">
         <!-- 字体大小：− / 数值 / ＋（11-18px 步进 1） -->
         <div class="flex items-center justify-between min-h-11">
           <span class="text-[var(--font-size-sm)] text-[var(--mobile-text-primary)]">
-            {{ t('mobile.plugin.aiChatbox.codeFontSize') }}
+            {{ t('com.wasmnest.ai-chatbox.chat.codeFontSize') }}
           </span>
           <div class="flex items-center gap-1">
             <button
               class="w-11 h-11 flex items-center justify-center rounded-lg border border-[var(--mobile-border)] text-[var(--mobile-text-primary)] active:bg-[var(--mobile-bg-tertiary)] transition-colors disabled:opacity-30"
               :disabled="cfg.codeFontSize <= CODE_FONT_SIZE_MIN"
-              :aria-label="t('mobile.plugin.aiChatbox.decrease')"
+              :aria-label="t('com.wasmnest.ai-chatbox.chat.decrease')"
               @click="update({ codeFontSize: cfg.codeFontSize - 1 })"
             >
               <svg
@@ -36,7 +36,7 @@
             <button
               class="w-11 h-11 flex items-center justify-center rounded-lg border border-[var(--mobile-border)] text-[var(--mobile-text-primary)] active:bg-[var(--mobile-bg-tertiary)] transition-colors disabled:opacity-30"
               :disabled="cfg.codeFontSize >= CODE_FONT_SIZE_MAX"
-              :aria-label="t('mobile.plugin.aiChatbox.increase')"
+              :aria-label="t('com.wasmnest.ai-chatbox.chat.increase')"
               @click="update({ codeFontSize: cfg.codeFontSize + 1 })"
             >
               <svg
@@ -55,7 +55,7 @@
         <!-- 行距：自绘滑块拖动（0.5-2.0，步进 0.1，即拖即存） -->
         <div class="flex items-center justify-between min-h-11 gap-3">
           <span class="text-[var(--font-size-sm)] text-[var(--mobile-text-primary)]">
-            {{ t('mobile.plugin.aiChatbox.codeLineHeight') }}
+            {{ t('com.wasmnest.ai-chatbox.chat.codeLineHeight') }}
           </span>
           <div class="flex items-center gap-2 flex-1 min-w-0">
             <div
@@ -92,7 +92,7 @@
         <!-- 代码主题：展开式下拉（跟随 / 浅色 / 深色） -->
         <div>
           <span class="text-[var(--font-size-sm)] text-[var(--mobile-text-primary)]">
-            {{ t('mobile.plugin.aiChatbox.codeTheme') }}
+            {{ t('com.wasmnest.ai-chatbox.chat.codeTheme') }}
           </span>
           <div
             class="mt-1.5 rounded-lg border border-[var(--mobile-border)] bg-[var(--mobile-bg-tertiary)] overflow-hidden"
@@ -151,12 +151,12 @@
     <!-- 分组：思考模式 -->
     <div class="mt-4">
       <h3 class="text-xs font-medium text-[var(--mobile-text-secondary)] mb-2">
-        {{ t('mobile.plugin.aiChatbox.thinking') }}
+        {{ t('com.wasmnest.ai-chatbox.chat.thinking') }}
       </h3>
       <div class="space-y-3">
         <div class="flex items-center justify-between min-h-11">
           <span class="text-[var(--font-size-sm)] text-[var(--mobile-text-primary)]">
-            {{ t('mobile.plugin.aiChatbox.thinkingMode') }}
+            {{ t('com.wasmnest.ai-chatbox.chat.thinkingMode') }}
           </span>
           <SegmentedControl
             :options="thinkingModeOptions"
@@ -171,7 +171,7 @@
           class="flex items-center justify-between min-h-11"
         >
           <span class="text-[var(--font-size-sm)] text-[var(--mobile-text-primary)]">
-            {{ t('mobile.plugin.aiChatbox.reasoningEffort') }}
+            {{ t('com.wasmnest.ai-chatbox.chat.reasoningEffort') }}
           </span>
           <SegmentedControl
             :options="effortOptions"
@@ -182,7 +182,7 @@
 
         <div class="flex items-center justify-between min-h-11">
           <span class="text-[var(--font-size-sm)] text-[var(--mobile-text-primary)]">
-            {{ t('mobile.plugin.aiChatbox.showReasoning') }}
+            {{ t('com.wasmnest.ai-chatbox.chat.showReasoning') }}
           </span>
           <SegmentedControl
             :options="showReasoningOptions"
@@ -196,19 +196,19 @@
     <!-- 分组：限流重试（429/503/529 自动重试，指数退避） -->
     <div class="mt-4">
       <h3 class="text-xs font-medium text-[var(--mobile-text-secondary)] mb-2">
-        {{ t('mobile.plugin.aiChatbox.rateLimitGroup') }}
+        {{ t('com.wasmnest.ai-chatbox.chat.rateLimitGroup') }}
       </h3>
       <div class="space-y-3">
         <!-- 自动重试次数：− / 数值 / ＋（0-10，0 = 关闭） -->
         <div class="flex items-center justify-between min-h-11">
           <span class="text-[var(--font-size-sm)] text-[var(--mobile-text-primary)]">
-            {{ t('mobile.plugin.aiChatbox.rateLimitMaxRetries') }}
+            {{ t('com.wasmnest.ai-chatbox.chat.rateLimitMaxRetries') }}
           </span>
           <div class="flex items-center gap-1">
             <button
               class="w-11 h-11 flex items-center justify-center rounded-lg border border-[var(--mobile-border)] text-[var(--mobile-text-primary)] active:bg-[var(--mobile-bg-tertiary)] transition-colors disabled:opacity-30"
               :disabled="cfg.rateLimitMaxRetries <= RATE_LIMIT_MAX_RETRIES_MIN"
-              :aria-label="t('mobile.plugin.aiChatbox.decrease')"
+              :aria-label="t('com.wasmnest.ai-chatbox.chat.decrease')"
               @click="update({ rateLimitMaxRetries: cfg.rateLimitMaxRetries - 1 })"
             >
               <svg
@@ -226,14 +226,14 @@
             >
               {{
                 cfg.rateLimitMaxRetries === 0
-                  ? t('mobile.plugin.aiChatbox.rateLimitOff')
+                  ? t('com.wasmnest.ai-chatbox.chat.rateLimitOff')
                   : cfg.rateLimitMaxRetries
               }}
             </span>
             <button
               class="w-11 h-11 flex items-center justify-center rounded-lg border border-[var(--mobile-border)] text-[var(--mobile-text-primary)] active:bg-[var(--mobile-bg-tertiary)] transition-colors disabled:opacity-30"
               :disabled="cfg.rateLimitMaxRetries >= RATE_LIMIT_MAX_RETRIES_MAX"
-              :aria-label="t('mobile.plugin.aiChatbox.increase')"
+              :aria-label="t('com.wasmnest.ai-chatbox.chat.increase')"
               @click="update({ rateLimitMaxRetries: cfg.rateLimitMaxRetries + 1 })"
             >
               <svg
@@ -252,7 +252,7 @@
         <!-- 初始等待：滑块 0.5s-10s（步进 0.5s，即拖即存，ms 存储） -->
         <div class="flex items-center justify-between min-h-11 gap-3">
           <span class="text-[var(--font-size-sm)] text-[var(--mobile-text-primary)]">
-            {{ t('mobile.plugin.aiChatbox.rateLimitInitialDelay') }}
+            {{ t('com.wasmnest.ai-chatbox.chat.rateLimitInitialDelay') }}
           </span>
           <div class="flex items-center gap-2 flex-1 min-w-0">
             <div
@@ -286,7 +286,7 @@
         <!-- 最大等待：滑块 5s-60s（步进 5s，指数退避封顶值） -->
         <div class="flex items-center justify-between min-h-11 gap-3">
           <span class="text-[var(--font-size-sm)] text-[var(--mobile-text-primary)]">
-            {{ t('mobile.plugin.aiChatbox.rateLimitMaxDelay') }}
+            {{ t('com.wasmnest.ai-chatbox.chat.rateLimitMaxDelay') }}
           </span>
           <div class="flex items-center gap-2 flex-1 min-w-0">
             <div
@@ -449,12 +449,12 @@ function toggleDropdown(key: 'codeTheme'): void {
 }
 
 const themeOptions: SegmentedOption<PluginConfig['codeTheme']>[] = [
-  { value: 'auto', label: t('mobile.plugin.aiChatbox.codeThemeAuto') },
-  { value: 'light', label: t('mobile.plugin.aiChatbox.codeThemeLight') },
-  { value: 'dark', label: t('mobile.plugin.aiChatbox.codeThemeDark') },
-  { value: 'github-light', label: t('mobile.plugin.aiChatbox.codeThemeGithubLight') },
-  { value: 'github-dark', label: t('mobile.plugin.aiChatbox.codeThemeGithubDark') },
-  { value: 'dracula', label: t('mobile.plugin.aiChatbox.codeThemeDracula') },
+  { value: 'auto', label: t('com.wasmnest.ai-chatbox.chat.codeThemeAuto') },
+  { value: 'light', label: t('com.wasmnest.ai-chatbox.chat.codeThemeLight') },
+  { value: 'dark', label: t('com.wasmnest.ai-chatbox.chat.codeThemeDark') },
+  { value: 'github-light', label: t('com.wasmnest.ai-chatbox.chat.codeThemeGithubLight') },
+  { value: 'github-dark', label: t('com.wasmnest.ai-chatbox.chat.codeThemeGithubDark') },
+  { value: 'dracula', label: t('com.wasmnest.ai-chatbox.chat.codeThemeDracula') },
 ]
 
 const currentThemeLabel = computed(
@@ -525,20 +525,20 @@ const maxSlider = makeDelaySlider(maxTrackRef, 5000, 60000, 5000, 'rateLimitMaxD
 // ==================== 思考模式 ====================
 
 const thinkingModeOptions: SegmentedOption<PluginConfig['thinkingMode']>[] = [
-  { value: 'default', label: t('mobile.plugin.aiChatbox.thinkingDefault') },
-  { value: 'enabled', label: t('mobile.plugin.aiChatbox.thinkingEnabled') },
-  { value: 'disabled', label: t('mobile.plugin.aiChatbox.thinkingDisabled') },
+  { value: 'default', label: t('com.wasmnest.ai-chatbox.chat.thinkingDefault') },
+  { value: 'enabled', label: t('com.wasmnest.ai-chatbox.chat.thinkingEnabled') },
+  { value: 'disabled', label: t('com.wasmnest.ai-chatbox.chat.thinkingDisabled') },
 ]
 
 const effortOptions: SegmentedOption<PluginConfig['reasoningEffort']>[] = [
-  { value: 'low', label: t('mobile.plugin.aiChatbox.effortLow') },
-  { value: 'high', label: t('mobile.plugin.aiChatbox.effortHigh') },
-  { value: 'max', label: t('mobile.plugin.aiChatbox.effortMax') },
+  { value: 'low', label: t('com.wasmnest.ai-chatbox.chat.effortLow') },
+  { value: 'high', label: t('com.wasmnest.ai-chatbox.chat.effortHigh') },
+  { value: 'max', label: t('com.wasmnest.ai-chatbox.chat.effortMax') },
 ]
 
 const showReasoningOptions: SegmentedOption<'on' | 'off'>[] = [
-  { value: 'on', label: t('mobile.plugin.aiChatbox.show') },
-  { value: 'off', label: t('mobile.plugin.aiChatbox.hide') },
+  { value: 'on', label: t('com.wasmnest.ai-chatbox.chat.show') },
+  { value: 'off', label: t('com.wasmnest.ai-chatbox.chat.hide') },
 ]
 </script>
 

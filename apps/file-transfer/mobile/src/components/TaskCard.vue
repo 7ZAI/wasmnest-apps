@@ -27,6 +27,8 @@ const props = defineProps<{
   progressClass?: string
   /** 失败/拒绝时附加 reason 文案（key 已在父级解析） */
   reason: string | null
+  /** 非错误态的友好提示（如等待对端确认；key 已在父级解析） */
+  hint?: string | null
   /** 不确定进度（运行中但 offset=0） */
   indeterminate?: boolean
   /** 操作按钮（语义由 kind 决定） */
@@ -91,7 +93,7 @@ function onAction(kind: TaskAction['kind']): void {
     <!-- 正文行：左侧元信息 / 进度 / 原因，右侧文字操作（44px 触控区） -->
     <div class="fv2-card-main">
       <div class="fv2-card-info">
-        <div class="fv2-card-meta">{{ meta }}</div>
+        <div v-if="meta" class="fv2-card-meta">{{ meta }}</div>
 
         <!-- 进度条（仅传输/接收中可见） -->
         <div v-if="progress !== null || indeterminate" class="fv2-progress-track">
@@ -104,6 +106,9 @@ function onAction(kind: TaskAction['kind']): void {
 
         <!-- 失败原因（独立行） -->
         <div v-if="reason" class="fv2-card-reason">{{ reason }}</div>
+
+        <!-- 友好提示（非错误态，如等待对端确认） -->
+        <div v-if="hint" class="fv2-card-hint">{{ hint }}</div>
       </div>
 
       <div v-if="actions.length > 0" class="fv2-card-actions">

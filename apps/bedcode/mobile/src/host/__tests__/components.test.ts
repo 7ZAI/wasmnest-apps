@@ -20,8 +20,10 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { nextTick } from 'vue'
+import { createI18n } from 'vue-i18n'
 import { mount } from '@vue/test-utils'
 import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-mobile'
+import { messagesZhCN } from '../i18n'
 import DevicesSection from '../components/DevicesSection.vue'
 import SessionsSection from '../components/SessionsSection.vue'
 import { installMockMobileApi, uninstallMockMobileApi, type MockMobileApi } from '../../terminal/__tests__/testKit'
@@ -49,6 +51,36 @@ function makePluginContext() {
     i18n: { t: (key: string) => key },
     dialogs: { showToast: vi.fn(), showConfirm: vi.fn(async () => true) },
     logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
+  } as unknown as PluginContext
+}
+
+/** 展平文案树（宿主 registerMessages 的展平口径：整棵树挂插件 id 前缀） */
+function flatten(
+  source: Record<string, unknown>,
+  prefix = '',
+  out: Record<string, string> = {},
+): Record<string, string> {
+  for (const [key, value] of Object.entries(source)) {
+    const path = prefix ? `${prefix}.${key}` : key
+    if (value && typeof value === 'object') flatten(value as Record<string, unknown>, path, out)
+    else out[path] = value as string
+  }
+  return out
+}
+
+/** 真 i18n 上下文（本域文案按插件前缀注册），用于钉「渲染文案而非裸 key」 */
+function makeRealI18nContext(): PluginContext {
+  const i18n = createI18n({
+    legacy: false,
+    locale: 'zh-CN',
+    messages: { 'zh-CN': flatten(messagesZhCN as unknown as Record<string, unknown>, 'com.wasmnest.bedcode') },
+  })
+  return {
+    ...makePluginContext(),
+    i18n: {
+      t: (key: string, params?: Record<string, unknown>) =>
+        i18n.global.t(`com.wasmnest.bedcode.${key}`, params as never),
+    },
   } as unknown as PluginContext
 }
 
@@ -226,6 +258,29 @@ describe('C-C4/C-C5/C-C6/C-C9 会话页形态与动作契约', () => {
     expect(wrapper.text()).toContain('hub.statusRunning')
     expect(wrapper.find('button[title="hub.stopSession"]').exists()).toBe(true)
     expect(wrapper.text()).toContain('hub.runningSessions')
+    wrapper.unmount()
+  })
+
+  it('should_renderResolvedRunTimeText_when_runningSessionHasStartTime', async () => {
+    // 回归：运行时长必须是解析后的文案（宿主 common.time.* 已在平台仓死键清理中退役，
+    // 曾因取不到键把系统键名直接渲染到卡片上）
+    ctx = makeRealI18nContext()
+    api.isConnected.value = true
+    api.isPaired.value = true
+    api.activeSessions.value = [
+      {
+        id: 's-1',
+        name: 'build',
+        status: 'running',
+        startedAt: new Date(Date.now() - 5000).toISOString(),
+      },
+    ]
+    const wrapper = mountSection(SessionsSection)
+    await nextTick()
+
+    expect(wrapper.text()).toContain('5秒')
+    expect(wrapper.text()).not.toContain('runTimeSeconds')
+    expect(wrapper.text()).not.toContain('common.time')
     wrapper.unmount()
   })
 

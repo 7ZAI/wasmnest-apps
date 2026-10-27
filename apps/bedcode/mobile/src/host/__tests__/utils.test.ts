@@ -3,7 +3,15 @@
  * 契约：地址解析正反例 / 状态文案 key 映射 / 会话活跃判定边界 / 未知状态兜底。
  */
 import { describe, expect, it } from 'vitest'
-import { formatLastConnected, isSessionActive, parseAddress, parseAddressWithDefault, sessionStatusKey, statusKey } from '../utils'
+import {
+  formatLastConnected,
+  formatRunTime,
+  isSessionActive,
+  parseAddress,
+  parseAddressWithDefault,
+  sessionStatusKey,
+  statusKey,
+} from '../utils'
 
 describe('parseAddress 地址:端口 解析', () => {
   it('解析 IPv4:端口', () => {
@@ -78,6 +86,28 @@ describe('formatLastConnected 相对时间（旧 formatLastConnected 口径）',
   })
   it('超过 30 天 → 绝对日期 YYYY-MM-DD', () => {
     expect(formatLastConnected(ago(40 * 24 * 3600 * 1000), t)).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+  })
+})
+
+describe('formatRunTime 运行时长（会话卡片）', () => {
+  /** t 替身：回显 key 并带上参数，便于断言分支与参数 */
+  const t = (key: string, params?: Record<string, unknown>) =>
+    params ? `${key}:${JSON.stringify(params)}` : key
+
+  it('60 秒内 → 秒档（含 0 与 59 边界）', () => {
+    expect(formatRunTime(0, t)).toBe('hub.runTimeSeconds:{"n":0}')
+    expect(formatRunTime(59, t)).toBe('hub.runTimeSeconds:{"n":59}')
+  })
+  it('1 小时内的分秒档（含 60 与 3599 边界）', () => {
+    expect(formatRunTime(60, t)).toBe('hub.runTimeMinutesSeconds:{"m":1,"s":0}')
+    expect(formatRunTime(3599, t)).toBe('hub.runTimeMinutesSeconds:{"m":59,"s":59}')
+  })
+  it('1 小时以上 → 时分档（含 3600 边界）', () => {
+    expect(formatRunTime(3600, t)).toBe('hub.runTimeHoursMinutes:{"h":1,"m":0}')
+    expect(formatRunTime(3661, t)).toBe('hub.runTimeHoursMinutes:{"h":1,"m":1}')
+  })
+  it('负值（两端时钟偏差）按 0 处理，不显示负数', () => {
+    expect(formatRunTime(-5, t)).toBe('hub.runTimeSeconds:{"n":0}')
   })
 })
 

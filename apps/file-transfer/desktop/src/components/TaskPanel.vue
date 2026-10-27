@@ -77,8 +77,13 @@ function chipClass(state: TaskStateName): string {
   return CHIP_CLASS[state] ?? 'ft-chip--queued'
 }
 
-function stateText(state: TaskStateName): string {
-  return stateLabel(state)
+/** 上传批等待对端确认（接收策略 ask 的应答窗口；插件在首个进度事件前沿用 pending） */
+function isAwaitingPeer(task: Task): boolean {
+  return task.direction === 'upload' && task.state === 'pending'
+}
+
+function stateText(task: Task): string {
+  return isAwaitingPeer(task) ? t('transfer.task.state.awaitingPeer') : stateLabel(task.state)
 }
 
 /** 进度百分比 */
@@ -630,7 +635,7 @@ function historyResult(entry: HistoryEntry): string {
                     displayName(task.remotePath)
                   }}</span>
                   <span class="ft-chip" :class="chipClass(task.state)">{{
-                    stateText(task.state)
+                    stateText(task)
                   }}</span>
                   <button
                     v-if="canResume(task)"
@@ -694,21 +699,27 @@ function historyResult(entry: HistoryEntry): string {
                   </button>
                 </div>
 
-                <!-- 进度条 -->
-                <div class="ft-pbar">
-                  <span
-                    class="ft-pbar-fill"
-                    :style="{ width: percent(task) + '%' }"
-                  ></span>
+                <!-- 等待对端确认：尚无字节可报，用友好提示替代空进度/元信息 -->
+                <div v-if="isAwaitingPeer(task)" class="ft-task-hint">
+                  {{ t('transfer.task.awaitingPeerHint') }}
                 </div>
+                <template v-else>
+                  <!-- 进度条 -->
+                  <div class="ft-pbar">
+                    <span
+                      class="ft-pbar-fill"
+                      :style="{ width: percent(task) + '%' }"
+                    ></span>
+                  </div>
 
-                <!-- 元信息 / 原因 -->
-                <div class="ft-task-meta">
-                  <span>{{ formatBytes(task.offset) }} / {{ formatBytes(task.size) }}</span>
-                  <span v-if="speedOf(task) > 0">{{ formatBytes(speedOf(task)) }}/s</span>
-                  <span v-if="etaOf(task)">{{ etaOf(task) }}</span>
-                </div>
-                <div v-if="reasonText(task.state, task.reason, t)" class="ft-task-reason">{{ reasonText(task.state, task.reason, t) }}</div>
+                  <!-- 元信息 / 原因 -->
+                  <div class="ft-task-meta">
+                    <span>{{ formatBytes(task.offset) }} / {{ formatBytes(task.size) }}</span>
+                    <span v-if="speedOf(task) > 0">{{ formatBytes(speedOf(task)) }}/s</span>
+                    <span v-if="etaOf(task)">{{ etaOf(task) }}</span>
+                  </div>
+                  <div v-if="reasonText(task.state, task.reason, t)" class="ft-task-reason">{{ reasonText(task.state, task.reason, t) }}</div>
+                </template>
               </template>
             </div>
           </template>

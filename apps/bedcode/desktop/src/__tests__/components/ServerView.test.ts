@@ -80,12 +80,8 @@ function createTestI18n() {
     fallbackLocale: 'zh-CN',
     messages: {
       'zh-CN': {
-        desktop: {
-          server: {
-            portSave: '保存',
-            portSavedDelayed: 'PORT_SAVED_DELAYED',
-          },
-        },
+        'com.wasmnest.bedcode.server.portSave': '保存',
+        'com.wasmnest.bedcode.server.portSavedDelayed': 'PORT_SAVED_DELAYED',
       },
     },
   })

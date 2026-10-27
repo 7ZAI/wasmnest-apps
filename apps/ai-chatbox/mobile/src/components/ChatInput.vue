@@ -22,7 +22,7 @@
         :options="modelOptions"
         size="sm"
         placement="top"
-        :placeholder="t('mobile.plugin.aiChatbox.model')"
+        :placeholder="t('com.wasmnest.ai-chatbox.chat.model')"
         class="max-w-[13rem]"
         @update:model-value="emit('update:modelValue', String($event))"
       />
@@ -31,7 +31,7 @@
       <button
         v-if="streaming"
         class="w-10 h-10 flex-shrink-0 rounded-full flex items-center justify-center bg-[var(--mobile-bg-tertiary)] text-[var(--mobile-text-secondary)] active:opacity-80 transition-opacity"
-        :title="t('mobile.plugin.aiChatbox.stop')"
+        :title="t('com.wasmnest.ai-chatbox.chat.stop')"
         @click="emit('stop')"
       >
         <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
@@ -44,7 +44,7 @@
         :class="canSend
           ? 'bg-[var(--mobile-accent)] text-[var(--mobile-text-on-accent)]'
           : 'bg-[var(--mobile-bg-tertiary)] text-[var(--mobile-text-disabled)]'"
-        :title="t('mobile.plugin.aiChatbox.send')"
+        :title="t('com.wasmnest.ai-chatbox.chat.send')"
         :disabled="!canSend"
         @click="send"
       >

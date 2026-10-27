@@ -109,6 +109,10 @@ export const messagesZhCN = {
     timeMinutesAgo: '{count} 分钟前',
     timeHoursAgo: '{count} 小时前',
     timeDaysAgo: '{count} 天前',
+    // 会话运行时长（useRunTime，运行中每秒刷新；宿主 common.time.* 已退役，文案由本域自持）
+    runTimeSeconds: '{n}秒',
+    runTimeMinutesSeconds: '{m}分{s}秒',
+    runTimeHoursMinutes: '{h}小时{m}分',
     disconnectConfirm: '确定要断开与当前设备的连接吗？所有远程会话将终止。',
     connectNewDevice: '连接新设备',
     addressPlaceholder: '输入设备地址 (如: 10.186.131.120)',
@@ -251,6 +255,10 @@ export const messagesEn = {
     timeMinutesAgo: '{count} min ago',
     timeHoursAgo: '{count} h ago',
     timeDaysAgo: '{count} d ago',
+    // Session run time (useRunTime, refreshed every second while running)
+    runTimeSeconds: '{n}s',
+    runTimeMinutesSeconds: '{m}m {s}s',
+    runTimeHoursMinutes: '{h}h {m}m',
     disconnectConfirm:
       'Are you sure you want to disconnect? All remote sessions will be terminated.',
     connectNewDevice: 'Connect New Device',

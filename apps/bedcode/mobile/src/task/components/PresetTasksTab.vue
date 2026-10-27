@@ -208,12 +208,12 @@
 
     <!-- 会话选择：多活跃会话时先让用户选目标，再进确认（单会话直接跳确认） -->
     <Modal v-model="showSessionPicker" :title="t('preset.selectSession')" size="sm">
-      <p v-if="activeSessions.length === 0" class="group-row-sub text-center py-2">
+      <p v-if="runningSessions.length === 0" class="group-row-sub text-center py-2">
         {{ t('preset.noActiveSessions') }}
       </p>
       <div v-else class="space-y-2 max-h-60 overflow-y-auto">
         <button
-          v-for="session in activeSessions"
+          v-for="session in runningSessions"
           :key="session.id"
           class="w-full text-left px-4 py-3 rounded-xl transition-colors active:opacity-80"
           style="background: var(--mobile-bg-primary); border: 1px solid var(--mobile-group-border)"
@@ -267,8 +267,9 @@
  * （与会话页的 `@open-connection` 同一通道，页签切换归 app 域）。
  */
 import { ref, computed, onMounted, nextTick } from 'vue'
-import { getMobileApi, getPresetTasks } from '@binblink/wasmnest-plugin-sdk-mobile'
+import { getMobileApi } from '@binblink/wasmnest-plugin-sdk-mobile'
 import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-mobile'
+import { usePresetTasks } from '../presetApi'
 import type { PresetTask } from '../../terminal/model'
 import PresetTaskCard from './PresetTaskCard.vue'
 import RepeatableToggle from '../../terminal/components/RepeatableToggle.vue'
@@ -290,12 +291,23 @@ const toast = (message: string, type: 'info' | 'success' | 'warning' | 'error' =
 
 const connection = getMobileApi()
 const { tasks, load, addTask, updateTask, deleteTask, executeTask, reconcileWithQueue } =
-  getPresetTasks().usePresetTasks()
+  usePresetTasks()
 
 // ==================== 宿主连接事实 ====================
 
 const isConnected = computed(() => connection.isConnected.value === true)
 const activeSessionId = computed(() => connection.activeSessionId.value || '')
+/**
+ * 可执行目标会话：只含运行中的会话（`activeSessions` 同时保存已停止会话，
+ * 对它们下发输入必吃「会话不存在 / 无 PTY 句柄」→ 用户看到「发送失败」）。
+ * waitingInput 也算运行中（会话在等 Agent 输入，PTY 仍可写），与宿主
+ * runningSessionCount 同一判据。
+ */
+const runningSessions = computed<any[]>(() =>
+  (connection.activeSessions.value || []).filter(
+    (s: any) => s.status === 'running' || s.status === 'waitingInput',
+  ),
+)
 const activeSessions = computed<any[]>(() => connection.activeSessions.value || [])
 const sessionConfigs = computed<any[]>(() => connection.sessionConfigs.value || [])
 
@@ -469,12 +481,12 @@ function startExecuteFlow(task: PresetTask): void {
     emit('open-connection')
     return
   }
-  if (activeSessions.value.length === 0) {
+  if (runningSessions.value.length === 0) {
     toast(t('preset.noActiveSessions'), 'warning')
     return
   }
-  if (activeSessions.value.length === 1) {
-    pendingSessionId.value = activeSessions.value[0].id
+  if (runningSessions.value.length === 1) {
+    pendingSessionId.value = runningSessions.value[0].id
     showExecuteConfirm.value = true
     return
   }
@@ -509,9 +521,13 @@ async function doExecute(): Promise<void> {
 onMounted(async () => {
   await load()
   // 对账：进入本页时，若有「执行中」预设的队列项已不在该会话 pending 队列中，
-  // 落「已中断」（WS 广播不可靠时的兜底，语义与旧 PresetTasksView 一致）
+  // 落「已中断」（WS 广播不可靠时的兜底，语义与旧 PresetTasksView 一致）。
+  // 仅对运行中的会话对账：轮换后旧会话队列已迁到新会话，查旧会话空队列会把
+  // 仍在执行的任务误判为中断。
   const sid = activeSessionId.value
-  if (sid) await reconcileWithQueue(sid)
+  if (sid && runningSessions.value.some((s: any) => s.id === sid)) {
+    await reconcileWithQueue(sid)
+  }
 })
 </script>
 

@@ -17,8 +17,8 @@ use super::MockHost;
 use crate::device_bridge;
 use crate::platform::{self, Platform};
 use crate::peer::{
-    history_view, load_entries, next_local_failure_id, persist_entries, restore_entries,
-    running_send_count, send_row, TransferEntry,
+    history_view, load_entries, next_local_failure_id, occupied_send_slots, persist_entries,
+    restore_entries, send_row, TransferEntry,
 };
 use crate::settings_store;
 use crate::transfer_store::{self, RetryMeta};
@@ -65,7 +65,7 @@ fn redial_scenario_keeps_single_history_row_across_replay() {
     assert_eq!(store[0].transferred_bytes, 400);
     assert_eq!(store[0].total_bytes, 1000);
     // 发起方向占着一个发送槽位（并发上限 1 时占满）
-    assert_eq!(running_send_count(&store), 1);
+    assert_eq!(occupied_send_slots(&store), 1);
     assert!(!transfer_store::send_slot_open(1, 1));
     assert!(transfer_store::send_slot_open(
         1,
@@ -76,7 +76,7 @@ fn redial_scenario_keeps_single_history_row_across_replay() {
     assert_eq!(transfer_store::mark_active_interrupted(&mut store), 1);
     assert_eq!(store[0].status, "interrupted");
     assert_eq!(store[0].rate_bps, 0.0);
-    assert_eq!(running_send_count(&store), 0, "中断批不再占槽");
+    assert_eq!(occupied_send_slots(&store), 0, "中断批不再占槽");
     assert!(transfer_store::send_slot_open(
         0,
         settings_store::DEFAULT_CONCURRENCY
@@ -96,14 +96,14 @@ fn redial_scenario_keeps_single_history_row_across_replay() {
     ));
     assert_eq!(store.len(), 1, "回放不复制历史行");
     assert_eq!(store[0].batch_id, "batch-2");
-    assert_eq!(store[0].status, "running");
+    assert_eq!(store[0].status, "pending", "回放重新等对端确认");
     assert_eq!(store[0].transferred_bytes, 0, "回放从头计数");
     assert_eq!(
         store[0].retry_meta,
         Some(meta.clone()),
         "凭证保留，可再次回放"
     );
-    assert_eq!(running_send_count(&store), 1, "回放重新占槽");
+    assert_eq!(occupied_send_slots(&store), 1, "回放重新占槽");
 
     // 新一轮：进度 → 完成
     assert!(transfer_store::reduce_event(
