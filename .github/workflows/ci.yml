@@ -95,8 +95,8 @@ jobs:
             while read -r end; do
               [ -n "$end" ] || continue
               matrix=$(jq -c --arg slug "$slug" --arg group "$group" --arg dir "$dir" --arg end "$end" \
-                --argjson needs "$needs" \
-                '.include += [{slug:$slug, group:$group, dir:$dir, end:$end, needsPlatform:$needs}]' <<<"$matrix")
+                --argjson needs "$needs" --argjson sdkdist "$repo_needs" \
+                '.include += [{slug:$slug, group:$group, dir:$dir, end:$end, needsPlatform:$needs, needsSdkDist:$sdkdist}]' <<<"$matrix")
             done < <(node scripts/ci/app-info.mjs --app "$slug" --field ends | jq -r '.[]')
           done < <(node scripts/ci/app-info.mjs --list)
           if [ "$(jq '.include | length' <<<"$matrix")" = "0" ]; then
@@ -129,6 +129,12 @@ jobs:
           node scripts/ci/fetch-cross-repo.mjs \
             --platform-ref "${{ vars.WASMNEST_PLATFORM_REF || 'dev' }}" \
             --lib-ref "${{ vars.WASMNEST_LIB_REF || 'dev' }}"
+
+      # dev 线：`file:` 依赖指向平台仓源码，其 `dist/` 不入库 ⇒ 必须先构建，否则
+      # eslint 解析 SDK 时找不到入口。uat 线用发布物（自带 dist），跳过。
+      - name: 补齐平台侧生成物（仅 dev 线）
+        if: needs.discover.outputs.repoNeedsPlatform == 'true'
+        run: node scripts/ci/prepare-platform.mjs --ends all
 
       - name: 安装 Node
         uses: actions/setup-node@v4
@@ -195,6 +201,12 @@ jobs:
             --platform-ref "${{ vars.WASMNEST_PLATFORM_REF || 'dev' }}" \
             --lib-ref "${{ vars.WASMNEST_LIB_REF || 'dev' }}"
 
+      # dev 线：`file:` 依赖指向平台仓源码，其 `dist/` 不入库 ⇒ 必须先构建，否则
+      # eslint 解析 SDK 时找不到入口。uat 线用发布物（自带 dist），跳过。
+      - name: 补齐平台侧生成物（仅 dev 线）
+        if: needs.discover.outputs.repoNeedsPlatform == 'true'
+        run: node scripts/ci/prepare-platform.mjs --ends all
+
       - name: 安装 Node
         uses: actions/setup-node@v4
         with:
@@ -212,6 +224,11 @@ jobs:
           key: pnpm-store-${{ runner.os }}-${{ hashFiles('wasmnest-apps/**/pnpm-lock.yaml', 'wasmnest/**/pnpm-lock.yaml') }}
           restore-keys: |
             pnpm-store-${{ runner.os }}-
+
+      # dev 线：`file:` 依赖的 SDK `dist/` 不入库，跑测试前必须构建（uat 线自带）。
+      - name: 补齐平台侧生成物（仅 dev 线）
+        if: matrix.needsSdkDist
+        run: node scripts/ci/prepare-platform.mjs --ends "${{ matrix.end }}"
 
       - name: 安装本端依赖
         env:
