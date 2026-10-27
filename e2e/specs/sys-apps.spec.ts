@@ -16,9 +16,12 @@ import { expectEqual } from '../harness/expect'
 import {
   GROUP_APPS,
   GROUP_SERVICES,
+  INSTALL_BUTTON,
   SERVICE_APP_NAME,
   SYS_APPS_ROUTE,
   UNINSTALL_TEXTS,
+  UPDATE_CHECK_TEXTS,
+  UPDATE_LINE_PREFIX,
 } from '../pages/sysApps'
 
 describe('应用管理 · 系统服务区（桌面端 · 真实宿主）', () => {
@@ -69,5 +72,28 @@ describe('应用管理 · 系统服务区（桌面端 · 真实宿主）', () =>
 
     expectEqual(Array.isArray(switches) && switches!.length >= 2, true, '启用 / 自启两个开关在场')
     expectEqual(switches![1], 'true', '系统服务自启缺省开')
+  })
+
+  // ==================== 应用更新面（应用版本更新全链路） ====================
+
+  it('非本地安装来源不渲染更新面（更新只对 user-installed 开放，与卸载同门槛）', async () => {
+    // 隔离现场里 monitor 是 builtin + 系统服务——两类门槛都不该有更新面
+    const updateNodeCount = await browser.execute((prefix: string) => {
+      return Array.from(document.querySelectorAll(`[data-testid^="${prefix}"]`)).length
+    }, UPDATE_LINE_PREFIX)
+    expectEqual(updateNodeCount, 0, 'builtin / 服务应用不得出现更新面节点')
+    const checkCount = await browser.execute((tokens: string[]) => {
+      return Array.from(document.querySelectorAll('button')).filter((btn) => {
+        const label = (btn.textContent || '').trim()
+        return tokens.some((token) => label === token)
+      }).length
+    }, UPDATE_CHECK_TEXTS)
+    expectEqual(checkCount, 0, '服务卡片不得出现检查更新按钮')
+  })
+
+  it('安装应用入口在场（本地 zip 链路）', async () => {
+    expectEqual(await exists(INSTALL_BUTTON), true, '安装应用按钮渲染')
+    const label = ((await text(INSTALL_BUTTON)) || '').trim()
+    expectEqual(label.length > 0, true, '安装应用按钮有文案')
   })
 })
