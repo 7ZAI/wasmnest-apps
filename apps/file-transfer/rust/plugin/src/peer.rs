@@ -288,6 +288,8 @@ pub(crate) fn reduce_and_emit(h: &WasmHost, direction: &str, event: &serde_json:
         .map(|nid| resolve_peer_name(h, nid))
         .unwrap_or_default();
     let is_pull_started = event.get("kind").and_then(|v| v.as_str()) == Some("pull-started");
+    // 对端取消终态判据先取（归约后行已转终态，事件形状仍是唯一依据）
+    let peer_cancelled = transfer_store::peer_cancelled_batch_id(event).map(str::to_string);
     let changed = {
         let mut guard = ensure_loaded(h);
         let changed = transfer_store::reduce_event(&mut guard, direction, event, &peer_name);
@@ -302,6 +304,13 @@ pub(crate) fn reduce_and_emit(h: &WasmHost, direction: &str, event: &serde_json:
     dispatch_pending_sends(h);
     let guard = ensure_loaded(h);
     flush(h, guard, true);
+    if let Some(batch_id) = peer_cancelled {
+        // 状态先落库（flush 派发四路快照），再通知前端提示对端取消
+        h.emit_event(
+            "plugin:file-transfer:peer-cancelled",
+            &serde_json::json!({ "batchId": batch_id }),
+        );
+    }
 }
 
 /// 接收方向事件入口（`peer:receive-event`，票 07）：引擎原始事件归约 +
@@ -898,11 +907,16 @@ pub(crate) fn pause_task(h: &WasmHost, args: &serde_json::Value) -> Result<serde
 
 /// 恢复单个暂停任务：宿主入队并经并发闸门启动（接收端按已写偏移续传）。
 /// 返回 `true` 字面量（口径同 [`pause_task`]）。
+///
+/// 恢复命令只向**对端**写 Resume 帧，引擎不回送 resumed 事件（对端收帧后自行
+/// 推进）；本端必须同步乐观推进，否则发起恢复的一端永久停在「已暂停」。
 pub(crate) fn resume_task(h: &WasmHost, args: &serde_json::Value) -> Result<serde_json::Value> {
     let batch_id =
         args.get("taskId").and_then(|v| v.as_str()).unwrap_or_default().to_string();
     h.peer_resume_transfer(&batch_id)?;
-    // 状态推进由引擎快照事件（pending → running）接管，本地无需乐观改写
+    let mut guard = ensure_loaded(h);
+    let changed = transfer_store::mark_resumed(&mut guard, &batch_id);
+    flush(h, guard, changed);
     Ok(serde_json::Value::Bool(true))
 }
 
@@ -918,13 +932,22 @@ pub(crate) fn resume_all_tasks(h: &WasmHost) -> Result<serde_json::Value> {
             .map(|e| e.batch_id.clone())
             .collect()
     };
-    let mut resumed = 0usize;
+    let mut resumed_ids = Vec::new();
     for batch_id in paused_ids {
         if h.peer_resume_transfer(&batch_id).is_ok() {
-            resumed += 1;
+            resumed_ids.push(batch_id);
         }
     }
-    Ok(serde_json::json!({ "resumed": resumed }))
+    if !resumed_ids.is_empty() {
+        // 口径同 [`resume_task`]：批量恢复同样不会收到引擎 resumed 事件
+        let mut guard = ensure_loaded(h);
+        let mut changed = false;
+        for batch_id in &resumed_ids {
+            changed |= transfer_store::mark_resumed(&mut guard, batch_id);
+        }
+        flush(h, guard, changed);
+    }
+    Ok(serde_json::json!({ "resumed": resumed_ids.len() }))
 }
 
 /// 重试 = 批元数据回放重调原语：

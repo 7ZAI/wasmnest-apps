@@ -136,6 +136,7 @@ export function useTasks(context: PluginContext) {
   let dispBatches: Disposable | null = null
   let dispReceiving: Disposable | null = null
   let dispHistory: Disposable | null = null
+  let dispPeerCancelled: Disposable | null = null
 
   /** 任务/速率快照整表替换 */
   function applySnapshot(list: any[]): void {
@@ -401,6 +402,10 @@ export function useTasks(context: PluginContext) {
     dispHistory = context.events.on('plugin:file-transfer:history-changed', (payload: unknown) => {
       if (Array.isArray(payload)) applyHistorySnapshot(payload, false)
     })
+    // 对端取消：插件已把任务行落 cancelled 并归档历史，这里只补用户可感的提示
+    dispPeerCancelled = context.events.on('plugin:file-transfer:peer-cancelled', () => {
+      context.dialogs.showToast(context.i18n.t('transfer.task.cancelledToast'), 'info')
+    })
     void refresh()
     void refreshReceiving()
     void queryPeer()
@@ -432,6 +437,8 @@ export function useTasks(context: PluginContext) {
     dispReceiving = null
     dispHistory?.dispose()
     dispHistory = null
+    dispPeerCancelled?.dispose()
+    dispPeerCancelled = null
     totalSpeed.value = 0
   }
 

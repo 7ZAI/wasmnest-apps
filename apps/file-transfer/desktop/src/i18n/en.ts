@@ -69,6 +69,7 @@ const en: MessageSchema = {
   'transfer.task.pause': 'Pause',
   'transfer.task.resume': 'Resume',
   'transfer.task.cancel': 'Cancel',
+  'transfer.task.cancelledToast': 'Task cancelled',
   'transfer.task.remove': 'Remove task',
   'transfer.task.openDir': 'Open local folder',
   'transfer.task.retry': 'Retry',

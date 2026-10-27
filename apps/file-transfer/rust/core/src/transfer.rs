@@ -346,6 +346,25 @@ fn terminal_status_of(direction: &str, state: &Value) -> (String, Option<String>
     }
 }
 
+/// 引擎终态 `state` 是否为对端显式取消（`type=cancelled` + `byPeer=true`）。
+fn is_peer_cancel(state: &Value) -> bool {
+    state.get("type").and_then(|v| v.as_str()) == Some("cancelled")
+        && state.get("byPeer").and_then(|v| v.as_bool()).unwrap_or(false)
+}
+
+/// 对端取消事件判据（`terminal` + [`is_peer_cancel`]）：命中返回 batchId。
+/// 插件据此派发 `peer-cancelled` 事件，前端提示「任务已取消」——判据留在核内，
+/// 与终态结算共用同一份 byPeer 口径。
+pub fn peer_cancelled_batch_id(event: &Value) -> Option<&str> {
+    if event.get("kind").and_then(|v| v.as_str()) != Some("terminal") {
+        return None;
+    }
+    if !is_peer_cancel(event.get("state")?) {
+        return None;
+    }
+    event.get("batchId").and_then(|v| v.as_str())
+}
+
 /// 事件归约：引擎原始事件（`peer:transfer-event` / `peer:receive-event`）→ store 状态推进。
 ///
 /// `direction` 按事件 topic 定向；`peer_name` 仅建行事件需要（运行时从设备缓存解析后传入，
@@ -484,12 +503,13 @@ pub fn reduce_event(
             if entry.is_terminal() {
                 return false;
             }
-            // 用户暂停分支：终态事件只是中断确认——不落终态（completed+满字节例外）
+            // 用户暂停分支：终态事件只是中断确认——不落终态（completed+满字节例外）；
+            // 对端显式取消是真实终态，必须结算（否则暂停行永久停在 paused、双端分叉）
             let full_completed = entry.status == "paused"
                 && state.get("type").and_then(|v| v.as_str()) == Some("completed")
                 && entry.total_bytes > 0
                 && entry.transferred_bytes >= entry.total_bytes;
-            if entry.status == "paused" && !full_completed {
+            if entry.status == "paused" && !full_completed && !is_peer_cancel(state) {
                 return false;
             }
             let (status, detail, reject_reason) = terminal_status_of(direction, state);
@@ -661,6 +681,21 @@ pub fn mark_paused(entries: &mut [TransferEntry], batch_id: &str) -> bool {
     for e in entries.iter_mut() {
         if e.batch_id == batch_id && e.status == "running" {
             e.status = "paused".to_string();
+            e.rate_bps = 0.0;
+            return true;
+        }
+    }
+    false
+}
+
+/// 恢复乐观标记：paused 条目改标 `running`（命令生效后立即反馈）。
+///
+/// 恢复命令只向对端写 Resume 帧，引擎**不会**向发起方回送 `resumed` 事件——
+/// 不在此处推进，发起恢复的一端会永久停在「已暂停」，而对端已恢复（双端分叉）。
+pub fn mark_resumed(entries: &mut [TransferEntry], batch_id: &str) -> bool {
+    for e in entries.iter_mut() {
+        if e.batch_id == batch_id && e.status == "paused" {
+            e.status = "running".to_string();
             e.rate_bps = 0.0;
             return true;
         }
