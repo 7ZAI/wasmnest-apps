@@ -59,7 +59,7 @@ jobs:
         with:
           node-version: 22
 
-      - name: 生成工程矩阵（slug / 分组 / 目录 / 端 / 是否读平台仓真源）
+      - name: 生成矩阵（工程 × 端 / 分组 / 目录 / 是否读平台仓真源）
         id: projects
         run: |
           set -euo pipefail
@@ -71,7 +71,6 @@ jobs:
             [ -n "$slug" ] || continue
             dir=$(node scripts/ci/app-info.mjs --app "$slug" --field dir)   # <group>/<slug>
             group=${dir%%/*}
-            ends=$(node scripts/ci/app-info.mjs --app "$slug" --field ends | jq -r 'join(",")')
             if grep -rqE "$platform_re" "$dir" \
                  --include='*.ts' --include='*.mts' --include='*.js' --include='*.mjs' --include='*.vue' \
                  --exclude-dir=node_modules --exclude-dir=dist 2>/dev/null; then
@@ -79,17 +78,23 @@ jobs:
             else
               needs=false
             fi
-            matrix=$(jq -c --arg slug "$slug" --arg group "$group" --arg dir "$dir" --arg ends "$ends" \
-              --argjson needs "$needs" \
-              '.include += [{slug:$slug, group:$group, dir:$dir, ends:$ends, needsPlatform:$needs}]' <<<"$matrix")
+            # 一个工程的一**端**一个 job：端的测试套件互相独立，拆开既让失败落到
+            # 「哪个工程的哪一端」，也避免一个重量级工程的套件把单 job 堆打爆
+            # （bedcode 桌面 46 个测试文件曾整 job OOM）。
+            while read -r end; do
+              [ -n "$end" ] || continue
+              matrix=$(jq -c --arg slug "$slug" --arg group "$group" --arg dir "$dir" --arg end "$end" \
+                --argjson needs "$needs" \
+                '.include += [{slug:$slug, group:$group, dir:$dir, end:$end, needsPlatform:$needs}]' <<<"$matrix")
+            done < <(node scripts/ci/app-info.mjs --app "$slug" --field ends | jq -r '.[]')
           done < <(node scripts/ci/app-info.mjs --list)
           if [ "$(jq '.include | length' <<<"$matrix")" = "0" ]; then
-            echo "::error::未枚举到任何工程（apps/ 与 servers/ 都空？看 scripts/lib/projects.mjs）"
+            echo "::error::未枚举到任何工程 / 端（apps/ 与 servers/ 都空？看 scripts/lib/projects.mjs）"
             exit 1
           fi
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
           echo '工程矩阵：'
-          jq -r '.include[] | "  \(.group)/\(.slug)  ends=\(.ends)  needsPlatform=\(.needsPlatform)"' <<<"$matrix"
+          jq -r '.include[] | "  \(.group)/\(.slug)/\(.end)  needsPlatform=\(.needsPlatform)"' <<<"$matrix"
 
   # eslint 是仓级口径（0 error），一次覆盖全部工程与 scripts/，故不拆矩阵、也不涉跨仓。
   lint:
@@ -144,7 +149,7 @@ jobs:
   # 前端单测：一个工程（app 或服务）一个 job —— 与「一个一个独立发布」同构，
   # 失败落在该工程名下；工程之间并行，整条流水线不被最慢的工程拖住。
   test:
-    name: 单测 · ${{ matrix.group }}/${{ matrix.slug }}
+    name: 单测 · ${{ matrix.group }}/${{ matrix.slug }}/${{ matrix.end }}
     needs: discover
     runs-on: ubuntu-latest
     timeout-minutes: 40
@@ -186,25 +191,25 @@ jobs:
           restore-keys: |
             pnpm-store-${{ runner.os }}-
 
-      - name: 安装本工程各端依赖
+      - name: 安装本端依赖
         env:
-          ENDS: ${{ matrix.ends }}
           PROJECT_DIR: ${{ matrix.dir }}
+          END: ${{ matrix.end }}
         run: |
           set -euo pipefail
-          for end in ${ENDS//,/ }; do
-            dir="$PROJECT_DIR/$end"
-            if [ ! -f "$dir/package.json" ]; then
-              echo "::error::$dir 缺 package.json（app-info 报告的端与目录不一致）"
-              exit 1
-            fi
-            echo "::group::pnpm install $dir"
-            (cd "$dir" && pnpm install --frozen-lockfile)
-            echo "::endgroup::"
-          done
+          dir="$PROJECT_DIR/$END"
+          if [ ! -f "$dir/package.json" ]; then
+            echo "::error::$dir 缺 package.json（app-info 报告的端与目录不一致）"
+            exit 1
+          fi
+          (cd "$dir" && pnpm install --frozen-lockfile)
 
-      - name: 单测（缺 test:run 的端打印 skip，不静默略过）
-        run: node scripts/run-apps.mjs test:run --only="${{ matrix.dir }}"
+      - name: 单测（缺 test:run 打印 skip，不静默略过）
+        env:
+          # 大工程的测试套件（bedcode 桌面 46 个文件）会顶到 Node 默认堆上限；
+          # runner 有 16G，给足 headroom，避免整 job OOM 而不是用例失败。
+          NODE_OPTIONS: --max-old-space-size=6144
+        run: node scripts/run-apps.mjs test:run --only="${{ matrix.dir }}/${{ matrix.end }}"
 
   # Rust native 单测：逐 crate `cargo test --manifest-path`（口径同 AGENTS.md 命令表）。
   # 测试跑宿主 target，不覆盖 wasm32 宏路径（native 测试边界见 AGENTS.md 完成定义）。
