@@ -34,6 +34,7 @@ const ZH: Record<string, string> = {
   'tasks.tabs.history': '任务记录',
   'preset.noTasks': '暂无预设任务',
   'preset.emptyHint': '保存常用指令，一键发送到终端',
+  'preset.noActiveSessions': '暂无运行中的会话',
   'preset.connectFirst': '请先连接桌面端',
   'preset.confirmExecute': '确认执行',
   'preset.execute': '执行',
@@ -109,6 +110,8 @@ beforeEach(() => {
 afterEach(() => {
   uninstallFakeHost()
   uninstallMockMobileApi()
+  // 弹窗经 Teleport 挂到 body：逐用例清场，避免上一条用例的弹窗内容污染断言
+  document.body.innerHTML = ''
 })
 
 function mountView() {
@@ -203,7 +206,7 @@ describe('C-TT7 执行分流：单活跃会话免选会话', () => {
   it('should_executeDirectly_when_connectedWithExactlyOneSession', async () => {
     // 「还原原本的功能」的正例：连上且只有一个活跃会话时不该再问一次选哪个会话
     const api = installMockMobileApi({ isConnected: true, isPaired: true })
-    api.activeSessions.value = [{ id: 'session-aaaa1111', name: '构建机' }]
+    api.activeSessions.value = [{ id: 'session-aaaa1111', name: '构建机', status: 'running' }]
     installPresetTasks([presetTask({ id: 't1' })], execCalls)
     const wrapper = mountView()
     await wrapper.vm.$nextTick()
@@ -229,8 +232,8 @@ describe('C-TT7 执行分流：单活跃会话免选会话', () => {
   it('should_askWhichSession_when_connectedWithMultipleSessions', async () => {
     const api = installMockMobileApi({ isConnected: true, isPaired: true })
     api.activeSessions.value = [
-      { id: 'session-aaaa1111', name: '构建机' },
-      { id: 'session-bbbb2222', name: '测试机' },
+      { id: 'session-aaaa1111', name: '构建机', status: 'running' },
+      { id: 'session-bbbb2222', name: '测试机', status: 'waitingInput' },
     ]
     installPresetTasks([presetTask({ id: 't1' })], execCalls)
     const wrapper = mountView()
@@ -244,6 +247,28 @@ describe('C-TT7 执行分流：单活跃会话免选会话', () => {
     expect(document.body.textContent).toContain('测试机')
     // 反例防护：多会话时不得擅自挑第一个就发
     expect(execCalls.execute).toEqual([])
+  })
+
+  it('should_notOfferStoppedSessions_when_onlyNonRunningSessionsExist', async () => {
+    // `activeSessions` 含已停止会话（宿主全量保留）；对它们下发输入必失败，
+    // 执行分流必须按运行态过滤，否则表现为「预设执行失败」且无有效提示
+    const api = installMockMobileApi({ isConnected: true, isPaired: true })
+    api.activeSessions.value = [
+      { id: 'session-stopped1', name: '已停会话', status: 'stopped' },
+      { id: 'session-error1', name: '出错会话', status: 'error' },
+    ]
+    installPresetTasks([presetTask({ id: 't1' })], execCalls)
+    const wrapper = mountView()
+    await wrapper.vm.$nextTick()
+
+    await wrapper.find('.action-cyan').trigger('click')
+    await wrapper.vm.$nextTick()
+
+    expect(toasts).toEqual([{ message: '暂无运行中的会话', type: 'warning' }])
+    expect(execCalls.execute).toEqual([])
+    // 不得弹出选择/确认弹窗（无有效目标）
+    expect(document.body.textContent).not.toContain('指令将发送到所选会话的终端')
+    expect(document.body.textContent).not.toContain('选择会话')
   })
 })
 

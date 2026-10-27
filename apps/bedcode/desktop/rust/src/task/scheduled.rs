@@ -415,9 +415,8 @@ pub fn handle_scheduler_tick(host: &WasmHost, now_utc: &str) -> Result<(), Strin
 
         // 创建会话：走插件自身编排入口（与互调 api `session-create` 同源）——
         // 读配置真源（插件私有库）→ 命名唯一化 → config→launch spec → 宿主
-        // `create-with-spec` 执行。宿主异步创建并立即返回预生成 session_id：成功时
-        // PTY 随后启动，Created 生命周期事件随后到达（事件分发在 wasm 调用返回后，
-        // 锁已释放）。legacy `host-session.create(config-id)` 不再使用（读主库投影）。
+        // `create-with-spec` 执行。P1-b 起创建在插件内**同步完成**（spawn_session
+        // 内部已调用 handle_session_created），不会再等异步 Created 事件。
         let created = crate::launch::create_via_host(&serde_json::json!({
             "configId": config_id,
             "start": true,
@@ -431,17 +430,37 @@ pub fn handle_scheduler_tick(host: &WasmHost, now_utc: &str) -> Result<(), Strin
         });
         match created {
             Ok(session_id) => {
-                // 置 creating 并记录 session_id：Created 事件的匹配键。
-                // 先于事件到达更新（session_create 返回时事件尚未分发），不会丢失匹配
-                let _ = host.plugin_db_execute_params(
+                // 置 creating 并记录 session_id（事件匹配键 / creating 看门狗键）。
+                // spawn_session 内部的 handle_session_created 在本次 UPDATE 之前
+                // 已执行过：那时行仍是 pending、无 session_id，匹配不上，只会空跑
+                // 一次（幂等）。这里更新完必须**再显式调用一次**，否则 prompts
+                // 永不入队，job 会在 120s 后被 creating 看门狗标成
+                // 「Session creation timed out」——定时任务整条链静默失败。
+                let marked = host.plugin_db_execute_params(
                     "UPDATE task_scheduled SET status = 'creating', session_id = ?1 WHERE id = ?2",
                     &sql_params![session_id, job_id],
                 );
-                host.log_info(&format!(
-                    "scheduler-tick: session create queued for job_id={}: session_id={}",
-                    job_id, session_id
-                ));
-                broadcast_scheduled_changed(host, &job_id, "creating", "trigger");
+                match marked {
+                    Ok(n) if n > 0 => {
+                        host.log_info(&format!(
+                            "scheduler-tick: session created for job_id={}: session_id={}",
+                            job_id, session_id
+                        ));
+                        // 先播 creating（过渡态），再执行入队（内部会播 executed/failed）
+                        broadcast_scheduled_changed(host, &job_id, "creating", "trigger");
+                        handle_session_created(host, &session_id, &config_id);
+                    }
+                    other => {
+                        // job 行已被并发删除（或 DB 写失败）：新建的会话失去了
+                        // 定时档案归属，不会被 maybe_close_scheduled_session 回收，
+                        // 必须就地关闭，避免留下无人看管的孤儿会话
+                        host.log_error(&format!(
+                            "scheduler-tick: mark creating failed for job_id={} (session_id={}): {:?}",
+                            job_id, session_id, other
+                        ));
+                        let _ = crate::session::close_via_pty(&session_id, None);
+                    }
+                }
             }
             Err(e) => {
                 let _ = host.plugin_db_execute_params(
@@ -851,6 +870,37 @@ fn broadcast_scheduled_changed(host: &WasmHost, job_id: &str, status: &str, acti
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 到期触发分支的顺序锁：prompts 入队必须在 creating 行落库**之后**显式执行
+    ///
+    /// P1-b 起会话创建在插件内同步完成（`create_via_host` → `spawn_session`），
+    /// `spawn_session` 内部的 `handle_session_created` 先于本函数的 creating UPDATE
+    /// 执行——那时行还是 pending、无 session_id，匹配不上直接空跑。漏掉更新后的
+    /// 显式调用，prompts 永不入队、job 被 creating 看门狗标成
+    /// 「Session creation timed out」（2026-10-27 定时任务整链静默失败的根因）。
+    /// native 无宿主库可跑 behaviors，这里用结构锁钉住调用顺序。
+    #[test]
+    fn due_job_branch_enqueues_prompts_after_marking_creating() {
+        let src = include_str!("scheduled.rs");
+        let branch = src
+            .split("// 2. 到期且仍在宽限期内：触发执行")
+            .nth(1)
+            .expect("到期触发分支必须存在")
+            .split("// 3. 定时任务会话首轮下发兜底")
+            .next()
+            .unwrap();
+        let update_pos = branch
+            .find("SET status = 'creating', session_id = ?1")
+            .expect("creating 行落库必须存在");
+        let call_pos = branch
+            .find("handle_session_created(host, &session_id, &config_id)")
+            .expect("必须显式调用 handle_session_created 完成 prompts 入队");
+        assert!(
+            call_pos > update_pos,
+            "handle_session_created 必须在 creating 行落库之后调用：\
+             spawn_session 内部的早调用匹配不到 pending 行，prompts 将永不入队"
+        );
+    }
 
     /// trigger_at 格式校验：良构 UTC 串通过；畸形（缺段/非法范围/错分隔符）拒绝
     #[test]

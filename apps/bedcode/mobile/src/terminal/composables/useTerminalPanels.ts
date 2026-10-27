@@ -11,6 +11,7 @@
  */
 import { ref } from 'vue'
 import { useInputAssistantStore } from '../inputAssistant'
+import { autoTaskPanelVisible } from '../../task/state'
 
 export interface TerminalPanelsDeps {
   /** 手动刷新终端（显示域：渲染层恢复 + 尺寸仲裁重跑 + 数据层续传重拼接） */
@@ -38,6 +39,11 @@ export function useTerminalPanels(deps: TerminalPanelsDeps) {
     switch (key) {
       case 'task':
         showTaskPicker.value = true
+        break
+      case 'autoTask':
+        // 自动任务队列面板（队列 / 自动执行开关 / 从预设添加）常驻
+        // document.body（task/activate.ts 挂载），此处只翻可见性
+        autoTaskPanelVisible.value = true
         break
       case 'shortcut':
         showShortcutConfig.value = true

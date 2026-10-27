@@ -25,6 +25,12 @@
           <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V5h14v14zM17.99 9l-1.41-1.42-6.59 6.59-2.58-2.57-1.42 1.41 4 3.99z"/>
         </svg>
       </button>
+      <button v-else-if="item.key === 'autoTask'" class="tool-btn" @click="$emit('action', 'autoTask')" :title="t('terminal.toolbarAutoTask')">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 11h11M4 16h8" />
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 15l4 2.5-4 2.5v-5z" />
+        </svg>
+      </button>
       <button v-else-if="item.key === 'shortcut'" class="tool-btn" @click="$emit('action', 'shortcut')" :title="t('shortcutConfig.title')">
         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16M8 6v12M16 6v12" />
@@ -64,6 +70,10 @@
           <button v-if="isOverflowItem('task')" class="overflow-menu-item" @click="emitAction('task')">
             <svg viewBox="0 0 24 24" class="w-[18px] h-[18px]" fill="currentColor"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V5h14v14zM17.99 9l-1.41-1.42-6.59 6.59-2.58-2.57-1.42 1.41 4 3.99z"/></svg>
             <span>{{ t('terminal.pendingTasks') }}</span>
+          </button>
+          <button v-if="isOverflowItem('autoTask')" class="overflow-menu-item" @click="emitAction('autoTask')">
+            <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 11h11M4 16h8"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 15l4 2.5-4 2.5v-5z"/></svg>
+            <span>{{ t('terminal.toolbarAutoTask') }}</span>
           </button>
           <button v-if="isOverflowItem('shortcut')" class="overflow-menu-item" @click="emitAction('shortcut')">
             <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16M8 6v12M16 6v12"/></svg>
