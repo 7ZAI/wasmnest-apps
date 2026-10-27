@@ -1,6 +1,9 @@
 # ==============================================================================
-# 手动按 app 触发构建（每个 app 独立触发 / 独立版本，互不牵连）
+# 手动按工程（apps/ 下的应用 与 servers/ 下的服务）触发构建
+# （每个工程独立触发 / 独立版本，互不牵连）
 #
+# - `app` 是自由文本而不是固定选项：可选值真源 = `node scripts/ci/app-info.mjs --list`
+#   （唯一枚举点，覆盖 apps + servers）；新增 app / 服务不需要改本文件；
 # - 只构建、不发布：默认行为，产物作为 workflow artifact 保留 30 天；
 # - 勾选 publish：构建成功后创建 tag `<slug>-v<version>` 并发布 GitHub Release
 #   （tag 语义与 tag 触发的 `app-release.yml` 一致，两条入口产出同一形态的包）。
@@ -15,15 +18,11 @@ on:
   workflow_dispatch:
     inputs:
       app:
-        description: 要构建的应用
-        type: choice
+        description: >-
+          要构建的工程 slug（apps/ 与 servers/ 里的工程都可选；
+          可选值见 `node scripts/ci/app-info.mjs --list`）
+        type: string
         required: true
-        options:
-          - agent-hub
-          - ai-chatbox
-          - bedcode
-          - file-transfer
-          - monitor
       end:
         description: 构建端
         type: choice
@@ -96,6 +95,9 @@ jobs:
           VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
+          # 工程存在性 / 分组由 resolver 判（未登记时它自己列出全部可选 slug）——
+          # 这里不再维护「可选 app 列表」，免得像以前那样漏掉 servers/ 里的服务。
+          node scripts/ci/app-info.mjs --app "$APP" --field slug > /dev/null
           if [ -n "$VERSION" ]; then
             node scripts/ci/app-info.mjs --app "$APP" --expect-version "$VERSION" > /dev/null
           fi

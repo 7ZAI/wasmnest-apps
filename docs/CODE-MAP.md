@@ -139,11 +139,11 @@ wasmnest-apps/
 > （看注册失败日志）；`unavailable` = 中心实例不可调（trap / 超时）；`policy` = 本中心
 > 验签或策略拒绝（撤销 / 过期 / 结构非法）。
 >
-> **SDK 依赖当前是 link 态**（用户裁决 2026-10-22）：SDK `0.0.1` 尚未发布到任何 registry，
-> 该工程 `package.json` 的 SDK spec 与 `pnpm-lock.yaml` 都用 `file:../../../../wasmnest/...`
-> （与其它 app 的 committed lock 同口径），CI 的逐工程 install 依赖 `fetch-cross-repo.mjs`
-> 检出的平台仓兄弟目录。SDK 发布后跑 `node scripts/unlink-platform-sdk.mjs` 回到精确版本
-> 并重新生成 lock（link 态**不可**长期作为发布口径）。
+> **SDK 依赖 = registry 发布物**（uat / 发布线）：npm `@binblink/wasmnest-plugin-sdk-*`
+> `0.0.1` + crate `wasmnest-plugin-api` / `wasmnest-plugin-api-mobile` `=0.0.1`，
+> `pnpm-lock.yaml` 按 registry 解析（带 integrity）、`Cargo.lock` 带 `source` + `checksum`。
+> `file:` / `[patch]` 只属本机 link 态（`pnpm run link:platform` 写入，状态不得提交），`dev`
+> 线才是内部依赖相对路径的联调口径。
 
 ### 命名纪律
 
