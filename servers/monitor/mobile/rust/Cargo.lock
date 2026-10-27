@@ -228,6 +228,8 @@ dependencies = [
 [[package]]
 name = "wasmnest-plugin-api-mobile"
 version = "0.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e886ad4526dd590f6afe3b708b5e398c48631ca88d915ca3a969815b245f7d10"
 dependencies = [
  "anyhow",
  "inventory",
