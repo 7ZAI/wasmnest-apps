@@ -240,14 +240,14 @@ jobs:
 
       - name: 单测（缺 test:run 打印 skip，不静默略过）
         env:
-          # runner 只有 2 核 ⇒ vitest 默认 maxWorkers=1，几十个测试文件全挤在同一个
-          # fork 进程里跑，模块缓存不断累积（bedcode 桌面 39 个文件实测顶到 6GB 后
-          # OOM 崩掉，而不是用例失败）。强制多个 worker = 每个文件跑在自己进程里，
-          # 峰值内存摊到多个堆上；堆上限同时留余量。
-          NODE_OPTIONS: --max-old-space-size=3072
+          # 内存预算：runner 16G / 2 核。bedcode 桌面的套件（39 文件 / 448 用例，含
+          # xterm + shiki）峰值很高——单 fork 全挤在一起会顶到 4~6G 后 OOM；4 worker ×
+          # 3G 的堆上限又太贴边（实测时绿时红）。取 2 worker × 6G：文件在 2 个进程间
+          # 摊开、每个进程堆余量充足，本地连跑 3 次稳定绿。
+          NODE_OPTIONS: --max-old-space-size=6144
         run: >-
           node scripts/run-apps.mjs test:run
-          --only="${{ matrix.dir }}/${{ matrix.end }}" -- --maxWorkers=4
+          --only="${{ matrix.dir }}/${{ matrix.end }}" -- --maxWorkers=2
 
   # Rust native 单测：逐 crate `cargo test --manifest-path`（口径同 AGENTS.md 命令表）。
   # 测试跑宿主 target，不覆盖 wasm32 宏路径（native 测试边界见 AGENTS.md 完成定义）。
