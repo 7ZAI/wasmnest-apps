@@ -4,7 +4,7 @@
     <div class="wb-toolbar sticky top-0 z-10">
       <div class="flex items-center gap-2.5">
         <h1 class="text-[calc(13px*var(--ui-scale))] font-semibold text-[var(--text-primary)]">
-          {{ t('desktop.server.title') }}
+          {{ t('server.title') }}
         </h1>
         <span class="text-[calc(11px*var(--ui-scale))] text-[var(--text-tertiary)]">{{
           statusText
@@ -12,13 +12,13 @@
       </div>
       <div class="flex items-center gap-3">
         <span class="text-[calc(11px*var(--ui-scale))] text-[var(--text-tertiary)]">{{
-          t('desktop.server.surfaceHint')
+          t('server.surfaceHint')
         }}</span>
         <button
           class="wb-btn-ghost !text-[var(--text-secondary)]"
           @click="handleResetDefaults"
         >
-          {{ t('desktop.server.resetDefaults') }}
+          {{ t('server.resetDefaults') }}
         </button>
       </div>
     </div>
@@ -36,7 +36,7 @@
     <div v-else class="p-5 max-w-5xl mx-auto space-y-6">
       <!-- ---------- SECTION: STATUS ---------- -->
       <section>
-        <h2 class="wb-section-title">{{ t('desktop.server.sectionStatus') }}</h2>
+        <h2 class="wb-section-title">{{ t('server.sectionStatus') }}</h2>
         <div class="bg-[var(--bg-card)] border border-[var(--border)] rounded-[10px]">
           <div class="flex items-center justify-between px-4 h-12 border-b border-[var(--border)]">
             <div class="flex items-center gap-2">
@@ -53,7 +53,7 @@
           <div class="grid grid-cols-3 divide-x divide-[var(--border)]">
             <div class="px-4 py-3">
               <div class="text-[calc(11px*var(--ui-scale))] text-[var(--text-tertiary)] mb-1">
-                {{ t('desktop.server.connections') }}
+                {{ t('server.connections') }}
               </div>
               <div
                 class="wb-mono text-[calc(12.5px*var(--ui-scale))] font-semibold text-[var(--text-primary)]"
@@ -63,7 +63,7 @@
             </div>
             <div class="px-4 py-3">
               <div class="text-[calc(11px*var(--ui-scale))] text-[var(--text-tertiary)] mb-1">
-                {{ t('desktop.server.cpuUsage') }}
+                {{ t('server.cpuUsage') }}
               </div>
               <div
                 class="wb-mono text-[calc(12.5px*var(--ui-scale))] font-semibold text-[var(--text-primary)]"
@@ -73,7 +73,7 @@
             </div>
             <div class="px-4 py-3">
               <div class="text-[calc(11px*var(--ui-scale))] text-[var(--text-tertiary)] mb-1">
-                {{ t('desktop.server.memoryUsage') }}
+                {{ t('server.memoryUsage') }}
               </div>
               <div
                 class="wb-mono text-[calc(12.5px*var(--ui-scale))] font-semibold text-[var(--text-primary)]"
@@ -87,11 +87,11 @@
 
       <!-- ---------- SECTION: NETWORK ---------- -->
       <section>
-        <h2 class="wb-section-title">{{ t('desktop.server.sectionNetwork') }}</h2>
+        <h2 class="wb-section-title">{{ t('server.sectionNetwork') }}</h2>
         <div class="bg-[var(--bg-card)] border border-[var(--border)] rounded-[10px] px-4">
           <div class="flex items-center justify-between h-12 border-b border-[var(--border)]">
             <span class="text-[calc(12px*var(--ui-scale))] text-[var(--text-secondary)]">{{
-              t('desktop.server.port')
+              t('server.port')
             }}</span>
             <div class="flex items-center gap-3">
               <input
@@ -108,16 +108,16 @@
                 :disabled="!portDirty || savingPort"
                 @click="handleSavePort"
               >
-                {{ t('desktop.server.portSave') }}
+                {{ t('server.portSave') }}
               </button>
-              <span class="text-[calc(11px*var(--ui-scale))] text-[var(--text-tertiary)]">{{ t('desktop.server.portHint') }}</span>
+              <span class="text-[calc(11px*var(--ui-scale))] text-[var(--text-tertiary)]">{{ t('server.portHint') }}</span>
             </div>
           </div>
           <div
             class="flex items-center justify-between min-h-12 py-2 border-b border-[var(--border)]"
           >
             <span class="text-[calc(12px*var(--ui-scale))] text-[var(--text-secondary)]">{{
-              t('desktop.server.localIp')
+              t('server.localIp')
             }}</span>
             <div class="flex flex-wrap justify-end gap-x-4 gap-y-0.5">
               <span v-for="ip in localIps" :key="ip" class="wb-mono text-[var(--text-primary)]"
@@ -137,13 +137,13 @@
       <section v-if="networkConfig">
         <div class="flex items-center justify-between mb-2">
           <h2 class="wb-section-title mb-0">
-            {{ t('desktop.server.advancedConfig').toUpperCase() }}
+            {{ t('server.advancedConfig').toUpperCase() }}
           </h2>
           <button
             class="text-[calc(11px*var(--ui-scale))] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
             @click="advExpanded = !advExpanded"
           >
-            {{ advExpanded ? t('desktop.server.collapse') : t('desktop.server.expand') }}
+            {{ advExpanded ? t('server.collapse') : t('server.expand') }}
           </button>
         </div>
         <div
@@ -166,8 +166,8 @@
                 {{
                   field.type === 'toggle'
                     ? (advConfig as any)[field.key]
-                      ? t('shell.quickSettings.on')
-                      : t('shell.quickSettings.off')
+                      ? t('server.toggleOn')
+                      : t('server.toggleOff')
                     : (advConfig as any)[field.key]
                 }}
               </span>
@@ -178,7 +178,7 @@
 
       <!-- ---------- SECTION: MONITORING ---------- -->
       <section>
-        <h2 class="wb-section-title">{{ t('desktop.server.monitoring').toUpperCase() }}</h2>
+        <h2 class="wb-section-title">{{ t('server.monitoring').toUpperCase() }}</h2>
         <div class="bg-[var(--bg-card)] border border-[var(--border)] rounded-[10px] p-4">
           <div class="grid grid-cols-2 md:grid-cols-6 gap-3 mb-4">
             <div v-for="m in metricRows" :key="m.key">
@@ -194,7 +194,7 @@
           </div>
           <div class="border-t border-[var(--border)] pt-3">
             <h3 class="text-[calc(11px*var(--ui-scale))] text-[var(--text-tertiary)] mb-2">
-              {{ t('desktop.server.wsThroughput') }}
+              {{ t('server.wsThroughput') }}
             </h3>
             <VChart :option="chartOption" style="height: 220px; width: 100%" autoresize />
           </div>
@@ -210,7 +210,7 @@
  * Warm Workbench 风格：STATUS/NETWORK/CONFIG/MONITORING 分区，图表颜色跟随主题变量
  */
 import { onMounted, onUnmounted, computed, watch, ref } from 'vue'
-import { useI18n } from 'vue-i18n'
+import { useAppI18n } from '@/composables/useAppI18n'
 import { useServer } from '@/composables/useServer'
 import { useToast } from '@/composables/useToast'
 import { showUserError } from '@/utils/userError'
@@ -227,7 +227,7 @@ import { CanvasRenderer } from 'echarts/renderers'
 
 use([TitleComponent, TooltipComponent, LegendComponent, GridComponent, LineChart, CanvasRenderer])
 
-const { t } = useI18n()
+const t = useAppI18n()
 const toast = useToast()
 
 const {
@@ -271,7 +271,7 @@ async function handleSavePort() {
   savingPort.value = true
   try {
     await updatePort(portInput.value)
-    toast.success(t('desktop.server.portSavedDelayed'))
+    toast.success(t('server.portSavedDelayed'))
   } catch (e) {
     showUserError(e, { retry: handleSavePort })
   } finally {
@@ -282,11 +282,11 @@ async function handleSavePort() {
 const statusText = computed(() => {
   switch (status.value) {
     case 'running':
-      return t('desktop.server.status.running')
+      return t('server.status.running')
     case 'starting':
-      return t('desktop.server.status.starting')
+      return t('server.status.starting')
     default:
-      return t('desktop.server.status.stopped')
+      return t('server.status.stopped')
   }
 })
 
@@ -348,32 +348,32 @@ function cssVar(name: string): string {
 const metricRows = computed(() => [
   {
     key: 'uptime',
-    label: t('desktop.server.uptime'),
+    label: t('server.uptime'),
     value: status.value === 'running' ? formatUptime(uptimeTick.value) : '-',
   },
   {
     key: 'connections',
-    label: t('desktop.server.connections'),
+    label: t('server.connections'),
     value: metrics.value ? String(metrics.value.connections) : '-',
   },
   {
     key: 'total',
-    label: t('desktop.server.totalRequests'),
+    label: t('server.totalRequests'),
     value: metrics.value ? metrics.value.total_http_requests.toLocaleString() : '-',
   },
   {
     key: 'cpu',
-    label: t('desktop.server.cpuUsage'),
+    label: t('server.cpuUsage'),
     value: metrics.value ? `${metrics.value.cpu_usage_percent.toFixed(1)}%` : '-',
   },
   {
     key: 'mem',
-    label: t('desktop.server.memoryUsage'),
+    label: t('server.memoryUsage'),
     value: metrics.value ? formatMemory(metrics.value.memory_usage_bytes) : '-',
   },
   {
     key: 'rate',
-    label: t('desktop.server.requestRate'),
+    label: t('server.requestRate'),
     value: metrics.value ? `${metrics.value.http_requests_per_sec.toFixed(1)}/s` : '-',
   },
 ])
@@ -392,7 +392,7 @@ const chartOption = computed(() => {
   return {
     tooltip: { trigger: 'axis' as const },
     legend: {
-      data: [t('desktop.server.wsSentRate'), t('desktop.server.wsRecvRate')],
+      data: [t('server.wsSentRate'), t('server.wsRecvRate')],
       top: 0,
       textStyle: { color: cssVar('--text-secondary') },
     },
@@ -410,7 +410,7 @@ const chartOption = computed(() => {
     },
     series: [
       {
-        name: t('desktop.server.wsSentRate'),
+        name: t('server.wsSentRate'),
         type: 'line' as const,
         smooth: true,
         symbol: 'none',
@@ -419,7 +419,7 @@ const chartOption = computed(() => {
         data: history.map((h) => h.ws_sent_rate.toFixed(2)),
       },
       {
-        name: t('desktop.server.wsRecvRate'),
+        name: t('server.wsRecvRate'),
         type: 'line' as const,
         smooth: true,
         symbol: 'none',
@@ -465,23 +465,23 @@ const advConfig = computed(() =>
 const advFields = computed(() => [
   {
     key: 'workers',
-    label: t('desktop.server.workers'),
-    hint: t('desktop.server.workersHint'),
+    label: t('server.workers'),
+    hint: t('server.workersHint'),
     type: 'number',
     min: 0,
     max: 64,
   },
   {
     key: 'keep_alive_secs',
-    label: t('desktop.server.keepAlive'),
-    hint: t('desktop.server.keepAliveHint'),
+    label: t('server.keepAlive'),
+    hint: t('server.keepAliveHint'),
     type: 'number',
     min: 0,
     max: 300,
   },
   {
     key: 'client_request_timeout_secs',
-    label: t('desktop.server.clientRequestTimeout'),
+    label: t('server.clientRequestTimeout'),
     hint: 's',
     type: 'number',
     min: 1,
@@ -489,7 +489,7 @@ const advFields = computed(() => [
   },
   {
     key: 'client_disconnect_timeout_secs',
-    label: t('desktop.server.clientDisconnectTimeout'),
+    label: t('server.clientDisconnectTimeout'),
     hint: 's',
     type: 'number',
     min: 1,
@@ -497,24 +497,24 @@ const advFields = computed(() => [
   },
   {
     key: 'max_connections',
-    label: t('desktop.server.maxConnections'),
-    hint: t('desktop.server.maxConnectionsHint'),
+    label: t('server.maxConnections'),
+    hint: t('server.maxConnectionsHint'),
     type: 'number',
     min: 1,
     max: 100000,
   },
   {
     key: 'backlog',
-    label: t('desktop.server.backlog'),
+    label: t('server.backlog'),
     hint: '',
     type: 'number',
     min: 64,
     max: 8192,
   },
-  { key: 'tcp_nodelay', label: t('desktop.server.tcpNodelay'), hint: '', type: 'toggle' },
+  { key: 'tcp_nodelay', label: t('server.tcpNodelay'), hint: '', type: 'toggle' },
   {
     key: 'shutdown_timeout_secs',
-    label: t('desktop.server.shutdownTimeout'),
+    label: t('server.shutdownTimeout'),
     hint: 's',
     type: 'number',
     min: 1,
@@ -522,16 +522,16 @@ const advFields = computed(() => [
   },
   {
     key: 'ws_max_frame_size_kb',
-    label: t('desktop.server.wsMaxFrameSize'),
-    hint: t('desktop.server.wsMaxFrameSizeHint'),
+    label: t('server.wsMaxFrameSize'),
+    hint: t('server.wsMaxFrameSizeHint'),
     type: 'number',
     min: 1,
     max: 16384,
   },
   {
     key: 'ws_max_message_size_mb',
-    label: t('desktop.server.wsMaxMessageSize'),
-    hint: t('desktop.server.wsMaxMessageSizeHint'),
+    label: t('server.wsMaxMessageSize'),
+    hint: t('server.wsMaxMessageSizeHint'),
     type: 'number',
     min: 1,
     max: 512,
@@ -543,7 +543,7 @@ async function handleResetDefaults() {
   try {
     const defaults = await resetNetworkConfig()
     portInput.value = defaults.port
-    toast.success(t('desktop.server.resetSuccess'))
+    toast.success(t('server.resetSuccess'))
   } catch (e) {
     showUserError(e)
   }

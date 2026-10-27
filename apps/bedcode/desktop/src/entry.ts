@@ -21,7 +21,7 @@ import './style.css'
 import App from './App.vue'
 import PreviewCard from './preview/PreviewCard.vue'
 import router from './router'
-import i18n from './i18n'
+import i18n, { MESSAGE_NAMESPACE } from './i18n'
 import { initFrontendLogger, logger } from './utils/frontendLogger'
 import { createAppContext } from './appContext'
 import { useToast } from './composables/useToast'
@@ -143,11 +143,11 @@ export async function mountApp(root: HTMLElement, env: AppMountEnv): Promise<App
   // 全局异常处理：独立包自持（toast 不泄码；技术详情进日志）
   app.config.errorHandler = (err, _instance, info) => {
     logger.error(`[AppGlobalError] ${info || 'render'}:`, err)
-    useToast().error(i18n.global.t('desktop.runtimeUnexpected'))
+    useToast().error(i18n.global.t(`${MESSAGE_NAMESPACE}.runtimeUnexpected`))
   }
   window.addEventListener('unhandledrejection', (event) => {
     logger.error('[AppGlobalError] unhandledrejection:', event.reason)
-    useToast().error(i18n.global.t('desktop.runtimeUnexpected'))
+    useToast().error(i18n.global.t(`${MESSAGE_NAMESPACE}.runtimeUnexpected`))
   })
 
   // app 直连上下文：页面经 inject('pluginContext') 消费（env 适配层）

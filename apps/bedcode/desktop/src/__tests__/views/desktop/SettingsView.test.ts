@@ -31,7 +31,7 @@ vi.mock('@tauri-apps/api/event', () => ({
 const SECTION_TITLES = [
   i18n.global.t('com.wasmnest.bedcode.appearance.settings.title'),
   i18n.global.t('com.wasmnest.bedcode.pairing.settings.title'),
-  i18n.global.t('settings.linkCrypto.title'),
+  i18n.global.t('com.wasmnest.bedcode.linkCrypto.title'),
   i18n.global.t('com.wasmnest.bedcode.session.settings.title'),
 ]
 
@@ -113,6 +113,6 @@ describe('SettingsView 业务分组渲染', () => {
       i18n.global.t('com.wasmnest.bedcode.session.settings.defaultEnvironment'),
     )
     // 外观分组正文：主题色板行（应用自持）
-    expect(wrapper.text()).toContain(i18n.global.t('settings.appearance.palette'))
+    expect(wrapper.text()).toContain(i18n.global.t('com.wasmnest.bedcode.appearance.palette'))
   })
 })

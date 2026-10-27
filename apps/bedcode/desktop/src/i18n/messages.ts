@@ -5,7 +5,8 @@
  * 保证两份语言文件 key 永远同步（spec 票 13「`session.*` 命名空间前缀落定，
  * zh-CN / en 双文件同步」）。
  *
- * 所有 key 以 `session.` 域命名，注册时经插件 ID 前缀隔离为
+ * key 为各域相对键（session.* / pairing.* / task.* / appearance.* / server.* /
+ * sidebar.* / linkCrypto.* / notFound.* / settings.*），注册时经插件 ID 前缀隔离为
  * `com.wasmnest.bedcode.session.*`（`context.i18n.t('session.x')` 自动补前缀）。
  * 用 type 别名而非 interface：TS 给类型别名隐式索引签名，使 MessageSchema
  * 可直接赋给 `Record<string, unknown>`（registerMessages 入参）。
@@ -429,6 +430,95 @@ export type MessageSchema = {
   'appearance.settings.title': string
   'appearance.settings.hint': string
   'appearance.settings.saveFailed': string
+  'appearance.palette': string
+  'appearance.paletteWarm': string
+  'appearance.paletteCool': string
+  'appearance.paletteForest': string
+  'appearance.paletteOcean': string
+  'appearance.paletteSunset': string
+  'appearance.paletteViolet': string
+
+  // ==================== 设置页页头（app 自持；旧实现直取未注册的 `settings.title`） ====================
+  'settings.title': string
+
+  // ==================== 侧边栏（2026-10-27 自宿主 `desktop.sidebar.*` 迁入） ====================
+  'sidebar.settings': string
+  'sidebar.navigation': string
+  'sidebar.serviceRunning': string
+  'sidebar.serviceStopped': string
+  'sidebar.serviceStarting': string
+  'sidebar.collapse': string
+  'sidebar.expand': string
+
+  // ==================== 服务器管理（2026-10-27 自宿主 `desktop.server.*` 迁入） ====================
+  'server.title': string
+  'server.sectionStatus': string
+  'server.sectionNetwork': string
+  'server.port': string
+  'server.portHint': string
+  'server.surfaceHint': string
+  'server.portSave': string
+  'server.portSavedDelayed': string
+  'server.localIp': string
+  'server.status.running': string
+  'server.status.stopped': string
+  'server.status.starting': string
+  'server.monitoring': string
+  'server.uptime': string
+  'server.connections': string
+  'server.totalRequests': string
+  'server.cpuUsage': string
+  'server.memoryUsage': string
+  'server.requestRate': string
+  'server.wsThroughput': string
+  'server.wsSentRate': string
+  'server.wsRecvRate': string
+  'server.advancedConfig': string
+  'server.workers': string
+  'server.workersHint': string
+  'server.keepAlive': string
+  'server.keepAliveHint': string
+  'server.clientRequestTimeout': string
+  'server.clientDisconnectTimeout': string
+  'server.maxConnections': string
+  'server.maxConnectionsHint': string
+  'server.backlog': string
+  'server.tcpNodelay': string
+  'server.shutdownTimeout': string
+  'server.wsMaxFrameSize': string
+  'server.wsMaxFrameSizeHint': string
+  'server.wsMaxMessageSize': string
+  'server.wsMaxMessageSizeHint': string
+  'server.resetDefaults': string
+  'server.resetSuccess': string
+  'server.collapse': string
+  'server.expand': string
+  'server.toggleOn': string
+  'server.toggleOff': string
+
+  // ==================== 链路加密设置（2026-10-27 自宿主 `settings.linkCrypto.*` 迁入） ====================
+  'linkCrypto.title': string
+  'linkCrypto.master': string
+  'linkCrypto.encryptHttp': string
+  'linkCrypto.encryptHttpDesc': string
+  'linkCrypto.encryptWsTerminal': string
+  'linkCrypto.encryptWsTerminalDesc': string
+  'linkCrypto.encryptWsEvent': string
+  'linkCrypto.encryptWsEventDesc': string
+  'linkCrypto.plaintextFallback': string
+  'linkCrypto.plaintextFallbackDesc': string
+  'linkCrypto.fingerprint': string
+  'linkCrypto.fingerprintDesc': string
+  'linkCrypto.saveFailed': string
+
+  // ==================== 应用级兜底（2026-10-27 自宿主 `desktop.notFound.*` / `desktop.runtimeUnexpected` 迁入） ====================
+  'notFound.title': string
+  'notFound.body': string
+  'notFound.back': string
+  'runtimeUnexpected': string
+
+  // ==================== 终端窗口标题（2026-10-27 自宿主 `common.misc.terminalTitle` 迁入） ====================
+  'session.terminal.windowTitleWithName': string
 
   // ==================== 多任务卡片只读预览面（mountPreview · 2026-10-20） ====================
   'session.preview.eyebrow': string

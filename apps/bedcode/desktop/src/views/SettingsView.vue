@@ -54,10 +54,10 @@
  *   会话设置、链路加密（静态表渲染，组件经 inject('pluginContext') / inject('appEnv')
  *   取通道——appContext env 适配层零改写）。
  */
-import { useI18n } from 'vue-i18n'
+import { useAppI18n } from '@/composables/useAppI18n'
 import { useSettingsSections } from '@/composables/useSettingsSections'
 
-const { t } = useI18n()
+const t = useAppI18n()
 
 // 业务分组静态表（配对 / 会话；无共享状态需求）
 const sections = useSettingsSections()

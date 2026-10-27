@@ -94,12 +94,26 @@ describe('i18n 命名空间纪律锁', () => {
     expect(i18nIndex).toContain("export const MESSAGE_NAMESPACE = 'com.wasmnest.bedcode'")
   })
 
-  it('L3 静态表两种命名域不混用（app 域带前缀 / 宿主机制项不带）', () => {
+  it('L3 静态表 key 一律为 app 域相对键（渲染处补命名空间）', () => {
     const menu = readFileSync(join(APP_SRC, 'composables', 'useSidebarMenu.ts'), 'utf-8')
-    // app 域菜单项：经 MESSAGE_NAMESPACE 模板拼装
-    expect(menu).toContain('labelKey: `${MESSAGE_NAMESPACE}.pairing.sidebar.title`')
-    expect(menu).toContain('labelKey: `${MESSAGE_NAMESPACE}.session.sidebar.title`')
-    // 宿主机制项（设置）：顶层 key 直写
-    expect(menu).toContain("labelKey: 'desktop.sidebar.settings'")
+    expect(menu).toContain("labelKey: 'pairing.sidebar.title'")
+    expect(menu).toContain("labelKey: 'session.sidebar.title'")
+    expect(menu).toContain("labelKey: 'sidebar.settings'")
+    const sections = readFileSync(join(APP_SRC, 'composables', 'useSettingsSections.ts'), 'utf-8')
+    expect(sections).toContain("titleKey: 'linkCrypto.title'")
+    expect(sections).toContain("titleKey: 'appearance.settings.title'")
+  })
+
+  it('L4 app 源码不得引用宿主壳命名空间 key（desktop.* / shell.* / common.*）', () => {
+    // 2026-10-27：宿主文案不再随 app 打包（host-*.ts 副本删除）。引用宿主命名空间
+    // 会取不到文案、把 key 原文渲染到界面上（移动端 common.time.* 即此类事故）。
+    const files = collectSourceFiles(APP_SRC).filter((f) => !f.includes(join('src', 'i18n')))
+    const offenders: string[] = []
+    for (const file of files) {
+      const code = stripComments(readFileSync(file, 'utf-8'))
+      const matches = code.match(/['"`](desktop|shell|common)\.[\w.]+['"`]/g)
+      if (matches) offenders.push(`${file}: ${matches.join(', ')}`)
+    }
+    expect(offenders, `app 源码引用了宿主壳命名空间 key：\n${offenders.join('\n')}`).toEqual([])
   })
 })

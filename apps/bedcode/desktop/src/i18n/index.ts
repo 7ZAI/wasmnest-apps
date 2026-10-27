@@ -1,11 +1,11 @@
 /**
- * bedcode app 前端 i18n 实例（独立挂载包自足消息集；桌面 UI 宿主修正 2026-10-17）
+ * bedcode app 前端 i18n 实例（独立挂载包自足消息集）
  *
- * 两份来源（app 独立打包，不再与宿主共享实例）：
- * 1. 宿主机制文案副本（host-zh-CN / host-en，与宿主 i18n 同源同值——drift 锁钉
- *    住：app 视图仍消费 errors.* / common.* / desktop.* / settings.* 宿主命名空间
- *    key，独立包必须自足）；
- * 2. 本 app 域消息（zh-CN / en）：session.* / pairing.* / task.* 三命名空间。
+ * 两份来源（app 独立打包，不与宿主共享实例）：
+ * 1. 宿主机制文案副本（mechanism.ts）：仅错误信封 `errors.*`（ADR 0030 机制契约，
+ *    code 即 key，app 侧消费层按同一命名空间查文案）；
+ * 2. 本 app 域消息（zh-CN / en）：session.* / pairing.* / task.* / server.* /
+ *    sidebar.* / linkCrypto.* / appearance.* / notFound.* 等。
  *
  * **扁平 key 机制**（D5 遗留约定）：app 域消息以 `com.wasmnest.bedcode.<key>`
  * 的扁平点号 key 注册（vue-i18n 的 `t` 可直接取文案；`te` 不识别扁平形态，故判
@@ -16,8 +16,7 @@ import { createI18n } from 'vue-i18n'
 import type { MessageSchema } from './messages'
 import zhCN from './zh-CN'
 import en from './en'
-import hostZhCN from './host-zh-CN'
-import hostEn from './host-en'
+import { mechanismZhCN, mechanismEn } from './mechanism'
 
 export type { MessageSchema }
 
@@ -45,11 +44,11 @@ const i18n = createI18n({
   fallbackLocale: 'zh-CN',
   messages: {
     'zh-CN': {
-      ...hostZhCN,
+      ...mechanismZhCN,
       ...toNamespacedFlat(messages['zh-CN']),
     },
     en: {
-      ...hostEn,
+      ...mechanismEn,
       ...toNamespacedFlat(messages.en),
     },
   },
