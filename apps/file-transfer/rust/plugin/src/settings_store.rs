@@ -269,6 +269,11 @@ mod tests {
 
     #[test]
     fn concurrency_defaults_to_3_and_clamps_into_range() {
+        // 平台是进程级全局：set 与随后的消费必须串行（platform::test_lock 的约定）。
+        // 不拿锁 + 不预置时这两个用例会依赖「别的用例先跑过」——CI 上并行/顺序一变
+        // 就 panic 在 `platform::current() before platform::detect()`。
+        let _g = platform::test_lock().lock().unwrap();
+        platform::set_for_test(Platform::Desktop);
         // 旧 storage 无 concurrency 字段：缺省 3（向后兼容）
         let h = MockHost::new();
         h.storage_set(
@@ -284,6 +289,8 @@ mod tests {
 
     #[test]
     fn load_or_migrate_returns_default_when_storage_empty() {
+        let _g = platform::test_lock().lock().unwrap();
+        platform::set_for_test(Platform::Desktop);
         // Phase 4：引擎读接口退役，历史值由宿主一次性迁移导出；插件侧空即默认
         let h = MockHost::new();
         let s = load_or_migrate(&h).unwrap();

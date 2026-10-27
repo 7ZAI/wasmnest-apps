@@ -32,15 +32,16 @@
 crate-type = ["cdylib"]          # 只 cdylib；**不要加 rlib**
 
 [dependencies]
-# 桌面（apps/<slug>/desktop/rust 深度 = 5 级上溯）
-wasmnest-plugin-api = { path = "../../../../../wasmnest/wasmnest-desktop/packages/plugin-sdk-desktop/rust", features = ["wasm"] }
-# 移动
-wasmnest-plugin-api-mobile = { path = "../../../../../wasmnest/wasmnest-mobile/packages/plugin-sdk-mobile/rust", features = ["wasm"] }
+# 桌面（`wasmnest-plugin-api`）与移动（`wasmnest-plugin-api-mobile`）都是
+# **crates.io 发布物精确版本**（与平台仓 `release-manifest.json` 同轴）
+wasmnest-plugin-api = { version = "=0.0.1", features = ["wasm"] }
+wasmnest-plugin-api-mobile = { version = "=0.0.1", features = ["wasm"] }
 ```
 
 - **只 `cdylib`，不加 `rlib`**：一旦声明可链接形式，cargo 会连带为宿主目标构建 x86_64 cdylib，而本 crate 的 wit-bindgen 导出名在 ELF version script 里非法 ⇒ 链接期直接失败（bedcode 票 08 实测）。因此跨端契约测试写成 `src/*_test.rs` 的 `#[cfg(test)]` 模块，而不是 `tests/*.rs` 集成目标。
 - **`rustLibrary` = Cargo 包名的下划线归一化**：`bedcode-plugin-terminal-session` → `bedcode_plugin_terminal_session.wasm`。填连字符形式会找不到产物（`manifest-validate` 也要求 `pluginType=rust-ts` 时必须给 `rustLibrary`）。
-- **相对路径深度随目录层级变**：file-transfer 的 rust 层历史上移过两次（`desktop/rust` → `rust-plugin` → `rust/plugin`），SDK path 现在是 5 级上溯。移动这些目录时，`Cargo.toml` 的 SDK path、`lib.rs` 的 `include_str!`、`auth_center.rs` 的 `#[plugin_api(manifest = …)]` **三处必须同改**。
+- **SDK 一律发布物精确版本，不写 path**：`=0.0.1`（`Cargo.lock` 钉到具体发布物，带 `source = registry` + `checksum`）。本地要读平台 / 能力仓源码时用 `pnpm run link:platform`（它改 `file:` / 写 `[patch.crates-io]`，**状态不得提交**）；fresh clone / CI 只靠 registry 就能解析，不依赖兄弟仓目录。（`dev` 线把内部依赖写成相对路径，那是同机联调口径；发布线 `uat` 不这么写。）
+- **目录移动时仍要同改的两处**：`lib.rs` 的 `include_str!`、`auth_center.rs` 的 `#[plugin_api(manifest = …)]`（file-transfer 的 rust 层历史上移过两次：`desktop/rust` → `rust-plugin` → `rust/plugin`，这两处曾跟着一起断）。
 
 ---
 

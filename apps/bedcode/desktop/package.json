@@ -14,7 +14,7 @@
     "test": "vitest"
   },
   "dependencies": {
-    "@binblink/wasmnest-plugin-sdk-desktop": "file:../../../../wasmnest/wasmnest-desktop/packages/plugin-sdk-desktop",
+    "@binblink/wasmnest-plugin-sdk-desktop": "0.0.1",
     "@tauri-apps/api": "^2.11.0",
     "@tauri-apps/plugin-os": "^2.3.2",
     "@vuepic/vue-datepicker": "^9.0.3",

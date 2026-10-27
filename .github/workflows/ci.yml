@@ -1,14 +1,23 @@
 # ==============================================================================
-# 应用仓 CI：lint + 各 app 前端单测 + Rust crate native 单测
-# （不产出发布包；构建走 app-build / app-release）
+# 应用仓 CI：逐工程（apps/* + servers/*）独立的 eslint + 前端单测 + Rust crate native 单测
+# （不产出发布包；构建与分发走 app-build / app-release）
 #
-# 为什么需要跨仓检出：应用仓的依赖图与构建脚本**不自足**——
-# `package.json` 的 `file:../../../../wasmnest/...`、WIT 生成物、SDK 的 `dist/`
-# 都来自平台仓 / 能力仓（详见 docs/CI.md）。
+# 「一个一个工程独立」是仓的口径（AGENTS.md §3 / docs/CI.md §2）：每个 app 与每个服务
+# 各有自己的版本、自己的 `<slug>-v<X.Y.Z>` tag，互不牵动。本工作流与之对齐：
+#   - `discover` 从唯一枚举点取工程清单（scripts/lib/projects.mjs → `app-info.mjs --list`），
+#     新增 app / 服务自动进矩阵，**不需要改本文件**；
+#   - 前端单测按工程铺成矩阵（`fail-fast: false`）：谁红谁挂牌，不会被隔壁工程的失败
+#     掩盖成一个笼统的红；
+#   - Rust native 单测仍逐 crate 串行（各 crate 共用 `target/wasm-apps` 与依赖图，
+#     串行既快又避免互相争抢）。
 #
-# ref 口径：CI 只做校验，默认跟平台仓 `vars.WASMNEST_PLATFORM_REF`（未设则 `dev`）、
-# 能力仓 `vars.WASMNEST_LIB_REF`（未设则 `dev`）。发布流程（app-build / app-release）
-# 才按 `release-manifest.json` 的精确 tag 钉住跨仓版本。
+# 依赖口径（uat / 发布线）：双端 SDK 与能力仓 crate **全部按已发布版本解析**
+# （npm `0.0.1` / crate `=0.0.1`），`Cargo.lock` 带 `source` + `checksum` ⇒ 本工作流
+# 不做跨仓装配、不写任何 `[patch]`。（dev 线把内部依赖写成 `file:` / `path`，那一支
+# 需要在每个 job 里装配平台仓 / 能力仓，见该分支的 workflow。）
+#
+# 唯一的例外是**测试要读平台仓真源**的几个工程（宿主的 i18n / 主题 CSS 不在发布物里）：
+# `discover` 会把它们标成 `needsPlatform`，只有这些 job 才检出平台仓 / 能力仓。
 # ==============================================================================
 name: ci
 
@@ -30,8 +39,66 @@ defaults:
     working-directory: wasmnest-apps
 
 jobs:
-  verify:
-    name: lint + 单测
+  # 工程清单唯一真源 = scripts/lib/projects.mjs（经 `node scripts/ci/app-info.mjs --list` 暴露）。
+  # 分组（apps / servers）与端（desktop / mobile）也由 resolver 给出，本文件不拼目录名。
+  discover:
+    name: 枚举工程（apps + servers）
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      projects: ${{ steps.projects.outputs.matrix }}
+    steps:
+      - name: 检出应用仓
+        uses: actions/checkout@v4
+        with:
+          path: wasmnest-apps
+          fetch-depth: 1
+
+      - name: 安装 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: 生成矩阵（工程 × 端 / 分组 / 目录 / 是否读平台仓真源）
+        id: projects
+        run: |
+          set -euo pipefail
+          # needsPlatform：该工程的测试 / 测试配置读平台仓源码（宿主 i18n、主题 CSS 等）。
+          # 这是 deterministic 的源码判据，不靠人工维护清单。
+          platform_re='WASMNEST_PLATFORM_ROOT|\.\./\.\./\.\./\.\./wasmnest'
+          matrix='{"include":[]}'
+          while read -r slug; do
+            [ -n "$slug" ] || continue
+            dir=$(node scripts/ci/app-info.mjs --app "$slug" --field dir)   # <group>/<slug>
+            group=${dir%%/*}
+            if grep -rqE "$platform_re" "$dir" \
+                 --include='*.ts' --include='*.mts' --include='*.js' --include='*.mjs' --include='*.vue' \
+                 --exclude-dir=node_modules --exclude-dir=dist 2>/dev/null; then
+              needs=true
+            else
+              needs=false
+            fi
+            # 一个工程的一**端**一个 job：端的测试套件互相独立，拆开既让失败落到
+            # 「哪个工程的哪一端」，也避免一个重量级工程的套件把单 job 堆打爆
+            # （bedcode 桌面 46 个测试文件曾整 job OOM）。
+            while read -r end; do
+              [ -n "$end" ] || continue
+              matrix=$(jq -c --arg slug "$slug" --arg group "$group" --arg dir "$dir" --arg end "$end" \
+                --argjson needs "$needs" \
+                '.include += [{slug:$slug, group:$group, dir:$dir, end:$end, needsPlatform:$needs}]' <<<"$matrix")
+            done < <(node scripts/ci/app-info.mjs --app "$slug" --field ends | jq -r '.[]')
+          done < <(node scripts/ci/app-info.mjs --list)
+          if [ "$(jq '.include | length' <<<"$matrix")" = "0" ]; then
+            echo "::error::未枚举到任何工程 / 端（apps/ 与 servers/ 都空？看 scripts/lib/projects.mjs）"
+            exit 1
+          fi
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+          echo '工程矩阵：'
+          jq -r '.include[] | "  \(.group)/\(.slug)/\(.end)  needsPlatform=\(.needsPlatform)"' <<<"$matrix"
+
+  # eslint 是仓级口径（0 error），一次覆盖全部工程与 scripts/，故不拆矩阵、也不涉跨仓。
+  lint:
+    name: eslint（0 error）
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
@@ -41,7 +108,64 @@ jobs:
           path: wasmnest-apps
           fetch-depth: 1
 
-      - name: 装配跨仓依赖（平台仓 / 能力仓）
+      - name: 安装 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: 安装 pnpm（版本 = 应用仓 packageManager）
+        uses: pnpm/action-setup@v4
+        with:
+          package_json_file: wasmnest-apps/package.json
+
+      - name: 缓存 pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/share/pnpm/store
+          key: pnpm-store-${{ runner.os }}-${{ hashFiles('wasmnest-apps/**/pnpm-lock.yaml') }}
+          restore-keys: |
+            pnpm-store-${{ runner.os }}-
+
+      - name: 安装应用仓根依赖
+        run: pnpm install --frozen-lockfile
+
+      - name: 安装各工程依赖（apps + servers，每个工程独立 workspace）
+        run: |
+          set -euo pipefail
+          # nullglob：`servers/*/mobile/package.json` 这类「当前无人匹配」的模式展开成空，
+          # 否则字面量会被当成路径传进 cd（缺一个端目录就整步失败）。
+          shopt -s nullglob
+          for pkg in apps/*/desktop/package.json apps/*/mobile/package.json \
+                     servers/*/desktop/package.json servers/*/mobile/package.json; do
+            dir="$(dirname "$pkg")"
+            echo "::group::pnpm install $dir"
+            (cd "$dir" && pnpm install --frozen-lockfile)
+            echo "::endgroup::"
+          done
+
+      - name: eslint（0 error 口径）
+        run: pnpm run lint
+
+  # 前端单测：一个工程（app 或服务）一个 job —— 与「一个一个独立发布」同构，
+  # 失败落在该工程名下；工程之间并行，整条流水线不被最慢的工程拖住。
+  test:
+    name: 单测 · ${{ matrix.group }}/${{ matrix.slug }}/${{ matrix.end }}
+    needs: discover
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.discover.outputs.projects) }}
+    steps:
+      - name: 检出应用仓
+        uses: actions/checkout@v4
+        with:
+          path: wasmnest-apps
+          fetch-depth: 1
+
+      # 只有读平台仓真源的工程才检出兄弟仓（宿主的 i18n 目录 / 主题 CSS 不在 npm 包里）。
+      - name: 装配跨仓依赖（仅读平台仓真源的工程）
+        if: matrix.needsPlatform
         env:
           CROSS_REPO_TOKEN: ${{ secrets.CROSS_REPO_TOKEN }}
         run: |
@@ -67,37 +191,35 @@ jobs:
           restore-keys: |
             pnpm-store-${{ runner.os }}-
 
-      - name: 安装应用仓根依赖
-        run: pnpm install --frozen-lockfile
-
-      - name: 补齐平台侧生成物（WIT 拼装 + 双端 SDK dist）
-        run: node scripts/ci/prepare-platform.mjs --ends all
-
-      - name: 安装各工程依赖（apps + servers，每个工程独立 workspace）
+      - name: 安装本端依赖
+        env:
+          PROJECT_DIR: ${{ matrix.dir }}
+          END: ${{ matrix.end }}
         run: |
           set -euo pipefail
-          # nullglob：`servers/*/mobile/package.json` 这类「当前无人匹配」的模式展开成空，
-          # 否则字面量会被当成路径传进 cd（缺一个端目录就整步失败）。
-          shopt -s nullglob
-          for pkg in apps/*/desktop/package.json apps/*/mobile/package.json \
-                     servers/*/desktop/package.json servers/*/mobile/package.json; do
-            dir="$(dirname "$pkg")"
-            echo "::group::pnpm install $dir"
-            (cd "$dir" && pnpm install --frozen-lockfile)
-            echo "::endgroup::"
-          done
+          dir="$PROJECT_DIR/$END"
+          if [ ! -f "$dir/package.json" ]; then
+            echo "::error::$dir 缺 package.json（app-info 报告的端与目录不一致）"
+            exit 1
+          fi
+          (cd "$dir" && pnpm install --frozen-lockfile)
 
-      - name: eslint（0 error 口径）
-        run: pnpm run lint
-
-      - name: 各工程单测（逐工程串行，缺脚本打印 skip）
-        run: pnpm run test:run
+      - name: 单测（缺 test:run 打印 skip，不静默略过）
+        env:
+          # runner 只有 2 核 ⇒ vitest 默认 maxWorkers=1，几十个测试文件全挤在同一个
+          # fork 进程里跑，模块缓存不断累积（bedcode 桌面 39 个文件实测顶到 6GB 后
+          # OOM 崩掉，而不是用例失败）。强制多个 worker = 每个文件跑在自己进程里，
+          # 峰值内存摊到多个堆上；堆上限同时留余量。
+          NODE_OPTIONS: --max-old-space-size=3072
+        run: >-
+          node scripts/run-apps.mjs test:run
+          --only="${{ matrix.dir }}/${{ matrix.end }}" -- --maxWorkers=4
 
   # Rust native 单测：逐 crate `cargo test --manifest-path`（口径同 AGENTS.md 命令表）。
-  # 测试跑宿主 target，不覆盖 wasm32 宏路径（native 测试边界见 AGENTS.md 完成定义）；
-  # desktop crate 声明 crates.io SDK（=0.0.1，未发布 → 见下方临时 patch 步），mobile
-  # crate 经 path 依赖平台仓 SDK（`../../../../../wasmnest/...`，R1 兄弟布局）→ 仍需
-  # 跨仓装配，但无需 pnpm / 前端生成物（SDK crate 的 wit/ 已入库，app crate 无 build.rs）。
+  # 测试跑宿主 target，不覆盖 wasm32 宏路径（native 测试边界见 AGENTS.md 完成定义）。
+  # 双端 SDK 与能力仓 crate 全部按 crates.io 发布物精确版本解析（`=0.0.1`），发布物自带
+  # `wit/`、SDK 无 build.rs ⇒ 本 job **不需要跨仓检出，也没有任何 [patch]**。
+  # 若日后有用例回归 `path` 依赖（如 dev 线的写法），这里会以「找不到 path crate」显性失败。
   rust-test:
     name: rust 单测（native）
     runs-on: ubuntu-latest
@@ -111,51 +233,11 @@ jobs:
           path: wasmnest-apps
           fetch-depth: 1
 
-      - name: 装配跨仓依赖（平台仓 / 能力仓）
-        env:
-          CROSS_REPO_TOKEN: ${{ secrets.CROSS_REPO_TOKEN }}
-        run: |
-          node scripts/ci/fetch-cross-repo.mjs \
-            --platform-ref "${{ vars.WASMNEST_PLATFORM_REF || 'dev' }}" \
-            --lib-ref "${{ vars.WASMNEST_LIB_REF || 'dev' }}"
-
       - name: 安装 sccache（.cargo/config.toml 强制 rustc-wrapper，不绕过）
         uses: mozilla-actions/sccache-action@v0.0.9
 
       - name: 安装 Rust stable（宿主 native 测试，无需 wasm target）
         uses: dtolnay/rust-toolchain@stable
-
-      # bedcode/desktop 等的 dev-deps（wasmnest-lib server crate）拖 tauri → Linux 宿主
-      # 编译 gtk/glib sys crate，runner 缺系统头文件。包集与平台仓 test.yml 的
-      # 「安装 Linux 宿主系统依赖」同口径（改动需两仓同步）。
-      - name: 安装 Linux 宿主系统依赖（gtk/glib sys crate 的 build script 需要）
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev libjavascriptcoregtk-4.1-dev \
-            libappindicator3-dev librsvg2-dev patchelf \
-            libsoup-3.0-dev libssl-dev pkg-config libgtk-3-dev build-essential
-
-      # SDK 尚未发布 crates.io（平台仓 sdk-publish.yml 已实现未执行），desktop crate
-      # 的 `wasmnest-plugin-api = "0.0.1"` 在 CI 无法从 registry 解析；本地开发同场景
-      # 由 link:platform 写 [patch]（不可提交）解决。这里在 CI 内给 .cargo/config.toml
-      # 追加等价 patch（指向本次检出的平台仓 SDK，不改 package.json / 不写 marker）。
-      # SDK 发布 crates.io 后：删除本步 + docs/CI.md §7 对应行（同提交）。
-      - name: SDK 未发布期的 cargo patch（指向已检出平台仓 SDK）
-        run: |
-          set -euo pipefail
-          sdk="$GITHUB_WORKSPACE/wasmnest/wasmnest-desktop/packages/plugin-sdk-desktop"
-          test -f "$sdk/rust/Cargo.toml" || {
-            echo "::error::平台仓检出缺 SDK crate（$sdk/rust）——检查 fetch-cross-repo 与平台仓布局"; exit 1;
-          }
-          {
-            echo ''
-            echo '# >>> ci rust-test 临时 patch（SDK 发布 crates.io 后随 workflow 本步一起删除） >>>'
-            echo '[patch.crates-io]'
-            echo "wasmnest-plugin-api = { path = \"$sdk/rust\" }"
-            echo "wasmnest-plugin-api-macros = { path = \"$sdk/rust-macros\" }"
-            echo '# <<< ci rust-test 临时 patch <<<'
-          } >> .cargo/config.toml
 
       - name: 逐 crate cargo test（file-transfer 嵌套 crate 依赖图最小，放最前 fail-fast）
         run: |
@@ -177,19 +259,52 @@ jobs:
             exit 1
           fi
           # 【登记】bedcode/desktop 暂不进本门禁（issue #7）：
-          #   dev-deps 钉能力仓 git tag lib-v0.0.2，其中 server-base 的 advertise/stop
+          #   dev-deps 钉能力仓 git tag lib-v0.0.1，其中 server-base 的 advertise/stop
           #   还是 sync 版；apps dev 代码已按 lib dev 的 async 版实现（本地靠
-          #   link:platform 的 [patch."https://github.com/7ZAI/wasmnest-lib"] 指回本地
-          #   源码，CI 按钉住的 tag 解析即 E0195）。出路：能力仓发布含 async trait 的
-          #   lib-v0.0.3 → 本仓改钉新 tag（与平台 release-manifest repos.lib.tag 同轴）
-          #   → 删除本排除并移回门禁。
+          #   link:platform 的 [patch.crates-io] 指回本地源码，CI 按发布物解析即 E0195）。
+          #   出路：能力仓发布含 async trait 的新 tag → 本仓改钉新版本（与平台
+          #   release-manifest repos.lib.tag 同轴）→ 删除本排除并移回门禁。
+          #   注意：该 crate 的 dev-deps 会拖 tauri（gtk/glib sys crate），移回门禁时
+          #   需要补回「安装 Linux 宿主系统依赖」那一步（本轮 uat 口径下其它 crate 不需要）。
           excluded='apps/bedcode/desktop/rust/Cargo.toml'
           for m in "${manifests[@]}"; do
             if [ "$m" = "$excluded" ]; then
-              echo "::warning::skip $m —— lib-v0.0.2 tag 未含 async trait（登记与出路见 issue #7，tag 升级后移回）"
+              echo "::warning::skip $m —— lib-v0.0.1 发布物未含 async trait（登记与出路见 issue #7，版本升级后移回）"
               continue
             fi
             echo "::group::cargo test --manifest-path $m"
             cargo test --manifest-path "$m"
             echo "::endgroup::"
           done
+
+  # 汇总门（名字 = 分支保护里的必需检查 `lint + 单测`，**不要改名**）。
+  # 为什么需要它：`test` 已按工程铺成矩阵，逐工程 job 的名字随 app / 服务增减而变，
+  # 直接拿它们当必需检查会让分支保护永远 pending。这个 job 用 `if: always()` 汇总上游
+  # 结果：任一上游不是 success 就失败 —— 既不掩盖红，也不需要每加一个 app 就去改
+  # Settings → Branches 的必需检查列表。
+  gate:
+    name: lint + 单测
+    needs: [lint, test]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # 本 job 不检出仓，也不用仓内文件；必须把仓级 `defaults.run.working-directory`
+    # （= wasmnest-apps）重置成 `.`，否则 runner 上那个目录不存在、bash 直接起不来。
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - name: 汇总上游结果（任一非 success 即失败）
+        env:
+          LINT: ${{ needs.lint.result }}
+          TEST: ${{ needs.test.result }}
+        run: |
+          set -euo pipefail
+          echo "lint=$LINT  test=$TEST"
+          for r in "$LINT" "$TEST"; do
+            if [ "$r" != "success" ]; then
+              echo "::error::上游 job 结果=$r（需要 success；矩阵里具体哪个工程红看各 job）"
+              exit 1
+            fi
+          done
+          echo "全部上游通过"

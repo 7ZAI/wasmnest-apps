@@ -5863,6 +5863,8 @@ dependencies = [
 [[package]]
 name = "wasmnest-crypto-engine"
 version = "0.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4b1c1aba3817d82f7690beab875992605488d9eb05227c87398d59203d47f32d"
 dependencies = [
  "aes-gcm",
  "base64 0.22.1",
@@ -5880,6 +5882,8 @@ dependencies = [
 [[package]]
 name = "wasmnest-host-api-core"
 version = "0.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "740b4e63cbe5eed574f4bd965efa59346ce65f019c220e54125517f5e88eaabd"
 dependencies = [
  "rusqlite",
  "serde_json",
@@ -5889,6 +5893,8 @@ dependencies = [
 [[package]]
 name = "wasmnest-link-crypto"
 version = "0.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "86c3eb9f33b39e521c9cd7633f0719cd9cb302675c4444b075ef402a669b5809"
 dependencies = [
  "aes-gcm",
  "base64 0.22.1",
@@ -5904,6 +5910,8 @@ dependencies = [
 [[package]]
 name = "wasmnest-plugin-api"
 version = "0.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6dfbb6d62dc0504c43a96de143f3839bcece1f8987f24a27f67335d8098ffdb5"
 dependencies = [
  "anyhow",
  "inventory",
@@ -5916,6 +5924,8 @@ dependencies = [
 [[package]]
 name = "wasmnest-plugin-api-macros"
 version = "0.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a94d2f9aaf6f1327532e1d905f5143bb9544946ab93ba8585598f4dbaa38a7e4"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -5926,6 +5936,8 @@ dependencies = [
 [[package]]
 name = "wasmnest-server-base"
 version = "0.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9aa8af0295d9fc36cedb711243e8947b9d30c11336a86df45a2472e7a94b09a7"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5950,6 +5962,8 @@ dependencies = [
 [[package]]
 name = "wasmnest-server-core"
 version = "0.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "627ec6920276a7eea08ff9ae4aaeb666305a8173fffc98f64a2818e6f535d04d"
 dependencies = [
  "actix-cors",
  "actix-service",
@@ -5973,6 +5987,8 @@ dependencies = [
 [[package]]
 name = "wasmnest-server-http"
 version = "0.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4ac6090c84e4ae20e07732600e8692bc0140fb96ad5e41f2760fd711dcfde219"
 dependencies = [
  "actix-service",
  "actix-web",
@@ -5991,6 +6007,8 @@ dependencies = [
 [[package]]
 name = "wasmnest-server-websocket"
 version = "0.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f94805d2cff506de579f1d12f32293642a38b839516515d1a1f91977f1465f84"
 dependencies = [
  "actix",
  "actix-rt",

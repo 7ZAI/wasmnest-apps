@@ -8,3 +8,5 @@ allowBuilds:
   edgedriver: false
   esbuild: true
   geckodriver: false
+minimumReleaseAgeExclude:
+  - '@binblink/wasmnest-plugin-sdk-desktop@0.0.1'
