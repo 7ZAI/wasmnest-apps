@@ -185,7 +185,9 @@ jobs:
           TARGET: ${{ inputs.apps-ref || github.sha }}
         run: |
           set -euo pipefail
+          # 本 job 不检出仓（只下载 artifact），`gh` 需要显式 --repo 才知道发到哪。
           gh release create "$TAG" \
+            --repo "${{ github.repository }}" \
             --target "$TARGET" \
             --title "${{ inputs.app }} v${{ needs.resolve.outputs.version }}" \
             --notes-file release-notes.md \
