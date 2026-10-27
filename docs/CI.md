@@ -176,7 +176,10 @@ dist/release/<slug>-<end>-v<version>.json  元数据
 
 - **zip**：由 `scripts/package-plugins.mjs --skip-build` 生成（桌面产物另做 `wasmHash` 复核；
   移动端该字段无生产者，见该脚本头注）。zip 根含 `index.js` / `plugin.json` / `icon.svg` / `<rustLibrary>.wasm`。
-- **元数据**：`plugin`（id / version / rustLibrary）、`artifact`（大小 / sha256）、
+- **元数据**：`plugin`（id / version / rustLibrary）、`compat`（宿主兼容声明，
+  构建时从仓根 `host-runtime.lock.json` 盖章：hostRuntime / mountContract / sdkVersion /
+  witVersion——宿主更新检查据此判断「这个包能否装进当前平台」，缺段即判不兼容，
+  生产者见 `scripts/lib/host-compat.mjs`）、`artifact`（大小 / sha256）、
   `wasm`（大小 / sha256；桌面带构建期注入的 `wasmHash`）、`source`（三仓 ref + commit + 构建时间）。
 - GitHub Release 附件 = 该 app 各端的 zip + json；Release 说明里的 sha256 直接来自元数据。
 - **可复现**：CI 把 `SOURCE_DATE_EPOCH` 设为本次提交时间（`package-plugins.mjs` 用它固定 zip

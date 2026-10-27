@@ -3,7 +3,8 @@
  * 单 app、单端的构建 + 打包（CI 与本地发布共用）。
  *
  * 产物：`dist/release/<slug>-<end>-v<version>.zip` + 同名 `.json` 元数据
- * （插件 id / wasm 摘要 / 源提交 / 平台与能力仓 ref），一个 app 一端一个包。
+ * （插件 id / wasm 摘要 / 源提交 / 平台与能力仓 ref / 宿主兼容声明 compat），
+ * 一个 app 一端一个包。
  *
  * 构建链**复用各 app 自己的脚本**（不在 CI 里另写一套编译命令）：
  *  - desktop：`apps/<slug>/desktop` 的 `pnpm run build`
@@ -39,6 +40,7 @@ import { join, resolve } from 'node:path'
 
 import { APPS_ROOT, appInfo, readJson } from './app-info.mjs'
 import { checkReleasePurity } from './check-release-purity.mjs'
+import { readHostCompat } from '../lib/host-compat.mjs'
 import {
   desktopHostResourcesDir,
   mobileHostResourcesDir,
@@ -232,6 +234,10 @@ async function main() {
   const wasmPath = join(resourcesRoot, target.id, `${target.rustLibrary}.wasm`)
   const wasmInfo = fileInfo(wasmPath, 'wasm 产物')
 
+  // 宿主兼容声明（应用版本更新全链路）：构建时刻锁住的宿主运行时版本轴，
+  // 供宿主更新检查判断「这个包能不能装进当前平台」；缺锁即 fail（见 host-compat.mjs）
+  const compat = readHostCompat()
+
   const metadata = {
     schema: 1,
     app: info.slug,
@@ -243,6 +249,7 @@ async function main() {
       pluginType: target.pluginType,
       rustLibrary: target.rustLibrary,
     },
+    compat,
     artifact: { file: `${base}.zip`, bytes: zipInfo.bytes, sha256: zipInfo.sha256 },
     wasm: {
       file: `${target.rustLibrary}.wasm`,
