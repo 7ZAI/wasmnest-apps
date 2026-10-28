@@ -25,7 +25,9 @@ name: ci
 on:
   pull_request:
   push:
-    branches: [dev, main]
+    # **dev 推送不触发**（用户 2026-10-28 定：四仓同口径）；dev 是联调线，验证靠本地
+    # `pnpm run test:run` / 逐工程构建 + husky，需要远程跑时用 workflow_dispatch。
+    branches: [main]
   workflow_dispatch:
 
 permissions:
