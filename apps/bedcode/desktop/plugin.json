@@ -190,7 +190,7 @@
       },
       {
         "id": "agent.add-custom-source",
-        "title": "agent-hub.add-custom-source"
+        "title": "AddCustomSource"
       },
       {
         "id": "agent.add-usage-source",
@@ -326,7 +326,7 @@
       },
       {
         "id": "agent.remove-custom-source",
-        "title": "agent-hub.remove-custom-source"
+        "title": "RemoveCustomSource"
       },
       {
         "id": "agent.remove-env",

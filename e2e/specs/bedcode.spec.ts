@@ -4,7 +4,7 @@
  * 跑法（应用仓根）：
  *   node scripts/e2e.mjs --app bedcode
  *
- * 判据纪律与 `agent-hub.spec.ts` 同：
+ * 判据纪律见 docs/E2E.md（原 agent-hub 套件随应用并入 bedcode 退役）：
  * - 不依赖机器状态（本机有没有配对设备 / 有没有会话配置）；
  * - 文案断言跨语言；
  * - 等状态不 sleep。

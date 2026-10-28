@@ -5,7 +5,7 @@
 ## Language
 
 **环境（Environment）**：
-宿主机器上的 Node.js 运行时（含 npm）。agent-hub 只认这一种编程环境。
+宿主机器上的 Node.js 运行时（含 npm）。bedcode 的 Agent 管理域（原 agent-hub）只认这一种编程环境。
 _Avoid_: 依赖、工具链、开发环境、runtime
 
 **探测（Probe）**：

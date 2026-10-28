@@ -18,7 +18,6 @@ English | [简体中文](README.md)
 | [BedCode](apps/bedcode/README.md) (`bedcode`) | `com.wasmnest.bedcode` | desktop + mobile | Desktop is the terminal session center (pairing/trust, session orchestration, task queue, agent integration); mobile is a remote terminal controller |
 | [AI Chatbox](apps/ai-chatbox/README.md) (`ai-chatbox`) | `com.wasmnest.ai-chatbox` | desktop + mobile | Multi-provider AI chat: streaming output, multi-session management, JSONL conversation logs |
 | [File Transfer](apps/file-transfer/README.md) (`file-transfer`) | `com.wasmnest.file-transfer` | desktop + mobile | LAN peer discovery, bidirectional transfer, resumable downloads and shared directories; one Rust artifact for both ends |
-| [Agent Hub](apps/agent-hub/README.md) (`agent-hub`) | `com.wasmnest.agent-hub` | desktop | Agent CLI management: install/uninstall, Skills, provider configuration, usage stats |
 
 > Plugin ids match directory slugs (`com.wasmnest.<slug>`): `bedcode` maps to `com.wasmnest.bedcode` (renamed from the legacy id `com.wasmnest.terminal-session` on 2026-10-25). New apps always use `com.wasmnest.<slug>`.
 

@@ -3,7 +3,7 @@
  *
  * 桌面 UI 宿主（方案 C 壳）的结构：**主屏**（应用网格 + 系统网格）→ 点应用卡 →
  * 挂载槽装载该 app 的独立前端整包（同一 webview 同一 document，非 iframe）→
- * 壳路由切到该 app 的路由前缀（agent-hub = `/hub`）。
+ * 壳路由切到该 app 的路由前缀（bedcode = `/sessions`）。
  *
  * 所以 E2E 里「打开某个 app」= 主屏点应用卡，「回主屏」= 壳路由回 `/`。
  *
@@ -89,7 +89,7 @@ export async function goHome(timeout = DEFAULT_TIMEOUT): Promise<void> {
 /**
  * 点主屏应用卡，打开该 app
  *
- * @param displayName 应用显示名（= plugin.json 的 name，如 `Agent Hub`）
+ * @param displayName 应用显示名（= plugin.json 的 name，如 `BedCode`）
  * @throws 找不到卡片时抛错（fail-visible：静默跳过会把「应用没装上」伪装成「用例通过」）
  */
 export async function openApp(displayName: string, timeout = DEFAULT_TIMEOUT): Promise<void> {

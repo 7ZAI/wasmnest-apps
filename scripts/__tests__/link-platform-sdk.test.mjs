@@ -21,7 +21,7 @@ import {
   toFileSpec,
 } from '../platform-sdk-link.mjs'
 
-const APP_SLUGS = ['agent-hub', 'ai-chatbox', 'bedcode', 'file-transfer', 'monitor']
+const APP_SLUGS = ['ai-chatbox', 'bedcode', 'file-transfer', 'monitor']
 
 const ORIGINAL_CARGO_CONFIG =
   '# ==================== wasm 应用共享 target 目录 ====================\n' +
@@ -131,7 +131,7 @@ describe('link-platform-sdk / createLinkPlan + applyLinkPlan', () => {
     )
     // app 深 3 层的相对路径
     assert.equal(
-      specOf(desktopPackageFile(fx.appsRoot, 'agent-hub')),
+      specOf(desktopPackageFile(fx.appsRoot, 'bedcode')),
       'file:../../../../platform/wasmnest-desktop/packages/plugin-sdk-desktop',
     )
 
@@ -261,7 +261,7 @@ describe('link-platform-sdk / 路径与命令', () => {
     )
 
     const calls = []
-    const dirs = [fx.appsRoot, join(fx.appsRoot, 'apps', 'agent-hub', 'desktop')]
+    const dirs = [fx.appsRoot, join(fx.appsRoot, 'apps', 'bedcode', 'desktop')]
     const installed = runPnpmInstalls({
       dirs,
       spawn: (cmd, args, opts) => {

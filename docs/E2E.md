@@ -76,8 +76,8 @@ WebDriver 注入的脚本能直接访问 app 内部节点。
 `scripts/e2e.mjs` 对以上都做**显性预检**（缺则打印修复指引并退出，不静默降级）。
 
 ```bash
-node scripts/e2e.mjs --app agent-hub                        # packed（默认）
-node scripts/e2e.mjs --app agent-hub --host-mode cargo      # 平台集成
+node scripts/e2e.mjs --app bedcode                         # packed（默认）
+node scripts/e2e.mjs --app bedcode --host-mode cargo       # 平台集成
 node scripts/e2e.mjs --app bedcode --host ./host-desktop     # packed + 显式宿主产物目录
 node scripts/e2e.mjs --app monitor --skip-build              # 复用 app 默认产物目录搬进 staging
 ```
@@ -107,7 +107,7 @@ wasmnest-apps/e2e/
 
 ```bash
 # 单个 app（推荐：一次只装一个 app，主屏只有一张卡，断言不受干扰）
-node scripts/e2e.mjs --app agent-hub
+node scripts/e2e.mjs --app bedcode
 node scripts/e2e.mjs --app ai-chatbox
 node scripts/e2e.mjs --app bedcode
 node scripts/e2e.mjs --app file-transfer
@@ -117,7 +117,7 @@ node scripts/e2e.mjs --app monitor
 node scripts/e2e.mjs
 
 # 单条用例
-node scripts/e2e.mjs --app agent-hub --spec e2e/specs/agent-hub.spec.ts
+node scripts/e2e.mjs --app bedcode --spec e2e/specs/bedcode.spec.ts
 
 # 参数
 --skip-build   复用现有产物（改过前端就别用）
@@ -197,9 +197,9 @@ E2E 只认 `data-testid`。命名 = `<域>-<元素>`，kebab-case，**不带 app
 做法：期望值取 app i18n 各语言取值域的**并集**（`pages/<slug>.ts` 的 `labelSet(key)`）。
 
 ```ts
-// e2e/pages/agentHub.ts
-import en from '../../apps/agent-hub/desktop/src/i18n/en'
-import zhCN from '../../apps/agent-hub/desktop/src/i18n/zh-CN'
+// e2e/pages/bedcode.ts（示意）
+import en from '../../apps/bedcode/desktop/src/i18n/en'
+import zhCN from '../../apps/bedcode/desktop/src/i18n/zh-CN'
 
 export function labelSet(key: keyof typeof zhCN): string[] {
   const out: string[] = []

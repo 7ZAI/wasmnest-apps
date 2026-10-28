@@ -103,7 +103,6 @@ wasmnest-apps/
 
 | 目录 slug | 插件 id | 端 | 前端入口 | pluginType | rustLibrary | Rust crate（包名 / 位置） |
 | --- | --- | --- | --- | --- | --- | --- |
-| agent-hub | `com.wasmnest.agent-hub` | desktop | `desktop/src/entry.ts` | `rust-ts` | `wasmnest_plugin_agent_hub` | `wasmnest-plugin-agent-hub` @ `apps/agent-hub/desktop/rust` |
 | ai-chatbox | `com.wasmnest.ai-chatbox` | desktop + mobile | `entry.ts` / `index.ts` | 桌面 `rust-ts`；移动 `wasm` | `wasmnest_plugin_ai_chatbox`（两端同名） | `wasmnest-plugin-ai-chatbox` @ `desktop/rust`；`wasmnest_plugin_ai_chatbox` @ `mobile/rust` |
 | bedcode（显示名 BedCode） | `com.wasmnest.bedcode` | desktop + mobile | `entry.ts` / `index.ts` | 桌面 `rust-ts`；移动 `wasm` | `bedcode_plugin_terminal_session`（两端同名） | `bedcode-plugin-terminal-session` @ `desktop/rust`；`bedcode_plugin_terminal_session` @ `mobile/rust` |
 | file-transfer | `com.wasmnest.file-transfer` | desktop + mobile（`platform: "both"`） | `entry.ts` / `index.ts` | 桌面 `rust-ts`；移动 `wasm` | `wasmnest_plugin_file_transfer`（两端同名） | 单产物 `wasmnest-plugin-file-transfer` @ `apps/file-transfer/rust/plugin`；共享核 `wasmnest-file-transfer-core` @ `apps/file-transfer/rust/core` |

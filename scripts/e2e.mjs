@@ -4,8 +4,8 @@
  *
  * 一条命令把「宿主 + 被测 app + 驱动链」拉起来，跑完收干净：
  *
- *   node scripts/e2e.mjs --app agent-hub                       # packed（默认，G2 形态）
- *   node scripts/e2e.mjs --app agent-hub --host-mode cargo     # 平台集成形态
+ *   node scripts/e2e.mjs --app bedcode                         # packed（默认，G2 形态）
+ *   node scripts/e2e.mjs --app bedcode --host-mode cargo       # 平台集成形态
  *
  * ## 为什么需要这个运行器（而不是直接 `wdio run`）
  *
@@ -34,7 +34,7 @@
  *
  * ## 参数
  *
- *   --app <slug>       被测 app（目录 slug，如 agent-hub）；省略 = 跑全部已有用例的 app
+ *   --app <slug>       被测 app（目录 slug，如 bedcode）；省略 = 跑全部已有用例的 app
  *   --skip-build       不重新构建被测 app（复用现有产物；改过前端就别用）
  *   --build-full       连 wasm 后端一起构建（默认只重建前端：E2E 关注交互层，
  *                      wasm 全量构建慢）
@@ -105,7 +105,7 @@ function usage() {
     [
       '用法：node scripts/e2e.mjs --app <slug> [选项]',
       '',
-      '  --app <slug>    被测 app 目录 slug（agent-hub / ai-chatbox / bedcode / file-transfer / monitor / auth-center）',
+      '  --app <slug>    被测 app 目录 slug（ai-chatbox / bedcode / file-transfer / monitor / auth-center）',
       '  --skip-build    不重建被测 app（复用现有产物）',
       '  --build-full    连 wasm 后端一起构建（默认只重建前端）',
       '  --spec <path>   透传给 wdio --spec',

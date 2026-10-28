@@ -10,7 +10,7 @@
  *
  * 为什么需要它：`run-apps` / `package-plugins` / `ci/app-info` / `ci/build-app` /
  * `ci/set-app-version` / `e2e` staging 曾各自 `join(root, 'apps')`，新增分组时
- * 漏改一处就是「产物不生成 / 产品不装配 / 清单红」（agent-hub 曾因漏注册表长期
+ * 漏改一处就是「产物不生成 / 产品不装配 / 清单红」（曾有应用因漏注册表长期
  * 停在旧构建）。本文件是**唯一**允许拼 `apps` / `servers` 字面量的地方。
  *
  * 口径（fail-visible）：

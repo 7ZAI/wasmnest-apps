@@ -8,7 +8,7 @@
  * - `resolvePluginErrorText`：信封 code → 友好文案；未注册 / 非信封 → fallbackKey
  *
  * code 约定 = 插件 i18n **注册后的完整 key**（`<plugin_id>.<namespace>.<name>`，
- * 如 `com.wasmnest.agent-hub.install.error.busy`）：插件 `registerMessages` 以
+ * 如 `com.wasmnest.ai-chatbox.install.error.busy`）：插件 `registerMessages` 以
  * 扁平 key merge 进宿主 i18n，故直接 `hostI18n.global.t(code)` 可解析；未注册时
  * vue-i18n 返回 key 原文，用「t !== code」判定（与宿主 lookupMessage 同判据）。
  *
@@ -51,7 +51,7 @@ export function parsePluginError(e: unknown): PluginErrorEnvelope | null {
  * 1. `errors.<code>`——宿主机制码命名空间（host.* / frontend.*，宿主 locale 注册）
  * 2. `<code>` 裸完整 key——插件业务码（registerMessages 扁平 merge 进宿主 i18n）
  * 3. `<context.id>.<fallbackKey>`——fallback 短 key 补全插件前缀（约定 fallbackKey
- *    为插件自身短 key，如 agent-hub `hub.inst.failed` / ai-chatbox `testFailed`）
+ *    为插件自身短 key，如 bedcode `hub.inst.failed` / ai-chatbox `testFailed`）
  * 4. `errors.frontend.internal`——兜底不可命中（漏注册 / 测试 mock）时返回宿主
  *    通用文案；**永不输出 key / code 原文**
  */

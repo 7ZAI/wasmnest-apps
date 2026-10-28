@@ -4,7 +4,7 @@
  * 跑法（应用仓根）：
  *   node scripts/e2e.mjs --app ai-chatbox
  *
- * 判据纪律与 `agent-hub.spec.ts` 同：
+ * 判据纪律见 docs/E2E.md（原 agent-hub 套件随应用并入 bedcode 退役）：
  * - 不依赖机器状态（本机配没配供应商 / 有没有历史会话）；
  * - 文案断言跨语言（期望值取 app i18n 各语言取值域的并集）；
  * - 等状态不 sleep。

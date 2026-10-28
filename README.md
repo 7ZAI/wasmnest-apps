@@ -18,7 +18,6 @@ WasmNest 的桌面与 Android 宿主只提供机制与安全闸门；会话、�
 | [BedCode](apps/bedcode/README.md)（`bedcode`） | `com.wasmnest.bedcode` | 桌面 + 移动 | 桌面为终端会话中心（配对 / 信任、会话编排、任务队列与 Agent 集成），移动为远程终端控制端 |
 | [AI Chatbox](apps/ai-chatbox/README.md)（`ai-chatbox`） | `com.wasmnest.ai-chatbox` | 桌面 + 移动 | 多供应商 AI 对话：流式输出、多会话管理、JSONL 对话日志 |
 | [File Transfer](apps/file-transfer/README.md)（`file-transfer`） | `com.wasmnest.file-transfer` | 桌面 + 移动 | 内网对端发现、双向文件传输、断点续传与共享目录；双端单 Rust 产物 |
-| [Agent Hub](apps/agent-hub/README.md)（`agent-hub`） | `com.wasmnest.agent-hub` | 桌面 | Agent CLI 管理：安装 / 卸载、Skills、供应商配置、使用统计 |
 
 > 插件 id 与目录 slug 同名（`com.wasmnest.<slug>`）：`bedcode` 目录对应 `com.wasmnest.bedcode`（2026-10-25 由历史 id `com.wasmnest.terminal-session` 改名归一）。新建应用一律使用 `com.wasmnest.<slug>`。
 

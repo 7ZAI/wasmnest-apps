@@ -156,20 +156,28 @@ interface RootBlock {
   vars: Record<string, string>
 }
 
-function parseBlocks(css: string): RootBlock[] {
+function parseBlocks(cssRaw: string): RootBlock[] {
+  // 注释先行剥除：注释里的 ":root" 字样会把选择器锚点带偏（幽灵块吞掉真块）
+  const css = cssRaw.replace(/\/\*[\s\S]*?\*\//g, "")
   const out: RootBlock[] = []
-  const re = /:root(\.dark)?(?:\[data-palette='([^']+)'\])?\s*\{([^}]*)\}/g
-  let m: RegExpExecArray | null
-  while ((m = re.exec(css)) !== null) {
-    const dark = !!m[1]
-    const palette = m[2] ?? 'warm'
-    const vars: Record<string, string> = {}
-    for (const line of m[3].split('\n')) {
-      const vm = line.match(/^\s*(--[\w-]+)\s*:\s*(.+?);\s*$/)
-      if (vm) vars[vm[1]] = vm[2].trim()
+  // 两层来源（ADR 0059 起 surface 色板归 app 自持），层叠语义同构：
+  // dark 覆写浅色、同名 palette 覆写 warm 基础组。宿主侧允许分组选择器
+  // （`:root, .theme-base {`——基础档与预览块共用一份变量组）。
+  const hostRe = /[^{}]*?:root(\.dark)?(?:\[data-palette='([^']+)'\])?[^{}]*\{([^}]*)\}/g
+  const appRe = /(\.dark\s+)?\.app-theme-root\[data-palette='([^']+)'\]\s*\{([^}]*)\}/g
+  const collect = (re: RegExp, darkGroup: number, paletteGroup: number, varsGroup: number) => {
+    let m: RegExpExecArray | null
+    while ((m = re.exec(css)) !== null) {
+      const vars: Record<string, string> = {}
+      for (const line of m[varsGroup].split("\n")) {
+        const vm = line.match(/^\s*(--[\w-]+)\s*:\s*(.+?);\s*$/)
+        if (vm) vars[vm[1]] = vm[2].trim()
+      }
+      out.push({ palette: m[paletteGroup] ?? 'warm', dark: !!m[darkGroup], vars })
     }
-    out.push({ palette, dark, vars })
   }
+  collect(hostRe, 1, 2, 3)
+  collect(appRe, 1, 2, 3)
   return out
 }
 

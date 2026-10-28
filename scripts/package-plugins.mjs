@@ -37,7 +37,7 @@
  *
  * 本地示例：
  *   node scripts/package-plugins.mjs --list
- *   node scripts/package-plugins.mjs --target desktop --plugin agent-hub
+ *   node scripts/package-plugins.mjs --target desktop --plugin bedcode
  *   node scripts/package-plugins.mjs --target all --exclude file-transfer --version 2.1.0
  */
 

@@ -23,7 +23,7 @@ import {
   resolveHostMode,
 } from '../e2e-plan.mjs'
 
-const APP = { pluginId: 'com.wasmnest.agent-hub', dir: '/apps/agent-hub/desktop' }
+const APP = { pluginId: 'com.wasmnest.ai-chatbox', dir: '/apps/ai-chatbox/desktop' }
 const LOCK = { sdkVersion: '0.0.1', witVersion: '0.0.1', mountContract: '1' }
 
 test('resolveHostMode：缺省 = packed（G2 验收形态），显式值与 env 生效，非法值点名允许项', () => {
@@ -86,8 +86,8 @@ test('planArtifactCopy：packed 真构建=就地不复制；--skip-build=从 app
   assert.deepEqual(built, [
     {
       pluginId: APP.pluginId,
-      src: '/tmp/stage/com.wasmnest.agent-hub',
-      dst: '/tmp/stage/com.wasmnest.agent-hub',
+      src: '/tmp/stage/com.wasmnest.ai-chatbox',
+      dst: '/tmp/stage/com.wasmnest.ai-chatbox',
       copy: false,
     },
   ])
@@ -98,7 +98,7 @@ test('planArtifactCopy：packed 真构建=就地不复制；--skip-build=从 app
     apps: [APP],
     pluginsDir: '/tmp/stage',
   })
-  assert.deepEqual(skipped[0].src, '/apps/agent-hub/desktop/.build/plugins/com.wasmnest.agent-hub')
+  assert.deepEqual(skipped[0].src, '/apps/ai-chatbox/desktop/.build/plugins/com.wasmnest.ai-chatbox')
   assert.equal(skipped[0].copy, true)
 
   const cargo = planArtifactCopy({
@@ -111,7 +111,7 @@ test('planArtifactCopy：packed 真构建=就地不复制；--skip-build=从 app
   assert.equal(cargo[0].copy, true)
   assert.equal(
     cargo[0].src,
-    '/tmp/platform/wasmnest-desktop/src-tauri/resources/plugins/desktop/com.wasmnest.agent-hub',
+    '/tmp/platform/wasmnest-desktop/src-tauri/resources/plugins/desktop/com.wasmnest.ai-chatbox',
   )
   assert.throws(
     () => planArtifactCopy({ mode: 'cargo', apps: [APP], pluginsDir: '/x' }),

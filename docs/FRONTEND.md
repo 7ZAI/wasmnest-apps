@@ -28,7 +28,7 @@
 
 依赖口径：`package.json` 的桌面 SDK 是**已发布版本精确依赖**（`0.0.1`，不用 `file:` / `^`），`rust/Cargo.toml` 里 `wasmnest-plugin-api = { version = "=0.0.1" }`；要拿本地平台仓源码调试必须显式 `pnpm run link:platform`（`unlink:platform` 还原，`link:platform --status` 看状态），link 产生的 `file:` / lock 变更 / `.cargo/config.toml` 的 `[patch]` 一律不提交（AGENTS §2）。
 
-四个产品应用（`agent-hub` / `ai-chatbox` / `bedcode` / `file-transfer`）与 `servers/` 下的服务型 wasm（`auth-center` / `monitor`）都有 `entry.ts` 与 `appContext.ts`；`src/index.ts` 在 agent-hub / ai-chatbox / file-transfer 存在，**bedcode/desktop、monitor/desktop、auth-center/desktop 没有**。
+三个产品应用（`ai-chatbox` / `bedcode` / `file-transfer`；agent-hub 已并入 bedcode 的 Agent 管理域）与 `servers/` 下的服务型 wasm（`auth-center` / `monitor`）都有 `entry.ts` 与 `appContext.ts`；`src/index.ts` 在 ai-chatbox / file-transfer 存在，**bedcode/desktop、monitor/desktop、auth-center/desktop 没有**。
 
 ### 1.2 挂载契约字段
 
@@ -79,7 +79,7 @@
 - 不挂主 `App.vue` / 主 router / 主 pinia / 主 stores / 模块级可变单例（当前前台应用的卡也会挂预览，主实例可能在遮罩后同时运行）；
 - 不留下活过 `unmount()` 的定时器 / 全局监听；数据拿不到时显示应用自己的诚实空态。
 
-内容建议（应用自决）：bedcode 会话 / 连接状态摘要、agent-hub CLI 检测概览、ai-chatbox 最近对话摘要、file-transfer 对端 + 传输任务摘要、monitor 插件数 / 调用 / Trap / 内存峰值摘要。机制与边界完整说明见平台仓 `.scratch/2026-10-20-app-preview-contract/spec.md`。
+内容建议（应用自决）：bedcode 会话 / 连接状态摘要、ai-chatbox 最近对话摘要、file-transfer 对端 + 传输任务摘要、monitor 插件数 / 调用 / Trap / 内存峰值摘要。机制与边界完整说明见平台仓 `.scratch/2026-10-20-app-preview-contract/spec.md`。
 
 ### 1.3 页面取数
 
@@ -147,7 +147,7 @@ src/
 
 - 每个 app **自足** i18n：桌面挂载包不依赖宿主实例，语言由 `env.locale` / `setLocale` 传入。
 - 新增 / 修改文案**必须 zh-CN 与 en 同步**；用户可见文案禁止硬编码。
-- 桌面：集中式 `src/i18n/{index,zh-CN,en,messages}.ts`，`appContext.ts` 里 `t()` 按扁平命名空间补前缀（如 `com.wasmnest.agent-hub.*`）。
+- 桌面：集中式 `src/i18n/{index,zh-CN,en,messages}.ts`，`appContext.ts` 里 `t()` 按扁平命名空间补前缀（如 `com.wasmnest.bedcode.*`）。
 - 移动：除 `file-transfer/mobile`（集中式 `src/i18n/`）外，**`bedcode/mobile` 按域分散**（`src/<domain>/i18n.ts`，在各自 `activate` 里注册）。改文案前先 `rg` 定位，不要假设集中目录。
 - **宿主不装应用文案**：应用可见文案一律归本仓自持（2026-10-27 迁移）。
   - 桌面 `bedcode` 不再维护宿主消息集副本：业务 / 设置 / 服务器 / 侧边栏 / 配色等文案在 `src/i18n/{zh-CN,en}.ts`，错误信封 `errors.*` 的机制副本在 `src/i18n/mechanism.ts`（宿主机制契约，code 即 key）。
@@ -201,7 +201,6 @@ node scripts/replace-console.mjs <desktop|mobile> [appDirName]
 
 | app | 端 | 入口 | 状态管理 | 路由 | 测试 | dev |
 | --- | --- | --- | --- | --- | --- | --- |
-| agent-hub | desktop | `entry.ts` | 组件内 | 无 | ✅ | ✅ `build.js --watch` |
 | ai-chatbox | desktop | `entry.ts` | 组件内 | 无 | ✅ | ✅ |
 | bedcode | desktop | `entry.ts` | pinia | vue-router（内存路由 + `onEvent('route')` 自报） | ✅ | ❌ 无 dev 脚本 |
 | file-transfer | desktop | `entry.ts` | 组件内 | 无 | ✅ | ✅ |

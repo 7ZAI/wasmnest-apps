@@ -61,9 +61,9 @@ app 也不需要去 Settings → Branches 维护检查列表。
 - 发布动作顺序（本地）：
 
   ```bash
-  node scripts/ci/set-app-version.mjs agent-hub 0.0.2   # 写 plugin.json + package.json
-  git add apps/agent-hub && git commit -m "chore(agent-hub): 发布 v0.0.2"
-  git tag agent-hub-v0.0.2 && git push origin dev agent-hub-v0.0.2
+  node scripts/ci/set-app-version.mjs bedcode 0.0.2     # 写 plugin.json + package.json
+  git add apps/bedcode && git commit -m "chore(bedcode): 发布 v0.0.2"
+  git tag bedcode-v0.0.2 && git push origin dev bedcode-v0.0.2
   ```
 
   tag 推到 origin 后 `app-release.yml` 自动构建 + 发布。
@@ -72,7 +72,7 @@ app 也不需要去 Settings → Branches 维护检查列表。
 
 | tag                                        | 语义                                                            | 是否触发 app 发布            |
 | ------------------------------------------ | --------------------------------------------------------------- | ---------------------------- |
-| `<slug>-v<X.Y.Z>`（如 `agent-hub-v0.0.2`） | **单个 app 的分发版本**                                         | ✅ `app-release.yml`         |
+| `<slug>-v<X.Y.Z>`（如 `bedcode-v0.0.2`） | **单个 app 的分发版本**                                         | ✅ `app-release.yml`         |
 | `apps-v<X.Y.Z>`                            | 应用仓**整仓** tag（平台仓 `release-manifest.json` 的装配口径） | ❌ 被 `resolve` 的 `if` 排除 |
 
 `apps-vX.Y.Z` 仍是「平台装配取应用仓哪一版」的唯一表达（见 `AGENTS.md` §3）；
@@ -205,13 +205,13 @@ pnpm install --frozen-lockfile
 node scripts/ci/prepare-platform.mjs --ends all
 
 # 2) 单 app 单端依赖 + 构建 + 打包
-(cd apps/agent-hub/desktop && pnpm install --frozen-lockfile)
-node scripts/ci/build-app.mjs --app agent-hub --end desktop
-# → dist/release/agent-hub-desktop-v0.0.1.zip / .json
+(cd apps/bedcode/desktop && pnpm install --frozen-lockfile)
+node scripts/ci/build-app.mjs --app bedcode --end desktop
+# → dist/release/bedcode-desktop-v0.0.1.zip / .json
 
 # 3) 只算/校验版本，不构建
-node scripts/ci/app-info.mjs --app agent-hub
-node scripts/ci/set-app-version.mjs agent-hub 0.0.2 --dry-run
+node scripts/ci/app-info.mjs --app bedcode
+node scripts/ci/set-app-version.mjs bedcode 0.0.2 --dry-run
 ```
 
 > `fetch-cross-repo.mjs` **不会覆盖**已存在的 `../wasmnest`、`../wasmnest-lib`（保护本地改动）。

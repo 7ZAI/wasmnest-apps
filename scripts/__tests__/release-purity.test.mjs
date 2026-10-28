@@ -28,7 +28,7 @@ const GOOD_FILES = ['plugin.json', 'index.js', 'icon.svg', 'monitor.wasm', 'asse
 
 test('findReleasePurityViolations：正常 app 产物零命中（不误伤 app 自己的 wasm 名）', () => {
   assert.deepEqual(findReleasePurityViolations(GOOD_FILES), [])
-  assert.deepEqual(findReleasePurityViolations(['wasmnest_plugin_agent_hub.wasm']), [])
+  assert.deepEqual(findReleasePurityViolations(['wasmnest_plugin_ai_chatbox.wasm']), [])
 })
 
 test('findReleasePurityViolations：宿主二进制 / runtime crate 痕迹 ⇒ 命中并点名', () => {

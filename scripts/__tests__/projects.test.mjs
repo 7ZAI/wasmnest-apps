@@ -2,7 +2,7 @@
  * 工程枚举 resolver 单测（issue #6 D1「唯一枚举点」）
  *
  * 这些用例是 `servers/` 拓扑的**锁**：一旦有脚本绕过 resolver 自己拼 `apps/`，
- * 新增分组就会静默漏构建（agent-hub 曾因漏注册表长期停在旧构建）。因此这里断言
+ * 新增分组就会静默漏构建（应用曾因漏注册表长期停在旧构建）。因此这里断言
  * 的是「枚举结果」这一外部可见行为，不测内部实现。
  *
  * 覆盖：
@@ -129,7 +129,7 @@ test('非法 group / slug / end 显性抛错（不接受猜测）', () => {
 
 test('仓库真实布局：五个既有 app 都能被枚举到（防 resolver 空转）', () => {
   const slugs = listSlugs()
-  for (const slug of ['agent-hub', 'ai-chatbox', 'bedcode', 'file-transfer', 'monitor']) {
+  for (const slug of ['ai-chatbox', 'bedcode', 'file-transfer', 'monitor']) {
     assert.ok(slugs.includes(slug), `既有 app ${slug} 必须被枚举到（可用: ${slugs.join(', ')}）`)
   }
   const desktop = listProjects({ ends: ['desktop'], requireManifest: true }).map((p) => p.slug)
