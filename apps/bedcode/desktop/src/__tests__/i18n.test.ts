@@ -2,7 +2,7 @@
  * 插件 i18n 契约（票 13）
  *
  * 契约来源：spec D6「插件侧扁平 key 必须先加命名空间前缀（`session.*` / `task.*` /
- * `pairing.*` / `settings.session.*`）」+ AGENTS §6「新增/修改 key 必须同步出现在
+ * `pairing.*` / `hub.*`（Agent 管理域，原 agent-hub 并入）/ `settings.session.*`）」+ AGENTS §6「新增/修改 key 必须同步出现在
  * zh-CN 与 en 两文件」。
  *
  * 编译期护栏：两份语言文件都实现 `MessageSchema`（漏 key 即 TS 报错）；本测试守住
@@ -33,6 +33,8 @@ describe('插件 i18n 键集', () => {
     const APP_NAMESPACES = [
       'session.',
       'pairing.',
+      // Agent 管理域（原 agent-hub 并入，键保持 hub.* 前缀）
+      'hub.',
       'task.',
       'appearance.',
       'server.',

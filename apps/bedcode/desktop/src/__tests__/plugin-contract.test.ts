@@ -97,16 +97,20 @@ describe('C1 工程身份五处一致', () => {
     expect(cargoToml).toContain('crate-type = ["cdylib"]')
   })
 
-  it('权限与 api/commands 声明面（八域权限 + 廿九项 api + 任务域命令族）', () => {
+  it('权限与 api/commands 声明面（八域权限 + 廿九项 api + 任务域/Agent管理命令族）', () => {
     // 权限清单与 D2 能力映射一一对应（auth / peer / storage / connection:read /
     // session:read / pty:* / ui:* / broadcast / fs:* / network:http / process:run /
-    // task:run / terminal:input / timer:schedule / ws:server）。
+    // task:run / terminal:input / timer:schedule / ws:server / app:path）。
     // 清单按 manifest-gen 的排序口径（ASCII 升序）落定：release 构建路径会重排，
     // 人工写成别的顺序即「构建一次即 git dirty」的漂移。
     expect(manifest.permissions).toEqual([
+      // Agent 管理域（原 agent-hub 并入）：Node 引导经 host-app register-path
+      'app:path',
       'auth',
       'broadcast',
       'connection:read',
+      // Agent 管理域（原 agent-hub 并入）：工作目录/用量来源/技能本地导入选取框
+      'fs:pick',
       'fs:read',
       'fs:write',
       'network:http',
@@ -213,6 +217,55 @@ describe('C1 工程身份五处一致', () => {
       'session.task.scheduled-create',
       'session.task.scheduled-delete',
       'session.task.scheduled-reset',
+      // Agent 管理域（原 agent-hub 并入）：hub/mod.rs 分派臂逐条对应；
+      // `agent.add/remove-usage-source-path` 为并入时补齐的漏声明（旧 agent-hub
+      // manifest 未登记但路由在，生产不可调）
+      'agent.add-custom-source',
+      'agent.add-usage-source',
+      'agent.add-usage-source-path',
+      'agent.apply-mirror',
+      'agent.apply-provider',
+      'agent.bootstrap-env',
+      'agent.cancel-bootstrap',
+      'agent.cancel-run',
+      'agent.check-updates',
+      'agent.clear-usage-data',
+      'agent.delete-preset',
+      'agent.describe-install',
+      'agent.detect',
+      'agent.distribute-skill',
+      'agent.fetch-models',
+      'agent.get-bootstrap-state',
+      'agent.get-install-state',
+      'agent.get-providers-state',
+      'agent.get-run-output',
+      'agent.get-skills-state',
+      'agent.get-state',
+      'agent.get-usage-state',
+      'agent.get-usage-stats',
+      'agent.import-presets',
+      'agent.import-providers',
+      'agent.import-skill',
+      'agent.install',
+      'agent.install-github-skill',
+      'agent.list-agents',
+      'agent.list-usage-sessions',
+      'agent.list-usage-sources',
+      'agent.pick-source-dir',
+      'agent.read-skill',
+      'agent.read-usage-session',
+      'agent.remove-custom-source',
+      'agent.remove-env',
+      'agent.remove-usage-source',
+      'agent.remove-usage-source-path',
+      'agent.request-auth',
+      'agent.restore-npmrc',
+      'agent.save-preset',
+      'agent.save-skill',
+      'agent.scan-skills',
+      'agent.scan-usage',
+      'agent.speed-test',
+      'agent.uninstall',
     ])
     // ABI v29（HTTP 路由代码注册下沉）：manifest `contributes.httpEndpoints` 静态声明面
     // 已退役（用户裁定 ④：不通过声明配置路由，插件代码运行时注册）。
@@ -357,12 +410,14 @@ describe('C3 入口契约（挂载包形态：mountApp + 直连上下文 + 内�
     expect(ctx.http).toBeUndefined()
   })
 
-  it('静态路由表：菜单四项 + 诊断/深链页 + not-found 兜底（内存路由，宿主 history 归宿主）', () => {
+  it('静态路由表：菜单五项 + 诊断/深链页 + not-found 兜底（内存路由，宿主 history 归宿主）', () => {
     const routes = router.getRoutes()
     const byName = new Map(routes.map((r) => (r.name ? [r.name, r] : [null, r])))
     // 菜单页（D3 静态表）
     expect(byName.get('pairing')?.path).toBe('/pairing')
     expect(byName.get('sessions')?.path).toBe('/sessions')
+    // Agent 管理域（原 agent-hub 并入）
+    expect(byName.get('agents')?.path).toBe('/agents')
     expect(byName.get('tasks')?.path).toBe('/tasks')
     expect(byName.get('settings')?.path).toBe('/settings')
     // 诊断页（URL 直达不进导航）
@@ -447,17 +502,30 @@ describe('C4 退役锁（D8 fail-visible：插件运行时回接零命中）', (
 })
 
 describe('C5 静态侧边栏菜单表与设置分组表（D3/D4）', () => {
-  it('侧边栏 = 静态表：四项、顺序槽位、路由与路由表一一对应', () => {
-    expect(sidebarMenuItems.map((i) => i.id)).toEqual(['pairing', 'sessions', 'tasks', 'settings'])
-    expect(sidebarMenuItems.map((i) => i.order)).toEqual([100, 200, 210, 9999])
+  it('侧边栏 = 静态表：五项（含 Agent 管理）、顺序槽位、路由与路由表一一对应', () => {
+    expect(sidebarMenuItems.map((i) => i.id)).toEqual([
+      'pairing',
+      'sessions',
+      'agents',
+      'tasks',
+      'settings',
+    ])
+    expect(sidebarMenuItems.map((i) => i.order)).toEqual([100, 200, 205, 210, 9999])
     expect(sidebarMenuItems.map((i) => i.path)).toEqual([
       '/pairing',
       '/sessions',
+      '/agents',
       '/tasks',
       '/settings',
     ])
     // 槽位常量即表内 order（改常量不改表 = 漂移，锁同值）
-    expect(MENU_ORDERS).toEqual({ pairing: 100, sessions: 200, tasks: 210, settings: 9999 })
+    expect(MENU_ORDERS).toEqual({
+      pairing: 100,
+      sessions: 200,
+      agents: 205,
+      tasks: 210,
+      settings: 9999,
+    })
     // 菜单路径全部命中路由表（静态表与静态路由互为真源）
     const paths = new Set(router.getRoutes().map((r) => r.path))
     for (const item of sidebarMenuItems) {
@@ -465,7 +533,9 @@ describe('C5 静态侧边栏菜单表与设置分组表（D3/D4）', () => {
     }
     // 菜单 key 一律为 app 域相对键（渲染处经 useAppI18n 补命名空间）
     expect(sidebarMenuItems[0].labelKey).toBe('pairing.sidebar.title')
-    expect(sidebarMenuItems[3].labelKey).toBe('sidebar.settings')
+    // Agent 管理域（原 agent-hub 并入）：hub.* 键随 i18n 三件套并入
+    expect(sidebarMenuItems[2].labelKey).toBe('hub.sidebar.title')
+    expect(sidebarMenuItems[4].labelKey).toBe('sidebar.settings')
   })
 
   it('设置分组 = 静态表：业务四分组、order 升序、带标题 key（平台分组归宿主系统页）', () => {
@@ -483,8 +553,13 @@ describe('C5 静态侧边栏菜单表与设置分组表（D3/D4）', () => {
 
 describe('C6 前端调用面与后端/文案同源（票 17）', () => {
   const rustDispatch = readFileSync(resolve(PLUGIN_ROOT, 'rust/src/lib.rs'), 'utf-8')
+  // Agent 管理域（原 agent-hub 并入）：`agent.*` 臂在 hub/mod.rs 路由（缩进 8 空格）
+  const hubDispatch = readFileSync(resolve(PLUGIN_ROOT, 'rust/src/hub/mod.rs'), 'utf-8')
   /** Rust `invoke_command` 的匹配臂（含宿主桥接与调试臂，非仅 manifest 声明面） */
-  const rustArms = new Set([...rustDispatch.matchAll(/^\s{12}"([\w.-]+)"\s*=>/gm)].map((m) => m[1]))
+  const rustArms = new Set([
+    ...rustDispatch.matchAll(/^\s{12}"([\w.-]+)"\s*=>/gm),
+    ...hubDispatch.matchAll(/^\s{8}"([\w.-]+)"\s*=>/gm),
+  ].map((m) => m[1]))
 
   it('前端调用的每条命令在 Rust 分派表里有同名臂（改名/漏臂即红）', () => {
     // 票 15/16 把 28 条任务命令从 `auto-task.*` 改指 `session.task.*`：调用点与

@@ -222,6 +222,8 @@ impl WasmPlugin for AgentHubPlugin {
             "agent-hub.import-providers" => providers::import_providers(&h),
             "agent-hub.fetch-models" => providers::fetch_models(&h, &args),
             "agent-hub.apply-provider" => providers::apply_provider(&h, &args),
+            // 迁移桥：并入 bedcode 前的一次性预设导出（含 api_key 明文，只落本机 runs/）
+            "agent-hub.export-presets" => providers::export_all(&h),
             // ==================== 票据 06：使用统计与会话日志 ====================
             "agent-hub.get-usage-state" => usage::get_state(&h),
             "agent-hub.scan-usage" => usage::scan(&h),

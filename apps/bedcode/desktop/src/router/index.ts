@@ -6,7 +6,8 @@
  * 路径（env.initialRoute / handle.setRoute），自身导航不进宿主 URL。
  *
  * 应用路由（业务面单一事实源）：
- * - 菜单项（进侧边栏，order 即视觉顺序）：/pairing 100 / /sessions 200 / /tasks 210；
+ * - 菜单项（进侧边栏，order 即视觉顺序）：/pairing 100 / /sessions 200 /
+ *   /agents 205（Agent 管理域，原 agent-hub 并入）/ /tasks 210；
  * - 设置（业务分组：配对 / 会话；平台分组在宿主系统页 /sys/settings）：
  *   /settings、/settings/authorization（遗留深链 → 宿主 /sys/perms，此处兜底）；
  * - 平台页（URL 直达、不进导航）：/server（诊断页，常驻不可开关）；
@@ -29,6 +30,13 @@ const router = createRouter({
       path: '/sessions',
       name: 'sessions',
       component: () => import('@/components/SessionCenterView.vue'),
+    },
+    {
+      // Agent 管理域（原 agent-hub 并入）：安装/引导/Skills/供应商/用量/日志，
+      // 与会话启动联动（安装卡片「启动会话」→ 会话配置 → 终端）
+      path: '/agents',
+      name: 'agents',
+      component: () => import('@/agents/components/AgentHubView.vue'),
     },
     {
       path: '/tasks',

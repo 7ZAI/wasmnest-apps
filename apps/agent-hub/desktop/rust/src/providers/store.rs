@@ -217,6 +217,48 @@ pub(super) fn emit_and_return(h: &WasmHost, state: &Value) -> anyhow::Result<Val
     Ok(json!({ "state": state }))
 }
 
+// ==================== 迁移桥：一次性导出（并入 bedcode 前使用） ====================
+
+/// 全量预设导出（含 api_key 明文）→ hub 数据根 runs/ 下的 JSON 文件。
+/// 明文只落本机用户目录（~/.wasmnest/agent-hub/runs/，第一方免审目录），
+/// 生命周期 = 对端导入完成后由用户删除；绝不入仓、不进日志。
+pub(crate) fn export_all(h: &WasmHost) -> anyhow::Result<Value> {
+    ensure_schema(h)?;
+    let rows = h
+        .plugin_db_query(
+            "SELECT name, base_url, api_style, models_json, models_url, api_key, notes, \
+             created_at, updated_at FROM provider_preset ORDER BY name",
+        )
+        .map_err(|e| anyhow::anyhow!("export: query failed: {e}"))?
+        .unwrap_or(Value::Array(Vec::new()));
+    let mut presets = Vec::new();
+    if let Some(arr) = rows.as_array() {
+        for r in arr {
+            presets.push(json!({
+                "name": r.get("name"),
+                "baseUrl": r.get("base_url"),
+                "apiStyle": r.get("api_style"),
+                "models": serde_json::from_str::<Value>(
+                    r.get("models_json").and_then(|v| v.as_str()).unwrap_or("[]"),
+                )
+                .unwrap_or_else(|_| json!([])),
+                "modelsUrl": r.get("models_url"),
+                "apiKey": r.get("api_key"),
+                "notes": r.get("notes"),
+                "createdAt": r.get("created_at"),
+                "updatedAt": r.get("updated_at"),
+            }));
+        }
+    }
+    let data_dir = crate::DATA_DIR
+        .get()
+        .ok_or_else(|| anyhow::anyhow!("export: data dir unavailable (activate first)"))?;
+    let path = format!("{data_dir}/runs/presets-export.json");
+    h.fs_write(&path, &serde_json::to_string(&presets)?)
+        .map_err(|e| anyhow::anyhow!("export: write {path} failed: {e}"))?;
+    Ok(json!({ "exported": presets.len(), "path": path }))
+}
+
 // ==================== Tests（纯函数单测） ====================
 
 #[cfg(test)]

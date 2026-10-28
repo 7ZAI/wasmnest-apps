@@ -1,0 +1,405 @@
+//! 供应商统一管理域（票据 05 / v2 中心凭据库）
+//!
+//! 职责：预设 CRUD（`provider_preset` 表，插件独立库）/ 反向导入（读各 CLI
+//! 现有配置生成预设并把源 key 收进中心凭据库）/ 应用（写目标 CLI 原生配置，
+//! 真源始终是 CLI 自己的配置）。配置写入采用**文本级 splice**（JSONC 感知，
+//! 注释与未知字段逐字保留），key 纪律 = 明文只落本库、UI/状态/日志一律掩码。
+//!
+//! **目标清单与能力来自注册表**（[`crate::hub::agents`] 的 `Agent::provider()`）：
+//! 本域只做公共编排（入参校验 / key 四选一 / 多目标独立失败 / 状态推送），
+//! 每个目标写哪个文件、怎么写、能否导入/视由适配器声明（[`contract`]）。
+//!
+//! # 模块结构
+//! - [`contract`]：适配器钩子契约（ProviderSpec / ProviderWriteCtx / TargetWrite）
+//! - [`paths`]：CLI 配置文件路径（家目录相对段）
+//! - [`jsonc`]：JSONC 解析 + 文本级 splice（纯函数）
+//! - [`mapping`]：key 掩码与方言映射（纯函数）
+//! - [`codex`]：codex TOML splice 引擎 + 只读解析（适配器消费）
+//! - [`discover`]：模型列表查询（可选 URL + 手动输入互补）
+//! - [`import`]：反向导入提取纯函数（PresetDraft / presets_from_* / plan_inserts）
+//! - [`merge`]：应用条目构造（合并既有 + 覆盖受控字段）
+//! - [`store`]：provider_preset 表 + 域状态（导入/应用结果 + 注册表派生的视图）
+//! - [`apply`]：应用到目标 CLI（多目标 + key 四选一 + 适配器写入钩子）
+//! - 本模块：命令入口（预设 CRUD / 反向导入 / get_state）
+
+/// host-storage 键：供应商域导入/应用结果（不含 presets——presets 真源在插件库）
+pub(crate) const PROVIDERS_KEY: &str = "providers";
+
+/// 预设名/目标条目名长度上限（防误粘贴整段配置）
+pub(super) const NAME_MAX: usize = 128;
+/// 模型列表上限
+const MODELS_MAX: usize = 256;
+/// api 方言白名单（与前端 ApiStyle 同构）
+const API_STYLES: [&str; 4] = ["openai", "anthropic", "gemini", "custom"];
+mod apply;
+pub(crate) mod codex;
+pub(crate) mod contract;
+mod discover;
+mod import;
+pub(crate) mod jsonc;
+mod mapping;
+pub(crate) mod merge;
+pub(crate) mod paths;
+mod store;
+
+/// 命令入口面（lib.rs 路由）
+pub(crate) use apply::apply_provider;
+pub(crate) use discover::fetch_models;
+pub(crate) use store::ensure_schema;
+
+/// 反向导入纯函数与草稿（适配器的 import 钩子消费）
+pub(crate) use import::{presets_from_opencode, presets_from_pi, PresetDraft};
+
+use super::HOME;
+use crate::hub::install::now_ms;
+use crate::hub::providers::discover::validate_models_url;
+use crate::hub::providers::import::plan_inserts;
+use crate::hub::providers::store::{
+    build_state, emit_and_return, list_presets, preset_key_of, preset_names, read_stored,
+    write_stored,
+};
+use wasmnest_plugin_api::host::{HostLog, HostPluginDatabase};
+use wasmnest_plugin_api::sql_params;
+use wasmnest_plugin_api::wasm_host::WasmHost;
+use serde_json::{json, Value};
+
+// ==================== 命令：预设 CRUD ====================
+
+/// 预设入参（校验后）
+struct PresetInput {
+    name: String,
+    base_url: String,
+    api_style: String,
+    models: Vec<String>,
+    /// 模型查询 URL（可空；非空时必须是 http(s)）
+    models_url: String,
+}
+
+fn validate_preset_payload(args: &Value) -> Result<PresetInput, String> {
+    let name = args
+        .get("name")
+        .and_then(|v| v.as_str())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| "name required".to_string())?;
+    if name.chars().count() > NAME_MAX {
+        return Err("name too long".to_string());
+    }
+    let base_url = args
+        .get("baseUrl")
+        .and_then(|v| v.as_str())
+        .map(|s| s.trim().to_string())
+        .unwrap_or_default();
+    let api_style = args
+        .get("apiStyle")
+        .and_then(|v| v.as_str())
+        .filter(|s| API_STYLES.contains(s))
+        .unwrap_or("openai")
+        .to_string();
+    let models: Vec<String> = args
+        .get("models")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|m| m.as_str())
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect()
+        })
+        .unwrap_or_default();
+    if models.len() > MODELS_MAX {
+        return Err("too many models".to_string());
+    }
+    // 模型查询 URL 可留空（手动输入模型列表）；非空则校验 scheme
+    let models_url = match args.get("modelsUrl").and_then(|v| v.as_str()) {
+        Some(u) if !u.trim().is_empty() => validate_models_url(u)
+            .map_err(|e| format!("modelsUrl: {e}"))?
+            .to_string(),
+        _ => String::new(),
+    };
+    Ok(PresetInput {
+        name,
+        base_url,
+        api_style,
+        models,
+        models_url,
+    })
+}
+
+/// 新建/更新预设（id 缺省 = 新建）。同名冲突返回 `nameExists`（前端提示）。
+/// v2 中心凭据：载荷可选 `apiKey`——缺省 = 保留库内既有；`""` = 清空；
+/// 非空 = 设置新 key。key 明文只进库（掩码函数是 UI 交界面），日志只记长度
+pub(crate) fn save_preset(h: &WasmHost, args: &Value) -> anyhow::Result<Value> {
+    ensure_schema(h)?;
+    let input = validate_preset_payload(args).map_err(|e| anyhow::anyhow!("save-preset: {e}"))?;
+    let PresetInput {
+        name,
+        base_url,
+        api_style,
+        models,
+        models_url,
+    } = input;
+    let models_json = serde_json::to_string(&models).unwrap_or_else(|_| "[]".to_string());
+    let now = now_ms(h).unwrap_or(0);
+    let id = args.get("id").and_then(|v| v.as_i64());
+    // apiKey 语义：缺省（None）= 保留既有；Some("") = 清空；Some(非空) = 设置
+    let api_key: Option<String> = args
+        .get("apiKey")
+        .and_then(|v| v.as_str())
+        .map(|s| s.trim().to_string());
+
+    if let Some(id) = id {
+        // 更新：同名冲突只允许撞到自己
+        let conflict = list_presets(h)?.iter().any(|p| {
+            p.get("name").and_then(|v| v.as_str()) == Some(name.as_str())
+                && p.get("id").and_then(|v| v.as_i64()) != Some(id)
+        });
+        if conflict {
+            return Ok(json!({ "saved": false, "nameExists": true }));
+        }
+        let next_key = match &api_key {
+            Some(k) if !k.is_empty() => k.clone(),
+            Some(_) => String::new(),
+            None => preset_key_of(h, id)?,
+        };
+        h.plugin_db_execute_params(
+            "UPDATE provider_preset SET name = ?1, base_url = ?2, api_style = ?3, \
+             models_json = ?4, models_url = ?5, api_key = ?6, updated_at = ?7 WHERE id = ?8",
+            &sql_params![
+                name,
+                base_url,
+                api_style,
+                models_json,
+                models_url,
+                next_key,
+                now,
+                id
+            ],
+        )
+        .map_err(|e| anyhow::anyhow!("save-preset: update failed: {e}"))?;
+    } else {
+        if preset_names(h)?.iter().any(|n| n == &name) {
+            return Ok(json!({ "saved": false, "nameExists": true }));
+        }
+        let key0 = api_key.clone().unwrap_or_default();
+        h.plugin_db_execute_params(
+            "INSERT INTO provider_preset (name, base_url, api_style, models_json, models_url, \
+             api_key, notes, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL, ?7, ?7)",
+            &sql_params![
+                name,
+                base_url,
+                api_style,
+                models_json,
+                models_url,
+                key0,
+                now
+            ],
+        )
+        .map_err(|e| anyhow::anyhow!("save-preset: insert failed: {e}"))?;
+    }
+    log_key_change(h, &name, &api_key);
+    h.log_info(&format!("preset saved (name = {name}, id = {id:?})"));
+    let state = build_state(h)?;
+    // 回执契约：成功必须带 `saved: true`（前端按 saved/nameExists 判别成功与
+    // 同名冲突；dev-shell mock 与 9e20cf8dc 前端改造均按此契约，同名冲突分支
+    // 也一直按此返回）。此前成功路径只回 {state}，保存实际已落库却弹
+    // 「保存失败」toast——修复 2026-10-06 反馈。state 保留供旧调用方消费。
+    let mut result = emit_and_return(h, &state)?;
+    result["saved"] = json!(true);
+    Ok(result)
+}
+
+/// key 变更日志纪律：只记长度/清空，不记内容（删的是「存储面不落 key」红线，
+/// 「日志不落明文」纪律保留）
+fn log_key_change(h: &WasmHost, name: &str, api_key: &Option<String>) {
+    match api_key {
+        Some(k) if !k.is_empty() => {
+            h.log_info(&format!(
+                "preset key set (name = {name}, key_len = {})",
+                k.chars().count()
+            ));
+        }
+        Some(_) => h.log_info(&format!("preset key cleared (name = {name})")),
+        None => {}
+    }
+}
+
+pub(crate) fn delete_preset(h: &WasmHost, args: &Value) -> anyhow::Result<Value> {
+    ensure_schema(h)?;
+    let id = args
+        .get("id")
+        .and_then(|v| v.as_i64())
+        .ok_or_else(|| anyhow::anyhow!("delete-preset: missing id"))?;
+    h.plugin_db_execute_params(
+        "DELETE FROM provider_preset WHERE id = ?1",
+        &sql_params![id],
+    )
+    .map_err(|e| anyhow::anyhow!("delete-preset: failed: {e}"))?;
+    h.log_info(&format!("preset deleted (id = {id})"));
+    let state = build_state(h)?;
+    emit_and_return(h, &state)
+}
+// ==================== 命令：反向导入 ====================
+// ==================== 命令：反向导入 ====================
+
+/// 反向导入（同步命令）：遍历注册表的 provider.import 钩子，各适配器读自己的
+/// 配置并生成预设（pi models.json + auth.json、opencode opencode.json；claude /
+/// codex 只读展示不生成预设），源 key 一并收进中心凭据库；同名去重见
+/// `plan_inserts`。导入顺序由适配器声明的 `import_rank` 决定（同名冲突时先者
+/// 保留原名，与重构前 pi → opencode 的顺序一致）。导入结果只回掩码 keys
+pub(crate) fn import_providers(h: &WasmHost) -> anyhow::Result<Value> {
+    ensure_schema(h)?;
+    let home = HOME
+        .get()
+        .ok_or_else(|| anyhow::anyhow!("import: home unavailable"))?;
+
+    // 收集 import 钩子并按声明顺序执行（稳定排序：同 rank 保持注册顺序）
+    let mut importers: Vec<(u8, fn(&WasmHost, &str) -> Vec<PresetDraft>)> = crate::hub::agents::all()
+        .iter()
+        .filter_map(|a| a.provider())
+        .filter_map(|p| p.import.map(|f| (p.import_rank, f)))
+        .collect();
+    importers.sort_by_key(|(rank, _)| *rank);
+
+    let mut drafts: Vec<PresetDraft> = Vec::new();
+    for (_, import) in importers {
+        drafts.extend(import(h, home));
+    }
+
+    let (to_create, skipped) = plan_inserts(&preset_names(h)?, drafts);
+    let now = now_ms(h).unwrap_or(0);
+    let mut created: Vec<String> = Vec::new();
+    let mut keys: serde_json::Map<String, Value> = serde_json::Map::new();
+    for d in to_create {
+        let models_json = serde_json::to_string(&d.models).unwrap_or_else(|_| "[]".to_string());
+        h.plugin_db_execute_params(
+            "INSERT INTO provider_preset (name, base_url, api_style, models_json, api_key, notes, \
+             created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)",
+            &sql_params![
+                d.name,
+                d.base_url,
+                d.api_style,
+                models_json,
+                d.key,
+                d.notes,
+                now
+            ],
+        )
+        .map_err(|e| anyhow::anyhow!("import: insert preset failed: {e}"))?;
+        // 掩码以最终（可能被去重改名的）预设名为键，前端按 preset.name 取用
+        keys.insert(d.name.clone(), Value::String(d.key_mask));
+        created.push(d.name);
+    }
+    // 注意：auth.json 无对应条目/解析失败时掩码为 "—"（视为无 key 可直拷）
+
+    let import_last = json!({
+        "ok": true,
+        "created": created,
+        "skipped": skipped,
+        "keys": Value::Object(keys),
+        "error": Value::Null,
+        "at": now,
+    });
+    let (_, apply_last) = read_stored(h);
+    write_stored(h, &import_last, &apply_last);
+    h.log_info(&format!(
+        "providers imported (created = {}, skipped = {})",
+        created.len(),
+        skipped.len()
+    ));
+    let state = build_state(h)?;
+    let mut result = emit_and_return(h, &state)?;
+    result["created"] = json!(created);
+    result["skipped"] = json!(skipped);
+    result["keys"] = json!(import_last["keys"]);
+    Ok(result)
+}
+// ==================== 命令入口 ====================
+// ==================== 命令入口 ====================
+
+pub(crate) fn get_state(h: &WasmHost) -> anyhow::Result<Value> {
+    let state = build_state(h)?;
+    Ok(json!({ "state": state }))
+}
+
+// ==================== 迁移桥：一次性导入（自 agent-hub 导出文件） ====================
+
+/// 从 agent-hub 导出文件导入预设（按 name 幂等 upsert，含 api_key 明文）。
+///
+/// 导出文件默认在 `~/.wasmnest/agent-hub/runs/presets-export.json`（一次性
+/// 迁移桥：agent-hub 退役前由其「导出预设」按钮产出）。该路径不在本插件既有
+/// 授权范围（agent-hub 数据根），首次读取单路径显性申请授权（拒绝即业务码，
+/// fail-visible）。导入完成后由前端提示删除导出文件——明文 Key 不宜常驻。
+pub(crate) fn import_presets(h: &WasmHost, args: &Value) -> anyhow::Result<Value> {
+    use wasmnest_plugin_api::host::{HostFs, HostPluginDatabase};
+
+    ensure_schema(h)?;
+    let home = HOME
+        .get()
+        .ok_or_else(|| anyhow::anyhow!("import-presets: home unavailable"))?;
+    let path = args
+        .get("path")
+        .and_then(|v| v.as_str())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| format!("{home}/.wasmnest/agent-hub/runs/presets-export.json"));
+    let granted = h.fs_request_auth(&[path.clone()]).unwrap_or(false);
+    if !granted {
+        wasmnest_plugin_api::bail_with_code!("com.wasmnest.bedcode.hub.pv.importAuthDenied");
+    }
+    let raw = h
+        .fs_read(&path)
+        .map_err(|e| anyhow::anyhow!("import-presets: read {path} failed: {e}"))?
+        .ok_or_else(|| anyhow::anyhow!("import-presets: export file missing: {path}"))?;
+    let rows: Value = serde_json::from_str(&raw)
+        .map_err(|e| anyhow::anyhow!("import-presets: parse failed: {e}"))?;
+    let arr = rows
+        .as_array()
+        .ok_or_else(|| anyhow::anyhow!("import-presets: export must be a JSON array"))?;
+    let now = now_ms(h).unwrap_or(0);
+    let mut imported = 0usize;
+    let mut skipped = 0usize;
+    for r in arr {
+        let Some(name) = r
+            .get("name")
+            .and_then(|v| v.as_str())
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+        else {
+            skipped += 1;
+            continue;
+        };
+        let base_url = r.get("baseUrl").and_then(|v| v.as_str()).unwrap_or("");
+        let api_style = r.get("apiStyle").and_then(|v| v.as_str()).unwrap_or("openai");
+        let models = r.get("models").cloned().unwrap_or_else(|| json!([]));
+        let models_json = serde_json::to_string(&models).unwrap_or_else(|_| "[]".to_string());
+        let models_url = r.get("modelsUrl").and_then(|v| v.as_str()).unwrap_or("");
+        let api_key = r.get("apiKey").and_then(|v| v.as_str()).unwrap_or("");
+        let notes = r.get("notes").and_then(|v| v.as_str());
+        let created_at = r
+            .get("createdAt")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(now as i64);
+        let updated_at = r.get("updatedAt").and_then(|v| v.as_i64()).unwrap_or(created_at);
+        h.plugin_db_execute_params(
+            "INSERT INTO provider_preset (name, base_url, api_style, models_json, models_url, \
+             api_key, notes, created_at, updated_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9) \
+             ON CONFLICT(name) DO UPDATE SET base_url = ?2, api_style = ?3, models_json = ?4, \
+             models_url = ?5, api_key = ?6, notes = ?7, updated_at = ?9",
+            &sql_params![
+                name, base_url, api_style, models_json, models_url, api_key, notes, created_at,
+                updated_at
+            ],
+        )
+        .map_err(|e| anyhow::anyhow!("import-presets: upsert {name} failed: {e}"))?;
+        imported += 1;
+    }
+    // 状态回流：全量推送（新预设立即可见）
+    let state = build_state(h)?;
+    emit_and_return(h, &state)?;
+    h.log_info(&format!(
+        "presets imported from agent-hub export (imported = {imported}, skipped = {skipped})"
+    ));
+    Ok(json!({ "imported": imported, "skipped": skipped, "path": path }))
+}

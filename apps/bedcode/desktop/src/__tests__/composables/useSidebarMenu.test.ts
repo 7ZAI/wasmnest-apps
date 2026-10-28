@@ -15,14 +15,14 @@ import router from '@/router'
 
 describe('useSidebarMenu（静态表）', () => {
   it('菜单恒为四项，顺序槽位锁死（配对 100 / 会话 200 / 任务 210 / 设置 9999）', () => {
-    expect(sidebarMenuItems.map((i) => i.id)).toEqual(['pairing', 'sessions', 'tasks', 'settings'])
-    expect(sidebarMenuItems.map((i) => i.order)).toEqual([100, 200, 210, 9999])
-    expect(MENU_ORDERS).toEqual({ pairing: 100, sessions: 200, tasks: 210, settings: 9999 })
+    expect(sidebarMenuItems.map((i) => i.id)).toEqual(['pairing', 'sessions', 'agents', 'tasks', 'settings'])
+    expect(sidebarMenuItems.map((i) => i.order)).toEqual([100, 200, 205, 210, 9999])
+    expect(MENU_ORDERS).toEqual({ pairing: 100, sessions: 200, agents: 205, tasks: 210, settings: 9999 })
   })
 
   it('useSidebarMenu 输出的菜单按 order 升序（同一静态表）', () => {
     const { menuItems } = useSidebarMenu()
-    expect(menuItems.value.map((i) => i.id)).toEqual(['pairing', 'sessions', 'tasks', 'settings'])
+    expect(menuItems.value.map((i) => i.id)).toEqual(['pairing', 'sessions', 'agents', 'tasks', 'settings'])
   })
 
   it('菜单路径与静态路由表一一对应（双向无死链）', () => {
@@ -35,8 +35,9 @@ describe('useSidebarMenu（静态表）', () => {
   it('菜单 key 一律为 app 域相对键（渲染处补命名空间）', () => {
     expect(sidebarMenuItems[0].labelKey).toBe('pairing.sidebar.title')
     expect(sidebarMenuItems[1].labelKey).toBe('session.sidebar.title')
-    expect(sidebarMenuItems[2].labelKey).toBe('task.historyTitle')
-    expect(sidebarMenuItems[3].labelKey).toBe('sidebar.settings')
+    expect(sidebarMenuItems[2].labelKey).toBe('hub.sidebar.title')
+    expect(sidebarMenuItems[3].labelKey).toBe('task.historyTitle')
+    expect(sidebarMenuItems[4].labelKey).toBe('sidebar.settings')
   })
 
   it('深链页（连接历史 / 终端窗口）不进菜单', () => {

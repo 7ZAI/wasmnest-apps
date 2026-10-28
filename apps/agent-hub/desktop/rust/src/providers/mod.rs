@@ -45,7 +45,7 @@ mod store;
 /// 命令入口面（lib.rs 路由）
 pub(crate) use apply::apply_provider;
 pub(crate) use discover::fetch_models;
-pub(crate) use store::ensure_schema;
+pub(crate) use store::{ensure_schema, export_all};
 
 /// 反向导入纯函数与草稿（适配器的 import 钩子消费）
 pub(crate) use import::{presets_from_opencode, presets_from_pi, PresetDraft};

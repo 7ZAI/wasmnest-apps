@@ -63,6 +63,9 @@ mod environment;
 pub mod file_browse;
 /// HTTP 路由代码注册（ABI v29 服务端域）：activate 期注册自身全部路由，单一事实源
 mod http_routes;
+/// Agent 管理域（原 agent-hub 插件并入）：探测/安装卸载/Node 引导/Skills/供应商/
+/// 用量统计与会话日志，`agent.*` 命令面 + 进程完成事件按 run_id 归属，见模块文档
+mod hub;
 /// 按键组合 → 转义字节翻译（票 06 下沉）：宿主 pty 只收裸字节，本插件自译自写
 mod keys;
 /// 会话创建编排（票 09）：命名唯一化 / config→launch spec 映射 / 两阶段启动决策
@@ -1053,6 +1056,14 @@ impl WasmPlugin for SessionPlugin {
         // 注册 `/api/auth/*`）；本插件不再登记任何认证路由，也不再注册认证中心。
         http_routes::register_all(&host);
 
+        // Agent 管理域（原 agent-hub 并入）激活：授权/建表失败不阻断整体激活
+        // （会话核心域独立可用），错误留痕 fail-visible。
+        if let Err(e) = hub::activate(&host) {
+            host.log_error(&format!(
+                "agent hub activate failed (agent management degraded): {e}"
+            ));
+        }
+
         host.log_info(
             "WasmNest plugin activated (auth center role moved to com.wasmnest.auth-center)",
         );
@@ -1078,6 +1089,8 @@ impl WasmPlugin for SessionPlugin {
         // 票 07：清空设备接入期记忆（连接由宿主按属主回收关闭，断开事件可能
         // 不再投递；记忆不跨生命周期，避免重启后误关旧连接）
         devices_events::clear_connected();
+        // Agent 管理域（原 agent-hub 并入）停用：清在途归属，终止在途安装/引导进程
+        hub::deactivate(&host);
         Ok(())
     }
 
@@ -1201,6 +1214,14 @@ impl WasmPlugin for SessionPlugin {
         }
         SessionApiDispatcher::dispatch::<Self>(msg)?;
         Ok(())
+    }
+
+    /// 进程完成回调（hub 域）：按 run_id 归属消费安装/引导/探测/Skills/用量扫描；
+    /// 非 hub 的 run_id 放行（默认实现为空，转发后语义不变）。
+    fn on_process_done(
+        event: &wasmnest_plugin_api::events::ProcessDoneEvent,
+    ) -> anyhow::Result<()> {
+        hub::on_process_done(event)
     }
 
     // v27（票 10）：`on_session_lifecycle` / `on_input_submitted` 两个导出已随
@@ -1985,6 +2006,11 @@ impl WasmPlugin for SessionPlugin {
                 ))
             }
 
+            // ==================== Agent 管理域（原 agent-hub 并入） ====================
+            // `agent.*` 命令面整体转发到 hub 域路由（探测/安装/引导/Skills/供应商/
+            // 用量），未知 agent.* 命令由 hub 显性报错。
+            name if name.starts_with("agent.") => hub::invoke_command(name, args),
+
             other => Err(anyhow::anyhow!("Unknown command: {}", other)),
         }
     }
@@ -2307,6 +2333,9 @@ mod tests {
         assert_eq!(
             manifest.permissions,
             vec![
+                // Agent 管理域（原 agent-hub 并入）：Node 引导经 host-app
+                // register-path 登记 PATH（`app:path` 原语）
+                "app:path".to_string(),
                 "auth".to_string(),
                 // 票 15 任务域按 D2 能力映射补的权限位：
                 // `fs:read` / `fs:write`（Agent 集成写项目 hook）、
@@ -2322,6 +2351,9 @@ mod tests {
                 // `host-connection.connections-list`，权限判据同步换挂 `connection:read`
                 // （审计单值化：谁能读连接清单只由本位回答，`session:read` 不再代答）
                 "connection:read".to_string(),
+                // Agent 管理域（原 agent-hub 并入）：工作目录/用量来源目录/技能
+                // 本地导入的系统目录选取对话框
+                "fs:pick".to_string(),
                 "fs:read".to_string(),
                 "fs:write".to_string(),
                 // ABI v29（HTTP 路由代码注册下沉）：host-http 服务端域

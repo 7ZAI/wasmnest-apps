@@ -12,9 +12,11 @@
   "rustLibrary": "bedcode_plugin_terminal_session",
   "icon": "icon.svg",
   "permissions": [
+    "app:path",
     "auth",
     "broadcast",
     "connection:read",
+    "fs:pick",
     "fs:read",
     "fs:write",
     "network:http",
@@ -185,6 +187,190 @@
       {
         "id": "session.task.scheduled-reset",
         "title": "Reset scheduled job"
+      },
+      {
+        "id": "agent.add-custom-source",
+        "title": "agent-hub.add-custom-source"
+      },
+      {
+        "id": "agent.add-usage-source",
+        "title": "Agent Hub: Add Usage Source"
+      },
+      {
+        "id": "agent.add-usage-source-path",
+        "title": "Add usage source path"
+      },
+      {
+        "id": "agent.apply-mirror",
+        "title": "Agent Hub: Apply Registry Persistently"
+      },
+      {
+        "id": "agent.apply-provider",
+        "title": "Agent Hub: Apply Provider Preset to CLI"
+      },
+      {
+        "id": "agent.bootstrap-env",
+        "title": "Agent Hub: Install Node.js Runtime"
+      },
+      {
+        "id": "agent.cancel-bootstrap",
+        "title": "Agent Hub: Cancel Node.js Bootstrap"
+      },
+      {
+        "id": "agent.cancel-run",
+        "title": "Agent Hub: Cancel Running Install"
+      },
+      {
+        "id": "agent.check-updates",
+        "title": "Agent Hub: Check CLI Updates"
+      },
+      {
+        "id": "agent.clear-usage-data",
+        "title": "Agent Hub: Clear Usage Data"
+      },
+      {
+        "id": "agent.delete-preset",
+        "title": "Agent Hub: Delete Provider Preset"
+      },
+      {
+        "id": "agent.describe-install",
+        "title": "Agent Hub: Describe Install Command"
+      },
+      {
+        "id": "agent.detect",
+        "title": "Agent Hub: Detect CLIs"
+      },
+      {
+        "id": "agent.distribute-skill",
+        "title": "Agent Hub: Distribute Skill"
+      },
+      {
+        "id": "agent.fetch-models",
+        "title": "Agent Hub: Fetch Provider Model List"
+      },
+      {
+        "id": "agent.get-bootstrap-state",
+        "title": "Agent Hub: Get Node Bootstrap State"
+      },
+      {
+        "id": "agent.get-install-state",
+        "title": "Agent Hub: Get Install State"
+      },
+      {
+        "id": "agent.get-providers-state",
+        "title": "Agent Hub: Get Providers State"
+      },
+      {
+        "id": "agent.get-run-output",
+        "title": "Agent Hub: Get Run Output"
+      },
+      {
+        "id": "agent.get-skills-state",
+        "title": "Agent Hub: Get Skills State"
+      },
+      {
+        "id": "agent.get-state",
+        "title": "Agent Hub: Get State"
+      },
+      {
+        "id": "agent.get-usage-state",
+        "title": "Agent Hub: Get Usage State"
+      },
+      {
+        "id": "agent.get-usage-stats",
+        "title": "Agent Hub: Get Usage Stats"
+      },
+      {
+        "id": "agent.import-presets",
+        "title": "Import provider presets from agent-hub export"
+      },
+      {
+        "id": "agent.import-providers",
+        "title": "Agent Hub: Import Providers from CLIs"
+      },
+      {
+        "id": "agent.import-skill",
+        "title": "Agent Hub: Import Skill from Local Directory"
+      },
+      {
+        "id": "agent.install",
+        "title": "Agent Hub: Install / Update CLI"
+      },
+      {
+        "id": "agent.install-github-skill",
+        "title": "Agent Hub: Install Skill from GitHub"
+      },
+      {
+        "id": "agent.list-agents",
+        "title": "Agent Hub: List Agents"
+      },
+      {
+        "id": "agent.list-usage-sessions",
+        "title": "Agent Hub: List Usage Sessions"
+      },
+      {
+        "id": "agent.list-usage-sources",
+        "title": "Agent Hub: List Usage Sources"
+      },
+      {
+        "id": "agent.pick-source-dir",
+        "title": "Agent Hub: Pick Log Source Directory"
+      },
+      {
+        "id": "agent.read-skill",
+        "title": "Agent Hub: Read Skill"
+      },
+      {
+        "id": "agent.read-usage-session",
+        "title": "Agent Hub: Read Usage Session"
+      },
+      {
+        "id": "agent.remove-custom-source",
+        "title": "agent-hub.remove-custom-source"
+      },
+      {
+        "id": "agent.remove-env",
+        "title": "Agent Hub: Remove Node.js Runtime"
+      },
+      {
+        "id": "agent.remove-usage-source",
+        "title": "Agent Hub: Remove Usage Source"
+      },
+      {
+        "id": "agent.remove-usage-source-path",
+        "title": "Remove usage source path"
+      },
+      {
+        "id": "agent.request-auth",
+        "title": "Agent Hub: Request Directory Authorization"
+      },
+      {
+        "id": "agent.restore-npmrc",
+        "title": "Agent Hub: Restore npmrc Backup"
+      },
+      {
+        "id": "agent.save-preset",
+        "title": "Agent Hub: Save Provider Preset"
+      },
+      {
+        "id": "agent.save-skill",
+        "title": "Agent Hub: Save Skill"
+      },
+      {
+        "id": "agent.scan-skills",
+        "title": "Agent Hub: Scan Skills"
+      },
+      {
+        "id": "agent.scan-usage",
+        "title": "Agent Hub: Scan Usage Sessions"
+      },
+      {
+        "id": "agent.speed-test",
+        "title": "Agent Hub: Speed Test Registries"
+      },
+      {
+        "id": "agent.uninstall",
+        "title": "Agent Hub: Uninstall CLI"
       }
     ],
     "wsEndpoints": [

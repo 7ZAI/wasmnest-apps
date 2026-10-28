@@ -551,4 +551,9 @@ export type MessageSchema = {
   'hub.preview.error': string
   'hub.preview.idle': string
   'hub.preview.lastRoute': string
+  'hub.pv.exportFile': string
+  'hub.pv.exporting': string
+  'hub.pv.exportDone': string
+  'hub.pv.exportFailed': string
+
 }

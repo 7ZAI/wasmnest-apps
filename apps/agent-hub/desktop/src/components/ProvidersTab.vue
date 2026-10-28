@@ -408,6 +408,24 @@ async function importProviders() {
 
 const importLast = computed(() => state.value?.import.last ?? null)
 
+// ==================== 迁移桥：一次性导出（并入 bedcode 前使用） ====================
+const exporting = ref(false)
+async function exportPresets() {
+  if (exporting.value) return
+  exporting.value = true
+  try {
+    const res = (await context.commands.execute('agent-hub.export-presets', {})) as
+      | { exported?: number; path?: string }
+      | null
+    toast.success(t('hub.pv.exportDone', { n: res?.exported ?? 0, path: res?.path ?? '' }))
+  } catch (e) {
+    console.error('[providers] export presets failed:', e)
+    toast.error(t('hub.pv.exportFailed'))
+  } finally {
+    exporting.value = false
+  }
+}
+
 // ==================== 应用 ====================
 
 const applyingPreset = ref<ProviderPreset | null>(null)
@@ -446,6 +464,15 @@ function sourceTag(preset: ProviderPreset): string {
             @click="importProviders"
           >
             {{ props.providers.importing.value ? t('hub.pv.importing') : t('hub.pv.import') }}
+          </button>
+          <button
+            type="button"
+            class="ah-btn ah-btn-ghost ah-btn-sm"
+            :disabled="exporting"
+            data-testid="export-presets"
+            @click="exportPresets"
+          >
+            {{ exporting ? t('hub.pv.exporting') : t('hub.pv.exportFile') }}
           </button>
           <button
             ref="editorTrigger"

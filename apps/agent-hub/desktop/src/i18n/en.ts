@@ -519,6 +519,11 @@ const en: MessageSchema = {
   'hub.preview.error': 'Detection failed',
   'hub.preview.idle': 'Not detected',
   'hub.preview.lastRoute': 'Last page {path}',
+  'hub.pv.exportFile': 'Export presets (migration)',
+  'hub.pv.exporting': 'Exporting…',
+  'hub.pv.exportDone': 'Exported {n} presets → {path}',
+  'hub.pv.exportFailed': 'Export failed',
+
 }
 
 export default en

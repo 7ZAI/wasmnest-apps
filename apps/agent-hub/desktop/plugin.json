@@ -156,6 +156,10 @@
         "title": "Agent Hub: Apply Provider Preset to CLI"
       },
       {
+        "id": "agent-hub.export-presets",
+        "title": "Export provider presets (migration bridge)"
+      },
+      {
         "id": "agent-hub.get-usage-state",
         "title": "Agent Hub: Get Usage State"
       },

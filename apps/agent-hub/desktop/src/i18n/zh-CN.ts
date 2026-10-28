@@ -514,6 +514,11 @@ const zhCN: MessageSchema = {
   'hub.preview.error': '检测失败',
   'hub.preview.idle': '未检测',
   'hub.preview.lastRoute': '上次页面 {path}',
+  'hub.pv.exportFile': '导出预设（迁移）',
+  'hub.pv.exporting': '导出中…',
+  'hub.pv.exportDone': '已导出 {n} 条预设 → {path}',
+  'hub.pv.exportFailed': '导出失败',
+
 }
 
 export default zhCN

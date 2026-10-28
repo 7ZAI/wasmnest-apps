@@ -4,7 +4,7 @@
  * 桌面宿主前端整体下沉后，菜单表是 app 内的单一事实源：贡献面注册与激活态
  * 仲裁随前端插件运行时退役，侧边栏直接渲染本表。order 沿用下沉前各页面的
  * 槽位值，保证视觉顺序不变：
- * 设备配对 100 / 终端会话 200 / Agent任务 210 / 设置 9999。
+ * 设备配对 100 / 终端会话 200 / Agent管理（原 agent-hub）205 / Agent任务 210 / 设置 9999。
  *
  * 文案 key 全部为 app 域相对键（渲染处经 `useAppI18n()` 补
  * `com.wasmnest.bedcode.` 命名空间）；宿主文案不随 app 打包。
@@ -30,6 +30,7 @@ export interface SidebarMenuItem {
 export const MENU_ORDERS = {
   pairing: 100,
   sessions: 200,
+  agents: 205,
   tasks: 210,
   settings: 9999,
 } as const
@@ -38,6 +39,8 @@ export const MENU_ORDERS = {
 const PAIRING_ICON = 'M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z'
 const SESSIONS_ICON =
   'M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z'
+const AGENTS_ICON =
+  'M8.25 3v1.5M4.5 8.25H3m18 0h-1.5M4.5 12H3m18 0h-1.5m-15 3.75H3m18 0h-1.5M8.25 19.5V21M12 3v1.5m0 15V21m3.75-18v1.5m0 15V21m-9-1.5h10.5a2.25 2.25 0 002.25-2.25V6.75a2.25 2.25 0 00-2.25-2.25H6.75A2.25 2.25 0 004.5 6.75v10.5a2.25 2.25 0 002.25 2.25zm.75-12h9v9h-9v-9z'
 const TASKS_ICON =
   'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01'
 const SETTINGS_ICON =
@@ -63,6 +66,13 @@ export const sidebarMenuItems: SidebarMenuItem[] = [
     labelKey: 'session.sidebar.title',
     icon: SESSIONS_ICON,
     order: MENU_ORDERS.sessions,
+  },
+  {
+    id: 'agents',
+    path: '/agents',
+    labelKey: 'hub.sidebar.title',
+    icon: AGENTS_ICON,
+    order: MENU_ORDERS.agents,
   },
   {
     id: 'tasks',
