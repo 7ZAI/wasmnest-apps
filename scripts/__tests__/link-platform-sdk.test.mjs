@@ -135,14 +135,14 @@ describe('link-platform-sdk / createLinkPlan + applyLinkPlan', () => {
       'file:../../../../platform/wasmnest-desktop/packages/plugin-sdk-desktop',
     )
 
-    // marker：6 个文件 + 原始 spec
+    // marker：5 个文件 + 原始 spec
     const markerFile = join(fx.appsRoot, '.platform-sdk-link.json')
     assert.ok(existsSync(markerFile))
     const onDisk = readJson(markerFile)
     assert.deepEqual(onDisk, marker)
     assert.equal(onDisk.platformRoot, fx.platformRoot)
     assert.equal(onDisk.linkedAt, '2026-10-21T00:00:00.000Z')
-    assert.equal(Object.keys(onDisk.files).length, 6)
+    assert.equal(Object.keys(onDisk.files).length, 5)
     for (const file of packageFiles(fx.appsRoot)) {
       assert.equal(onDisk.files[file], '0.0.1')
     }
@@ -218,7 +218,7 @@ describe('link-platform-sdk / revertLink', () => {
     const result = revertLink({ appsRoot: fx.appsRoot })
 
     assert.equal(result.markerExisted, true)
-    assert.equal(result.restored.length, 6)
+    assert.equal(result.restored.length, 5)
     for (const file of packageFiles(fx.appsRoot)) {
       assert.equal(specOf(file), '0.0.1')
     }
