@@ -66,3 +66,6 @@ desktop.ini
 
 # 会话临时 scratch（不入库）
 .scratch/
+
+# AI 工具的计划文件（zcode 生成的会话计划，不入库）
+.zcode/
