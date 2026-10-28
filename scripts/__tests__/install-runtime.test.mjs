@@ -37,7 +37,7 @@ function writeLock(appsRoot, version = '0.0.1') {
         hostRuntime: {
           version,
           sourceCommit: 'a'.repeat(40),
-          libTag: 'lib-v0.0.2',
+          libTag: 'lib-v0.0.1',
           witVersion: '0.0.1',
           sdkVersion: '0.0.1',
           mountContract: '1',

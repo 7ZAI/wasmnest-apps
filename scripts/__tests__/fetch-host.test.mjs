@@ -71,7 +71,7 @@ function hostMeta(overrides = {}) {
     platform: PLATFORM,
     arch: ARCH,
     sourceCommit: 'a'.repeat(40),
-    libTag: 'lib-v0.0.2',
+    libTag: 'lib-v0.0.1',
     witVersion: '0.0.1',
     sdkVersion: '0.0.1',
     mountContract: '1',
@@ -101,7 +101,7 @@ function writeLock(appsRoot, hostRuntime = {}) {
     hostRuntime: {
       version: '0.0.1',
       sourceCommit: 'a'.repeat(40),
-      libTag: 'lib-v0.0.2',
+      libTag: 'lib-v0.0.1',
       witVersion: '0.0.1',
       sdkVersion: '0.0.1',
       mountContract: '1',

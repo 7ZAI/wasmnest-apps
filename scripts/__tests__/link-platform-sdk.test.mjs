@@ -157,7 +157,10 @@ describe('link-platform-sdk / createLinkPlan + applyLinkPlan', () => {
     assert.ok(
       config.includes(`wasmnest-plugin-api-macros = { path = "${join(fx.sdkDir, 'rust-macros')}" }`),
     )
-    assert.ok(config.includes('[patch."https://github.com/7ZAI/wasmnest-lib"]'))
+    assert.ok(
+      !config.includes('[patch."https://github.com/7ZAI/wasmnest-lib"]'),
+      '能力仓依赖已改 crates.io 版本，不再写 git 源 patch',
+    )
     for (const crate of [
       'wasmnest-server-base',
       'wasmnest-server-core',
