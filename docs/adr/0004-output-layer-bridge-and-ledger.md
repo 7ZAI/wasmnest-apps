@@ -59,15 +59,26 @@ com.wasmnest.bedcode/task-status`（`auth: none`，回环免凭证，`http_route
      `{ reply: "once" | "always" | "reject", message?: string }`；另有 `GET /permission`
      列跨会话待处理。桥接扩展在 opencode 进程内可直接经其 client 调用，**不需要 BedCode
      自己够到 opencode 的 HTTP 面**。→ 内联批准可行，权限卡可给按钮。
-  2. **pi 发送：走扩展的自定义消息 API**（第三方集成实现佐证：空闲会话起新 turn、忙会话按
-     follow-up 投递）。→ 「发送」走桥接命令队列，按键注入只作兜底。**待测**：该 API 在
-     本机 pi 版本上的确切入口。
+  2. **pi 发送：走扩展的自定义消息 API。**（2026-10-30 本机 pi 1.4.0 实测口径）入口在
+     扩展 `ExtensionAPI`：`pi.sendUserMessage(content, { deliverAs: "steer" | "followUp",
+     expandPromptTemplates? })` **总是起一个 turn**，流式中用 `deliverAs` 排队；
+     `pi.sendMessage(custom, { triggerTurn?, deliverAs: "steer" | "followUp" | "nextTurn" })`
+     发自定义消息。→ 「发送」走桥接命令队列，按键注入只作兜底。
   3. **pi 恢复会话：`--session <文件|id>`**（另有 `-c` 续最近、`-r` 选择、`--fork` 分叉、
      `--name` 命名）。→ 恢复可在启动参数上表达，不需要交互。注意 pi 会话是**树结构**
      （entry 有 id/parentId，可 in-place 分叉）——这印证了「fork/branch 划出范围」是对的：
      它的分支模型与线性 `run_event` 不同构，要做就得重设计账本。
-  4. **pi 扩展能拿到的最细事件粒度：待测。** pi 的 SDK 会话有 `text_delta` / `thinking_delta`
-     级别的 `message_update` 事件，但**扩展层是否同样可见尚未确认**；未确认前按消息级写能力
-     声明（`caps.stream = message`），确认后再升 `part`。
-  5. **待测**：pi 单会话整读耗时（实测最大 8.9 MB），决定镜像轮询节奏。
+  4. **pi 扩展能拿到的最细事件粒度：part（token 级）。**（2026-10-30 本机 pi 1.4.0 核实）
+     扩展事件 `message_update` 携带 `assistantMessageEvent`，其中含 `text_delta` /
+     `thinking_delta` / `toolcall_delta`（`pi-agent-core/dist/types.d.ts`），扩展文档的
+     消息生命周期也列出 `message_start` / `message_update` / `message_end`。→ `caps.stream`
+     按 `part` 声明，不再降级成消息级。
+  5. **pi 单会话整读耗时：约 70 ms（冷读）。**（2026-10-30 本机实测）最大会话
+     `9,156,048 B / 270 行`：`readFileSync` 48.8 ms + 逐行 `JSON.parse` 13.8 ms =
+     68.4 ms。→ 镜像轮询按 1 s 起步余量充足，暂不需要自适应节奏；会话数增长后再评估。
+  6. **pi 项目扩展受 project trust 约束（M3 必须处理）。** pi 的项目级配置（`<cwd>/.pi/**`）
+     在授予项目信任后才加载（文档 `security.md#understand-project-trust`，信任状态存
+     `~/.pi/agent/trust.json`）；BedCode 注入的 `.pi/extensions/pi_task_hook.ts` 与后续
+     `wasmnest_bridge` 都属于项目扩展。→ 未授信项目里桥接不会加载：运行必须仍可用、界面
+     显性标「镜像模式 / 需在终端授予项目信任」，不得把「点了没反应」留给用户。
 - 未适配 agent（claude / codex）本轮走镜像模式：只读、无写入、无内联权限。
