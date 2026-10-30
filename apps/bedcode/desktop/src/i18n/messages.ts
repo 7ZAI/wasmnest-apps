@@ -515,7 +515,7 @@ export type MessageSchema = {
   'notFound.title': string
   'notFound.body': string
   'notFound.back': string
-  'runtimeUnexpected': string
+  runtimeUnexpected: string
 
   // ==================== 终端窗口标题（2026-10-27 自宿主 `common.misc.terminalTitle` 迁入） ====================
   'session.terminal.windowTitleWithName': string
@@ -1095,4 +1095,107 @@ export type MessageSchema = {
   'hub.pv.importHubFailed': string
   'hub.pv.importAuthDenied': string
 
+  // ==================== 项目与运行（ADR 0003 / issue #23 M2） ====================
+  'project.sidebar.title': string
+
+  // 项目管理动作
+  'project.button.refresh': string
+  'project.button.new': string
+  'project.button.create': string
+  'project.button.cancel': string
+  'project.button.save': string
+  'project.button.rename': string
+  'project.button.remove': string
+  'project.button.browse': string
+  'project.button.open': string
+
+  // 空态
+  'project.empty.noProjects': string
+  'project.empty.noProjectsHint': string
+
+  // 新建 / 改名表单
+  'project.form.title.new': string
+  'project.form.title.rename': string
+  'project.form.name': string
+  'project.form.namePlaceholder': string
+  'project.form.environment': string
+  'project.form.wslDistro': string
+  'project.form.wslDistroPlaceholder': string
+  'project.form.workingDir': string
+  'project.form.workingDirPlaceholder': string
+  'project.form.required': string
+  'project.form.pickFailed': string
+  // 执行环境选项（按宿主平台过滤；与会话表单同一套展示口径）
+  'project.form.env.windows': string
+  'project.form.env.wsl2': string
+  'project.form.env.linux': string
+  'project.form.wslInitializing': string
+  'project.form.wslNotDetected': string
+
+  // 项目卡
+  'project.card.activeRuns': string
+  'project.card.runCount': string
+  'project.card.lastActivity': string
+  'project.card.noActivity': string
+  'project.card.lastAgent': string
+
+  // 确认与提示
+  'project.confirm.removeTitle': string
+  'project.confirm.removeMsg': string
+  'project.toast.created': string
+  'project.toast.existed': string
+  'project.toast.renamed': string
+  'project.toast.removed': string
+  'project.toast.refreshed': string
+  'project.error.loadFailed': string
+  'project.error.createFailed': string
+  'project.error.renameFailed': string
+  'project.error.removeFailed': string
+  'project.error.notFound': string
+
+  // 相对时间
+  'project.time.justNow': string
+  'project.time.minutesAgo': string
+  'project.time.hoursAgo': string
+  'project.time.daysAgo': string
+
+  // 工作台
+  'project.workbench.back': string
+  'project.workbench.activeRuns': string
+
+  // 分栏拖拽（三栏宽度调整）
+  'project.split.resizeRuns': string
+  'project.split.resizeInspector': string
+  'project.split.resizeHint': string
+
+  // 运行
+  'project.run.title': string
+  'project.run.new': string
+  'project.run.empty': string
+  'project.run.emptyHint': string
+  'project.run.pickAgent': string
+  'project.run.starting': string
+  'project.run.startFailed': string
+  'project.run.stop': string
+  'project.run.stopFailed': string
+  'project.run.openWindow': string
+  'project.run.agentMissing': string
+  'project.run.agentUnknown': string
+  'project.run.installHint': string
+
+  // 对话面（M3 才接管；M2 给显性占位）
+  'project.chat.title': string
+  'project.chat.placeholderTitle': string
+  'project.chat.placeholderBody': string
+  'project.chat.agentSessionId': string
+  'project.chat.copyId': string
+  'project.chat.copied': string
+
+  // 检查器
+  'project.inspector.changes': string
+  'project.inspector.terminal': string
+  'project.inspector.events': string
+  'project.inspector.noSelection': string
+  'project.inspector.changesEmpty': string
+  'project.inspector.eventsEmpty': string
 }

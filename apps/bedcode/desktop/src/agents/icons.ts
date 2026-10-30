@@ -7,6 +7,13 @@
  * 官方色 coral / blue / yellow，与 pi TUI 的 pi-logo / 3D easter egg 同源）。
  * 品牌标为固定商标色（claude 的 Anthropic 橙、pi 三色），不随主题——
  * frontend-styles 的 token 约束针对 UI 语义色，品牌标志不在其列；底色 chip 仍走 token。
+ *
+ * **codex / opencode 为什么是 `currentColor` 而不是某个色值**：这两家的官方标
+ * 本身就是**单色标**（OpenAI 结、opencode 方框），没有官方彩色版。单色标写死颜色
+ * 会在另一套主题里失效（深色写黑 = 看不见，浅色写白 = 白底白字），所以跟随
+ * 前景色：深色主题白、浅色主题近黑，两个主题都清晰。要「给它们上色」属于自创
+ * 品牌色（常见误用是拿 ChatGPT 的强调绿 #10a37f 当 OpenAI logo 色），需明确
+ * 由产品决定并在本表写死——不要按主题顺手改。
  */
 
 /** 品牌图元：viewBox + 兜底填充色 + path 列表（rule 默认 nonzero，fill 缺省用 color） */

@@ -3,7 +3,7 @@
   "name": "BedCode",
   "version": "0.0.1",
   "platform": "desktop",
-  "description": "BedCode 终端会话中心：会话配置与生命周期编排、任务队列与 Agent 集成。\n认证 / 配对 / 信任域已迁至 com.wasmnest.auth-center（issue #6）：设备配对、连接历史与就位状态在 BedCode 页面上保留，数据经互调消费认证中心；BedCode 不再注册为认证中心。\n使用：侧边栏「设备配对 / 连接历史 / 终端会话 / Agent任务」四目录；会话创建时自动安装项目 hooks 同步任务状态；终端工具栏按钮打开任务队列弹窗；设置页贡献分组管理配对码 TTL、QR 有效期与 hooks。",
+  "description": "BedCode 终端会话中心：会话配置与生命周期编排、任务队列与 Agent 集成。\n认证 / 配对 / 信任域已迁至 com.wasmnest.auth-center（issue #6）：设备配对、连接历史与就位状态在 BedCode 页面上保留，数据经互调消费认证中心；BedCode 不再注册为认证中心。\n使用：侧边栏入口为「设备配对 / 项目 / 终端会话 / Agent 管理 / Agent 任务」；项目（目录 + 执行环境）是桌面一级容器，项目内可直接选 agent 启动运行；会话创建时自动安装项目 hooks 同步任务状态；终端工具栏按钮打开任务队列弹窗；设置页贡献分组管理配对码 TTL、QR 有效期与 hooks。",
   "author": "WasmNest",
   "main": "index.js",
   "type": "business-app",
@@ -205,6 +205,10 @@
         "title": "Project: Open"
       },
       {
+        "id": "project.pick-dir",
+        "title": "Project: Pick Directory"
+      },
+      {
         "id": "project.remove",
         "title": "Project: Remove"
       },
@@ -215,6 +219,10 @@
       {
         "id": "run.list",
         "title": "Run: List"
+      },
+      {
+        "id": "run.start",
+        "title": "Run: Start"
       },
       {
         "id": "agent.add-custom-source",

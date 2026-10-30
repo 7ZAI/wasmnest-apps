@@ -79,6 +79,9 @@ mod policy;
 pub mod project;
 /// 快捷指令域（票 02 第 4 域）：私有库持久化 + HTTP 查询面 + 迁移导入
 pub mod quick_actions;
+/// 运行域（ADR 0003）：从项目里启动一条运行（`run.start`）——项目给出执行环境
+/// 与目录，agent 选择是一次运行的决定；启动仍走 `launch` 的唯一那条链
+pub mod run;
 /// 私有库表名域前缀统一与幂等重命名迁移（票 16 / spec D5）
 pub mod schema;
 /// 会话登记域（会话引擎整体下沉 P1）：会话真源自宿主 `session/` 迁入本插件，
@@ -2126,11 +2129,19 @@ impl WasmPlugin for SessionPlugin {
                 project::remove_via_host(id).map_err(anyhow::Error::msg)
             }
 
+            // 选项目目录 {} → {picked, path}（宿主对话框；取消 = picked:false）
+            "project.pick-dir" => project::pick_dir_via_host().map_err(anyhow::Error::msg),
+
             // 运行列表 {projectId?} → {runs: RunView[]}（缺 projectId = 全部；倒序由前端定）
             "run.list" => {
                 let project_id = args.get("projectId").and_then(|v| v.as_str());
                 session::list_runs_via_host(project_id).map_err(anyhow::Error::msg)
             }
+
+            // 启动运行 {projectId, agentId, cols?, rows?} → {runId, name, configId}
+            // 项目 + agent 决定启动参数（同项目同 agent 复用一条 session_configs），
+            // 启动本身仍走 `launch` 的唯一那条链（命名唯一化 / PTY spawn / 事件广播）
+            "run.start" => run::start_via_host(&args).map_err(anyhow::Error::msg),
 
             // ==================== Agent 管理域（原 agent-hub 并入） ====================
             // `agent.*` 命令面整体转发到 hub 域路由（探测/安装/引导/Skills/供应商/

@@ -226,9 +226,11 @@ describe('C1 工程身份五处一致', () => {
       'project.get',
       'project.list',
       'project.open',
+      'project.pick-dir',
       'project.remove',
       'project.rename',
       'run.list',
+      'run.start',
       'agent.add-custom-source',
       'agent.add-usage-source',
       'agent.add-usage-source-path',
@@ -419,11 +421,14 @@ describe('C3 入口契约（挂载包形态：mountApp + 直连上下文 + 内�
     expect(ctx.http).toBeUndefined()
   })
 
-  it('静态路由表：菜单五项 + 诊断/深链页 + not-found 兜底（内存路由，宿主 history 归宿主）', () => {
+  it('静态路由表：菜单六项 + 诊断/深链页 + not-found 兜底（内存路由，宿主 history 归宿主）', () => {
     const routes = router.getRoutes()
     const byName = new Map(routes.map((r) => (r.name ? [r.name, r] : [null, r])))
     // 菜单页（D3 静态表）
     expect(byName.get('pairing')?.path).toBe('/pairing')
+    // 项目（ADR 0003：一级容器）+ 项目工作台（id = 项目 id）
+    expect(byName.get('projects')?.path).toBe('/projects')
+    expect(byName.get('project-workbench')?.path).toBe('/projects/:id')
     expect(byName.get('sessions')?.path).toBe('/sessions')
     // Agent 管理域（原 agent-hub 并入）
     expect(byName.get('agents')?.path).toBe('/agents')
@@ -511,17 +516,19 @@ describe('C4 退役锁（D8 fail-visible：插件运行时回接零命中）', (
 })
 
 describe('C5 静态侧边栏菜单表与设置分组表（D3/D4）', () => {
-  it('侧边栏 = 静态表：五项（含 Agent 管理）、顺序槽位、路由与路由表一一对应', () => {
+  it('侧边栏 = 静态表：六项（含项目与 Agent 管理）、顺序槽位、路由与路由表一一对应', () => {
     expect(sidebarMenuItems.map((i) => i.id)).toEqual([
       'pairing',
+      'projects',
       'sessions',
       'agents',
       'tasks',
       'settings',
     ])
-    expect(sidebarMenuItems.map((i) => i.order)).toEqual([100, 200, 205, 210, 9999])
+    expect(sidebarMenuItems.map((i) => i.order)).toEqual([100, 190, 200, 205, 210, 9999])
     expect(sidebarMenuItems.map((i) => i.path)).toEqual([
       '/pairing',
+      '/projects',
       '/sessions',
       '/agents',
       '/tasks',
@@ -530,6 +537,7 @@ describe('C5 静态侧边栏菜单表与设置分组表（D3/D4）', () => {
     // 槽位常量即表内 order（改常量不改表 = 漂移，锁同值）
     expect(MENU_ORDERS).toEqual({
       pairing: 100,
+      projects: 190,
       sessions: 200,
       agents: 205,
       tasks: 210,
@@ -542,9 +550,11 @@ describe('C5 静态侧边栏菜单表与设置分组表（D3/D4）', () => {
     }
     // 菜单 key 一律为 app 域相对键（渲染处经 useAppI18n 补命名空间）
     expect(sidebarMenuItems[0].labelKey).toBe('pairing.sidebar.title')
+    // 项目是一级容器（ADR 0003），排在终端会话之前
+    expect(sidebarMenuItems[1].labelKey).toBe('project.sidebar.title')
     // Agent 管理域（原 agent-hub 并入）：hub.* 键随 i18n 三件套并入
-    expect(sidebarMenuItems[2].labelKey).toBe('hub.sidebar.title')
-    expect(sidebarMenuItems[4].labelKey).toBe('sidebar.settings')
+    expect(sidebarMenuItems[3].labelKey).toBe('hub.sidebar.title')
+    expect(sidebarMenuItems[5].labelKey).toBe('sidebar.settings')
   })
 
   it('设置分组 = 静态表：业务四分组、order 升序、带标题 key（平台分组归宿主系统页）', () => {

@@ -191,7 +191,8 @@ const zhCN: MessageSchema = {
 
   // ==================== 入场签发密钥轮换（ADR 0033 D4） ====================
   'pairing.key.sectionTitle': '入场密钥',
-  'pairing.key.description': '轮换设备入场凭证的签发密钥。已配对设备不受影响，凭证在宽限期内继续有效。',
+  'pairing.key.description':
+    '轮换设备入场凭证的签发密钥。已配对设备不受影响，凭证在宽限期内继续有效。',
   'pairing.key.rotate': '轮换密钥',
   'pairing.key.confirmTitle': '轮换入场密钥',
   'pairing.key.confirmMsg':
@@ -339,12 +340,14 @@ const zhCN: MessageSchema = {
   'task.queueStartHint': '创建会话并开始执行队列任务',
   'task.queueStartEmptyHint': '队列为空，请先添加任务',
   'task.queueAutoMode': '自动模式',
-  'task.queueAutoModeHint': '开启后队列有任务即自动创建会话执行，任务间自动关闭旧会话新建新会话（轮换）',
+  'task.queueAutoModeHint':
+    '开启后队列有任务即自动创建会话执行，任务间自动关闭旧会话新建新会话（轮换）',
   'task.queueStartFailed': '启动任务队列失败',
   'task.queueAutoFailed': '设置自动模式失败',
   'task.presetQueueLabel': '目标任务队列',
   'task.presetQueueEmpty': '暂无任务队列',
-  'task.presetQueueHint': '暂无任务队列：在「创建新任务」选择「创建新的…会话」提交任务后，即可将预设加入队列',
+  'task.presetQueueHint':
+    '暂无任务队列：在「创建新任务」选择「创建新的…会话」提交任务后，即可将预设加入队列',
   'task.agentNotAdapted':
     '当前会话的 Agent 未适配自动任务功能，请选择适配的会话（claude / codex / opencode / pi）',
   // ==================== 预设任务 ====================
@@ -487,7 +490,7 @@ const zhCN: MessageSchema = {
   'notFound.title': '页面不存在',
   'notFound.body': '你访问的页面不存在或已随版本更新移除',
   'notFound.back': '返回终端会话',
-  'runtimeUnexpected': '发生了未知错误，详情见日志',
+  runtimeUnexpected: '发生了未知错误，详情见日志',
 
   // ==================== 终端窗口标题（2026-10-27 自宿主 `common.misc.terminalTitle` 迁入） ====================
   'session.terminal.windowTitleWithName': '终端 - {name}',
@@ -594,7 +597,8 @@ const zhCN: MessageSchema = {
   'hub.inst.update': '更新',
   'hub.inst.latest': '已是最新',
   'hub.inst.running': '进行中…',
-  'hub.inst.nodeGuide': '未检测到 Node.js：点安装会先装 Node.js（含 npm）再继续；也可复制命令手动执行：',
+  'hub.inst.nodeGuide':
+    '未检测到 Node.js：点安装会先装 Node.js（含 npm）再继续；也可复制命令手动执行：',
   'hub.inst.copy': '复制',
   'hub.inst.copied': '已复制',
   'hub.inst.done': '已完成',
@@ -611,8 +615,10 @@ const zhCN: MessageSchema = {
 
   // ==================== Node.js 环境引导（P3） ====================
   'hub.boot.confirm.title': '安装 Node.js',
-  'hub.boot.confirm.body': '将下载并安装 Node.js {version}（{platform}），来自 {host}，文件 {size}；SHA-256 校验通过后才解压。',
-  'hub.boot.confirm.path': '会把运行时目录加入你的用户 PATH（新开终端生效）；不写系统级 PATH，也不改 shell 配置文件。',
+  'hub.boot.confirm.body':
+    '将下载并安装 Node.js {version}（{platform}），来自 {host}，文件 {size}；SHA-256 校验通过后才解压。',
+  'hub.boot.confirm.path':
+    '会把运行时目录加入你的用户 PATH（新开终端生效）；不写系统级 PATH，也不改 shell 配置文件。',
   'hub.boot.row.version': '版本',
   'hub.boot.row.platform': '目标平台',
   'hub.boot.row.source': '来源',
@@ -651,10 +657,13 @@ const zhCN: MessageSchema = {
   'hub.env.node.managed': 'Agent Hub 已安装 Node.js {version}（用户级 PATH）',
   'hub.env.node.upgrade': '升级到 {version}',
   'hub.env.node.remove': '移除',
-  'hub.env.node.cleanupPending': '以下旧目录未能删除（可能被占用）：{paths}；重启应用后可重试清理。',
+  'hub.env.node.cleanupPending':
+    '以下旧目录未能删除（可能被占用）：{paths}；重启应用后可重试清理。',
   'hub.remove.title': '移除 Agent Hub 安装的 Node.js',
-  'hub.remove.body': '将删除 Node.js 运行时目录，并摘除用户 PATH 中的登记条目；npm 全局目录与下载缓存会保留。',
-  'hub.remove.warning': '已安装的 CLI 会暂时无法运行（它们依赖 Node.js）；重新安装 Node.js 后恢复。',
+  'hub.remove.body':
+    '将删除 Node.js 运行时目录，并摘除用户 PATH 中的登记条目；npm 全局目录与下载缓存会保留。',
+  'hub.remove.warning':
+    '已安装的 CLI 会暂时无法运行（它们依赖 Node.js）；重新安装 Node.js 后恢复。',
   'hub.remove.confirm': '确认移除',
   'hub.remove.working': '正在移除…',
   'hub.remove.failed': '移除失败，请重试',
@@ -772,9 +781,11 @@ const zhCN: MessageSchema = {
   'hub.pv.editor.modelsUrlDerive': '按 Base URL 填',
   'hub.pv.editor.modelsFetch': '查询模型',
   'hub.pv.editor.modelsFetching': '查询中…',
-  'hub.pv.editor.modelsFetchFailed': '查询失败：请检查 URL、网络与 key（或该网关不提供模型列表，直接手动输入）',
+  'hub.pv.editor.modelsFetchFailed':
+    '查询失败：请检查 URL、网络与 key（或该网关不提供模型列表，直接手动输入）',
   'hub.pv.editor.modelsAddAll': '全部加入（{n}）',
-  'hub.pv.editor.modelsEmpty': '尚未填写模型：不填模型无法应用到 pi / opencode（会得到一个没有模型的供应商）。',
+  'hub.pv.editor.modelsEmpty':
+    '尚未填写模型：不填模型无法应用到 pi / opencode（会得到一个没有模型的供应商）。',
   'hub.pv.editor.nameExists': '同名预设已存在',
   'hub.pv.editor.saveFailed': '保存失败，请稍后重试',
   'hub.pv.editor.save': '保存',
@@ -782,7 +793,8 @@ const zhCN: MessageSchema = {
   'hub.pv.editor.key': 'API Key（中心凭据）',
   'hub.pv.editor.keyNew': '输入 API key（可留空，应用时再输入）',
   'hub.pv.editor.keyPlaceholder': '已存 key：{mask}；留空 = 保留',
-  'hub.pv.editor.keyHint': 'key 明文只存插件库（中心凭据库，一处配置分发多 agent），列表与日志一律掩码显示。',
+  'hub.pv.editor.keyHint':
+    'key 明文只存插件库（中心凭据库，一处配置分发多 agent），列表与日志一律掩码显示。',
   'hub.pv.editor.keyClear': '清空已存 key',
   'hub.pv.editor.keyKeep': '保留已存 key',
 
@@ -821,7 +833,8 @@ const zhCN: MessageSchema = {
     'codex 配置里只写变量名，真值由你的 shell 环境提供（插件不会读写你的环境文件）。需该变量在启动 codex 时已生效。',
   'hub.pv.apply.codex.switchHint':
     '会把 codex 当前模型从 {from} 切换为 {to}（codex 无模型清单，一次只能指向一个模型）。',
-  'hub.pv.apply.codex.dialectBlocked': '该预设的 API 方言在 codex 侧无对应写法（codex 只讲 Responses），codex 这一路会被拒。',
+  'hub.pv.apply.codex.dialectBlocked':
+    '该预设的 API 方言在 codex 侧无对应写法（codex 只讲 Responses），codex 这一路会被拒。',
   'hub.pv.apply.partial': '部分目标已写入（{n} 个失败），已保留失败目标供重试',
   'hub.pv.apply.failed': '应用失败，请稍后重试',
   // ==================== 使用统计看板（票据 06 + 改版） ====================
@@ -903,7 +916,8 @@ const zhCN: MessageSchema = {
   'hub.st.emptyWindow': '{range}内没有会话。可能是这段时间没在用，也可能数据还没扫描。',
   // ==================== 数据清空（票 07：全量保留 + 手动清空） ====================
   'hub.st.clearData': '清空统计数据',
-  'hub.st.clearDataAsk': '确认清空？所有已采集的会话记录与解析水位都会被删除，需要重新扫描才能恢复。',
+  'hub.st.clearDataAsk':
+    '确认清空？所有已采集的会话记录与解析水位都会被删除，需要重新扫描才能恢复。',
   'hub.st.clearDataConfirm': '确认清空',
   'hub.st.clearDataCancel': '取消',
   'hub.st.clearDataDone': '统计数据已清空',
@@ -1034,10 +1048,114 @@ const zhCN: MessageSchema = {
 
   'hub.pv.importHub': '从 agent-hub 导入',
   'hub.pv.importHubing': '导入中…',
-  'hub.pv.importHubDone': '已导入 {n} 条预设（跳过 {s} 条）。导出文件含明文 Key，建议导入完成后删除',
+  'hub.pv.importHubDone':
+    '已导入 {n} 条预设（跳过 {s} 条）。导出文件含明文 Key，建议导入完成后删除',
   'hub.pv.importHubFailed': '导入失败',
   'hub.pv.importAuthDenied': '未授权读取导出文件',
 
+  // ==================== 项目与运行（ADR 0003 / issue #23 M2） ====================
+  'project.sidebar.title': '项目',
+
+  // 项目管理动作
+  'project.button.refresh': '刷新',
+  'project.button.new': '新建项目',
+  'project.button.create': '创建',
+  'project.button.cancel': '取消',
+  'project.button.save': '保存',
+  'project.button.rename': '重命名',
+  'project.button.remove': '移除',
+  'project.button.browse': '选择目录',
+  'project.button.open': '进入项目',
+
+  // 空态
+  'project.empty.noProjects': '还没有项目',
+  'project.empty.noProjectsHint': '选一个本地目录建项目；同一目录同一执行环境只会有一条',
+
+  // 新建 / 改名表单
+  'project.form.title.new': '新建项目',
+  'project.form.title.rename': '重命名项目',
+  'project.form.name': '项目名',
+  'project.form.namePlaceholder': '留空则用目录名',
+  'project.form.environment': '执行环境',
+  'project.form.wslDistro': 'WSL 发行版',
+  'project.form.wslDistroPlaceholder': '留空则用 Ubuntu',
+  'project.form.workingDir': '目录',
+  'project.form.workingDirPlaceholder': '选择或输入一个本地目录',
+  'project.form.required': '请先选择目录',
+  'project.form.pickFailed': '选择目录失败',
+  'project.form.env.windows': 'Windows 原生',
+  'project.form.env.wsl2': 'WSL2',
+  'project.form.env.linux': 'Linux 原生',
+  'project.form.wslInitializing': '正在读取 WSL 发行版…',
+  'project.form.wslNotDetected': '未检测到 WSL 发行版：请先在系统里装一个再建项目',
+
+  // 项目卡
+  'project.card.activeRuns': '{n} 条运行中',
+  'project.card.runCount': '{n} 条运行',
+  'project.card.lastActivity': '最近活动',
+  'project.card.noActivity': '暂无活动',
+  'project.card.lastAgent': '最近 agent',
+
+  // 确认与提示
+  'project.confirm.removeTitle': '移除项目',
+  'project.confirm.removeMsg': '移除「{name}」及其运行记录？磁盘上的文件不会被删除。',
+  'project.toast.created': '项目已创建',
+  'project.toast.existed': '该目录已有项目，已带你过去',
+  'project.toast.renamed': '项目已重命名',
+  'project.toast.removed': '项目已移除',
+  'project.toast.refreshed': '列表已刷新',
+  'project.error.loadFailed': '加载项目失败',
+  'project.error.createFailed': '创建项目失败',
+  'project.error.renameFailed': '重命名失败',
+  'project.error.removeFailed': '移除项目失败，请先停止该项目里的运行',
+  'project.error.notFound': '项目不存在，可能已被移除',
+
+  // 相对时间
+  'project.time.justNow': '刚刚',
+  'project.time.minutesAgo': '{n} 分钟前',
+  'project.time.hoursAgo': '{n} 小时前',
+  'project.time.daysAgo': '{n} 天前',
+
+  // 工作台
+  'project.workbench.back': '返回项目列表',
+  'project.workbench.activeRuns': '{n} 条运行中',
+
+  // 分栏拖拽（三栏宽度调整）
+  'project.split.resizeRuns': '拖拽调整运行列表宽度',
+  'project.split.resizeInspector': '拖拽调整检查器宽度',
+  'project.split.resizeHint': '拖拽调整宽度 · 双击复位 · 聚焦后可用 ←/→ 微调',
+
+  // 运行
+  'project.run.title': '运行',
+  'project.run.new': '新建运行',
+  'project.run.empty': '还没有运行',
+  'project.run.emptyHint': '选一个 agent 启动：每次启动产生一条运行，可在同一项目里并发多条',
+  'project.run.pickAgent': '用哪个 agent 启动？',
+  'project.run.starting': '正在启动…',
+  'project.run.startFailed': '启动运行失败',
+  'project.run.stop': '停止',
+  'project.run.stopFailed': '停止运行失败',
+  'project.run.openWindow': '在独立窗口打开',
+  'project.run.agentMissing': '未安装',
+  'project.run.agentUnknown': '未探测',
+  'project.run.installHint': '去 Agent 管理安装',
+
+  // 对话面（M3 才接管；M2 给显性占位）
+  'project.chat.title': '对话',
+  'project.chat.placeholderTitle': '对话面在下一阶段接入',
+  'project.chat.placeholderBody':
+    '桥接与事件账本（M3）落地后，这里显示正文流、工具卡与权限卡；现在请看右侧「终端」页签里的真实终端。',
+  'project.chat.agentSessionId': 'Agent 会话',
+  'project.chat.copyId': '复制会话 id',
+  'project.chat.copied': '已复制',
+
+  // 检查器
+  'project.inspector.changes': '变更',
+  'project.inspector.terminal': '终端',
+  'project.inspector.events': '事件',
+  'project.inspector.noSelection': '选一条运行看它的终端与事件',
+  'project.inspector.changesEmpty': '变更卡随 M3 的 patch 事件接入',
+  'project.inspector.eventsEmpty': '事件流随 M3 的账本接入',
 }
 
 export default zhCN

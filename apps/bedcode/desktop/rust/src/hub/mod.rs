@@ -71,6 +71,15 @@ pub(crate) fn host() -> WasmHost {
     WasmHost
 }
 
+/// agent id → 启动二进制名（`run.start` 用；未注册 id 返回 `None`）
+///
+/// 会话配置的 `command` 字段值就是它：经登录 shell 解析 PATH，npm-global 与原生
+/// 安装同一取值。注册表是唯一真源——前端不再维护第二份「id → 命令」映射，未知
+/// id 由调用方显性拒绝（不猜一个命令名去执行）。
+pub(crate) fn binary_for(agent_id: &str) -> Option<&'static str> {
+    agents::get(agent_id.trim()).map(|agent| agent.binary())
+}
+
 /// 批量授权目录清单（注册表适配器声明 + 共享目录，全部为家目录绝对路径前缀）。
 ///
 /// 宿主侧第一方清单已免审 `~/.agents`、`~/.claude/skills`、`~/.pi/agent/skills`

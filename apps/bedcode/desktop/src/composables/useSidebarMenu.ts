@@ -4,7 +4,12 @@
  * 桌面宿主前端整体下沉后，菜单表是 app 内的单一事实源：贡献面注册与激活态
  * 仲裁随前端插件运行时退役，侧边栏直接渲染本表。order 沿用下沉前各页面的
  * 槽位值，保证视觉顺序不变：
- * 设备配对 100 / 终端会话 200 / Agent管理（原 agent-hub）205 / Agent任务 210 / 设置 9999。
+ * 设备配对 100 / 项目 190 / 终端会话 200 / Agent管理（原 agent-hub）205 /
+ * Agent任务 210 / 设置 9999。
+ *
+ * 「项目」排在「终端会话」之前（ADR 0003）：项目是桌面一级容器，会话降级为
+ * 运行——但两者**并存**（用户 2026-10-29 裁定：新增项目入口，不替换终端会话；
+ * 旧入口待 M3 对话面成形后再评估退役）。
  *
  * 文案 key 全部为 app 域相对键（渲染处经 `useAppI18n()` 补
  * `com.wasmnest.bedcode.` 命名空间）；宿主文案不随 app 打包。
@@ -29,6 +34,7 @@ export interface SidebarMenuItem {
 /** 菜单排序槽位（下沉前槽位值，锁住视觉顺序） */
 export const MENU_ORDERS = {
   pairing: 100,
+  projects: 190,
   sessions: 200,
   agents: 205,
   tasks: 210,
@@ -37,6 +43,8 @@ export const MENU_ORDERS = {
 
 /** 侧边栏图标：宿主同款 Heroicons outline path（同图标体系） */
 const PAIRING_ICON = 'M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z'
+const PROJECTS_ICON =
+  'M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.688-6.75l-.75-1.5a2.25 2.25 0 00-2.013-1.25H6.75A2.25 2.25 0 004.5 5.25v4.5m17.25 3v6.75a2.25 2.25 0 01-2.25 2.25H4.5a2.25 2.25 0 01-2.25-2.25v-6.75'
 const SESSIONS_ICON =
   'M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z'
 const AGENTS_ICON =
@@ -59,6 +67,13 @@ export const sidebarMenuItems: SidebarMenuItem[] = [
     labelKey: 'pairing.sidebar.title',
     icon: PAIRING_ICON,
     order: MENU_ORDERS.pairing,
+  },
+  {
+    id: 'projects',
+    path: '/projects',
+    labelKey: 'project.sidebar.title',
+    icon: PROJECTS_ICON,
+    order: MENU_ORDERS.projects,
   },
   {
     id: 'sessions',

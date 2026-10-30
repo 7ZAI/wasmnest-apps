@@ -36,6 +36,8 @@ describe('插件 i18n 键集', () => {
       // Agent 管理域（原 agent-hub 并入，键保持 hub.* 前缀）
       'hub.',
       'task.',
+      // 项目与运行域（ADR 0003 / issue #23 M2）：项目是一级容器，运行挂在项目下
+      'project.',
       'appearance.',
       'server.',
       'sidebar.',

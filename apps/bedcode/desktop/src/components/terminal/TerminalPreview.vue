@@ -741,6 +741,9 @@ function detachOutputSource() {
   attachedSessionId = null
 }
 
+/** E2E 只读句柄（xterm 画布不可读文本；docs/E2E.md §10.4 的 oracle 口径） */
+let e2eBufferHandle: (() => string) | null = null
+
 function initTerminal() {
   if (!terminalHostRef.value) return
 
@@ -823,6 +826,19 @@ function initTerminal() {
   terminal.unicode.activeVersion = '11'
 
   terminal.open(terminalHostRef.value)
+
+  // E2E oracle：WebGL 画布读不到字节，暴露只读 buffer 句柄供真实宿主用例断言
+  // 「终端有真实输出」；句柄只读，不参与渲染与交互。
+  e2eBufferHandle = () => {
+    const buffer = terminal.buffer.active
+    const lines: string[] = []
+    for (let i = 0; i < buffer.length; i += 1) {
+      lines.push(buffer.getLine(i)?.translateToString(true) ?? '')
+    }
+    return lines.join('\n')
+  }
+  const e2eWindow = window as unknown as { __bedcodeTerminalText?: () => string }
+  e2eWindow.__bedcodeTerminalText = e2eBufferHandle
 
   // 渲染器初始化：按 decideRenderer 决策加载 WebGL（或保持 DOM）并同步
   // DOM 层光标状态（DOM 渲染器下 webglAddon 为 null，后续分支天然跳过）
@@ -960,16 +976,28 @@ function initTerminal() {
   })
 }
 
-// 会话状态变化：停止/出错时断开输出流；重新运行时恢复订阅
+// 会话切换 / 状态变化：停止或出错时断开输出流；换会话或仍存活时（重新）接入。
+//
+// **必须连 `session.id` 一起听**：不同运行会被投影成不同会话喂给同一组件实例，
+// 「运行 A → 运行 B」且两条都 running 时 status 不变——只听 status 不会触发任何
+// 分支，屏幕与游标停在上一条会话（B 输出量小于旧游标时看起来永远空白）。
+// 换会话的清理在 `attachOutputSource` 内：清屏 + 游标归零 + 从环起点重放；
+// 同会话重复 attach 幂等（不重置游标）。
 watch(
-  () => props.session?.status,
-  (status) => {
-    if (!sessionId.value) return
-    if (status === 'stopped' || status === 'error') {
+  () => [props.session?.id, props.session?.status] as const,
+  ([id, status], [prevId]) => {
+    if (!id || status === 'stopped' || status === 'error') {
       detachOutputSource()
-    } else if (status === 'running' || status === 'starting') {
-      attachOutputSource()
+      // 换到终态会话：没有可接入的输出源，但屏幕不能留着上一条会话的画面
+      // （同会话停止不清屏——保留最后的输出是既有语义）
+      if (id && id !== prevId) {
+        pipeline.clearPendingOutput()
+        kernel.terminalRef.value?.clear()
+        hasRenderedOutput = false
+      }
+      return
     }
+    attachOutputSource()
   },
 )
 
@@ -1030,6 +1058,13 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  // E2E 句柄只归本实例：卸载后不得再读到旧终端的内容
+  const e2eWindow = window as unknown as { __bedcodeTerminalText?: () => string }
+  if (e2eBufferHandle && e2eWindow.__bedcodeTerminalText === e2eBufferHandle) {
+    delete e2eWindow.__bedcodeTerminalText
+  }
+  e2eBufferHandle = null
+
   // 断开输出源轮询（停止拉取与重连）
   detachOutputSource()
 

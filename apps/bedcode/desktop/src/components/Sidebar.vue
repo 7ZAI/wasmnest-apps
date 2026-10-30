@@ -147,7 +147,10 @@ onUnmounted(() => {
 })
 
 function isActive(item: SidebarMenuItem) {
-  return route.path === item.path
+  // 嵌套页也算「在该目录里」：项目工作台 `/projects/:id` 必须让「项目」保持高亮，
+  // 否则进项目后侧边栏一片无高亮、读起来像丢失了当前位置。其余菜单项均无子路由
+  // （`/settings/authorization` 是重定向，不落视图）。
+  return route.path === item.path || route.path.startsWith(`${item.path}/`)
 }
 
 /** 菜单项显示文本（静态表全部为 i18n key，含 app 域命名空间前缀） */

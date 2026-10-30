@@ -268,6 +268,26 @@ pub fn remove_via_host(_id: &str) -> Result<serde_json::Value, String> {
     Err("project store unavailable outside wasm runtime".to_string())
 }
 
+/// 选项目目录（宿主 `host-platform.pick-folders`：`fs:pick` 权限门与选中路径的
+/// 授权校验都在宿主；用户取消 = 空数组，不是错误）→ `{picked, path}`
+///
+/// 为什么不复用 `agent.pick-source-dir`：那是 Agent 管理域的用量来源选择器，
+/// 语义归 hub；项目建卡要有自己的入口，否则项目面依赖一个它并不拥有的命令。
+#[cfg(target_arch = "wasm32")]
+pub fn pick_dir_via_host() -> Result<serde_json::Value, String> {
+    let path = wasmnest_plugin_api::host::HostPlatform::platform_pick_folders(&WasmHost)
+        .map_err(|e| format!("project.pick-dir: {}", e.message))?
+        .into_iter()
+        .next()
+        .unwrap_or_default();
+    Ok(serde_json::json!({ "picked": !path.is_empty(), "path": path }))
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn pick_dir_via_host() -> Result<serde_json::Value, String> {
+    Err("project picker unavailable outside wasm runtime".to_string())
+}
+
 /// 按目录取（或建）项目——会话创建编排的归属入口
 ///
 /// 目录为空 → `Ok(None)`（该配置无法构成项目；运行保持未归属，界面上按「无项目」

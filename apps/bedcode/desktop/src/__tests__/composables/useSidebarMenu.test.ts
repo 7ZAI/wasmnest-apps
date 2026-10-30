@@ -2,7 +2,8 @@
  * 侧边栏静态菜单表契约（D3：路由直写侧边栏，无贡献注册）
  *
  * 桌面宿主前端整体下沉后，侧边栏菜单是 app 内的静态单一事实源。本测试钉：
- * - 菜单项 = 设备配对 / 终端会话 / Agent任务 / 设置 四项，order 即视觉顺序；
+ * - 菜单项 = 设备配对 / 项目 / 终端会话 / Agent 管理 / Agent 任务 / 设置六项，
+ *   order 即视觉顺序（项目在终端会话之前：ADR 0003 项目是一级容器，两者并存）；
  * - 菜单路径与静态路由表一一对应（改表不改路由 = 死链，反之 = 死菜单）；
  * - app 域项走 `com.wasmnest.bedcode.*` 命名空间 key，宿主机制项
  *   （设置）走顶层 key——两种命名域不得混用；
@@ -14,15 +15,36 @@ import { sidebarMenuItems, MENU_ORDERS, useSidebarMenu } from '@/composables/use
 import router from '@/router'
 
 describe('useSidebarMenu（静态表）', () => {
-  it('菜单恒为四项，顺序槽位锁死（配对 100 / 会话 200 / 任务 210 / 设置 9999）', () => {
-    expect(sidebarMenuItems.map((i) => i.id)).toEqual(['pairing', 'sessions', 'agents', 'tasks', 'settings'])
-    expect(sidebarMenuItems.map((i) => i.order)).toEqual([100, 200, 205, 210, 9999])
-    expect(MENU_ORDERS).toEqual({ pairing: 100, sessions: 200, agents: 205, tasks: 210, settings: 9999 })
+  it('菜单恒为六项，顺序槽位锁死（配对 100 / 项目 190 / 会话 200 / 任务 210 / 设置 9999）', () => {
+    expect(sidebarMenuItems.map((i) => i.id)).toEqual([
+      'pairing',
+      'projects',
+      'sessions',
+      'agents',
+      'tasks',
+      'settings',
+    ])
+    expect(sidebarMenuItems.map((i) => i.order)).toEqual([100, 190, 200, 205, 210, 9999])
+    expect(MENU_ORDERS).toEqual({
+      pairing: 100,
+      projects: 190,
+      sessions: 200,
+      agents: 205,
+      tasks: 210,
+      settings: 9999,
+    })
   })
 
   it('useSidebarMenu 输出的菜单按 order 升序（同一静态表）', () => {
     const { menuItems } = useSidebarMenu()
-    expect(menuItems.value.map((i) => i.id)).toEqual(['pairing', 'sessions', 'agents', 'tasks', 'settings'])
+    expect(menuItems.value.map((i) => i.id)).toEqual([
+      'pairing',
+      'projects',
+      'sessions',
+      'agents',
+      'tasks',
+      'settings',
+    ])
   })
 
   it('菜单路径与静态路由表一一对应（双向无死链）', () => {
@@ -34,15 +56,23 @@ describe('useSidebarMenu（静态表）', () => {
 
   it('菜单 key 一律为 app 域相对键（渲染处补命名空间）', () => {
     expect(sidebarMenuItems[0].labelKey).toBe('pairing.sidebar.title')
-    expect(sidebarMenuItems[1].labelKey).toBe('session.sidebar.title')
-    expect(sidebarMenuItems[2].labelKey).toBe('hub.sidebar.title')
-    expect(sidebarMenuItems[3].labelKey).toBe('task.historyTitle')
-    expect(sidebarMenuItems[4].labelKey).toBe('sidebar.settings')
+    expect(sidebarMenuItems[1].labelKey).toBe('project.sidebar.title')
+    expect(sidebarMenuItems[2].labelKey).toBe('session.sidebar.title')
+    expect(sidebarMenuItems[3].labelKey).toBe('hub.sidebar.title')
+    expect(sidebarMenuItems[4].labelKey).toBe('task.historyTitle')
+    expect(sidebarMenuItems[5].labelKey).toBe('sidebar.settings')
   })
 
   it('深链页（连接历史 / 终端窗口）不进菜单', () => {
     const paths = sidebarMenuItems.map((i) => i.path)
     expect(paths).not.toContain('/history')
     expect(paths).not.toContain('/terminal-window/x')
+  })
+
+  it('项目工作台是 /projects 的子路由（进项目后侧边栏仍停在「项目」）', () => {
+    // 菜单只登记 /projects；工作台走 /projects/:id，靠路由前缀判激活——
+    // 若哪天工作台挪出该前缀，进项目后侧边栏会一片无高亮
+    const workbench = router.getRoutes().find((r) => r.name === 'project-workbench')
+    expect(workbench?.path.startsWith('/projects/')).toBe(true)
   })
 })

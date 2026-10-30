@@ -161,6 +161,40 @@ export function clickByText(selector: string, needle: string): Promise<boolean> 
   )
 }
 
+/**
+ * 向输入框写入文本（先清空，再赋值 + 派发 input 事件）
+ *
+ * 没有走键盘事件：桌面 WebDriver 的 `elementSendKeys` 要先按 testid 找元素再转发，
+ * 而本套件所有原语都走 `browser.execute`（见文件头「为什么用 browser.execute」）。
+ * 赋值 + `input` 事件是 Vue `v-model` 的实际监听路径，行为等价；代价是不覆盖
+ * 「真实键盘管线」（IME / 组合输入）——那类问题归终端域的单测与真机验证。
+ *
+ * 兼容两种 testid 落点：直接落在 `<input>` 上（原生输入），或落在**字段容器**上
+ * （TextInput / Select 这类自绘控件把 testid 放在 .form-group 上）——后者向内找
+ * 真正的输入元素，否则赋值会落到 div 上、v-model 收不到。
+ *
+ * @returns 是否找到输入元素
+ */
+export function typeInto(testid: string, value: string): Promise<boolean> {
+  return browser.execute(
+    (t: string, v: string) => {
+      const root = document.querySelector(`[data-testid="${t}"]`)
+      if (!root) return false
+      const el = (
+        root.matches('input, textarea') ? root : root.querySelector('input, textarea')
+      ) as (HTMLElement & { value?: string }) | null
+      if (!el) return false
+      el.focus()
+      el.value = v
+      el.dispatchEvent(new Event('input', { bubbles: true }))
+      el.dispatchEvent(new Event('change', { bubbles: true }))
+      return true
+    },
+    testid,
+    value,
+  )
+}
+
 /** 等待元素出现且可见 */
 export async function waitFor(testid: string, timeout = DEFAULT_TIMEOUT): Promise<void> {
   await browser.waitUntil(() => visible(testid), {
@@ -176,6 +210,19 @@ export async function waitGone(testid: string, timeout = DEFAULT_TIMEOUT): Promi
     timeout,
     interval: 120,
     timeoutMsg: `等待元素消失超时：[data-testid="${testid}"]`,
+  })
+}
+
+/** 等待同 testid 的元素个数达到至少 n（列表新增类判据：库里有历史行时不能只看「存在」） */
+export async function waitForCount(
+  testid: string,
+  atLeast: number,
+  timeout = DEFAULT_TIMEOUT,
+): Promise<void> {
+  await browser.waitUntil(async () => (await count(testid)) >= atLeast, {
+    timeout,
+    interval: 120,
+    timeoutMsg: `等待元素数量 ≥ ${atLeast} 超时：[data-testid="${testid}"]`,
   })
 }
 
@@ -201,4 +248,124 @@ export async function waitForText(
 /** 页面正文文本（断言用兜底：某段文案出现了没） */
 export function bodyText(): Promise<string> {
   return browser.execute(() => (document.body ? document.body.innerText : ''))
+}
+
+/**
+ * 宿主 fs 授权弹窗的「允许本次」按钮
+ *
+ * 宿主弹窗（平台仓 `FsAuthDialog.vue`）只给「以后都拒绝」挂了 testid，允许按钮
+ * 是页脚最后一个按钮；按这个结构定位，不依赖宿主文案语言。
+ */
+export async function allowFsAuthIfPresent(): Promise<boolean> {
+  return browser.execute(() => {
+    const denyAlways = document.querySelector('[data-testid="fs-auth-deny-always"]')
+    const footer = denyAlways?.parentElement
+    const buttons = footer ? Array.from(footer.querySelectorAll('button')) : []
+    const allow = buttons[buttons.length - 1] as HTMLButtonElement | undefined
+    if (!allow) return false
+    allow.click()
+    return true
+  })
+}
+
+/** 同 testid 全部元素某属性的值（列表；不存在元素返回 null） */
+export function attrs(testid: string, name: string): Promise<(string | null)[]> {
+  return browser.execute(
+    (t: string, n: string) =>
+      Array.from(document.querySelectorAll(`[data-testid="${t}"]`)).map((el) =>
+        el.getAttribute(n),
+      ),
+    testid,
+    name,
+  )
+}
+
+/** 点第 index 个同 testid 元素（列表切换类断言） */
+export function clickNth(testid: string, index: number): Promise<boolean> {
+  return browser.execute(
+    (t: string, i: number) => {
+      const el = document.querySelectorAll(`[data-testid="${t}"]`)[i] as HTMLElement | undefined
+      if (!el) return false
+      el.click()
+      return true
+    },
+    testid,
+    index,
+  )
+}
+
+/** 点同 testid 里文本包含 needle 的元素（卡片按路径/名称定位） */
+export function clickContaining(testid: string, needle: string): Promise<boolean> {
+  return browser.execute(
+    (t: string, n: string) => {
+      const els = Array.from(
+        document.querySelectorAll(`[data-testid="${t}"]`),
+      ) as HTMLElement[]
+      const hit = els.find((el) => (el.textContent || '').includes(n))
+      if (!hit) return false
+      hit.click()
+      return true
+    },
+    testid,
+    needle,
+  )
+}
+
+/**
+ * 终端真实字节（经 app 暴露的只读 xterm buffer 句柄；WebGL 画布读不到 DOM 文本）
+ *
+ * 句柄由 `TerminalPreview.vue` 在建立终端时挂到 `window.__bedcodeTerminalText`，
+ * 卸载时移除；无句柄（终端未挂载）返回空串。
+ */
+export function terminalBufferText(): Promise<string> {
+  return browser.execute(() => {
+    const fn = (window as unknown as { __bedcodeTerminalText?: () => string })
+      .__bedcodeTerminalText
+    return fn ? fn() : ''
+  })
+}
+
+/** 等终端 buffer 出现真实输出（PTY 有字节） */
+export async function waitForTerminalOutput(timeout = 15_000): Promise<string> {
+  let last = ''
+  await browser.waitUntil(
+    async () => {
+      last = await terminalBufferText()
+      return last.trim().length > 0
+    },
+    { timeout, interval: 200, timeoutMsg: '终端 buffer 超时仍无输出（PTY 无字节）' },
+  )
+  return last
+}
+
+/**
+ * 处理 run.start 触发的宿主 fs 授权弹窗
+ *
+ * 首次在项目目录部署 agent 原生扩展要读插件资源模板（`fs_read`），宿主按未授权
+ * 路径弹窗并最多等 30s；真实用户会点「允许」，E2E 也走 UI，不预置授权记录。
+ * 没有弹窗（已授权路径）时最多等 2.5s 就返回 0，不拖慢常规用例。
+ */
+export async function allowFsAuthPrompts(idle = 800, timeout = 8000): Promise<number> {
+  const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+  const firstSeenDeadline = Date.now() + 2500
+  while (Date.now() < firstSeenDeadline) {
+    if (await allowFsAuthIfPresent()) break
+    await delay(120)
+  }
+  const first = Date.now() < firstSeenDeadline
+  if (!first) return 0
+
+  let granted = 1
+  let lastSeen = Date.now()
+  const deadline = Date.now() + timeout
+  while (Date.now() < deadline) {
+    await delay(120)
+    if (await allowFsAuthIfPresent()) {
+      granted += 1
+      lastSeen = Date.now()
+    } else if (Date.now() - lastSeen >= idle) {
+      break
+    }
+  }
+  return granted
 }

@@ -574,6 +574,74 @@ describe('TerminalPreview（插件版组装）', () => {
     expect(renderedRowsText(wrapper!)).not.toContain('old-line')
   })
 
+  it('换会话（两条 running 运行切换）：清屏 + 游标归零 + 从新会话环起点重放', async () => {
+    const context = makeContext()
+    context.__setPullResponses([textFrame('old-run\r\n', 0)])
+    wrapper = mount(TerminalPreview, {
+      props: { session: makeRunningSession() },
+      global: {
+        provide: {
+          pluginContext: context,
+          [TERMINAL_HOST_CAPABILITIES_KEY]: caps,
+        },
+      },
+      attachTo: document.body,
+    })
+    await vi.waitFor(() => expect(renderedRowsText(wrapper!)).toContain('old-run'), {
+      timeout: 3000,
+    })
+
+    // 切到另一条 running 运行：id 变、status 不变。只听 status 的旧实现不会重挂，
+    // 屏幕留着上一条的字节、游标停在旧偏移（B 的字节少于旧游标时永远空白）。
+    context.__setPullResponses([textFrame('new-run\r\n', 0)])
+    await wrapper.setProps({
+      session: { ...makeRunningSession(), id: 'sess-2', name: 'second run' },
+    })
+
+    await vi.waitFor(() => expect(renderedRowsText(wrapper!)).toContain('new-run'), {
+      timeout: 3000,
+    })
+    expect(renderedRowsText(wrapper!)).not.toContain('old-run')
+
+    // 换会话后的拉取：新会话 id + 从环起点重放（不复用上一条会话的游标）
+    const pulls = vi
+      .mocked(context.commands.execute)
+      .mock.calls.filter(([cmd]) => cmd === 'session.output.pull')
+      .map(([, args]) => args as { sessionId?: string; fromOffset?: number })
+    expect(pulls.some((args) => args.sessionId === 'sess-2' && args.fromOffset === 0)).toBe(true)
+  })
+
+  it('换到已停止的会话：清掉上一条会话的画面，且不为终态会话拉取输出', async () => {
+    const context = makeContext()
+    context.__setPullResponses([textFrame('old-run\r\n', 0)])
+    wrapper = mount(TerminalPreview, {
+      props: { session: makeRunningSession() },
+      global: {
+        provide: {
+          pluginContext: context,
+          [TERMINAL_HOST_CAPABILITIES_KEY]: caps,
+        },
+      },
+      attachTo: document.body,
+    })
+    await vi.waitFor(() => expect(renderedRowsText(wrapper!)).toContain('old-run'), {
+      timeout: 3000,
+    })
+
+    await wrapper.setProps({
+      session: { ...makeRunningSession(), id: 'sess-2', name: 'stopped run', status: 'stopped' },
+    })
+
+    await vi.waitFor(() => expect(renderedRowsText(wrapper!)).not.toContain('old-run'), {
+      timeout: 3000,
+    })
+    const pulls = vi
+      .mocked(context.commands.execute)
+      .mock.calls.filter(([cmd]) => cmd === 'session.output.pull')
+      .map(([, args]) => args as { sessionId?: string })
+    expect(pulls.some((args) => args.sessionId === 'sess-2')).toBe(false)
+  })
+
   it('过期世代响应丢弃：detach 前发出的 pull 迟到不写入终端', async () => {
     const context = makeContext()
     let resolveStale: ((value: unknown) => void) | null = null

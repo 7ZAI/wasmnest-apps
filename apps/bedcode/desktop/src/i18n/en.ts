@@ -409,7 +409,8 @@ const en: MessageSchema = {
 
   // ==================== Settings section "Appearance" (palette owned by the app; ownership fix 2026-10-19) ====================
   'appearance.settings.title': 'Appearance',
-  'appearance.settings.hint': 'Applies to this app only; the host shell keeps its own light/dark mode',
+  'appearance.settings.hint':
+    'Applies to this app only; the host shell keeps its own light/dark mode',
   'appearance.settings.saveFailed': 'Failed to save theme palette',
   // Palette copy (migrated from host `settings.appearance.palette*`, 2026-10-27)
   'appearance.palette': 'Palette',
@@ -482,22 +483,25 @@ const en: MessageSchema = {
   'linkCrypto.title': 'Link Encryption',
   'linkCrypto.master': 'Enable Link Encryption',
   'linkCrypto.encryptHttp': 'Encrypt HTTP Payload',
-  'linkCrypto.encryptHttpDesc': 'REST request/response body envelope encryption (terminal input echo etc.)',
+  'linkCrypto.encryptHttpDesc':
+    'REST request/response body envelope encryption (terminal input echo etc.)',
   'linkCrypto.encryptWsTerminal': 'Encrypt Terminal Channel',
   'linkCrypto.encryptWsTerminalDesc': 'WS terminal frame encryption (PTY output stream)',
   'linkCrypto.encryptWsEvent': 'Encrypt Event Channel',
   'linkCrypto.encryptWsEventDesc': 'WS event frame encryption (sync event broadcast)',
   'linkCrypto.plaintextFallback': 'Allow Plaintext Fallback',
-  'linkCrypto.plaintextFallbackDesc': 'Let unnegotiated legacy clients through in plaintext; when off, unnegotiated remote requests are rejected',
+  'linkCrypto.plaintextFallbackDesc':
+    'Let unnegotiated legacy clients through in plaintext; when off, unnegotiated remote requests are rejected',
   'linkCrypto.fingerprint': 'Local Fingerprint',
-  'linkCrypto.fingerprintDesc': 'Local identity key fingerprint (first 16 hex of SHA-256); compare manually with the mobile end',
+  'linkCrypto.fingerprintDesc':
+    'Local identity key fingerprint (first 16 hex of SHA-256); compare manually with the mobile end',
   'linkCrypto.saveFailed': 'Failed to save link encryption config',
 
   // ==================== App-level fallbacks (migrated from host, 2026-10-27) ====================
   'notFound.title': 'Page Not Found',
   'notFound.body': 'The page you visited does not exist or was removed in a version update',
   'notFound.back': 'Back to Sessions',
-  'runtimeUnexpected': 'An unexpected error occurred. See logs for details',
+  runtimeUnexpected: 'An unexpected error occurred. See logs for details',
 
   // ==================== Terminal window title (migrated from host `common.misc.terminalTitle`, 2026-10-27) ====================
   'session.terminal.windowTitleWithName': 'Terminal - {name}',
@@ -566,8 +570,10 @@ const en: MessageSchema = {
   'hub.card.uninstallFailed': 'Uninstall failed; try again',
   'hub.card.uninstallRunFailed': 'Uninstall failed; see console on Install tab',
 
-  'hub.auth.banner': 'CLI config directories not authorized (~/.codex, ~/.pi, opencode, etc.); related capabilities unavailable.',
-  'hub.agents.degraded': 'Could not load the agent list from the backend; using the built-in list (newly added agents are hidden for now).',
+  'hub.auth.banner':
+    'CLI config directories not authorized (~/.codex, ~/.pi, opencode, etc.); related capabilities unavailable.',
+  'hub.agents.degraded':
+    'Could not load the agent list from the backend; using the built-in list (newly added agents are hidden for now).',
   'hub.auth.action': 'Authorize',
 
   'hub.speed.title': 'npm Registry Speed Test',
@@ -604,7 +610,8 @@ const en: MessageSchema = {
   'hub.inst.update': 'Update',
   'hub.inst.latest': 'Up to date',
   'hub.inst.running': 'Running…',
-  'hub.inst.nodeGuide': 'Node.js not detected: install will set up Node.js (with npm) first, then continue. Or copy the command and run it manually:',
+  'hub.inst.nodeGuide':
+    'Node.js not detected: install will set up Node.js (with npm) first, then continue. Or copy the command and run it manually:',
   'hub.inst.copy': 'Copy',
   'hub.inst.copied': 'Copied',
   'hub.inst.done': 'Done',
@@ -621,8 +628,10 @@ const en: MessageSchema = {
 
   // ==================== Node.js environment bootstrap (P3) ====================
   'hub.boot.confirm.title': 'Install Node.js',
-  'hub.boot.confirm.body': 'Downloads and installs Node.js {version} ({platform}) from {host}, {size}; it is only extracted after the SHA-256 check passes.',
-  'hub.boot.confirm.path': 'Adds the runtime directory to your user PATH (takes effect in new terminals); no machine-wide PATH, no shell config changes.',
+  'hub.boot.confirm.body':
+    'Downloads and installs Node.js {version} ({platform}) from {host}, {size}; it is only extracted after the SHA-256 check passes.',
+  'hub.boot.confirm.path':
+    'Adds the runtime directory to your user PATH (takes effect in new terminals); no machine-wide PATH, no shell config changes.',
   'hub.boot.row.version': 'Version',
   'hub.boot.row.platform': 'Platform',
   'hub.boot.row.source': 'Source',
@@ -647,13 +656,16 @@ const en: MessageSchema = {
   'hub.boot.phase.registering': 'Registering PATH…',
   'hub.boot.phase.reprobing': 'Re-detecting…',
   'hub.boot.failed.generic': 'Install failed; try again',
-  'hub.boot.failed.unsupportedPlatform': 'Automatic Node.js install is not supported on this OS/architecture',
+  'hub.boot.failed.unsupportedPlatform':
+    'Automatic Node.js install is not supported on this OS/architecture',
   'hub.boot.failed.insufficientSpace': 'Not enough free disk space (300 MB required)',
   'hub.boot.failed.downloadFailed': 'Download failed (all sources tried)',
   'hub.boot.failed.verifyFailed': 'Checksum mismatch; aborted and cleaned up',
   'hub.boot.failed.extractFailed': 'Extraction or placement failed',
-  'hub.boot.failed.registerPathFailed': 'PATH registration failed (Node.js is in place; retry is safe)',
-  'hub.boot.failed.reprobeFailed': 'Node.js installed, but re-detection did not confirm it; retry detection',
+  'hub.boot.failed.registerPathFailed':
+    'PATH registration failed (Node.js is in place; retry is safe)',
+  'hub.boot.failed.reprobeFailed':
+    'Node.js installed, but re-detection did not confirm it; retry detection',
   'hub.boot.failed.cancelled': 'Install cancelled',
   'hub.boot.error.busy': 'Another install task is running; try again later',
 
@@ -661,10 +673,13 @@ const en: MessageSchema = {
   'hub.env.node.managed': 'Agent Hub installed Node.js {version} (user PATH)',
   'hub.env.node.upgrade': 'Upgrade to {version}',
   'hub.env.node.remove': 'Remove',
-  'hub.env.node.cleanupPending': 'These old directories could not be deleted (in use?): {paths}. Retry after restarting the app.',
+  'hub.env.node.cleanupPending':
+    'These old directories could not be deleted (in use?): {paths}. Retry after restarting the app.',
   'hub.remove.title': 'Remove Node.js installed by Agent Hub',
-  'hub.remove.body': 'Deletes the Node.js runtime directory and removes its entry from your user PATH; the npm global directory and download cache are kept.',
-  'hub.remove.warning': 'Installed CLIs stop working until Node.js is installed again (they depend on it); they recover after reinstalling Node.js.',
+  'hub.remove.body':
+    'Deletes the Node.js runtime directory and removes its entry from your user PATH; the npm global directory and download cache are kept.',
+  'hub.remove.warning':
+    'Installed CLIs stop working until Node.js is installed again (they depend on it); they recover after reinstalling Node.js.',
   'hub.remove.confirm': 'Remove',
   'hub.remove.working': 'Removing…',
   'hub.remove.failed': 'Removal failed; try again',
@@ -700,7 +715,8 @@ const en: MessageSchema = {
   'hub.skill.github.skipped': '{n} file(s) skipped (binary or fetch failed)',
   'hub.skill.github.exists': '{names} already exist. Overwrite?',
   'hub.skill.github.overwrite': 'Overwrite & install',
-  'hub.skill.github.unreachable': 'GitHub unreachable: check your network, or configure a proxy/mirror and retry.',
+  'hub.skill.github.unreachable':
+    'GitHub unreachable: check your network, or configure a proxy/mirror and retry.',
   'hub.skill.github.failed': 'Install failed',
 
   // ==================== Skills · local import (ticket 04) ====================
@@ -720,7 +736,8 @@ const en: MessageSchema = {
   'hub.skill.editor.previewTitle': 'Preview before save (diff against library)',
   'hub.skill.editor.confirmSave': 'Confirm save',
   'hub.skill.editor.continueEdit': 'Keep editing',
-  'hub.skill.editor.conflict': 'The file was changed externally after loading; choose overwrite or reload',
+  'hub.skill.editor.conflict':
+    'The file was changed externally after loading; choose overwrite or reload',
   'hub.skill.editor.overwriteMine': 'Save my version',
   'hub.skill.editor.reload': 'Reload from disk',
 
@@ -794,7 +811,8 @@ const en: MessageSchema = {
   'hub.pv.editor.key': 'API Key (central credential)',
   'hub.pv.editor.keyNew': 'Enter API key (optional — can also enter at apply time)',
   'hub.pv.editor.keyPlaceholder': 'Stored key: {mask}; leave empty to keep',
-  'hub.pv.editor.keyHint': 'Keys are stored (plaintext) only in the plugin DB — the central credential store for distributing to multiple agents; always masked in lists and logs.',
+  'hub.pv.editor.keyHint':
+    'Keys are stored (plaintext) only in the plugin DB — the central credential store for distributing to multiple agents; always masked in lists and logs.',
   'hub.pv.editor.keyClear': 'Clear stored key',
   'hub.pv.editor.keyKeep': 'Keep stored key',
 
@@ -804,7 +822,8 @@ const en: MessageSchema = {
   'hub.pv.apply.note': 'Will write {n} CLI(s): {targets}',
   'hub.pv.apply.noteNone': 'No target CLI selected',
   'hub.pv.apply.target': 'Target CLI(s)',
-  'hub.pv.apply.targetHint': 'Apply to several CLIs at once; a failing target does not block the others',
+  'hub.pv.apply.targetHint':
+    'Apply to several CLIs at once; a failing target does not block the others',
   'hub.pv.apply.targetName': 'Config entry name',
   'hub.pv.apply.targetNameHint': 'The entry key written into the {target} config file',
   'hub.pv.apply.codexUnsupported': 'codex config format pending calibration; not supported in v1',
@@ -814,7 +833,7 @@ const en: MessageSchema = {
   'hub.pv.apply.keyInline': 'Enter now',
   'hub.pv.apply.keySource': 'Copy in memory from source CLI ({cli}:{provider})',
   'hub.pv.apply.keySourceMask': 'Source value (masked): {mask}',
-  'hub.pv.apply.keyNone': 'None (keep target\'s existing credentials)',
+  'hub.pv.apply.keyNone': "None (keep target's existing credentials)",
   'hub.pv.apply.write': 'Write config',
   'hub.pv.apply.writing': 'Writing…',
   'hub.pv.apply.restartHint': 'Written: {files}. Restart the CLI session to take effect.',
@@ -824,7 +843,8 @@ const en: MessageSchema = {
   'hub.pv.apply.noModels': 'Not written: the preset has no models',
   'hub.pv.apply.noModelsHint':
     'This preset has an empty model list, so applying to {targets} would only create a provider with zero models (nothing shows up afterwards). Query or type the models in the preset first.',
-  'hub.pv.apply.reason.bridge': 'Not written: claude self-built bridge detected, needs confirmation',
+  'hub.pv.apply.reason.bridge':
+    'Not written: claude self-built bridge detected, needs confirmation',
   'hub.pv.apply.reason.writeFailed': 'Not written: writing the config file failed',
   'hub.pv.apply.reason.dialect':
     'Not written: codex only speaks the Responses protocol, this API style has no codex form',
@@ -837,7 +857,8 @@ const en: MessageSchema = {
     'This switches the current codex model from {from} to {to} (codex has no model list — it can only point at one model).',
   'hub.pv.apply.codex.dialectBlocked':
     "This preset's API style has no codex form (codex only speaks Responses), so the codex target will be refused.",
-  'hub.pv.apply.partial': 'Some targets were written ({n} failed); keeping the failed targets for retry',
+  'hub.pv.apply.partial':
+    'Some targets were written ({n} failed); keeping the failed targets for retry',
   'hub.pv.apply.failed': 'Apply failed, please try again',
   // ==================== Usage dashboard (ticket 06 + redesign) ====================
   'hub.st.syncedTag': 'Watermark: {n} entries parsed',
@@ -890,7 +911,8 @@ const en: MessageSchema = {
   'hub.st.heat.title': 'Usage rhythm',
   'hub.st.heat.sub': 'Weekday × hour (local time); darker = more tokens',
   'hub.st.heat.empty': 'No data in the selected range.',
-  'hub.st.heat.aria': 'Usage rhythm heatmap: weekday by hour, peak at {peak}, {total} tokens in range',
+  'hub.st.heat.aria':
+    'Usage rhythm heatmap: weekday by hour, peak at {peak}, {total} tokens in range',
   'hub.st.heat.peak': '· Peak hour',
   'hub.st.heat.peakShort': '{day} {hour}:00',
   'hub.st.heat.noPeak': '· No data',
@@ -915,19 +937,23 @@ const en: MessageSchema = {
   'hub.st.modelMessages': '{n} messages',
   'hub.st.noProject': 'Unknown project',
   'hub.st.empty': 'No data yet. Click "Scan now" to parse local CLI sessions.',
-  'hub.st.emptyWindow': 'No sessions in {range}. Either you were idle, or the data has not been scanned yet.',
+  'hub.st.emptyWindow':
+    'No sessions in {range}. Either you were idle, or the data has not been scanned yet.',
   // ==================== Clear collected data (ticket 07: keep all + manual clear) ====================
   'hub.st.clearData': 'Clear statistics',
-  'hub.st.clearDataAsk': 'Clear everything? All collected session records and parse watermarks are deleted; a rescan is required to restore them.',
+  'hub.st.clearDataAsk':
+    'Clear everything? All collected session records and parse watermarks are deleted; a rescan is required to restore them.',
   'hub.st.clearDataConfirm': 'Yes, clear',
   'hub.st.clearDataCancel': 'Cancel',
   'hub.st.clearDataDone': 'Statistics cleared',
   'hub.st.clearDataFailed': 'Failed to clear statistics',
   // Adapter degradation (ticket 07: machine-readable code from the opencode SQLite source)
   'hub.st.degraded': 'Some sources were not synced',
-  'hub.st.degraded.sqlite3-missing': 'The system sqlite3 command-line tool is required to read the OpenCode database.',
+  'hub.st.degraded.sqlite3-missing':
+    'The system sqlite3 command-line tool is required to read the OpenCode database.',
   'hub.st.degraded.db-missing': 'No OpenCode database found (run an OpenCode session first).',
-  'hub.st.degraded.query-failed': 'Querying the OpenCode database failed; see the plugin log for details.',
+  'hub.st.degraded.query-failed':
+    'Querying the OpenCode database failed; see the plugin log for details.',
   // ==================== 会话日志（改版：来源 / 查询 / 分页 / 详情） ====================
   'hub.lg.sources.title': 'Log sources',
   'hub.lg.sources.builtin': 'Built-in',
@@ -957,7 +983,8 @@ const en: MessageSchema = {
   // ADR 0030 business error codes (same source as messages.ts type)
   'hub.lg.sources.error.nameTaken': 'Source name already exists; pick another name',
   'hub.lg.sources.error.pathTaken': 'This directory already belongs to another source',
-  'hub.lg.sources.error.sqliteReadonly': 'SQLite sources are single-file read-only; cannot add directories',
+  'hub.lg.sources.error.sqliteReadonly':
+    'SQLite sources are single-file read-only; cannot add directories',
   'hub.lg.sources.error.builtinProtected': 'Built-in default directories cannot be removed',
   'hub.lg.sources.error.lastPathProtected': 'Remove the whole source instead of its last directory',
   'hub.lg.sources.removeFailed': 'Failed to remove source',
@@ -1045,14 +1072,123 @@ const en: MessageSchema = {
   'hub.launch.confirm': 'Create & start',
   'hub.launch.starting': 'Starting…',
   'hub.launch.cancel': 'Cancel',
-  'hub.inst.error.sessionRunning': 'Cannot uninstall: session(s) {sessions} still use this agent — stop them first',
+  'hub.inst.error.sessionRunning':
+    'Cannot uninstall: session(s) {sessions} still use this agent — stop them first',
 
   'hub.pv.importHub': 'Import from agent-hub',
   'hub.pv.importHubing': 'Importing…',
-  'hub.pv.importHubDone': 'Imported {n} presets ({s} skipped). The export file contains plaintext keys — delete it when done',
+  'hub.pv.importHubDone':
+    'Imported {n} presets ({s} skipped). The export file contains plaintext keys — delete it when done',
   'hub.pv.importHubFailed': 'Import failed',
   'hub.pv.importAuthDenied': 'Access to the export file was denied',
 
+  // ==================== Projects & runs (ADR 0003 / issue #23 M2) ====================
+  'project.sidebar.title': 'Projects',
+
+  // Project actions
+  'project.button.refresh': 'Refresh',
+  'project.button.new': 'New Project',
+  'project.button.create': 'Create',
+  'project.button.cancel': 'Cancel',
+  'project.button.save': 'Save',
+  'project.button.rename': 'Rename',
+  'project.button.remove': 'Remove',
+  'project.button.browse': 'Choose Folder',
+  'project.button.open': 'Open Project',
+
+  // Empty states
+  'project.empty.noProjects': 'No projects yet',
+  'project.empty.noProjectsHint':
+    'Pick a local folder to create one; a folder plus an environment maps to a single project',
+
+  // Create / rename form
+  'project.form.title.new': 'New Project',
+  'project.form.title.rename': 'Rename Project',
+  'project.form.name': 'Project name',
+  'project.form.namePlaceholder': 'Defaults to the folder name',
+  'project.form.environment': 'Environment',
+  'project.form.wslDistro': 'WSL distro',
+  'project.form.wslDistroPlaceholder': 'Defaults to Ubuntu',
+  'project.form.workingDir': 'Folder',
+  'project.form.workingDirPlaceholder': 'Choose or type a local folder',
+  'project.form.required': 'Pick a folder first',
+  'project.form.pickFailed': 'Could not choose a folder',
+  'project.form.env.windows': 'Windows native',
+  'project.form.env.wsl2': 'WSL2',
+  'project.form.env.linux': 'Linux native',
+  'project.form.wslInitializing': 'Reading WSL distributions…',
+  'project.form.wslNotDetected':
+    'No WSL distribution detected. Install one in the system before creating a project.',
+
+  // Project card
+  'project.card.activeRuns': '{n} running',
+  'project.card.runCount': '{n} runs',
+  'project.card.lastActivity': 'Last activity',
+  'project.card.noActivity': 'No activity yet',
+  'project.card.lastAgent': 'Last agent',
+
+  // Confirmations & toasts
+  'project.confirm.removeTitle': 'Remove project',
+  'project.confirm.removeMsg':
+    'Remove "{name}" and its run history? Files on disk are left untouched.',
+  'project.toast.created': 'Project created',
+  'project.toast.existed': 'That folder already had a project — opened it',
+  'project.toast.renamed': 'Project renamed',
+  'project.toast.removed': 'Project removed',
+  'project.toast.refreshed': 'List refreshed',
+  'project.error.loadFailed': 'Could not load projects',
+  'project.error.createFailed': 'Could not create the project',
+  'project.error.renameFailed': 'Could not rename the project',
+  'project.error.removeFailed': 'Could not remove the project — stop its runs first',
+  'project.error.notFound': 'Project not found; it may have been removed',
+
+  // Relative time
+  'project.time.justNow': 'just now',
+  'project.time.minutesAgo': '{n} min ago',
+  'project.time.hoursAgo': '{n} h ago',
+  'project.time.daysAgo': '{n} d ago',
+
+  // Workbench
+  'project.workbench.back': 'Back to projects',
+  'project.workbench.activeRuns': '{n} running',
+
+  // 分栏拖拽（三栏宽度调整）
+  'project.split.resizeRuns': 'Drag to resize the run list',
+  'project.split.resizeInspector': 'Drag to resize the inspector',
+  'project.split.resizeHint': 'Drag to resize · double-click to reset · focus and use ←/→',
+
+  // Runs
+  'project.run.title': 'Runs',
+  'project.run.new': 'New Run',
+  'project.run.empty': 'No runs yet',
+  'project.run.emptyHint':
+    'Pick an agent to start one: each start becomes a run, and a project can run several at once',
+  'project.run.pickAgent': 'Start with which agent?',
+  'project.run.starting': 'Starting…',
+  'project.run.startFailed': 'Could not start the run',
+  'project.run.stop': 'Stop',
+  'project.run.stopFailed': 'Could not stop the run',
+  'project.run.openWindow': 'Open in separate window',
+  'project.run.agentMissing': 'not installed',
+  'project.run.agentUnknown': 'not detected',
+  'project.run.installHint': 'Install in Agent Management',
+
+  // Conversation pane (arrives with M3; M2 shows an explicit placeholder)
+  'project.chat.title': 'Conversation',
+  'project.chat.placeholderTitle': 'Conversation view lands next stage',
+  'project.chat.placeholderBody':
+    'Once the bridge and event ledger (M3) land, this pane shows streaming text, tool cards and permission cards. For now use the terminal tab on the right.',
+  'project.chat.agentSessionId': 'Agent session',
+  'project.chat.copyId': 'Copy session id',
+  'project.chat.copied': 'Copied',
+
+  // Inspector
+  'project.inspector.changes': 'Changes',
+  'project.inspector.terminal': 'Terminal',
+  'project.inspector.events': 'Events',
+  'project.inspector.noSelection': 'Select a run to inspect its terminal and events',
+  'project.inspector.changesEmpty': 'Change cards arrive with M3 patch events',
+  'project.inspector.eventsEmpty': 'The event stream arrives with the M3 ledger',
 }
 
 export default en
