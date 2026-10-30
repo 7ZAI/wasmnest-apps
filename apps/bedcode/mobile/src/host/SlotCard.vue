@@ -1,35 +1,20 @@
 <template>
-  <button
-    type="button"
-    class="w-full rounded-[14px] p-3.5 text-left transition-colors active:opacity-90"
-    :style="{ background: 'var(--mobile-bg-card)', border: '1px solid var(--mobile-border)' }"
-  >
-    <span
-      v-if="label"
-      class="block text-[11px] font-medium uppercase tracking-wide"
-      :style="{ color: 'var(--mobile-text-secondary)' }"
-    >
-      {{ label }}
-    </span>
-    <!-- 计数 + 一行状态说明：只有数字的卡片会被当成占位/坏数据（实测「0」孤零一张卡） -->
-    <span class="mt-1 flex items-baseline gap-2">
-      <span class="text-xl font-semibold tabular-nums" :style="{ color: 'var(--mobile-text-primary)' }">
-        {{ count }}
-      </span>
-      <span
-        v-if="count === 0 && emptyHint"
-        class="text-[var(--font-size-xs)] truncate"
-        :style="{ color: 'var(--mobile-text-secondary)' }"
-      >
-        {{ emptyHint }}
-      </span>
-    </span>
-  </button>
+  <QuickCard
+    :label="label"
+    :value="count"
+    :hint="hint"
+    :tone="count > 0 ? 'success' : 'neutral'"
+    :icon-path="ICON"
+  />
 </template>
 
 <script setup lang="ts">
 /**
  * 宿主壳首页快捷卡片（bedcode 应用贡献的「活跃会话数」槽位）
+ *
+ * 外观由 SDK 公共 QuickCard 承载（与宿主 token / 明暗 / 字号一致）；点击与跳转
+ * 归宿主壳——壳把整张卡渲染成按钮并打开本应用，因此这里不再自绘按钮 / 交互，
+ * 卡片内也不得再出现按钮（嵌套交互会抢点击）。
  *
  * 壳 Home 直接渲染（不经 PluginViewHost），不依赖 pluginContext——只读
  * mobileApi.activeSessions（宿主连接域投影）计数。文案一律走宿主共享 i18n
@@ -37,12 +22,16 @@
  * 槽位标题键（同义且双语），仍取不到则留空（模板隐藏标签，不落硬编码文案）。
  */
 import { computed } from 'vue'
+import QuickCard from '@binblink/wasmnest-plugin-sdk-mobile/ui/quick-card'
 import { getI18n, getMobileApi } from '@binblink/wasmnest-plugin-sdk-mobile'
 
 defineProps<{ app: any }>()
 
 const api = getMobileApi()
 const count = computed(() => api.activeSessions.value?.length ?? 0)
+
+/** 右上角装饰图标：终端窗口 + 提示符（24 视框 stroke 线稿） */
+const ICON = ['M4 5h16v14H4z', 'M8 10l3 2.5-3 2.5', 'M13.5 15H16']
 
 /** 插件前缀键（本域 activate 期注册；键名见 host/i18n.ts） */
 const PREFIX = 'com.wasmnest.bedcode.'
@@ -75,4 +64,6 @@ const emptyHint = computed(() => {
     return ''
   }
 })
+
+const hint = computed(() => (count.value === 0 ? emptyHint.value : ''))
 </script>
