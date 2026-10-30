@@ -74,6 +74,9 @@ mod launch;
 mod output;
 mod pairing;
 mod policy;
+/// 项目域（ADR 0003）：一级容器「项目 = 目录 + 执行环境」，含容器迁移
+/// （`sessions` → `runs`、配置 → 项目）与 `project.*` 命令面
+pub mod project;
 /// 快捷指令域（票 02 第 4 域）：私有库持久化 + HTTP 查询面 + 迁移导入
 pub mod quick_actions;
 /// 私有库表名域前缀统一与幂等重命名迁移（票 16 / spec D5）
@@ -881,9 +884,68 @@ impl WasmPlugin for SessionPlugin {
                 e
             )),
         }
+        // ADR 0003 容器迁移（issue #23）：`sessions` → `runs`（补容器列）、
+        // `session_configs` → `projects`（同目录同执行环境合并）、运行归属回填、
+        // 无主运行丢弃、任务队列绑定键补列。
+        //
+        // **顺序**：在表名统一迁移之后（`task_*` 已是新名）、各域 `ensure_schema`
+        // 之前——先建 `runs` 会让重命名被跳过，旧 `sessions` 数据永久留在无人读的
+        // 名字下（现象是「升级后项目里一条运行都没有」）。
+        //
+        // **失败口径**：配置表可能因上一段降级而未建（此时 `configs()` 返回空，
+        // 迁移把全部运行判成无主并删除——这是最坏结果）。因此迁移失败**不阻断**
+        // 激活（配对 / 认证必须可用），但必须 warn 到位；而「配置面不可用」本身
+        // 已在上一步 warn 过，排障时两条日志连起来读。
+        match project::migrate_via_host() {
+            Ok(report) => {
+                if report.changed() {
+                    host.log_info(&format!(
+                        "project container migration: renamed={:?} projectsCreated={} runsAttributed={} runsDropped={:?} tasksBound={} tasksUnbound={}",
+                        report.renamed,
+                        report.projects_created.len(),
+                        report.runs_attributed,
+                        report.runs_dropped,
+                        report.tasks_bound,
+                        report.tasks_unbound
+                    ));
+                } else {
+                    host.log_debug("project container migration: nothing to do");
+                }
+                if !report.ambiguous.is_empty() {
+                    host.log_warn(&format!(
+                        "project container migration: both legacy and new table names present, untouched: {:?}",
+                        report.ambiguous
+                    ));
+                }
+                if !report.skipped_configs.is_empty() {
+                    host.log_warn(&format!(
+                        "project container migration: config(s) without workingDir cannot form a project, their runs were dropped: {:?}",
+                        report.skipped_configs
+                    ));
+                }
+                if !report.runs_unattributed.is_empty() {
+                    host.log_warn(&format!(
+                        "project container migration: config store unavailable, {} run(s) kept unattributed: {:?}",
+                        report.runs_unattributed.len(),
+                        report.runs_unattributed
+                    ));
+                }
+            }
+            Err(e) => host.log_warn(&format!(
+                "project container migration failed (runs stay unattributed; project face degraded): {}",
+                e
+            )),
+        }
+        match project::ensure_schema_via_host() {
+            Ok(()) => host.log_info("project store ready (private table projects)"),
+            Err(e) => host.log_warn(&format!(
+                "project schema init failed at activate (project face degraded): {}",
+                e
+            )),
+        }
         // 会话引擎整体下沉 P1-b（`.scratch/2026-09-23-session-engine-downsink`）：
-        // 会话登记域建表（幂等）+ 进程启动对账（清空上一进程遗留的会话行——会话与
-        // PTY 同生命周期，同为进程内存）。
+        // 运行表建表（幂等）+ 进程启动对账（把上一进程遗留的非终态运行收敛到
+        // Error 并清空 PTY 句柄——句柄是进程内存，行是历史，理由见 session 模块文档）。
         //
         // **P1-b 起失败必须阻断激活**：本域已是会话真源，建表失败 = 会话面不可用，
         // 继续激活只会让创建 / 停止 / 输入全线报「存储不可用」的半生不熟状态——
@@ -894,7 +956,7 @@ impl WasmPlugin for SessionPlugin {
             )
         })?;
         host.log_info(
-            "session registry store ready (private tables sessions / session_annotations)",
+            "run registry store ready (private tables runs / session_annotations / run_events / permission_audit)",
         );
         // 票 02：快捷指令域（第 4 域）建表（幂等）。与配置面同口径——失败只降级
         // 快捷指令面：配对 / 信任 / 会话 / 任务必须照常工作。迁移数据由宿主侧
@@ -1242,7 +1304,7 @@ impl WasmPlugin for SessionPlugin {
                 Ok(serde_json::json!({
                     "plugin": Self::ID,
                     "version": env!("CARGO_PKG_VERSION"),
-                    "domains": ["pairing", "trust", "consent", "config", "session", "devices", "environment", "task"],
+                    "domains": ["pairing", "trust", "consent", "config", "project", "session", "devices", "environment", "task"],
                     "permissions": manifest.permissions,
                     "api": manifest.api,
                     // P1 双写期诊断：会话登记域镜像规模（读取失败只降级该字段）
@@ -2006,6 +2068,70 @@ impl WasmPlugin for SessionPlugin {
                 ))
             }
 
+            // ==================== 项目容器命令面（ADR 0003 / issue #23） ====================
+            // `project.*` 是新能力唯一入口（`session.*` 冻结为运行的兼容投影）；
+            // 运行读取面只加 `run.list` 一条——运行写面（启动 / 停止 / 输入）继续走
+            // `session.*`，`sessionId` 即 `runId`，移动端形状不变。
+
+            // 项目列表 → {projects: ProjectView[]}（含 activeRuns / lastActivityAt 派生）
+            "project.list" => project::list_via_host().map_err(anyhow::Error::msg),
+
+            // 建项目 {environment, workingDir, name?, wslDistro?}
+            // → {project, created}；同目录同执行环境重复建不报错（created=false）
+            "project.create" => {
+                let draft: project::model::ProjectDraft = serde_json::from_value(args)
+                    .map_err(|e| anyhow::anyhow!("invalid project draft: {}", e))?;
+                project::create_via_host(&draft).map_err(anyhow::Error::msg)
+            }
+
+            // 打开项目 {id} → ProjectView（刷新 lastOpenedAt）
+            "project.open" => {
+                let id = args
+                    .get("id")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| anyhow::anyhow!("id required"))?;
+                project::open_via_host(id).map_err(anyhow::Error::msg)
+            }
+
+            // 项目详情 {id} → ProjectView | null
+            "project.get" => {
+                let id = args
+                    .get("id")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| anyhow::anyhow!("id required"))?;
+                project::get_via_host(id)
+                    .map(|found| found.unwrap_or(serde_json::Value::Null))
+                    .map_err(anyhow::Error::msg)
+            }
+
+            // 项目改名 {id, name} → ProjectView（空名显性报错）
+            "project.rename" => {
+                let id = args
+                    .get("id")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| anyhow::anyhow!("id required"))?;
+                let name = args
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| anyhow::anyhow!("name required"))?;
+                project::rename_via_host(id, name).map_err(anyhow::Error::msg)
+            }
+
+            // 移除项目 {id} → {removed, runsRemoved}；有活跃运行时拒绝（不静默 kill）
+            "project.remove" => {
+                let id = args
+                    .get("id")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| anyhow::anyhow!("id required"))?;
+                project::remove_via_host(id).map_err(anyhow::Error::msg)
+            }
+
+            // 运行列表 {projectId?} → {runs: RunView[]}（缺 projectId = 全部；倒序由前端定）
+            "run.list" => {
+                let project_id = args.get("projectId").and_then(|v| v.as_str());
+                session::list_runs_via_host(project_id).map_err(anyhow::Error::msg)
+            }
+
             // ==================== Agent 管理域（原 agent-hub 并入） ====================
             // `agent.*` 命令面整体转发到 hub 域路由（探测/安装/引导/Skills/供应商/
             // 用量），未知 agent.* 命令由 hub 显性报错。
@@ -2435,6 +2561,8 @@ mod tests {
                 "trust",
                 "consent",
                 "config",
+                // ADR 0003：项目容器（一级容器 + 容器迁移）
+                "project",
                 "session",
                 "devices",
                 "environment",

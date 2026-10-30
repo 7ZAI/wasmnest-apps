@@ -878,12 +878,35 @@ pub fn create_via_host(draft_json: &serde_json::Value) -> Result<serde_json::Val
     };
     // 会话 id 由插件自产（宿主不再预生成，`WASMNEST_SESSION_ID` 随 env 注入）
     let session_id = crate::session::ops::new_session_id()?;
+    // 容器归属（ADR 0003）：项目按配置的目录 + 执行环境取（不存在则建，同目录复用）；
+    // agent 从启动命令推断（`unknown` 不写库——它是「未识别命令行」，不是 agent 名）
+    //
+    // 归属失败只降级不阻断：项目库写不进去不该让「开终端」这件根本操作失败——
+    // 运行以未归属形态启动（界面上显示「无项目」），下次启动的容器迁移会按
+    // `config_id` 把它补回项目（配置集可信时）。降级留 warn，不静默。
+    let project_id = match crate::project::ensure_for_directory_via_host(
+        &config.environment,
+        config.wsl_distro.as_deref(),
+        &config.working_dir,
+    ) {
+        Ok(id) => id,
+        Err(e) => {
+            WasmHost.log_warn(&format!(
+                "create: project attribution failed (run starts unattributed): {e}"
+            ));
+            None
+        }
+    };
+    let detected = crate::task::agent::detect_agent(&config.command);
+    let agent_id = (detected != "unknown").then_some(detected);
     spawn_session(
         &request.config_id,
         &spec,
         &session_id,
         &unique_name,
         &request.source_device,
+        project_id.as_deref(),
+        agent_id,
     )
     .map_err(|e| format!("会话创建失败：{e}"))?;
     Ok(serde_json::json!({ "sessionId": session_id }))
@@ -942,6 +965,8 @@ pub fn spawn_session(
     session_id: &str,
     name: &str,
     source_device: &Option<String>,
+    project_id: Option<&str>,
+    agent_id: Option<&str>,
 ) -> Result<(), String> {
     // 1. Creating：agent 集成（hook 就位先于 spawn；取不到资源目录 → 跳过注入）
     run_creating_integration(spec.command.as_str(), spec.cwd.as_str());
@@ -993,6 +1018,8 @@ pub fn spawn_session(
         name,
         true,
         source_device.as_deref(),
+        project_id,
+        agent_id,
     ) {
         let _ = WasmHost.pty_kill(&pty_id);
         return Err(format!("session record failed: {e}"));

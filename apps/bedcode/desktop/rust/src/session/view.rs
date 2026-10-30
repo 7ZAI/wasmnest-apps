@@ -98,16 +98,55 @@ pub fn view_json(
     (serde_json::Value::Object(view), warning)
 }
 
+/// 运行视图（项目工作台的运行列表；**不是** `SessionInfoView`）
+///
+/// 两套形状刻意分开：
+/// - `SessionInfoView`（[`view_json`]）是移动端与前端命令面既有的线协议，有逐字
+///   锁，容器字段**不得**混进去（会让移动端 DTO 解析多出无关键，也让形状锁失效）；
+/// - 本形状带项目 / agent / 标题 / 模型 / 活跃位，只供桌面项目面（`run.list`）。
+///
+/// 缺值一律 `null`（键恒在）：运行列表要按字段排序与渲染，缺键会让前端到处判
+/// `undefined`；这是新形状，没有历史包袱，选稳定键集。
+pub fn run_json(record: &SessionRecord) -> serde_json::Value {
+    let nullable = |value: &Option<String>| match value {
+        Some(text) => serde_json::json!(text),
+        None => serde_json::Value::Null,
+    };
+    serde_json::json!({
+        "id": record.id,
+        "projectId": nullable(&record.project_id),
+        "configId": record.config_id,
+        "agentId": nullable(&record.agent_id),
+        "agentSessionId": nullable(&record.agent_session_id),
+        "title": nullable(&record.title),
+        "name": record.name,
+        "status": serde_json::to_value(&record.status).expect("SessionStatus 可序列化"),
+        "model": nullable(&record.model),
+        "createdAt": record.created_at,
+        "startedAt": nullable(&record.started_at),
+        "stoppedAt": nullable(&record.stopped_at),
+        "updatedAt": record.updated_at,
+        // 活跃位 = 非终态：项目卡片的「活跃运行数」与运行列表状态点共用同一判据
+        "active": !record.status.is_terminal(),
+        // 事件账本被截断（历史不完整）：界面据此显示「已截断」，不静默
+        "truncated": record.truncated,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::session::model::SessionStatus;
-
     fn record() -> SessionRecord {
         SessionRecord {
             id: "s-1".to_string(),
             pty_id: Some("pty-9".to_string()),
             config_id: "cfg-1".to_string(),
+            project_id: Some("p-1".to_string()),
+            agent_id: Some("opencode".to_string()),
+            agent_session_id: Some("ses_abc".to_string()),
+            title: None,
+            model: None,
             name: "dev".to_string(),
             status: SessionStatus::Running,
             created_at: "2026-09-23T00:00:00Z".to_string(),
@@ -115,6 +154,7 @@ mod tests {
             stopped_at: None,
             canonical_renderer: Some(crate::actions::RendererSource::Desktop),
             owner: Some("com.wasmnest.bedcode".to_string()),
+            truncated: false,
             updated_at: "2026-09-23T00:00:05Z".to_string(),
         }
     }
@@ -244,5 +284,59 @@ mod tests {
         record.status = SessionStatus::Error(Some("pty closed".to_string()));
         let (view, _) = view_json(&record, &BTreeMap::new());
         assert_eq!(view["status"], serde_json::json!({ "error": "pty closed" }));
+    }
+
+    // ==================== 运行视图（run.list 的形状） ====================
+
+    /// 容器字段齐备：项目 / agent / agent 会话 id / 标题 / 模型 / 活跃位
+    #[test]
+    fn run_view_carries_container_fields() {
+        let view = run_json(&record());
+        assert_eq!(view["id"], "s-1");
+        assert_eq!(view["projectId"], "p-1");
+        assert_eq!(view["agentId"], "opencode");
+        assert_eq!(view["agentSessionId"], "ses_abc");
+        assert_eq!(view["configId"], "cfg-1");
+        assert_eq!(view["name"], "dev");
+        assert_eq!(view["updatedAt"], "2026-09-23T00:00:05Z");
+        assert_eq!(view["active"], true, "Running 是活跃");
+        assert!(
+            view.get("title").is_some_and(|v| v.is_null()),
+            "未起标题 = null（键必须在）: {view}"
+        );
+        assert!(view.get("model").is_some_and(|v| v.is_null()));
+        assert_eq!(view["truncated"], false, "未截断 = false（键必须在）");
+        assert!(view.get("stoppedAt").is_some_and(|v| v.is_null()));
+    }
+
+    /// 活跃位与终态判据同源：Stopped / Error 都是非活跃（前端状态点不必再解析状态枚举）
+    #[test]
+    fn run_view_active_flag_follows_terminal_state() {
+        for (status, active) in [
+            (SessionStatus::Running, true),
+            (SessionStatus::Starting, true),
+            (SessionStatus::Stopping, true),
+            (SessionStatus::Stopped, false),
+            (SessionStatus::Error(None), false),
+        ] {
+            let mut record = record();
+            record.status = status.clone();
+            assert_eq!(
+                run_json(&record)["active"],
+                serde_json::json!(active),
+                "{status:?} 的活跃位"
+            );
+        }
+    }
+
+    /// 标题有值即透传（标题归 agent / 首条用户消息，视图不加工）
+    #[test]
+    fn run_view_passes_title_and_model_through() {
+        let mut record = record();
+        record.title = Some("修支付回调".to_string());
+        record.model = Some("claude-sonnet-4".to_string());
+        let view = run_json(&record);
+        assert_eq!(view["title"], "修支付回调");
+        assert_eq!(view["model"], "claude-sonnet-4");
     }
 }

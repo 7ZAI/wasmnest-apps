@@ -15,8 +15,15 @@
 //! ## P1-b 的诚实记账（不再有「镜像」）
 //!
 //! 双写期的 note_* 门面语义升级：从「按宿主事实记账的镜像」变为「真源写入」——
-//! 宿主不再持有会话登记，本域记录是唯一事实；`sessions` / `session_annotations`
+//! 宿主不再持有会话登记，本域记录是唯一事实；`runs` / `session_annotations`
 //! 两张私有库表是落盘真源，内存注册表是它的镜像（写库先行）。
+//!
+//! ## 容器：会话记录就是「运行」（ADR 0003）
+//!
+//! 表名由 `sessions` 账本式重命名为 `runs`（容器迁移见 `project::migrate`），
+//! 记录多出项目 / agent 归属列。**行不再随进程清空**：运行是历史，重启后仍要能
+//! 打开看完整对话；启动对账只把上一进程的非终态运行收敛成 `Error` 并清空
+//! `pty_id`（PTY 句柄是进程内存，句柄失效即不可能再有后续事件）。
 //!
 //! ## 生命周期驱动（P1-b 起由本域自持）
 //!
@@ -82,26 +89,34 @@ fn line_tracker() -> &'static input_line::SubmittedLineTracker {
 
 // ==================== 激活期装配（建表 + 进程域对账） ====================
 
-/// 建表（幂等）+ 进程启动对账（清空上一进程遗留的会话行）
+/// 建表（幂等）+ 进程启动对账（把上一进程遗留的非终态运行收敛到 Error）
 ///
-/// 对账理由：会话与其 PTY 同生命周期（P1-b 起 PTY 在宿主引擎注册表，同为进程
-/// 内存），进程重启后旧会话记录不可回收，留着只会让读取面看到幽灵会话。清表后
-/// 本域记录集合与当次进程的会话集合同域。
+/// 对账理由：PTY 句柄在宿主进程内存里，进程重启后旧句柄必然失效——旧记录若仍
+/// 标着 `Running`，列表会显示幽灵「运行中」，任务域的启动恢复也会误判「仍在册」
+/// 而不收敛悬挂任务。收敛（而非删除）保证「关掉再打开历史还在」。
 ///
 /// **P1-b 起失败必须阻断激活**（不再是双写期的「降级镜像」）：本域已是会话真源，
-/// 建表失败 = 会话面不可用，继续激活只会让创建/停止/输入全线报「存储不可用」的
+/// 建表失败 = 会话面不可用，继续激活只会让创建 / 停止 / 输入全线报「存储不可用」的
 /// 半生不熟状态——显性失败让宿主把插件标记为不可用，用户路径立刻可见。
 #[cfg(target_arch = "wasm32")]
 pub fn ensure_schema_via_host() -> Result<(), String> {
     SessionStore::ensure_schema(&WasmHost)?;
-    let stale = REGISTRY.clear(&WasmHost)?;
-    if stale > 0 {
+    let converged = REGISTRY.converge_orphans(
+        &WasmHost,
+        &crate::config::model::now_rfc3339(),
+        ORPHAN_RUN_REASON,
+    )?;
+    if converged > 0 {
         WasmHost.log_warn(&format!(
-            "session registry: dropped {stale} stale session row(s) from previous process (sessions are process-scoped)"
+            "session registry: converged {converged} run(s) left non-terminal by the previous \
+             host process to Error (pty handles are process-scoped)"
         ));
     }
     Ok(())
 }
+
+/// 启动对账写入的结束原因（`Error` 载荷；用户可见文案由前端按状态渲染，不解析它）
+pub const ORPHAN_RUN_REASON: &str = "host process restarted; run interrupted";
 
 #[cfg(not(target_arch = "wasm32"))]
 pub fn ensure_schema_via_host() -> Result<(), String> {
@@ -174,6 +189,10 @@ pub fn summary_for(session_id: &str) -> Result<wasmnest_plugin_api::wire::Sessio
 /// `start` / `source_device` 与宿主 `create_session_from_spec` 同参：决定初始
 /// 状态（P1-b 起 `host-pty.spawn` 即起进程，恒 `Running`）与正统渲染端初始
 /// 归属。`pty_id` 由调用方传入（spawn 回执）。
+///
+/// `project_id` / `agent_id` 是容器归属（ADR 0003）：从启动配置的目录与命令推断，
+/// 由 `launch` 传入（配置 → 项目在 `project::ensure_for_directory_via_host` 里
+/// 按需创建/复用）。缺省为空 = 未归属（仅配置目录为空的边缘配置会出现）。
 #[cfg(target_arch = "wasm32")]
 pub fn note_created(
     session_id: &str,
@@ -182,6 +201,8 @@ pub fn note_created(
     name: &str,
     start: bool,
     source_device: Option<&str>,
+    project_id: Option<&str>,
+    agent_id: Option<&str>,
 ) -> Result<(), String> {
     let record = ops::new_record(
         session_id,
@@ -194,6 +215,8 @@ pub fn note_created(
     );
     let mut record = record;
     record.pty_id = Some(pty_id.to_string());
+    record.project_id = project_id.map(str::to_string);
+    record.agent_id = agent_id.map(str::to_string);
     REGISTRY.record(&WasmHost, &record)
 }
 
@@ -363,6 +386,83 @@ pub fn internal_records_json() -> Result<serde_json::Value, String> {
         out.push(json);
     }
     Ok(serde_json::json!(out))
+}
+
+/// 「仍在册」的运行 id（**非终态**）——任务域启动恢复的判据面
+///
+/// 与 [`internal_records_json`] 的区别：后者含历史（终态）运行，用它判 live 会把
+/// 上一进程的运行误当成「还活着」，悬挂任务因此永不被收敛。
+#[cfg(target_arch = "wasm32")]
+pub fn live_ids_via_host() -> Result<Vec<String>, String> {
+    REGISTRY.live_ids(&WasmHost)
+}
+
+/// 运行活动快照（项目列表的派生统计输入：活跃数 / 最近活动 / 最近 agent）
+#[cfg(target_arch = "wasm32")]
+pub fn run_activity_via_host() -> Result<Vec<model::RunActivity>, String> {
+    Ok(REGISTRY
+        .all(&WasmHost)?
+        .into_iter()
+        .map(|record| model::RunActivity {
+            project_id: record.project_id.clone(),
+            agent_id: record.agent_id.clone(),
+            updated_at: record.updated_at.clone(),
+            active: !record.status.is_terminal(),
+        })
+        .collect())
+}
+
+/// 某项目下的运行列表（`project.list` 的派生面与项目工作台的运行列表）
+///
+/// 与 `session-list`（`SessionInfoView`，有逐字形状锁、服务移动端）**不同形状**：
+/// 这里带项目 / agent / 标题 / 模型等容器字段，只供桌面项目面消费。
+///
+/// 顺序 = **最新在前**（工作台要的是「刚才那条跑完了吗」，不是考古）。注册表给的是
+/// `created_at, id` 升序，这里整体反转即可（同一稳定序的逆序仍稳定）。
+#[cfg(target_arch = "wasm32")]
+pub fn list_runs_via_host(project_id: Option<&str>) -> Result<serde_json::Value, String> {
+    let records = REGISTRY.all(&WasmHost)?;
+    let mut runs = Vec::new();
+    for record in records.into_iter().rev() {
+        if let Some(project) = project_id {
+            if record.project_id.as_deref() != Some(project) {
+                continue;
+            }
+        }
+        runs.push(view::run_json(&record));
+    }
+    Ok(serde_json::json!({ "runs": runs }))
+}
+
+/// 移除某项目下的全部运行（项目移除的级联面）
+///
+/// 调用方（`project::remove_via_host`）必须先确认没有非终态运行——本函数只做删除，
+/// 不做「先杀进程」的编排：静默 kill 用户正在跑的 agent 比拒绝删除更坏。
+#[cfg(target_arch = "wasm32")]
+pub fn remove_runs_of_project_via_host(project_id: &str) -> Result<usize, String> {
+    // 输出背压水位/驻留态按运行 id 记账：删除后同 id 新运行会误判驻留，先收集再回收
+    let doomed: Vec<String> = REGISTRY
+        .all(&WasmHost)?
+        .into_iter()
+        .filter(|r| r.project_id.as_deref() == Some(project_id))
+        .map(|r| r.id)
+        .collect();
+    let removed = REGISTRY.remove_by_project(&WasmHost, project_id)?;
+    for id in doomed {
+        crate::output::forget_via_host(&id);
+        line_tracker().remove_session(&id);
+    }
+    Ok(removed)
+}
+
+/// 某项目下是否有非终态运行（项目删除的前置校验）
+#[cfg(target_arch = "wasm32")]
+pub fn active_runs_of_project_via_host(project_id: &str) -> Result<usize, String> {
+    Ok(REGISTRY
+        .all(&WasmHost)?
+        .into_iter()
+        .filter(|r| r.project_id.as_deref() == Some(project_id) && !r.status.is_terminal())
+        .count())
 }
 
 // ==================== 停止编排（互调 api `session-close` / 队列超时关闭共用） ====================
@@ -594,6 +694,8 @@ pub fn note_created(
     _name: &str,
     _start: bool,
     _source_device: Option<&str>,
+    _project_id: Option<&str>,
+    _agent_id: Option<&str>,
 ) -> Result<(), String> {
     Err("session registry store unavailable outside wasm runtime".to_string())
 }
@@ -655,6 +757,31 @@ pub fn record_via_host(_session_id: &str) -> Result<Option<SessionRecord>, Strin
 
 #[cfg(not(target_arch = "wasm32"))]
 pub fn internal_records_json() -> Result<serde_json::Value, String> {
+    Err("session registry store unavailable outside wasm runtime".to_string())
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn live_ids_via_host() -> Result<Vec<String>, String> {
+    Err("session registry store unavailable outside wasm runtime".to_string())
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn run_activity_via_host() -> Result<Vec<model::RunActivity>, String> {
+    Err("session registry store unavailable outside wasm runtime".to_string())
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn list_runs_via_host(_project_id: Option<&str>) -> Result<serde_json::Value, String> {
+    Err("session registry store unavailable outside wasm runtime".to_string())
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn remove_runs_of_project_via_host(_project_id: &str) -> Result<usize, String> {
+    Err("session registry store unavailable outside wasm runtime".to_string())
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn active_runs_of_project_via_host(_project_id: &str) -> Result<usize, String> {
     Err("session registry store unavailable outside wasm runtime".to_string())
 }
 

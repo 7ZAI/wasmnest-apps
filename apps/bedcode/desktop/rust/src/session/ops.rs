@@ -150,9 +150,16 @@ pub fn new_record(
 ) -> SessionRecord {
     SessionRecord {
         id: id.to_string(),
-        // P1 后续阶段由本插件经 host-pty.spawn 自持句柄；今天宿主内部持有
+        // 句柄由 spawn 回执补齐（`note_created`）
         pty_id: None,
         config_id: config_id.to_string(),
+        // 容器归属由创建编排回填（launch 传入项目的目录与命令推断结果）
+        project_id: None,
+        agent_id: None,
+        agent_session_id: None,
+        title: None,
+        model: None,
+        truncated: false,
         name: name.to_string(),
         status: if start {
             SessionStatus::Running
@@ -190,6 +197,12 @@ mod tests {
             id: "s1".to_string(),
             pty_id: None,
             config_id: "c1".to_string(),
+            project_id: None,
+            agent_id: None,
+            agent_session_id: None,
+            title: None,
+            model: None,
+            truncated: false,
             name: "会话".to_string(),
             status,
             created_at: "2026-09-23T09:00:00Z".to_string(),

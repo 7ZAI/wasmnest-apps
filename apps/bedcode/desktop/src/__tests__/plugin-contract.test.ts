@@ -220,6 +220,15 @@ describe('C1 工程身份五处一致', () => {
       // Agent 管理域（原 agent-hub 并入）：hub/mod.rs 分派臂逐条对应；
       // `agent.add/remove-usage-source-path` 为并入时补齐的漏声明（旧 agent-hub
       // manifest 未登记但路由在，生产不可调）
+      // ADR 0003 / issue #23：项目容器命令面（新能力只进 project.* / run.*；
+      // session.* 冻结为运行的兼容投影，不再新增）
+      'project.create',
+      'project.get',
+      'project.list',
+      'project.open',
+      'project.remove',
+      'project.rename',
+      'run.list',
       'agent.add-custom-source',
       'agent.add-usage-source',
       'agent.add-usage-source-path',

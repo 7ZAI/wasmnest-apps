@@ -244,9 +244,15 @@ pub fn prefixed_table_names() -> Vec<&'static str> {
         // 2026-09-22 认证记录下沉：认证记录域表（配对设备 + 连接历史）
         "auth_pairings",
         "auth_connection_history",
-        // 会话引擎整体下沉 P1（2026-09-23）：会话登记域表（会话记录 + 注解槽）
-        "sessions",
+        // 会话引擎整体下沉 P1（2026-09-23）：运行登记域表。`runs` 由 `sessions`
+        // 账本式重命名而来（ADR 0003 容器迁移，见 `project::migrate`）；两个账本表
+        // 是归一事件的落地面（ADR 0004）
+        "runs",
         "session_annotations",
+        "run_events",
+        "permission_audit",
+        // ADR 0003：项目容器
+        "projects",
     ];
     names.extend(TABLE_RENAMES.iter().map(|e| e.prefixed));
     names
@@ -736,5 +742,26 @@ pub(crate) mod tests {
         for legacy in TABLE_RENAMES {
             assert!(!names.contains(&legacy.legacy), "旧名不得出现在统一清单");
         }
+    }
+
+    /// 容器化的表名对账（ADR 0003 / ADR 0004）：`sessions` 必须已从清单里退场，
+    /// 项目表与运行账本表必须在册——清单是迁移与护栏的对账面，漏一格就是「迁移
+    /// 完却没人读」或「读了却没人建」
+    #[test]
+    fn prefixed_names_cover_container_tables() {
+        let names = prefixed_table_names();
+        for expected in [
+            "projects",
+            "runs",
+            "run_events",
+            "permission_audit",
+            "session_annotations",
+        ] {
+            assert!(names.contains(&expected), "缺 {}: {:?}", expected, names);
+        }
+        assert!(
+            !names.contains(&"sessions"),
+            "sessions 已被 runs 取代，不得留在统一清单: {names:?}"
+        );
     }
 }

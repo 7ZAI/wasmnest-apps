@@ -189,6 +189,34 @@
         "title": "Reset scheduled job"
       },
       {
+        "id": "project.create",
+        "title": "Project: Create"
+      },
+      {
+        "id": "project.get",
+        "title": "Project: Get"
+      },
+      {
+        "id": "project.list",
+        "title": "Project: List"
+      },
+      {
+        "id": "project.open",
+        "title": "Project: Open"
+      },
+      {
+        "id": "project.remove",
+        "title": "Project: Remove"
+      },
+      {
+        "id": "project.rename",
+        "title": "Project: Rename"
+      },
+      {
+        "id": "run.list",
+        "title": "Run: List"
+      },
+      {
         "id": "agent.add-custom-source",
         "title": "AddCustomSource"
       },

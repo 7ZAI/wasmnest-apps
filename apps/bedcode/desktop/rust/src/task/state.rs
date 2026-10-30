@@ -459,9 +459,9 @@ pub struct RestartRecovery {
 
 /// 启动恢复：把上一进程遗留的运行中任务行与在途队列项收敛为 interrupted
 ///
-/// **为什么必须有**：会话与 PTY 同生命周期（`session::ensure_schema_via_host`
-/// 在 activate 清空上一进程的会话行），而 agent 进程随宿主退出——新进程里既没有
-/// 那个会话，也不会再有任何 hook 推送（agent 进程已死）。若无本函数，上一进程
+/// **为什么必须有**：PTY 与 agent 进程都随宿主退出（`session::ensure_schema_via_host`
+/// 在 activate 把上一进程遗留的非终态运行收敛成 `Error` 并清空 PTY 句柄），新进程里
+/// 既没有那个 PTY，也不会再有任何 hook 推送（agent 进程已死）。若无本函数，上一进程
 /// 留在 `in_progress` / `asking` / **`retrying`** 的任务行与 `executing` 的队列项
 /// 会永久悬挂：任务历史页长期显示「重试中」、`has_active_task` 恒真把整个队列
 /// 堵死（后续任务再不下发）、定时任务的会话回收也不再触发。
@@ -470,8 +470,9 @@ pub struct RestartRecovery {
 /// （那里收敛定时任务的 `creating`，这里收敛任务行与队列项）。
 ///
 /// 口径与广播：
-/// - 只收敛**会话不在登记域**的行（activate 已清空会话表，故启动时恒为全部遗留行；
-///   写成「不在册才收敛」使调用顺序变化也不会误伤活会话）；
+/// - 只收敛**会话不在册**的行：判据是「运行非终态」（`session::live_ids_via_host`）。
+///   运行行现在跨进程保留，用「表里有行」判 live 会把上一进程的悬挂任务永久卡住；
+///   写成「不在册才收敛」使调用顺序变化也不会误伤活会话；
 /// - `pending` 队列项一并收敛：其会话已随进程消失，无处投递，留着就是永远
 ///   不会被读到的孤儿行（入队清理只在该会话再次入队时发生，而那永不到来）；
 /// - **不广播**：载荷以 `session_id` 键控，而该会话已不存在，订阅方无从匹配；
@@ -505,12 +506,13 @@ pub fn recover_running_tasks_on_restart(host: &WasmHost) -> Result<RestartRecove
         .collect();
 
     // 2. 过滤仍在册会话（P1-b 真源在本域登记视图）
-    let live: HashSet<String> = crate::session::internal_records_json()
-        .ok()
-        .and_then(|v| v.as_array().cloned())
+    //
+    // **判据 = 非终态**（`session::live_ids_via_host`）：ADR 0003 起 `runs` 保留历史，
+    // 终态运行仍会在表里，但它的 PTY 已经不在了——用「表里有行」判 live 会让上一
+    // 进程的悬挂任务永远等不到收敛。
+    let live: HashSet<String> = crate::session::live_ids_via_host()
         .unwrap_or_default()
-        .iter()
-        .filter_map(|s| s.get("id").and_then(|v| v.as_str()).map(str::to_string))
+        .into_iter()
         .collect();
     let orphans: Vec<String> = candidates
         .into_iter()

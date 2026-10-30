@@ -157,13 +157,27 @@ impl Registry {
         Ok(Some(next))
     }
 
-    /// 移除会话（连带清注解槽）；返回是否命中（未知 id 幂等 false）
+    /// 移除运行（连带清注解槽）；返回是否命中（未知 id 幂等 false）
     pub fn remove(&self, store: &impl SessionStore, id: &str) -> Result<bool, String> {
         let hit = store.remove(id)?;
         store.clear_annotations(id)?;
         self.load(store)?;
         self.cache().as_mut().expect("loaded above").remove(id);
         Ok(hit)
+    }
+
+    /// 移除某项目下的全部运行（项目移除的级联面，调用方先校验无活跃运行）
+    ///
+    /// 注解槽由存储端口连带清理；缓存整表重建（批量删除后逐条重算比逐个摘更省心，
+    /// 运行数量级是「几十条」）。
+    pub fn remove_by_project(
+        &self,
+        store: &impl SessionStore,
+        project_id: &str,
+    ) -> Result<usize, String> {
+        let removed = store.remove_by_project(project_id)?;
+        self.reload(store)?;
+        Ok(removed)
     }
 
     /// 会话注解槽（会话不在册 → 空表；不读孤儿键）
@@ -194,11 +208,71 @@ impl Registry {
         Ok(true)
     }
 
-    /// 清空会话域（进程启动对账，见 [`super::store`] 模块头）；返回删除的会话行数
-    pub fn clear(&self, store: &impl SessionStore) -> Result<usize, String> {
-        let removed = store.clear_all()?;
-        *self.cache() = Some(HashMap::new());
-        Ok(removed)
+    /// 清空缓存并整表重读（批量写入后的对账；缓存是可重建的镜像，重建比增量维护省心）
+    fn reload(&self, store: &impl SessionStore) -> Result<(), String> {
+        *self.cache() = None;
+        self.load(store)
+    }
+
+    /// 启动对账：把上一进程遗留的非终态运行收敛到 `Error` 并清空 `pty_id`
+    ///
+    /// 为什么不是「清表」（旧行为）：`runs` 是运行历史（ADR 0003），行不能随进程
+    /// 消失；但 PTY 句柄是进程内存，重启后必然失效——留着 `Running` 就会让列表
+    /// 显示幽灵「运行中」，且任务域的启动恢复会误判「会话仍在册」（见
+    /// `task::state::recover_running_tasks_on_restart` 的 `live` 判据）。
+    ///
+    /// **不走 [`ops::transition`] 状态机**：这不是生命周期迁移，而是孤儿回收——
+    /// 已无任何 PTY 能为它产生后续事件，`Idle → Error` 在状态机里也不合法。
+    ///
+    /// 返回收敛的运行数（0 = 上次进程干净退出）。
+    pub fn converge_orphans(
+        &self,
+        store: &impl SessionStore,
+        now: &str,
+        reason: &str,
+    ) -> Result<usize, String> {
+        self.load(store)?;
+        let orphans: Vec<SessionRecord> = self
+            .cache()
+            .as_ref()
+            .map(|m| {
+                m.values()
+                    .filter(|r| !r.status.is_terminal())
+                    .cloned()
+                    .collect()
+            })
+            .unwrap_or_default();
+        for mut record in orphans.iter().cloned() {
+            record.status = SessionStatus::Error(Some(reason.to_string()));
+            record.pty_id = None;
+            if record.stopped_at.is_none() {
+                record.stopped_at = Some(now.to_string());
+            }
+            record.updated_at = now.to_string();
+            store.put(&record)?;
+            self.cache()
+                .as_mut()
+                .expect("loaded above")
+                .insert(record.id.clone(), record);
+        }
+        Ok(orphans.len())
+    }
+
+    /// 非终态运行的 id（「仍在册」的判据面：终态运行不持有 PTY，不算 live）
+    pub fn live_ids(&self, store: &impl SessionStore) -> Result<Vec<String>, String> {
+        self.load(store)?;
+        let mut ids: Vec<String> = self
+            .cache()
+            .as_ref()
+            .map(|m| {
+                m.values()
+                    .filter(|r| !r.status.is_terminal())
+                    .map(|r| r.id.clone())
+                    .collect()
+            })
+            .unwrap_or_default();
+        ids.sort();
+        Ok(ids)
     }
 }
 
@@ -409,20 +483,79 @@ mod tests {
         );
     }
 
-    /// 启动对账清表：库与缓存一并清空，返回删除行数
+    /// 启动对账：非终态运行收敛成 Error 并清空 PTY 句柄，历史行保留
+    ///
+    /// 旧行为是清表（会话与 PTY 同生命周期）；ADR 0003 起 `runs` 是运行历史，
+    /// 只收敛不删除——否则「关掉再打开还能看到完整历史」不成立。
     #[test]
-    fn clear_drops_store_and_cache() {
+    fn converge_orphans_marks_live_runs_as_error_and_keeps_history() {
+        let mut running = MockSessionStore::record("s1", SessionStatus::Running);
+        running.pty_id = Some("pty-1".to_string());
+        let mut stopped = MockSessionStore::record("s2", SessionStatus::Stopped);
+        stopped.pty_id = None;
+        let store = MockSessionStore::new(vec![running, stopped]);
+        let registry = Registry::new();
+
+        let converged = registry
+            .converge_orphans(&store, "2026-10-29T00:00:00Z", "host restarted")
+            .expect("converge");
+        assert_eq!(converged, 1, "只有非终态那条被收敛");
+
+        let s1 = store.get("s1").unwrap().unwrap();
+        assert_eq!(
+            s1.status,
+            SessionStatus::Error(Some("host restarted".to_string()))
+        );
+        assert!(s1.pty_id.is_none(), "进程级句柄必须清空");
+        assert_eq!(s1.stopped_at.as_deref(), Some("2026-10-29T00:00:00Z"));
+        assert_eq!(store.all().unwrap().len(), 2, "历史行一条都不删");
+
+        let s2 = store.get("s2").unwrap().unwrap();
+        assert_eq!(s2.status, SessionStatus::Stopped, "已终态的不动");
+
+        // 重跑幂等：没有非终态行了
+        assert_eq!(
+            registry
+                .converge_orphans(&store, "2026-10-30T00:00:00Z", "host restarted")
+                .unwrap(),
+            0
+        );
+    }
+
+    /// `live_ids` 只含非终态运行（任务域启动恢复的「仍在册」判据）
+    #[test]
+    fn live_ids_exclude_terminal_runs() {
         let store = MockSessionStore::new(vec![
             MockSessionStore::record("s1", SessionStatus::Running),
             MockSessionStore::record("s2", SessionStatus::Stopped),
+            MockSessionStore::record("s3", SessionStatus::Error(None)),
         ]);
         let registry = Registry::new();
-        registry.load(&store).expect("load");
-        assert_eq!(registry.all(&store).unwrap().len(), 2);
+        assert_eq!(registry.live_ids(&store).unwrap(), vec!["s1".to_string()]);
+    }
 
-        assert_eq!(registry.clear(&store).unwrap(), 2);
-        assert!(store.all().unwrap().is_empty(), "库已清");
-        assert!(registry.all(&store).unwrap().is_empty(), "缓存已清");
+    /// 项目级联删除：同项目运行与注解一并删除，缓存同步
+    #[test]
+    fn remove_by_project_drops_runs_and_reloads_cache() {
+        let store = MockSessionStore::new(vec![]);
+        let registry = Registry::new();
+        let mut in_project = MockSessionStore::record("s1", SessionStatus::Stopped);
+        in_project.project_id = Some("p1".to_string());
+        let mut other = MockSessionStore::record("s2", SessionStatus::Running);
+        other.project_id = Some("p2".to_string());
+        registry.record(&store, &in_project).unwrap();
+        registry.record(&store, &other).unwrap();
+        registry
+            .annotate(&store, "s1", "taskStatus", "idle")
+            .unwrap();
+
+        assert_eq!(registry.remove_by_project(&store, "p1").unwrap(), 1);
+        assert!(registry.get(&store, "s1").unwrap().is_none());
+        assert!(
+            store.all_annotations("s1").unwrap().is_empty(),
+            "注解连带清理"
+        );
+        assert!(registry.get(&store, "s2").unwrap().is_some());
     }
 
     /// 稳定读序：`created_at` 升序、同刻按 id（宿主 `HashMap` 迭代序不确定，本域不复制）

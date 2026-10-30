@@ -483,10 +483,20 @@ pub fn restart_via_host(draft_json: &serde_json::Value) -> Result<serde_json::Va
     //
     // **失败回滚（T-F06）**：旧 PTY 已杀、旧记录已摘——spawn 失败必须恢复记录
     // （旧会话永久消失是最坏结果）并摘掉 pending 条目（否则同 id 日后重建会
-    // 发幽灵 `session-restarted` 事件）
-    if let Err(e) =
-        crate::launch::spawn_session(&config_id, &spec, &request.session_id, &name, &None)
-    {
+    // 发幽灵 `session-restarted` 事件）。
+    //
+    // 容器归属（ADR 0003）随旧记录传入：重启是同一条运行的新进程，若丢掉
+    // `project_id`，下次启动的容器迁移会把它当无主运行删掉。`title` / `model` /
+    // `agentSessionId` 不随重启保留（新进程 = 新 agent 会话，标题由首条消息重新产生）。
+    if let Err(e) = crate::launch::spawn_session(
+        &config_id,
+        &spec,
+        &request.session_id,
+        &name,
+        &None,
+        record.project_id.as_deref(),
+        record.agent_id.as_deref(),
+    ) {
         {
             let mut pending = PENDING_RESTART.lock().unwrap_or_else(|e| e.into_inner());
             pending.retain(|(id, _)| id != &request.session_id);
