@@ -563,11 +563,12 @@ mod tests {
         expected.extend(crate::BUSINESS_HTTP_ENDPOINTS.iter().copied());
         expected.extend(crate::FILE_BROWSE_HTTP_ENDPOINTS.iter().copied());
         expected.extend(crate::sessions_http::SESSIONS_HTTP_PATHS.iter().copied());
+        expected.extend(crate::run::bridge::HTTP_ENDPOINTS.iter().copied());
         expected.push("terminal-bg");
         expected.sort();
         assert_eq!(
             declared, expected,
-            "http_routes::ROUTES 必须与 task::HTTP_ENDPOINTS + BUSINESS_HTTP_ENDPOINTS + FILE_BROWSE_HTTP_ENDPOINTS + SESSIONS_HTTP_PATHS + terminal-bg 逐项一致（auth 七条已随认证中心迁出）"
+            "http_routes::ROUTES 必须与 task::HTTP_ENDPOINTS + BUSINESS_HTTP_ENDPOINTS + FILE_BROWSE_HTTP_ENDPOINTS + SESSIONS_HTTP_PATHS + run::bridge::HTTP_ENDPOINTS + terminal-bg 逐项一致（auth 七条已随认证中心迁出）"
         );
         assert_eq!(HTTP_ENDPOINTS.len(), 17);
         assert_eq!(crate::BUSINESS_HTTP_ENDPOINTS.len(), 2);
@@ -577,6 +578,7 @@ mod tests {
             "票 03 五条 + 票 04 git 三条"
         );
         assert_eq!(crate::sessions_http::SESSIONS_HTTP_PATHS.len(), 7);
+        assert_eq!(crate::run::bridge::HTTP_ENDPOINTS.len(), 4, "run-attach + 三条桥接路由");
         for endpoint in crate::GIT_HTTP_ENDPOINTS {
             assert!(
                 declared.iter().any(|d| d == endpoint),
@@ -611,8 +613,14 @@ mod tests {
             "auth:none 的端点集合必须与 NO_AUTH_HTTP_ENDPOINTS + terminal-bg 一致"
         );
 
-        // 「拿不到 JWT 的调用方」：hook 两条必须全在免凭证清单里
-        for endpoint in ["task-status", "session-mode"] {
+        // 「拿不到 JWT 的调用方」：任务 hook 与桥接扩展必须全在免凭证清单里
+        for endpoint in [
+            "task-status",
+            "session-mode",
+            "run-events",
+            "run-commands",
+            "run-commands-ack",
+        ] {
             assert!(
                 expected_none.contains(&endpoint),
                 "{endpoint} 的调用方拿不到 JWT（hook 脚本），必须声明 auth:none"
@@ -842,13 +850,11 @@ mod tests {
     #[test]
     fn shipped_hook_scripts_point_at_this_plugin() {
         use super::hooks::{
-            CLAUDE_HOOK_TEMPLATE_VERSION, CODEX_HOOK_TEMPLATE_VERSION,
-            OPENCODE_PLUGIN_TEMPLATE_VERSION, PI_EXTENSION_TEMPLATE_VERSION,
+            CLAUDE_HOOK_TEMPLATE_VERSION, CODEX_HOOK_TEMPLATE_VERSION, OPENCODE_BRIDGE_SCRIPT_NAME,
+            OPENCODE_BRIDGE_SOURCE, OPENCODE_PLUGIN_TEMPLATE_VERSION, PI_BRIDGE_SCRIPT_NAME,
+            PI_BRIDGE_SOURCE, PI_EXTENSION_TEMPLATE_VERSION,
         };
-        use wasmnest_plugin_api::constants::{
-            CODEX_HOOK_SCRIPT_NAME, HOOK_SCRIPT_NAME, OPENCODE_HOOK_SCRIPT_NAME,
-            PI_HOOK_SCRIPT_NAME,
-        };
+        use wasmnest_plugin_api::constants::{CODEX_HOOK_SCRIPT_NAME, HOOK_SCRIPT_NAME};
         let shipped: [(&str, &str, &str, &str); 4] = [
             (
                 HOOK_SCRIPT_NAME,
@@ -863,18 +869,23 @@ mod tests {
                 CODEX_HOOK_TEMPLATE_VERSION,
             ),
             (
-                PI_HOOK_SCRIPT_NAME,
-                "pi_task_hook.ts",
-                include_str!("../../../scripts/pi_task_hook.ts"),
+                PI_BRIDGE_SOURCE,
+                "wasmnest_bridge_pi.ts",
+                include_str!("../../../scripts/wasmnest_bridge_pi.ts"),
                 PI_EXTENSION_TEMPLATE_VERSION,
             ),
             (
-                OPENCODE_HOOK_SCRIPT_NAME,
-                "opencode_task_hook.ts",
-                include_str!("../../../scripts/opencode_task_hook.ts"),
+                OPENCODE_BRIDGE_SOURCE,
+                "wasmnest_bridge_opencode.ts",
+                include_str!("../../../scripts/wasmnest_bridge_opencode.ts"),
                 OPENCODE_PLUGIN_TEMPLATE_VERSION,
             ),
         ];
+        assert_eq!(
+            PI_BRIDGE_SCRIPT_NAME, "wasmnest_bridge.ts",
+            "部署名必须是 wasmnest_bridge.ts（与 spec 的合并命名一致）"
+        );
+        assert_eq!(OPENCODE_BRIDGE_SCRIPT_NAME, PI_BRIDGE_SCRIPT_NAME);
         for (constant, file, content, template_version) in shipped {
             assert_eq!(
                 constant, file,
@@ -913,7 +924,7 @@ mod tests {
     /// 锁的是**行为分支的存在性**（而非逐字符快照）：把任一分支改回旧形态即转红。
     #[test]
     fn hook_adapters_keep_error_classification_contracts() {
-        let opencode = include_str!("../../../scripts/opencode_task_hook.ts");
+        let opencode = include_str!("../../../scripts/wasmnest_bridge_opencode.ts");
         assert!(
             opencode.contains("} else if (isRetryableError(error)) {"),
             "opencode 的 retrying 分支必须由可重试判定守卫（不可重试错误要收敛 interrupted）"
@@ -933,7 +944,7 @@ mod tests {
             "StopFailure 缺 background_tasks 守卫（与 handle_stop 不对称，后台任务会被提前判死）"
         );
 
-        let pi = include_str!("../../../scripts/pi_task_hook.ts");
+        let pi = include_str!("../../../scripts/wasmnest_bridge_pi.ts");
         assert!(
             pi.contains("\\b5\\d\\d\\b"),
             "pi 可重试状态码需加词边界（否则 512/52000 等数字片段误命中）"
@@ -958,8 +969,8 @@ mod tests {
     /// agent 自己的收敛事件给，适配器抢推终态会与之分叉。
     #[test]
     fn hook_adapters_reject_quota_errors_before_marking_retrying() {
-        let pi = include_str!("../../../scripts/pi_task_hook.ts");
-        let opencode = include_str!("../../../scripts/opencode_task_hook.ts");
+        let pi = include_str!("../../../scripts/wasmnest_bridge_pi.ts");
+        let opencode = include_str!("../../../scripts/wasmnest_bridge_opencode.ts");
 
         for (file, content) in [("pi", pi), ("opencode", opencode)] {
             assert!(
@@ -993,6 +1004,50 @@ mod tests {
         assert!(
             opencode.contains("} else if (isRetryableError(error)) {"),
             "opencode 的 retrying 分支必须由带非重试守卫的判定函数守卫"
+        );
+    }
+
+    /// 桥接扩展的协议接线（随包脚本无运行时测试，这里锁存在性）
+    ///
+    /// 三条通道缺一条就是静默失效：事件不推 → 对话面空；命令不取 → 发送无反应；
+    /// 回执不送 → 命令永远停在 claimed（30s 后被重投，重复发送）。任务状态推送
+    /// 仍是既有职责，不能因合并而丢。
+    #[test]
+    fn bridge_scripts_speak_the_loopback_protocol() {
+        let pi = include_str!("../../../scripts/wasmnest_bridge_pi.ts");
+        let opencode = include_str!("../../../scripts/wasmnest_bridge_opencode.ts");
+        for (file, content) in [("pi", pi), ("opencode", opencode)] {
+            for marker in [
+                "WASMNEST_SESSION_ID",
+                "run-events",
+                "run-commands",
+                "run-commands-ack",
+                "startCommandLoop",
+                "flushBridge",
+                "task-status",
+            ] {
+                assert!(content.contains(marker), "{file} 桥接缺协议接线: {marker}");
+            }
+            assert!(
+                content.matches("startCommandLoop").count() >= 2,
+                "{file} 必须真的启动命令轮询（声明了函数却没调用 = 死代码）"
+            );
+        }
+        assert!(
+            opencode.contains("run-attach"),
+            "opencode 桥接必须经 run-attach 握手取运行身份（共享服务架构下进程 env 不可信）"
+        );
+        assert!(
+            pi.contains("pi.sendUserMessage"),
+            "pi 发送必须走扩展自定义消息 API（ADR 0004）"
+        );
+        assert!(
+            opencode.contains("sessionApi.prompt") && opencode.contains("sessionApi.chat"),
+            "opencode 发送需兼容两代 session API（v2 prompt / v1 chat；V1/V2 共享核经 sessionApi 注入）"
+        );
+        assert!(
+            opencode.contains("message.part.updated") && opencode.contains("enqueueStream"),
+            "opencode 的 part 快照必须按身份合并后上行"
         );
     }
 }

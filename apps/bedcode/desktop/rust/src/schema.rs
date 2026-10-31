@@ -251,6 +251,8 @@ pub fn prefixed_table_names() -> Vec<&'static str> {
         "session_annotations",
         "run_events",
         "permission_audit",
+        // 桥接下行命令队列（ADR 0004）
+        "run_commands",
         // ADR 0003：项目容器
         "projects",
     ];
@@ -754,6 +756,7 @@ pub(crate) mod tests {
             "projects",
             "runs",
             "run_events",
+            "run_commands",
             "permission_audit",
             "session_annotations",
         ] {

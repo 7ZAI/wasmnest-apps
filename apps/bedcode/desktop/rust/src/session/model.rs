@@ -62,6 +62,24 @@ impl SessionStatus {
     }
 }
 
+/// 桥接心跳的新鲜窗口（秒）：扩展每 500ms 轮询命令，15s 足够容忍一次卡顿；
+/// 超过即视为断开（界面切「镜像模式」），但终端页签不受影响。
+pub const BRIDGE_STALE_SECS: i64 = 15;
+
+impl SessionRecord {
+    /// 桥接是否活着：非终态运行 + 心跳在新鲜窗口内
+    ///
+    /// 终态运行一律 false：进程都没了，桥接状态只影响「能不能继续对话」，
+    /// 历史运行不需要标镜像模式。
+    pub fn bridge_connected(&self, now: &str) -> bool {
+        !self.status.is_terminal()
+            && self
+                .bridge_seen_at
+                .as_deref()
+                .is_some_and(|seen| crate::config::model::is_recent(seen, now, BRIDGE_STALE_SECS))
+    }
+}
+
 /// 会话记录（本插件私有库 `runs` 表的一行）
 ///
 /// **术语**（ADR 0003 / `GLOSSARY.md`）：本类型与 `sessions` 表原名保留在代码里，
@@ -108,6 +126,12 @@ pub struct SessionRecord {
     /// （用户故事 35：知道历史缺了，而不是以为 agent 少说了）。
     #[serde(default)]
     pub truncated: bool,
+    /// 桥接最后一次心跳（`run-events` / `run-commands` 入站时刷新；None = 从未连上）
+    ///
+    /// 只表达「这个运行有没有活着的桥接」：镜像模式判据 = 非终态且心跳不新鲜。
+    /// 心跳**不**刷新 `updated_at`（那不是用户活动，把项目排到最前面是假信号）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bridge_seen_at: Option<String>,
     /// 展示名（唯一化由 `launch::generate_unique_name` 决策）
     pub name: String,
     /// 状态（写库存 JSON 文本，保 `Error` 载荷无损）

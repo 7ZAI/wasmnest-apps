@@ -938,8 +938,8 @@ async fn http_routes_reach_the_plugin_edge_with_declared_method_and_auth_tier() 
         .collect();
     assert_eq!(
         internal_none.len(),
-        2,
-        "内部路径上的 none 档端点 = task-status + session-mode（另加即需逐条交代）"
+        6,
+        "内部路径上的 none 档端点 = task-status + session-mode + 桥接四路由（run-attach 身份握手 + 三条桥接；另加即需逐条交代）"
     );
     for decl in &internal_none {
         let url = format!("{base}/api/plugin/{PLUGIN_ID}/{}", decl.path);
@@ -952,7 +952,7 @@ async fn http_routes_reach_the_plugin_edge_with_declared_method_and_auth_tier() 
         assert_eq!(
             resp.status().as_u16(),
             200,
-            "{} 是 none 档（环回 hook），经内部路径必须免凭证可达（否则 hook 静默 401）",
+            "{} 是 none 档（环回 hook / 桥接），经内部路径必须免凭证可达（否则静默 401）",
             decl.path
         );
     }

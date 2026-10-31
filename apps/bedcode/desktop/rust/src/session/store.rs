@@ -48,6 +48,7 @@ pub const SCHEMA: &[&str] = &[
      canonical_renderer TEXT, \
      owner TEXT, \
      truncated INTEGER NOT NULL DEFAULT 0, \
+     bridge_seen_at TEXT, \
      updated_at TEXT NOT NULL)",
     "CREATE INDEX IF NOT EXISTS idx_runs_config_id ON runs(config_id)",
     "CREATE INDEX IF NOT EXISTS idx_runs_project ON runs(project_id)",
@@ -58,7 +59,10 @@ pub const SCHEMA: &[&str] = &[
      key TEXT NOT NULL, \
      value TEXT NOT NULL, \
      PRIMARY KEY (session_id, key))",
-    // 归一事件账本（ADR 0004）：每条运行最近 [`RUN_EVENT_CAP`] 条，(run_id, seq) 唯一
+    // 归一事件账本（ADR 0004）：每条运行最近 [`RUN_EVENT_CAP`] 条，(run_id, seq) 唯一。
+    // `dedupe_key` 是运行内稳定身份（归一入口的去重/原地更新键），`rev` 是源事件版本
+    // （毫秒；挡住旧快照重放）；老库由 `ensure_schema` 补两列后建部分唯一索引
+    // （见 RUN_EVENTS_DEDUPE_INDEX）
     "CREATE TABLE IF NOT EXISTS run_events (\
      id INTEGER PRIMARY KEY AUTOINCREMENT, \
      run_id TEXT NOT NULL, \
@@ -66,7 +70,9 @@ pub const SCHEMA: &[&str] = &[
      at TEXT NOT NULL, \
      kind TEXT NOT NULL, \
      payload TEXT NOT NULL, \
-     source TEXT NOT NULL)",
+     source TEXT NOT NULL, \
+     dedupe_key TEXT NOT NULL DEFAULT '', \
+     rev INTEGER NOT NULL DEFAULT 0)",
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_run_events_seq ON run_events(run_id, seq)",
     // 权限审计：每次代传的批准/拒绝都留一行（谁在何时批了什么命令）。
     // `command` 存命令原文（不是结构化 input）：审计要能在事后逐字复核
@@ -80,7 +86,27 @@ pub const SCHEMA: &[&str] = &[
      decided_at TEXT NOT NULL, \
      source TEXT NOT NULL)",
     "CREATE INDEX IF NOT EXISTS idx_permission_audit_run ON permission_audit(run_id)",
+    // 桥接命令队列（下行通道）：扩展轮询 claim，执行完 ack；crash 后按 claimed_at
+    // 超时回收（见 `run::bridge::commands`）。行随运行级联删除。
+    "CREATE TABLE IF NOT EXISTS run_commands (\
+     id INTEGER PRIMARY KEY AUTOINCREMENT, \
+     run_id TEXT NOT NULL, \
+     kind TEXT NOT NULL, \
+     payload TEXT NOT NULL, \
+     status TEXT NOT NULL, \
+     created_at TEXT NOT NULL, \
+     claimed_at TEXT, \
+     finished_at TEXT, \
+     error TEXT)",
+    "CREATE INDEX IF NOT EXISTS idx_run_commands_run ON run_commands(run_id, status)",
 ];
+
+/// 事件身份唯一索引（**部分索引**：空身份不参与，兼容无身份的防御性写入）
+///
+/// 不能放进 [`SCHEMA`]：老库的 `run_events` 还没有 `dedupe_key` 列，索引语句会先于
+/// 补列执行而失败。`ensure_schema` 的顺序是「建表 → 补列 → 建索引」。
+pub const RUN_EVENTS_DEDUPE_INDEX: &str = "CREATE UNIQUE INDEX IF NOT EXISTS \
+     idx_run_events_dedupe ON run_events(run_id, dedupe_key) WHERE dedupe_key <> ''";
 
 /// 会话登记存储端口（真源读写；排序与解读归调用方）
 pub trait SessionStore {
@@ -108,7 +134,7 @@ pub trait SessionStore {
 #[cfg(target_arch = "wasm32")]
 mod wasm_impl {
     use super::*;
-    use wasmnest_plugin_api::host::HostPluginDatabase;
+    use wasmnest_plugin_api::host::{HostLog, HostPluginDatabase};
     use wasmnest_plugin_api::sql_params;
     use wasmnest_plugin_api::wasm_host::WasmHost;
 
@@ -171,6 +197,7 @@ mod wasm_impl {
                 .and_then(|v| v.as_str())
                 .map(str::to_string),
             truncated: row.get("truncated").and_then(|v| v.as_i64()).unwrap_or(0) != 0,
+            bridge_seen_at: optional("bridge_seen_at"),
             updated_at: required("updated_at")?,
         })
     }
@@ -201,12 +228,60 @@ mod wasm_impl {
         }
     }
 
+    /// 事件账本补列 + 身份唯一索引（老库兼容）
+    ///
+    /// M1/M2 建出的 `run_events` 没有 `dedupe_key` / `rev`；`CREATE TABLE IF NOT
+    /// EXISTS` 不会补列，索引也不能先于列执行。顺序固定为「建表（含列）→ 补列 →
+    /// 建索引」。
+    fn ensure_run_event_columns(host: &WasmHost) -> Result<(), String> {
+        let rows = host
+            .plugin_db_query("PRAGMA table_info(run_events)")
+            .map_err(|e| format!("run_events pragma failed: {}", e.message))?
+            .unwrap_or_else(|| serde_json::json!([]));
+        let columns: Vec<String> = rows
+            .as_array()
+            .map(|array| {
+                array
+                    .iter()
+                    .filter_map(|row| {
+                        row.get("name")
+                            .and_then(|value| value.as_str())
+                            .map(str::to_string)
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        for (column, ddl) in [
+            (
+                "dedupe_key",
+                "ALTER TABLE run_events ADD COLUMN dedupe_key TEXT NOT NULL DEFAULT ''",
+            ),
+            (
+                "rev",
+                "ALTER TABLE run_events ADD COLUMN rev INTEGER NOT NULL DEFAULT 0",
+            ),
+        ] {
+            if columns.iter().any(|existing| existing == column) {
+                continue;
+            }
+            host.plugin_db_execute(ddl)
+                .map_err(|e| format!("run_events {column} add failed: {}", e.message))?;
+            host.log_warn(&format!(
+                "run_events: added {column} column (legacy ledger from M1/M2)"
+            ));
+        }
+        host.plugin_db_execute(RUN_EVENTS_DEDUPE_INDEX)
+            .map_err(|e| format!("run_events dedupe index failed: {}", e.message))?;
+        Ok(())
+    }
+
     impl SessionStore for WasmHost {
         fn ensure_schema(&self) -> Result<(), String> {
             for stmt in SCHEMA {
                 self.plugin_db_execute(stmt)
                     .map_err(|e| format!("plugin db execute failed: {}", e.message))?;
             }
+            ensure_run_event_columns(self)?;
             Ok(())
         }
 
@@ -230,8 +305,8 @@ mod wasm_impl {
                 "INSERT OR REPLACE INTO runs \
                  (id, pty_id, config_id, project_id, agent_id, agent_session_id, title, model, \
                   name, status, created_at, started_at, stopped_at, canonical_renderer, owner, \
-                  truncated, updated_at) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
+                  truncated, bridge_seen_at, updated_at) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
                 &sql_params![
                     record.id,
                     record.pty_id,
@@ -249,6 +324,7 @@ mod wasm_impl {
                     canonical,
                     record.owner,
                     record.truncated as i64,
+                    record.bridge_seen_at,
                     record.updated_at
                 ],
             )
@@ -257,9 +333,9 @@ mod wasm_impl {
         }
 
         fn remove(&self, id: &str) -> Result<bool, String> {
-            // 账本随行清理：事件 / 权限审计按运行 id 键控，留着就是无主行
-            // （两张表由本域 `ensure_schema` 建出，命令面执行时必然存在）
-            for table in ["run_events", "permission_audit"] {
+            // 账本随行清理：事件 / 权限审计 / 命令队列按运行 id 键控，留着就是无主行
+            // （各表由本域 `ensure_schema` 建出，命令面执行时必然存在）
+            for table in ["run_events", "permission_audit", "run_commands"] {
                 self.plugin_db_execute_params(
                     &format!("DELETE FROM {} WHERE run_id = ?1", table),
                     &sql_params![id],
@@ -282,7 +358,7 @@ mod wasm_impl {
                 &sql_params![project_id],
             )
             .map_err(|e| format!("plugin db delete failed: {}", e.message))?;
-            for table in ["run_events", "permission_audit"] {
+            for table in ["run_events", "permission_audit", "run_commands"] {
                 self.plugin_db_execute_params(
                     &format!(
                         "DELETE FROM {} WHERE run_id IN (SELECT id FROM runs WHERE project_id = ?1)",
@@ -388,6 +464,7 @@ pub(crate) mod tests {
                 canonical_renderer: Some(RendererSource::Desktop),
                 owner: Some("com.wasmnest.bedcode".to_string()),
                 truncated: false,
+                bridge_seen_at: None,
                 updated_at: "2026-09-23T09:00:00Z".to_string(),
             }
         }
@@ -488,6 +565,7 @@ pub(crate) mod tests {
             "session_annotations",
             "run_events",
             "permission_audit",
+            "run_commands",
         ] {
             assert!(
                 ddl.contains(&format!("CREATE TABLE IF NOT EXISTS {}", table)),
@@ -496,14 +574,31 @@ pub(crate) mod tests {
             );
         }
         // 账本表的关键列与索引形状（读方按这些名字取数）
-        for column in ["run_id", "seq", "kind", "payload", "source"] {
+        for column in [
+            "run_id",
+            "seq",
+            "kind",
+            "payload",
+            "source",
+            "dedupe_key",
+            "rev",
+        ] {
             assert!(ddl.contains(column), "run_events 缺列 {column}");
         }
         assert!(
             ddl.contains("idx_run_events_seq ON run_events(run_id, seq)"),
             "事件账本的 (run_id, seq) 唯一索引是本域的不变量"
         );
-        assert_eq!(RUN_EVENT_CAP, 20_000, "上限取值是 spec 决定，改动需同步 README 与 ADR");
+        assert!(
+            RUN_EVENTS_DEDUPE_INDEX.contains("UNIQUE INDEX")
+                && RUN_EVENTS_DEDUPE_INDEX.contains("(run_id, dedupe_key)")
+                && RUN_EVENTS_DEDUPE_INDEX.contains("WHERE dedupe_key <> ''"),
+            "事件身份索引必须是 (run_id, dedupe_key) 的部分唯一索引: {RUN_EVENTS_DEDUPE_INDEX}"
+        );
+        assert_eq!(
+            RUN_EVENT_CAP, 20_000,
+            "上限取值是 spec 决定，改动需同步 README 与 ADR"
+        );
     }
 
     /// 内存实现的行语义（put 覆盖 / remove 命中 / 按项目级联删除 / 注解覆盖）——

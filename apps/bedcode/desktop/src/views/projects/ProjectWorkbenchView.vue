@@ -253,7 +253,7 @@
         @keydown="onRunsHandleKeydown"
       ></div>
 
-      <!-- ==================== 中：对话面（M3 接管，M2 显性占位） ==================== -->
+      <!-- ==================== 中：对话面（M3：run.events + run.send 接管） ==================== -->
       <section class="flex-1 min-w-0 flex flex-col">
         <div class="h-10 px-3 shrink-0 flex items-center gap-2 border-b border-[var(--border)]">
           <span
@@ -266,6 +266,14 @@
               class="min-w-0 wb-mono text-[calc(11px*var(--ui-scale))] text-[var(--text-secondary)] truncate"
             >
               {{ selectedRun.agentId || '—' }}
+            </span>
+            <!-- 模型：桥接 meta 回填到运行行后可见（镜像模式无此数据，不占位） -->
+            <span
+              v-if="selectedRun.model && showChatSessionMeta"
+              class="min-w-0 wb-mono text-[calc(10.5px*var(--ui-scale))] text-[var(--text-tertiary)] truncate"
+              :title="selectedRun.model"
+            >
+              {{ selectedRun.model }}
             </span>
             <!-- 对话面被拖窄时不硬塞会话 id：三样东西挤在一行只会互相裁剪 -->
             <span
@@ -301,29 +309,22 @@
           </template>
         </div>
 
-        <div
-          class="flex-1 min-h-0 overflow-auto flex flex-col items-center justify-center px-8 text-center"
-        >
-          <svg
-            class="w-8 h-8 mb-3 text-[var(--text-tertiary)]"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="1.25"
-              d="M8 10h8m-8 4h5m-9 5h16a1 1 0 001-1V5a1 1 0 00-1-1H4a1 1 0 00-1 1v13a1 1 0 001 1z"
-            />
-          </svg>
-          <p class="text-sm text-[var(--text-primary)]">{{ t('project.chat.placeholderTitle') }}</p>
-          <p
-            class="mt-1.5 max-w-md text-[calc(11.5px*var(--ui-scale))] leading-relaxed text-[var(--text-secondary)]"
-          >
-            {{ t('project.chat.placeholderBody') }}
-          </p>
-        </div>
+        <ConversationSurface
+          class="flex-1 min-h-0"
+          :run-id="selectedRun?.id ?? null"
+          :run-active="selectedRunActive"
+          :agent-id="selectedRun?.agentId ?? null"
+          :events="runEvents.events.value"
+          :pending="runEvents.pending.value"
+          :truncated="runEvents.truncated.value"
+          :bridge-connected="runEvents.bridge.value?.connected ?? null"
+          :load-error="runEvents.loadError.value"
+          :loading="runEvents.loading.value"
+          :sending="isSending"
+          @send="onChatSend"
+          @stop="onChatStop"
+          @retry="onEventsRetry"
+        />
       </section>
 
       <!-- 拖拽手柄：对话面 ↔ 右栏检查器 -->
@@ -424,15 +425,14 @@
           <TerminalPreview :session="selectedRunSession" :show-input="true" :show-header="false" />
         </div>
 
-        <!-- 事件（M3 才接管） -->
-        <div
-          v-else
-          class="flex-1 flex items-center justify-center px-6 text-center"
-          data-testid="inspector-events"
-        >
-          <p class="text-[calc(11.5px*var(--ui-scale))] text-[var(--text-secondary)]">
-            {{ t('project.inspector.eventsEmpty') }}
-          </p>
+        <!-- 事件：账本原始归一事件（只读，排障用；渲染版在中栏对话面） -->
+        <div v-else-if="inspectorTab === 'events'" class="flex-1 min-h-0">
+          <ChatEventInspector
+            :events="runEvents.events.value"
+            :loading="runEvents.loading.value"
+            :load-error="runEvents.loadError.value"
+            @retry="onEventsRetry"
+          />
         </div>
       </aside>
     </div>
@@ -510,10 +510,15 @@
 
 <script setup lang="ts">
 /**
- * 项目工作台（ADR 0003 / issue #23 M2）
+ * 项目工作台（ADR 0003 / issue #23 M2；M3 对话面接线）
  *
- * 三栏：左运行列表 + 新建运行｜中对话面（M3 接管，M2 给显性占位）｜右检查器
+ * 三栏：左运行列表 + 新建运行｜中对话面（run.events / run.send）｜右检查器
  * （变更 / 终端 / 事件）。
+ *
+ * **对话面与事件页签共用一条账本读取**（`useRunEvents`，唯一实例挂在选中
+ * 运行上）：中栏吃渲染模型（`ConversationSurface`），检查器「事件」页签看
+ * 原始归一行（`ChatEventInspector`）；发送走 `run.send`（后端对镜像模式 /
+ * 终态显性拒绝），停止复用 `session.close`。
  *
  * **两侧宽度可拖拽**（usePaneResize）：写死宽度在窄窗口下会把对话面挤成一条缝，
  * 而检查器里的终端宽度直接决定 PTY 列数与换行——宽度该由用户定。上限按容器实测
@@ -533,9 +538,12 @@ import { toast } from 'vue-sonner'
 import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-desktop'
 import PluginModal from '@/components/PluginModal.vue'
 import TerminalPreview from '@/components/terminal/TerminalPreview.vue'
+import ConversationSurface from '@/components/chat/ConversationSurface.vue'
+import ChatEventInspector from '@/components/chat/ChatEventInspector.vue'
 import { resolvePluginErrorText } from '@/utils/pluginError'
 import { agentGlyph } from '@/agents/registry'
 import { usePaneResize } from '@/composables/usePaneResize'
+import { useRunEvents } from '@/composables/useRunEvents'
 import {
   envBadge,
   isLiveRun,
@@ -741,6 +749,51 @@ const selectedRun = computed<RunView | null>(() => {
   return byId ?? runs.value[0] ?? null
 })
 
+/** 非终态（轮询活性判据：终态运行补最后一拍后停轮询） */
+const selectedRunActive = computed(() => !!selectedRun.value && isLiveRun(selectedRun.value.status))
+
+// ==================== 对话面数据（run.events 唯一入口） ====================
+
+/**
+ * 账本读取面：中栏对话面与检查器「事件」页签共用同一实例——一条运行一条
+ * 轮询，两个消费者不各拉各的。`runId` 为 null（无运行）时组合式内部停拍。
+ */
+const runEvents = useRunEvents(context, computed(() => selectedRun.value?.id ?? null), {
+  active: selectedRunActive,
+})
+
+/** 发送在途（按钮态；错误由 toast 承载） */
+const isSending = ref(false)
+
+/** 对话面发送 → `run.send`（镜像模式 / 终态由后端显性拒绝，这里转可读提示） */
+async function onChatSend(text: string): Promise<void> {
+  if (!selectedRun.value || isSending.value) return
+  isSending.value = true
+  try {
+    await runEvents.sendText(text)
+  } catch (e) {
+    console.error('[Project Workbench] send failed:', e)
+    toast.error(resolvePluginErrorText(context, e, 'project.chat.sendFailed'))
+  } finally {
+    isSending.value = false
+  }
+}
+
+/** 对话面停止 = 既有停止链（session.close：PTY 路径永远可用） */
+async function onChatStop(): Promise<void> {
+  const run = selectedRun.value
+  if (run) await stop(run)
+}
+
+/** 读取失败重试（横幅按钮 / 手动刷新共用）：从当前游标续拉 */
+async function onEventsRetry(): Promise<void> {
+  try {
+    await runEvents.retry()
+  } catch (e) {
+    console.error('[Project Workbench] events retry failed:', e)
+  }
+}
+
 /** 传给终端组件的会话形状（同一条 PTY，运行视图 ↔ 会话视图同源） */
 const selectedRunSession = computed(() =>
   selectedRun.value ? runAsSession(selectedRun.value) : null,
@@ -830,7 +883,12 @@ async function refreshRuns(): Promise<void> {
 
 async function refresh(): Promise<void> {
   try {
-    await Promise.all([loadRuns(projectId.value), loadProject(projectId.value), loadAgents()])
+    await Promise.all([
+      loadRuns(projectId.value),
+      loadProject(projectId.value),
+      loadAgents(),
+      runEvents.retry(),
+    ])
     toast.info(t('project.toast.refreshed'))
   } catch (e) {
     toast.error(resolvePluginErrorText(context, e, 'project.error.loadFailed'))
@@ -955,6 +1013,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   stopTicker()
+  runEvents.dispose()
   disposeRuns()
   disposeInspector()
   for (const disposable of eventDisposables) disposable.dispose()

@@ -1140,14 +1140,50 @@ const zhCN: MessageSchema = {
   'project.run.agentUnknown': '未探测',
   'project.run.installHint': '去 Agent 管理安装',
 
-  // 对话面（M3 才接管；M2 给显性占位）
+  // 对话面（M3：run.events 账本 + run.send 发送）
   'project.chat.title': '对话',
-  'project.chat.placeholderTitle': '对话面在下一阶段接入',
-  'project.chat.placeholderBody':
-    '桥接与事件账本（M3）落地后，这里显示正文流、工具卡与权限卡；现在请看右侧「终端」页签里的真实终端。',
   'project.chat.agentSessionId': 'Agent 会话',
   'project.chat.copyId': '复制会话 id',
   'project.chat.copied': '已复制',
+  'project.chat.emptyTitle': '还没有对话',
+  'project.chat.emptyHint': '在下面发送第一条消息；也可以随时切到右侧「终端」页签直接操作 agent',
+  'project.chat.emptyNoRun': '左侧选一条运行开始对话',
+  'project.chat.emptyNoRunHint':
+    '每条运行是一次 agent 进程启动及其全部对话；先在左栏「新建运行」里选一个 agent',
+  'project.chat.inputPlaceholder': '输入消息，Enter 发送 / Shift+Enter 换行',
+  'project.chat.send': '发送',
+  'project.chat.sending': '发送中…',
+  'project.chat.sendFailed': '发送失败',
+  'project.chat.stop': '停止运行',
+  'project.chat.queued': '排队中',
+  'project.chat.generating': '生成中…',
+  'project.chat.thinking': '思考过程',
+  'project.chat.thinkingRedacted': '思考过程（已被 agent 隐去）',
+  'project.chat.toolState.pending': '等待',
+  'project.chat.toolState.running': '执行中',
+  'project.chat.toolState.done': '完成',
+  'project.chat.toolState.error': '出错',
+  'project.chat.expandOutput': '展开输出',
+  'project.chat.collapse': '收起',
+  'project.chat.patchTitle': '文件变更',
+  'project.chat.patchFiles': '{n} 个文件',
+  'project.chat.showDiff': '查看差异',
+  'project.chat.hideDiff': '收起差异',
+  'project.chat.planTitle': '计划',
+  'project.chat.permissionTitle': '权限请求',
+  'project.chat.permissionNeedTerminal': '需到「终端」页签确认（当前 agent 暂不支持在对话里批准/拒绝）',
+  'project.chat.permissionDecidedBy': '已由 {by} 处理',
+  'project.chat.agentState.busy': '执行中…',
+  'project.chat.agentState.retrying': '重试中…',
+  'project.chat.agentState.error': '出错',
+  'project.chat.mirrorMode': '镜像模式',
+  'project.chat.mirrorHint': '桥接未连接：事件由账本镜像供给（可能滞后），输入不可用，请在「终端」页签操作',
+  'project.chat.mirrorPiTrust':
+    '桥接未加载：pi 尚未授予本项目信任，请先在终端里启动 pi 并信任本项目，之后对话面自动恢复输入',
+  'project.chat.truncated': '事件较多，已只保留最近一部分（更早的正文请看「终端」页签回滚）',
+  'project.chat.loadFailed': '事件读取失败',
+  'project.chat.retry': '重试',
+  'project.chat.expandPayload': '展开 JSON',
 
   // 检查器
   'project.inspector.changes': '变更',
@@ -1155,7 +1191,7 @@ const zhCN: MessageSchema = {
   'project.inspector.events': '事件',
   'project.inspector.noSelection': '选一条运行看它的终端与事件',
   'project.inspector.changesEmpty': '变更卡随 M3 的 patch 事件接入',
-  'project.inspector.eventsEmpty': '事件流随 M3 的账本接入',
+  'project.inspector.eventsEmpty': '这条运行还没有事件',
 }
 
 export default zhCN

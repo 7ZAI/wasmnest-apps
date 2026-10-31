@@ -21,6 +21,7 @@ import {
   clickContaining,
   clickNth,
   count,
+  DEFAULT_TIMEOUT,
   exists,
   typeInto,
   visible,
@@ -54,6 +55,21 @@ const NAV_ITEMS = [
  */
 const E2E_PROJECT_DIR = join(homedir(), 'bedcode-e2e-project')
 mkdirSync(E2E_PROJECT_DIR, { recursive: true })
+
+/**
+ * 等运行列表到稳态再读数：进工作台（project-workbench 可见）≠ 运行列表已加载，
+ * 项目复用历史运行时立刻 count 会读到 0，让「新增一条」断言整体错位。
+ */
+async function waitForRunsSettled(): Promise<void> {
+  await browser.waitUntil(
+    async () => (await count('run-item')) > 0 || (await visible('run-empty')),
+    {
+      timeout: DEFAULT_TIMEOUT,
+      interval: 150,
+      timeoutMsg: '运行列表未到稳态（无 run-item 也无空态提示）',
+    },
+  )
+}
 
 describe('BedCode（桌面端 · 宿主内挂载）', () => {
   beforeEach(async () => {
@@ -136,6 +152,7 @@ describe('BedCode（桌面端 · 宿主内挂载）', () => {
     // 同目录项目跨次复用：进工作台时**可能**已有历史运行，终端面板不是本步骤
     // 产生的元素（无运行时检查器渲染 inspector-empty）。这里只断言页签结构在位。
     expectEqual(await exists('inspector-tab-terminal'), true, '检查器终端页签在位')
+    await waitForRunsSettled()
     const runsBefore = await count('run-item')
 
     // 第一条运行：弹窗列出注册表里的 agent（与是否已安装无关，未装也能起 PTY）
@@ -200,5 +217,72 @@ describe('BedCode（桌面端 · 宿主内挂载）', () => {
     }
     await waitForCount('run-item', runsAfter)
     expectEqual(await count('run-item'), runsAfter, '刷新后运行列表仍在')
+  })
+
+  // ==================== 对话面（ADR 0004 / issue #23 M3） ====================
+
+  /**
+   * 对话面接 run.events 的真实回环：桥接扩展随 run.start 部署进项目目录 →
+   * opencode 启动后回连 run-events / run-commands 回环（任意轮询都 touch 心跳）
+   * → 输入解锁 → 消息经 run.send 上行并回显 → 停止后输入带原因禁用。
+   *
+   * 判据纪律：断言状态位（testid 有无 / data-status）而非文案；不依赖模型
+   * 可用性——助手侧流式 / 工具状态机 / patch 卡属人工验收（handoff §5.1），
+   * 脚本层只证「事件回环 + 发送 / 停止入口」。
+   */
+  it('项目：对话面桥接在线、事件上行、发送与停止入口', async () => {
+    await click('nav-projects')
+    await waitFor('projects-view')
+
+    await click('projects-create')
+    await waitFor('project-form-dir')
+    await typeInto('project-form-dir', E2E_PROJECT_DIR)
+    await click('project-form-submit')
+    await waitFor('project-workbench')
+
+    // 起一条真实 opencode 运行（桥接扩展随会话创建部署进项目目录）
+    await waitForRunsSettled()
+    const runsBefore = await count('run-item')
+    await click('run-new')
+    await waitFor('run-agent-opencode')
+    await click('run-agent-opencode')
+    await allowFsAuthPrompts()
+    await waitForCount('run-item', runsBefore + 1)
+    await waitFor('run-terminal')
+
+    // 对话面在位；桥接回连后输入才解锁——chat-input 只在启用态渲染 testid，
+    // 禁用态只有 chat-input-reason（禁用必给原因，不渲染灰假输入框）。
+    await waitFor('conversation-surface')
+    await waitFor('chat-input', 30_000)
+    expectEqual(await exists('chat-mirror-banner'), false, '桥接在线不显示镜像横幅')
+    // status / session.meta 不进时间线：桥接在线但尚无对话行时是空态而非报错
+    expectEqual(await visible('chat-empty'), true, '无对话行时显示空态')
+
+    // 发送入口：文本经 run.send 上行，命令被桥接领取并执行（现场建会话 + prompt
+    // 被接受）——「排队中」本地气泡即发送链路的 UI 证词；事件流回显（用户气泡
+    // chat-row-user）依赖可用模型（本机 opencode 工作区隐私门拒绝其默认模型），
+    // 属人工验收（handoff §5.1），不进脚本判据。
+    await typeInto('chat-input', 'e2e 对话面探针：收到请原样回复 ok')
+    await click('chat-send')
+    await waitFor('chat-row-pending', 15_000)
+
+    // 事件上行：检查器「事件」页签出现归一行——桥接对 session.created 的
+    // status 上行不依赖模型（会话由发送侧现场创建），足以证明回环闭环
+    await click('inspector-tab-events')
+    await waitForCount('inspector-event-row', 1, 30_000)
+
+    // 停止入口：复用 session.close 停止链 → 运行转终态 → 输入带原因禁用
+    await click('chat-stop')
+    await waitGone('chat-input')
+    await waitFor('chat-input-reason')
+    await browser.waitUntil(
+      async () => {
+        const statuses = await attrs('run-item', 'data-status')
+        const actives = await attrs('run-item', 'data-active')
+        const idx = actives.indexOf('true')
+        return idx >= 0 && statuses[idx] !== 'running' && statuses[idx] !== 'starting'
+      },
+      { timeout: 15_000, interval: 200, timeoutMsg: '停止后运行未转终态（run-item data-status）' },
+    )
   })
 })

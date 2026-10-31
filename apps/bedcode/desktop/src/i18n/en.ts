@@ -1173,14 +1173,54 @@ const en: MessageSchema = {
   'project.run.agentUnknown': 'not detected',
   'project.run.installHint': 'Install in Agent Management',
 
-  // Conversation pane (arrives with M3; M2 shows an explicit placeholder)
+  // Conversation pane (M3: run.events ledger + run.send)
   'project.chat.title': 'Conversation',
-  'project.chat.placeholderTitle': 'Conversation view lands next stage',
-  'project.chat.placeholderBody':
-    'Once the bridge and event ledger (M3) land, this pane shows streaming text, tool cards and permission cards. For now use the terminal tab on the right.',
   'project.chat.agentSessionId': 'Agent session',
   'project.chat.copyId': 'Copy session id',
   'project.chat.copied': 'Copied',
+  'project.chat.emptyTitle': 'No conversation yet',
+  'project.chat.emptyHint':
+    'Send the first message below, or switch to the terminal tab on the right to drive the agent directly',
+  'project.chat.emptyNoRun': 'Pick a run on the left to start a conversation',
+  'project.chat.emptyNoRunHint':
+    'Each run is one agent process launch plus its whole conversation; start one via "New run" on the left',
+  'project.chat.inputPlaceholder': 'Type a message — Enter to send, Shift+Enter for a new line',
+  'project.chat.send': 'Send',
+  'project.chat.sending': 'Sending…',
+  'project.chat.sendFailed': 'Failed to send',
+  'project.chat.stop': 'Stop run',
+  'project.chat.queued': 'Queued',
+  'project.chat.generating': 'Generating…',
+  'project.chat.thinking': 'Thinking',
+  'project.chat.thinkingRedacted': 'Thinking (redacted by the agent)',
+  'project.chat.toolState.pending': 'Pending',
+  'project.chat.toolState.running': 'Running',
+  'project.chat.toolState.done': 'Done',
+  'project.chat.toolState.error': 'Failed',
+  'project.chat.expandOutput': 'Show output',
+  'project.chat.collapse': 'Collapse',
+  'project.chat.patchTitle': 'File changes',
+  'project.chat.patchFiles': '{n} file(s)',
+  'project.chat.showDiff': 'View diff',
+  'project.chat.hideDiff': 'Hide diff',
+  'project.chat.planTitle': 'Plan',
+  'project.chat.permissionTitle': 'Permission request',
+  'project.chat.permissionNeedTerminal':
+    'Approve in the terminal tab (this agent cannot reply to permission prompts from the conversation yet)',
+  'project.chat.permissionDecidedBy': 'Handled by {by}',
+  'project.chat.agentState.busy': 'Working…',
+  'project.chat.agentState.retrying': 'Retrying…',
+  'project.chat.agentState.error': 'Error',
+  'project.chat.mirrorMode': 'Mirror mode',
+  'project.chat.mirrorHint':
+    'Bridge offline: events come from the ledger mirror (may lag). Input is disabled — use the terminal tab',
+  'project.chat.mirrorPiTrust':
+    'Bridge not loaded: pi has not been granted trust for this project yet. Start pi in the terminal and trust this project; input resumes automatically afterwards',
+  'project.chat.truncated':
+    'The ledger is long; only the most recent events are kept (scroll back in the terminal tab for earlier output)',
+  'project.chat.loadFailed': 'Failed to read events',
+  'project.chat.retry': 'Retry',
+  'project.chat.expandPayload': 'Show JSON',
 
   // Inspector
   'project.inspector.changes': 'Changes',
@@ -1188,7 +1228,7 @@ const en: MessageSchema = {
   'project.inspector.events': 'Events',
   'project.inspector.noSelection': 'Select a run to inspect its terminal and events',
   'project.inspector.changesEmpty': 'Change cards arrive with M3 patch events',
-  'project.inspector.eventsEmpty': 'The event stream arrives with the M3 ledger',
+  'project.inspector.eventsEmpty': 'This run has no events yet',
 }
 
 export default en

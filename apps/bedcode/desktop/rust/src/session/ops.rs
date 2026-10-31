@@ -160,6 +160,7 @@ pub fn new_record(
         title: None,
         model: None,
         truncated: false,
+        bridge_seen_at: None,
         name: name.to_string(),
         status: if start {
             SessionStatus::Running
@@ -203,6 +204,7 @@ mod tests {
             title: None,
             model: None,
             truncated: false,
+            bridge_seen_at: None,
             name: "会话".to_string(),
             status,
             created_at: "2026-09-23T09:00:00Z".to_string(),

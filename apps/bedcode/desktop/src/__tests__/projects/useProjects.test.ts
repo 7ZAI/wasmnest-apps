@@ -97,6 +97,8 @@ function run(id: string, status: string, active: boolean): RunView {
     updatedAt: '2026-10-29T00:00:09Z',
     active,
     truncated: false,
+    bridgeSeenAt: null,
+    bridgeConnected: false,
   }
 }
 

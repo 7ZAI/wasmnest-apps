@@ -49,6 +49,10 @@ pub const RUN_EXTRA_COLUMNS: &[(&str, &str)] = &[
         "truncated",
         "ALTER TABLE runs ADD COLUMN truncated INTEGER NOT NULL DEFAULT 0",
     ),
+    (
+        "bridge_seen_at",
+        "ALTER TABLE runs ADD COLUMN bridge_seen_at TEXT",
+    ),
 ];
 
 /// 任务队列绑定键列（会话 id → 项目 + agent）
@@ -95,6 +99,28 @@ pub fn migrate_via_host() -> Result<migrate::ContainerMigrationReport, String> {
 }
 
 // ==================== 读面 ====================
+
+/// 按归一化工作目录找项目 id（桥接 `run-attach` 的目录解析面）
+///
+/// 不区分执行环境：opencode 只报得出 cwd，环境归属由运行侧裁决（同目录跨环境
+/// 是边界形态，候选全部返回——运行按 agent / 绑定状态自证）。返回顺序即存储序。
+#[cfg(target_arch = "wasm32")]
+pub fn ids_by_working_dir_via_host(working_dir: &str) -> Result<Vec<String>, String> {
+    let dir = ops::normalize_working_dir(working_dir);
+    if dir.is_empty() {
+        return Ok(Vec::new());
+    }
+    Ok(ProjectStore::all(&WasmHost)?
+        .into_iter()
+        .filter(|project| project.working_dir == dir)
+        .map(|project| project.id)
+        .collect())
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn ids_by_working_dir_via_host(_working_dir: &str) -> Result<Vec<String>, String> {
+    Err("project store unavailable outside wasm runtime".to_string())
+}
 
 /// 项目列表（派生统计随行；按最近活动倒序）
 #[cfg(target_arch = "wasm32")]
@@ -579,7 +605,7 @@ mod wasm_impl {
             .map_err(|e| format!("orphan annotations delete failed: {}", e.message))?;
             // 事件账本 / 权限审计按运行 id 键控：与 SessionStore::remove 同一套级联。
             // 迁移跑在各域 ensure_schema 之前，这两张表可能还不存在 → 先判表。
-            for table in ["run_events", "permission_audit"] {
+            for table in ["run_events", "permission_audit", "run_commands"] {
                 if table_exists(self, table)? {
                     self.plugin_db_execute_params(
                         &format!("DELETE FROM {} WHERE run_id = ?1", table),

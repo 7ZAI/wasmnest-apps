@@ -54,6 +54,11 @@ com.wasmnest.bedcode/task-status`（`auth: none`，回环免凭证，`http_route
 - 注入模板从「任务状态推送器」升级为「桥接」，`task/hooks.rs` 的模板版本与自动重部署机制
   继续使用，模板版本号 +1。
 - 平台零改动：无新权限、无新 WIT、无新能力域。
+- **落地更新（2026-10-30）**：桥接部署名统一为 `wasmnest_bridge.ts`（源文件
+  `wasmnest_bridge_pi.ts` / `wasmnest_bridge_opencode.ts`，旧的两种任务 hook 部署时清理）；
+  回环协议为 `run-events`（事件上行）/ `run-commands`（命令领取 + 心跳）/
+  `run-commands-ack`（回执）三条 `auth: none` 路由；命令队列落插件私有库 `run_commands`，
+  桥接心跳落 `runs.bridge_seen_at`。
 - **核查结果**（2026-10-29，外部文档 + 本机数据核对；仍须在本机实测的标「待测」）：
   1. **opencode 程序化回复权限：存在。** `POST /permission/{requestID}/reply`，body
      `{ reply: "once" | "always" | "reject", message?: string }`；另有 `GET /permission`

@@ -2143,6 +2143,13 @@ impl WasmPlugin for SessionPlugin {
             // 启动本身仍走 `launch` 的唯一那条链（命名唯一化 / PTY spawn / 事件广播）
             "run.start" => run::start_via_host(&args).map_err(anyhow::Error::msg),
 
+            // 运行事件账本 {runId, afterId?, limit?} → {runId, truncated, cursor, events[]}
+            // 对话面的唯一读面（ADR 0004）：归一事件按 seq 升序，cursor 做增量轮询
+            "run.events" => run::events::list_via_host(&args).map_err(anyhow::Error::msg),
+
+            // 发送消息 {runId, text} → {commandId}（经桥接命令队列；镜像模式显性拒绝）
+            "run.send" => run::bridge::send_via_host(&args).map_err(anyhow::Error::msg),
+
             // ==================== Agent 管理域（原 agent-hub 并入） ====================
             // `agent.*` 命令面整体转发到 hub 域路由（探测/安装/引导/Skills/供应商/
             // 用量），未知 agent.* 命令由 hub 显性报错。
@@ -2287,7 +2294,16 @@ pub const GIT_HTTP_ENDPOINTS: &[&str] = &["git/branches", "git/status", "git/che
 ///
 /// 认证链七条（`auth/*`）曾是第三批，issue #6 切换后随认证中心迁出本插件，
 /// 由 `com.wasmnest.auth-center` 在注册成功后自行登记 `/api/auth/*`。
-pub const NO_AUTH_HTTP_ENDPOINTS: &[&str] = &["task-status", "session-mode"];
+pub const NO_AUTH_HTTP_ENDPOINTS: &[&str] = &[
+    "task-status",
+    "session-mode",
+    // ADR 0004 桥接：扩展在 agent 进程内，拿不到 JWT（与 task-status 同先例）；
+    // run-attach 是共享服务架构下的运行身份握手（同环回先例）
+    "run-attach",
+    "run-events",
+    "run-commands",
+    "run-commands-ack",
+];
 
 /// 业务域 HTTP 分派入口（先业务域后任务域，路径全等匹配）
 ///
@@ -2313,6 +2329,11 @@ fn handle_http_endpoint(
         "file-tree" | "file-tree-children" | "file-content" | "diff-tree" | "file-diff"
         | "git/branches" | "git/status" | "git/checkout" => {
             file_browse::handle_http_endpoint(host, method, path, body, query)
+        }
+        // 桥接回环路由（ADR 0004）：运行身份握手 / 事件入站 / 命令领取 / 命令回执。
+        // 环回免凭证，与 task-status / session-mode 同一先例（扩展拿不到 JWT）。
+        "run-attach" | "run-events" | "run-commands" | "run-commands-ack" => {
+            run::bridge::handle_http_endpoint(host, method, path, body)
         }
         // 认证链七端点已随认证中心迁出（issue #6）：本插件不再登记、也不再分派
         // `auth/*`——宿主 `/api/auth/*` 由 `com.wasmnest.auth-center` 接管。

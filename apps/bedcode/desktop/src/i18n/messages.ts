@@ -1183,13 +1183,48 @@ export type MessageSchema = {
   'project.run.agentUnknown': string
   'project.run.installHint': string
 
-  // 对话面（M3 才接管；M2 给显性占位）
+  // 对话面（M3：run.events 账本 + run.send 发送）
   'project.chat.title': string
-  'project.chat.placeholderTitle': string
-  'project.chat.placeholderBody': string
   'project.chat.agentSessionId': string
   'project.chat.copyId': string
   'project.chat.copied': string
+  'project.chat.emptyTitle': string
+  'project.chat.emptyHint': string
+  'project.chat.emptyNoRun': string
+  'project.chat.emptyNoRunHint': string
+  'project.chat.inputPlaceholder': string
+  'project.chat.send': string
+  'project.chat.sending': string
+  'project.chat.sendFailed': string
+  'project.chat.stop': string
+  'project.chat.queued': string
+  'project.chat.generating': string
+  'project.chat.thinking': string
+  'project.chat.thinkingRedacted': string
+  'project.chat.toolState.pending': string
+  'project.chat.toolState.running': string
+  'project.chat.toolState.done': string
+  'project.chat.toolState.error': string
+  'project.chat.expandOutput': string
+  'project.chat.collapse': string
+  'project.chat.patchTitle': string
+  'project.chat.patchFiles': string
+  'project.chat.showDiff': string
+  'project.chat.hideDiff': string
+  'project.chat.planTitle': string
+  'project.chat.permissionTitle': string
+  'project.chat.permissionNeedTerminal': string
+  'project.chat.permissionDecidedBy': string
+  'project.chat.agentState.busy': string
+  'project.chat.agentState.retrying': string
+  'project.chat.agentState.error': string
+  'project.chat.mirrorMode': string
+  'project.chat.mirrorHint': string
+  'project.chat.mirrorPiTrust': string
+  'project.chat.truncated': string
+  'project.chat.loadFailed': string
+  'project.chat.retry': string
+  'project.chat.expandPayload': string
 
   // 检查器
   'project.inspector.changes': string

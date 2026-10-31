@@ -1,8 +1,13 @@
 /**
- * WasmNest Pi Task Hook Extension
+ * WasmNest Pi Bridge Extension
  *
- * pi 扩展：同步对话任务状态到 WasmNest 桌面端（auto_task_hook.py 的 pi 等效实现）。
- * 部署到项目 `.pi/extensions/` 后由 pi 自动发现加载（无需注册配置）。
+ * pi 扩展（部署名 `wasmnest_bridge.ts`）：一条通道做两件事——
+ * 1. **事件上行**：把 pi 的原生事件（消息 / 思考 / 工具 / 状态）推给 BedCode 的
+ *    唯一归一入口，对话面据此渲染；任务状态仍按原状态机推 `task-status`；
+ * 2. **命令下行**：轮询 `run-commands` 并执行（发送消息），回执 `run-commands-ack`。
+ *
+ * 由 pi 自动发现加载（无需注册配置）；项目未被信任时 pi 不加载项目级扩展，
+ * 后端届时显示「镜像模式 / 需在终端授予项目信任」。
  *
  * 事件映射（对应 Claude Code hooks 的状态机）：
  *   session_start        → idle（pi 启动 / /new 重建会话后推送，
@@ -50,7 +55,7 @@ import type { ExtensionAPI } from '@earendil-works/pi-coding-agent'
 // 部署时由宿主按当前端口改写（hooks.rs replace_pi_extension_port），勿手改
 const WASMNEST_PORT = 8765 // @wasmnest-port
 // 模板版本标记：内容升级时递增，宿主据此对旧部署副本自动重部署（hooks.rs）
-// @wasmnest-template-version 8
+// @wasmnest-template-version 9
 
 const PLUGIN_ID = 'com.wasmnest.bedcode'
 const HOST = '127.0.0.1'
@@ -120,6 +125,185 @@ async function push(status: string, reason: string): Promise<void> {
       }
     }
   }
+}
+
+
+// ==================== 桥接：事件上行 + 命令下行（ADR 0004） ====================
+//
+// 事件：agent 原生事件按批（150ms 合批 / 流式快照按身份合并）POST 到插件回环
+// `run-events`，由后端唯一归一入口去重、分配 seq、落库；未知类型由后端计数。
+// 命令：每 500ms 轮询 `run-commands`（同时是桥接心跳），执行完回执
+// `run-commands-ack`。任务状态仍走既有 `task-status` 端点（同一扩展、两条通道）。
+//
+// 生效条件：仅当 WASMNEST_SESSION_ID 存在（WasmNest 启动的 PTY）；外部终端静默。
+// 后端判定桥接离线（镜像模式）时，发送入口会被显性拒绝——这里不吞错误。
+
+const RUN_ID = process.env.WASMNEST_SESSION_ID ?? ''
+const BRIDGE_BASE = `http://${HOST}:${WASMNEST_PORT}/api/plugin/${PLUGIN_ID}`
+const BRIDGE_FLUSH_MS = 150
+const BRIDGE_POLL_MS = 500
+const BRIDGE_MAX_QUEUE = 200
+const BRIDGE_MAX_EVENT_BYTES = 1_000_000
+
+interface BridgeRawEvent {
+  type: string
+  [key: string]: unknown
+}
+
+interface BridgeCommand {
+  id: number
+  kind: string
+  payload: unknown
+}
+
+let bridgeQueue: BridgeRawEvent[] = []
+let bridgeStreaming = new Map<string, BridgeRawEvent>()
+let bridgeTimer: ReturnType<typeof setTimeout> | null = null
+let bridgeDisabled = false
+let bridgeFlushDelay = BRIDGE_FLUSH_MS
+
+/** 单条事件超过 1MB 直接丢弃并留痕：宿主 HTTP 体量有限，阻塞整批更糟 */
+function bridgeEventTooLarge(raw: BridgeRawEvent): boolean {
+  try {
+    if (JSON.stringify(raw).length <= BRIDGE_MAX_EVENT_BYTES) return false
+  } catch {
+    // 循环引用等序列化失败同样视为不可发送
+  }
+  console.warn('[wasmnest] bridge event too large, dropped (see terminal tab)')
+  return true
+}
+
+function bridgeEnabled(): boolean {
+  // subagent 子进程继承 WASMNEST_SESSION_ID 且同样加载本扩展：它的会话生命周期
+  // 与主会话无关，整体静默（否则会把主运行的事件 / 状态污染）
+  return RUN_ID !== '' && !bridgeDisabled && !IS_SUBAGENT_PROCESS
+}
+
+function scheduleBridgeFlush(delay = BRIDGE_FLUSH_MS): void {
+  if (bridgeTimer) return
+  bridgeTimer = setTimeout(() => {
+    bridgeTimer = null
+    void flushBridge()
+  }, delay)
+}
+
+/** 普通事件入队（后到先发不影响：后端按 rev 挡旧快照） */
+function enqueueEvent(raw: BridgeRawEvent): void {
+  if (!bridgeEnabled()) return
+  if (bridgeEventTooLarge(raw)) return
+  bridgeQueue.push({ ...raw, time: raw.time ?? Date.now() })
+  if (bridgeQueue.length > BRIDGE_MAX_QUEUE) {
+    bridgeQueue.splice(0, bridgeQueue.length - BRIDGE_MAX_QUEUE)
+  }
+  scheduleBridgeFlush()
+}
+
+/** 流式快照：同一身份（part / message + contentIndex）只保留最新一帧 */
+function enqueueStream(key: string, raw: BridgeRawEvent): void {
+  if (!bridgeEnabled()) return
+  if (bridgeEventTooLarge(raw)) return
+  bridgeStreaming.set(key, { ...raw, time: Date.now() })
+  if (bridgeStreaming.size > BRIDGE_MAX_QUEUE) {
+    const oldest = bridgeStreaming.keys().next().value
+    if (oldest) bridgeStreaming.delete(oldest)
+  }
+  scheduleBridgeFlush()
+}
+
+async function bridgePost(path: string, payload: unknown): Promise<Response> {
+  return fetch(`${BRIDGE_BASE}/${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(HTTP_TIMEOUT_MS),
+  })
+}
+
+async function flushBridge(): Promise<void> {
+  if (!bridgeEnabled()) return
+  if (bridgeQueue.length === 0 && bridgeStreaming.size === 0) return
+  const batch = [...bridgeQueue, ...bridgeStreaming.values()]
+  bridgeQueue = []
+  bridgeStreaming = new Map()
+  try {
+    const resp = await bridgePost('run-events', { runId: RUN_ID, events: batch })
+    if (resp.status === 409) {
+      // 该 agent 没有桥接适配：运行期内不会好转，停用避免刷屏
+      bridgeDisabled = true
+      console.warn('[wasmnest] agent has no bridge adapter, event relay disabled')
+      return
+    }
+    if (resp.status === 400 || resp.status === 413 || resp.status === 422) {
+      // 协议错 / 体量超限：重试同一批永远不会成功，丢弃这一批（终端仍是真源）
+      console.warn(`[wasmnest] bridge dropped one batch (HTTP ${resp.status})`)
+      return
+    }
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
+    bridgeFlushDelay = BRIDGE_FLUSH_MS
+  } catch (e) {
+    // 回环暂时不可用：保留本批（有界）并退避重试；Run 不存在时上面已停用
+    bridgeQueue = batch.concat(bridgeQueue).slice(-BRIDGE_MAX_QUEUE)
+    bridgeFlushDelay = Math.min(bridgeFlushDelay * 2, 2000)
+    scheduleBridgeFlush(bridgeFlushDelay)
+    console.warn(`[wasmnest] event flush failed, retrying in ${bridgeFlushDelay}ms: ${e}`)
+  }
+}
+
+type CommandExecutor = (command: BridgeCommand) => Promise<void>
+
+/** 命令轮询：既是下行通道，也是桥接心跳（后端据此判「镜像模式」） */
+function startCommandLoop(execute: CommandExecutor): ReturnType<typeof setInterval> | null {
+  if (!bridgeEnabled()) return null
+  const executedCommands = new Set<number>()
+  let polling = false
+  const tick = async (): Promise<void> => {
+    if (!bridgeEnabled() || polling) return
+    polling = true
+    try {
+      const resp = await bridgePost('run-commands', { runId: RUN_ID })
+      if (resp.status === 409) {
+        bridgeDisabled = true
+        return
+      }
+      // 404 = 运行行还没写入（启动竞态）或已被移除：下一拍再试，不能永久停用
+      if (!resp.ok) return
+      const body = (await resp.json().catch(() => null)) as
+        | { data?: { commands?: BridgeCommand[] }; commands?: BridgeCommand[] }
+        | null
+      const commands = body?.data?.commands ?? body?.commands ?? []
+      if (!Array.isArray(commands) || commands.length === 0) return
+      const results: Array<Record<string, unknown>> = []
+      for (const command of commands) {
+        // 回执丢失后同一命令会被重投（至少一次语义）：本进程内按 id 去重，
+        // 避免「消息已发出但 ack 没送到」时重复发送；进程重启意味着运行已终态，
+        // 不会再有重投窗口。
+        if (executedCommands.has(command.id)) {
+          results.push({ id: command.id, ok: true })
+          continue
+        }
+        executedCommands.add(command.id)
+        try {
+          await execute(command)
+          results.push({ id: command.id, ok: true })
+        } catch (e) {
+          results.push({
+            id: command.id,
+            ok: false,
+            error: String((e as Error)?.message ?? e),
+          })
+        }
+      }
+      await bridgePost('run-commands-ack', { runId: RUN_ID, results })
+    } catch {
+      // 下一拍重试；心跳失败不阻塞 agent 本身
+    } finally {
+      polling = false
+    }
+  }
+  void tick()
+  return setInterval(() => {
+    void tick()
+  }, BRIDGE_POLL_MS)
 }
 
 /** 截断过长的 prompt 用于 reason */
@@ -199,15 +383,32 @@ function recordLastRunFailure(messages: unknown): void {
 }
 
 export default function (pi: ExtensionAPI) {
+  let agentBusy = false
+  let bridgeLoop: ReturnType<typeof setInterval> | null = null
+  if (bridgeEnabled()) {
+    bridgeLoop = startCommandLoop(async (command) => {
+      if (command.kind !== 'send') throw new Error(`unsupported command: ${command.kind}`)
+      const text = String((command.payload as { text?: unknown } | null)?.text ?? '')
+      if (!text) throw new Error('empty message')
+      // ADR 0004：空闲起 turn，忙时排队（followUp），不另起第二会话
+      if (agentBusy) await pi.sendUserMessage(text, { deliverAs: 'followUp' })
+      else await pi.sendUserMessage(text)
+    })
+  }
+
   // 会话启动 / 重建（/new 后 pi 重新加载扩展并再次触发 session_start）：
   // 推送 idle，宿主驱动 waiting 态队列任务放行
-  pi.on('session_start', () => {
+  pi.on('session_start', (event) => {
+    agentBusy = false
     void push('idle', 'Session started')
+    enqueueEvent({ type: 'session_start', reason: event.reason })
   })
 
   // 用户提交 prompt（含队列自动投递）→ 任务进入执行状态
   pi.on('before_agent_start', (event) => {
+    agentBusy = true
     void push('in_progress', `User submitted: ${promptPreview(event.prompt)}`)
+    enqueueEvent({ type: 'before_agent_start' })
   })
 
   // LLM 调用返回可重试 HTTP 错误（429 限流 / 408 / 5xx）→ pi 将自动重试：
@@ -221,6 +422,51 @@ export default function (pi: ExtensionAPI) {
   // 工具执行结束（成功/失败均视为任务进行中，与 PostToolUse 语义一致）
   pi.on('tool_execution_end', (event) => {
     void push('in_progress', `Tool ${event.toolName} completed`)
+    enqueueEvent({
+      type: 'tool_execution_end',
+      toolCallId: event.toolCallId,
+      toolName: event.toolName,
+      result: event.result,
+      isError: event.isError,
+      durationMs: event.durationMs,
+    })
+  })
+
+  // ==================== 桥接：会话事件上行 ====================
+  pi.on('turn_start', (event) => {
+    agentBusy = true
+    enqueueEvent({ type: 'turn_start', turnIndex: event.turnIndex, timestamp: event.timestamp })
+  })
+
+  pi.on('message_start', (event) => {
+    // assistant 的正文走 message_update / message_end；只上行用户消息（避免重复整包快照）
+    if ((event.message as { role?: string }).role !== 'user') return
+    enqueueEvent({ type: 'message_start', message: event.message })
+  })
+
+  pi.on('message_update', (event) => {
+    // 去掉累积快照里的 partial（与 pi JSON 协议同口径）：归一入口只用 message
+    // 快照 + delta 元数据，不必每帧重复传一份 partial
+    const delta = { ...(event.assistantMessageEvent as any) }
+    delete delta.partial
+    const message = event.message as { timestamp?: number }
+    enqueueStream(
+      `pi:${message.timestamp ?? '?'}:${String(delta.contentIndex ?? '')}`,
+      { type: 'message_update', message: event.message, assistantMessageEvent: delta },
+    )
+  })
+
+  pi.on('message_end', (event) => {
+    enqueueEvent({ type: 'message_end', message: event.message })
+  })
+
+  pi.on('tool_execution_start', (event) => {
+    enqueueEvent({
+      type: 'tool_execution_start',
+      toolCallId: event.toolCallId,
+      toolName: event.toolName,
+      args: event.args,
+    })
   })
 
   // agent loop 结束：记录末条 assistant 消息的成败状态，供 agent_settled 判定终态
@@ -242,7 +488,9 @@ export default function (pi: ExtensionAPI) {
   // 失败收敛（429 等重试耗尽 / 用户中断）也会到达——按最近一次 run 成败判定终态：
   // 正常结束才 completed；LLM 报错或用户中断推 interrupted，否则失败任务被误标完成、
   // 队列立即调度下一项（宿主 valid_statuses 无 failed，interrupted 是唯一的失败终态）
-  pi.on('agent_settled', () => {
+  pi.on('agent_settled', (event) => {
+    agentBusy = false
+    enqueueEvent({ type: 'agent_settled', aborted: event.aborted })
     if (lastRunFailure) {
       const { aborted, errorMessage } = lastRunFailure
       lastRunFailure = null
@@ -257,6 +505,10 @@ export default function (pi: ExtensionAPI) {
 
   // 退出 pi → 会话中断；new/fork/resume 仅切换会话（pi 仍运行），不推送
   pi.on('session_shutdown', (event) => {
+    agentBusy = false
+    enqueueEvent({ type: 'session_shutdown', reason: event.reason })
+    if (bridgeLoop) clearInterval(bridgeLoop)
+    void flushBridge()
     if (event.reason === 'quit') {
       void push('interrupted', 'Session ended: quit')
     }

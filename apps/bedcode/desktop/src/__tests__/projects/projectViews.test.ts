@@ -108,6 +108,22 @@ function defaultRoutes(): Record<string, Handler> {
     'project.pick-dir': () => ({ picked: true, path: '/srv/picked' }),
     'run.list': () => ({ runs: [runRecord('r-1', 'running', true)] }),
     'run.start': () => ({ runId: 'r-new', name: '支付重构', configId: 'cfg-1' }),
+    'run.events': () => ({
+      runId: 'r-1',
+      truncated: false,
+      cursor: 2,
+      events: [
+        { seq: 1, at: '2026-10-30T10:00:00Z', kind: 'user.message', payload: { text: '跑下测试' }, source: 'bridge' },
+        {
+          seq: 2,
+          at: '2026-10-30T10:00:05Z',
+          kind: 'assistant.text',
+          payload: { text: '开始执行', streaming: false, messageId: 'm1' },
+          source: 'bridge',
+        },
+      ],
+      bridge: { connected: true, lastSeenAt: '2026-10-30T10:00:05Z' },
+    }),
     'agent.list-agents': () => ({
       agents: [{ id: 'opencode', displayName: 'OpenCode', binary: 'opencode' }],
     }),
@@ -386,7 +402,7 @@ describe('ProjectWorkbenchView（项目工作台）', () => {
     expect(commandsTo('session.close')[0][1]).toEqual({ sessionId: 'r-1' })
   })
 
-  it('检查器页签可切换：变更 / 事件是显性占位（M3 接入），切回终端仍渲染同一条运行', async () => {
+  it('检查器页签可切换：变更占位、事件页签显示原始归一事件、切回终端仍渲染同一条运行', async () => {
     const wrapper = mountView(ProjectWorkbenchView)
     await flushPromises()
 
@@ -394,11 +410,27 @@ describe('ProjectWorkbenchView（项目工作台）', () => {
     expect(wrapper.find('[data-testid="inspector-changes"]').exists()).toBe(true)
     expect(wrapper.findComponent(TerminalStub).exists()).toBe(false)
 
+    // 事件页签：中栏对话面之外的原始账本行（seq / kind / 来源）
     await wrapper.find('[data-testid="inspector-tab-events"]').trigger('click')
-    expect(wrapper.find('[data-testid="inspector-events"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="inspector-events-raw"]').exists()).toBe(true)
+    const rows = wrapper.findAll('[data-testid="inspector-event-row"]')
+    expect(rows).toHaveLength(2)
+    expect(rows[0].attributes('data-kind')).toBe('user.message')
+    expect(rows[0].text()).toContain('bridge')
 
     await wrapper.find('[data-testid="inspector-tab-terminal"]').trigger('click')
     expect((wrapper.findComponent(TerminalStub).props('session') as { id: string }).id).toBe('r-1')
+  })
+
+  it('对话面：中栏渲染账本事件（用户气泡 + 助手正文），发送走 run.send', async () => {
+    const wrapper = mountView(ProjectWorkbenchView)
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="conversation-surface"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="chat-row-user"]').text()).toContain('跑下测试')
+    expect(wrapper.find('[data-testid="chat-row-text"]').exists()).toBe(true)
+    // 桥接在线：输入可用
+    expect(wrapper.find('[data-testid="chat-input"]').exists()).toBe(true)
   })
 
   it('三栏宽度可调：默认宽度 + 键盘步进 + 双击复位（手柄是 separator，带 aria 值）', async () => {

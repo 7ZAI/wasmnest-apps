@@ -15,6 +15,8 @@
 //! **agent 二进制从注册表取**（`hub::binary_for`）：agent id → 命令名是后端唯一
 //! 真源，前端不再维护第二份映射；未知 id 显性拒绝，不猜一个命令名去执行。
 
+pub mod bridge;
+pub mod events;
 pub mod plan;
 
 #[cfg(target_arch = "wasm32")]

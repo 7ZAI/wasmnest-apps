@@ -15,9 +15,9 @@
 pub enum SessionIntegration {
     /// Claude Code hooks：`.claude/settings.json` + `auto_task_hook.py`
     ClaudeCodeHooks,
-    /// pi 扩展：`.pi/extensions/pi_task_hook.ts`（pi 自动发现，无需注册）
+    /// pi 桥接扩展：`.pi/extensions/wasmnest_bridge.ts`（pi 自动发现，无需注册）
     PiExtension,
-    /// opencode 插件：`.opencode/plugins/opencode_task_hook.ts`
+    /// opencode 桥接插件：`.opencode/plugins/wasmnest_bridge.ts`
     /// （opencode 自动加载项目级插件，无需注册）
     OpenCodePlugin,
     /// Codex hooks：`.codex/hooks.json` + `codex_task_hook.py`

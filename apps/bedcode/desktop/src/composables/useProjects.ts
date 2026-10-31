@@ -60,6 +60,13 @@ export interface RunView {
   active: boolean
   /** 事件账本被截断（M3 才有写入方；M2 恒 false） */
   truncated: boolean
+  /** 桥接最后一次心跳（RFC3339；null = 从未连上） */
+  bridgeSeenAt: string | null
+  /**
+   * 桥接是否在线（后端按 15s 心跳窗口算好）：false = 镜像模式，
+   * 对话面输入框禁用并指向终端页签
+   */
+  bridgeConnected: boolean
 }
 
 /** 可启动的 agent（后端注册表 + 探测状态） */

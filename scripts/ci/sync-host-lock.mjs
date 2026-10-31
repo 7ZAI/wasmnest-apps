@@ -4,8 +4,10 @@
  * sync-host-lock —— 从平台仓 `release-manifest.json` 同步应用仓 `host-runtime.lock.json`
  * （CONTRACT §2.3，票据 A5）
  *
- * lock 是应用仓消费宿主运行时的**版本 / sha256 唯一真源**；平台仓未发布时
- * `hostRuntime.artifacts` 为空对象（不伪造 sha），发布后由 CI / 开发者重跑本脚本。
+ * lock 是应用仓消费宿主运行时的**版本 / sha256 唯一真源**；tar.gz 分发链已退役
+ * （2026-10-28 裁决），平台 manifest 可不含 `hostRuntime.artifacts`——缺失按
+ * 「未发布」处理，lock 恒带空对象（fetch-host 的消费契约不因退役变形）。
+ * 若 manifest 仍带 artifacts（历史形态），照旧校验其 file / sha256 形状。
  *
  * ```bash
  * node scripts/ci/sync-host-lock.mjs            # 写入 lock
@@ -77,10 +79,12 @@ export function buildHostLock(manifest) {
       fail(`hostRuntime.${field} 缺失或为空。`)
     }
   }
-  if (!hostRuntime.artifacts || typeof hostRuntime.artifacts !== 'object') {
-    fail('hostRuntime.artifacts 必须是对象（未发布时为空对象）。')
+  // 缺省 = 未发布（空对象），不视为漂移；带值时照旧逐项校验形状。
+  const artifacts = hostRuntime.artifacts ?? {}
+  if (typeof artifacts !== 'object' || Array.isArray(artifacts)) {
+    fail('hostRuntime.artifacts 必须是对象（未发布时为空对象或缺省）。')
   }
-  for (const [key, artifact] of Object.entries(hostRuntime.artifacts)) {
+  for (const [key, artifact] of Object.entries(artifacts)) {
     if (!ARTIFACT_KEY_RE.test(key)) {
       fail(`artifacts 的 key 必须是 <platform>-<arch>（收到：${key}）。`)
     }
@@ -89,6 +93,7 @@ export function buildHostLock(manifest) {
 
   const lock = { hostRuntime: {} }
   for (const field of LOCK_FIELDS) lock.hostRuntime[field] = hostRuntime[field]
+  lock.hostRuntime.artifacts = artifacts
   return lock
 }
 

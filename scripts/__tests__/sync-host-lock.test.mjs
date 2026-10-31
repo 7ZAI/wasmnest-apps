@@ -70,6 +70,18 @@ test('buildHostLock：artifacts 空对象允许（平台未发布）', () => {
   assert.deepEqual(lock.hostRuntime.artifacts, {})
 })
 
+test('buildHostLock：manifest 缺 artifacts ⇒ 按未发布处理，lock 恒带空对象', () => {
+  const hostRuntime = manifest()
+  delete hostRuntime.artifacts
+  const lock = buildHostLock(hostRuntime)
+  assert.deepEqual(lock.hostRuntime.artifacts, {})
+})
+
+test('buildHostLock：artifacts 非对象 ⇒ 点名报错', () => {
+  assert.throws(() => buildHostLock(manifest({ artifacts: 'retired' })), /artifacts 必须是对象/)
+  assert.throws(() => buildHostLock(manifest({ artifacts: [] })), /artifacts 必须是对象/)
+})
+
 test('buildHostLock：artifacts 命名 / sha 不合法 ⇒ 点名报错', () => {
   assert.throws(
     () =>

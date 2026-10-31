@@ -107,7 +107,7 @@ pub fn view_json(
 ///
 /// 缺值一律 `null`（键恒在）：运行列表要按字段排序与渲染，缺键会让前端到处判
 /// `undefined`；这是新形状，没有历史包袱，选稳定键集。
-pub fn run_json(record: &SessionRecord) -> serde_json::Value {
+pub fn run_json(record: &SessionRecord, now: &str) -> serde_json::Value {
     let nullable = |value: &Option<String>| match value {
         Some(text) => serde_json::json!(text),
         None => serde_json::Value::Null,
@@ -130,6 +130,10 @@ pub fn run_json(record: &SessionRecord) -> serde_json::Value {
         "active": !record.status.is_terminal(),
         // 事件账本被截断（历史不完整）：界面据此显示「已截断」，不静默
         "truncated": record.truncated,
+        // 桥接状态：lastSeen 原样给出（排障），connected 由心跳窗口算好
+        // （前端不引时间解析，镜像模式标记直接读这个布尔）
+        "bridgeSeenAt": nullable(&record.bridge_seen_at),
+        "bridgeConnected": record.bridge_connected(now),
     })
 }
 
@@ -155,6 +159,7 @@ mod tests {
             canonical_renderer: Some(crate::actions::RendererSource::Desktop),
             owner: Some("com.wasmnest.bedcode".to_string()),
             truncated: false,
+            bridge_seen_at: None,
             updated_at: "2026-09-23T00:00:05Z".to_string(),
         }
     }
@@ -291,7 +296,7 @@ mod tests {
     /// 容器字段齐备：项目 / agent / agent 会话 id / 标题 / 模型 / 活跃位
     #[test]
     fn run_view_carries_container_fields() {
-        let view = run_json(&record());
+        let view = run_json(&record(), "2026-09-23T00:00:06Z");
         assert_eq!(view["id"], "s-1");
         assert_eq!(view["projectId"], "p-1");
         assert_eq!(view["agentId"], "opencode");
@@ -306,6 +311,24 @@ mod tests {
         );
         assert!(view.get("model").is_some_and(|v| v.is_null()));
         assert_eq!(view["truncated"], false, "未截断 = false（键必须在）");
+        assert_eq!(
+            view["bridgeSeenAt"],
+            serde_json::Value::Null,
+            "从未连上 = null"
+        );
+        assert_eq!(view["bridgeConnected"], false, "无心跳 = 镜像模式");
+
+        let mut connected = record();
+        connected.bridge_seen_at = Some("2026-09-23T00:00:00Z".to_string());
+        let view = run_json(&connected, "2026-09-23T00:00:10Z");
+        assert_eq!(view["bridgeConnected"], true, "10s 内 = 在线");
+        let view = run_json(&connected, "2026-09-23T00:00:20Z");
+        assert_eq!(view["bridgeConnected"], false, "超过 15s 窗口 = 断开");
+
+        let mut ended = connected.clone();
+        ended.status = SessionStatus::Stopped;
+        let view = run_json(&ended, "2026-09-23T00:00:01Z");
+        assert_eq!(view["bridgeConnected"], false, "终态运行不标在线");
         assert!(view.get("stoppedAt").is_some_and(|v| v.is_null()));
     }
 
@@ -322,7 +345,7 @@ mod tests {
             let mut record = record();
             record.status = status.clone();
             assert_eq!(
-                run_json(&record)["active"],
+                run_json(&record, "2026-09-23T00:00:06Z")["active"],
                 serde_json::json!(active),
                 "{status:?} 的活跃位"
             );
@@ -335,7 +358,7 @@ mod tests {
         let mut record = record();
         record.title = Some("修支付回调".to_string());
         record.model = Some("claude-sonnet-4".to_string());
-        let view = run_json(&record);
+        let view = run_json(&record, "2026-09-23T00:00:06Z");
         assert_eq!(view["title"], "修支付回调");
         assert_eq!(view["model"], "claude-sonnet-4");
     }

@@ -12,6 +12,8 @@
 //! - **任务域内部路径**（17 条）：只挂内部路径（`/api/plugin/<id>/<path>`），
 //!   hook 脚本 / 移动端任务面经插件代理前缀访问；
 //! - **sessions REST**（7 条）：内部段 + 模板别名（`/api/sessions/{id}/…`）；
+//! - **桥接回环**（3 条）：`run-events` / `run-commands` / `run-commands-ack`
+//!   （只挂内部路径，auth:none——agent 进程内的扩展拿不到 JWT）；
 //! - **terminal-bg**（1 条）：内部段 + `/static/terminal-bg`（auth:none）。
 //!
 //! **认证链七端点不在本表**（issue #6 切换）：`/api/auth/*` 随认证中心迁到
@@ -117,6 +119,32 @@ pub const ROUTES: &[HttpRouteDecl] = &[
         path: "session-mode",
         host: None,
         methods: &["GET", "POST"],
+        auth: NONE,
+    },
+    // 桥接回环路由（ADR 0004）：agent 进程内的扩展拿不到 JWT，只能匿名回环调用；
+    // run-attach 是共享服务架构下的运行身份握手（同环回先例）
+    HttpRouteDecl {
+        path: "run-attach",
+        host: None,
+        methods: &["POST"],
+        auth: NONE,
+    },
+    HttpRouteDecl {
+        path: "run-events",
+        host: None,
+        methods: &["POST"],
+        auth: NONE,
+    },
+    HttpRouteDecl {
+        path: "run-commands",
+        host: None,
+        methods: &["POST"],
+        auth: NONE,
+    },
+    HttpRouteDecl {
+        path: "run-commands-ack",
+        host: None,
+        methods: &["POST"],
         auth: NONE,
     },
     HttpRouteDecl {
@@ -349,8 +377,16 @@ mod tests {
             .collect();
         assert_eq!(
             none_paths,
-            vec!["task-status", "session-mode", "terminal-bg"],
-            "none 档清单漂移必须显式交代（环回 hook / CSS 无凭证；认证链已随中心迁出）"
+            vec![
+                "task-status",
+                "session-mode",
+                "run-attach",
+                "run-events",
+                "run-commands",
+                "run-commands-ack",
+                "terminal-bg"
+            ],
+            "none 档清单漂移必须显式交代（环回 hook / 桥接含 run-attach 身份握手 / CSS 无凭证；认证链已随中心迁出）"
         );
     }
 

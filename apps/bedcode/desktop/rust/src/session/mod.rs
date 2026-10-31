@@ -291,6 +291,126 @@ pub fn note_annotation(session_id: &str, key: &str, value: &str) -> Result<(), S
     }
 }
 
+/// 桥接心跳（`run-events` / `run-commands` 入站时刷新）
+///
+/// 只改 `bridge_seen_at`，**不**碰 `updated_at`（桥接在跑不是用户活动）。
+/// 相同秒内的重复轮询不写库（`Registry::update` 的比较短路）；未知运行显性报错，
+/// 调用方（路由）已经在入口校验过存在性，走到这里说明运行刚被移除。
+#[cfg(target_arch = "wasm32")]
+pub fn note_bridge_seen(session_id: &str, at: &str) -> Result<(), String> {
+    let updated = REGISTRY.update(&WasmHost, session_id, |current| {
+        let mut next = current.clone();
+        next.bridge_seen_at = Some(at.to_string());
+        Ok(next)
+    })?;
+    match updated {
+        Some(_) => Ok(()),
+        None => Err(format!("session not found: {session_id}")),
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn note_bridge_seen(_session_id: &str, _at: &str) -> Result<(), String> {
+    Err("session registry store unavailable outside wasm runtime".to_string())
+}
+
+/// 运行 meta 回填（agent 会话 id / 标题 / 模型；只写非空且有变化的字段）
+///
+/// 有变化时刷新 `updated_at`：meta 更新来自 agent 的真实活动（首条消息 / 标题），
+/// 与桥接心跳不同。字段无变化时 `Registry::update` 不落库。
+#[cfg(target_arch = "wasm32")]
+pub fn note_run_meta(
+    session_id: &str,
+    agent_session_id: Option<&str>,
+    title: Option<&str>,
+    model: Option<&str>,
+) -> Result<(), String> {
+    let now = crate::config::model::now_rfc3339();
+    let updated = REGISTRY.update(&WasmHost, session_id, |current| {
+        let mut next = current.clone();
+        if let Some(value) = agent_session_id.filter(|value| !value.is_empty()) {
+            if next.agent_session_id.as_deref() != Some(value) {
+                next.agent_session_id = Some(value.to_string());
+            }
+        }
+        if let Some(value) = title.filter(|value| !value.is_empty()) {
+            if next.title.as_deref() != Some(value) {
+                next.title = Some(value.to_string());
+            }
+        }
+        if let Some(value) = model.filter(|value| !value.is_empty()) {
+            if next.model.as_deref() != Some(value) {
+                next.model = Some(value.to_string());
+            }
+        }
+        if next != *current {
+            next.updated_at = now.clone();
+        }
+        Ok(next)
+    })?;
+    match updated {
+        Some(_) => Ok(()),
+        None => Err(format!("session not found: {session_id}")),
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn note_run_meta(
+    _session_id: &str,
+    _agent_session_id: Option<&str>,
+    _title: Option<&str>,
+    _model: Option<&str>,
+) -> Result<(), String> {
+    Err("session registry store unavailable outside wasm runtime".to_string())
+}
+
+/// REGISTRY 快照（桥接 run-attach 列举可服务运行用； Registry 是本域私有）
+#[cfg(target_arch = "wasm32")]
+pub fn records_snapshot_via_host() -> Result<Vec<model::SessionRecord>, String> {
+    REGISTRY.all(&WasmHost)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn records_snapshot_via_host() -> Result<Vec<model::SessionRecord>, String> {
+    Err("session registry store unavailable outside wasm runtime".to_string())
+}
+
+/// 桥接认领（`run-attach` 的存储面）：把 agent 会话绑定到本项目一条可服务运行上
+///
+/// 候选裁决（纯逻辑在 [`crate::run::bridge::claim_bridge_run`]，native 可测）由
+/// 本函数喂 `REGISTRY` 快照并落库：幂等重绑只刷心跳；新认领（`claim = true`，
+/// 仅事件驱动路径）写 `agent_session_id`（绑定即认领，先到先得）+ `bridge_seen_at`。
+/// 无可认领运行返回 `None`（调用方显性回给扩展，扩展稍后重试）。
+#[cfg(target_arch = "wasm32")]
+pub fn bind_bridge_via_host(
+    project_ids: &[String],
+    agent_session_id: Option<&str>,
+    claim: bool,
+    now: &str,
+) -> Result<Option<String>, String> {
+    let records = REGISTRY.all(&WasmHost)?;
+    let Some(record) =
+        crate::run::bridge::claim_bridge_run(&records, project_ids, agent_session_id, claim)
+    else {
+        return Ok(None);
+    };
+    if agent_session_id.is_some() && record.agent_session_id.is_none() {
+        note_run_meta(&record.id, agent_session_id, None, None)?;
+    }
+    note_bridge_seen(&record.id, now)?;
+    Ok(Some(record.id.clone()))
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn bind_bridge_via_host(
+    _project_ids: &[String],
+    _agent_session_id: Option<&str>,
+    _claim: bool,
+    _now: &str,
+) -> Result<Option<String>, String> {
+    Err("session registry store unavailable outside wasm runtime".to_string())
+}
+
 /// 诊断快照（`session.status` 命令面）：`{count, active}`；读取失败只降级该字段
 #[cfg(target_arch = "wasm32")]
 pub fn diagnostics_via_host() -> serde_json::Value {
@@ -422,6 +542,7 @@ pub fn run_activity_via_host() -> Result<Vec<model::RunActivity>, String> {
 #[cfg(target_arch = "wasm32")]
 pub fn list_runs_via_host(project_id: Option<&str>) -> Result<serde_json::Value, String> {
     let records = REGISTRY.all(&WasmHost)?;
+    let now = crate::config::model::now_rfc3339();
     let mut runs = Vec::new();
     for record in records.into_iter().rev() {
         if let Some(project) = project_id {
@@ -429,7 +550,7 @@ pub fn list_runs_via_host(project_id: Option<&str>) -> Result<serde_json::Value,
                 continue;
             }
         }
-        runs.push(view::run_json(&record));
+        runs.push(view::run_json(&record, &now));
     }
     Ok(serde_json::json!({ "runs": runs }))
 }

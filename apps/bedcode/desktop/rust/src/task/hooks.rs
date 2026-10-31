@@ -3,8 +3,10 @@
 //! 每个适配 agent 在项目目录部署自己的状态回传载体（由 AgentProfile
 //! 的 session_integration 驱动）：
 //! - claude：`.claude/settings.json` hooks + `auto_task_hook.py`
-//! - pi：`.pi/extensions/pi_task_hook.ts`（pi 自动发现，无需注册）
-//! - opencode：`.opencode/plugins/opencode_task_hook.ts`（自动加载，无需注册）
+//! - pi：`.pi/extensions/wasmnest_bridge.ts`（pi 自动发现，无需注册）
+//! - opencode：`.opencode/plugins/wasmnest_bridge.ts`（自动加载，无需注册）
+//!   两份桥接扩展取代旧的 `pi_task_hook.ts` / `opencode_task_hook.ts`：事件上行 +
+//!   命令下行 + 任务状态，一条通道；部署时清掉旧文件名，避免两份扩展并存抢事件。
 //! - codex：`.codex/hooks.json` hooks + `codex_task_hook.py`（Codex 从项目
 //!   `.codex/` 配置层自动发现；非托管 hooks 需用户在 `/hooks` 中信任后才能运行）
 //! - 其他 agent：未适配，不部署
@@ -564,7 +566,18 @@ pub fn cleanup_global_hooks(host: &WasmHost) {
 
 // ==================== pi 扩展部署 ====================
 
-/// 为项目部署 pi 扩展（`.pi/extensions/pi_task_hook.ts`）
+/// 随包桥接脚本名：源文件（resources 里的名字）与部署名（项目里的名字）
+///
+/// 部署名两者都叫 `wasmnest_bridge.ts`（不同 agent 的插件目录不同，不会冲突）；
+/// 源文件名带 agent 后缀，构建期复制到插件 resources 根目录。
+/// 旧脚本名（SDK 常量 `PI_HOOK_SCRIPT_NAME` / `OPENCODE_HOOK_SCRIPT_NAME`）只用于
+/// 部署时清理，避免旧扩展与新桥接同时加载。
+pub(crate) const PI_BRIDGE_SOURCE: &str = "wasmnest_bridge_pi.ts";
+pub(crate) const PI_BRIDGE_SCRIPT_NAME: &str = "wasmnest_bridge.ts";
+pub(crate) const OPENCODE_BRIDGE_SOURCE: &str = "wasmnest_bridge_opencode.ts";
+pub(crate) const OPENCODE_BRIDGE_SCRIPT_NAME: &str = "wasmnest_bridge.ts";
+
+/// 为项目部署 pi 桥接扩展（`.pi/extensions/wasmnest_bridge.ts`）
 ///
 /// pi 项目级扩展自动发现 `.pi/extensions/*.ts`，无需注册配置；
 /// 扩展模板内嵌 WasmNest 端口标记（`const WASMNEST_PORT = <port>`），
@@ -593,11 +606,18 @@ pub fn ensure_pi_extension(
         };
     }
 
+    remove_legacy_extension(
+        host,
+        working_dir,
+        PI_CONFIG_DIR_NAME,
+        PI_EXTENSIONS_DIR_NAME,
+        PI_HOOK_SCRIPT_NAME,
+    );
     let target = format!(
         "{}/{}/{}/{}",
-        working_dir, PI_CONFIG_DIR_NAME, PI_EXTENSIONS_DIR_NAME, PI_HOOK_SCRIPT_NAME
+        working_dir, PI_CONFIG_DIR_NAME, PI_EXTENSIONS_DIR_NAME, PI_BRIDGE_SCRIPT_NAME
     );
-    let source = format!("{}/{}", resource_dir, PI_HOOK_SCRIPT_NAME);
+    let source = format!("{}/{}", resource_dir, PI_BRIDGE_SOURCE);
     host.log_debug(&format!(
         "ensure_pi_extension: paths target={:?} source={:?}",
         target, source
@@ -688,16 +708,43 @@ pub fn ensure_pi_extension(
 
 /// 清理指定项目的 pi 扩展（幂等，文件不存在视为已清理）
 ///
-/// 只删除 pi_task_hook.ts，不触碰 `.pi/extensions/` 目录下的用户自有扩展。
+/// 只删除本插件的桥接扩展（含旧名 `pi_task_hook.ts`），不触碰 `.pi/extensions/`
+/// 目录下的用户自有扩展。
 pub fn cleanup_pi_extension(host: &WasmHost, working_dir: &str) -> AgentIntegrationResult {
     let target = format!(
         "{}/{}/{}/{}",
+        working_dir, PI_CONFIG_DIR_NAME, PI_EXTENSIONS_DIR_NAME, PI_BRIDGE_SCRIPT_NAME
+    );
+    let legacy = format!(
+        "{}/{}/{}/{}",
         working_dir, PI_CONFIG_DIR_NAME, PI_EXTENSIONS_DIR_NAME, PI_HOOK_SCRIPT_NAME
     );
-    host.log_debug(&format!("cleanup_pi_extension: target={:?}", target));
+    host.log_debug(&format!(
+        "cleanup_pi_extension: target={:?} legacy={:?}",
+        target, legacy
+    ));
 
-    let exists = host.fs_exists(&target).unwrap_or(false);
-    if !exists {
+    let mut removed = 0usize;
+    for path in [&target, &legacy] {
+        if !host.fs_exists(path).unwrap_or(false) {
+            continue;
+        }
+        match host.fs_delete(path) {
+            Ok(()) => removed += 1,
+            Err(e) => {
+                host.log_warn(&format!(
+                    "cleanup_pi_extension: failed to delete {:?}: {}",
+                    path, e
+                ));
+                return AgentIntegrationResult {
+                    success: false,
+                    message: format!("删除 pi 扩展失败: {}", e),
+                    skipped: false,
+                };
+            }
+        }
+    }
+    if removed == 0 {
         host.log_debug("cleanup_pi_extension: extension not present, skipped");
         return AgentIntegrationResult {
             success: true,
@@ -705,27 +752,34 @@ pub fn cleanup_pi_extension(host: &WasmHost, working_dir: &str) -> AgentIntegrat
             skipped: true,
         };
     }
+    host.log_info(&format!(
+        "cleanup_pi_extension: deleted {removed} file(s) (bridge/legacy)"
+    ));
+    AgentIntegrationResult {
+        success: true,
+        message: "项目 pi 扩展已清理".to_string(),
+        skipped: false,
+    }
+}
 
-    match host.fs_delete(&target) {
-        Ok(()) => {
-            host.log_info(&format!("cleanup_pi_extension: deleted {:?}", target));
-            AgentIntegrationResult {
-                success: true,
-                message: "项目 pi 扩展已清理".to_string(),
-                skipped: false,
-            }
-        }
-        Err(e) => {
-            host.log_warn(&format!(
-                "cleanup_pi_extension: failed to delete {:?}: {}",
-                target, e
-            ));
-            AgentIntegrationResult {
-                success: false,
-                message: format!("删除 pi 扩展失败: {}", e),
-                skipped: false,
-            }
-        }
+/// 删除旧版扩展文件（升级路径；不存在即 no-op，删除失败只 warn）
+fn remove_legacy_extension(
+    host: &WasmHost,
+    working_dir: &str,
+    config_dir: &str,
+    extensions_dir: &str,
+    script: &str,
+) {
+    let path = format!("{working_dir}/{config_dir}/{extensions_dir}/{script}");
+    if !host.fs_exists(&path).unwrap_or(false) {
+        return;
+    }
+    match host.fs_delete(&path) {
+        Ok(()) => host.log_info(&format!("removed legacy extension {:?}", path)),
+        Err(e) => host.log_warn(&format!(
+            "legacy extension removal failed (path={:?}): {}",
+            path, e
+        )),
     }
 }
 
@@ -774,7 +828,8 @@ fn pi_extension_port_matches(content: &str, port: u16) -> bool {
 /// （`task::tests::shipped_hook_scripts_point_at_this_plugin` 逐脚本对账）。
 /// v7：补 NON_RETRYABLE_LIMIT_PATTERN 守卫（限额/额度类错误不再误推 retrying）。
 /// v8：插件 id 改名（com.wasmnest.terminal-session → com.wasmnest.bedcode，2026-10-25），模板随包重写、已部署副本自动重部署。
-pub(crate) const PI_EXTENSION_TEMPLATE_VERSION: &str = "8";
+/// v9（ADR 0004）：任务 hook 合并为 `wasmnest_bridge.ts`（事件上行 + 命令下行 + 任务状态），旧文件部署时清理。
+pub(crate) const PI_EXTENSION_TEMPLATE_VERSION: &str = "9";
 
 /// 检查已部署扩展是否携带当前模板版本标记
 fn pi_extension_version_matches(content: &str) -> bool {
@@ -791,7 +846,7 @@ fn pi_extension_version_matches(content: &str) -> bool {
 
 // ==================== opencode 插件部署 ====================
 
-/// 为项目部署 opencode 插件（`.opencode/plugins/opencode_task_hook.ts`）
+/// 为项目部署 opencode 桥接插件（`.opencode/plugins/wasmnest_bridge.ts`）
 ///
 /// opencode 项目级插件自动发现 `.opencode/plugins/*.ts`，无需注册配置；
 /// 插件模板内嵌 WasmNest 端口标记（`const WASMNEST_PORT = <port>`），
@@ -817,11 +872,21 @@ pub fn ensure_opencode_plugin(
         };
     }
 
+    remove_legacy_extension(
+        host,
+        working_dir,
+        OPENCODE_CONFIG_DIR_NAME,
+        OPENCODE_PLUGINS_DIR_NAME,
+        OPENCODE_HOOK_SCRIPT_NAME,
+    );
     let target = format!(
         "{}/{}/{}/{}",
-        working_dir, OPENCODE_CONFIG_DIR_NAME, OPENCODE_PLUGINS_DIR_NAME, OPENCODE_HOOK_SCRIPT_NAME
+        working_dir,
+        OPENCODE_CONFIG_DIR_NAME,
+        OPENCODE_PLUGINS_DIR_NAME,
+        OPENCODE_BRIDGE_SCRIPT_NAME
     );
-    let source = format!("{}/{}", resource_dir, OPENCODE_HOOK_SCRIPT_NAME);
+    let source = format!("{}/{}", resource_dir, OPENCODE_BRIDGE_SOURCE);
     host.log_debug(&format!(
         "ensure_opencode_plugin: paths target={:?} source={:?}",
         target, source
@@ -913,17 +978,46 @@ pub fn ensure_opencode_plugin(
 
 /// 清理指定项目的 opencode 插件（幂等，文件不存在视为已清理）
 ///
-/// 只删除 opencode_task_hook.ts，不触碰 `.opencode/plugins/` 目录下的
-/// 用户自有插件。
+/// 只删除本插件的桥接插件（含旧名 `opencode_task_hook.ts`），不触碰
+/// `.opencode/plugins/` 目录下的用户自有插件。
 pub fn cleanup_opencode_plugin(host: &WasmHost, working_dir: &str) -> AgentIntegrationResult {
     let target = format!(
         "{}/{}/{}/{}",
+        working_dir,
+        OPENCODE_CONFIG_DIR_NAME,
+        OPENCODE_PLUGINS_DIR_NAME,
+        OPENCODE_BRIDGE_SCRIPT_NAME
+    );
+    let legacy = format!(
+        "{}/{}/{}/{}",
         working_dir, OPENCODE_CONFIG_DIR_NAME, OPENCODE_PLUGINS_DIR_NAME, OPENCODE_HOOK_SCRIPT_NAME
     );
-    host.log_debug(&format!("cleanup_opencode_plugin: target={:?}", target));
+    host.log_debug(&format!(
+        "cleanup_opencode_plugin: target={:?} legacy={:?}",
+        target, legacy
+    ));
 
-    let exists = host.fs_exists(&target).unwrap_or(false);
-    if !exists {
+    let mut removed = 0usize;
+    for path in [&target, &legacy] {
+        if !host.fs_exists(path).unwrap_or(false) {
+            continue;
+        }
+        match host.fs_delete(path) {
+            Ok(()) => removed += 1,
+            Err(e) => {
+                host.log_warn(&format!(
+                    "cleanup_opencode_plugin: failed to delete {:?}: {}",
+                    path, e
+                ));
+                return AgentIntegrationResult {
+                    success: false,
+                    message: format!("删除 opencode 插件失败: {}", e),
+                    skipped: false,
+                };
+            }
+        }
+    }
+    if removed == 0 {
         host.log_debug("cleanup_opencode_plugin: plugin not present, skipped");
         return AgentIntegrationResult {
             success: true,
@@ -931,27 +1025,13 @@ pub fn cleanup_opencode_plugin(host: &WasmHost, working_dir: &str) -> AgentInteg
             skipped: true,
         };
     }
-
-    match host.fs_delete(&target) {
-        Ok(()) => {
-            host.log_info(&format!("cleanup_opencode_plugin: deleted {:?}", target));
-            AgentIntegrationResult {
-                success: true,
-                message: "项目 opencode 插件已清理".to_string(),
-                skipped: false,
-            }
-        }
-        Err(e) => {
-            host.log_warn(&format!(
-                "cleanup_opencode_plugin: failed to delete {:?}: {}",
-                target, e
-            ));
-            AgentIntegrationResult {
-                success: false,
-                message: format!("删除 opencode 插件失败: {}", e),
-                skipped: false,
-            }
-        }
+    host.log_info(&format!(
+        "cleanup_opencode_plugin: deleted {removed} file(s) (bridge/legacy)"
+    ));
+    AgentIntegrationResult {
+        success: true,
+        message: "项目 opencode 插件已清理".to_string(),
+        skipped: false,
     }
 }
 
@@ -995,7 +1075,17 @@ fn opencode_plugin_port_matches(content: &str, port: u16) -> bool {
 /// （端口匹配检查无法发现脚本内容更新）
 /// v5：补 NON_RETRYABLE_LIMIT_PATTERN 守卫（限额/额度类错误不再误推 retrying）。
 /// v6：插件 id 改名（com.wasmnest.terminal-session → com.wasmnest.bedcode，2026-10-25），已部署副本自动重部署。
-pub(crate) const OPENCODE_PLUGIN_TEMPLATE_VERSION: &str = "6";
+/// v7（ADR 0004）：任务 hook 合并为 `wasmnest_bridge.ts`（事件上行 + 命令下行 + 任务状态），旧文件部署时清理。
+/// v8：桥接补 herdr 系 opencode 构建的 default 导出（`{ id, server, setup }`，缺 default 整文件被拒载）。
+/// v9：default.setup 升级为 V2 引导（事件走 ctx.event.subscribe 的 AsyncIterable、
+/// 发送走 ctx.session，官方 2.x 契约；共享服务架构下仅此路径可达）。
+/// v10：运行身份改 run-attach 握手（服务进程 env 是启动快照不可信）：按会话
+/// 绑定多路复用（队列/命令轮询按 runId 分桶），事件按 location.directory 过滤。
+/// v11：attach 拆两态——无 agentSessionId 返回全部可服务运行（心跳/轮询不依赖
+/// 会话存在：opencode 会话懒创建）；发送遇无会话现场 createSessionForRun。
+/// v12：V2 发送形状改 `prompt({sessionID, text})`（2.x action API schema 要求根级
+/// text，parts 形状被拒）；回执不等生成完成（10s 内接受即 ok，失败走 session.error）。
+pub(crate) const OPENCODE_PLUGIN_TEMPLATE_VERSION: &str = "12";
 
 /// 检查已部署插件是否携带当前模板版本标记
 fn opencode_plugin_version_matches(content: &str) -> bool {

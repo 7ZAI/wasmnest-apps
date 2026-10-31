@@ -1063,7 +1063,7 @@ fn handle_update_task_status(host: &WasmHost, body: &Value) -> Value {
         // agent_settled 推 completed 后进程退出随即推 interrupted（毫秒级连发），
         // 会把主会话刚完成的真实任务误标中断。行状态为 completed 且 incoming
         // interrupted 与行事件相差在窗口内 → 判定为 subagent 退出回声，忽略。
-        // 脚本侧已按 --no-session 静默（pi_task_hook.ts），此处兜底旧部署副本。
+        // 脚本侧已按 --no-session 静默（wasmnest_bridge.ts），此处兜底旧部署副本。
         if status == "interrupted" && current_status == "completed" {
             if let Some(diff_ms) = event_time_diff_ms(&row_event_time, incoming_event_time) {
                 const SUBAGENT_QUIT_ECHO_WINDOW_MS: i64 = 5_000;
