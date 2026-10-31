@@ -1,0 +1,6 @@
+# 清单嵌入副本由 build.js 构建期从工程根 plugin.json 同步（go:embed 不能上溯目录）
+plugin.json
+
+# 本地开发态：SDK replace 指到平台仓 feature worktree（合流后删除，go.mod 终态路径生效）
+go.work
+go.work.sum

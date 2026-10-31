@@ -5,6 +5,10 @@
 > `../wasmnest/docs/public/testing.md`。
 > 文档字面 ≠ 事实：改动脚本或流程后回来同步本文件。
 
+> **功能验收清单**：按 app 的完整功能验证模板（含真实网络 / 真实对端 / 跨端人工步骤与
+> 报告口径）见 [`docs/verification/README.md`](verification/README.md)。自动化 E2E 覆盖
+> 「交互契约」，模板补功能完整性与真实链路；两者不可互相替代。
+
 ---
 
 ## 1. 为什么有这一层
@@ -57,7 +61,8 @@ E2E 的判据：**在真实桌面宿主里挂载真实 wasm app，用脚本点�
 > **逐 app 一次 wdio**：桌面宿主是**单实例**资源（端口 + 应用数据目录 + 窗口），
 > 同一个 wdio run 里放多个 spec 文件会各自起 worker → 各自起宿主实例 → 第二个起不来
 > （表现为「宿主 webview 未就绪」超时）。故运行器**每个 app 单独跑一次 wdio**，
-> 每次宿主里只装这一个 app。全量模式 = 依次跑完每个 app，退出码合并。
+> 每次宿主里只装这一个 app（全量模式也为每个 app 建独立临时 staging）。全量 = 依次跑完
+> 每个 app，退出码合并。
 
 **为什么 app 的界面能被脚本点到**：桌面 app 不是 iframe，而是经 `mountApp(root, env)`
 把独立构建的 Vue 应用**挂进宿主 webview 的同一个 document**（宿主
@@ -112,6 +117,7 @@ node scripts/e2e.mjs --app ai-chatbox
 node scripts/e2e.mjs --app bedcode
 node scripts/e2e.mjs --app file-transfer
 node scripts/e2e.mjs --app monitor
+node scripts/e2e.mjs --app auth-center
 
 # 全量（依次跑每个 app：每个 app 单独一次 wdio，宿主单实例故不能并行）
 node scripts/e2e.mjs
@@ -190,6 +196,8 @@ E2E 只认 `data-testid`。命名 = `<域>-<元素>`，kebab-case，**不带 app
 - 取**取值域**而不是具体值：`expectInSet(badge, labelSet('hub.card.installed'), …)`
 - 取**交互前后状态翻转**而不是绝对状态：`点击后 aria-expanded 由 false 变 true`
 - 机器相关的分支要**显式两分支都成立**：例如「未授权 → 入口禁用 + 横幅可见」「已授权 → 入口可展开表单」
+- 不假设其他 app 是否存在：单跑与全量都成立（运行器为每个 app 建独立 staging，但用户数据里
+  仍可能有历史插件 / 配对 / 共享目录）
 
 ### 6.2 文案断言跨语言
 
@@ -256,7 +264,7 @@ export function labelSet(key: keyof typeof zhCN): string[] {
 - **只能测 debug 构建**：release 产物不含 wdio 插件（平台仓有锁测试保证这点）。
 - **外部依赖不覆盖**：真实对端（file-transfer）、真实 API key（ai-chatbox）不在范围内；
   相关用例只断言「界面层」的门控与状态翻转。
-- **不测移动端**：§1–§9 的单端套件只覆盖桌面宿主；移动端由 §10 的双端套件承接。
+- **不测移动端**：§1–§9 的单端套件只覆盖桌面宿主；移动端由 §10 双端套件与 §11 真机单端承接。
 - **宿主壳无 testid**：壳层交互只能靠 ARIA 语义定位；宿主若要更稳的锚点，需在**平台仓**
   补 `data-testid`（跨仓改动，需单独裁决）。
 - **Windows / macOS**：驱动不同（WebKitWebDriver / 各平台 provider），本套件当前只在
@@ -417,6 +425,10 @@ node scripts/e2e-mobile.mjs --app file-transfer --spec e2e/mobile/file-transfer.
 node scripts/e2e-mobile.mjs --app file-transfer --serial <serial> --skip-install
 ```
 
+> debug APK 的 WebView 走 `devUrl=http://localhost:1423/`。运行器会自动起（或复用）
+> 平台仓 `wasmnest-mobile` 的 dev server，并做 `adb reverse tcp:1423`；跑完收掉自己起的
+> server 与 reverse。手工跑 mocha 时必须自行准备这两步，否则页面白屏 → 找不到应用卡。
+
 | 参数 | 作用 |
 | --- | --- |
 | `--apk <path>` | 指定 debug APK（缺省探测平台仓 `apk/{arm64,universal,x86_64}/debug/`） |
@@ -431,6 +443,7 @@ node scripts/e2e-mobile.mjs --app file-transfer --serial <serial> --skip-install
 ```text
 scripts/e2e-mobile.mjs（编排层）
   ├─ 预检：adb 设备（唯一 online）/ debug APK 存在 / APK 新鲜度告警
+  ├─ 起（或复用）移动前端 dev server（vite :1423）+ adb reverse tcp:1423
   ├─ adb install -r -t <debug apk> → pm clear → force-stop
   └─ pnpm exec mocha --require tsx e2e/mobile/<slug>-*.spec.ts
        └─ e2e/harness/mobile.ts
@@ -465,7 +478,9 @@ scripts/e2e-mobile.mjs（编排层）
 
 ### 11.6 已知边界
 
-- **只测 debug 产物**：release 不开 WebView 调试套接字，CDP 连不上。
+- **只测 debug 产物**：release 不开 WebView 调试套接字，CDP 连不上；debug APK 走
+  `devUrl`，运行器会自动起 1423 dev server 并 `adb reverse`（已在跑则复用），手工跑
+  mocha 时需自行准备这两步。
 - **APK 陈旧**：编排器对比 `apps/<slug>/mobile/src` 的 mtime 并告警；改了移动端必须重建 APK。
 - **应用代码取自 APK**：真机上的应用 = 打进 APK 的那一份；改代码 → 重建 APK → 重装。
 - **单设备串行**：真机一台，别并行。

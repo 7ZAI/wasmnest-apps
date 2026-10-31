@@ -86,8 +86,8 @@ describe('C1 工程身份五处一致', () => {
     expect(cargoToml).toContain('name = "bedcode-plugin-terminal-session"')
   })
 
-  it('产物形态：rust-ts + cdylib（wasip3 直出 Component），sandbox 字段已退役', () => {
-    expect(manifest.pluginType).toBe('rust-ts')
+  it('产物形态：full + cdylib（wasip3 直出 Component），sandbox 字段已退役', () => {
+    expect(manifest.pluginType).toBe('full')
     // `sandbox` 已退役（审计票 06 裁决 2）：前端不做隔离，安全边界只在 Rust 端与 WASM 端。
     // 产物 manifest 不得再声明它——否则等于把「沙箱模式」重新写成安全承诺
     expect('sandbox' in manifest).toBe(false)

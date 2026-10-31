@@ -6,7 +6,7 @@
   "description": "AI 大模型对话：接入任意 OpenAI 兼容供应商（OpenAI / Anthropic / DeepSeek / 通义千问），流式对话、多会话管理、JSONL 对话日志落盘。\n使用：打开侧边栏「AI 对话」→ 在供应商设置中填入 API 地址 / 密钥并选择模型 → 新建对话开始提问；对话自动保存，可在会话列表切换 / 删除。",
   "author": "WasmNest",
   "main": "index.js",
-  "pluginType": "rust-ts",
+  "pluginType": "full",
   "rustLibrary": "wasmnest_plugin_ai_chatbox",
   "icon": "icon.svg",
   "permissions": [

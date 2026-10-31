@@ -93,21 +93,29 @@ export async function goHome(timeout = DEFAULT_TIMEOUT): Promise<void> {
  * @throws 找不到卡片时抛错（fail-visible：静默跳过会把「应用没装上」伪装成「用例通过」）
  */
 export async function openApp(displayName: string, timeout = DEFAULT_TIMEOUT): Promise<void> {
-  const clicked = await browser.execute((name: string) => {
-    const grid = document.querySelector('[role="list"]')
-    if (!grid) return false
-    const items = Array.from(grid.querySelectorAll('[role="listitem"]'))
-    const hit = items.find((el) => {
-      const label = el.getAttribute('aria-label') || ''
-      const nm = (el.querySelector('.nm')?.textContent || label.split('，')[0] || '').trim()
-      return nm === name || label.startsWith(name + '，')
-    }) as HTMLElement | undefined
-    if (!hit) return false
-    hit.click()
-    return true
-  }, displayName)
-
-  if (!clicked) {
+  try {
+    await browser.waitUntil(
+      async () =>
+        await browser.execute((name: string) => {
+          const grid = document.querySelector('[role="list"]')
+          if (!grid) return false
+          const items = Array.from(grid.querySelectorAll('[role="listitem"]'))
+          const hit = items.find((el) => {
+            const label = el.getAttribute('aria-label') || ''
+            const nm = (el.querySelector('.nm')?.textContent || label.split('，')[0] || '').trim()
+            return nm === name || label.startsWith(name + '，')
+          }) as HTMLElement | undefined
+          if (!hit) return false
+          hit.click()
+          return true
+        }, displayName),
+      {
+        timeout,
+        interval: 150,
+        timeoutMsg: `主屏找不到可点击的应用卡「${displayName}」`,
+      },
+    )
+  } catch {
     const cards = await homeAppCards()
     throw new Error(`主屏找不到应用卡「${displayName}」。当前主屏卡片：${JSON.stringify(cards)}`)
   }
@@ -131,20 +139,28 @@ export async function openApp(displayName: string, timeout = DEFAULT_TIMEOUT): P
  * @throws 找不到条目时抛错（fail-visible：静默跳过会把「服务没装上」伪装成「用例通过」）
  */
 export async function openSystemApp(displayName: string, timeout = DEFAULT_TIMEOUT): Promise<void> {
-  const clicked = await browser.execute((name: string) => {
-    const grids = Array.from(document.querySelectorAll('[role="list"]'))
-    if (grids.length < 2) return false
-    const items = Array.from(grids[1].querySelectorAll('[role="listitem"]'))
-    const hit = items.find((el) => {
-      const nm = (el.querySelector('.nm')?.textContent || '').trim()
-      return nm === name
-    }) as HTMLElement | undefined
-    if (!hit) return false
-    hit.click()
-    return true
-  }, displayName)
-
-  if (!clicked) {
+  try {
+    await browser.waitUntil(
+      async () =>
+        await browser.execute((name: string) => {
+          const grids = Array.from(document.querySelectorAll('[role="list"]'))
+          if (grids.length < 2) return false
+          const items = Array.from(grids[1].querySelectorAll('[role="listitem"]'))
+          const hit = items.find((el) => {
+            const nm = (el.querySelector('.nm')?.textContent || '').trim()
+            return nm === name
+          }) as HTMLElement | undefined
+          if (!hit) return false
+          hit.click()
+          return true
+        }, displayName),
+      {
+        timeout,
+        interval: 150,
+        timeoutMsg: `主屏系统宫格找不到可点击的「${displayName}」`,
+      },
+    )
+  } catch {
     const cards = await homeSystemCards()
     throw new Error(
       `主屏系统宫格找不到「${displayName}」。当前系统宫格条目：${JSON.stringify(cards)}`,

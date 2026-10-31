@@ -54,10 +54,11 @@
             tab 条不跟着限就会在宽屏下比内容列宽出一截、两端脱节。
          早前是 inline-flex 收缩条浮在页面底色上（整条 214px、两项各 80/122px），
          读起来像一对工具按钮而不是页签导航。 -->
-    <div
-      class="px-6 pt-3 pb-3 flex-shrink-0 bg-[var(--bg-card)] border-b border-[var(--border)]"
-    >
-      <div class="flex items-center gap-1 p-1 rounded-lg bg-[var(--bg-hover)] max-w-5xl mx-auto" role="tablist">
+    <div class="px-6 pt-3 pb-3 flex-shrink-0 bg-[var(--bg-card)] border-b border-[var(--border)]">
+      <div
+        class="flex items-center gap-1 p-1 rounded-lg bg-[var(--bg-hover)] max-w-5xl mx-auto"
+        role="tablist"
+      >
         <button
           v-for="tab in sessionTabs"
           :key="tab.key"
@@ -467,10 +468,14 @@
       />
       <template #footer>
         <div class="flex justify-end gap-3">
-          <button class="wb-btn-ghost" data-testid="session-config-cancel" @click="showCreateDialog = false">
+          <button
+            class="wb-btn-ghost"
+            data-testid="session-config-cancel"
+            @click="showCreateDialog = false"
+          >
             {{ t('session.button.cancel') }}
           </button>
-          <button class="wb-btn-primary" @click="submitForm">
+          <button class="wb-btn-primary" data-testid="session-config-submit" @click="submitForm">
             {{ editingConfig ? t('session.button.save') : t('session.button.create') }}
           </button>
         </div>

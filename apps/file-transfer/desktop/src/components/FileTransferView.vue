@@ -308,7 +308,7 @@ function handleClearHistoryConfirm(): void {
           "
         ></span>
         <span class="ft-peer-name">{{ peerDisplayName }}</span>
-        <span class="ft-peer-meta">
+        <span class="ft-peer-meta" data-testid="ft-peer-status" :data-online="peer.online">
           {{ peerStatusLabel }}
         </span>
       </div>
@@ -354,6 +354,7 @@ function handleClearHistoryConfirm(): void {
         class="ft-btn"
         :disabled="!peer.online"
         :title="t('transfer.topbar.sendToPhone')"
+        data-testid="ft-upload"
         @click="handleUpload"
       >
         <svg class="ft-ico-btn" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -366,7 +367,12 @@ function handleClearHistoryConfirm(): void {
         </svg>
         <span class="ft-btn-text">{{ t('transfer.topbar.sendToPhone') }}</span>
       </button>
-      <button class="ft-btn ft-btn--primary" :disabled="!canDownload" @click="handleDownload">
+      <button
+        class="ft-btn ft-btn--primary"
+        :disabled="!canDownload"
+        data-testid="ft-download"
+        @click="handleDownload"
+      >
         <svg class="ft-ico-btn" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path
             stroke-linecap="round"

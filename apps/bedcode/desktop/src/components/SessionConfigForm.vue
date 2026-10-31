@@ -6,6 +6,7 @@
       :label="t('session.form.name')"
       :placeholder="t('session.form.namePlaceholder')"
       :error="errors.name"
+      testid="session-input-name"
       required
     />
 
@@ -52,6 +53,7 @@
       :label="t('session.form.workingDir')"
       placeholder="C:\Users\..."
       :error="errors.workingDir"
+      testid="session-input-working-dir"
       required
     >
       <template #suffix>
@@ -186,7 +188,11 @@ const availableValues = computed<string[]>(() => {
 const environmentOptions = computed(() => {
   const available = new Set(availableValues.value)
   return [
-    { value: 'windows', label: t('session.form.windowsNative'), disabled: !available.has('windows') },
+    {
+      value: 'windows',
+      label: t('session.form.windowsNative'),
+      disabled: !available.has('windows'),
+    },
     { value: 'wsl2', label: 'WSL2', disabled: !available.has('wsl2') },
     { value: 'linux', label: t('session.form.linuxNative'), disabled: !available.has('linux') },
   ]

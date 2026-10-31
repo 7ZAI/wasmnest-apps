@@ -6,7 +6,7 @@
   "description": "认证中心：本机入站连接的唯一裁决者（fail-closed）。页面显示中心就位三态、支持的认证方式、接入应用（消费方与运行态）与入场密钥代次；配对码 / 二维码、可信设备与连接历史不设页面，命令与互调 api 面保留，由 BedCode 设备中心等消费方经互调取用。\n当前版本：六域（配对码 / QR / 信任 / 首连确认 / 认证策略 / 生物凭证）+ 认证记录库 + 互调 api 面均已就位，并在 activate 末尾注册为本机认证中心（K4 单中心）；BedCode 已同批去注册，设备中心与 file-transfer 的 consent / 信任面经互调消费本插件。注册失败时 fail-closed（入站全拒），页面如实显示 not_ready 与原因。",
   "author": "WasmNest",
   "main": "index.js",
-  "pluginType": "rust-ts",
+  "pluginType": "full",
   "rustLibrary": "wasmnest_plugin_auth_center",
   "icon": "icon.svg",
   "type": "internal-business",

@@ -334,7 +334,7 @@
         </div>
 
         <!-- ==================== Tab2 设备列表 · 在线 / 离线 ==================== -->
-        <div v-else class="space-y-6">
+        <div v-else class="space-y-6" data-testid="pairing-devices-panel">
           <!-- ==================== ONLINE 分区 ==================== -->
           <section>
             <h3 class="wb-section-title">

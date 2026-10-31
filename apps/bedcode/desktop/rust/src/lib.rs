@@ -21,7 +21,7 @@
 //!   生命周期 / 输入监听并主动推进集成注入（编排反转），旧 auto-task 后端仍在
 //!   原位（contract 在票 17）；票 16 追加定时任务与 HTTP 面
 //!
-//! 形态：rust-ts（后端 WASM + 贡献式前端）；`sandbox: inline`；`kind` 取默认
+//! 形态：full（后端 WASM + 贡献式前端；语言无关三档，wasmnest-apps#21）；`kind` 取默认
 //! Application（带 UI 贡献、必须可停可删，故不用 System 形态）。
 //!
 //! **能力来源红线（D2）**：本插件后端只经宿主 `host-*` 基础服务取能力，缺口一律在

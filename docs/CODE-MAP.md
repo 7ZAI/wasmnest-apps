@@ -41,8 +41,8 @@ wasmnest-apps/
 │   ├─ src/appContext.ts           AppMountEnv → PluginContext 适配层
 │   ├─ src/index.ts                dev-shell 兼容出口（仅导出 devMock；主宿主不加载）
 │   ├─ src/components|composables|utils|i18n|__tests__/
-│   ├─ rust/                       WASM 后端（file-transfer 例外：无本端 rust）
-│   ├─ scripts/build.js            vite → cargo → 复制产物到 .build/plugins/<id> → injectWasmHash
+│   ├─ rust/                       WASM 后端（file-transfer 例外：无本端 rust；Go 路线 app 另有 go/，见 BACKEND.md §9）
+│   ├─ scripts/build.js            vite → cargo/tinygo → 复制产物到 .build/plugins/<id> → injectWasmHash
 │   ├─ vite.config.ts / vitest.config.ts / tailwind.config.js / postcss.config.js
 │   ├─ package.json + pnpm-lock.yaml + pnpm-workspace.yaml    ← 独立 workspace
 │   └─ icon.svg
@@ -91,6 +91,7 @@ wasmnest-apps/
 ├─ .husky/pre-commit               暂存前端文件 eslint --quiet（error 阻断）
 ├─ eslint.config.js                前端资源访问红线（双端共用一份）
 └─ docs/                           CODE-MAP.md / FRONTEND.md / BACKEND.md / E2E.md / CI.md
+                                   / verification/（按 app 的端到端功能验证模板与报告口径）
 ```
 
 **每个 app 保留独立 pnpm workspace**（各有 `pnpm-lock.yaml` 与 `pnpm-workspace.yaml`，不合并）；根 `package.json` 只做编排，根 `node_modules` 只服务 lint / husky。
@@ -103,11 +104,11 @@ wasmnest-apps/
 
 | 目录 slug | 插件 id | 端 | 前端入口 | pluginType | rustLibrary | Rust crate（包名 / 位置） |
 | --- | --- | --- | --- | --- | --- | --- |
-| ai-chatbox | `com.wasmnest.ai-chatbox` | desktop + mobile | `entry.ts` / `index.ts` | 桌面 `rust-ts`；移动 `wasm` | `wasmnest_plugin_ai_chatbox`（两端同名） | `wasmnest-plugin-ai-chatbox` @ `desktop/rust`；`wasmnest_plugin_ai_chatbox` @ `mobile/rust` |
-| bedcode（显示名 BedCode） | `com.wasmnest.bedcode` | desktop + mobile | `entry.ts` / `index.ts` | 桌面 `rust-ts`；移动 `wasm` | `bedcode_plugin_terminal_session`（两端同名） | `bedcode-plugin-terminal-session` @ `desktop/rust`；`bedcode_plugin_terminal_session` @ `mobile/rust` |
-| file-transfer | `com.wasmnest.file-transfer` | desktop + mobile（`platform: "both"`） | `entry.ts` / `index.ts` | 桌面 `rust-ts`；移动 `wasm` | `wasmnest_plugin_file_transfer`（两端同名） | 单产物 `wasmnest-plugin-file-transfer` @ `apps/file-transfer/rust/plugin`；共享核 `wasmnest-file-transfer-core` @ `apps/file-transfer/rust/core` |
-| monitor（**`servers/` 分组**） | `com.wasmnest.monitor` | desktop + mobile | `entry.ts` / `index.ts` | 桌面 `rust-ts`；移动 `wasm` | `wasmnest_plugin_monitor`（两端同名） | `wasmnest-plugin-monitor` @ `servers/monitor/desktop/rust`；`wasmnest_plugin_monitor` @ `servers/monitor/mobile/rust` |
-| auth-center（**`servers/` 分组**） | `com.wasmnest.auth-center` | desktop | `servers/auth-center/desktop/src/entry.ts` | `rust-ts` | `wasmnest_plugin_auth_center` | `wasmnest-plugin-auth-center` @ `servers/auth-center/desktop/rust` |
+| ai-chatbox | `com.wasmnest.ai-chatbox` | desktop + mobile | `entry.ts` / `index.ts` | 双端 `full` | `wasmnest_plugin_ai_chatbox`（两端同名） | `wasmnest-plugin-ai-chatbox` @ `desktop/rust`（桌面产物改由 `desktop/go` TinyGo 构建，issue #21 试点；rust/ 源保留至合流清理）；`wasmnest_plugin_ai_chatbox` @ `mobile/rust` |
+| bedcode（显示名 BedCode） | `com.wasmnest.bedcode` | desktop + mobile | `entry.ts` / `index.ts` | 双端 `full` | `bedcode_plugin_terminal_session`（两端同名） | `bedcode-plugin-terminal-session` @ `desktop/rust`；`bedcode_plugin_terminal_session` @ `mobile/rust` |
+| file-transfer | `com.wasmnest.file-transfer` | desktop + mobile（`platform: "both"`） | `entry.ts` / `index.ts` | 双端 `full` | `wasmnest_plugin_file_transfer`（两端同名） | 单产物 `wasmnest-plugin-file-transfer` @ `apps/file-transfer/rust/plugin`；共享核 `wasmnest-file-transfer-core` @ `apps/file-transfer/rust/core` |
+| monitor（**`servers/` 分组**） | `com.wasmnest.monitor` | desktop + mobile | `entry.ts` / `index.ts` | 双端 `full` | `wasmnest_plugin_monitor`（两端同名） | `wasmnest-plugin-monitor` @ `servers/monitor/desktop/rust`；`wasmnest_plugin_monitor` @ `servers/monitor/mobile/rust` |
+| auth-center（**`servers/` 分组**） | `com.wasmnest.auth-center` | desktop | `servers/auth-center/desktop/src/entry.ts` | `full` | `wasmnest_plugin_auth_center` | `wasmnest-plugin-auth-center` @ `servers/auth-center/desktop/rust` |
 
 > **auth-center 现状（issue #6，已注册接管）**：六域全部就位——
 > `rust/src/{pairing,policy,trust,consent,auth_records,auth_http}`（用例自 bedcode 逐字

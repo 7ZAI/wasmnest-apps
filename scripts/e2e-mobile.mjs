@@ -33,13 +33,15 @@
  *   --keep              保留失败现场与临时目录
  */
 
-import { spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { APPS_ROOT, platformRoot } from './platform-paths.mjs'
 import { locate, projectDir } from './lib/projects.mjs'
 
 const MOBILE_PACKAGE = 'com.wasmnest.mobile'
+const MOBILE_DEV_PORT = 1423
+const MOBILE_DEV_URL = `http://127.0.0.1:${MOBILE_DEV_PORT}/`
 
 /** APK 探测顺序（Tauri Android 产物按 ABI 分目录） */
 const APK_CANDIDATES = [
@@ -108,6 +110,72 @@ function adbBin() {
   return 'adb'
 }
 
+/** dev server 是否已就绪 */
+async function isReachable(url) {
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(1500) })
+    return res.ok
+  } catch {
+    return false
+  }
+}
+
+/**
+ * debug APK 的 WebView 走 `devUrl=http://localhost:1423/`。
+ * 不启动时页面白屏，CDP 能连上但永远找不到应用卡——失败会伪装成「应用没装」。
+ * 已在跑则复用用户会话，不抢 1423。
+ */
+async function ensureMobileDevServer() {
+  if (await isReachable(MOBILE_DEV_URL)) {
+    console.log(`[e2e-mobile] 复用已在运行的移动前端 dev server（${MOBILE_DEV_URL}）`)
+    return null
+  }
+  let root
+  try {
+    root = join(platformRoot(), 'wasmnest-mobile')
+  } catch (e) {
+    fail(`无法解析平台移动工程：${e.message}`, '设 WASMNEST_PLATFORM_ROOT=<平台仓根>')
+  }
+  if (!existsSync(join(root, 'package.json'))) {
+    fail(`平台移动工程不存在：${root}`, '设 WASMNEST_PLATFORM_ROOT=<平台仓根>')
+  }
+  console.log('[e2e-mobile] 启动移动前端 dev server（vite :1423）…')
+  const child = spawn('pnpm', ['run', 'dev'], {
+    cwd: root,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    detached: true,
+  })
+  let log = ''
+  child.stdout.on('data', (d) => {
+    log += String(d)
+  })
+  child.stderr.on('data', (d) => {
+    log += String(d)
+  })
+  const deadline = Date.now() + 120_000
+  while (Date.now() < deadline) {
+    if (child.exitCode !== null) {
+      fail('移动前端 dev server 启动失败', log.split('\n').slice(-15).join('\n'))
+    }
+    if (await isReachable(MOBILE_DEV_URL)) {
+      console.log(`[e2e-mobile] dev server 就绪：${MOBILE_DEV_URL}`)
+      return child
+    }
+    await new Promise((r) => setTimeout(r, 500))
+  }
+  fail('移动前端 dev server 120s 内未就绪', log.split('\n').slice(-15).join('\n'))
+  return null
+}
+
+function stopDevServer(child) {
+  if (!child) return
+  try {
+    process.kill(-child.pid, 'SIGTERM')
+  } catch {
+    // 已退出 / 非本进程组：忽略
+  }
+}
+
 function listDevices() {
   const r = spawnSync(adbBin(), ['devices'], { encoding: 'utf-8' })
   if (r.error) {
@@ -129,7 +197,8 @@ function pickSerial(explicit) {
   if (explicit) {
     const hit = devices.find((d) => d.serial === explicit)
     if (!hit) fail(`指定设备不在线：${explicit}`, `当前设备：${JSON.stringify(devices)}`)
-    if (hit.state !== 'device') fail(`设备 ${explicit} 状态为 ${hit.state}`, '手机上确认 USB 调试授权')
+    if (hit.state !== 'device')
+      fail(`设备 ${explicit} 状态为 ${hit.state}`, '手机上确认 USB 调试授权')
     return explicit
   }
   const online = devices.filter((d) => d.state === 'device')
@@ -256,6 +325,16 @@ async function main() {
   const apk = resolveApk(args.apk)
   console.log(`[e2e-mobile] APK：${apk}`)
   warnIfApkStale(apk, app)
+  const devServer = await ensureMobileDevServer()
+  let reverseAdded = false
+  try {
+    adb(serial, ['reverse', `tcp:${MOBILE_DEV_PORT}`, `tcp:${MOBILE_DEV_PORT}`])
+    reverseAdded = true
+    console.log(`[e2e-mobile] adb reverse tcp:${MOBILE_DEV_PORT} 就绪`)
+  } catch (e) {
+    stopDevServer(devServer)
+    fail(`adb reverse 失败：${e.message}`, '确认设备在线且允许调试')
+  }
 
   if (!args.skipInstall) {
     console.log('[e2e-mobile] 安装 debug APK（慢设备可达数分钟）…')
@@ -291,8 +370,19 @@ async function main() {
 
   let status = 0
   console.log('[e2e-mobile] 启动 mocha（真机单端用例）…')
-  const r = spawnSync('pnpm', mochaArgs, { cwd: APPS_ROOT, stdio: 'inherit', env })
-  status = r.status ?? 1
+  try {
+    const r = spawnSync('pnpm', mochaArgs, { cwd: APPS_ROOT, stdio: 'inherit', env })
+    status = r.status ?? 1
+  } finally {
+    if (reverseAdded) {
+      try {
+        adb(serial, ['reverse', '--remove', `tcp:${MOBILE_DEV_PORT}`])
+      } catch {
+        // 设备掉线 / 已移除：不盖住用例结论
+      }
+    }
+    stopDevServer(devServer)
+  }
 
   if (status !== 0) {
     console.error(`[e2e-mobile] ✗ 用例未全绿（退出码 ${status}）`)

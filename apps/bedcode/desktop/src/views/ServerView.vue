@@ -1,5 +1,5 @@
 <template>
-  <div class="h-full overflow-y-auto bg-[var(--bg-page)]">
+  <div class="h-full overflow-y-auto bg-[var(--bg-page)]" data-testid="server-view">
     <!-- ==================== 工具栏页头：左标题+状态，右只读提示+重置 ==================== -->
     <div class="wb-toolbar sticky top-0 z-10">
       <div class="flex items-center gap-2.5">
@@ -35,7 +35,7 @@
     <!-- ==================== 内容分区 ==================== -->
     <div v-else class="p-5 max-w-5xl mx-auto space-y-6">
       <!-- ---------- SECTION: STATUS ---------- -->
-      <section>
+      <section data-testid="server-section-status">
         <h2 class="wb-section-title">{{ t('server.sectionStatus') }}</h2>
         <div class="bg-[var(--bg-card)] border border-[var(--border)] rounded-[10px]">
           <div class="flex items-center justify-between px-4 h-12 border-b border-[var(--border)]">
@@ -43,6 +43,7 @@
               <span class="w-2 h-2 rounded-full" :class="dotClass"></span>
               <span
                 class="text-[calc(13px*var(--ui-scale))] font-medium text-[var(--text-primary)]"
+                data-testid="server-status-text"
                 >{{ statusText }}</span
               >
             </div>
@@ -86,7 +87,7 @@
       </section>
 
       <!-- ---------- SECTION: NETWORK ---------- -->
-      <section>
+      <section data-testid="server-section-network">
         <h2 class="wb-section-title">{{ t('server.sectionNetwork') }}</h2>
         <div class="bg-[var(--bg-card)] border border-[var(--border)] rounded-[10px] px-4">
           <div class="flex items-center justify-between h-12 border-b border-[var(--border)]">
@@ -99,6 +100,7 @@
                 type="number"
                 min="1024"
                 max="65535"
+                data-testid="server-port-input"
                 class="w-20 h-7 px-2 wb-mono rounded-[6px] border border-[var(--border-input)] bg-[var(--bg-input)] text-[var(--text-primary)] outline-none focus:border-[var(--color-primary)]"
                 @keyup.enter="handleSavePort"
               />
@@ -106,6 +108,7 @@
                 class="wb-btn-ghost !h-7 !px-3 !text-[calc(11.5px*var(--ui-scale))]"
                 :class="!portDirty && '!text-[var(--text-tertiary)] cursor-not-allowed'"
                 :disabled="!portDirty || savingPort"
+                data-testid="server-port-save"
                 @click="handleSavePort"
               >
                 {{ t('server.portSave') }}
@@ -134,13 +137,15 @@
       </section>
 
       <!-- ---------- SECTION: CONFIG ---------- -->
-      <section v-if="networkConfig">
+      <section v-if="networkConfig" data-testid="server-section-advanced">
         <div class="flex items-center justify-between mb-2">
           <h2 class="wb-section-title mb-0">
             {{ t('server.advancedConfig').toUpperCase() }}
           </h2>
           <button
             class="text-[calc(11px*var(--ui-scale))] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
+            data-testid="server-advanced-toggle"
+            :aria-expanded="advExpanded"
             @click="advExpanded = !advExpanded"
           >
             {{ advExpanded ? t('server.collapse') : t('server.expand') }}
@@ -149,6 +154,7 @@
         <div
           v-show="advExpanded"
           class="bg-[var(--bg-card)] border border-[var(--border)] rounded-[10px] overflow-hidden"
+          data-testid="server-advanced-panel"
         >
           <div class="grid grid-cols-2 md:grid-cols-3 divide-x divide-y divide-[var(--border)]">
             <div v-for="field in advFields" :key="field.key" class="px-4 py-3">
@@ -177,7 +183,7 @@
       </section>
 
       <!-- ---------- SECTION: MONITORING ---------- -->
-      <section>
+      <section data-testid="server-section-monitoring">
         <h2 class="wb-section-title">{{ t('server.monitoring').toUpperCase() }}</h2>
         <div class="bg-[var(--bg-card)] border border-[var(--border)] rounded-[10px] p-4">
           <div class="grid grid-cols-2 md:grid-cols-6 gap-3 mb-4">

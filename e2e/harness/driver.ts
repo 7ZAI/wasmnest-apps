@@ -79,6 +79,37 @@ export function visible(testid: string): Promise<boolean> {
   }, testid)
 }
 
+/** 等待元素存在且解除禁用 */
+export async function waitForEnabled(testid: string, timeout = DEFAULT_TIMEOUT): Promise<void> {
+  await browser.waitUntil(async () => (await exists(testid)) && !(await isDisabled(testid)), {
+    timeout,
+    interval: 120,
+    timeoutMsg: `等待元素可用超时：[data-testid="${testid}"]`,
+  })
+}
+
+/** 等待元素存在且进入禁用态 */
+export async function waitForDisabled(testid: string, timeout = DEFAULT_TIMEOUT): Promise<void> {
+  await browser.waitUntil(async () => (await exists(testid)) && (await isDisabled(testid)), {
+    timeout,
+    interval: 120,
+    timeoutMsg: `等待元素禁用超时：[data-testid="${testid}"]`,
+  })
+}
+
+/** 等待表单控件值等于给定值（v-model 异步更新） */
+export async function waitForValue(
+  testid: string,
+  expected: string,
+  timeout = DEFAULT_TIMEOUT,
+): Promise<void> {
+  await browser.waitUntil(async () => (await value(testid)) === expected, {
+    timeout,
+    interval: 120,
+    timeoutMsg: `等待输入值超时：[data-testid="${testid}"] 期望「${expected}」`,
+  })
+}
+
 /** 元素文本（trim 后；不存在返回 null） */
 export function text(testid: string): Promise<string | null> {
   return browser.execute((t: string) => {
@@ -104,6 +135,32 @@ export function attr(testid: string, name: string): Promise<string | null> {
     },
     testid,
     name,
+  )
+}
+
+/** 表单控件当前值（读 DOM property；`attr` 读不到 v-model 的 value） */
+export function value(testid: string): Promise<string | null> {
+  return browser.execute((t: string) => {
+    const el = document.querySelector(`[data-testid="${t}"]`) as
+      (HTMLElement & { value?: string }) | null
+    return el && typeof el.value === 'string' ? el.value : null
+  }, testid)
+}
+
+/** 写表单值并派发 input 事件（模拟用户输入，供 v-model 接收） */
+export function setValue(testid: string, next: string): Promise<boolean> {
+  return browser.execute(
+    (t: string, v: string) => {
+      const el = document.querySelector(`[data-testid="${t}"]`) as
+        (HTMLElement & { value?: string }) | null
+      if (!el) return false
+      el.value = v
+      el.dispatchEvent(new Event('input', { bubbles: true }))
+      el.dispatchEvent(new Event('change', { bubbles: true }))
+      return true
+    },
+    testid,
+    next,
   )
 }
 
@@ -195,6 +252,23 @@ export function typeInto(testid: string, value: string): Promise<boolean> {
   )
 }
 
+/** 点击 `[data-testid][data-*="value"]` 的单个元素（列表项按业务键定位） */
+export function clickByData(testid: string, name: string, expected: string): Promise<boolean> {
+  return browser.execute(
+    (t: string, n: string, v: string) => {
+      const el = document.querySelector(
+        `[data-testid="${t}"][${n}="${CSS.escape(v)}"]`,
+      ) as HTMLElement | null
+      if (!el) return false
+      el.click()
+      return true
+    },
+    testid,
+    name,
+    expected,
+  )
+}
+
 /** 等待元素出现且可见 */
 export async function waitFor(testid: string, timeout = DEFAULT_TIMEOUT): Promise<void> {
   await browser.waitUntil(() => visible(testid), {
@@ -243,6 +317,46 @@ export async function waitForText(
       timeoutMsg: `等待文本包含「${needle}」超时：[data-testid="${testid}"]`,
     },
   )
+}
+
+/** 等待元素文本等于给定值 */
+export async function waitForTextEquals(
+  testid: string,
+  expected: string,
+  timeout = DEFAULT_TIMEOUT,
+): Promise<void> {
+  await browser.waitUntil(async () => (await text(testid)) === expected, {
+    timeout,
+    interval: 120,
+    timeoutMsg: `等待文本超时：[data-testid="${testid}"] 期望「${expected}」`,
+  })
+}
+
+/** 等待元素属性等于给定值（状态位断言用，不等固定 sleep） */
+export async function waitForAttr(
+  testid: string,
+  name: string,
+  expected: string,
+  timeout = DEFAULT_TIMEOUT,
+): Promise<void> {
+  await browser.waitUntil(async () => (await attr(testid, name)) === expected, {
+    timeout,
+    interval: 120,
+    timeoutMsg: `等待属性超时：[data-testid="${testid}"][${name}] 期望「${expected}」`,
+  })
+}
+
+/** 等待元素属性消失（如 details 收起后 `open` 不再存在） */
+export async function waitForAttrGone(
+  testid: string,
+  name: string,
+  timeout = DEFAULT_TIMEOUT,
+): Promise<void> {
+  await browser.waitUntil(async () => (await attr(testid, name)) === null, {
+    timeout,
+    interval: 120,
+    timeoutMsg: `等待属性消失超时：[data-testid="${testid}"][${name}]`,
+  })
 }
 
 /** 页面正文文本（断言用兜底：某段文案出现了没） */

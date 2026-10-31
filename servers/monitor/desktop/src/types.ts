@@ -42,7 +42,7 @@ export interface HostPluginInfo {
   id: string
   name: string
   version?: string
-  /** 产物形态：rust / rust-ts / wasm / ts-only */
+  /** 产物形态：frontend / backend / full（语言无关三档，wasmnest-apps#21；旧值已退役） */
   pluginType?: string
   /** 装配角色（L1 基础服务 / L2 内部业务 / L3 应用） */
   kind?: string

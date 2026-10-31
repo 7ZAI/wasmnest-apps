@@ -204,6 +204,7 @@
 | 前端规范（双端） | 本仓 `docs/FRONTEND.md` |
 | 后端规范（Rust / WASM） | 本仓 `docs/BACKEND.md` |
 | 桌面端 E2E（怎么跑 / 锚点约定 / 判据纪律 / 排障） | 本仓 `docs/E2E.md` |
+| 按 app 的功能验收模板（功能清单 / 勾叉步骤 / 报告口径） | 本仓 `docs/verification/README.md` 与对应 `<slug>.md` |
 | CI / 按 app 独立构建与发布（触发方式 / tag / 跨仓装配 / 排障） | 本仓 `docs/CI.md`、`.github/workflows/`、`scripts/ci/` |
 | 桌面挂载契约（宿主侧真源） | `../wasmnest/wasmnest-desktop/src/shell/mount/useAppMount.ts`（`mountApp` + 可选 `mountPreview`）、`src/shell/mount/{AppMountSlot,AppPreviewTile}.vue`、`src/shell/composables/useShellApps.ts`；预览机制票 `../wasmnest/.scratch/2026-10-20-app-preview-contract/spec.md` |
 | 移动运行面契约 | `../wasmnest/wasmnest-mobile/packages/plugin-sdk-mobile/src/types.ts`、`../wasmnest/wasmnest-mobile/src/shell/registry.ts` |

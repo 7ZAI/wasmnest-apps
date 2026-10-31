@@ -14,18 +14,24 @@ import { mkdirSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
+import { browser } from '@wdio/globals'
 import {
-  allowFsAuthPrompts,
+  attr,
   attrs,
+  allowFsAuthPrompts,
   click,
   clickContaining,
   clickNth,
   count,
   DEFAULT_TIMEOUT,
   exists,
+  isDisabled,
+  text,
   typeInto,
+  value,
   visible,
   waitFor,
+  waitForAttr,
   waitForCount,
   waitForHostReady,
   waitForTerminalOutput,
@@ -77,7 +83,20 @@ describe('BedCode（桌面端 · 宿主内挂载）', () => {
     await goHome()
     await openApp(APP_NAME)
     await waitFor('bedcode-root')
+    // 壳保活：上一条用例可能停在表单弹窗；统一关掉再开始
+    if (await visible('session-config-form')) {
+      await click('session-config-cancel')
+      await waitGone('session-config-form')
+    }
   })
+
+  /** 宿主深链直达（bedcode 的 /server、/history 不进侧栏） */
+  async function openRoute(path: string): Promise<void> {
+    await browser.execute((p: string) => {
+      history.pushState(null, '', p)
+      window.dispatchEvent(new PopStateEvent('popstate'))
+    }, path)
+  }
 
   it('侧边栏渲染六个目录项', async () => {
     for (const item of NAV_ITEMS) {
@@ -284,5 +303,87 @@ describe('BedCode（桌面端 · 宿主内挂载）', () => {
       },
       { timeout: 15_000, interval: 200, timeoutMsg: '停止后运行未转终态（run-item data-status）' },
     )
+  })
+
+  it('设备配对：页签可切换，设备面板出现、配对面板退场', async () => {
+    await click('nav-pairing')
+    await waitFor('pairing-view')
+    expectEqual(await attr('pairing-tab-pairing', 'aria-selected'), 'true', '默认选中配对页签')
+
+    await click('pairing-tab-devices')
+    await waitForAttr('pairing-tab-devices', 'aria-selected', 'true', 5_000)
+    await waitFor('pairing-devices-panel')
+    expectEqual(await attr('pairing-tab-pairing', 'aria-selected'), 'false', '配对页签解除选中')
+
+    await click('pairing-tab-pairing')
+    await waitForAttr('pairing-tab-pairing', 'aria-selected', 'true', 5_000)
+    await waitGone('pairing-devices-panel')
+    expectEqual(await visible('pairing-devices-panel'), false, '设备面板已退场')
+  })
+
+  it('终端会话：空表单提交显示必填错误，表单不关闭', async () => {
+    await click('nav-sessions')
+    await waitFor('sessions-view')
+    await click('sessions-create')
+    await waitFor('session-config-form')
+    await waitFor('session-input-name')
+    expectEqual(await exists('session-input-working-dir'), true, '工作目录输入在场')
+
+    await click('session-config-submit')
+    await waitFor('session-input-name-error')
+    expectEqual((await text('session-input-name-error'))?.length > 0, true, '名称必填错误')
+    await waitFor('session-input-working-dir-error')
+    expectEqual(await visible('session-config-form'), true, '校验失败时表单仍打开')
+
+    await click('session-config-cancel')
+    await waitGone('session-config-form')
+  })
+
+  it('Agent 任务：四个页签互斥切换，目标面板跟随出现', async () => {
+    await click('nav-tasks')
+    await waitFor('tasks-view')
+    const tabs = ['current', 'records', 'scheduled', 'stats'] as const
+    let previousPanel: string | null = null
+    for (const key of tabs) {
+      await click(`tasks-tab-${key}`)
+      await waitForAttr(`tasks-tab-${key}`, 'aria-selected', 'true', 5_000)
+      await waitFor(`tasks-panel-${key}`)
+      if (previousPanel) {
+        await waitGone(previousPanel)
+      }
+      previousPanel = `tasks-panel-${key}`
+    }
+    expectEqual(await visible('tasks-panel-stats'), true, '统计面板可见')
+  })
+
+  it('设置：四个业务分组全部渲染', async () => {
+    await click('nav-settings')
+    await waitFor('settings-view')
+    for (const key of ['appearance', 'pairing', 'linkCrypto', 'session']) {
+      await waitFor(`settings-section-${key}`)
+      expectEqual(await visible(`settings-section-${key}`), true, `设置分组 ${key} 可见`)
+    }
+  })
+
+  it('服务器诊断页：分区、端口和高级配置折叠可用（不写端口）', async () => {
+    await openRoute('/server')
+    await waitFor('server-view')
+    for (const key of ['status', 'network', 'monitoring']) {
+      await waitFor(`server-section-${key}`)
+    }
+    const port = Number(await value('server-port-input'))
+    expectEqual(Number.isInteger(port) && port > 0, true, '端口为数字')
+    expectEqual(await isDisabled('server-port-save'), true, '未修改时端口保存禁用')
+    expectEqual(await visible('server-status-text'), true, '服务器状态可见')
+
+    if (await exists('server-section-advanced')) {
+      expectEqual(await attr('server-advanced-toggle', 'aria-expanded'), 'true', '高级配置默认展开')
+      await click('server-advanced-toggle')
+      await waitForAttr('server-advanced-toggle', 'aria-expanded', 'false', 5_000)
+      await waitGone('server-advanced-panel')
+      await click('server-advanced-toggle')
+      await waitForAttr('server-advanced-toggle', 'aria-expanded', 'true', 5_000)
+      await waitFor('server-advanced-panel')
+    }
   })
 })

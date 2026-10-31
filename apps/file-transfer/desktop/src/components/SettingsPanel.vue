@@ -78,7 +78,7 @@ function onTimeoutBlur(e: Event): void {
 
       <div class="ft-settings-body">
         <!-- 共享目录 -->
-        <section class="ft-settings-section">
+        <section class="ft-settings-section" data-testid="ft-settings-section-roots">
           <h3 class="ft-settings-section-title">{{ t('transfer.settings.sharedRoots') }}</h3>
           <div
             v-if="rootItems.length === 0"
@@ -116,7 +116,7 @@ function onTimeoutBlur(e: Event): void {
         </section>
 
         <!-- 下载目录 -->
-        <section class="ft-settings-section">
+        <section class="ft-settings-section" data-testid="ft-settings-section-download-dir">
           <h3 class="ft-settings-section-title">{{ t('transfer.settings.downloadDir') }}</h3>
           <div class="ft-settings-row">
             <span
@@ -132,7 +132,7 @@ function onTimeoutBlur(e: Event): void {
         </section>
 
         <!-- 接收策略（自绘分段控件，禁原生 select；超时输入仅 ask 时显示） -->
-        <section class="ft-settings-section">
+        <section class="ft-settings-section" data-testid="ft-settings-section-policy">
           <h3 class="ft-settings-section-title">{{ t('transfer.settings.receivingPolicy') }}</h3>
           <div class="ft-segmented" role="tablist">
             <button
@@ -142,6 +142,7 @@ function onTimeoutBlur(e: Event): void {
               :class="{ 'ft-segmented-item--active': settings.receivingPolicy === opt.value }"
               role="tab"
               :aria-selected="settings.receivingPolicy === opt.value"
+              :data-testid="`ft-policy-${opt.value}`"
               @click="emit('setReceivingPolicy', opt.value)"
             >
               {{ t(opt.key) }}
@@ -151,6 +152,7 @@ function onTimeoutBlur(e: Event): void {
           <div
             v-if="settings.receivingPolicy === 'ask'"
             class="ft-settings-row ft-settings-timeout"
+            data-testid="ft-settings-timeout"
           >
             <label class="ft-timeout-label" for="ft-approval-timeout">
               {{ t('transfer.settings.approvalTimeout') }}
@@ -169,7 +171,7 @@ function onTimeoutBlur(e: Event): void {
         </section>
 
         <!-- 发送并发上限（同时传输任务数，1–8；增大占用更多带宽） -->
-        <section class="ft-settings-section">
+        <section class="ft-settings-section" data-testid="ft-settings-section-concurrency">
           <h3 class="ft-settings-section-title">{{ t('transfer.settings.concurrency') }}</h3>
           <div class="ft-stepper" role="group" :aria-label="t('transfer.settings.concurrency')">
             <button
@@ -180,7 +182,9 @@ function onTimeoutBlur(e: Event): void {
             >
               −
             </button>
-            <span class="ft-stepper-value" aria-live="polite">{{ settings.concurrency }}</span>
+            <span class="ft-stepper-value" aria-live="polite" data-testid="ft-concurrency-value">{{
+              settings.concurrency
+            }}</span>
             <button
               class="ft-stepper-btn"
               :disabled="settings.concurrency >= MAX_CONCURRENCY"
@@ -194,7 +198,7 @@ function onTimeoutBlur(e: Event): void {
         </section>
 
         <!-- 传输加密（默认关；发送侧生效，接收端经 Offer 头自动解密） -->
-        <section class="ft-settings-section">
+        <section class="ft-settings-section" data-testid="ft-settings-section-encryption">
           <h3 class="ft-settings-section-title">{{ t('transfer.settings.encryption') }}</h3>
           <div class="ft-segmented" role="tablist">
             <button
@@ -204,6 +208,7 @@ function onTimeoutBlur(e: Event): void {
               :class="{ 'ft-segmented-item--active': settings.encryption === opt.value }"
               role="tab"
               :aria-selected="settings.encryption === opt.value"
+              :data-testid="`ft-encryption-${opt.value}`"
               @click="emit('setEncryption', opt.value)"
             >
               {{ t(opt.key) }}
@@ -213,10 +218,10 @@ function onTimeoutBlur(e: Event): void {
         </section>
 
         <!-- 可信对端管理（spec 决策 8）：独立分区，列表/撤销自包含 -->
-        <TrustedPeersSection />
+        <TrustedPeersSection data-testid="ft-settings-section-trusted" />
 
         <!-- 安全告知（spec §10 常驻） -->
-        <div class="ft-warning">
+        <div class="ft-warning" data-testid="ft-settings-warning">
           <svg class="ft-warning-ico" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path
               stroke-linecap="round"

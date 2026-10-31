@@ -33,7 +33,7 @@
     <div class="flex-1 overflow-auto px-6 py-6">
       <div class="max-w-3xl mx-auto space-y-6">
         <template v-for="section in sections" :key="section.key">
-          <section>
+          <section :data-testid="`settings-section-${section.key}`">
             <h3 class="wb-section-title">{{ t(section.titleKey ?? '') }}</h3>
             <component :is="section.component" v-bind="section.props" />
           </section>
