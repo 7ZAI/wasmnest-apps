@@ -5,7 +5,9 @@
  *      → 复制产物到本仓默认产物目录 `.build/plugins`
  *
  * 后端构建（TinyGo 步骤替换 cargo，其余复用）：
- *   1. 工具链预检（tinygo / wasm-tools / Go 在 PATH；缺失 fail-visible + PATH 提示）；
+ *   1. 工具链在位检查（Go 为可选后端：缺失 → 跳过 Go 构建并沿用上一份产物，
+ *      点名缺失 + PATH 出路；显式 --go-only / 首建无旧产物 / SDK Go 模块缺失
+ *      仍硬失败，不静默降级）；
  *   2. 清单嵌入副本同步：go:embed 不能上溯目录，plugin.json 由本脚本复制进 go/；
  *   3. wit 包组装：SDK 壳 tools/assemble-wit.mjs --out .build/go-wit（与绑定生成
  *      同一脚本，派生产物不入库）；
@@ -93,8 +95,8 @@ function buildFrontend() {
   run('pnpm exec vite build')
 }
 
-/** 工具链预检：缺失即退出并给出可执行出路（不猜默认值，不静默降级） */
-function requireTools(names) {
+/** 工具链在位检查：返回缺失名单（空数组 = 齐全），不做退出决策 */
+function missingTools(names) {
   const missing = []
   for (const name of names) {
     try {
@@ -103,30 +105,43 @@ function requireTools(names) {
       missing.push(name)
     }
   }
-  if (missing.length) {
-    console.error(`[build] ERROR: 工具链缺失: ${missing.join(', ')}`)
-    console.error(`[build]   钉版组合（issue #21 Phase 0 实证）：Go 1.27.3 / TinyGo 0.43.0 / wasm-tools 1.240.0`)
-    console.error(`[build]   PATH 需含 Go / TinyGo / wasm-tools（本机安装示例：`)
-    console.error(`[build]   export PATH="$HOME/.local/toolchains/go/bin:$HOME/.local/toolchains/tinygo/bin:$HOME/go/bin:$PATH"）`)
-    process.exit(1)
-  }
+  return missing
+}
+
+/** 工具链出路文案（点名钉版组合 + PATH 示例；调用方决定警告还是硬失败） */
+function printToolchainEscape(missing) {
+  console.error(`[build]   缺失: ${missing.join(', ')}`)
+  console.error(`[build]   钉版组合（issue #21 Phase 0 实证）：Go 1.27.3 / TinyGo 0.43.0 / wasm-tools 1.240.0`)
+  console.error(`[build]   PATH 需含 Go / TinyGo / wasm-tools（本机安装示例：`)
+  console.error(`[build]   export PATH="$HOME/.local/toolchains/go/bin:$HOME/.local/toolchains/tinygo/bin:$HOME/go/bin:$PATH"）`)
 }
 
 /**
- * Go 后端构建（TinyGo wasip2 组件）：
- *   清单副本同步 → wit 组装 → tinygo build → `.build/go/<rustLibrary>.wasm`
+ * Go 后端构建（TinyGo wasip2 组件）：清单副本同步 → wit 组装 → tinygo build
+ * → `.build/go/<rustLibrary>.wasm`。
+ *
+ * Go 是可选后端（issue #21：默认不要求工具链）：工具链缺失 → 点名警告后跳过，
+ * 返回 false（调用方沿用上一份产物）；显式要求重建时装好工具链重跑即可。
+ * 工具链在位但 SDK Go 模块缺失 = 配置问题，仍硬失败（fail-visible）。
+ * @returns 本次是否真的重建了 wasm
  */
-function buildGo() {
+function buildGoOrSkip() {
   console.log('\n[build] ====== Building Go backend (TinyGo wasip2) ======')
+  const missing = missingTools(['go', 'tinygo', 'wasm-tools'])
+  if (missing.length) {
+    console.warn('[build] ⚠ 跳过 Go 后端构建（Go 为可选后端，默认不构建）——产物 wasm 沿用上一份：')
+    printToolchainEscape(missing)
+    console.warn('[build] ⚠ 要重建 Go 后端：装好工具链后重跑本脚本（或 node scripts/build.js --go-only）')
+    return false
+  }
   if (DEBUG_MODE) {
     console.warn('[build] ⚠ WASMNEST_PLUGIN_DEBUG=1：TinyGo 产物首期无调试档等价物，按 release 构建（spec #21）')
   }
-  requireTools(['go', 'tinygo', 'wasm-tools'])
 
-  // SDK Go 壳模块（wit 组装脚本随包分发）；缺失 = 平台仓未含 go/（分支未检出/未合流）
+  // SDK Go 壳模块（wit 组装脚本随包分发）；缺失 = 平台仓检出不含 go/（未合流/未检出）
   if (!existsSync(SDK_GO_DIR)) {
     console.error(`[build] ERROR: SDK Go 模块缺失: ${SDK_GO_DIR}`)
-    console.error(`[build]   平台仓需检出含 plugin-sdk-desktop/go 的分支（feat/go-backend-support，合流后主树即有）`)
+    console.error(`[build]   平台仓需检出含 plugin-sdk-desktop/go 的分支（dev 已合流，主树即有）`)
     process.exit(1)
   }
 
@@ -142,6 +157,7 @@ function buildGo() {
     `tinygo build -target=wasip2 -wit-package ${resolve(ROOT, GO_WIT_DIR)} -wit-world go-plugin -o ${resolve(ROOT, GO_BUILD_DIR, WASM_NAME)} .`,
     { cwd: resolve(ROOT, 'go') },
   )
+  return true
 }
 
 function copyArtifacts(opts = {}) {
@@ -214,6 +230,10 @@ function copyArtifacts(opts = {}) {
 const watchMode = argv.includes('--watch')
 const frontendOnly = argv.includes('--frontend-only')
 const goOnly = argv.includes('--go-only')
+// `--rust-only` = 平台 precheck 对 cargo 口径插件的「只补后端」快速路径（plugin-precheck.mjs
+// ensurePluginWasm 传参）；Go 应用同义接受：只重建后端、跳过 vite。工具链缺失时同样降级。
+const rustOnly = argv.includes('--rust-only')
+const backendOnly = goOnly || rustOnly
 
 if (watchMode) {
   // 前端 watch 构建：改源码自动重建 + 复制产物（配合宿主 PluginDevWatcher 触发前端热重载）。
@@ -230,13 +250,13 @@ if (watchMode) {
   const keptWasm = preservePreviousWasm()
   buildFrontend()
   copyArtifacts({ wasmRebuilt: false, keptWasm })
-} else if (goOnly) {
-  buildGo()
-  copyArtifacts()
+} else if (backendOnly) {
+  const wasmRebuilt = buildGoOrSkip()
+  copyArtifacts({ wasmRebuilt })
 } else {
   buildFrontend()
-  buildGo()
-  copyArtifacts()
+  const wasmRebuilt = buildGoOrSkip()
+  copyArtifacts({ wasmRebuilt })
 }
 
 if (!watchMode) {
