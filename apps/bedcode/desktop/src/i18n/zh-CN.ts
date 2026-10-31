@@ -1177,6 +1177,7 @@ const zhCN: MessageSchema = {
   'project.chat.agentState.retrying': '重试中…',
   'project.chat.agentState.error': '出错',
   'project.chat.mirrorMode': '镜像模式',
+  'project.chat.runEnded': '运行已结束——发起新运行后继续对话',
   'project.chat.mirrorHint': '桥接未连接：事件由账本镜像供给（可能滞后），输入不可用，请在「终端」页签操作',
   'project.chat.mirrorPiTrust':
     '桥接未加载：pi 尚未授予本项目信任，请先在终端里启动 pi 并信任本项目，之后对话面自动恢复输入',

@@ -60,11 +60,15 @@ export interface RunView {
   active: boolean
   /** 事件账本被截断（M3 才有写入方；M2 恒 false） */
   truncated: boolean
-  /** 桥接最后一次心跳（RFC3339；null = 从未连上） */
+  /**
+   * 桥接最后一次心跳（RFC3339；null = 从未连上）。仅信息面（排障/列表展示）：
+   * 对话面的镜像判据吃 `run.events` 响应里的 `bridge`（随事件同拍更新，
+   * 比 run.list 轮询新鲜），不读这里
+   */
   bridgeSeenAt: string | null
   /**
-   * 桥接是否在线（后端按 15s 心跳窗口算好）：false = 镜像模式，
-   * 对话面输入框禁用并指向终端页签
+   * 桥接是否在线（后端按 15s 心跳窗口算好）。仅信息面，用途同上——
+   * 对话面输入禁用的判据不是它（issue #25 L4）
    */
   bridgeConnected: boolean
 }

@@ -12,8 +12,9 @@
 //! - **任务域内部路径**（17 条）：只挂内部路径（`/api/plugin/<id>/<path>`），
 //!   hook 脚本 / 移动端任务面经插件代理前缀访问；
 //! - **sessions REST**（7 条）：内部段 + 模板别名（`/api/sessions/{id}/…`）；
-//! - **桥接回环**（3 条）：`run-events` / `run-commands` / `run-commands-ack`
-//!   （只挂内部路径，auth:none——agent 进程内的扩展拿不到 JWT）；
+//! - **桥接回环**（4 条）：`run-attach` / `run-events` / `run-commands` /
+//!   `run-commands-ack`（只挂内部路径，auth:none——agent 进程内的扩展拿不到 JWT；
+//!   暴露面由 `run::bridge` 的本机调用方门禁收口，issue #25 H3）；
 //! - **terminal-bg**（1 条）：内部段 + `/static/terminal-bg`（auth:none）。
 //!
 //! **认证链七端点不在本表**（issue #6 切换）：`/api/auth/*` 随认证中心迁到
@@ -121,8 +122,9 @@ pub const ROUTES: &[HttpRouteDecl] = &[
         methods: &["GET", "POST"],
         auth: NONE,
     },
-    // 桥接回环路由（ADR 0004）：agent 进程内的扩展拿不到 JWT，只能匿名回环调用；
-    // run-attach 是共享服务架构下的运行身份握手（同环回先例）
+    // 桥接回环路由（ADR 0004，4 条）：agent 进程内的扩展拿不到 JWT，只能匿名回环
+    // 调用；run-attach 是共享服务架构下的运行身份握手（同环回先例）。auth:none 只
+    // 表达「不验签」：非本机调用方由 run::bridge 的本机门禁 403（issue #25 H3）
     HttpRouteDecl {
         path: "run-attach",
         host: None,

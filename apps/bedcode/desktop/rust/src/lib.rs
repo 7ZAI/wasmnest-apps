@@ -2066,8 +2066,18 @@ impl WasmPlugin for SessionPlugin {
                 let device = a
                     .value_owned("device")
                     .unwrap_or_else(|| serde_json::json!({}));
+                // 票 08 裁决 3：宿主判定的三档调用方身份（device / localhost /
+                // anonymous）——桥接域的本机门禁吃它（issue #25 H3）
+                let caller = a.str_or("caller", "");
                 Ok(handle_http_endpoint(
-                    &WasmHost, &method, &path, &body, &query, &params, &device,
+                    &WasmHost,
+                    &method,
+                    &path,
+                    &body,
+                    &query,
+                    &params,
+                    &device,
+                    &caller,
                 ))
             }
 
@@ -2291,6 +2301,10 @@ pub const GIT_HTTP_ENDPOINTS: &[&str] = &["git/branches", "git/status", "git/che
 /// - `task-status` / `session-mode`：Claude Code / codex / pi / opencode 的 hook 脚本由
 ///   插件注入 PTY 环境，拿不到 JWT，只能按环回地址匿名调用（宿主转发的 `caller`
 ///   字段给 `localhost`，插件据此可自行区分，裁决 3）。
+/// - 桥接四条（`run-*`）：同环回先例，且**额外收紧为只接受 `localhost` 档**
+///   （`run::bridge::caller_allowed` 本机门禁，issue #25 H3）——`run-commands`
+///   会交出用户待发正文、`run-events` 可注入伪造对话，`auth: none` 只表达
+///   「不验签」，非本机档（含已验签远端设备）在分派前 403。
 ///
 /// 认证链七条（`auth/*`）曾是第三批，issue #6 切换后随认证中心迁出本插件，
 /// 由 `com.wasmnest.auth-center` 在注册成功后自行登记 `/api/auth/*`。
@@ -2298,7 +2312,8 @@ pub const NO_AUTH_HTTP_ENDPOINTS: &[&str] = &[
     "task-status",
     "session-mode",
     // ADR 0004 桥接：扩展在 agent 进程内，拿不到 JWT（与 task-status 同先例）；
-    // run-attach 是共享服务架构下的运行身份握手（同环回先例）
+    // run-attach 是共享服务架构下的运行身份握手（同环回先例）。暴露面收口见
+    // run::bridge 模块文档：本机门禁（caller=localhost）+ 403 拒绝非本机档
     "run-attach",
     "run-events",
     "run-commands",
@@ -2317,6 +2332,7 @@ fn handle_http_endpoint(
     query: &serde_json::Value,
     params: &serde_json::Value,
     device: &serde_json::Value,
+    caller: &str,
 ) -> serde_json::Value {
     match path {
         // GET /api/configs（网关别名）→ 配置真源列表，wire 与宿主 ConfigItem 同形
@@ -2331,9 +2347,10 @@ fn handle_http_endpoint(
             file_browse::handle_http_endpoint(host, method, path, body, query)
         }
         // 桥接回环路由（ADR 0004）：运行身份握手 / 事件入站 / 命令领取 / 命令回执。
-        // 环回免凭证，与 task-status / session-mode 同一先例（扩展拿不到 JWT）。
+        // 环回免凭证（扩展拿不到 JWT），且只接受本机调用方档（issue #25 H3：
+        // `run-commands` 暴露用户正文、`run-events` 可注入伪造对话）
         "run-attach" | "run-events" | "run-commands" | "run-commands-ack" => {
-            run::bridge::handle_http_endpoint(host, method, path, body)
+            run::bridge::handle_http_endpoint(host, method, path, body, caller)
         }
         // 认证链七端点已随认证中心迁出（issue #6）：本插件不再登记、也不再分派
         // `auth/*`——宿主 `/api/auth/*` 由 `com.wasmnest.auth-center` 接管。

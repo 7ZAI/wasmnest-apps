@@ -354,6 +354,11 @@ async function flushBridge(): Promise<void> {
 type CommandExecutor = (command: BridgeCommand, runId: string) => Promise<void>
 
 /** 命令轮询（每条已绑定运行一趟）：既是下行通道，也是各自的心跳（后端据此判镜像模式） */
+
+/** 进程内去重集的容量上限（issue #25 L5）：长驻 serve 进程里无界增长会拖内存。
+ *  重投窗口只有 30s 回收窗，这个量级远超任何真实在途命令数，FIFO 淘汰即可 */
+const EXECUTED_COMMAND_CAP = 512
+
 function startCommandLoop(pollTargets: () => string[], execute: CommandExecutor): ReturnType<typeof setInterval> | null {
   if (!bridgeEnabled()) return null
   const executedCommands = new Set<string>()
@@ -388,6 +393,11 @@ function startCommandLoop(pollTargets: () => string[], execute: CommandExecutor)
             continue
           }
           executedCommands.add(commandKey)
+          // FIFO 淘汰最老一条（Set 迭代序 = 插入序），长驻进程不无界增长
+          if (executedCommands.size > EXECUTED_COMMAND_CAP) {
+            const oldest = executedCommands.values().next().value
+            if (oldest !== undefined) executedCommands.delete(oldest)
+          }
           try {
             await execute(command, runId)
             results.push({ id: command.id, ok: true })
@@ -849,7 +859,10 @@ async function setupBridgeV2(ctx: BridgeV2Context): Promise<() => void> {
         if (directory && directory !== cwd) continue
         const id = String(session.id ?? '')
         if (!id || session.parentID) continue
-        await attachRun(cwd, id, false)
+        const runId = await attachRun(cwd, id, false)
+        // 补绑成功必须写回映射（issue #25 M4）：不写回则重载后 reverseTarget
+        // 找不到既有会话，send 命令会对同一条运行错开新会话
+        if (runId) bindings.set(id, runId)
       }
     } catch {
       // 列举失败：事件流照常增量绑定

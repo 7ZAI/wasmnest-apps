@@ -357,4 +357,45 @@ describe('wasmnest_bridge（opencode）', () => {
     expect(typeof cleanup).toBe('function')
     cleanup()
   })
+
+  it('V2 引导补绑写回绑定（issue #25 M4）：重载后 send 命令命中既有会话，不错开新会话', async () => {
+    const host = installHost([
+      [{ id: 21, kind: 'send', payload: { text: '重载后继续' } }],
+    ])
+    const module = await import('../../scripts/wasmnest_bridge_opencode.ts?case=oc-v2-rebind')
+    const prompt = vi.fn(async () => ({}))
+    const create = vi.fn(async () => ({}))
+    const CWD = '/home/user/proj'
+    const events = (async function* () {
+      // 重载后空闲：没有任何 agent 事件，绑定只能靠引导补绑
+      await new Promise(() => {})
+    })()
+    const cleanup = await module.default.setup({
+      location: { directory: CWD },
+      event: { subscribe: () => events },
+      session: {
+        prompt,
+        create,
+        // 服务进程里的既有会话（插件重载后仍在）
+        list: async () => ({ data: [{ id: 'ses-live', directory: CWD }] }),
+      },
+    })
+    await flushMicrotasks()
+    await vi.advanceTimersByTimeAsync(600)
+    await flushMicrotasks()
+
+    // 引导补绑以 claim=false 命中既有会话（重绑模式，绝不新认领）
+    const rebind = host.calls.find(
+      (call) =>
+        call.url.endsWith('/run-attach') &&
+        (call.body as { agentSessionId?: string }).agentSessionId === 'ses-live',
+    )
+    expect(rebind?.body).toMatchObject({ cwd: CWD, agentSessionId: 'ses-live', claim: false })
+    // 命令下行：reverseTarget 经写回的绑定找到 ses-live → 直接发送，不开新会话
+    expect(prompt).toHaveBeenCalledWith({ sessionID: 'ses-live', text: '重载后继续' })
+    expect(create).not.toHaveBeenCalled()
+    const ack = host.calls.find((call) => call.url.endsWith('/run-commands-ack'))
+    expect(ack?.body).toMatchObject({ runId: 'run-attach-1', results: [{ id: 21, ok: true }] })
+    cleanup()
+  })
 })

@@ -1212,6 +1212,7 @@ const en: MessageSchema = {
   'project.chat.agentState.retrying': 'Retrying…',
   'project.chat.agentState.error': 'Error',
   'project.chat.mirrorMode': 'Mirror mode',
+  'project.chat.runEnded': 'This run has ended — start a new run to keep chatting',
   'project.chat.mirrorHint':
     'Bridge offline: events come from the ledger mirror (may lag). Input is disabled — use the terminal tab',
   'project.chat.mirrorPiTrust':

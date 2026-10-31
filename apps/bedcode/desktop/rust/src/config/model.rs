@@ -81,10 +81,6 @@ pub fn now_rfc3339() -> String {
     rfc3339_from_unix(crate::pairing::jwt::now_secs())
 }
 
-/// unix 秒 → RFC3339（UTC，秒级，`Z` 结尾）
-///
-/// 手写 civil-from-days（Howard Hinnant 算法）：插件侧不引入 chrono（依赖面与
-/// wasm 体积），但输出必须能被宿主 `DateTime<Utc>` 反序列化。
 /// RFC3339（UTC，秒级，`Z` 结尾）→ unix 秒；不可解析返回 None
 ///
 /// 只接受本仓自己写出的形状（`YYYY-MM-DDTHH:MM:SSZ`，允许秒后小数）：桥接心跳
@@ -162,6 +158,10 @@ pub fn is_recent(seen: &str, now: &str, max_secs: i64) -> bool {
     (0..=max_secs).contains(&diff)
 }
 
+/// unix 秒 → RFC3339（UTC，秒级，`Z` 结尾）
+///
+/// 手写 civil-from-days（Howard Hinnant 算法）：插件侧不引入 chrono（依赖面与
+/// wasm 体积），但输出必须能被宿主 `DateTime<Utc>` 反序列化。
 pub fn rfc3339_from_unix(secs: u64) -> String {
     let days = (secs / 86_400) as i64;
     let rem = secs % 86_400;

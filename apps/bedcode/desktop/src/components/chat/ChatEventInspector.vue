@@ -31,11 +31,19 @@ function toggle(seq: number): void {
   expanded.value = next
 }
 
-/** 换运行重置展开态（由父层传新事件数组体现；key 集合变化即重置更直接） */
+/**
+ * 展开态维护：只剔除已不存在的 seq，**不清空整个集合**（issue #25 M2）。
+ * 流式期间事件数组每拍换引用，若逢变更即清空，展开的 payload 会被轮询反复收起；
+ * 按 seq 记的集合天然跨轮询稳定。换运行时账本数组清空，全部 seq 失活 → 集合
+ * 自然归零，等价于「换运行才重置」。
+ */
 watch(
   () => props.events,
-  () => {
-    if (expanded.value.size > 0) expanded.value = new Set()
+  (events) => {
+    if (expanded.value.size === 0) return
+    const live = new Set(events.map((event) => event.seq))
+    const kept = [...expanded.value].filter((seq) => live.has(seq))
+    if (kept.length !== expanded.value.size) expanded.value = new Set(kept)
   },
 )
 

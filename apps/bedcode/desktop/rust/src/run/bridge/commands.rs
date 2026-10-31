@@ -62,6 +62,19 @@ pub fn enqueue<S: CommandStore>(
 
 // ==================== wasm：插件私有库实现 ====================
 
+/// 领取选行：`pending`，或 `claimed` 超过回收窗口（`claimed_at` 缺失按陈旧算）
+pub(crate) const CLAIM_READY_SQL: &str = "SELECT id, kind, payload FROM run_commands \
+     WHERE run_id = ?1 AND (status = 'pending' OR \
+       (status = 'claimed' AND (claimed_at IS NULL OR claimed_at < ?2))) \
+     ORDER BY id LIMIT ?3";
+
+/// 领取落库：**WHERE 必须复核与选行一致的完整就绪谓词**（issue #25 M3）——
+/// 只判 `status IN ('pending','claimed')` 时，两个领取者先后执行都能命中同一行，
+/// 命令被重复交付；单条 UPDATE 在 SQLite 里原子，复核谓词即排他
+pub(crate) const CLAIM_UPDATE_SQL: &str = "UPDATE run_commands SET status = 'claimed', claimed_at = ?1 \
+     WHERE id = ?2 AND run_id = ?3 AND (status = 'pending' OR \
+       (status = 'claimed' AND (claimed_at IS NULL OR claimed_at < ?4)))";
+
 #[cfg(target_arch = "wasm32")]
 mod wasm_impl {
     use super::*;
@@ -123,10 +136,7 @@ mod wasm_impl {
         ) -> Result<Vec<StoredCommand>, String> {
             let rows = self
                 .plugin_db_query_params(
-                    "SELECT id, kind, payload FROM run_commands \
-                     WHERE run_id = ?1 AND (status = 'pending' OR \
-                       (status = 'claimed' AND (claimed_at IS NULL OR claimed_at < ?2))) \
-                     ORDER BY id LIMIT ?3",
+                    CLAIM_READY_SQL,
                     &sql_params![run_id, stale_before, CLAIM_LIMIT as i64],
                 )
                 .map_err(|e| format!("run_commands claim query failed: {}", e.message))?
@@ -136,9 +146,8 @@ mod wasm_impl {
                 let command = parse_command(&row)?;
                 let affected = self
                     .plugin_db_execute_params(
-                        "UPDATE run_commands SET status = 'claimed', claimed_at = ?1 \
-                         WHERE id = ?2 AND run_id = ?3 AND status IN ('pending', 'claimed')",
-                        &sql_params![now, command.id, run_id],
+                        CLAIM_UPDATE_SQL,
+                        &sql_params![now, command.id, run_id, stale_before],
                     )
                     .map_err(|e| format!("run_commands claim update failed: {}", e.message))?;
                 if affected > 0 {
@@ -365,5 +374,34 @@ pub(crate) mod tests {
             .finish("run-1", id, false, Some("boom"), now())
             .unwrap());
         assert_eq!(store.statuses(), vec!["failed"]);
+    }
+
+    /// SQL 形状锁（issue #25 M3）：领取 UPDATE 必须复核与选行一致的完整就绪谓词。
+    /// 只判 `status IN (...)` 时两个领取者先后执行都能命中同一行（重复交付）；
+    /// native Mock 是单步内存操作覆盖不到 SQL 两步间隙，钉在字面上。
+    #[test]
+    fn claim_update_sql_rechecks_full_readiness_predicate() {
+        for fragment in [
+            "status = 'pending'",
+            "status = 'claimed'",
+            "claimed_at IS NULL",
+            "claimed_at < ",
+        ] {
+            assert!(
+                CLAIM_UPDATE_SQL.contains(fragment),
+                "领取 UPDATE 缺就绪谓词片段 `{fragment}`: {CLAIM_UPDATE_SQL}"
+            );
+        }
+        assert!(
+            !CLAIM_UPDATE_SQL.contains("status IN"),
+            "领取 UPDATE 不得用宽松的 status IN 判定: {CLAIM_UPDATE_SQL}"
+        );
+        // 选行与落库的谓词必须同构：SELECT 里有的就绪条件 UPDATE 里也得有
+        for fragment in ["status = 'pending'", "claimed_at IS NULL OR claimed_at <"] {
+            assert!(
+                CLAIM_READY_SQL.contains(fragment) && CLAIM_UPDATE_SQL.contains(fragment),
+                "选行 / 落库谓词不同构，缺 `{fragment}`"
+            );
+        }
     }
 }

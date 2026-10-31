@@ -519,6 +519,83 @@ fn read_surface_orders_by_seq_and_cursor_sees_in_place_updates() {
     assert_eq!(seqs, vec![5, 6]);
 }
 
+/// H2 回归（issue #25）：早期行的原地更新不得让增量分页跳过中段历史
+///
+/// 场景：事件数超过单页 limit，且首拍被取走**之前**有一条早期事件被原地更新
+/// （新写入 id、原 seq）。增量分支按写入 id 排序时游标单调，续拉必然取全；
+/// 若按 seq 排序，批内新 id 会把游标顶过未交付行，中段历史此后永久读不到。
+#[test]
+fn incremental_pagination_survives_inplace_update_of_early_row() {
+    let fixture = fixture(OPENCODE_FIXTURE, "opencode");
+    let store = MockEventStore::new();
+    ingest_raws(
+        &store,
+        "opencode",
+        EventSource::Bridge,
+        "run-p",
+        &fixture.bridge,
+        CAP,
+    );
+    let total = store.len();
+    assert!(total > 4, "fixture 需要多于单页 limit(4) 的事件");
+
+    // 首拍之前更新一条早期事件（同身份 → 原地更新：新写入 id、原 seq）
+    let text_raw = fixture
+        .bridge
+        .iter()
+        .find(|raw| {
+            raw["properties"]["part"]["type"].as_str() == Some("text")
+                && !raw["properties"]["part"]["text"]
+                    .as_str()
+                    .unwrap_or("")
+                    .is_empty()
+        })
+        .expect("fixture 需要一条非空 text part")
+        .clone();
+    let mut next = text_raw.clone();
+    next["properties"]["time"] = json!(1792109999999i64);
+    next["properties"]["part"]["text"] = json!("updated-early");
+    ingest_raws(
+        &store,
+        "opencode",
+        EventSource::Bridge,
+        "run-p",
+        &[next],
+        CAP,
+    );
+
+    // 模拟对话面：afterId=0 起步、limit=4、满页续拉，游标恒取本批最大写入 id
+    let mut cursor = 0;
+    let mut seen: Vec<(i64, String)> = Vec::new();
+    for _ in 0..8 {
+        let page = store.list("run-p", Some(cursor), 4).expect("page");
+        let full = page.len() == 4;
+        for event in &page {
+            seen.push((
+                event.seq,
+                event.payload["text"].as_str().unwrap_or("").to_string(),
+            ));
+        }
+        cursor = page.iter().map(|event| event.id).max().unwrap_or(cursor);
+        if !full {
+            break;
+        }
+    }
+
+    let mut covered: Vec<i64> = seen.iter().map(|(seq, _)| *seq).collect();
+    covered.sort_unstable();
+    covered.dedup();
+    let expected: Vec<i64> = (1..=total as i64).collect();
+    assert_eq!(
+        covered, expected,
+        "增量续拉必须覆盖全部 seq（不跳中段历史）"
+    );
+    assert!(
+        seen.contains(&(4, "updated-early".to_string())),
+        "早期行的新内容必须随新写入 id 重交付"
+    );
+}
+
 /// 12 类 kind 是全集的唯一真源：归一实现只能产出表内值
 #[test]
 fn every_stored_kind_belongs_to_the_twelve_kind_vocabulary() {

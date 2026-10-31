@@ -39,8 +39,9 @@ pub trait EventStore {
     fn prune(&self, run_id: &str, keep: usize) -> Result<usize, String>;
     /// 置 `runs.truncated = 1`
     fn mark_truncated(&self, run_id: &str) -> Result<(), String>;
-    /// 增量读取：`after_id` 之后写入/更新的行，按 seq 升序；无 `after_id` 时取最近
-    /// `limit` 条（再按 seq 升序返回）
+    /// 增量读取：`after_id` 之后写入/更新的行，按写入 id 升序（游标 = 本批最大
+    /// id，分页单调；渲染顺序由读取方按 seq 合并）；无 `after_id` 时取最近
+    /// `limit` 条（按 seq 升序返回）
     fn list(
         &self,
         run_id: &str,
@@ -52,6 +53,20 @@ pub trait EventStore {
 }
 
 // ==================== wasm：插件私有库实现 ====================
+
+/// 尾部快照（省略 `afterId`）：内层取最近 `limit` 行（按 seq 倒序），外层按 seq
+/// 正序回。**外层列清单必须含 `rev`**（`row_to_event` 对它硬取，漏列 = 读取整体
+/// 失败；issue #25 H1 的病灶就是外层漏了）。
+pub(crate) const LIST_TAIL_SQL: &str = "SELECT id, run_id, seq, rev, at, kind, payload, source, dedupe_key FROM \
+     (SELECT id, run_id, seq, rev, at, kind, payload, source, dedupe_key FROM run_events \
+      WHERE run_id = ?1 ORDER BY seq DESC LIMIT ?2) ORDER BY seq";
+
+/// 增量读取（`id > afterId`）：**按写入 id 排序分页**（游标 = 本批最大写入 id）。
+/// 若按 seq 排序，第一批里被原地更新的行（新 id）会把游标顶过中段未交付行的 id，
+/// 那些行此后永远读不到（issue #25 H2）；重交付与乱序交给前端按 seq 合并
+/// （`mergeEvents` 同 seq 就地替换），渲染顺序本就不由这条 SQL 决定。
+pub(crate) const LIST_INCREMENTAL_SQL: &str = "SELECT id, run_id, seq, rev, at, kind, payload, source, dedupe_key FROM run_events \
+     WHERE run_id = ?1 AND id > ?2 ORDER BY id LIMIT ?3";
 
 #[cfg(target_arch = "wasm32")]
 mod wasm_impl {
@@ -228,17 +243,8 @@ mod wasm_impl {
         ) -> Result<Vec<StoredEvent>, String> {
             let limit = limit.max(1) as i64;
             let rows = match after_id {
-                Some(after) => self.plugin_db_query_params(
-                    "SELECT id, run_id, seq, rev, at, kind, payload, source, dedupe_key FROM run_events \
-                     WHERE run_id = ?1 AND id > ?2 ORDER BY seq, id LIMIT ?3",
-                    &sql_params![run_id, after, limit],
-                ),
-                None => self.plugin_db_query_params(
-                    "SELECT id, run_id, seq, at, kind, payload, source, dedupe_key FROM \
-                     (SELECT id, run_id, seq, rev, at, kind, payload, source, dedupe_key FROM run_events \
-                      WHERE run_id = ?1 ORDER BY seq DESC LIMIT ?2) ORDER BY seq",
-                    &sql_params![run_id, limit],
-                ),
+                Some(after) => self.plugin_db_query_params(LIST_INCREMENTAL_SQL, &sql_params![run_id, after, limit]),
+                None => self.plugin_db_query_params(LIST_TAIL_SQL, &sql_params![run_id, limit]),
             }
             .map_err(|e| format!("run_events read failed: {}", e.message))?;
             rows_to_events(rows)
@@ -397,10 +403,15 @@ pub(crate) mod tests {
                 .filter(|event| after_id.map(|after| event.id > after).unwrap_or(true))
                 .cloned()
                 .collect();
-            rows.sort_by_key(|event| (event.seq, event.id));
-            if after_id.is_none() && rows.len() > limit {
-                rows = rows.split_off(rows.len() - limit);
-            } else if rows.len() > limit {
+            if after_id.is_none() {
+                rows.sort_by_key(|event| (event.seq, event.id));
+                if rows.len() > limit {
+                    rows = rows.split_off(rows.len() - limit);
+                }
+            } else {
+                // 增量分支按写入 id 升序（与 LIST_INCREMENTAL_SQL 的 ORDER BY id
+                // 对齐）：原地更新产生新 id，本批内被更新的行重交付，游标不跳段
+                rows.sort_by_key(|event| event.id);
                 rows.truncate(limit);
             }
             Ok(rows)
@@ -409,5 +420,26 @@ pub(crate) mod tests {
         fn run_truncated(&self, run_id: &str) -> Result<bool, String> {
             Ok(self.truncated.borrow().contains(run_id))
         }
+    }
+
+    /// SQL 形状锁：读取 SQL 只在 wasm 私有库上执行，native 单测覆盖不到执行期，
+    /// 两处已知病灶（issue #25 H1/H2）钉在字面上
+    #[test]
+    fn list_sql_shapes_pin_column_and_cursor_contracts() {
+        // H1：尾部快照内外层列清单都必须含 rev（row_to_event 硬取，漏列 = 读取整体失败）
+        let (outer, inner) = LIST_TAIL_SQL
+            .split_once(" FROM (")
+            .expect("尾部快照必须是嵌套 SELECT");
+        assert!(outer.contains("rev"), "尾部快照外层列清单漏 rev: {outer}");
+        assert!(inner.contains("rev"), "尾部快照内层列清单漏 rev: {inner}");
+        // H2：增量分支按写入 id 排序（游标单调不跳段），禁止按 seq 排序
+        assert!(
+            LIST_INCREMENTAL_SQL.contains("ORDER BY id LIMIT"),
+            "增量分支必须按写入 id 排序: {LIST_INCREMENTAL_SQL}"
+        );
+        assert!(
+            !LIST_INCREMENTAL_SQL.contains("ORDER BY seq"),
+            "增量分支按 seq 排序会让原地更新顶飞游标: {LIST_INCREMENTAL_SQL}"
+        );
     }
 }

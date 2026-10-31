@@ -1219,6 +1219,7 @@ export type MessageSchema = {
   'project.chat.agentState.retrying': string
   'project.chat.agentState.error': string
   'project.chat.mirrorMode': string
+  'project.chat.runEnded': string
   'project.chat.mirrorHint': string
   'project.chat.mirrorPiTrust': string
   'project.chat.truncated': string

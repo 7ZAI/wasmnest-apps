@@ -1,6 +1,12 @@
 //! 桥接（agent 原生扩展）后端面：事件入站 / 命令下行 / 心跳
 //!
-//! 协议（回环 HTTP，`auth: none`，沿用 `task-status` 的环回免凭证先例）：
+//! 协议（回环 HTTP，`auth: none` + **本机调用方门禁**，沿用 `task-status` 的环回
+//! 免凭证先例）：agent 扩展与宿主同机，拿不到 JWT，匿名回环调用；宿主对每条
+//! `/api/plugin/*` 请求判定三档调用方身份并经 `_http_endpoint` 的 `caller` 字段
+//! 传入（`device` = 已验签远端 / `localhost` = 环回 / `anonymous` = 局域网匿名）。
+//! 桥接四条路由**只接受 `localhost`**（[`LOCAL_CALLER`]）：`run-commands` 会交出
+//! 用户待发正文、`run-events` 可注入伪造对话，任何非本机档一律 403 fail-closed
+//! （issue #25 H3；`auth: none` 只表达「不验签」，暴露面由本门禁收口）。
 //! - `POST run-events` `{runId, events:[<agent 原生载荷>]}` → 唯一归一入口落账，
 //!   回执入队报告；
 //! - `POST run-commands` `{runId}` → 领取待执行命令（同时是心跳）；
@@ -34,8 +40,18 @@ pub const MAX_EVENT_BATCH: usize = 500;
 /// 命令领取的回收窗口：扩展崩溃后 30s 内不重投，避免「执行了但回执丢了」被立刻重放
 pub const COMMAND_CLAIM_STALE_SECS: i64 = 30;
 
-/// 本域回环路由（注册表与分派表的共同事实源；全部 `auth: none`）
+/// 本域回环路由（注册表与分派表的共同事实源；全部 `auth: none` + 本机门禁）
 pub const HTTP_ENDPOINTS: &[&str] = &["run-attach", "run-events", "run-commands", "run-commands-ack"];
+
+/// 桥接协议唯一合法调用方档位：宿主判定的环回（`_http_endpoint` 的 `caller`
+/// 字段；判定在平台侧 `caller_identity`，对端 IP 为环回即此档）。本机扩展只可能
+/// 落在这一档；其余档位（含已验签远端设备）不属于桥接消费方。
+pub const LOCAL_CALLER: &str = "localhost";
+
+/// 本机调用方门禁（`caller` 缺失 = 宿主未按协议传档，同样拒绝——fail-closed）
+pub fn caller_allowed(caller: &str) -> bool {
+    caller == LOCAL_CALLER
+}
 
 /// 桥接支持的驱动（本轮 opencode / pi；claude / codex 只读镜像，无桥接）
 pub fn supports_bridge(agent_id: &str) -> bool {
@@ -131,6 +147,8 @@ pub fn derive_title(text: &str) -> Option<String> {
 #[cfg(target_arch = "wasm32")]
 enum RouteError {
     BadRequest(String),
+    /// 非本机调用方（本机门禁，issue #25 H3）
+    Forbidden(String),
     NotFound(String),
     Conflict(String),
     Internal(String),
@@ -142,6 +160,9 @@ impl RouteError {
         match self {
             RouteError::BadRequest(message) => {
                 wasmnest_plugin_api::http_response::error(400, &message)
+            }
+            RouteError::Forbidden(message) => {
+                wasmnest_plugin_api::http_response::error(403, &message)
             }
             RouteError::NotFound(message) => {
                 wasmnest_plugin_api::http_response::error(404, &message)
@@ -188,12 +209,25 @@ fn supported_driver(record: &SessionRecord) -> Result<&str, RouteError> {
 }
 
 /// 回环路由入口（由 `_http_endpoint` 分派；路径全等匹配）
+///
+/// `caller` = 宿主判定的调用方档位（`_http_endpoint` 参数里的顶层 `caller` 字段）：
+/// 全部桥接路由先过本机门禁，再进业务分派。
 #[cfg(target_arch = "wasm32")]
-pub fn handle_http_endpoint(host: &WasmHost, method: &str, path: &str, body: &Value) -> Value {
+pub fn handle_http_endpoint(host: &WasmHost, method: &str, path: &str, body: &Value, caller: &str) -> Value {
     if method != "POST" {
         return wasmnest_plugin_api::http_response::error(
             405,
             &format!("method not allowed: {method}"),
+        );
+    }
+    if !caller_allowed(caller) {
+        // 点名拒绝原因（验收：日志可排障）；门禁在业务分派前，负载不落地
+        host.log_warn(&format!(
+            "bridge {path} rejected: caller is not local (caller={caller:?}, only {LOCAL_CALLER:?} may drive the bridge)"
+        ));
+        return wasmnest_plugin_api::http_response::error(
+            403,
+            "bridge endpoints only accept local callers",
         );
     }
     let result = match path {
@@ -221,7 +255,13 @@ pub fn handle_http_endpoint(host: &WasmHost, method: &str, path: &str, body: &Va
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-pub fn handle_http_endpoint(_host: &WasmHost, _method: &str, _path: &str, _body: &Value) -> Value {
+pub fn handle_http_endpoint(
+    _host: &WasmHost,
+    _method: &str,
+    _path: &str,
+    _body: &Value,
+    _caller: &str,
+) -> Value {
     wasmnest_plugin_api::http_response::error(503, "bridge routes unavailable outside wasm runtime")
 }
 
@@ -507,14 +547,18 @@ pub fn send_via_host(_args: &Value) -> Result<Value, String> {
 
 // ==================== 共用（native 可测） ====================
 
-/// 桥接在线判据（供运行视图与 send 共用；终态运行一律 false）
-pub fn connected(record: &crate::session::model::SessionRecord, now: &str) -> bool {
-    record.bridge_connected(now)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bridge_caller_gate_accepts_only_loopback_tier() {
+        assert!(caller_allowed("localhost"), "本机扩展（环回档）必须放行");
+        assert!(!caller_allowed("device"), "已验签远端设备不是桥接消费方");
+        assert!(!caller_allowed("anonymous"), "局域网匿名调用必须拒绝（H3）");
+        assert!(!caller_allowed(""), "宿主未传档 = fail-closed");
+        assert!(!caller_allowed("localhost "), "档位逐字匹配，不容空白");
+    }
 
     #[test]
     fn stale_before_subtracts_seconds() {
