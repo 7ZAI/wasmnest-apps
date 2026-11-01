@@ -7,14 +7,25 @@
 //!
 //! 不在本插件做指标二次加工：字段形状即宿主契约（`PluginMetricsSnapshot`），
 //! 前端直接消费；此处只做错误上下文补充。
+//!
+//! `monitor.notify`：把前端的预警文案经宿主 `host-notify`（共享域契约）投递。
+//! 文案由前端 i18n 构造、原样透传；能力未装配 / 权限拒绝时返回 `Err`，前端只
+//! 记录提示——通知是锦上添花，页内告警才是权威面。
 
-use wasmnest_plugin_api::host::{HostLog, HostMetrics};
+use wasmnest_plugin_api::host::{HostLog, HostMetrics, HostNotify, NotifyOptions};
 use wasmnest_plugin_api::types::PluginManifest;
 use wasmnest_plugin_api::{WasmHost, WasmPlugin};
 
 const PLUGIN_ID: &str = "com.wasmnest.monitor";
 
 struct MonitorPlugin;
+
+/// `monitor.notify` 入参（前端 i18n 已拼好文案，宿主不再加工）
+#[derive(serde::Deserialize)]
+struct NotifyRequest {
+    title: String,
+    body: String,
+}
 
 impl WasmPlugin for MonitorPlugin {
     const ID: &'static str = PLUGIN_ID;
@@ -35,11 +46,26 @@ impl WasmPlugin for MonitorPlugin {
         Ok(())
     }
 
-    fn invoke_command(name: &str, _args: serde_json::Value) -> anyhow::Result<serde_json::Value> {
+    fn invoke_command(name: &str, args: serde_json::Value) -> anyhow::Result<serde_json::Value> {
         match name {
             "monitor.snapshot" => WasmHost
                 .metrics_snapshot()
                 .map_err(|e| anyhow::anyhow!("metrics:read unavailable: {}", e)),
+            "monitor.notify" => {
+                let request: NotifyRequest = serde_json::from_value(args)
+                    .map_err(|e| anyhow::anyhow!("monitor.notify expects {{title, body}}: {}", e))?;
+                let title = request.title.trim();
+                let body = request.body.trim();
+                if title.is_empty() || body.is_empty() {
+                    return Err(anyhow::anyhow!(
+                        "monitor.notify requires a non-empty title and body"
+                    ));
+                }
+                WasmHost
+                    .notify(title, body, &NotifyOptions::new())
+                    .map_err(|e| anyhow::anyhow!("notify unavailable: {}", e))?;
+                Ok(serde_json::json!({ "delivered": true }))
+            }
             _ => Err(anyhow::anyhow!("Unknown command: {}", name)),
         }
     }

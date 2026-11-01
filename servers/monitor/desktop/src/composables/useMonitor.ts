@@ -17,6 +17,7 @@ import {
   normalizeSnapshot,
   summarize,
 } from '../utils/format'
+import { platformTotals, taskCountersOf } from '../utils/platform'
 import type {
   HostPluginInfo,
   MetricsSnapshot,
@@ -71,7 +72,15 @@ export function useMonitor(
   const summary = computed(() =>
     snapshot.value
       ? summarize(snapshot.value)
-      : { pluginCount: 0, callsTotal: 0, callsInFlight: 0, memoryPeakBytes: 0, trapsTotal: 0 },
+      : {
+          pluginCount: 0,
+          callsTotal: 0,
+          callsInFlight: 0,
+          memoryPeakBytes: 0,
+          memoryCurrentBytes: 0,
+          fuelTotal: 0,
+          trapsTotal: 0,
+        },
   )
   const error = ref<string | null>(null)
   const hostInfoWarning = ref<string | null>(null)
@@ -79,6 +88,8 @@ export function useMonitor(
   const lastUpdated = ref<number | null>(null)
   /** 本次打开期间的采样序列（仅内存）；速率为相邻采样差值 */
   const samples = ref<RuntimeSample[]>([])
+  /** 平台总览（全插件求和 / 速率）：每次快照或采样变化时重算 */
+  const platform = computed(() => platformTotals(snapshot.value, samples.value))
 
   let timer: ReturnType<typeof setInterval> | null = null
   let inflight = false
@@ -110,6 +121,7 @@ export function useMonitor(
       const next = normalizeSnapshot(raw)
       const now = Date.now()
       const totals = summarize(next)
+      const task = taskCountersOf(next)
       snapshot.value = next
       rows.value = mergePluginRows(next, infos)
       if (infos) panels.value = collectMonitorPanels(infos)
@@ -123,6 +135,11 @@ export function useMonitor(
           callsTotal: totals.callsTotal,
           callsInFlight: totals.callsInFlight,
           trapsTotal: totals.trapsTotal,
+          memoryCurrentBytes: totals.memoryCurrentBytes,
+          memoryPeakBytes: totals.memoryPeakBytes,
+          fuelTotal: totals.fuelTotal,
+          taskRejectedTotal: task.rejectedTotal,
+          taskDroppedTotal: task.droppedTotal,
         },
       ].slice(-HISTORY_LIMIT)
     } catch (e) {
@@ -158,6 +175,7 @@ export function useMonitor(
     panels,
     systems,
     summary,
+    platform,
     error,
     hostInfoWarning,
     loading,

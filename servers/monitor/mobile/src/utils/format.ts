@@ -6,8 +6,10 @@
  */
 import type {
   MetricsSnapshot,
+  PlatformTotals,
   PluginMetricRow,
   PluginMetricsSnapshot,
+  RuntimeSample,
   SystemSection,
 } from '../types'
 
@@ -240,8 +242,7 @@ export function summarize(snapshot: MetricsSnapshot): {
   }
 }
 
-/** 错误对象 → 用户可读串 */
-export function describeError(error: unknown): string {
+/** 错误对象 → 用户可读串 */ export function describeError(error: unknown): string {
   if (typeof error === 'string') return error
   if (error instanceof Error) return error.message
   if (isRecord(error)) {
@@ -254,4 +255,95 @@ export function describeError(error: unknown): string {
     }
   }
   return String(error)
+}
+
+// ==================== 平台总览（全部 wasm 合计） ====================
+
+/** 单插件内存配额（未声明 / 非正数 → null，不把「无上限」当 0 上限） */
+export function quotaMemoryOf(metrics: PluginMetricsSnapshot | null | undefined): number | null {
+  const raw = metrics?.quota?.memory_bytes
+  if (typeof raw !== 'number' || !Number.isFinite(raw) || raw <= 0) return null
+  return raw
+}
+
+/** 相邻采样的增量速率（单位/秒）；计数回退 / 间隔过短 → null */
+export function ratePerSecond(
+  previous: number | null | undefined,
+  current: number | null | undefined,
+  elapsedMs: number | null | undefined,
+): number | null {
+  if (
+    typeof previous !== 'number' ||
+    typeof current !== 'number' ||
+    typeof elapsedMs !== 'number' ||
+    !Number.isFinite(previous) ||
+    !Number.isFinite(current) ||
+    !Number.isFinite(elapsedMs) ||
+    elapsedMs < 200
+  ) {
+    return null
+  }
+  const delta = current - previous
+  return delta < 0 ? null : delta / (elapsedMs / 1000)
+}
+
+/** 快照 + 采样序列 → 平台总览 */
+export function platformTotals(
+  snapshot: MetricsSnapshot | null,
+  samples: readonly RuntimeSample[] = [],
+): PlatformTotals {
+  const list: PluginMetricsSnapshot[] = snapshot ? Object.values(snapshot.plugins ?? {}) : []
+  const memoryCurrentBytes = list.reduce(
+    (sum, m) => sum + (Number.isFinite(m.memory_current_bytes) ? m.memory_current_bytes : 0),
+    0,
+  )
+  const memoryPeakBytes = list.reduce(
+    (sum, m) => sum + (Number.isFinite(m.memory_peak_bytes) ? m.memory_peak_bytes : 0),
+    0,
+  )
+  const memoryQuotaBytes = list.reduce((sum, m) => sum + (quotaMemoryOf(m) ?? 0), 0)
+  const fuelTotal = list.reduce(
+    (sum, m) => sum + (Number.isFinite(m.fuel_consumed_total) ? m.fuel_consumed_total : 0),
+    0,
+  )
+  const previous = samples.length >= 2 ? samples[samples.length - 2] : null
+  const current = samples.length >= 1 ? samples[samples.length - 1] : null
+  const elapsedMs = previous && current ? current.at - previous.at : null
+
+  return {
+    pluginCount: list.length,
+    memoryCurrentBytes,
+    memoryPeakBytes,
+    memoryQuotaBytes,
+    memoryRatio: memoryQuotaBytes > 0 ? memoryCurrentBytes / memoryQuotaBytes : null,
+    callsTotal: list.reduce(
+      (sum, m) => sum + (Number.isFinite(m.calls_total) ? m.calls_total : 0),
+      0,
+    ),
+    fuelTotal,
+    fuelPerSecond:
+      previous && current ? ratePerSecond(previous.fuelTotal, current.fuelTotal, elapsedMs) : null,
+    callsPerSecond:
+      previous && current
+        ? ratePerSecond(previous.callsTotal, current.callsTotal, elapsedMs)
+        : null,
+  }
+}
+
+/** 大倍数紧凑显示（燃料是很长的计数） */
+const COMPACT_FORMAT = new Intl.NumberFormat('en-US', {
+  notation: 'compact',
+  maximumFractionDigits: 1,
+})
+
+/** 燃料 / 计数紧凑格式化；缺失或非有限值 → `—` */
+export function formatCompact(value: number | null | undefined): string {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return '—'
+  return COMPACT_FORMAT.format(value)
+}
+
+/** 速率格式化（单位/秒）；null → `—` */
+export function formatRate(value: number | null | undefined): string {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return '—'
+  return COMPACT_FORMAT.format(Math.round(value))
 }

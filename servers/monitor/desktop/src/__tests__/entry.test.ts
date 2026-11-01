@@ -1,6 +1,12 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { flushPromises } from '@vue/test-utils'
-import { mountApp, mountPreview, mountContract, type AppMountEnv, type AppPreviewEnv } from '../entry'
+import {
+  mountApp,
+  mountPreview,
+  mountContract,
+  type AppMountEnv,
+  type AppPreviewEnv,
+} from '../entry'
 import i18n from '../i18n'
 import { info, metrics, snapshot } from './fixtures'
 

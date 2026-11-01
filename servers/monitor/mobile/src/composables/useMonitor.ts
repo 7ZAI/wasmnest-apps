@@ -15,6 +15,7 @@ import {
   collectSystemSections,
   describeError,
   normalizeSnapshot,
+  platformTotals,
   summarize,
   toRows,
 } from '../utils/format'
@@ -76,6 +77,8 @@ export function useMonitor(
   const lastUpdated = ref<number | null>(null)
   /** 本次打开期间的采样序列（仅内存）；速率为相邻采样差值 */
   const samples = ref<RuntimeSample[]>([])
+  /** 平台总览（全插件求和 / 速率）：快照或采样变化时重算 */
+  const platform = computed(() => platformTotals(snapshot.value, samples.value))
 
   let timer: ReturnType<typeof setInterval> | null = null
   let inflight = false
@@ -89,6 +92,7 @@ export function useMonitor(
       const next = normalizeSnapshot(raw)
       const now = Date.now()
       const totals = summarize(next)
+      const plat = platformTotals(next)
       snapshot.value = next
       rows.value = toRows(next)
       panels.value = collectMonitorPanels(next)
@@ -102,6 +106,9 @@ export function useMonitor(
           callsTotal: totals.callsTotal,
           callsInFlight: totals.callsInFlight,
           trapsTotal: totals.trapsTotal,
+          memoryCurrentBytes: plat.memoryCurrentBytes,
+          memoryPeakBytes: plat.memoryPeakBytes,
+          fuelTotal: plat.fuelTotal,
         },
       ].slice(-HISTORY_LIMIT)
     } catch (e) {
@@ -137,6 +144,7 @@ export function useMonitor(
     panels,
     systems,
     summary,
+    platform,
     error,
     loading,
     lastUpdated,

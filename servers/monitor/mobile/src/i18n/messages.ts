@@ -100,6 +100,16 @@ export type MessageSchema = {
   'monitor.hero.proofUnknown': string
   'monitor.hero.proofStale': string
   'monitor.hero.proofMobile': string
+  'monitor.hero.memoryHigh': string
+  'monitor.hero.memoryCritical': string
+
+  'monitor.overview.title': string
+  'monitor.overview.hint': string
+  'monitor.overview.memory': string
+  'monitor.overview.unbounded': string
+  'monitor.overview.compute': string
+  'monitor.overview.perSecond': string
+  'monitor.overview.hostGap': string
   'monitor.signal.title': string
   'monitor.signal.perSecond': string
   'monitor.signal.window': string

@@ -99,6 +99,18 @@ const en: MessageSchema = {
   'monitor.hero.proofStale':
     'The latest refresh failed. Values below are the last successful snapshot, not live.',
   'monitor.hero.proofMobile': 'Mobile reads metrics only; host runtime state is not available.',
+  'monitor.hero.memoryHigh': 'Platform memory at {ratio}',
+  'monitor.hero.memoryCritical': 'Platform memory at {ratio} (critical)',
+
+  'monitor.overview.title': 'Platform overview',
+  'monitor.overview.hint':
+    'Totals across every loaded wasm app, summed straight from the host snapshot.',
+  'monitor.overview.memory': 'Total wasm memory',
+  'monitor.overview.unbounded': 'No memory limits in the snapshot',
+  'monitor.overview.compute': 'Compute load',
+  'monitor.overview.perSecond': 'fuel/s (execution proxy)',
+  'monitor.overview.hostGap':
+    'Host-process CPU / RSS is not part of the metrics:read contract; this page only reports the wasm runtime and does not guess host-process numbers.',
   'monitor.signal.title': 'Call rate',
   'monitor.signal.perSecond': 'per second',
   'monitor.signal.window': 'This session · last {seconds}s',

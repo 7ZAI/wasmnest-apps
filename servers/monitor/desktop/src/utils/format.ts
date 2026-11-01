@@ -20,7 +20,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-function isFiniteNumber(value: unknown): value is number {
+/** 有限数值判定（缺失 / NaN / Infinity 一律不当作可展示的数字） */
+export function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value)
 }
 
@@ -373,7 +374,9 @@ export function summarize(snapshot: MetricsSnapshot): {
   pluginCount: number
   callsTotal: number
   callsInFlight: number
+  memoryCurrentBytes: number
   memoryPeakBytes: number
+  fuelTotal: number
   trapsTotal: number
 } {
   const list: PluginMetricsSnapshot[] = Object.values(snapshot.plugins)
@@ -381,7 +384,9 @@ export function summarize(snapshot: MetricsSnapshot): {
     pluginCount: list.length,
     callsTotal: list.reduce((sum, m) => sum + (m.calls_total ?? 0), 0),
     callsInFlight: list.reduce((sum, m) => sum + (m.calls_in_flight ?? 0), 0),
+    memoryCurrentBytes: list.reduce((sum, m) => sum + (m.memory_current_bytes ?? 0), 0),
     memoryPeakBytes: list.reduce((sum, m) => sum + (m.memory_peak_bytes ?? 0), 0),
+    fuelTotal: list.reduce((sum, m) => sum + (m.fuel_consumed_total ?? 0), 0),
     trapsTotal: list.reduce((sum, m) => sum + sumValues(m.trap_reasons), 0),
   }
 }

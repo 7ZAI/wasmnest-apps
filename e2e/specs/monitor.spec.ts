@@ -27,11 +27,22 @@ import {
 import { expectEqual, expectInSet } from '../harness/expect'
 import { goHome, homeAppCards, homeSystemCards, openSystemApp } from '../harness/shell'
 import {
+  ALERTS,
+  ALERTS_EMPTY,
+  ALERTS_ENABLED_TOGGLE,
+  ALERTS_LIST,
+  ALERTS_NOTIFY_TOGGLE,
+  ALERTS_PLATFORM_WARN,
+  ALERTS_SETTINGS_SUMMARY,
   APP_NAME,
   FILTER_ALL,
   FILTER_APPS,
   FILTER_SERVICES,
   MONITOR_PLUGIN_ID,
+  OVERVIEW,
+  OVERVIEW_COMPUTE,
+  OVERVIEW_MEMORY,
+  OVERVIEW_MEMORY_RATIO,
   PAGE_TABS,
   SELF_CARD,
   SELF_QUOTA_NOTE,
@@ -253,5 +264,26 @@ describe('Monitor（桌面端 · 宿主内挂载）', () => {
     expectEqual(await visible('monitor-system-list'), true, '宿主维度区可见')
     await waitFor('monitor-system-task')
     expectEqual(await visible('monitor-system-task'), true, 'task 维度段可见')
+  })
+
+  it('平台总览与预警：合计内存 / 计算负载 / 阈值设置可见', async () => {
+    await waitFor(OVERVIEW)
+    expectEqual(await visible(OVERVIEW_MEMORY), true, '平台内存合计可见')
+    expectEqual((await text(OVERVIEW_MEMORY))?.length > 0, true, '平台内存有数值文案')
+    // 无配额时比例是 —，有配额时是百分比：两者都是诚实态，不锁具体数值
+    expectEqual((await text(OVERVIEW_MEMORY_RATIO))?.length > 0, true, '配额比例有文案')
+    expectEqual(await visible(OVERVIEW_COMPUTE), true, '计算负载可见')
+
+    await waitFor(ALERTS)
+    // 本机是否越界取决于装机与配额：空态或预警卡都合法，但必须有明确态
+    const hasEmpty = await exists(ALERTS_EMPTY)
+    const hasCards = await exists(ALERTS_LIST)
+    expectEqual(hasEmpty || hasCards, true, '预警区有明确态（空态或卡片）')
+
+    // 阈值设置可展开（原生 details）：展开后四个输入在场
+    await click(ALERTS_SETTINGS_SUMMARY)
+    await waitFor(ALERTS_ENABLED_TOGGLE)
+    expectEqual(await exists(ALERTS_NOTIFY_TOGGLE), true, '系统通知开关在场')
+    expectEqual(await exists(ALERTS_PLATFORM_WARN), true, '平台内存阈值输入在场')
   })
 })

@@ -32,3 +32,18 @@ export const SELF_ROLE = `monitor-role-${MONITOR_PLUGIN_ID}`
 
 /** 页头整页页签条（只有其他应用注册监控面板时才出现） */
 export const PAGE_TABS = 'monitor-page-tabs'
+
+/** 平台总览（全插件内存 / 计算负载合计） */
+export const OVERVIEW = 'monitor-overview'
+export const OVERVIEW_MEMORY = 'monitor-overview-memory'
+export const OVERVIEW_MEMORY_RATIO = 'monitor-overview-memory-ratio'
+export const OVERVIEW_COMPUTE = 'monitor-overview-compute'
+
+/** 预警区（阈值设置 + 活动 / 空态） */
+export const ALERTS = 'monitor-alerts'
+export const ALERTS_LIST = 'monitor-alert-list'
+export const ALERTS_EMPTY = 'monitor-alerts-empty'
+export const ALERTS_SETTINGS_SUMMARY = 'monitor-alerts-settings-summary'
+export const ALERTS_ENABLED_TOGGLE = 'monitor-alert-enabled'
+export const ALERTS_NOTIFY_TOGGLE = 'monitor-alert-notify'
+export const ALERTS_PLATFORM_WARN = 'monitor-alert-platform-warn'

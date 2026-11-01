@@ -13,6 +13,8 @@ import { useMonitor } from '../composables/useMonitor'
 import {
   formatBytes,
   formatNumber,
+  formatRatio,
+  formatRate,
   formatUnixTime,
   isServiceKind,
   sumValues,
@@ -32,6 +34,7 @@ const {
   panels,
   systems,
   summary,
+  platform,
   error,
   loading,
   lastUpdated,
@@ -60,6 +63,14 @@ const updatedText = computed(() =>
   lastUpdated.value === null
     ? tx('monitor.never')
     : tx('monitor.updated', { time: formatUnixTime(lastUpdated.value / 1000, localeTag.value) }),
+)
+
+/** 平台内存压力（各插件配额之和为分母；无配额 → 不判压力） */
+const memoryCritical = computed(
+  () => platform.value.memoryRatio !== null && platform.value.memoryRatio >= 0.95,
+)
+const memoryHigh = computed(
+  () => platform.value.memoryRatio !== null && platform.value.memoryRatio >= 0.8,
 )
 
 const trapTotalOf = (row: PluginMetricRow): number => sumValues(row.metrics.trap_reasons)
@@ -185,6 +196,12 @@ const heroLead = computed(() => {
     return rows.value.length > 0 ? tx('monitor.hero.stale') : tx('monitor.error.title')
   if (initialLoading.value) return tx('monitor.loading')
   if (rows.value.length === 0) return tx('monitor.empty.title')
+  if (memoryCritical.value) {
+    return tx('monitor.hero.memoryCritical', { ratio: formatRatio(platform.value.memoryRatio) })
+  }
+  if (memoryHigh.value) {
+    return tx('monitor.hero.memoryHigh', { ratio: formatRatio(platform.value.memoryRatio) })
+  }
   if (attentionCount.value > 0) return tx('monitor.hero.attention', { count: attentionCount.value })
   // 正常态不显示标题：正常情况默认什么都不说（用户口径）。
   return ''
@@ -202,7 +219,8 @@ const heroProof = computed(() => {
 const heroTone = computed(() => {
   if (error.value) return 'is-danger'
   if (initialLoading.value || rows.value.length === 0) return 'is-neutral'
-  if (attentionCount.value > 0) return 'is-warning'
+  if (memoryCritical.value) return 'is-danger'
+  if (memoryHigh.value || attentionCount.value > 0) return 'is-warning'
   return 'is-success'
 })
 
@@ -381,6 +399,41 @@ onBeforeUnmount(() => {
               <span class="mnm-vital-value">{{ formatBytes(summary.memoryPeakBytes) }}</span>
               <span class="mnm-vital-label">{{ tx('monitor.kpi.memoryPeak') }}</span>
             </div>
+          </section>
+
+          <!-- ==================== 平台总览（全部 wasm 合计） ==================== -->
+          <section
+            v-if="!initialLoading && rows.length > 0"
+            class="mnm-overview mnm-rise"
+            data-ui
+            data-testid="mobile-monitor-overview"
+            aria-labelledby="mnm-overview-title"
+          >
+            <header class="mnm-section-head">
+              <h2 id="mnm-overview-title" class="mnm-section-title">
+                {{ tx('monitor.overview.title') }}
+              </h2>
+              <p class="mnm-section-note">{{ tx('monitor.overview.hint') }}</p>
+            </header>
+            <div class="mnm-overview-grid">
+              <div class="mnm-vital" data-testid="mobile-monitor-overview-memory">
+                <span class="mnm-vital-value">{{ formatBytes(platform.memoryCurrentBytes) }}</span>
+                <span class="mnm-vital-label">{{ tx('monitor.overview.memory') }}</span>
+                <span class="mnm-vital-note">
+                  {{
+                    platform.memoryRatio === null
+                      ? tx('monitor.overview.unbounded')
+                      : `${formatRatio(platform.memoryRatio)} · ${formatBytes(platform.memoryQuotaBytes)}`
+                  }}
+                </span>
+              </div>
+              <div class="mnm-vital" data-testid="mobile-monitor-overview-compute">
+                <span class="mnm-vital-value">{{ formatRate(platform.fuelPerSecond) }}</span>
+                <span class="mnm-vital-label">{{ tx('monitor.overview.compute') }}</span>
+                <span class="mnm-vital-note">{{ tx('monitor.overview.perSecond') }}</span>
+              </div>
+            </div>
+            <p class="mnm-overview-gap">{{ tx('monitor.overview.hostGap') }}</p>
           </section>
 
           <!-- ==================== 加载骨架 ==================== -->
@@ -843,6 +896,28 @@ onBeforeUnmount(() => {
 
 .mnm-vital.is-wide .mnm-vital-label {
   margin-top: 0;
+}
+
+/* ==================== 平台总览 ==================== */
+
+.mnm-overview {
+  margin-top: 26px;
+}
+
+.mnm-overview-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px 18px;
+  padding: 16px;
+  border-radius: 14px;
+  background: var(--mobile-bg-card);
+}
+
+.mnm-overview-gap {
+  margin: 10px 2px 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--mnm-ink-3);
 }
 
 /* ==================== 台账 ==================== */

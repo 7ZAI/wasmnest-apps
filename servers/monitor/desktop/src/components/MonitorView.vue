@@ -9,7 +9,9 @@
 import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { MonitorAppContext } from '../appContext'
 import type { MonitorPanelHandle } from '../entry'
-import type { MonitorPanelRegistration, PluginRow } from '../types'
+import type { AlertSettings, MonitorPanelRegistration, PluginRow } from '../types'
+import { useAlertSettings } from '../composables/useAlertSettings'
+import { useAlerts, type AlertNotifyPayload } from '../composables/useAlerts'
 import { useMonitor } from '../composables/useMonitor'
 import {
   formatBytes,
@@ -22,7 +24,10 @@ import {
   sumValues,
   usageRatio,
 } from '../utils/format'
+import { topMemoryConsumers } from '../utils/platform'
 import i18n from '../i18n'
+import AlertPanel from './AlertPanel.vue'
+import PlatformOverview from './PlatformOverview.vue'
 import PluginInspector from './PluginInspector.vue'
 import RuntimeSignal from './RuntimeSignal.vue'
 import SystemPanel from './SystemPanel.vue'
@@ -35,6 +40,7 @@ const {
   panels,
   systems,
   summary,
+  platform,
   error,
   hostInfoWarning,
   loading,
@@ -44,6 +50,54 @@ const {
   start,
   stop,
 } = useMonitor(context, { intervalMs: 1000 })
+
+// ==================== 平台总览 / 预警（每次成功采样驱动） ====================
+//
+// 阈值设置存本应用 KV；预警引擎是纯函数（`utils/alerts.ts`），此处只负责把
+// 采样、设置与通知通道接起来。宿主通知是锦上添花：失败只记提示，页内告警不变。
+const {
+  settings: alertSettings,
+  ready: alertSettingsReady,
+  warning: alertSettingsWarning,
+  load: loadAlertSettings,
+  update: updateAlertSettings,
+  reset: resetAlertSettings,
+} = useAlertSettings(context)
+
+const nameOfPlugin = (id: string): string => rows.value.find((row) => row.id === id)?.name ?? id
+
+const {
+  active: activeAlerts,
+  resolved: resolvedAlerts,
+  summary: alertSummary,
+  notifyWarning,
+} = useAlerts({
+  totals: platform,
+  rows,
+  samples,
+  lastUpdated,
+  settings: alertSettings,
+  ready: alertSettingsReady,
+  t,
+  nameOf: nameOfPlugin,
+  notify: (payload: AlertNotifyPayload) =>
+    context.commands.execute('monitor.notify', {
+      title: payload.title,
+      body: payload.body,
+    }),
+})
+
+const memoryConsumers = computed(() =>
+  topMemoryConsumers(rows.value, 3, platform.value.memoryCurrentBytes),
+)
+
+function handleAlertUpdate(patch: Partial<AlertSettings>): void {
+  void updateAlertSettings(patch)
+}
+
+function handleAlertReset(): void {
+  void resetAlertSettings()
+}
 
 const localeTag = computed(() => (i18n.global.locale.value === 'en' ? 'en-US' : 'zh-CN'))
 const initialLoading = computed(() => loading.value && lastUpdated.value === null)
@@ -111,6 +165,12 @@ const heroLead = computed(() => {
   if (error.value) return rows.value.length > 0 ? t('monitor.hero.stale') : t('monitor.error.title')
   if (initialLoading.value) return t('monitor.loading')
   if (rows.value.length === 0) return t('monitor.empty.title')
+  if (alertSummary.value.critical > 0) {
+    return t('monitor.hero.alertsCritical', { count: alertSummary.value.critical })
+  }
+  if (alertSummary.value.warning > 0) {
+    return t('monitor.hero.alertsWarning', { count: alertSummary.value.warning })
+  }
   if (attentionCount.value > 0) return t('monitor.hero.attention', { count: attentionCount.value })
   if (!statesKnown.value) return t('monitor.hero.unknown')
   // 正常态不显示标题：仪表本身已经说明「一切正常」，再补一句「无需关注」只是噪音。
@@ -131,7 +191,8 @@ const heroTone = computed(() => {
   if (error.value) return 'is-danger'
   if (initialLoading.value) return 'is-neutral'
   if (rows.value.length === 0) return 'is-neutral'
-  if (attentionCount.value > 0) return 'is-warning'
+  if (alertSummary.value.critical > 0) return 'is-danger'
+  if (alertSummary.value.warning > 0 || attentionCount.value > 0) return 'is-warning'
   if (!statesKnown.value) return 'is-warning'
   return 'is-success'
 })
@@ -266,7 +327,11 @@ function trapTotalOf(row: PluginRow): number {
   return sumValues(row.metrics.trap_reasons)
 }
 
-onMounted(start)
+onMounted(() => {
+  // 设置读取与轮询并行：未读完时引擎不评估（`ready` 门），不会用默认值误报
+  void loadAlertSettings()
+  start()
+})
 onBeforeUnmount(() => {
   stop()
   // 先让在途装载作废（晚到结果会自卸），再卸已挂载实例
@@ -456,6 +521,47 @@ onBeforeUnmount(() => {
             </div>
           </div>
         </div>
+      </section>
+
+      <!-- ==================== 平台总览（全部 wasm 的合计） ==================== -->
+      <section
+        v-if="!initialLoading && rows.length > 0"
+        class="mn-wrap mn-overview-section"
+        aria-labelledby="overview-title"
+        data-ui
+      >
+        <header class="mn-section-head mn-rise">
+          <div>
+            <h2 id="overview-title" class="mn-section-title">{{ t('monitor.overview.title') }}</h2>
+            <p class="mn-section-hint">{{ t('monitor.overview.hint') }}</p>
+          </div>
+        </header>
+        <PlatformOverview :totals="platform" :consumers="memoryConsumers" />
+      </section>
+
+      <!-- ==================== 预警（阈值 + 活动条目 + 最近解除） ==================== -->
+      <section
+        v-if="!initialLoading && rows.length > 0"
+        class="mn-wrap mn-alerts-section"
+        aria-labelledby="alerts-title"
+        data-ui
+      >
+        <header class="mn-section-head mn-rise">
+          <div>
+            <h2 id="alerts-title" class="mn-section-title">{{ t('monitor.alerts.title') }}</h2>
+            <p class="mn-section-hint">{{ t('monitor.alerts.hint') }}</p>
+          </div>
+        </header>
+        <AlertPanel
+          :alerts="activeAlerts"
+          :resolved="resolvedAlerts"
+          :settings="alertSettings"
+          :rows="rows"
+          :settings-warning="alertSettingsWarning"
+          :notify-warning="notifyWarning"
+          @update="handleAlertUpdate"
+          @reset="handleAlertReset"
+        />
       </section>
 
       <!-- ==================== 加载骨架 ==================== -->

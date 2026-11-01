@@ -6,7 +6,10 @@ import {
   formatDurationUs,
   formatNumber,
   formatRatio,
+  formatRate,
   normalizeSnapshot,
+  platformTotals,
+  ratePerSecond,
   shortPluginId,
   summarize,
   toRows,
@@ -121,5 +124,38 @@ describe('summarize', () => {
       memoryPeakBytes: 300,
       trapsTotal: 2,
     })
+  })
+})
+
+describe('platformTotals（平台合计）', () => {
+  it('求和内存 / 配额 / 燃料，比值按配额之和；无配额 → null', () => {
+    const totals = platformTotals(
+      snapshot({
+        a: metrics({ memory_current_bytes: 600, quota: { memory_bytes: 1000 } }),
+        b: metrics({ memory_current_bytes: 400, quota: { memory_bytes: 1000 } }),
+      }),
+    )
+    expect(totals.memoryCurrentBytes).toBe(1000)
+    expect(totals.memoryQuotaBytes).toBe(2000)
+    expect(totals.memoryRatio).toBe(0.5)
+
+    const unbounded = platformTotals(snapshot({ a: metrics({ memory_current_bytes: 10 }) }))
+    expect(unbounded.memoryQuotaBytes).toBe(0)
+    expect(unbounded.memoryRatio).toBeNull()
+  })
+
+  it('速率取最后两个采样；计数回退 / 间隔过短 → null', () => {
+    const snap = snapshot({ a: metrics({ calls_total: 300, fuel_consumed_total: 900 }) })
+    const rising = platformTotals(snap, [
+      { at: 1000, callsTotal: 100, callsInFlight: 0, trapsTotal: 0, fuelTotal: 300 },
+      { at: 2000, callsTotal: 300, callsInFlight: 0, trapsTotal: 0, fuelTotal: 900 },
+    ])
+    expect(rising.callsPerSecond).toBe(200)
+    expect(rising.fuelPerSecond).toBe(600)
+
+    expect(ratePerSecond(300, 100, 1000)).toBeNull()
+    expect(ratePerSecond(0, 1, 100)).toBeNull()
+    expect(ratePerSecond(undefined, 10, 1000)).toBeNull()
+    expect(formatRate(null)).toBe('—')
   })
 })

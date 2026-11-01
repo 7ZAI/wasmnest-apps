@@ -197,15 +197,19 @@ describe('MonitorView（桌面界面契约）', () => {
     const serviceRow = wrapper.find('[data-testid="monitor-plugin-com.wasmnest.auth-center"]')
     expect(serviceRow.exists()).toBe(true)
     expect(serviceRow.attributes('data-metrics-available')).toBe('false')
-    expect(
-      serviceRow.find('[data-testid="monitor-role-com.wasmnest.auth-center"]').text(),
-    ).toBe('monitor.role.internalBusiness')
+    expect(serviceRow.find('[data-testid="monitor-role-com.wasmnest.auth-center"]').text()).toBe(
+      'monitor.role.internalBusiness',
+    )
     // 应用行不出服务徽标；角色分布由筛选按钮计数表达（不再单列文字摘要）
     expect(wrapper.find('[data-testid="monitor-role-com.wasmnest.monitor"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="monitor-kpi-unavailable"]').text()).toBe(
       'monitor.kpi.pluginsUnavailable(n=1)',
     )
-    expect(wrapper.find('#monitor-lead').text()).toContain('monitor.hero.attention(count=1)')
+    // 错误态服务是确定性事实 → 立即出预警（比「需关注」更具体），hero 按预警计数
+    expect(wrapper.find('#monitor-lead').text()).toContain('monitor.hero.alertsCritical(count=1)')
+    expect(
+      wrapper.find('[data-testid="monitor-alert-plugin-state:com.wasmnest.auth-center"]').exists(),
+    ).toBe(true)
 
     // 选中未就绪服务：明确无指标，不显示一排零值
     await serviceRow.trigger('click')
@@ -215,9 +219,9 @@ describe('MonitorView（桌面界面契约）', () => {
     )
     expect(wrapper.find('[data-testid="monitor-metrics-unavailable"]').exists()).toBe(true)
     expect(wrapper.text()).toContain('auth center not registered')
-    expect(
-      wrapper.find('[data-testid="monitor-inflight-com.wasmnest.auth-center"]').exists(),
-    ).toBe(false)
+    expect(wrapper.find('[data-testid="monitor-inflight-com.wasmnest.auth-center"]').exists()).toBe(
+      false,
+    )
   })
 
   it('选择台账另一行：详情切换到该插件', async () => {
@@ -245,6 +249,65 @@ describe('MonitorView（桌面界面契约）', () => {
       'com.wasmnest.b',
     )
     expect(wrapper.find('[data-testid="monitor-inspector"]').text()).toContain('com.wasmnest.b')
+  })
+
+  it('平台总览：合计内存 / 配额比例 / 内存排行，无越界时显示诚实空态', async () => {
+    const execute = vi.fn(async () =>
+      snapshot({
+        'com.wasmnest.a': metrics({
+          memory_current_bytes: 600,
+          memory_peak_bytes: 800,
+          quota: { memory_bytes: 1000 },
+        }),
+        'com.wasmnest.b': metrics({
+          memory_current_bytes: 400,
+          memory_peak_bytes: 500,
+          quota: { memory_bytes: 1000 },
+        }),
+      }),
+    )
+    const hostInvoke = vi.fn(async () => [
+      info({ id: 'com.wasmnest.a', name: 'Alpha' }),
+      info({ id: 'com.wasmnest.b', name: 'Beta' }),
+    ])
+    const wrapper = mountView(makeContext(execute, hostInvoke))
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="monitor-overview"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="monitor-overview-memory"]').text()).toContain('1000 B')
+    expect(wrapper.find('[data-testid="monitor-overview-memory-ratio"]').text()).toBe('50.0%')
+    // 排行按当前占用降序（Alpha 600 > Beta 400）
+    const consumers = wrapper.findAll('.mn-consumer-row')
+    expect(consumers).toHaveLength(2)
+    expect(consumers[0].text()).toContain('Alpha')
+    expect(consumers[1].text()).toContain('Beta')
+    // 无越界：预警区出空态（不是空白 / 错误）
+    expect(wrapper.find('[data-testid="monitor-alerts-empty"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="monitor-alerts-empty"]').text()).toBe('monitor.alerts.empty')
+  })
+
+  it('平台内存连续越界 → 预警卡片 + hero 提示（去抖后升警）', async () => {
+    vi.useFakeTimers()
+    const execute = vi.fn(async () =>
+      snapshot({
+        a: metrics({
+          memory_current_bytes: 300 * 1024 * 1024,
+          quota: { memory_bytes: 4096 * 1024 * 1024 },
+        }),
+      }),
+    )
+    const wrapper = mountView(makeContext(execute, async () => []))
+
+    await vi.advanceTimersByTimeAsync(0)
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(wrapper.find('[data-testid="monitor-alert-platform-memory:-"]').exists()).toBe(false)
+
+    await vi.advanceTimersByTimeAsync(1000)
+    const card = wrapper.find('[data-testid="monitor-alert-platform-memory:-"]')
+    expect(card.exists()).toBe(true)
+    expect(card.text()).toContain('monitor.alerts.level.warning')
+    expect(wrapper.find('#monitor-lead').text()).toContain('monitor.hero.alertsWarning')
+    expect(wrapper.find('[data-testid="monitor-alerts-empty"]').exists()).toBe(false)
   })
 
   it('后台轮询不驱动刷新按钮加载态（不闪动弹跳）', async () => {
@@ -313,5 +376,24 @@ describe('MonitorView（桌面界面契约）', () => {
     expect(button.attributes('aria-busy')).toBeUndefined()
     expect(labels[0].classes()).not.toContain('is-hidden')
     expect(labels[1].classes()).toContain('is-hidden')
+  })
+
+  it('预警设置改动经 KV 落盘（键名 / 值都归一化）', async () => {
+    const execute = vi.fn(async () => snapshot({ a: metrics() }))
+    const context = makeContext(execute, async () => [])
+    const set = vi.fn(async () => {})
+    ;(context.storage as unknown as { set: typeof set }).set = set
+    const wrapper = mountView(context)
+    await flushPromises()
+
+    const notify = wrapper.find('[data-testid="monitor-alert-notify"]')
+    expect(notify.exists()).toBe(true)
+    await notify.setValue(false)
+    await flushPromises()
+
+    expect(set).toHaveBeenCalledTimes(1)
+    const [key, value] = set.mock.calls[0] as unknown as [string, { notify: boolean }]
+    expect(key).toBe('monitor.alertSettings.v1')
+    expect(value.notify).toBe(false)
   })
 })

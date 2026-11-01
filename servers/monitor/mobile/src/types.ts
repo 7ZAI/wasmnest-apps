@@ -73,4 +73,31 @@ export interface RuntimeSample {
   callsTotal: number
   callsInFlight: number
   trapsTotal: number
+  /** 所有插件的 wasm 线性内存合计（字节） */
+  memoryCurrentBytes?: number
+  /** 所有插件的 wasm 线性内存峰值合计（字节） */
+  memoryPeakBytes?: number
+  /** 所有插件的燃料消耗合计（宿主计数单位） */
+  fuelTotal?: number
+}
+
+/**
+ * 平台总览（全部 wasm 插件的合计 / 比值）。
+ *
+ * 口径与桌面一致：内存 = 线性内存合计（不是宿主进程 RSS）；配额 = 各插件配额之和；
+ * 计算负载用燃料速率代理（宿主没有进程级 CPU 契约，不把代理叫成 CPU）。
+ */
+export interface PlatformTotals {
+  pluginCount: number
+  memoryCurrentBytes: number
+  memoryPeakBytes: number
+  memoryQuotaBytes: number
+  /** `memoryCurrentBytes / memoryQuotaBytes`；分母 0 → null */
+  memoryRatio: number | null
+  callsTotal: number
+  fuelTotal: number
+  /** 相邻采样的燃料速率；无基线 / 计数回退 → null */
+  fuelPerSecond: number | null
+  /** 相邻采样的调用速率；无基线 / 计数回退 → null */
+  callsPerSecond: number | null
 }

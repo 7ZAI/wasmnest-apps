@@ -96,6 +96,17 @@ const zhCN: MessageSchema = {
   'monitor.hero.proofUnknown': '移动端拿不到宿主 wasm 清单，以下只显示指标里的 plugin_id。',
   'monitor.hero.proofStale': '最近一次刷新失败；以下是上一次成功快照，不是当前值。',
   'monitor.hero.proofMobile': '移动端只读取指标，不提供宿主运行状态。',
+  'monitor.hero.memoryHigh': '平台内存占用 {ratio}',
+  'monitor.hero.memoryCritical': '平台内存占用 {ratio}（严重）',
+
+  'monitor.overview.title': '平台总览',
+  'monitor.overview.hint': '全部已加载 wasm 的内存与计算负载合计，直接来自宿主快照。',
+  'monitor.overview.memory': 'wasm 内存合计',
+  'monitor.overview.unbounded': '快照未声明内存上限',
+  'monitor.overview.compute': '计算负载',
+  'monitor.overview.perSecond': '燃料/秒（执行量代理）',
+  'monitor.overview.hostGap':
+    '宿主进程 CPU / 常驻内存不在 metrics:read 契约内；本页只统计 wasm 运行时，不推测宿主进程。',
   'monitor.signal.title': '调用速率',
   'monitor.signal.perSecond': '次/秒',
   'monitor.signal.window': '本次打开 · 最近 {seconds} 秒',

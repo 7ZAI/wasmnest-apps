@@ -209,4 +209,28 @@ describe('MonitorView（移动界面契约）', () => {
     expect(wrapper.find('.mnm-detail').exists()).toBe(true)
     expect(wrapper.find('.mnm-detail').text()).toContain('调用总数')
   })
+
+  it('平台总览：合计内存 / 配额比例 / 计算负载；高占用进入 hero 提示', async () => {
+    const execute = vi.fn(async () =>
+      snapshot({
+        'com.wasmnest.a': metrics({
+          memory_current_bytes: 900,
+          memory_peak_bytes: 950,
+          quota: { memory_bytes: 1000 },
+          fuel_consumed_total: 1200,
+        }),
+      }),
+    )
+    const wrapper = mountView(makeContext(execute))
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="mobile-monitor-overview"]').exists()).toBe(true)
+    const memory = wrapper.find('[data-testid="mobile-monitor-overview-memory"]')
+    expect(memory.text()).toContain('900 B')
+    expect(memory.text()).toContain('90.0%')
+    // 首个采样没有速率基线：诚实显示 —（不是 0）
+    expect(wrapper.find('[data-testid="mobile-monitor-overview-compute"]').text()).toContain('—')
+    // 90% ≥ 80% → hero 提示内存占用
+    expect(wrapper.find('#mnm-lead').text()).toContain('平台内存占用 90.0%')
+  })
 })

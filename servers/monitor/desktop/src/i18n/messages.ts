@@ -166,6 +166,64 @@ export type MessageSchema = {
   'monitor.footer.source': string
   'monitor.footer.session': string
 
+  // ==================== 平台总览 ====================
+  'monitor.overview.title': string
+  'monitor.overview.hint': string
+  'monitor.overview.memory': string
+  'monitor.overview.memoryUnbounded': string
+  'monitor.overview.peak': string
+  'monitor.overview.plugins': string
+  'monitor.overview.compute': string
+  'monitor.overview.computeHint': string
+  'monitor.overview.callsRate': string
+  'monitor.overview.callsNote': string
+  'monitor.overview.perSecond': string
+  'monitor.overview.consumers': string
+  'monitor.overview.hostGap': string
+
+  // ==================== 预警 ====================
+  'monitor.alerts.title': string
+  'monitor.alerts.hint': string
+  'monitor.alerts.empty': string
+  'monitor.alerts.disabled': string
+  'monitor.alerts.recentResolved': string
+  'monitor.alerts.age': string
+  'monitor.alerts.level.warning': string
+  'monitor.alerts.level.critical': string
+  'monitor.alerts.level.resolved': string
+  'monitor.alerts.settings': string
+  'monitor.alerts.enabled': string
+  'monitor.alerts.notify': string
+  'monitor.alerts.notifyHint': string
+  'monitor.alerts.platformMemoryWarn': string
+  'monitor.alerts.platformMemoryCritical': string
+  'monitor.alerts.bytesHint': string
+  'monitor.alerts.pluginMemoryWarn': string
+  'monitor.alerts.computeWarn': string
+  'monitor.alerts.computeHint': string
+  'monitor.alerts.settingsWarning': string
+  'monitor.alerts.reset': string
+  'monitor.alerts.notifyTitle': string
+  'monitor.alerts.notifyBody': string
+  'monitor.alerts.notifyDenied': string
+  'monitor.alerts.notifyFailed': string
+  'monitor.alerts.resolved': string
+  'monitor.alerts.rule.platformMemory': string
+  'monitor.alerts.rule.pluginMemory': string
+  'monitor.alerts.rule.pluginState': string
+  'monitor.alerts.rule.traps': string
+  'monitor.alerts.rule.computeLoad': string
+  'monitor.alerts.rule.taskBackpressure': string
+  'monitor.alerts.body.platformMemory': string
+  'monitor.alerts.body.pluginMemory': string
+  'monitor.alerts.body.pluginState': string
+  'monitor.alerts.body.traps': string
+  'monitor.alerts.body.computeLoad': string
+  'monitor.alerts.body.taskBackpressure': string
+  'monitor.alerts.body.recovered': string
+  'monitor.hero.alertsCritical': string
+  'monitor.hero.alertsWarning': string
+
   // ==================== 预览面 ====================
   'monitor.preview.subtitle': string
   'monitor.preview.loading': string

@@ -281,23 +281,27 @@ describe('callRate（相邻采样差值）', () => {
 })
 
 describe('summarize（KPI 合计）', () => {
-  it('汇总插件数 / 调用 / 在飞 / 内存峰值 / trap 总数', () => {
+  it('汇总插件数 / 调用 / 在飞 / 内存 / 燃料 / trap 总数', () => {
     const s = summarize(
       snapshot({
         a: metrics({
           calls_total: 10,
           calls_in_flight: 2,
+          memory_current_bytes: 512,
           memory_peak_bytes: 1024,
+          fuel_consumed_total: 900,
           trap_reasons: { fuel_exhausted: 1, other: 2 },
         }),
-        b: metrics({ calls_total: 5, memory_peak_bytes: 2048 }),
+        b: metrics({ calls_total: 5, memory_current_bytes: 256, memory_peak_bytes: 2048 }),
       }),
     )
     expect(s).toEqual({
       pluginCount: 2,
       callsTotal: 15,
       callsInFlight: 2,
+      memoryCurrentBytes: 768,
       memoryPeakBytes: 3072,
+      fuelTotal: 900,
       trapsTotal: 3,
     })
   })
@@ -307,7 +311,9 @@ describe('summarize（KPI 合计）', () => {
       pluginCount: 0,
       callsTotal: 0,
       callsInFlight: 0,
+      memoryCurrentBytes: 0,
       memoryPeakBytes: 0,
+      fuelTotal: 0,
       trapsTotal: 0,
     })
   })
