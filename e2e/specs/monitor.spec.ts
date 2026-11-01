@@ -129,7 +129,7 @@ describe('Monitor（桌面端 · 宿主内挂载）', () => {
 
   it('刷新按钮可用，手动刷新后不进入错误态', async () => {
     await waitFor('monitor-kpi-plugins')
-    // 轮询期间按钮会短暂 disabled；等解除再点，避免点到禁用态造成假绿
+    // 后台 1s 轮询不驱动按钮加载态（只有手动刷新才短暂 disabled），这里仍先等可点态
     await waitForEnabled('monitor-refresh')
     await click('monitor-refresh')
     expectEqual(await visible('monitor-error'), false, '手动刷新后无错误')

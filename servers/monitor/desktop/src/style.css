@@ -286,6 +286,21 @@
   animation: mn-spin 900ms linear infinite;
 }
 
+/* 文案「刷新 / 刷新中…」同格叠放：切换时按钮宽度不变（否则整行跳） */
+.mn-refresh-label {
+  display: inline-grid;
+  place-items: center;
+}
+
+.mn-refresh-label > span {
+  grid-area: 1 / 1;
+  white-space: nowrap;
+}
+
+.mn-refresh-label > .is-hidden {
+  visibility: hidden;
+}
+
 .mn-proof {
   margin: 22px 0 0;
   max-width: 62ch;

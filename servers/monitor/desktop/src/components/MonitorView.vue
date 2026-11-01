@@ -48,6 +48,23 @@ const {
 const localeTag = computed(() => (i18n.global.locale.value === 'en' ? 'en-US' : 'zh-CN'))
 const initialLoading = computed(() => loading.value && lastUpdated.value === null)
 
+/**
+ * 手动刷新中：只有用户点击才驱动按钮加载态。
+ *
+ * 后台 1s 轮询也走 `refresh`，若按钮直接绑 `loading`，按钮会每秒
+ * 禁停 / 换文案 / 转图标 → 肉眼可见的闪烁跳动（用户 2026-11-01 反馈）。
+ */
+const manualRefreshing = ref(false)
+async function manualRefresh(): Promise<void> {
+  if (manualRefreshing.value) return
+  manualRefreshing.value = true
+  try {
+    await refresh()
+  } finally {
+    manualRefreshing.value = false
+  }
+}
+
 const updatedText = computed(() =>
   lastUpdated.value === null
     ? t('monitor.never')
@@ -340,13 +357,14 @@ onBeforeUnmount(() => {
               <button
                 type="button"
                 class="mn-refresh"
-                :disabled="loading"
+                :disabled="manualRefreshing"
+                :aria-busy="manualRefreshing || undefined"
                 data-testid="monitor-refresh"
-                @click="refresh"
+                @click="manualRefresh"
               >
                 <svg
                   class="mn-refresh-icon"
-                  :class="{ 'is-spinning': loading }"
+                  :class="{ 'is-spinning': manualRefreshing }"
                   viewBox="0 0 24 24"
                   fill="none"
                   stroke="currentColor"
@@ -360,7 +378,13 @@ onBeforeUnmount(() => {
                     d="M20 9a8 8 0 0 0-14.9-2M4 15a8 8 0 0 0 14.9 2"
                   />
                 </svg>
-                {{ loading ? t('monitor.refreshing') : t('monitor.refresh') }}
+                <!-- 两个文案同格叠放：切换时按钮宽度不变，避免整行左右跳 -->
+                <span class="mn-refresh-label">
+                  <span :class="{ 'is-hidden': manualRefreshing }">{{ t('monitor.refresh') }}</span>
+                  <span :class="{ 'is-hidden': !manualRefreshing }">{{
+                    t('monitor.refreshing')
+                  }}</span>
+                </span>
               </button>
             </div>
           </div>
