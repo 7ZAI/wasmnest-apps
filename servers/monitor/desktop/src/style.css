@@ -539,17 +539,27 @@
 .mn-ledger-layout {
   display: grid;
   grid-template-columns: minmax(320px, 0.78fr) minmax(0, 1.22fr);
-  grid-template-areas:
-    'ledger inspector'
-    'host inspector';
   gap: 28px 32px;
   align-items: start;
+}
+
+/*
+ * 左列自成一体（台账 + 宿主段）。
+ *
+ * 曾用 grid-template-areas 'ledger inspector' / 'host inspector' 让详情跨两行，
+ * 结果详情里展开「配额」下拉把右列撑高时，多余高度会被分摊到它跨的两行，
+ * 左下的宿主段被顶下去（实测 73px）。两列从此互不牵动。
+ */
+.mn-ledger-main {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  min-width: 0;
 }
 
 /* ==================== 插件台账 ==================== */
 
 .mn-ledger {
-  grid-area: ledger;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -753,7 +763,6 @@
 /* ==================== 选中插件详情 ==================== */
 
 .mn-inspector-slot {
-  grid-area: inspector;
   min-width: 0;
 }
 
@@ -1256,7 +1265,6 @@
 /* ==================== 宿主维度 ==================== */
 
 .mn-host-section {
-  grid-area: host;
   min-width: 0;
   padding: 20px;
   border-radius: var(--radius-card);

@@ -510,72 +510,90 @@ onBeforeUnmount(() => {
         </header>
 
         <div class="mn-ledger-layout">
-          <div class="mn-ledger" data-testid="monitor-plugin-list" data-ui>
-            <button
-              v-for="(row, index) in filteredRows"
-              :key="row.id"
-              type="button"
-              class="mn-ledger-row"
-              :class="{ 'is-selected': row.id === selectedId }"
-              :style="{ '--row-index': index }"
-              :data-testid="`monitor-plugin-${row.id}`"
-              :data-plugin-id="row.id"
-              :data-state="row.state"
-              :data-metrics-available="row.metricsAvailable"
-              :aria-current="row.id === selectedId ? 'true' : undefined"
-              aria-controls="monitor-inspector"
-              @click="selectedId = row.id"
-            >
-              <div class="mn-ledger-top">
-                <span class="mn-state-dot" :class="`is-${row.state}`" aria-hidden="true"></span>
-                <span class="mn-ledger-name">{{ row.name }}</span>
-                <span v-if="row.version" class="mn-ledger-version">{{ row.version }}</span>
-                <span
-                  v-if="serviceRoleText(row)"
-                  class="mn-role"
-                  :data-testid="`monitor-role-${row.id}`"
-                  >{{ serviceRoleText(row) }}</span
-                >
-                <span v-if="row.id === context.id" class="mn-tag">{{ t('monitor.self') }}</span>
-                <span class="mn-ledger-state" :data-testid="`monitor-state-${row.id}`">
-                  {{ t(`monitor.state.${row.state}`) }}
-                </span>
-              </div>
-
-              <div class="mn-ledger-id">{{ row.id }}</div>
-
-              <div v-if="row.metricsAvailable" class="mn-ledger-meta">
-                <span class="mn-ledger-mem">
-                  {{ formatBytes(row.metrics.memory_current_bytes) }}
-                  <span class="mn-muted">
-                    / {{ quotaMemoryOf(row) === null ? '—' : formatBytes(quotaMemoryOf(row)) }}
+          <div class="mn-ledger-main">
+            <div class="mn-ledger" data-testid="monitor-plugin-list" data-ui>
+              <button
+                v-for="(row, index) in filteredRows"
+                :key="row.id"
+                type="button"
+                class="mn-ledger-row"
+                :class="{ 'is-selected': row.id === selectedId }"
+                :style="{ '--row-index': index }"
+                :data-testid="`monitor-plugin-${row.id}`"
+                :data-plugin-id="row.id"
+                :data-state="row.state"
+                :data-metrics-available="row.metricsAvailable"
+                :aria-current="row.id === selectedId ? 'true' : undefined"
+                aria-controls="monitor-inspector"
+                @click="selectedId = row.id"
+              >
+                <div class="mn-ledger-top">
+                  <span class="mn-state-dot" :class="`is-${row.state}`" aria-hidden="true"></span>
+                  <span class="mn-ledger-name">{{ row.name }}</span>
+                  <span v-if="row.version" class="mn-ledger-version">{{ row.version }}</span>
+                  <span
+                    v-if="serviceRoleText(row)"
+                    class="mn-role"
+                    :data-testid="`monitor-role-${row.id}`"
+                    >{{ serviceRoleText(row) }}</span
+                  >
+                  <span v-if="row.id === context.id" class="mn-tag">{{ t('monitor.self') }}</span>
+                  <span class="mn-ledger-state" :data-testid="`monitor-state-${row.id}`">
+                    {{ t(`monitor.state.${row.state}`) }}
                   </span>
-                </span>
-                <span class="mn-muted">
-                  {{ memoryRatioOf(row) === null ? '—' : formatRatio(memoryRatioOf(row)) }}
-                </span>
-                <span class="mn-ledger-calls">
-                  {{ t('monitor.ledger.calls', { n: formatNumber(row.metrics.calls_total) }) }}
-                </span>
-                <span v-if="trapTotalOf(row) > 0" class="mn-ledger-alert">
-                  {{ formatNumber(trapTotalOf(row)) }} Trap
-                </span>
-              </div>
-              <div v-else class="mn-ledger-meta">
-                <span class="mn-ledger-unavailable">
-                  {{ t('monitor.ledger.metricsUnavailable') }}
-                </span>
-              </div>
+                </div>
 
-              <div v-if="row.metricsAvailable" class="mn-waterline is-compact" aria-hidden="true">
-                <div
-                  v-if="memoryRatioOf(row) !== null"
-                  class="mn-waterline-fill"
-                  :class="`is-${memoryToneOf(row)}`"
-                  :style="{ transform: `scaleX(${memoryScaleOf(row)})` }"
-                ></div>
-              </div>
-            </button>
+                <div class="mn-ledger-id">{{ row.id }}</div>
+
+                <div v-if="row.metricsAvailable" class="mn-ledger-meta">
+                  <span class="mn-ledger-mem">
+                    {{ formatBytes(row.metrics.memory_current_bytes) }}
+                    <span class="mn-muted">
+                      / {{ quotaMemoryOf(row) === null ? '—' : formatBytes(quotaMemoryOf(row)) }}
+                    </span>
+                  </span>
+                  <span class="mn-muted">
+                    {{ memoryRatioOf(row) === null ? '—' : formatRatio(memoryRatioOf(row)) }}
+                  </span>
+                  <span class="mn-ledger-calls">
+                    {{ t('monitor.ledger.calls', { n: formatNumber(row.metrics.calls_total) }) }}
+                  </span>
+                  <span v-if="trapTotalOf(row) > 0" class="mn-ledger-alert">
+                    {{ formatNumber(trapTotalOf(row)) }} Trap
+                  </span>
+                </div>
+                <div v-else class="mn-ledger-meta">
+                  <span class="mn-ledger-unavailable">
+                    {{ t('monitor.ledger.metricsUnavailable') }}
+                  </span>
+                </div>
+
+                <div v-if="row.metricsAvailable" class="mn-waterline is-compact" aria-hidden="true">
+                  <div
+                    v-if="memoryRatioOf(row) !== null"
+                    class="mn-waterline-fill"
+                    :class="`is-${memoryToneOf(row)}`"
+                    :style="{ transform: `scaleX(${memoryScaleOf(row)})` }"
+                  ></div>
+                </div>
+              </button>
+            </div>
+
+            <!-- 左列 = 台账 + 宿主段：与右列详情互不牵动（打开详情里的下拉不得顶动这里） -->
+            <section
+              v-if="systems.length > 0"
+              class="mn-host-section"
+              data-ui
+              data-testid="monitor-system-list"
+            >
+              <header class="mn-section-head">
+                <div>
+                  <h2 class="mn-section-title">{{ t('monitor.section.host') }}</h2>
+                  <p class="mn-section-hint">{{ t('monitor.host.hint') }}</p>
+                </div>
+              </header>
+              <SystemPanel :sections="systems" />
+            </section>
           </div>
 
           <div id="monitor-inspector" class="mn-inspector-slot">
@@ -586,21 +604,6 @@ onBeforeUnmount(() => {
               :self-id="context.id"
             />
           </div>
-
-          <section
-            v-if="systems.length > 0"
-            class="mn-host-section"
-            data-ui
-            data-testid="monitor-system-list"
-          >
-            <header class="mn-section-head">
-              <div>
-                <h2 class="mn-section-title">{{ t('monitor.section.host') }}</h2>
-                <p class="mn-section-hint">{{ t('monitor.host.hint') }}</p>
-              </div>
-            </header>
-            <SystemPanel :sections="systems" />
-          </section>
         </div>
       </section>
 

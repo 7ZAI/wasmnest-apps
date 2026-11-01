@@ -40,6 +40,20 @@ import {
   SYS_ENTRY_NAMES,
 } from '../pages/monitor'
 
+/**
+ * 元素在**文档坐标系**里的 y（px；不存在返回 null）。
+ *
+ * 不用视口坐标：展开下拉会让上文变高、页面可能滚动，视口 top 会跟着变；
+ * 文档坐标才能判「这块面板自己在版面里的位置有没有被顶动」。
+ */
+function pageTop(testid: string): Promise<number | null> {
+  return browser.execute((t: string) => {
+    const el = document.querySelector(`[data-testid="${t}"]`)
+    if (!el) return null
+    return Math.round((el.getBoundingClientRect().top + window.scrollY) * 100) / 100
+  }, testid)
+}
+
 /** 在主屏系统宫格找到 Monitor 入口（宿主语言决定显示名）并打开 */
 async function openMonitor(): Promise<void> {
   await goHome()
@@ -136,7 +150,7 @@ describe('Monitor（桌面端 · 宿主内挂载）', () => {
     await waitFor(SELF_CARD)
   })
 
-  it('配额详情默认可展开，展开后标注「上限不是实时占用」', async () => {
+  it('配额详情默认可展开，展开后标注「上限不是实时占用」，且不顶动左侧宿主段', async () => {
     await waitFor(SELF_CARD)
     expectEqual(await exists(SELF_QUOTA_TOGGLE), true, '配额折叠头在场')
 
@@ -144,6 +158,12 @@ describe('Monitor（桌面端 · 宿主内挂载）', () => {
     // getClientRects() 仍可能非空，不能用视觉判定代替状态判定）
     const quota = `monitor-quota-${MONITOR_PLUGIN_ID}`
     expectEqual(await attr(quota, 'open'), null, '配额详情默认收起')
+
+    // 展开前记下左下「宿主维度段」的文档坐标：右列变高只该让右列变长，
+    // 左列位置必须纹丝不动（曾用跨行 grid，高度分摊把这块顶下去几十像素）
+    await waitFor('monitor-system-list')
+    const hostTopBefore = await pageTop('monitor-system-list')
+    expectEqual(typeof hostTopBefore, 'number', '宿主维度段有布局盒')
 
     await click(SELF_QUOTA_TOGGLE)
     await waitFor(SELF_QUOTA_NOTE)
@@ -153,6 +173,7 @@ describe('Monitor（桌面端 · 宿主内挂载）', () => {
       ['以上是宿主配额上限，不是实时占用。', 'These are host quota limits, not live usage.'],
       '配额说明是诚实边界',
     )
+    expectEqual(await pageTop('monitor-system-list'), hostTopBefore, '展开配额后左侧宿主段位置不变')
     // 收起，避免保活实例把展开态带给后续用例
     await click(SELF_QUOTA_TOGGLE)
     await waitForAttrGone(quota, 'open')
