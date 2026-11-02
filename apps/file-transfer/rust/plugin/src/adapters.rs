@@ -252,11 +252,13 @@ impl<H: HostPeer + ?Sized> PeerPort for DesktopPorts<'_, H> {
 
 /// 差异面④：桌面**由插件显式请求节点起停**（移动端不接线——宿主外壳驱动）
 ///
-/// 与退役前 `lib.rs` 里那两处 `match h.peer_start_node()` 同语义：失败只记日志、
-/// 不翻成激活/停用失败（一次引擎故障不该让插件整体不可用）。
+/// 与 `activate` 里那处 `match h.peer_start_node(…)` 同语义：失败只记日志、
+/// 不翻成激活/停用失败（一次引擎故障不该让插件整体不可用）。配置经
+/// [`crate::peer_node_config`] 统一构造——此处不得再建第二份口径。
 impl<H: HostPeer + ?Sized> NodePower for DesktopPorts<'_, H> {
-    fn peer_start_node(&self) -> PortResult<bool> {
-        map_err(self.0.peer_start_node())
+    fn peer_start_node(&self, listen_port: u16) -> PortResult<bool> {
+        let config = crate::peer_node_config(listen_port);
+        map_err(self.0.peer_start_node(&config))
     }
 
     fn peer_stop_node(&self) -> PortResult<bool> {

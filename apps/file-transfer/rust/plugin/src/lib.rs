@@ -121,6 +121,30 @@ fn host() -> WasmHost {
     WasmHost
 }
 
+/// 节点期望监听端口（固定值，**不是** 0）
+///
+/// 与能力仓 `wasmnest-server-peer-net` 的 `DEFAULT_PEER_PORT` 同值；WIT `peer.wit`
+/// 明确「防火墙友好场景应显式指定固定端口」，固定端口也让「对端连不上」的排查
+/// 有确定目标（被占用时宿主自行回退 OS 分配，不靠调用方猜）。
+const PEER_NODE_LISTEN_PORT: u16 = 47613;
+
+/// 节点启动配置的**唯一构造点**（`activate` 与桌面 `NodePower` 实现共用）
+///
+/// `data_dir` / `device_name` 留空 ⇒ 宿主按产品默认补全（SDK `host-peer` 没有
+/// 插件作用域数据目录原语，app 侧也无从得知该路径）。
+///
+/// 现状提醒（勿据此假设 per-app 隔离已生效）：宿主在**服务租约路径**（双端生产
+/// 装配恒命中）并不读这份配置——节点按全局 `PeerCtx` + `DEFAULT_PEER_PORT` 起，
+/// per-app 实例表尚未落地。因此 `listen_port` / 空身份只在无租约装配（无头 /
+/// 测试）下生效。
+pub(crate) fn peer_node_config(listen_port: u16) -> wasmnest_plugin_api::host::PeerNodeConfig {
+    wasmnest_plugin_api::host::PeerNodeConfig {
+        data_dir: String::new(),
+        device_name: String::new(),
+        listen_port,
+    }
+}
+
 struct FileTransferPlugin;
 
 impl WasmPlugin for FileTransferPlugin {
@@ -183,8 +207,11 @@ impl WasmPlugin for FileTransferPlugin {
         // 放在 activate 后段，等价于旧外壳的 `result.is_ok()` 门——前面任何
         // 一步失败都不会把节点带起来。起节点失败不翻成激活失败（与旧行为一致：
         // 旧外壳只 log_error，激活结果由 inner 决定），否则一次引擎故障会变成
-        // 插件整体不可用
-        match h.peer_start_node() {
+        // 插件整体不可用。
+        // T6：经 `PeerNodeConfig` 声明端口与身份（口径见 `PEER_NODE_LISTEN_PORT` /
+        // `peer_node_config`：固定端口 + 空身份交宿主补全）。**不要传 0**——临时
+        // 端口每次重启都变，防火墙放行与排障都失去确定目标
+        match h.peer_start_node(&peer_node_config(PEER_NODE_LISTEN_PORT)) {
             Ok(changed) => h.log_info(&format!(
                 "peer-net node requested by this activation (state changed: {changed})"
             )),
@@ -541,6 +568,29 @@ fn require_str(args: &serde_json::Value, key: &str) -> anyhow::Result<String> {
         .and_then(|v| v.as_str())
         .map(|s| s.to_string())
         .ok_or_else(|| anyhow::anyhow!("missing {key}"))
+}
+
+#[cfg(test)]
+mod node_config_tests {
+    use super::*;
+
+    /// 固定端口锁值：改这里 = 改双端节点监听端口口径，必须同时确认能力仓
+    /// `DEFAULT_PEER_PORT` 与 WIT `peer.wit` 注释仍一致
+    #[test]
+    fn listen_port_matches_documented_default() {
+        assert_eq!(PEER_NODE_LISTEN_PORT, 47613);
+    }
+
+    /// 唯一构造点：空身份交宿主补全，端口按入参透传（activate 传固定端口）
+    #[test]
+    fn peer_node_config_carries_host_filled_identity_and_caller_port() {
+        let config = peer_node_config(PEER_NODE_LISTEN_PORT);
+        assert!(config.data_dir.is_empty(), "data_dir 留空由宿主补全");
+        assert!(config.device_name.is_empty(), "device_name 留空由宿主补全");
+        assert_eq!(config.listen_port, PEER_NODE_LISTEN_PORT);
+        let auto = peer_node_config(0);
+        assert_eq!(auto.listen_port, 0, "入参透传（0 = OS 分配）");
+    }
 }
 
 // 协商 ABI（双端下界）：桌面宿主持 38 ≥ 21、移动宿主 21 ≥ 21 均放行

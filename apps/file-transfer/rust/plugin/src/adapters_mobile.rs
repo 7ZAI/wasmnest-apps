@@ -208,7 +208,7 @@ impl<H: HostPeer + ?Sized> PeerPort for MobilePorts<'_, H> {
 /// 失效）时 fail-visible 报错，不会静默无操作。无需 `HostPeer` 约束——本实现不
 /// 委派任何宿主原语（委派才需要约束，桌面侧同理见 `adapters.rs`）。
 impl<H: ?Sized> NodePower for MobilePorts<'_, H> {
-    fn peer_start_node(&self) -> PortResult<bool> {
+    fn peer_start_node(&self, _listen_port: u16) -> PortResult<bool> {
         Err(PortError::new(
             "unsupported on mobile: peer node power is driven by the host shell \
              (plugin does not own node lifecycle)",
@@ -373,7 +373,7 @@ mod tests {
         // 差异面④：移动不接管电源；误调用必须 fail-visible（静默无操作会让
         // 「节点没起」表现成「插件坏了」却无线索）
         let h = FakeHost::default();
-        let err = MobilePorts(&h).peer_start_node().unwrap_err();
+        let err = MobilePorts(&h).peer_start_node(0).unwrap_err();
         assert!(err.message().contains("unsupported on mobile"), "{err}");
         assert!(err.message().contains("host shell"), "{err}");
     }
@@ -477,7 +477,10 @@ mod tests {
         fn peer_set_download_dir(&self, _path: &str) -> Result<(), HostError> {
             unreachable!()
         }
-        fn peer_start_node(&self) -> Result<bool, HostError> {
+        fn peer_start_node(
+            &self,
+            _config: &wasmnest_plugin_api::host::PeerNodeConfig,
+        ) -> Result<bool, HostError> {
             unreachable!("移动端电源由宿主外壳驱动，插件不调（差异面④）")
         }
         fn peer_stop_node(&self) -> Result<bool, HostError> {

@@ -15,8 +15,9 @@ import type { FileTransferDevMock, PeerDevMock } from './devMockTypes'
 
 export type { TrustedDevSeed } from './devMockTypes'
 
-export const NODE_XIAOMI = 'f3a91c07e5d24b18a7c60f12d94b8e55'
-export const NODE_PIXEL = '8b02d641c9ae4f77b3e15a90dd276c84'
+// 64 位 hex nodeId（与 Rust 侧 node_id 生成口径对齐；parseFoundPayload 校验 64 位）
+export const NODE_XIAOMI = 'f3a91c07e5d24b18a7c60f12d94b8e55f3a91c07e5d24b18a7c60f12d94b8e55'
+export const NODE_PIXEL = '8b02d641c9ae4f77b3e15a90dd276c848b02d641c9ae4f77b3e15a90dd276c84'
 
 /** 单台设备种子（mdns:found 载荷形状 + 拨号行为标注） */
 function deviceSeed(nodeId: string, name: string, ip: string, port: number, capable = true) {
@@ -43,11 +44,41 @@ const devMock: FileTransferDevMock = {
   peer: {
     // mdns:found 载荷形状种子（dev-shell 逐台延迟推送）；dialBehavior 按 nodeId 索引
     deviceSeeds: [
-      { ...deviceSeed(NODE_XIAOMI, '小米 14 Pro', '192.168.1.108', 47821), dialBehavior: 'connected' as const },
-      { ...deviceSeed(NODE_PIXEL, 'Pixel 9', '192.168.1.132', 51044), dialBehavior: 'connected' as const },
-      { ...deviceSeed('51c8aa93e07b4d2f96d3b1c45f8ea720', '客厅电视 BedBox', '192.168.1.120', 47613), dialBehavior: 'denied' as const },
-      { ...deviceSeed('9d64b2f08c1e4735ae02d7b6cc4910e3', 'Old Laptop', '192.168.1.77', 47613), dialBehavior: 'unreachable' as const },
-      { ...deviceSeed('c47d19f2ab354e6180d92b7ce30a5f16', 'HomeNAS', '192.168.1.2', 47613, false) },
+      {
+        ...deviceSeed(NODE_XIAOMI, '小米 14 Pro', '192.168.1.108', 47821),
+        dialBehavior: 'connected' as const,
+      },
+      {
+        ...deviceSeed(NODE_PIXEL, 'Pixel 9', '192.168.1.132', 51044),
+        dialBehavior: 'connected' as const,
+      },
+      {
+        ...deviceSeed(
+          '51c8aa93e07b4d2f96d3b1c45f8ea72051c8aa93e07b4d2f96d3b1c45f8ea720',
+          '客厅电视 BedBox',
+          '192.168.1.120',
+          47613,
+        ),
+        dialBehavior: 'denied' as const,
+      },
+      {
+        ...deviceSeed(
+          '9d64b2f08c1e4735ae02d7b6cc4910e39d64b2f08c1e4735ae02d7b6cc4910e3',
+          'Old Laptop',
+          '192.168.1.77',
+          47613,
+        ),
+        dialBehavior: 'unreachable' as const,
+      },
+      {
+        ...deviceSeed(
+          'c47d19f2ab354e6180d92b7ce30a5f16c47d19f2ab354e6180d92b7ce30a5f16',
+          'HomeNAS',
+          '192.168.1.2',
+          47613,
+          false,
+        ),
+      },
     ] as PeerDevMock['deviceSeeds'],
     connectedNodeIds: [NODE_XIAOMI],
     activeNodeId: NODE_XIAOMI,
@@ -57,13 +88,13 @@ const devMock: FileTransferDevMock = {
     consent: [
       {
         requestId: 'mock-consent-1',
-        nodeId: 'e70a4c92d85f41b6a0d3c97f52e1b834',
+        nodeId: 'e70a4c92d85f41b6a0d3c97f52e1b834e70a4c92d85f41b6a0d3c97f52e1b834',
         fingerprintShort: 'e70a4c92',
         deviceName: 'iPad Pro',
       },
       {
         requestId: 'mock-consent-2',
-        nodeId: '44f19b7ce2a84d6591b07ad3c58ef206',
+        nodeId: '44f19b7ce2a84d6591b07ad3c58ef20644f19b7ce2a84d6591b07ad3c58ef206',
         fingerprintShort: '44f19b7c',
         deviceName: null,
       },
@@ -78,13 +109,13 @@ const devMock: FileTransferDevMock = {
         addedAt: '2026-07-12T09:24:00+08:00',
       },
       {
-        nodeId: 'e70a4c92d85f41b6a0d3c97f52e1b834',
+        nodeId: 'e70a4c92d85f41b6a0d3c97f52e1b834e70a4c92d85f41b6a0d3c97f52e1b834',
         displayName: 'iPad Pro',
         fingerprintShort: 'e70a4c92',
         addedAt: '2026-08-02T18:47:00+08:00',
       },
       {
-        nodeId: '9a3c57e1b04d42f89d6ce21ba75f0d38',
+        nodeId: '9a3c57e1b04d42f89d6ce21ba75f0d389a3c57e1b04d42f89d6ce21ba75f0d38',
         displayName: null,
         fingerprintShort: '9a3c57e1',
         addedAt: '2026-08-20T11:05:00+08:00',
