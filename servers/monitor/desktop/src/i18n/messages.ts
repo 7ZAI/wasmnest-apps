@@ -166,6 +166,28 @@ export type MessageSchema = {
   'monitor.footer.source': string
   'monitor.footer.session': string
 
+  // ==================== 宿主进程（WebView） ====================
+  // 整机口径：宿主进程树的内存 / CPU；与 wasm 段（`plugins`）分开，不可相加
+  'monitor.process.title': string
+  'monitor.process.hint': string
+  'monitor.process.unavailable': string
+  'monitor.process.notSampled': string
+  'monitor.process.webviewShare': string
+  'monitor.process.scope.self': string
+  'monitor.process.scope.webview': string
+  'monitor.process.scope.other': string
+  'monitor.process.scope.tree': string
+  'monitor.process.pss': string
+  'monitor.process.rss': string
+  'monitor.process.cpu': string
+  'monitor.process.cpuPending': string
+  'monitor.process.cpuCores': string
+  'monitor.process.noCores': string
+  'monitor.process.processCount': string
+  'monitor.process.webviewAbsent': string
+  'monitor.process.webviewMissing': string
+  'monitor.process.noOtherChildren': string
+
   // ==================== 平台总览 ====================
   'monitor.overview.title': string
   'monitor.overview.hint': string

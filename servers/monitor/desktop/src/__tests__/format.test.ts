@@ -8,6 +8,7 @@ import {
   formatBytes,
   formatDurationUs,
   formatNumber,
+  formatPercent,
   formatRatio,
   formatUnixTime,
   latestLifecycle,
@@ -207,6 +208,11 @@ describe('collectSystemSections（系统维度段）', () => {
       jobsActive: 1,
     })
   })
+
+  it('process 段不进裸键名列表（它是专用面板的数据源，不去重会出现两份）', () => {
+    const snap = snapshot({ a: metrics() }, { process: { available: true }, task: {} })
+    expect(collectSystemSections(snap).map((s) => s.id)).toEqual(['task'])
+  })
 })
 
 describe('数值 / 时间格式化', () => {
@@ -216,6 +222,14 @@ describe('数值 / 时间格式化', () => {
     expect(formatNumber(null)).toBe('—')
     expect(formatNumber(undefined)).toBe('—')
     expect(formatNumber(Number.NaN)).toBe('—')
+  })
+
+  it('formatPercent：已是百分数，保留一位小数（0.4% 不得取整成 0%）', () => {
+    expect(formatPercent(12.34)).toBe('12.3%')
+    expect(formatPercent(0.4)).toBe('0.4%')
+    expect(formatPercent(250)).toBe('250.0%')
+    expect(formatPercent(null)).toBe('—')
+    expect(formatPercent(Number.NaN)).toBe('—')
   })
 
   it('formatBytes：B / KiB / MiB / GiB', () => {

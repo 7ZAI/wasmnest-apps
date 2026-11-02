@@ -44,6 +44,11 @@ import {
   OVERVIEW_MEMORY,
   OVERVIEW_MEMORY_RATIO,
   PAGE_TABS,
+  PROCESS,
+  PROCESS_TREE,
+  PROCESS_UNAVAILABLE,
+  PROCESS_WEBVIEW,
+  PROCESS_WEBVIEW_NOTE,
   SELF_CARD,
   SELF_QUOTA_NOTE,
   SELF_QUOTA_TOGGLE,
@@ -264,6 +269,19 @@ describe('Monitor（桌面端 · 宿主内挂载）', () => {
     expectEqual(await visible('monitor-system-list'), true, '宿主维度区可见')
     await waitFor('monitor-system-task')
     expectEqual(await visible('monitor-system-task'), true, 'task 维度段可见')
+  })
+
+  it('宿主进程：WebView 与 wasm 台账分开，归属本宿主进程树', async () => {
+    await waitFor(PROCESS)
+    expectEqual(await visible(PROCESS), true, '宿主进程面板可见')
+    // 本次宿主已装配 process 段：不得落回「宿主未提供」
+    expectEqual(await exists(PROCESS_UNAVAILABLE), false, '宿主提供了 process 段')
+    expectEqual(await visible(PROCESS_WEBVIEW), true, 'WebView 维度可见')
+    expectEqual(await visible(PROCESS_TREE), true, '进程树合计可见')
+    // Linux 真实宿主：WebKit 子进程在本进程树内 → 不得出现「不在树内」标注
+    expectEqual(await exists(PROCESS_WEBVIEW_NOTE), false, 'WebView 归属本宿主进程树')
+    // 整机口径与 wasm 台账同时在场（两块各说各的事实，不是二选一）
+    expectEqual(await visible(SELF_CARD), true, 'wasm 台账仍按原口径展示')
   })
 
   it('平台总览与预警：合计内存 / 计算负载 / 阈值设置可见', async () => {

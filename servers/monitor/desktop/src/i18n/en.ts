@@ -152,6 +152,31 @@ const en: MessageSchema = {
   'monitor.footer.source': 'Data from monitor.snapshot · permission metrics:read',
   'monitor.footer.session': 'This session · cleared on close',
 
+  'monitor.process.title': 'Host process (WebView)',
+  'monitor.process.hint':
+    'Whole-app view: the OS account for the host process plus its WebView children. PSS apportions shared pages (the real footprint); RSS is an upper bound; wasm linear memory is part of the host process, so the two figures are never added together.',
+  'monitor.process.unavailable':
+    'This host does not provide the process section (older host, or no metrics source wired up); no numbers are shown.',
+  'monitor.process.notSampled':
+    'The host exposes a process section, but this sample is unavailable.',
+  'monitor.process.webviewShare': 'WebView share of tree PSS',
+  'monitor.process.scope.self': 'Host process',
+  'monitor.process.scope.webview': 'WebView processes',
+  'monitor.process.scope.other': 'Other children',
+  'monitor.process.scope.tree': 'Process tree total',
+  'monitor.process.pss': 'PSS (real)',
+  'monitor.process.rss': 'RSS (upper bound)',
+  'monitor.process.cpu': 'CPU (per core)',
+  'monitor.process.cpuPending': 'CPU awaiting baseline',
+  'monitor.process.cpuCores': 'CPU as percent of one core · {n} cores',
+  'monitor.process.noCores': 'CPU as percent of one core',
+  'monitor.process.processCount': 'Processes',
+  'monitor.process.webviewAbsent':
+    'No WebView child in this process tree: the platform runs it outside the host tree (macOS launches it via launchd), so only the host process is reported. This is not zero usage.',
+  'monitor.process.webviewMissing':
+    'The host did not send the WebView section, so attribution cannot be determined.',
+  'monitor.process.noOtherChildren': 'No other child processes.',
+
   'monitor.overview.title': 'Platform overview',
   'monitor.overview.hint':
     'Totals across every loaded wasm app, summed straight from the host snapshot — no estimation.',
@@ -161,13 +186,13 @@ const en: MessageSchema = {
   'monitor.overview.plugins': '{n} wasm registered',
   'monitor.overview.compute': 'Compute load',
   'monitor.overview.computeHint':
-    'Fuel burn rate (a proxy for wasm execution); host-process CPU is not part of the snapshot contract.',
+    'Fuel burn rate (a proxy for wasm execution); real host-process memory / CPU live in the Host process (WebView) panel.',
   'monitor.overview.callsRate': 'Call rate',
   'monitor.overview.callsNote': '{n} calls total',
   'monitor.overview.perSecond': '/ s',
   'monitor.overview.consumers': 'Top memory consumers',
   'monitor.overview.hostGap':
-    'Host-process CPU / RSS has no cross-end contract yet: metrics:read only covers the wasm runtime. This page does not guess those numbers; if the host adds a system section it will show up under Host dimensions.',
+    'This page only sums the wasm runtime (linear memory / fuel / calls). The whole-app view — real memory and CPU of the host process tree including the WebView — is in the Host process (WebView) panel; the two scopes are never added together.',
 
   'monitor.alerts.title': 'Alerts',
   'monitor.alerts.hint':

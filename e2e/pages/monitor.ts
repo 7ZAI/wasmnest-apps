@@ -39,6 +39,15 @@ export const OVERVIEW_MEMORY = 'monitor-overview-memory'
 export const OVERVIEW_MEMORY_RATIO = 'monitor-overview-memory-ratio'
 export const OVERVIEW_COMPUTE = 'monitor-overview-compute'
 
+/** 宿主进程（WebView）面板：整机口径，与 wasm 台账分开 */
+export const PROCESS = 'monitor-process'
+export const PROCESS_WEBVIEW = 'monitor-process-webview'
+export const PROCESS_TREE = 'monitor-process-tree'
+/** 旧宿主 / 未装配指标源时显示「未提供」（不是 0 字节） */
+export const PROCESS_UNAVAILABLE = 'monitor-process-unavailable'
+/** WebView 不在进程树内（macOS）时的显式标注 */
+export const PROCESS_WEBVIEW_NOTE = 'monitor-process-note-webview'
+
 /** 预警区（阈值设置 + 活动 / 空态） */
 export const ALERTS = 'monitor-alerts'
 export const ALERTS_LIST = 'monitor-alert-list'

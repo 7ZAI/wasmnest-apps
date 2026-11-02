@@ -37,6 +37,66 @@ export type MetricsSnapshot = {
 /** 装配角色（manifest `type`；旧宿主缺省时落 unknown，不猜成应用） */
 export type PluginKindRole = 'basic-service' | 'internal-business' | 'business-app' | 'unknown'
 
+/**
+ * 宿主进程角色（宿主 `process` 段的 `role`）
+ *
+ * `host` 只给宿主主进程本身；`webview` / `network` / `gpu` 三者由宿主按
+ * **本进程的后代** + 进程名判定（别的 Tauri 应用永远不在本树里，见平台仓
+ * `system/process_metrics.rs`）；`other` = 宿主自己拉起的其他子进程。
+ */
+export type ProcessRoleTag = 'host' | 'webview' | 'network' | 'gpu' | 'other'
+
+/**
+ * 单个进程读数（宿主 `process` 段的 `self` / `webview.processes[]` / …）
+ *
+ * `pssBytes` / `cpuPercent` 为 `null` 是**有语义的缺失**：PSS 只有 Linux 有
+ * （非 Linux 不拿 RSS 冒充）；CPU 首次采样没有基线（不下发 0%）。
+ */
+export interface ProcessSample {
+  pid: number
+  name: string
+  role: ProcessRoleTag
+  rssBytes?: number
+  pssBytes?: number | null
+  cpuPercent?: number | null
+}
+
+/** 一组进程的合计（宿主已按 scope 求和；缺项即 `null`，不做部分求和） */
+export interface ProcessScope {
+  processCount?: number
+  rssBytes?: number
+  pssBytes?: number | null
+  cpuPercent?: number | null
+}
+
+/**
+ * 宿主进程 / WebView 指标（快照 `process` 段，与 wasm 的 `plugins` 段分开）
+ *
+ * 口径：整个 wasmnest（宿主主进程 + WebKitGTK 子进程）的 OS 账。`self` 含
+ * wasm 运行时，所以 `plugins` 段的内存是它的子集——**两个口径不可相加**。
+ * 段缺失（旧宿主）→ `null`，页面不得用 0 冒充「没有占用」。
+ */
+export interface HostProcessMetrics {
+  available: boolean
+  /** `available = false` 时的原因（宿主未装配指标源 / 取不到自身 pid 等） */
+  reason?: string
+  sampledAtUnixMs?: number
+  /** 本次 CPU 差分窗口（毫秒）；无基线时缺省或 `null` */
+  cpuWindowMs?: number | null
+  /** 机器核数（CPU 口径为「占单核百分比」，换算全机占比用） */
+  cores?: number | null
+  self?: ProcessSample | null
+  webview?: ProcessScope & {
+    /** 进程树里是否找到 WebView 子进程；`false` 是「没有」，不是「0 占用」 */
+    present: boolean
+    /** `present = false` 的原因（宿主原样透传） */
+    reason?: string
+    processes?: ProcessSample[]
+  }
+  otherChildren?: ProcessScope & { processes?: ProcessSample[] }
+  tree?: ProcessScope
+}
+
 /** 桌面宿主 `plugin_list_loaded` 条目（只取页面用到的字段） */
 export interface HostPluginInfo {
   id: string

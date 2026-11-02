@@ -150,6 +150,29 @@ const zhCN: MessageSchema = {
   'monitor.footer.source': '数据来自 monitor.snapshot · 权限 metrics:read',
   'monitor.footer.session': '本次打开 · 关闭即失',
 
+  'monitor.process.title': '宿主进程（WebView）',
+  'monitor.process.hint':
+    '整机口径：宿主主进程 + WebView 子进程的 OS 账。PSS 是共享页按比例分摊后的真占用，RSS 是上界；wasm 线性内存是宿主进程的一部分，两者不相加。',
+  'monitor.process.unavailable':
+    '当前宿主未提供 process 段（宿主版本较旧或指标源未装配），此处不显示数字。',
+  'monitor.process.notSampled': '宿主已装配 process 段，但本次采样不可用。',
+  'monitor.process.webviewShare': 'WebView 占进程树 PSS',
+  'monitor.process.scope.self': '宿主主进程',
+  'monitor.process.scope.webview': 'WebView 进程',
+  'monitor.process.scope.other': '其他子进程',
+  'monitor.process.scope.tree': '进程树合计',
+  'monitor.process.pss': 'PSS（真占用）',
+  'monitor.process.rss': 'RSS（上界）',
+  'monitor.process.cpu': 'CPU（单核）',
+  'monitor.process.cpuPending': 'CPU 待基线',
+  'monitor.process.cpuCores': 'CPU 为占单核百分比 · 共 {n} 核',
+  'monitor.process.noCores': 'CPU 为占单核百分比',
+  'monitor.process.processCount': '进程数',
+  'monitor.process.webviewAbsent':
+    '进程树里没有 WebView 子进程：该平台把它放在独立进程树外（macOS 由 launchd 拉起），此处只报宿主主进程，不是 0 占用。',
+  'monitor.process.webviewMissing': '宿主没有下发 WebView 段，无法判断是否归属。',
+  'monitor.process.noOtherChildren': '没有其他子进程。',
+
   'monitor.overview.title': '平台总览',
   'monitor.overview.hint': '全部已加载 wasm 的内存与计算负载合计；数字直接来自宿主快照，不做估算。',
   'monitor.overview.memory': 'wasm 内存合计',
@@ -157,13 +180,14 @@ const zhCN: MessageSchema = {
   'monitor.overview.peak': '内存峰值合计',
   'monitor.overview.plugins': '{n} 个 wasm 在册',
   'monitor.overview.compute': '计算负载',
-  'monitor.overview.computeHint': '燃料消耗速率（wasm 执行量代理）；宿主进程 CPU 不在快照契约内。',
+  'monitor.overview.computeHint':
+    '燃料消耗速率（wasm 执行量代理）；宿主进程树的真实内存 / CPU 见「宿主进程（WebView）」面板。',
   'monitor.overview.callsRate': '调用速率',
   'monitor.overview.callsNote': '累计 {n} 次调用',
   'monitor.overview.perSecond': '/ 秒',
   'monitor.overview.consumers': '内存占用前三',
   'monitor.overview.hostGap':
-    '宿主进程的 CPU / 常驻内存（RSS）目前没有跨端契约：metrics:read 只覆盖 wasm 运行时。本页不推测这两项；宿主补出 system 段后会在「宿主维度」原样展示。',
+    '本页只统计 wasm 运行时（线性内存 / 燃料 / 调用）。整机口径——宿主进程树（含 WebView）的真实内存与 CPU——在「宿主进程（WebView）」面板；两边口径不可相加。',
 
   'monitor.alerts.title': '预警',
   'monitor.alerts.hint':

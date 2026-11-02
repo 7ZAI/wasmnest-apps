@@ -61,6 +61,125 @@ describe('MonitorView（桌面界面契约）', () => {
     expect(execute).toHaveBeenCalledTimes(1)
   })
 
+  it('宿主进程段与 wasm 台账分开展示：WebView 内存 / CPU 走独立面板', async () => {
+    const execute = vi.fn(async () =>
+      snapshot(
+        {
+          'com.wasmnest.monitor': metrics({
+            memory_current_bytes: 1024,
+            quota: { memory_bytes: 2048 },
+          }),
+        },
+        {
+          process: {
+            available: true,
+            cpuWindowMs: 1000,
+            cores: 8,
+            self: {
+              pid: 1000,
+              name: 'wasmnest-desktop',
+              role: 'host',
+              rssBytes: 300,
+              pssBytes: 200,
+              cpuPercent: 4,
+            },
+            webview: {
+              present: true,
+              processCount: 1,
+              rssBytes: 614400,
+              pssBytes: 307200,
+              cpuPercent: 12.5,
+              processes: [
+                {
+                  pid: 1001,
+                  name: 'WebKitWebProces',
+                  role: 'webview',
+                  rssBytes: 614400,
+                  pssBytes: 307200,
+                  cpuPercent: 12.5,
+                },
+              ],
+            },
+            otherChildren: {
+              processCount: 0,
+              rssBytes: 0,
+              pssBytes: 0,
+              cpuPercent: 0,
+              processes: [],
+            },
+            tree: { processCount: 2, rssBytes: 614700, pssBytes: 307400, cpuPercent: 16.5 },
+          },
+        },
+      ),
+    )
+    const wrapper = mountView(makeContext(execute, async () => []))
+
+    await flushPromises()
+
+    // 两个口径各占一块：wasm 台账段 + 宿主进程面板（互不覆盖）
+    expect(wrapper.find('[data-testid="monitor-plugin-list"]').exists()).toBe(true)
+    const panel = wrapper.find('[data-testid="monitor-process"]')
+    expect(panel.exists()).toBe(true)
+
+    const webview = wrapper.find('[data-testid="monitor-process-webview"]')
+    expect(webview.text()).toContain('300 KiB') // PSS 优先显示
+    expect(webview.text()).toContain('12.5%')
+    expect(wrapper.find('[data-testid="monitor-process-self"]').text()).toContain('200 B')
+    expect(wrapper.find('[data-testid="monitor-process-tree"]').text()).toContain('600 KiB')
+    // WebView 明细行：内核截断后的进程名原样透传
+    expect(wrapper.find('[data-testid="monitor-process-list-webview"]').text()).toContain(
+      'WebKitWebProces',
+    )
+    // 不是原始键名列表：process 段不进 SystemPanel
+    expect(wrapper.find('[data-testid="monitor-system-process"]').exists()).toBe(false)
+  })
+
+  it('旧宿主没有 process 段：面板显示「未提供」，不拿 0 冒充', async () => {
+    const execute = vi.fn(async () => snapshot({ a: metrics() }))
+    const wrapper = mountView(makeContext(execute, undefined))
+
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="monitor-process-unavailable"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="monitor-process-webview"]').exists()).toBe(false)
+  })
+
+  it('WebView 不在进程树内（present=false）：显式标注，不当 0 字节', async () => {
+    const execute = vi.fn(async () =>
+      snapshot(
+        { a: metrics() },
+        {
+          process: {
+            available: true,
+            cores: 8,
+            self: {
+              pid: 1000,
+              name: 'host',
+              role: 'host',
+              rssBytes: 300,
+              pssBytes: 200,
+              cpuPercent: 1,
+            },
+            webview: {
+              present: false,
+              reason: 'no-webview-child-process',
+              processCount: 0,
+              processes: [],
+            },
+            tree: { processCount: 1, rssBytes: 300, pssBytes: 200, cpuPercent: 1 },
+          },
+        },
+      ),
+    )
+    const wrapper = mountView(makeContext(execute, async () => []))
+
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="monitor-process-note-webview"]').text()).toContain(
+      'monitor.process.webviewAbsent',
+    )
+  })
+
   it('正常态不靠标题命名区块：hero 无 lead 时改用 aria-label，不留悬空 aria-labelledby', async () => {
     const execute = vi.fn(async () =>
       snapshot({

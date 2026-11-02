@@ -18,8 +18,8 @@
 | 桌面入口       | 宿主主屏「服务」区 → 运行监控（`/monitor`）；应用管理 `/sys/apps` 的系统服务区可见                                                                                                                                           |
 | 移动入口       | 移动宿主应用/服务列表 → Monitor                                                                                                                                                                                              |
 | 类型 / 权限    | `internal-business` / `metrics:read`（随包信任域自动授予）                                                                                                                                                                   |
-| 自动化基线     | 桌面 `node scripts/e2e.mjs --app monitor`（`e2e/specs/monitor.spec.ts`，11 例）；系统服务属性 `e2e/specs/sys-apps.spec.ts`（3 例）；移动无真机 E2E                                                                           |
-| 自动化覆盖边界 | 宿主入口、实时/刷新、KPI 五项、自身状态/角色、详情内存/耗时/Trap、配额展开、角色过滤、系统 task 段、平台总览与阈值设置、无面板页签、服务不可卸载与自启缺省开。错误/过期/空态/宿主告警/预警升警与通知/自定义面板/移动端需人工 |
+| 自动化基线     | 桌面 `node scripts/e2e.mjs --app monitor`（`e2e/specs/monitor.spec.ts`，12 例）；系统服务属性 `e2e/specs/sys-apps.spec.ts`（3 例）；移动无真机 E2E                                                                           |
+| 自动化覆盖边界 | 宿主入口、实时/刷新、KPI 五项、自身状态/角色、详情内存/耗时/Trap、配额展开、角色过滤、系统 task 段、**宿主进程（WebView）段与归属**、平台总览与阈值设置、无面板页签、服务不可卸载与自启缺省开。错误/过期/空态/宿主告警/预警升警与通知/自定义面板/移动端需人工 |
 
 ### 前置记录（报告头填写）
 
@@ -51,15 +51,16 @@
 | F-08 | 多任务卡片预览     | 只读摘要、五态、失败/零插件文案                                                                          | 桌面        | 手动 + 单测                       | 宿主预览面                      |
 | F-09 | 移动端监控         | 移动入口、KPI、台账、过滤、错误/空态、面板                                                               | 移动        | 手动（真机）                      | 移动宿主 + 快照                 |
 | F-10 | 应用管理服务区     | `/sys/apps` 服务分组、无卸载、启用/自启开关                                                              | 桌面        | 自动                              | 宿主系统页                      |
-| F-11 | 平台总览           | 全插件 wasm 内存合计 / 配额比例、计算负载（燃料速率）、内存前三、宿主进程指标缺口说明                    | 桌面 + 移动 | 自动（桌面）+ 手动（移动）        | metrics 快照源                  |
+| F-11 | 平台总览           | 全插件 wasm 内存合计 / 配额比例、计算负载（燃料速率）、内存前三、整机口径指路（见 F-13）                | 桌面 + 移动 | 自动（桌面）+ 手动（移动）        | metrics 快照源                  |
 | F-12 | 预警与阈值         | 平台内存 / 单插件配额 / 状态 / Trap 增量 / 计算负载 / 任务池背压；去抖与恢复；阈值设置落盘；系统通知开关 | 桌面        | 自动（结构）+ 手动（升警 / 通知） | 可制造越界；宿主通知接线        |
+| F-13 | 宿主进程（WebView） | 整机口径：宿主主进程 / WebView 子进程 / 其他子进程 / 进程树合计的 PSS、RSS、CPU（占单核百分比）与 WebView 占树 PSS；与 wasm 台账分开显示、两口径不可相加 | 桌面        | 自动（面板与归属）+ 手动（PSS/RSS 数值量级） | 宿主装配 `process` 段（平台仓 `system/process_metrics.rs`）；旧宿主显示「未提供」 |
 
 ---
 
 ## 2. 验证准备
 
 - [ ] **P-01** 桌面：`servers/monitor/desktop` 执行 `pnpm install` + `pnpm run test:run` + `pnpm run build`；期望全绿且构建成功。
-- [ ] **P-02** 跑 `node scripts/e2e.mjs --app monitor` 与 `node scripts/e2e.mjs --app monitor --spec e2e/specs/sys-apps.spec.ts`；期望 10 + 3 例通过并记录用例数。
+- [ ] **P-02** 跑 `node scripts/e2e.mjs --app monitor` 与 `node scripts/e2e.mjs --app monitor --spec e2e/specs/sys-apps.spec.ts`；期望 12 + 3 例通过并记录用例数。
 - [ ] **P-03** 确认宿主已装配 metrics 快照源，且 monitor 作为随包服务被加载（`metrics:read` 自动授予，不弹审批窗）。
 - [ ] **P-04** 移动：准备 debug APK + 真机；若只验桌面，F-09 标 `⏭`。
 - [ ] **P-05** 准备一个可制造「指标命令失败 / 宿主清单失败 / 零插件」的隔离环境（例如空插件目录或断开快照源），用于 F-06。

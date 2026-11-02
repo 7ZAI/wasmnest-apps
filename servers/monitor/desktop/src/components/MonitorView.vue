@@ -24,9 +24,11 @@ import {
   sumValues,
   usageRatio,
 } from '../utils/format'
+import { hostProcessOf } from '../utils/process'
 import { topMemoryConsumers } from '../utils/platform'
 import i18n from '../i18n'
 import AlertPanel from './AlertPanel.vue'
+import HostProcessPanel from './HostProcessPanel.vue'
 import PlatformOverview from './PlatformOverview.vue'
 import PluginInspector from './PluginInspector.vue'
 import RuntimeSignal from './RuntimeSignal.vue'
@@ -36,6 +38,7 @@ const context = inject<MonitorAppContext>('pluginContext')!
 const t = (key: string, params?: Record<string, unknown>): string => context.i18n.t(key, params)
 
 const {
+  snapshot,
   rows,
   panels,
   systems,
@@ -50,6 +53,13 @@ const {
   start,
   stop,
 } = useMonitor(context, { intervalMs: 1000 })
+
+/**
+ * 宿主进程 / WebView 指标（快照 `process` 段）：整机口径，**不并入** wasm 台账。
+ *
+ * `null` = 快照没有这一段（旧宿主）——面板据此显示「未提供」，不伪造数字。
+ */
+const hostProcess = computed(() => hostProcessOf(snapshot.value))
 
 // ==================== 平台总览 / 预警（每次成功采样驱动） ====================
 //
@@ -700,6 +710,9 @@ onBeforeUnmount(() => {
               </header>
               <SystemPanel :sections="systems" />
             </section>
+
+            <!-- 宿主进程（WebView）：整机口径，与上面的 wasm 段分开——两个口径不可相加 -->
+            <HostProcessPanel v-if="snapshot" :metrics="hostProcess" />
           </div>
 
           <div id="monitor-inspector" class="mn-inspector-slot">
