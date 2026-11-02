@@ -11,89 +11,56 @@
       <button class="help-btn" @click="$emit('action', 'help')" :title="t('terminalHelp.title')">
         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <circle cx="12" cy="12" r="9" />
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.5 9.5a2.6 2.6 0 115.1 1c-1.1.7-1.6 1.3-1.6 2.6m0 3h.01" />
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="2"
+            d="M9.5 9.5a2.6 2.6 0 115.1 1c-1.1.7-1.6 1.3-1.6 2.6m0 3h.01"
+          />
         </svg>
       </button>
       <transition name="mode-badge">
-        <span v-if="isSelectionMode" class="selection-mode-badge">{{ t('terminal.selectMode') }}</span>
+        <span v-if="isSelectionMode" class="selection-mode-badge">{{
+          t('terminal.selectMode')
+        }}</span>
       </transition>
     </div>
-    <!-- 常驻工具按钮 -->
-    <template v-for="item in visibleItems" :key="item.key">
-      <button v-if="item.key === 'task'" class="task-btn" @click="$emit('action', 'task')" :title="t('terminal.pendingTasks')">
-        <svg viewBox="0 0 24 24" class="w-5 h-5" fill="currentColor">
-          <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V5h14v14zM17.99 9l-1.41-1.42-6.59 6.59-2.58-2.57-1.42 1.41 4 3.99z"/>
-        </svg>
-      </button>
-      <button v-else-if="item.key === 'autoTask'" class="tool-btn" @click="$emit('action', 'autoTask')" :title="t('terminal.toolbarAutoTask')">
-        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 11h11M4 16h8" />
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 15l4 2.5-4 2.5v-5z" />
-        </svg>
-      </button>
-      <button v-else-if="item.key === 'shortcut'" class="tool-btn" @click="$emit('action', 'shortcut')" :title="t('shortcutConfig.title')">
-        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16M8 6v12M16 6v12" />
-        </svg>
-      </button>
-      <button v-else-if="item.key === 'clear'" class="tool-btn" @click="$emit('action', 'clear')" :title="t('terminal.clearScreen')">
-        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-        </svg>
-      </button>
-      <button v-else-if="item.key === 'refresh'" class="tool-btn" @click="$emit('action', 'refresh')" :title="t('terminal.refreshFormat')">
-        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-        </svg>
-      </button>
-      <button v-else-if="item.key === 'settings'" class="tool-btn" @click="$emit('action', 'settings')" :title="t('terminal.settings')">
-        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-        </svg>
-      </button>
-      <button v-else-if="item.key === 'folder'" class="folder-btn" :class="{ active: showSidebar }" @click="$emit('action', 'folder')" :title="t('terminal.files')">
-        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
-        </svg>
-      </button>
-    </template>
+    <!-- 常驻工具按钮：图标 / 文案 / 按钮类由 headerTools 表驱动（新增工具项只改表，
+         不再维护两份 SVG 与两条 v-if 链） -->
+    <button
+      v-for="item in visibleItems"
+      :key="item.key"
+      :class="buttonClass(item.key)"
+      :title="toolTitle(item.key)"
+      @click="emitAction(item.key)"
+    >
+      <ToolIcon :name="item.key" />
+    </button>
     <!-- 溢出菜单按钮 -->
     <div v-if="overflowItems.length > 0" class="overflow-menu-wrapper">
-      <button class="overflow-btn" :class="{ active: showOverflowMenu }" @click.stop="showOverflowMenu = !showOverflowMenu" :title="t('terminal.moreTools')">
+      <button
+        class="overflow-btn"
+        :class="{ active: showOverflowMenu }"
+        :title="t('terminal.moreTools')"
+        @click.stop="showOverflowMenu = !showOverflowMenu"
+      >
         <svg class="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
-          <circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/>
+          <circle cx="12" cy="5" r="2" />
+          <circle cx="12" cy="12" r="2" />
+          <circle cx="12" cy="19" r="2" />
         </svg>
       </button>
       <transition name="overflow-menu">
         <div v-if="showOverflowMenu" class="overflow-menu" @click.stop>
-          <button v-if="isOverflowItem('task')" class="overflow-menu-item" @click="emitAction('task')">
-            <svg viewBox="0 0 24 24" class="w-[18px] h-[18px]" fill="currentColor"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V5h14v14zM17.99 9l-1.41-1.42-6.59 6.59-2.58-2.57-1.42 1.41 4 3.99z"/></svg>
-            <span>{{ t('terminal.pendingTasks') }}</span>
-          </button>
-          <button v-if="isOverflowItem('autoTask')" class="overflow-menu-item" @click="emitAction('autoTask')">
-            <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 11h11M4 16h8"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 15l4 2.5-4 2.5v-5z"/></svg>
-            <span>{{ t('terminal.toolbarAutoTask') }}</span>
-          </button>
-          <button v-if="isOverflowItem('shortcut')" class="overflow-menu-item" @click="emitAction('shortcut')">
-            <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16M8 6v12M16 6v12"/></svg>
-            <span>{{ t('shortcutConfig.title') }}</span>
-          </button>
-          <button v-if="isOverflowItem('clear')" class="overflow-menu-item" @click="emitAction('clear')">
-            <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
-            <span>{{ t('terminal.clearScreen') }}</span>
-          </button>
-          <button v-if="isOverflowItem('refresh')" class="overflow-menu-item" @click="emitAction('refresh')">
-            <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
-            <span>{{ t('terminal.refreshFormat') }}</span>
-          </button>
-          <button v-if="isOverflowItem('settings')" class="overflow-menu-item" @click="emitAction('settings')">
-            <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
-            <span>{{ t('terminal.settings') }}</span>
-          </button>
-          <button v-if="isOverflowItem('folder')" class="overflow-menu-item" :class="{ active: showSidebar }" @click="emitAction('folder')">
-            <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
-            <span>{{ t('terminal.files') }}</span>
+          <button
+            v-for="item in overflowItems"
+            :key="item.key"
+            class="overflow-menu-item"
+            :class="{ active: item.key === 'folder' && showSidebar }"
+            @click="emitAction(item.key)"
+          >
+            <ToolIcon :name="item.key" size="menu" />
+            <span>{{ toolTitle(item.key) }}</span>
           </button>
         </div>
       </transition>
@@ -114,6 +81,8 @@ defineOptions({ name: 'TerminalHeader' })
 import { ref, computed } from 'vue'
 import type { ToolbarItemConfig } from './TerminalSettingsModal.vue'
 import { t } from '../host'
+import { HEADER_TOOL_LABEL_KEYS } from '../headerTools'
+import ToolIcon from './ToolIcon.vue'
 
 const props = defineProps<{
   sessionName: string
@@ -131,12 +100,23 @@ const emit = defineEmits<{
 const showOverflowMenu = ref(false)
 
 const overflowItems = computed(() => {
-  const visibleKeys = new Set(props.visibleItems.map(item => item.key))
-  return props.allItems.filter(item => !visibleKeys.has(item.key))
+  const visibleKeys = new Set(props.visibleItems.map((item) => item.key))
+  return props.allItems.filter((item) => !visibleKeys.has(item.key))
 })
 
-function isOverflowItem(key: string): boolean {
-  return overflowItems.value.some(item => item.key === key)
+/** 工具项文案：表里没有的 key 回落到清单自带 label（新增项可先不登记文案） */
+function toolTitle(key: string): string {
+  const labelKey = HEADER_TOOL_LABEL_KEYS[key]
+  if (labelKey) return t(labelKey)
+  const item = props.allItems.find((i) => i.key === key)
+  return item ? t(item.label) : key
+}
+
+/** 常驻按钮样式：绝大多数是 tool-btn，task / folder 有专属底色与激活态 */
+function buttonClass(key: string): string {
+  if (key === 'task') return 'task-btn'
+  if (key === 'folder') return props.showSidebar ? 'folder-btn active' : 'folder-btn'
+  return 'tool-btn'
 }
 
 function emitAction(key: string) {
@@ -309,7 +289,9 @@ function emitAction(key: string) {
 
 .overflow-menu-enter-active,
 .overflow-menu-leave-active {
-  transition: opacity 0.15s ease, transform 0.15s ease;
+  transition:
+    opacity 0.15s ease,
+    transform 0.15s ease;
 }
 
 .overflow-menu-enter-from,
@@ -333,7 +315,9 @@ function emitAction(key: string) {
 
 .mode-badge-enter-active,
 .mode-badge-leave-active {
-  transition: opacity 0.2s ease, transform 0.2s ease;
+  transition:
+    opacity 0.2s ease,
+    transform 0.2s ease;
 }
 
 .mode-badge-enter-from,

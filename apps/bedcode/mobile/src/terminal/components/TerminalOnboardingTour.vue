@@ -67,7 +67,7 @@
  * 完成后自动进入下一步；信息型步骤（自定义命令/发送与执行）用「下一步」
  * 推进。遮罩 pointer-events none，不阻挡对真实元素的操作。
  *
- * 展示与否由 assistStore.settings.terminalOnboardingPending 控制：关闭/
+ * 展示与否由 terminalDisplay store 的 onboardingPending 控制：关闭/
  * 跳过/完成均清除标记（本设备展示过一次），设置里可重新开启。
  */
 import { computed, ref, watch, onBeforeUnmount } from 'vue'

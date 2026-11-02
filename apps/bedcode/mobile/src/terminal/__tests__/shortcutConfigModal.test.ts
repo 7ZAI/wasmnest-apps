@@ -130,4 +130,17 @@ describe('ShortcutConfigModal 破坏性操作确认（#16）', () => {
     expect(store.shortcutConfig.some((s) => s.code === 'ctrl+z')).toBe(false)
     expect(confirmPanel('shortcutConfig.deleteConfirmTitle')).toBeNull()
   })
+
+  it('快捷栏数量在本弹窗即改即存（#19：快捷键/快捷栏单一入口）', async () => {
+    const before = store.settings.quickBarCount
+    const plus = document.querySelector('[aria-label="terminal.shortcutCount +1"]') as HTMLElement | null
+    expect(plus).toBeTruthy()
+
+    plus!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await nextTick()
+
+    expect(store.settings.quickBarCount).toBe(before + 1)
+    const saved = JSON.parse(localStorage.getItem('input_assistant_settings')!)
+    expect(saved.quickBarCount).toBe(before + 1)
+  })
 })

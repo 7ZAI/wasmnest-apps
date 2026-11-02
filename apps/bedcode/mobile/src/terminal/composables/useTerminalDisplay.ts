@@ -23,7 +23,7 @@ import type { ITheme } from '@xterm/xterm'
 import { computed, ref, watch, type Ref } from 'vue'
 import { getMobileApi } from '@binblink/wasmnest-plugin-sdk-mobile'
 import { logger, t, toast } from '../host'
-import { useInputAssistantStore } from '../inputAssistant'
+import { useTerminalDisplayStore } from '../displaySettings'
 import { useTerminalBufferStore } from '../store'
 import { isMockSession } from './useMockTerminal'
 import { resolveTerminalTheme } from '../config/themes'
@@ -105,17 +105,17 @@ export interface TerminalDisplayDeps {
 }
 
 export function useTerminalDisplay(ctx: TerminalKernelContext, deps: TerminalDisplayDeps) {
-  const assistStore = useInputAssistantStore()
+  const displayStore = useTerminalDisplayStore()
   /** 系统当前是否深色（宿主主题投影；票 15 取代 useTheme().isSystemDark） */
   const isSystemDark = getMobileApi().isDark
 
   // ==================== 显示设置与主题 ====================
 
   const terminalSettings = ref<TerminalDisplaySettings>({
-    fontSize: assistStore.settings.terminalFontSize,
-    theme: assistStore.settings.terminalTheme ?? (isSystemDark.value ? 'dark' : 'light'),
-    isThemeUserSet: assistStore.settings.isTerminalThemeUserSet,
-    letterSpacing: assistStore.settings.terminalLetterSpacing ?? 0,
+    fontSize: displayStore.settings.fontSize,
+    theme: displayStore.settings.theme ?? (isSystemDark.value ? 'dark' : 'light'),
+    isThemeUserSet: displayStore.settings.isThemeUserSet,
+    letterSpacing: displayStore.settings.letterSpacing ?? 0,
   })
 
   const resolvedTerminalTheme = computed(() =>

@@ -27,6 +27,8 @@ export const messagesZhCN = {
     "commandTitle": "输入命令",
     "disconnected": "未连接",
     "executeHint": "点按执行 · 长按切换为发送",
+    "modeSwitchedToExecute": "已切换为执行模式",
+    "modeSwitchedToSend": "已切换为发送模式",
     "sendHint": "点按发送 · 长按切换为执行",
     "shortcutsLandscapeUnavailable": "横屏模式不支持快捷键面板"
   },
@@ -195,6 +197,8 @@ export const messagesEn = {
     "commandTitle": "Enter Command",
     "disconnected": "Disconnected",
     "executeHint": "Tap to execute · Hold to switch to Send",
+    "modeSwitchedToExecute": "Switched to Execute mode",
+    "modeSwitchedToSend": "Switched to Send mode",
     "sendHint": "Tap to send · Hold to switch to Execute",
     "shortcutsLandscapeUnavailable": "Shortcut panel is unavailable in landscape mode"
   },

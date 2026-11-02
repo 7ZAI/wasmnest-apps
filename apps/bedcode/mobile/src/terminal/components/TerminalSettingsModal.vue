@@ -92,18 +92,6 @@
           <!-- ==================== Tab: 杂项配置 ==================== -->
           <template v-else>
             <div class="settings-content" @touchstart="onTouchStart" @touchmove="onTouchMove" @touchend="onTouchEnd">
-              <!-- Quick Bar Count -->
-              <div class="settings-section">
-                <label class="settings-label">{{ t('terminal.shortcutCount') }}</label>
-                <StepperControl
-                  :model-value="quickBarCount"
-                  :min="3"
-                  :max="10"
-                  :label="t('terminal.shortcutCount')"
-                  @update:model-value="emitChange({ quickBarCount: $event })"
-                />
-              </div>
-
               <!-- Header Toolbar Items -->
               <div class="settings-section">
                 <label class="settings-label">{{ t('terminal.persistentToolbar') }}</label>
@@ -173,7 +161,6 @@ export interface TerminalSettings {
   isThemeUserSet: boolean
   /** 字间距（px，0-4）：映射 xterm letterSpacing 选项，格宽同步膨胀 */
   letterSpacing: number
-  quickBarCount: number
   toolbarItems: string[]
   /** 终端新手引导待展示：开启后下次进入终端页重新弹出 */
   onboardingPending: boolean
@@ -191,7 +178,6 @@ const props = defineProps<{
   theme: string
   isThemeUserSet: boolean
   letterSpacing: number
-  quickBarCount: number
   toolbarItems: string[]
   allToolbarItems: ToolbarItemConfig[]
   onboardingPending: boolean
@@ -223,7 +209,6 @@ function emitChange(patch: Partial<TerminalSettings>) {
     theme: props.theme,
     isThemeUserSet: props.isThemeUserSet,
     letterSpacing: props.letterSpacing,
-    quickBarCount: props.quickBarCount,
     toolbarItems: [...props.toolbarItems],
     onboardingPending: props.onboardingPending,
     ...patch,

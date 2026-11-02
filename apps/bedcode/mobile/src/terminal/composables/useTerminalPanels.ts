@@ -10,7 +10,7 @@
  * 刷新动作由外部注入（显示域，需 resize/subscription/bufferStore 协作），本域只分发。
  */
 import { ref } from 'vue'
-import { useInputAssistantStore } from '../inputAssistant'
+import { useTerminalDisplayStore } from '../displaySettings'
 import { autoTaskPanelVisible } from '../../task/state'
 
 export interface TerminalPanelsDeps {
@@ -19,7 +19,7 @@ export interface TerminalPanelsDeps {
 }
 
 export function useTerminalPanels(deps: TerminalPanelsDeps) {
-  const assistStore = useInputAssistantStore()
+  const displayStore = useTerminalDisplayStore()
 
   const showSettings = ref(false)
   const showClearConfirm = ref(false)
@@ -29,7 +29,7 @@ export function useTerminalPanels(deps: TerminalPanelsDeps) {
   /** 标题栏 ? 按钮：终端输入组件便捷功能教程弹窗 */
   const showHelp = ref(false)
   /**
-   * 新手引导：首次进入终端页自动展示（terminalOnboardingPending），展示后清除；
+   * 新手引导：首次进入终端页自动展示（displayStore.settings.onboardingPending），展示后清除；
    * 设置里可重新开启（下次进入再显示）
    */
   const showOnboarding = ref(false)
@@ -73,8 +73,8 @@ export function useTerminalPanels(deps: TerminalPanelsDeps) {
 
   /** 清除「待展示新手引导」标记（本设备已展示过一次） */
   function clearOnboardingPending() {
-    if (assistStore.settings.terminalOnboardingPending) {
-      assistStore.saveSettings({ terminalOnboardingPending: false })
+    if (displayStore.settings.onboardingPending) {
+      displayStore.saveSettings({ onboardingPending: false })
     }
   }
 

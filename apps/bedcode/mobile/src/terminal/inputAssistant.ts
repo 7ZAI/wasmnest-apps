@@ -53,18 +53,6 @@ export interface InputAssistantSettings {
   quickBarCount: number
   /** 悬浮球启用开关 */
   floatingBall: boolean
-  /** 终端 Header 常驻工具按钮 key 列表（其余收入溢出菜单） */
-  headerToolbarItems: string[]
-  /** 终端字体大小（10-24） */
-  terminalFontSize: number
-  /** 终端字间距（px，0-4；0 = 不加，字间留白仅来自字体自身） */
-  terminalLetterSpacing: number
-  /** 终端主题名（dark/light/dracula 等），null 表示跟随外观设置 */
-  terminalTheme: string | null
-  /** 用户是否手动指定了终端主题（false 时跟随外观设置） */
-  isTerminalThemeUserSet: boolean
-  /** 终端新手引导待展示：首次进入终端页自动弹出教程，展示后置 false；设置里可重新打开 */
-  terminalOnboardingPending: boolean
 }
 
 const DEFAULT_SETTINGS: InputAssistantSettings = {
@@ -78,24 +66,17 @@ const DEFAULT_SETTINGS: InputAssistantSettings = {
   },
   quickBarCount: 6,
   floatingBall: false,
-  headerToolbarItems: ['folder', 'settings'],
-  terminalFontSize: 12,
-  terminalLetterSpacing: 0,
-  terminalTheme: 'dark',
-  isTerminalThemeUserSet: true,
-  terminalOnboardingPending: true,
 }
 
 const STORAGE_KEY_STATS = 'terminal_shortcut_stats'
 const STORAGE_KEY_POSITION = 'input_assistant_position'
 const STORAGE_KEY_SETTINGS = 'input_assistant_settings'
 /**
- * 设置存档版本键：v2 = 2026-10-24 出厂默认升级（终端默认暗色主题 + 设置按钮
- * 常驻）。版本键门控保证升级只跑一次——升级后 null 主题 / ['folder'] 工具栏
- * 也是用户的合法选择（显式改回），不得被再次「升级」
+ * 说明（issue #19）：终端显示字段（字号 / 字间距 / 主题 / 常驻工具栏 / 新手引导）
+ * 已迁到 `displaySettings.ts` 的 `terminalDisplay` store，本 blob 只保留输入辅助
+ * 设置。旧存档里的显示字段由显示 store 一次性迁移；本 store 的 sanitize 会在
+ * 下一次保存时把残留字段清掉。
  */
-const STORAGE_KEY_SETTINGS_VERSION = 'input_assistant_settings_version'
-const SETTINGS_VERSION = 2
 const STORAGE_KEY_CUSTOM_CMD_STATS = 'terminal_custom_cmd_stats'
 const STORAGE_KEY_SHORTCUT_CONFIG = 'terminal_shortcut_config'
 /** Agent CLI 覆盖映射（票 15 起存插件私有 storage；旧宿主 settings DB 键由一次性迁移搬运） */
@@ -267,34 +248,16 @@ export const useInputAssistantStore = defineStore('inputAssistant', () => {
   }
 
   /**
-   * v1 → v2 一次性出厂默认升级（版本键门控）：
-   * - terminalTheme null 在 v1 是出厂值（跟随外观），升级为 v2 出厂暗色（dark +
-   *   手动指定标记）——null 同时也可能是 v1 用户显式选「跟随外观」的结果，两种
-   *   形态无法区分，统一按出厂值升级；想跟外观的用户在 v2 再选一次即被版本键保护
-   * - headerToolbarItems 仍为 v1 出厂 ['folder'] → 补 settings 常驻（已增删过
-   *   其它项视为已定制，不动）
-   * 只在确有升级时回写设置存档，避免把出厂默认快照钉死在 localStorage、
-   * 挡住未来版本的默认值演进
+   * 只保留本 store 拥有的键：旧存档里的显示字段（issue #19 前的 blob 混存）
+   * 不再回读，也不在下一次保存时写回。
    */
-  function upgradeLegacyDefaultSettings() {
-    if (localStorage.getItem(STORAGE_KEY_SETTINGS_VERSION) === String(SETTINGS_VERSION)) {
-      return
+  function sanitize(value: Partial<InputAssistantSettings>): InputAssistantSettings {
+    return {
+      size: typeof value.size === 'number' ? value.size : DEFAULT_SETTINGS.size,
+      gestures: { ...DEFAULT_SETTINGS.gestures, ...value.gestures },
+      quickBarCount: typeof value.quickBarCount === 'number' ? value.quickBarCount : DEFAULT_SETTINGS.quickBarCount,
+      floatingBall: typeof value.floatingBall === 'boolean' ? value.floatingBall : DEFAULT_SETTINGS.floatingBall,
     }
-    let upgraded = false
-    if (settings.value.terminalTheme == null) {
-      settings.value.terminalTheme = DEFAULT_SETTINGS.terminalTheme
-      settings.value.isTerminalThemeUserSet = DEFAULT_SETTINGS.isTerminalThemeUserSet
-      upgraded = true
-    }
-    const toolbar = settings.value.headerToolbarItems
-    if (Array.isArray(toolbar) && toolbar.length === 1 && toolbar[0] === 'folder') {
-      settings.value.headerToolbarItems = [...DEFAULT_SETTINGS.headerToolbarItems]
-      upgraded = true
-    }
-    if (upgraded) {
-      localStorage.setItem(STORAGE_KEY_SETTINGS, JSON.stringify(settings.value))
-    }
-    localStorage.setItem(STORAGE_KEY_SETTINGS_VERSION, String(SETTINGS_VERSION))
   }
 
   // 从 localStorage 加载数据
@@ -318,14 +281,11 @@ export const useInputAssistantStore = defineStore('inputAssistant', () => {
         customCommandStats.value = JSON.parse(savedCmdStats)
       }
 
-      // 加载设置
+      // 加载设置（sanitize：旧 blob 里已迁走的显示字段不再回读）
       const savedSettings = localStorage.getItem(STORAGE_KEY_SETTINGS)
       if (savedSettings) {
-        settings.value = { ...DEFAULT_SETTINGS, ...JSON.parse(savedSettings) }
+        settings.value = sanitize({ ...DEFAULT_SETTINGS, ...JSON.parse(savedSettings) })
       }
-
-      // v1 存档出厂值一次性升级到 v2 出厂默认（版本键门控，详见函数头注）
-      upgradeLegacyDefaultSettings()
 
       // 加载快捷键配置
       loadShortcutConfig()
@@ -357,7 +317,8 @@ export const useInputAssistantStore = defineStore('inputAssistant', () => {
   // 保存设置
   function saveSettings(newSettings: Partial<InputAssistantSettings>) {
     settings.value = { ...settings.value, ...newSettings }
-    localStorage.setItem(STORAGE_KEY_SETTINGS, JSON.stringify(settings.value))
+    // 写盘前 sanitize：不把旧 blob 残留的显示字段继续写回去
+    localStorage.setItem(STORAGE_KEY_SETTINGS, JSON.stringify(sanitize(settings.value)))
   }
 
   // 重置设置

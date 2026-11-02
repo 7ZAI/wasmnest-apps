@@ -122,10 +122,9 @@
       :theme="terminalSettings.theme"
       :is-theme-user-set="terminalSettings.isThemeUserSet"
       :letter-spacing="terminalSettings.letterSpacing"
-      :quick-bar-count="assistStore.settings.quickBarCount"
-      :toolbar-items="assistStore.settings.headerToolbarItems || ['folder', 'settings']"
+      :toolbar-items="displayStore.settings.headerToolbarItems"
       :all-toolbar-items="ALL_TOOLBAR_ITEMS"
-      :onboarding-pending="assistStore.settings.terminalOnboardingPending"
+      :onboarding-pending="displayStore.settings.onboardingPending"
       @change="handleSettingsUpdate"
       @close="showSettings = false"
     />
@@ -243,6 +242,7 @@ import { useTerminalBuffer } from './composables/useTerminalBuffer'
 import ConfirmDialog from './components/ConfirmDialog.vue'
 import { useOrientation } from './composables/useOrientation'
 import { useInputAssistantStore } from './inputAssistant'
+import { useTerminalDisplayStore } from './displaySettings'
 import { useTerminalScroll } from './composables/useTerminalScroll'
 import { useTuiCompat } from './composables/useTuiCompat'
 import { createTerminalKernel } from './composables/terminalKernel'
@@ -288,6 +288,7 @@ const mockTerminal = useMockTerminal()
 const { isLandscape } = useOrientation()
 const { store: bufferStore, registerRealtimeHandler, unregisterRealtimeHandler, subscribeSession, unsubscribeSession, handleDisconnect, handleSessionStopped, markSessionRunning, sendInput } = useTerminalBuffer()
 const assistStore = useInputAssistantStore()
+const displayStore = useTerminalDisplayStore()
 
 // issue #24：FileSidebar 自宿主提供组件（wasmnestHostComponents provide/inject）迁入本 app
 // fileExplorer 域，改为直接 import；挂载契约（props / events）不变
@@ -384,7 +385,7 @@ const availableToolbarItems = computed(() =>
 )
 
 const visibleToolbarItems = computed(() => {
-  const items = assistStore.settings.headerToolbarItems || ['folder', 'settings']
+  const items = displayStore.settings.headerToolbarItems
   return availableToolbarItems.value.filter(item => items.includes(item.key))
 })
 
@@ -585,14 +586,15 @@ function handleSettingsUpdate(settings: TerminalSettings) {
   terminalSettings.value.letterSpacing = settings.letterSpacing
 
   try {
-    assistStore.saveSettings({
-      quickBarCount: settings.quickBarCount,
+    // 显示设置已独立成 terminalDisplay store（issue #19）；quickBarCount 移到
+    // ShortcutConfigModal 由该弹窗直接即改即存，不再经本回调
+    displayStore.saveSettings({
+      fontSize: terminalSettings.value.fontSize,
+      letterSpacing: terminalSettings.value.letterSpacing,
+      theme: terminalSettings.value.isThemeUserSet ? terminalSettings.value.theme : null,
+      isThemeUserSet: terminalSettings.value.isThemeUserSet,
+      onboardingPending: settings.onboardingPending,
       headerToolbarItems: settings.toolbarItems,
-      terminalFontSize: terminalSettings.value.fontSize,
-      terminalTheme: terminalSettings.value.isThemeUserSet ? terminalSettings.value.theme : null,
-      isTerminalThemeUserSet: terminalSettings.value.isThemeUserSet,
-      terminalLetterSpacing: terminalSettings.value.letterSpacing,
-      terminalOnboardingPending: settings.onboardingPending,
     })
   } catch (e) {
     logger.error('[TerminalView] 设置持久化失败：', e)
@@ -747,7 +749,7 @@ onMounted(async () => {
   await nextPaintFrame()
   isTerminalReady.value = true
   // 新手引导：终端就绪后按持久化标记展示一次（关闭或打开完整教程即清除）
-  if (assistStore.settings.terminalOnboardingPending) {
+  if (displayStore.settings.onboardingPending) {
     showOnboarding.value = true
   }
   // 链路调试（布局/渲染排查）：就绪路径（gate 正常 or 超时兜底）+ 终端网格尺寸，

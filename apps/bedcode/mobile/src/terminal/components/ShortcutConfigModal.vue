@@ -52,6 +52,18 @@
         <!-- ==================== Tab: 快捷键列表 ==================== -->
         <template v-if="activeTab === 'list'">
           <div class="flex-1 overflow-y-auto px-4 pb-2" @touchstart="onTouchStart" @touchmove="onTouchMove" @touchend="onTouchEnd">
+            <!-- 快捷栏数量（issue #19：快捷栏/快捷键同域设置并入本弹窗，设置单一入口） -->
+            <div class="quickbar-setting">
+              <span class="section-title quickbar-setting__label">{{ t('terminal.shortcutCount') }}</span>
+              <StepperControl
+                :model-value="store.settings.quickBarCount"
+                :min="3"
+                :max="10"
+                :label="t('terminal.shortcutCount')"
+                @update:model-value="store.saveSettings({ quickBarCount: $event })"
+              />
+            </div>
+
             <!-- 内置快捷键 -->
             <div class="section-title">{{ t('shortcutConfig.builtinSection') }}</div>
             <div class="space-y-2">
@@ -316,6 +328,7 @@ import { useInputAssistantStore } from '../inputAssistant'
 import ConfirmDialog from './ConfirmDialog.vue'
 import MarkdownSheetModal from './MarkdownSheetModal.vue'
 import SegmentedTabs from './SegmentedTabs.vue'
+import StepperControl from './StepperControl.vue'
 import Toggle from './Toggle.vue'
 // #18：帮助文档资产随 ShortcutHelpModal 退役迁入（markdown-body.css 仍由域 activate 统一注入）
 import zhShortcutHelp from '../assets/shortcut-help.zh-CN.md?raw'
@@ -584,6 +597,19 @@ watch(() => props.visible, (show) => {
   text-transform: uppercase;
   color: var(--mobile-text-muted);
   margin-bottom: 0.5rem;
+}
+
+/* 快捷栏数量行：标题与步进器同一行（标题自带 margin-bottom，行内清零） */
+.quickbar-setting {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.quickbar-setting__label {
+  margin-bottom: 0;
 }
 
 .shortcut-row {

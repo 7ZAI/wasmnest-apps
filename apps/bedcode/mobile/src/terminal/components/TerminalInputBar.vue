@@ -1,302 +1,25 @@
 <template>
-  <div
-    class="terminal-input-bar z-10"
-    :style="inputBarStyle"
-  >
-    <!-- 快捷键面板遮罩 - 点击终端区域关闭面板 -->
-    <transition name="shortcuts-overlay">
-      <div v-if="showShortcutsPanel && !props.isLandscape" class="shortcuts-overlay" @touchstart.prevent="closeShortcutsPanel" @mousedown.prevent="closeShortcutsPanel"></div>
-    </transition>
-
-    <!-- 快捷键面板 - 覆盖层，不影响终端高度 -->
-    <transition name="shortcuts-slide">
-      <div v-if="showShortcutsPanel && !props.isLandscape" ref="shortcutsPanelRef" class="shortcuts-panel" @mousedown.prevent>
-      <!-- 轮播容器 -->
-      <div
-        ref="carouselRef"
-        class="carousel-container"
-        @touchstart="onTouchStart"
-        @touchmove="onTouchMove"
-        @touchend="onTouchEnd"
-      >
-        <div class="carousel-track" :style="trackStyle">
-          <!-- 循环轮播：[-1]=最后一页克隆, [0]=第一页, [1]=第二页, [2]=第一页克隆 -->
-          <!-- 位置 -1：最后一页（自定义命令）的克隆，用于从第一页右滑循环 -->
-          <div class="carousel-slide">
-            <div class="custom-commands-layout">
-              <div class="custom-commands-grid">
-                <button
-                  v-for="cmd in displayCommands"
-                  :key="'clone-end-' + cmd.id"
-                  class="custom-cmd-btn"
-                  :class="{ 'editing': isEditingCommands }"
-                  @click="handleCustomCommandClick(cmd)"
-                >
-                  <span class="cmd-label">{{ cmd.command }}</span>
-                  <transition name="delete-badge">
-                    <button
-                      v-if="isEditingCommands && !cmd.builtin"
-                      class="cmd-delete-btn"
-                      @click.stop="deleteCustomCommand(cmd.id)"
-                    >
-                      <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-                      </svg>
-                    </button>
-                  </transition>
-                </button>
-                <button
-                  v-if="customCommands.length > 0"
-                  class="custom-cmd-btn edit-toggle-btn"
-                  @click="isEditingCommands = !isEditingCommands"
-                >
-                  <svg v-if="!isEditingCommands" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                  </svg>
-                  <svg v-else class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-                  </svg>
-                </button>
-                <button class="custom-cmd-btn add-cmd-btn" @click="isEditingCommands = false; showAddDialog = true">
-                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4" />
-                  </svg>
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <!-- 位置 0：第一页（快捷键 + 方向键） -->
-          <div class="carousel-slide">
-            <div class="shortcuts-layout">
-              <!-- 左侧：一般快捷键（不含 Enter/Del） -->
-              <div class="shortcuts-left">
-                <div class="shortcuts-grid">
-                  <button
-                    v-for="key in leftShortcuts"
-                    :key="key.code"
-                    class="shortcut-btn"
-                    @click="handleShortcutClick(key.code)"
-                  >
-                    {{ key.label }}
-                  </button>
-                </div>
-              </div>
-
-              <!-- 中间：Enter/Del（右手拇指高频操作，靠近方向键） -->
-              <div v-if="isEnterVisible || isDelVisible" class="shortcuts-center">
-                <div class="action-keys-layout">
-                  <button
-                    v-if="isEnterVisible"
-                    class="action-btn action-btn--enter"
-                    @click="handleShortcutClick('enter')"
-                  >
-                    Enter
-                  </button>
-                  <button
-                    v-if="isDelVisible"
-                    class="action-btn action-btn--del"
-                    @click="handleShortcutClick('backspace')"
-                  >
-                    Del
-                  </button>
-                </div>
-              </div>
-
-              <!-- 右侧：方向键（键盘布局） -->
-              <div class="shortcuts-right">
-                <div class="arrow-keys-layout">
-                  <div class="arrow-row">
-                    <div class="arrow-placeholder"></div>
-                    <button
-                      class="arrow-btn"
-                      @click="handleShortcutClick('arrow_up')"
-                    >
-                      <svg class="arrow-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 15l7-7 7 7" />
-                      </svg>
-                    </button>
-                    <div class="arrow-placeholder"></div>
-                  </div>
-                  <div class="arrow-row">
-                    <button
-                      class="arrow-btn"
-                      @click="handleShortcutClick('arrow_left')"
-                    >
-                      <svg class="arrow-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M15 19l-7-7 7-7" />
-                      </svg>
-                    </button>
-                    <button
-                      class="arrow-btn arrow-down"
-                      @click="handleShortcutClick('arrow_down')"
-                    >
-                      <svg class="arrow-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7" />
-                      </svg>
-                    </button>
-                    <button
-                      class="arrow-btn"
-                      @click="handleShortcutClick('arrow_right')"
-                    >
-                      <svg class="arrow-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 5l7 7-7 7" />
-                      </svg>
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- 位置 1：第二页（自定义命令） -->
-          <div class="carousel-slide">
-            <div class="custom-commands-layout">
-              <div class="custom-commands-grid">
-                <button
-                  v-for="cmd in displayCommands"
-                  :key="cmd.id"
-                  class="custom-cmd-btn"
-                  :class="{ 'editing': isEditingCommands }"
-                  @click="handleCustomCommandClick(cmd)"
-                >
-                  <span class="cmd-label">{{ cmd.command }}</span>
-                  <transition name="delete-badge">
-                    <button
-                      v-if="isEditingCommands && !cmd.builtin"
-                      class="cmd-delete-btn"
-                      @click.stop="deleteCustomCommand(cmd.id)"
-                    >
-                      <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-                      </svg>
-                    </button>
-                  </transition>
-                </button>
-
-                <!-- 编辑/完成按钮 -->
-                <button
-                  v-if="customCommands.length > 0"
-                  class="custom-cmd-btn edit-toggle-btn"
-                  @click="isEditingCommands = !isEditingCommands"
-                >
-                  <svg v-if="!isEditingCommands" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                  </svg>
-                  <svg v-else class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-                  </svg>
-                </button>
-
-                <!-- 添加按钮 -->
-                <button class="custom-cmd-btn add-cmd-btn" @click="isEditingCommands = false; showAddDialog = true">
-                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4" />
-                  </svg>
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <!-- 位置 2：第一页（快捷键 + 方向键）的克隆，用于从最后一页左滑循环 -->
-          <div class="carousel-slide">
-            <div class="shortcuts-layout">
-              <div class="shortcuts-left">
-                <div class="shortcuts-grid">
-                  <button
-                    v-for="key in leftShortcuts"
-                    :key="'clone-start-' + key.code"
-                    class="shortcut-btn"
-                    @click="handleShortcutClick(key.code)"
-                  >
-                    {{ key.label }}
-                  </button>
-                </div>
-              </div>
-              <div v-if="isEnterVisible || isDelVisible" class="shortcuts-center">
-                <div class="action-keys-layout">
-                  <button
-                    v-if="isEnterVisible"
-                    class="action-btn action-btn--enter"
-                    @click="handleShortcutClick('enter')"
-                  >
-                    Enter
-                  </button>
-                  <button
-                    v-if="isDelVisible"
-                    class="action-btn action-btn--del"
-                    @click="handleShortcutClick('backspace')"
-                  >
-                    Del
-                  </button>
-                </div>
-              </div>
-              <div class="shortcuts-right">
-                <div class="arrow-keys-layout">
-                  <div class="arrow-row">
-                    <div class="arrow-placeholder"></div>
-                    <button
-                      class="arrow-btn"
-                      @click="handleShortcutClick('arrow_up')"
-                    >
-                      <svg class="arrow-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 15l7-7 7 7" />
-                      </svg>
-                    </button>
-                    <div class="arrow-placeholder"></div>
-                  </div>
-                  <div class="arrow-row">
-                    <button
-                      class="arrow-btn"
-                      @click="handleShortcutClick('arrow_left')"
-                    >
-                      <svg class="arrow-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M15 19l-7-7 7-7" />
-                      </svg>
-                    </button>
-                    <button
-                      class="arrow-btn arrow-down"
-                      @click="handleShortcutClick('arrow_down')"
-                    >
-                      <svg class="arrow-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7" />
-                      </svg>
-                    </button>
-                    <button
-                      class="arrow-btn"
-                      @click="handleShortcutClick('arrow_right')"
-                    >
-                      <svg class="arrow-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 5l7 7-7 7" />
-                      </svg>
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- 页码指示器 -->
-      <div class="carousel-dots">
-        <div
-          class="dot"
-          :class="{ active: displaySlide === 0 }"
-          @click="goToSlide(0)"
-        ></div>
-        <div
-          class="dot"
-          :class="{ active: displaySlide === 1 }"
-          @click="goToSlide(1)"
-        ></div>
-      </div>
-    </div>
-    </transition>
+  <div class="terminal-input-bar z-10" :style="inputBarStyle">
+    <!-- 快捷键面板（覆盖层 + 轮播 + 页码点）：高度经 height 事件同步给终端偏移 -->
+    <ShortcutsPanel
+      :visible="showShortcutsPanel"
+      :is-landscape="props.isLandscape"
+      :custom-commands="customCommands"
+      @update:visible="setShortcutsPanelVisible"
+      @shortcut="handleShortcutClick"
+      @command="handlePanelCommand"
+      @delete="deleteCustomCommand"
+      @add="openAddCommandDialog"
+      @height="handleShortcutsPanelHeight"
+    />
 
     <!-- 添加自定义命令弹窗 -->
     <Teleport to="body">
-      <div v-if="showAddDialog" class="dialog-overlay mobile-ui" @click.self="showAddDialog = false">
+      <div
+        v-if="showAddDialog"
+        class="dialog-overlay mobile-ui"
+        @click.self="showAddDialog = false"
+      >
         <div class="dialog-box">
           <div class="dialog-title">{{ t('input.commandTitle') }}</div>
           <input
@@ -307,42 +30,33 @@
             @keyup.enter="addCustomCommand"
           />
           <div class="dialog-actions">
-            <button class="dialog-btn cancel" @click="showAddDialog = false">{{ t('common.button.cancel') }}</button>
-            <button class="dialog-btn confirm" :disabled="!newCommand.trim()" @click="addCustomCommand">{{ t('common.button.confirm') }}</button>
+            <button class="dialog-btn cancel" @click="showAddDialog = false">
+              {{ t('common.button.cancel') }}
+            </button>
+            <button
+              class="dialog-btn confirm"
+              :disabled="!newCommand.trim()"
+              @click="addCustomCommand"
+            >
+              {{ t('common.button.confirm') }}
+            </button>
           </div>
         </div>
       </div>
     </Teleport>
 
-    <!-- 快捷键条 - 常驻显示最常用的快捷键和自定义命令：
-     * 固定显示，不随输入框焦点收起；只有快捷键面板（快捷键弹层）可手动开合 -->
-    <div v-if="quickBarItems.length > 0" class="quick-bar" @mousedown.prevent>
-      <button
-        v-for="item in quickBarItems"
-        :key="item.type + '-' + item.key"
-        class="quick-bar-btn"
-        :class="quickBarClass(item.category)"
-        @click="handleQuickBarClick(item)"
-      >
-        {{ item.label }}
-      </button>
-    </div>
+    <!-- 快捷键条 - 常驻显示最常用的快捷键和自定义命令 -->
+    <QuickBar :items="quickBarItems" @select="handleQuickBarClick" />
 
     <!-- 输入区域 -->
     <div class="input-area">
-      <!-- `/` 命令补全弹层：输入框上方，点选即填充输入框（复用 agentPresets 本地数据，零延迟） -->
-      <transition name="completion-fade">
-        <div v-if="showCompletion" class="completion-panel" @mousedown.prevent>
-          <button
-            v-for="cmd in completionItems"
-            :key="cmd"
-            class="completion-item"
-            @click="applyCompletion(cmd)"
-          >
-            <span class="completion-cmd">{{ cmd }}</span>
-          </button>
-        </div>
-      </transition>
+      <!-- `/` 命令补全弹层 -->
+      <CompletionPanel
+        :visible="showCompletion"
+        :items="completionItems"
+        @select="applyCompletion"
+      />
+
       <div class="input-box" :class="{ 'input-box--expanded': isInputFocused }">
         <!-- 输入框：占满整行宽度；显示高度只随内容换行数变化，聚焦不变高 -->
         <textarea
@@ -366,7 +80,12 @@
             @mousedown.prevent="toggleShortcuts"
           >
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"
+              />
             </svg>
           </button>
 
@@ -394,6 +113,16 @@
 </template>
 
 <script setup lang="ts">
+/**
+ * 终端输入条（issue #19 结构重构后的容器）
+ *
+ * 拆分边界：
+ * - `ShortcutsPanel`：面板遮罩 / 轮播 / 快捷键页 / 命令页（含编辑态）与手势；
+ * - `QuickBar`：常驻快捷键条（纯展示 + select 事件）；
+ * - `CompletionPanel`：`/` 补全弹层；
+ * - `useExecuteButton`：执行/发送长按切模式状态机；
+ * - 本组件只保留输入框、动作行、添加命令弹窗与跨组件编排（记账、emit、持久化）。
+ */
 import { ref, computed, inject, onMounted, nextTick, watch } from 'vue'
 import { getMobileApi } from '@binblink/wasmnest-plugin-sdk-mobile'
 import { logger, storage, t, toast } from '../host'
@@ -401,28 +130,30 @@ import type { Ref } from 'vue'
 import { useInputAssistantStore, type QuickCommand } from '../inputAssistant'
 import type { QuickBarItem } from '../inputAssistant'
 import { filterPresetCommands, getAllPresetCommandTexts } from '../config/agentPresets'
-
-// ==================== Types ====================
-
-/** 面板命令项：用户自定义命令 + 命令预设（builtin）的并集 */
-type PanelCommand = QuickCommand
+import { useExecuteButton } from '../composables/useExecuteButton'
+import ShortcutsPanel from './terminal-input/ShortcutsPanel.vue'
+import QuickBar from './terminal-input/QuickBar.vue'
+import CompletionPanel from './terminal-input/CompletionPanel.vue'
 
 // ==================== Props ====================
 
-const props = withDefaults(defineProps<{
-  disabled?: boolean
-  isConnected?: boolean
-  placeholder?: string
-  isLandscape?: boolean
-  /** 侧栏「插入引用」待填入的路径（消费后 emit ref-consumed） */
-  pendingRef?: string | null
-}>(), {
-  disabled: false,
-  isConnected: false,
-  placeholder: '',
-  isLandscape: false,
-  pendingRef: null,
-})
+const props = withDefaults(
+  defineProps<{
+    disabled?: boolean
+    isConnected?: boolean
+    placeholder?: string
+    isLandscape?: boolean
+    /** 侧栏「插入引用」待填入的路径（消费后 emit ref-consumed） */
+    pendingRef?: string | null
+  }>(),
+  {
+    disabled: false,
+    isConnected: false,
+    placeholder: '',
+    isLandscape: false,
+    pendingRef: null,
+  },
+)
 
 // ==================== Emits ====================
 
@@ -452,37 +183,12 @@ const inputBarStyle = computed(() => {
 const assistStore = useInputAssistantStore()
 
 const inputRef = ref<HTMLTextAreaElement | null>(null)
-const shortcutsPanelRef = ref<HTMLElement | null>(null)
 const inputText = ref('')
 const showShortcutsPanel = ref(false)
 const isInputFocused = ref(false)
 const showAddDialog = ref(false)
 const newCommand = ref('')
 const cmdInputRef = ref<HTMLInputElement | null>(null)
-
-// ==================== Carousel State ====================
-
-const TOTAL_SLIDES = 2
-const carouselRef = ref<HTMLElement | null>(null)
-const currentSlide = ref(0)
-const touchStartX = ref(0)
-const touchStartY = ref(0)
-const touchDeltaX = ref(0)
-const isSwiping = ref(false)
-// 循环跳转中间状态：跳转时临时禁用 transition，跳转完成后恢复
-const isLooping = ref(false)
-
-/** 用于点指示器的规范化 slide 索引（将循环过渡中的 -1/2 映射回真实范围） */
-const displaySlide = computed(() => {
-  return ((currentSlide.value % TOTAL_SLIDES) + TOTAL_SLIDES) % TOTAL_SLIDES
-})
-
-// 轨道布局：[克隆末页][-1] [第一页][0] [第二页][1] [克隆首页][2]
-// 真实 slide 从偏移 1 开始，需要 +1 补偿
-const trackStyle = computed(() => ({
-  transform: `translateX(${-(currentSlide.value + 1) * 100 + touchDeltaX.value}%)`,
-  transition: isSwiping.value || isLooping.value ? 'none' : 'transform 0.3s ease',
-}))
 
 // ==================== `/` 命令补全 ====================
 // 与 agent 内部补全同构（前缀匹配），但数据来自本地预设（agentPresets），零延迟；
@@ -500,14 +206,17 @@ const completionDismissed = ref(false)
 // ① sync —— applyCompletion 写入后同步复位 completionDismissed，保证点选必然
 // 关闭弹层（若改 post，watcher 晚于 applyCompletion 的置位执行，会把
 // 置位覆盖回 false → 点选后弹层重新出现，实测回归）。此 watcher 不读 DOM。
-watch(inputText, () => {
-  completionDismissed.value = false
-  // 用户开始打字时收起快捷键面板，避免补全弹层与面板重叠遮挡
-  if (showShortcutsPanel.value) {
-    showShortcutsPanel.value = false
-    emit('shortcutsPanelToggle', 0)
-  }
-}, { flush: 'sync' })
+watch(
+  inputText,
+  () => {
+    completionDismissed.value = false
+    // 用户开始打字时收起快捷键面板，避免补全弹层与面板重叠遮挡
+    if (showShortcutsPanel.value) {
+      showShortcutsPanel.value = false
+    }
+  },
+  { flush: 'sync' },
+)
 
 // ② post —— 高度跟随换行数。不能用 @input 事件驱动：v-model 的 input
 // 监听器注册晚于 @input（指令 created 钩子在 props 之后），事件处理器里读到
@@ -518,12 +227,16 @@ watch(inputText, () => {
 // effect 写入新 value 还在调度队列里，sync watcher 先跑会读到旧多行内容，
 // 高度停留在多行不回单行（实测 bug）。post watcher 在 render effect 之后跑，
 // DOM 永远是最新值；输入路径 DOM 值本就先于事件更新，同一帧内无视觉滞后
-watch(inputText, () => {
-  adjustTextareaHeight()
-}, { flush: 'post' })
+watch(
+  inputText,
+  () => {
+    adjustTextareaHeight()
+  },
+  { flush: 'post' },
+)
 
-const showCompletion = computed(() =>
-  isInputFocused.value && !completionDismissed.value && completionItems.value.length > 0
+const showCompletion = computed(
+  () => isInputFocused.value && !completionDismissed.value && completionItems.value.length > 0,
 )
 
 /** 点选补全项：整体填充输入框并保持焦点，由用户决定补全/发送 */
@@ -540,22 +253,24 @@ function applyCompletion(command: string) {
 // ==================== Pending Ref ====================
 
 // 侧栏「插入引用」：把 @路径 填入输入框（已有内容时补空格分隔）并聚焦，便于继续输入
-watch(() => props.pendingRef, (path) => {
-  if (!path) return
-  const refText = `@${path}`
-  const text = inputText.value
-  inputText.value = text && !text.endsWith(' ') ? `${text} ${refText}` : `${text}${refText}`
-  emit('refConsumed')
-  nextTick(() => {
-    adjustTextareaHeight()
-    inputRef.value?.focus()
-  })
-})
+watch(
+  () => props.pendingRef,
+  (path) => {
+    if (!path) return
+    const refText = `@${path}`
+    const text = inputText.value
+    inputText.value = text && !text.endsWith(' ') ? `${text} ${refText}` : `${text}${refText}`
+    emit('refConsumed')
+    nextTick(() => {
+      adjustTextareaHeight()
+      inputRef.value?.focus()
+    })
+  },
+)
 
 // ==================== Custom Commands ====================
 
 const customCommands = ref<QuickCommand[]>([])
-const isEditingCommands = ref(false)
 
 /** 面板命令 = 命令预设（builtin，在前） + 用户自定义命令 */
 const displayCommands = computed(() => [...assistStore.presetCommands, ...customCommands.value])
@@ -566,7 +281,7 @@ async function loadCustomCommands() {
   try {
     const stored = await storage.get<Partial<QuickCommand>[]>('custom_commands')
     if (stored) {
-      customCommands.value = stored.map(c => ({
+      customCommands.value = stored.map((c) => ({
         id: c.id || Date.now().toString(),
         command: c.command || '',
         // 旧数据无 mode/builtin：默认执行模式、非内置
@@ -589,6 +304,10 @@ async function saveCustomCommands() {
   }
 }
 
+function openAddCommandDialog() {
+  showAddDialog.value = true
+}
+
 function addCustomCommand() {
   const cmd = newCommand.value.trim()
   if (!cmd) return
@@ -603,9 +322,12 @@ function addCustomCommand() {
   showAddDialog.value = false
 }
 
-function handleCustomCommandClick(cmd: PanelCommand) {
-  // 编辑模式下点击不执行命令
-  if (isEditingCommands.value) return
+function deleteCustomCommand(id: string) {
+  customCommands.value = customCommands.value.filter((c) => c.id !== id)
+  saveCustomCommands()
+}
+
+function handlePanelCommand(cmd: QuickCommand) {
   assistStore.recordCustomCommand(cmd.id)
   // 发送模式（skills 类补全场景）：文本不带回车发到终端输入行；否则执行（文本 + Enter）
   if (cmd.mode === 'send') {
@@ -615,112 +337,45 @@ function handleCustomCommandClick(cmd: PanelCommand) {
   }
 }
 
-function deleteCustomCommand(id: string) {
-  customCommands.value = customCommands.value.filter(c => c.id !== id)
-  saveCustomCommands()
-  // 删完所有命令后自动退出编辑模式
-  if (customCommands.value.length === 0) {
-    isEditingCommands.value = false
-  }
-}
-
-// ==================== Shortcuts Data ====================
-
-// 从 store 读取动态快捷键列表（不含 Enter/Del，它们由中间区域独立渲染）
-const leftShortcuts = computed(() => assistStore.visiblePanelShortcuts)
-
-// Enter/Del 可见性：由配置控制，默认显示
-const isEnterVisible = computed(() => assistStore.shortcutConfig.find(s => s.code === 'enter')?.visible ?? true)
-const isDelVisible = computed(() => assistStore.shortcutConfig.find(s => s.code === 'backspace')?.visible ?? true)
-
-// ==================== Carousel Methods ====================
-
-function goToSlide(index: number) {
-  currentSlide.value = ((index % TOTAL_SLIDES) + TOTAL_SLIDES) % TOTAL_SLIDES
-}
-
-function onTouchStart(e: TouchEvent) {
-  touchStartX.value = e.touches[0].clientX
-  touchStartY.value = e.touches[0].clientY
-  touchDeltaX.value = 0
-  isSwiping.value = true
-}
-
-function onTouchMove(e: TouchEvent) {
-  const deltaX = e.touches[0].clientX - touchStartX.value
-  const deltaY = e.touches[0].clientY - touchStartY.value
-
-  // 水平滑动距离大于垂直时才处理，避免影响页面滚动
-  if (Math.abs(deltaX) > Math.abs(deltaY) && carouselRef.value) {
-    const width = carouselRef.value.offsetWidth
-    touchDeltaX.value = (deltaX / width) * 100
-  }
-}
-
-function onTouchEnd() {
-  isSwiping.value = false
-  const threshold = 20
-
-  if (touchDeltaX.value < -threshold) {
-    // 左滑 → 下一页（末尾循环到第一页）
-    slideToNext()
-  } else if (touchDeltaX.value > threshold) {
-    // 右滑 → 上一页（开头循环到最后一页）
-    slideToPrev()
-  } else {
-    touchDeltaX.value = 0
-  }
-}
-
-/** 左滑切换到下一页，末尾循环到第一页 */
-function slideToNext() {
-  if (currentSlide.value < TOTAL_SLIDES - 1) {
-    currentSlide.value++
-    touchDeltaX.value = 0
-  } else {
-    // 已在最后一页：动画滑到位置 2（首页克隆），然后无动画跳回位置 0
-    currentSlide.value = TOTAL_SLIDES
-    touchDeltaX.value = 0
-    nextTick(() => {
-      isLooping.value = true
-      currentSlide.value = 0
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          isLooping.value = false
-        })
-      })
-    })
-  }
-}
-
-/** 右滑切换到上一页，开头循环到最后一页 */
-function slideToPrev() {
-  if (currentSlide.value > 0) {
-    currentSlide.value--
-    touchDeltaX.value = 0
-  } else {
-    // 已在第一页：动画滑到位置 -1（末页克隆），然后无动画跳回位置 1
-    currentSlide.value = -1
-    touchDeltaX.value = 0
-    nextTick(() => {
-      isLooping.value = true
-      currentSlide.value = TOTAL_SLIDES - 1
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          isLooping.value = false
-        })
-      })
-    })
-  }
-}
-
 // ==================== Computed ====================
 
 const canSubmit = computed(() => {
   return inputText.value.trim().length > 0 && !props.disabled
 })
 
+// ==================== Execute Button（长按切模式 / 短按触发）====================
+
+/** 移动端本地设置（宿主只读投影：vibrate / maxOpenTerminals 等） */
+const mobileSettings = getMobileApi().mobileSettings
+
+const {
+  sendMode,
+  onPointerDown: onExecutePointerDown,
+  onPointerMove: onExecutePointerMove,
+  onPointerUp: onExecutePointerUp,
+  onPointerCancel: onExecutePointerCancel,
+} = useExecuteButton({
+  canSubmit: () => canSubmit.value,
+  vibrate: () => Boolean(mobileSettings.value.vibrate),
+  onShortPress: (send) => {
+    if (send) handleSubmit()
+    else handleExecute()
+  },
+  onModeChange: (send) => {
+    // 长按切换只有振动 + 图标旋转，缺少可读反馈；补一条瞬时 toast
+    toast.info(t(send ? 'input.modeSwitchedToSend' : 'input.modeSwitchedToExecute'))
+  },
+})
+
 // ==================== Methods ====================
+
+function setShortcutsPanelVisible(visible: boolean) {
+  showShortcutsPanel.value = visible
+}
+
+function handleShortcutsPanelHeight(height: number) {
+  emit('shortcutsPanelToggle', height)
+}
 
 function toggleShortcuts() {
   // 横屏高度有限，面板不渲染：提示用户而非静默无响应
@@ -731,25 +386,17 @@ function toggleShortcuts() {
   showShortcutsPanel.value = !showShortcutsPanel.value
   if (showShortcutsPanel.value) {
     // 面板渲染前确认命令列表构成（预设 + 自定义），排查第二页缺失问题
-    logger.log('[TerminalInputBar] 面板打开：displayCommands =', displayCommands.value.length,
-      '（预设', assistStore.presetCommands.length, '+ 自定义', customCommands.value.length, '）',
-      displayCommands.value.slice(0, 3).map(c => c.command))
-    // 面板渲染后测量高度并通知终端，同时计算左侧网格列数
-    nextTick(() => {
-      const h = shortcutsPanelRef.value?.offsetHeight || 0
-      emit('shortcutsPanelToggle', h)
-    })
-  } else {
-    // 立即通知终端收起，xterm 的 transition 会与面板 leave 动画同步
-    // 两者都是 0.25s cubic-bezier(0.4, 0, 0.2, 1)，视觉上同步下落
-    emit('shortcutsPanelToggle', 0)
+    logger.log(
+      '[TerminalInputBar] 面板打开：displayCommands =',
+      displayCommands.value.length,
+      '（预设',
+      assistStore.presetCommands.length,
+      '+ 自定义',
+      customCommands.value.length,
+      '）',
+      displayCommands.value.slice(0, 3).map((c) => c.command),
+    )
   }
-}
-
-function closeShortcutsPanel() {
-  if (!showShortcutsPanel.value) return
-  showShortcutsPanel.value = false
-  emit('shortcutsPanelToggle', 0)
 }
 
 function handleSubmit() {
@@ -764,79 +411,6 @@ function handleExecute() {
   if (!text) return
   emit('execute', text)
   inputText.value = ''
-}
-
-// ==================== Execute Button Mode Toggle（长按切模式 / 短按触发）====================
-
-/** 长按阈值：足够跟手不拖沓，同时为误触留出余量 */
-const EXECUTE_LONG_PRESS_MS = 400
-/** 滑动取消长按（防误触）：位移距离阈值 */
-const EXECUTE_MOVE_CANCEL_SLOP_PX = 10
-
-/**
- * 按钮功能模式（常驻锁存）：false = 执行（文本 + Enter 直接运行，默认），
- * true = 发送（仅写入输入行不回车）。长按在两模式间切换并一直保持，
- * 短按触发当前模式的动作——非旧版的一次性蓄势（armed 后松手即消费）
- */
-const sendMode = ref(false)
-let executeLongPressTimer: ReturnType<typeof setTimeout> | null = null
-let executePointerStartX = 0
-let executePointerStartY = 0
-// 触觉反馈跟随振动设置开关（与 FileTreeItem 长按惯例一致）
-/** 移动端本地设置（宿主只读投影：vibrate / maxOpenTerminals 等） */
-const mobileSettings = getMobileApi().mobileSettings
-
-function clearExecuteLongPressTimer() {
-  if (executeLongPressTimer) {
-    clearTimeout(executeLongPressTimer)
-    executeLongPressTimer = null
-  }
-}
-
-function onExecutePointerDown(e: PointerEvent) {
-  // 置灰（无内容/会话不可用）时仍允许长按切换模式：模式是常驻偏好，
-  // 提前切好发送/执行后输入内容即可直接短按；仅短按动作被门控
-  // 捕获指针：手指滑出按钮仍能收到 pointerup/cancel，保证状态复位
-  ;(e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId)
-  executePointerStartX = e.clientX
-  executePointerStartY = e.clientY
-  executeLongPressTimer = setTimeout(() => {
-    executeLongPressTimer = null
-    // 长按：切换常驻功能模式（执行 ↔ 发送），触觉反馈确认切换成功；
-    // 本次按压到此结束——松开手指不触发任何动作，动作由后续短按承担
-    sendMode.value = !sendMode.value
-    if (mobileSettings.value.vibrate && navigator.vibrate) {
-      navigator.vibrate(30)
-    }
-  }, EXECUTE_LONG_PRESS_MS)
-}
-
-function onExecutePointerMove(e: PointerEvent) {
-  // 长按触发前移动超出阈值 → 取消切换（滑动即意图取消）
-  if (!executeLongPressTimer) return
-  const dx = e.clientX - executePointerStartX
-  const dy = e.clientY - executePointerStartY
-  if (dx * dx + dy * dy > EXECUTE_MOVE_CANCEL_SLOP_PX * EXECUTE_MOVE_CANCEL_SLOP_PX) {
-    clearExecuteLongPressTimer()
-  }
-}
-
-function onExecutePointerUp() {
-  if (executeLongPressTimer) {
-    // 短击：定时器未触发 → 执行当前模式的动作；置灰时不触发（仅长按可切换）
-    clearExecuteLongPressTimer()
-    if (!canSubmit.value) return
-    if (sendMode.value) {
-      handleSubmit()
-    } else {
-      handleExecute()
-    }
-  }
-  // 长按已切换模式：本次按压结束，不触发动作（避免切换的同时误发内容）
-}
-
-function onExecutePointerCancel() {
-  clearExecuteLongPressTimer()
 }
 
 function handleShortcutClick(code: string) {
@@ -856,7 +430,7 @@ function handleQuickBarClick(item: QuickBarItem) {
     emit('specialKey', item.key)
   } else {
     // 快捷命令：找到对应命令项，按模式分发（发送 = 不带回车，执行 = 文本 + Enter）
-    const cmd = displayCommands.value.find(c => c.id === item.key)
+    const cmd = displayCommands.value.find((c) => c.id === item.key)
     if (cmd) {
       assistStore.recordCustomCommand(cmd.id)
       if (cmd.mode === 'send') {
@@ -866,18 +440,6 @@ function handleQuickBarClick(item: QuickBarItem) {
       }
     }
   }
-}
-
-/// 根据 category 返回 quick bar 按钮的样式类
-function quickBarClass(category: string): string {
-  const map: Record<string, string> = {
-    enter: 'quick-bar-enter',
-    del: 'quick-bar-del',
-    arrow: 'quick-bar-arrow',
-    shortcut: 'quick-bar-shortcut',
-    custom: 'quick-bar-custom',
-  }
-  return map[category] || 'quick-bar-shortcut'
 }
 
 function handleFocus() {
@@ -964,103 +526,6 @@ onMounted(() => {
   --shortcut-min-w: clamp(2.25rem, 8.5vw, 2.75rem);
 }
 
-/* ==================== Quick Bar ==================== */
-
-.quick-bar {
-  display: flex;
-  flex-wrap: nowrap;
-  gap: 0.375rem;
-  padding-bottom: 0.375rem;
-  overflow-x: auto;
-  overflow-y: hidden;
-  scrollbar-width: none;
-  -webkit-overflow-scrolling: touch;
-  position: relative;
-  z-index: 40;
-  /* RTL 布局：首项渲染在右侧，新项目从左侧添加，右对齐方便拇指操作 */
-  direction: rtl;
-}
-
-.quick-bar::-webkit-scrollbar {
-  display: none;
-  width: 0;
-}
-
-.quick-bar-btn {
-  height: var(--quickbar-btn-h);
-  padding: 0 0.5rem;
-  font-size: var(--quickbar-font);
-  font-weight: 500;
-  border-radius: 0.375rem;
-  cursor: pointer;
-  transition: all 0.15s ease;
-  white-space: nowrap;
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid;
-  /* 父容器 RTL 布局，按钮文本保持 LTR */
-  direction: ltr;
-}
-
-.quick-bar-shortcut {
-  background: var(--mobile-shortcut-bg);
-  border-color: var(--mobile-shortcut-border);
-  color: var(--mobile-shortcut-color);
-}
-
-.quick-bar-shortcut:active {
-  transform: scale(0.93);
-  background: var(--mobile-shortcut-active-bg);
-}
-
-.quick-bar-custom {
-  background: var(--mobile-custom-cmd-bg);
-  border-color: var(--mobile-custom-cmd-border);
-  color: var(--mobile-custom-cmd-color);
-}
-
-.quick-bar-custom:active {
-  transform: scale(0.93);
-  background: var(--mobile-custom-cmd-active-bg);
-}
-
-.quick-bar-enter {
-  background: var(--mobile-confirm-bg);
-  border-color: var(--mobile-confirm-border);
-  color: var(--mobile-confirm-color);
-}
-
-.quick-bar-enter:active {
-  transform: scale(0.93);
-  background: var(--mobile-confirm-bg);
-  filter: brightness(1.2);
-}
-
-.quick-bar-del {
-  background: var(--mobile-danger-bg);
-  border-color: var(--mobile-danger-border);
-  color: var(--mobile-danger-color);
-}
-
-.quick-bar-del:active {
-  transform: scale(0.93);
-  background: var(--mobile-danger-bg);
-  filter: brightness(1.2);
-}
-
-.quick-bar-arrow {
-  background: var(--mobile-arrow-bg);
-  border-color: var(--mobile-arrow-border);
-  color: var(--mobile-arrow-color);
-}
-
-.quick-bar-arrow:active {
-  transform: scale(0.93);
-  background: var(--mobile-arrow-active-bg);
-}
-
 .input-area {
   display: flex;
   align-items: flex-end;
@@ -1076,7 +541,10 @@ onMounted(() => {
   border: 1px solid var(--mobile-input-border);
   border-radius: 1rem;
   padding: 0.5rem 0.625rem 0.375rem;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease, border-radius 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    border-radius 0.25s cubic-bezier(0.4, 0, 0.2, 1);
   min-height: 2.5rem;
 }
 
@@ -1214,455 +682,6 @@ onMounted(() => {
 .execute-btn.is-disabled {
   opacity: 0.4;
   cursor: not-allowed;
-}
-
-/* ==================== `/` Command Completion ==================== */
-
-.completion-panel {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: calc(100% + 0.5rem);
-  z-index: 50;
-  background: var(--mobile-bg-card);
-  border: 1px solid var(--mobile-border);
-  border-radius: 0.875rem;
-  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.15);
-  overflow-y: auto;
-  /* 紧凑布局：面板内边距 + 圆角块式项（分隔线已移除） */
-  padding: 0.25rem;
-  max-height: clamp(7rem, 26vh, 12rem);
-  scrollbar-width: none;
-  -webkit-overflow-scrolling: touch;
-}
-
-.completion-panel::-webkit-scrollbar {
-  display: none;
-  width: 0;
-}
-
-.completion-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
-  width: 100%;
-  /* 触控下限保持 44px，上限收紧让列表更紧凑 */
-  height: clamp(2.75rem, 8vw, 2.875rem);
-  padding: 0 0.75rem;
-  background: transparent;
-  border: none;
-  border-radius: 0.5rem;
-  cursor: pointer;
-  transition: background-color 0.15s ease;
-}
-
-.completion-item:active {
-  background: var(--mobile-accent-muted);
-}
-
-.completion-cmd {
-  font-family: 'Courier New', monospace;
-  font-size: var(--font-size-sm);
-  color: var(--mobile-text-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.completion-fade-enter-active,
-.completion-fade-leave-active {
-  transition: opacity 0.15s ease;
-}
-
-.completion-fade-enter-from,
-.completion-fade-leave-to {
-  opacity: 0;
-}
-
-/* ==================== Carousel ==================== */
-
-.shortcuts-panel {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 100%;
-  border-bottom: 1px solid var(--mobile-border);
-  padding: 0.5rem 0.75rem 0.375rem;
-  background: var(--mobile-bg-secondary);
-  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.15);
-  z-index: 30;
-  max-width: 100vw;
-  overflow: visible;
-  box-sizing: border-box;
-  /*
-   * 固定高度 = padding + 2行按钮 + dots
-   * padding-top: 0.5rem, padding-bottom: 0.375rem
-   * 内容区: 2*btn-h + gap(0.375rem) + dots(padding-top 0.375rem + dot 0.375rem)
-   */
-  --panel-h: calc(0.5rem + 2 * var(--shortcut-btn-h) + 0.375rem + 0.75rem + 0.375rem);
-  height: var(--panel-h);
-  min-height: var(--panel-h);
-  max-height: var(--panel-h);
-}
-
-/* 快捷键面板遮罩 - 覆盖终端区域，点击关闭面板 */
-.shortcuts-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 29;
-}
-
-.shortcuts-overlay-enter-active,
-.shortcuts-overlay-leave-active {
-  transition: opacity 0.2s ease;
-}
-
-.shortcuts-overlay-enter-from,
-.shortcuts-overlay-leave-to {
-  opacity: 0;
-}
-
-/* 快捷键面板滑动动画 - 从下往上展开/收起 */
-.shortcuts-slide-enter-active,
-.shortcuts-slide-leave-active {
-  transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1),
-              opacity 0.2s ease;
-}
-
-.shortcuts-slide-enter-from,
-.shortcuts-slide-leave-to {
-  transform: translateY(100%);
-  opacity: 0;
-}
-
-.shortcuts-slide-enter-to,
-.shortcuts-slide-leave-from {
-  transform: translateY(0);
-  opacity: 1;
-}
-
-.carousel-container {
-  overflow-x: hidden;
-  overflow-y: visible;
-  max-width: 100%;
-  height: calc(2 * var(--shortcut-btn-h) + 0.375rem);
-}
-
-.carousel-track {
-  display: flex;
-  will-change: transform;
-  /* 固定高度，防止被内容撑开 */
-  height: calc(2 * var(--shortcut-btn-h) + 0.375rem);
-}
-
-/* 每页轮播固定宽高，绝不超出 */
-.carousel-slide {
-  width: 100%;
-  height: calc(2 * var(--shortcut-btn-h) + 0.375rem);
-  overflow: visible;
-  box-sizing: border-box;
-  flex-shrink: 0;
-}
-
-.carousel-dots {
-  display: flex;
-  justify-content: center;
-  gap: 0.375rem;
-  padding-top: 0.375rem;
-}
-
-.dot {
-  width: 0.375rem;
-  height: 0.375rem;
-  border-radius: 9999px;
-  background: var(--mobile-border);
-  transition: all 0.3s ease;
-  cursor: pointer;
-}
-
-.dot.active {
-  background: var(--mobile-accent);
-  width: 1rem;
-}
-
-/* ==================== Shortcuts (Slide 1) ==================== */
-
-/* grid 布局：左侧自适应 | 中间固定 | 右侧固定 */
-.shortcuts-layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
-  gap: 0.5rem;
-  align-items: stretch;
-  /* 固定 2 行高度 */
-  height: calc(2 * var(--shortcut-btn-h) + 0.375rem);
-  width: 100%;
-  max-width: 100%;
-  overflow: visible;
-  box-sizing: border-box;
-}
-
-/* 左侧：占满剩余宽度，固定2行高度，超出可滚动 */
-.shortcuts-left {
-  min-width: 0;
-  height: calc(2 * var(--shortcut-btn-h) + 0.375rem);
-  overflow-y: auto;
-  overflow-x: hidden;
-  scrollbar-width: none;
-  -webkit-overflow-scrolling: touch;
-  box-sizing: border-box;
-}
-
-.shortcuts-left::-webkit-scrollbar {
-  display: none;
-  width: 0;
-}
-
-.shortcuts-grid {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.375rem;
-}
-
-.shortcut-btn {
-  height: var(--shortcut-btn-h);
-  padding: 0 0.5rem;
-  white-space: nowrap;
-  min-width: var(--shortcut-min-w);
-  background: var(--mobile-shortcut-bg);
-  border: 1px solid var(--mobile-shortcut-border);
-  color: var(--mobile-shortcut-color);
-  font-size: var(--shortcut-font);
-  font-weight: 500;
-  border-radius: 0.5rem;
-  cursor: pointer;
-  transition: all 0.15s ease;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.shortcut-btn:active {
-  transform: scale(0.95);
-  background: var(--mobile-shortcut-active-bg);
-}
-
-/* 中间：Enter/Del，固定宽度 */
-.shortcuts-center {
-  display: flex;
-  align-items: center;
-}
-
-.action-keys-layout {
-  display: flex;
-  flex-direction: column;
-  gap: 0.375rem;
-}
-
-.action-btn {
-  width: var(--action-btn-w);
-  height: var(--shortcut-btn-h);
-  font-size: var(--shortcut-font);
-  font-weight: 600;
-  border-radius: 0.5rem;
-  cursor: pointer;
-  transition: all 0.15s ease;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid;
-}
-
-.action-btn--enter {
-  background: var(--mobile-confirm-bg);
-  border-color: var(--mobile-confirm-border);
-  color: var(--mobile-confirm-color);
-}
-
-.action-btn--enter:active {
-  transform: scale(0.95);
-  filter: brightness(1.2);
-}
-
-.action-btn--del {
-  background: var(--mobile-danger-bg);
-  border-color: var(--mobile-danger-border);
-  color: var(--mobile-danger-color);
-}
-
-.action-btn--del:active {
-  transform: scale(0.95);
-  filter: brightness(1.2);
-}
-
-/* 右侧：方向键，固定宽度 */
-.shortcuts-right {
-}
-
-.arrow-keys-layout {
-  display: flex;
-  flex-direction: column;
-  gap: 0.375rem;
-}
-
-.arrow-row {
-  display: flex;
-  gap: 0.375rem;
-  justify-content: center;
-}
-
-.arrow-placeholder {
-  width: 2.5rem;
-  height: var(--shortcut-btn-h);
-}
-
-.arrow-btn {
-  width: 2.5rem;
-  height: var(--shortcut-btn-h);
-  background: var(--mobile-arrow-bg);
-  border: 1px solid var(--mobile-arrow-border);
-  color: var(--mobile-arrow-color);
-  border-radius: 0.5rem;
-  cursor: pointer;
-  transition: all 0.15s ease;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.arrow-btn:active {
-  transform: scale(0.9);
-  background: var(--mobile-arrow-active-bg);
-}
-
-.arrow-icon {
-  width: 0.875rem;
-  height: 0.875rem;
-}
-
-/* ==================== Custom Commands (Slide 2) ==================== */
-
-.custom-commands-layout {
-  width: 100%;
-  height: calc(2 * var(--shortcut-btn-h) + 0.375rem);
-  overflow-y: auto;
-  overflow-x: hidden;
-  scrollbar-width: none;
-  -webkit-overflow-scrolling: touch;
-  box-sizing: border-box;
-}
-
-.custom-commands-layout::-webkit-scrollbar {
-  display: none;
-  width: 0;
-}
-
-.custom-commands-grid {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.375rem;
-}
-
-.custom-cmd-btn {
-  padding: 0 0.5rem;
-  white-space: nowrap;
-  min-width: var(--shortcut-min-w);
-  height: var(--shortcut-btn-h);
-  background: var(--mobile-custom-cmd-bg);
-  border: 1px solid var(--mobile-custom-cmd-border);
-  color: var(--mobile-custom-cmd-color);
-  font-size: var(--shortcut-font);
-  font-weight: 500;
-  border-radius: 0.5rem;
-  cursor: pointer;
-  transition: all 0.15s ease;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  position: relative;
-  overflow: hidden;
-  padding: 0 0.25rem;
-}
-
-.custom-cmd-btn:active {
-  transform: scale(0.95);
-  background: var(--mobile-custom-cmd-active-bg);
-}
-
-.cmd-label {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 100%;
-}
-
-/* 编辑模式下按钮抖动提示 */
-.custom-cmd-btn.editing {
-  animation: wiggle 0.3s ease-in-out;
-  border-color: var(--mobile-danger-border);
-  background: var(--mobile-danger-bg);
-  color: var(--mobile-danger-color);
-}
-
-@keyframes wiggle {
-  0%, 100% { transform: rotate(0deg); }
-  25% { transform: rotate(-2deg); }
-  75% { transform: rotate(2deg); }
-}
-
-.cmd-delete-btn {
-  position: absolute;
-  top: -0.25rem;
-  right: -0.25rem;
-  width: 1rem;
-  height: 1rem;
-  background: var(--mobile-danger-solid-bg);
-  border: none;
-  border-radius: 9999px;
-  color: white;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  padding: 0;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
-}
-
-/* 删除徽章过渡动画 */
-.delete-badge-enter-active {
-  transition: all 0.2s ease-out;
-}
-.delete-badge-leave-active {
-  transition: all 0.15s ease-in;
-}
-.delete-badge-enter-from,
-.delete-badge-leave-to {
-  opacity: 0;
-  transform: scale(0.5);
-}
-
-/* 编辑切换按钮 */
-.edit-toggle-btn {
-  background: var(--mobile-edit-cmd-bg);
-  border: 1px solid var(--mobile-edit-cmd-border);
-  color: var(--mobile-edit-cmd-color);
-}
-
-.edit-toggle-btn:active {
-  transform: scale(0.95);
-  background: var(--mobile-edit-cmd-active-bg);
-}
-
-/* 添加按钮 */
-.add-cmd-btn {
-  background: var(--mobile-add-cmd-bg);
-  border: 1px dashed var(--mobile-add-cmd-border);
-  color: var(--mobile-add-cmd-color);
-}
-
-.add-cmd-btn:active {
-  transform: scale(0.95);
-  background: var(--mobile-add-cmd-active-bg);
 }
 
 /* ==================== Add Dialog ==================== */
