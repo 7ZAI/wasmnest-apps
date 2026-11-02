@@ -19,7 +19,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-function isFiniteNumber(value: unknown): value is number {
+export function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value)
 }
 
@@ -77,7 +77,11 @@ export function roleI18nKey(kind: string | undefined): string | null {
   }
 }
 
-/** 非插件维度段（默认隐藏 task：桌面宿主任务池在移动端不作为消费面） */
+/** 非插件维度段（默认隐藏 task：桌面宿主任务池在移动端不作为消费面）
+ *
+ * `process` 段已升级为**专用卡片**（`HostProcessCard` + `utils/process.ts`）：
+ * 不再进裸键名列表，否则同一份数据会在页面上出现两次。
+ */
 export function collectSystemSections(
   snapshot: MetricsSnapshot,
   opts: { includeTask?: boolean } = {},
@@ -85,7 +89,7 @@ export function collectSystemSections(
   const includeTask = opts.includeTask ?? false
   return Object.entries(snapshot)
     .filter(([id, data]) => {
-      if (id === 'plugins' || id === 'plugin_meta') return false
+      if (id === 'plugins' || id === 'plugin_meta' || id === 'process') return false
       if (!includeTask && id === 'task') return false
       return isRecord(data)
     })
@@ -103,6 +107,12 @@ export function shortPluginId(id: string): string {
 export function formatNumber(value: number | null | undefined): string {
   if (!isFiniteNumber(value)) return '—'
   return NUMBER_FORMAT.format(Math.round(value))
+}
+
+/** 百分比（输入已是 0..100 的百分数，如宿主进程 CPU）；保留一位小数 */
+export function formatPercent(value: number | null | undefined): string {
+  if (!isFiniteNumber(value)) return '—'
+  return `${value.toFixed(1)}%`
 }
 
 /** 字节：B / KiB / MiB / GiB / TiB */

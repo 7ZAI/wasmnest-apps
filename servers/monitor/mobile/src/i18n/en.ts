@@ -135,6 +135,29 @@ const en: MessageSchema = {
   'monitor.panels.retry': 'Retry',
   'monitor.inspector.usage': '{ratio} of memory limit',
   'monitor.inspector.noTraps': 'No traps recorded',
+  'monitor.process.title': 'Host process (WebView)',
+  'monitor.process.hint':
+    'Whole-machine view: PSS (apportioned shared pages) and RSS (upper bound), CPU as percent of one core. Separate from the wasm metrics above; the two are never added together.',
+  'monitor.process.unavailable':
+    'This host does not provide the process section (older host); no numbers are shown.',
+  'monitor.process.notSampled':
+    'The host exposes a process section, but this sample is unavailable.',
+  'monitor.process.pss': 'PSS (real)',
+  'monitor.process.rss': 'RSS (upper bound)',
+  'monitor.process.cpu': 'CPU (per core)',
+  'monitor.process.cpuPending': 'CPU awaiting baseline',
+  'monitor.process.webviewRow': 'WebView process',
+  'monitor.process.webviewAbsent': 'Not attributable (renderer has its own uid, outside this tree)',
+  'monitor.process.heapRow': 'WebView JS heap',
+  'monitor.process.heapValue': '{used} (limit {limit})',
+  'monitor.process.heapQuantized': 'browser-quantized',
+  'monitor.process.otherRow': 'Other children',
+  'monitor.process.otherValue': '{n} · PSS {pss}',
+  'monitor.process.treeRow': 'Process tree total',
+  'monitor.process.treeValue': 'PSS {pss} · RSS {rss} · CPU {cpu}',
+  'monitor.process.treeNote':
+    'The total excludes the WebView renderer process: mobile cannot read it, so this is not the whole-app figure.',
+
   'monitor.footer.source': 'Data from monitor.snapshot · permission metrics:read',
   'monitor.footer.session': 'This session · cleared on close',
 }

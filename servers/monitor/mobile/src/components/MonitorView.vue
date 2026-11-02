@@ -19,6 +19,7 @@ import {
   isServiceKind,
   sumValues,
 } from '../utils/format'
+import HostProcessCard from './HostProcessCard.vue'
 import PluginCardMobile from './PluginCardMobile.vue'
 import MiniSignal from './MiniSignal.vue'
 
@@ -33,6 +34,8 @@ const {
   rows,
   panels,
   systems,
+  hostProcess,
+  webviewHeap,
   summary,
   platform,
   error,
@@ -435,6 +438,13 @@ onBeforeUnmount(() => {
             </div>
             <p class="mnm-overview-gap">{{ tx('monitor.overview.hostGap') }}</p>
           </section>
+
+          <!-- ==================== 宿主进程 / WebView（整机口径，与上方 wasm 指标分开） ==================== -->
+          <HostProcessCard
+            v-if="!initialLoading && rows.length > 0"
+            :metrics="hostProcess"
+            :heap="webviewHeap"
+          />
 
           <!-- ==================== 加载骨架 ==================== -->
           <div

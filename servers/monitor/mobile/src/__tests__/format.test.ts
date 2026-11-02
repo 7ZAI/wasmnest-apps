@@ -5,6 +5,7 @@ import {
   formatBytes,
   formatDurationUs,
   formatNumber,
+  formatPercent,
   formatRatio,
   formatRate,
   normalizeSnapshot,
@@ -38,6 +39,17 @@ describe('shortPluginId（只剥固定前缀）', () => {
 })
 
 describe('toRows / collectSystemSections', () => {
+  it('process 段不进裸键名列表（它是专用卡片的数据源）', () => {
+    const sections = collectSystemSections(snapshot({ a: metrics() }, { process: {}, task: {} }))
+    expect(sections.map((section) => section.id)).toEqual([])
+  })
+
+  it('formatPercent：已是百分数，保留一位小数', () => {
+    expect(formatPercent(12.34)).toBe('12.3%')
+    expect(formatPercent(0.4)).toBe('0.4%')
+    expect(formatPercent(null)).toBe('—')
+  })
+
   it('行按 plugin_id 排序', () => {
     const rows = toRows(snapshot({ b: metrics(), a: metrics() }))
     expect(rows.map((row) => row.id)).toEqual(['a', 'b'])

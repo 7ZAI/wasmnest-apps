@@ -53,6 +53,128 @@ describe('MonitorView（移动界面契约）', () => {
     expect(wrapper.find('[data-testid="mobile-monitor-live"]').exists()).toBe(true)
   })
 
+  it('宿主进程卡片与 wasm 指标分开：PSS / CPU / WebView 不可归属 / JS 堆', async () => {
+    const execute = vi.fn(async () =>
+      snapshot(
+        { 'com.wasmnest.monitor': metrics({ memory_current_bytes: 1024 }) },
+        {
+          process: {
+            available: true,
+            cpuWindowMs: 1000,
+            cores: 8,
+            self: {
+              pid: 1000,
+              name: 'wasmnest-mobile',
+              role: 'host',
+              rssBytes: 300,
+              pssBytes: 204800,
+              cpuPercent: 12.5,
+            },
+            webview: {
+              present: false,
+              reason: 'not-a-child-process',
+              processCount: 0,
+              rssBytes: 0,
+              pssBytes: null,
+              cpuPercent: null,
+              processes: [],
+            },
+            otherChildren: {
+              processCount: 0,
+              rssBytes: 0,
+              pssBytes: 0,
+              cpuPercent: 0,
+              processes: [],
+            },
+            tree: { processCount: 1, rssBytes: 300, pssBytes: 204800, cpuPercent: 12.5 },
+          },
+        },
+      ),
+    )
+    const wrapper = mountView(makeContext(execute))
+
+    await flushPromises()
+
+    const card = wrapper.find('[data-testid="mobile-monitor-process"]')
+    expect(card.exists()).toBe(true)
+    // 自身 PSS / CPU
+    expect(wrapper.find('[data-testid="mobile-monitor-process-self"]').text()).toContain('200 KiB')
+    expect(card.text()).toContain('12.5%')
+    // WebView 不可归属：显式文案，不显示 0 字节
+    expect(wrapper.find('[data-testid="mobile-monitor-process-webview"]').text()).toContain(
+      '不可归属',
+    )
+    // 树合计的边界说明在场
+    expect(wrapper.find('[data-testid="mobile-monitor-process-tree-note"]').text()).toContain(
+      '不含 WebView',
+    )
+    // 与 wasm 台账同时在场（两块各说各的事实）
+    expect(wrapper.find('[data-testid="mobile-monitor-plugin-list"]').exists()).toBe(true)
+  })
+
+  it('Chromium 自报 JS 堆：量化值照实标注', async () => {
+    const execute = vi.fn(async () => snapshot({ a: metrics() }, { process: { available: true } }))
+    const wrapper = mountView(makeContext(execute))
+    await flushPromises()
+    // happy-dom 没有 performance.memory → 这一行不出现（不伪造 0）
+    expect(wrapper.find('[data-testid="mobile-monitor-process-heap"]').exists()).toBe(false)
+  })
+
+  it('Chromium 自报 JS 堆在场时：显示用量与量化标注', async () => {
+    const scope = globalThis as unknown as { performance: Record<string, unknown> }
+    const original = scope.performance.memory
+    scope.performance.memory = {
+      usedJSHeapSize: 10_000_000,
+      totalJSHeapSize: 10_000_000,
+      jsHeapSizeLimit: 1_530_000_000,
+    }
+    try {
+      const execute = vi.fn(async () =>
+        snapshot({ a: metrics() }, { process: { available: true, self: { pid: 1 } } }),
+      )
+      const wrapper = mountView(makeContext(execute))
+      await flushPromises()
+      const heap = wrapper.find('[data-testid="mobile-monitor-process-heap"]')
+      expect(heap.exists()).toBe(true)
+      expect(heap.text()).toContain('9.54 MiB')
+      expect(heap.text()).toContain('量化')
+    } finally {
+      if (original === undefined) delete scope.performance.memory
+      else scope.performance.memory = original
+    }
+  })
+
+  it('版面顺序：平台总览 → 宿主进程 → 台账', async () => {
+    const execute = vi.fn(async () =>
+      snapshot({ 'com.wasmnest.monitor': metrics() }, { process: { available: true } }),
+    )
+    const wrapper = mountView(makeContext(execute))
+
+    await flushPromises()
+
+    const all = Array.from(wrapper.element.querySelectorAll('*'))
+    const indexOf = (testid: string): number =>
+      all.findIndex((el) => el instanceof Element && el.getAttribute('data-testid') === testid)
+    const positions = [
+      'mobile-monitor-overview',
+      'mobile-monitor-process',
+      'mobile-monitor-plugin-list',
+    ].map(indexOf)
+    expect(positions.every((position) => position >= 0)).toBe(true)
+    expect(positions).toEqual([...positions].sort((a, b) => a - b))
+  })
+
+  it('旧宿主没有 process 段：卡片显示「未提供」，不拿 0 冒充', async () => {
+    const execute = vi.fn(async () => snapshot({ a: metrics() }))
+    const wrapper = mountView(makeContext(execute))
+
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="mobile-monitor-process"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="mobile-monitor-process-unavailable"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="mobile-monitor-process-self"]').exists()).toBe(false)
+  })
+
   it('正常态不靠标题命名区块：hero 无 lead 时改用 aria-label，不留悬空 aria-labelledby', async () => {
     const execute = vi.fn(async () =>
       snapshot({

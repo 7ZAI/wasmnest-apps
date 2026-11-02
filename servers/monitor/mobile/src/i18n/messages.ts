@@ -134,6 +134,27 @@ export type MessageSchema = {
   'monitor.panels.retry': string
   'monitor.inspector.usage': string
   'monitor.inspector.noTraps': string
+  // ==================== 宿主进程（WebView） ====================
+  // 整机口径：宿主进程的 PSS / RSS / CPU；与 wasm 段分开，不可相加
+  'monitor.process.title': string
+  'monitor.process.hint': string
+  'monitor.process.unavailable': string
+  'monitor.process.notSampled': string
+  'monitor.process.pss': string
+  'monitor.process.rss': string
+  'monitor.process.cpu': string
+  'monitor.process.cpuPending': string
+  'monitor.process.webviewRow': string
+  'monitor.process.webviewAbsent': string
+  'monitor.process.heapRow': string
+  'monitor.process.heapValue': string
+  'monitor.process.heapQuantized': string
+  'monitor.process.otherRow': string
+  'monitor.process.otherValue': string
+  'monitor.process.treeRow': string
+  'monitor.process.treeValue': string
+  'monitor.process.treeNote': string
+
   'monitor.footer.source': string
   'monitor.footer.session': string
 }

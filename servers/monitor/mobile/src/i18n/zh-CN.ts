@@ -131,6 +131,27 @@ const zhCN: MessageSchema = {
   'monitor.panels.retry': '重试',
   'monitor.inspector.usage': '占内存上限 {ratio}',
   'monitor.inspector.noTraps': '未记录 Trap',
+  'monitor.process.title': '宿主进程（WebView）',
+  'monitor.process.hint':
+    '整机口径：宿主进程的 PSS（共享页按比例分摊）与 RSS（上界）、CPU 占单核百分比。与上方 wasm 指标分开，两者不可相加。',
+  'monitor.process.unavailable': '当前宿主未提供 process 段（宿主版本较旧），此处不显示数字。',
+  'monitor.process.notSampled': '宿主已装配 process 段，但本次采样不可用。',
+  'monitor.process.pss': 'PSS（真占用）',
+  'monitor.process.rss': 'RSS（上界）',
+  'monitor.process.cpu': 'CPU（单核）',
+  'monitor.process.cpuPending': 'CPU 待基线',
+  'monitor.process.webviewRow': 'WebView 进程',
+  'monitor.process.webviewAbsent': '不可归属（渲染进程独立 uid，不在本进程树）',
+  'monitor.process.heapRow': 'WebView JS 堆',
+  'monitor.process.heapValue': '{used}（上限 {limit}）',
+  'monitor.process.heapQuantized': '浏览器量化值',
+  'monitor.process.otherRow': '其他子进程',
+  'monitor.process.otherValue': '{n} 个 · PSS {pss}',
+  'monitor.process.treeRow': '进程树合计',
+  'monitor.process.treeValue': 'PSS {pss} · RSS {rss} · CPU {cpu}',
+  'monitor.process.treeNote':
+    '合计不含 WebView 渲染进程：移动端读不到它，故不是「整个 app」的口径。',
+
   'monitor.footer.source': '数据来自 monitor.snapshot · 权限 metrics:read',
   'monitor.footer.session': '本次打开 · 关闭即失',
 }
