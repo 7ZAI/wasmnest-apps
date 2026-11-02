@@ -120,6 +120,9 @@
       </div>
     </section>
 
+    <!-- 版本更新（SDK 默认实现；宿主统一 GitHub Release 判定） -->
+    <AppUpdateSection />
+
     <!-- ==================== 重置 ==================== -->
     <button
       type="button"
@@ -148,6 +151,7 @@
  * 数据面：useAppSettings（宿主通用 KV 桥）；本组件不直连任何 Tauri 命令。
  */
 import { onMounted } from 'vue'
+import AppUpdateSection from '@binblink/wasmnest-plugin-sdk-mobile/ui/app-update'
 import Toggle from '../terminal/components/Toggle.vue'
 import StepperControl from '../terminal/components/StepperControl.vue'
 import { SETTING_GROUPS, SETTINGS_BY_KEY } from './settingsModel'

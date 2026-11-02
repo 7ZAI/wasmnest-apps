@@ -3,6 +3,7 @@
   "name": "Monitor",
   "version": "0.0.1",
   "platform": "desktop",
+  "update": { "provider": "github-release" },
   "description": "运行监控：只读查看所有已加载 wasm 应用的运行时指标（内存当前 / 峰值与上限、调用次数与在飞、平均 / 最大耗时、燃料消耗、trap 原因分布、生命周期计数、授权决策、总线背压、配额上限），并提供平台总览（全部 wasm 的内存 / 计算负载合计、内存占用前三）与阈值预警（平台与单插件内存、插件状态、Trap 增量、计算负载、任务池背压；可经宿主投递系统通知）。宿主进程（WebView）面板另给整机口径：宿主主进程 + WebView 子进程的 PSS / RSS / CPU 与进程树合计，与 wasm 指标分开、不可相加；宿主未装配该段时显式标注「未提供」。\n使用：主屏打开「Monitor」→ 页面每秒自动刷新；metrics:read 由随包信任域按 manifest 自动授予（一次授予覆盖全部应用，可据此推断其他应用活跃度）；授权被拒或宿主未装配指标源时页面显示明确错误。",
   "author": "WasmNest",
   "main": "index.js",

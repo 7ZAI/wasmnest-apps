@@ -14,6 +14,7 @@
 
 import { computed, type ComputedRef } from 'vue'
 import AppearanceSettingsSection from '@/components/AppearanceSettingsSection.vue'
+import AppUpdateSettingsSection from '@/components/AppUpdateSettingsSection.vue'
 import LinkCryptoSettingsSection from '@/components/LinkCryptoSettingsSection.vue'
 import PairingSettingsSection from '@/components/PairingSettingsSection.vue'
 import SessionSettingsSection from '@/components/SessionSettingsSection.vue'
@@ -24,6 +25,7 @@ export const SECTION_ORDERS = {
   pairing: 200,
   linkCrypto: 300,
   session: 400,
+  appUpdate: 500,
 } as const
 
 /** 设置分组条目（与宿主 useSettingsSections 同形状，app 侧自持） */
@@ -60,6 +62,12 @@ export const settingsSections: Omit<SettingsSectionEntry, 'props'>[] = [
     order: SECTION_ORDERS.session,
     component: SessionSettingsSection,
     titleKey: 'session.settings.title',
+  },
+  {
+    key: 'appUpdate',
+    order: SECTION_ORDERS.appUpdate,
+    component: AppUpdateSettingsSection,
+    titleKey: 'settings.appUpdate.title',
   },
 ]
 

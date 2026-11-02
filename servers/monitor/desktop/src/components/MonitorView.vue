@@ -28,6 +28,7 @@ import { hostProcessOf } from '../utils/process'
 import { topMemoryConsumers } from '../utils/platform'
 import i18n from '../i18n'
 import AlertPanel from './AlertPanel.vue'
+import AppUpdateSection from '@binblink/wasmnest-plugin-sdk-desktop/ui/app-update'
 import HostProcessPanel from './HostProcessPanel.vue'
 import PlatformOverview from './PlatformOverview.vue'
 import PluginInspector from './PluginInspector.vue'
@@ -737,6 +738,11 @@ onBeforeUnmount(() => {
           @update="handleAlertUpdate"
           @reset="handleAlertReset"
         />
+      </section>
+
+      <!-- ==================== 版本更新（SDK 默认实现） ==================== -->
+      <section class="mn-wrap mn-update-section" data-ui>
+        <AppUpdateSection />
       </section>
 
       <!-- ==================== 收束（脚注：数据来源 / 采样口径 / 会话寿命） ==================== -->

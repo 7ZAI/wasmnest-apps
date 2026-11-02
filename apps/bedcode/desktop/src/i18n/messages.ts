@@ -418,6 +418,8 @@ export type MessageSchema = {
 
   // ==================== 设置页「会话」分组（默认执行环境 / 默认启动命令） ====================
   // 槽位：宿主 `BUILTIN_SECTION_ORDERS.session`（400）退役后由本分组占据原位
+  'settings.appUpdate.title': string
+
   'session.settings.title': string
   'session.settings.defaultEnvironment': string
   'session.settings.defaultCommand': string

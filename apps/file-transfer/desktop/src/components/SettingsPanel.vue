@@ -10,6 +10,7 @@ import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-desktop'
 import type { Settings } from '../types'
 import type { RootItem } from '../composables/useSettings'
 import TrustedPeersSection from './TrustedPeersSection.vue'
+import AppUpdateSection from '@binblink/wasmnest-plugin-sdk-desktop/ui/app-update'
 
 const context = inject<PluginContext>('pluginContext')!
 const t = (key: string, params?: Record<string, any>) => context.i18n.t(key, params)
@@ -219,6 +220,11 @@ function onTimeoutBlur(e: Event): void {
 
         <!-- 可信对端管理（spec 决策 8）：独立分区，列表/撤销自包含 -->
         <TrustedPeersSection data-testid="ft-settings-section-trusted" />
+
+        <!-- 版本更新（SDK 默认实现；宿主统一 GitHub Release 判定） -->
+        <section class="ft-settings-section" data-testid="ft-settings-section-update">
+          <AppUpdateSection />
+        </section>
 
         <!-- 安全告知（spec §10 常驻） -->
         <div class="ft-warning" data-testid="ft-settings-warning">

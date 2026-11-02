@@ -317,6 +317,11 @@
         </div>
       </div>
     </section>
+
+    <!-- 版本更新（SDK 默认实现；宿主统一 GitHub Release 判定） -->
+    <section>
+      <AppUpdateSection />
+    </section>
   </div>
 </template>
 
@@ -337,6 +342,7 @@
 import { computed, defineComponent, h, ref, type Ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Select from '@binblink/wasmnest-plugin-sdk-desktop/ui'
+import AppUpdateSection from '@binblink/wasmnest-plugin-sdk-desktop/ui/app-update'
 import type { PluginConfig } from '../types'
 import {
   CODE_FONT_SIZE_MAX,

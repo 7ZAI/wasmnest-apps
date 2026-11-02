@@ -399,6 +399,8 @@ const en: MessageSchema = {
   'session.notification.mobileDevice': 'Mobile device',
 
   // ==================== Settings section "Session" (wording taken verbatim from host `settings.session.*`) ====================
+  'settings.appUpdate.title': 'Version update',
+
   'session.settings.title': 'Session',
   'session.settings.defaultEnvironment': 'Default environment',
   'session.settings.defaultCommand': 'Default command',

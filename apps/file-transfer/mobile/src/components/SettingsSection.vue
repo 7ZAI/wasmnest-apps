@@ -19,6 +19,7 @@ import { isNeedsAllFilesAccess, promptAllFilesAccess } from '../composables/useA
 import { KIND_PRIVATE_DOWNLOADS } from '../types'
 import type { ReceivingPolicy } from '../types'
 import TrustedPeersSection from './TrustedPeersSection.vue'
+import AppUpdateSection from '@binblink/wasmnest-plugin-sdk-mobile/ui/app-update'
 
 type SettingsApi = ReturnType<typeof useSettings>
 
@@ -330,6 +331,9 @@ watch(() => props.settingsApi.settings.value.approvalTimeoutSec, syncTimeoutInpu
         </div>
       </div>
     </section>
+
+    <!-- ==================== 版本更新（SDK 默认实现） ==================== -->
+    <AppUpdateSection />
 
     <!-- ==================== 可信对端管理（spec 决策 8） ==================== -->
     <!-- 独立分区，列表/撤销自包含 -->

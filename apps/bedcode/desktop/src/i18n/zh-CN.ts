@@ -391,6 +391,9 @@ const zhCN: MessageSchema = {
   'session.notification.deviceDisconnected': '"{name}" 已断开连接',
   'session.notification.mobileDevice': '移动设备',
 
+  // ==================== 设置页「版本更新」分组 ====================
+  'settings.appUpdate.title': '版本更新',
+
   // ==================== 设置页「会话」分组（文案逐字取自宿主 `settings.session.*`） ====================
   'session.settings.title': '会话',
   'session.settings.defaultEnvironment': '默认执行环境',

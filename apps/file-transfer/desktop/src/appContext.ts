@@ -63,6 +63,7 @@ export function createAppContext(env: AppMountEnv): PluginContext {
   const context = {
     id: env.appId,
     extensionPath: '',
+    appUpdate: env.appUpdate,
 
     commands: {
       async execute(id: string, ...args: unknown[]): Promise<any> {

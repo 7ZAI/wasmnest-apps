@@ -22,6 +22,7 @@ import {
 import HostProcessCard from './HostProcessCard.vue'
 import PluginCardMobile from './PluginCardMobile.vue'
 import MiniSignal from './MiniSignal.vue'
+import AppUpdateSection from '@binblink/wasmnest-plugin-sdk-mobile/ui/app-update'
 
 const NAMESPACE = 'com.wasmnest.monitor'
 const { t, locale } = useI18n()
@@ -512,6 +513,11 @@ onBeforeUnmount(() => {
               </div>
             </section>
           </template>
+
+          <!-- ==================== 版本更新（SDK 默认实现） ==================== -->
+          <div style="padding: 0 16px 16px">
+            <AppUpdateSection />
+          </div>
 
           <!-- ==================== 收束（脚注：数据来源 / 采样口径 / 会话寿命） ==================== -->
           <footer class="mnm-footer">

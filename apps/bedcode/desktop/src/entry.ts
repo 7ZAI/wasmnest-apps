@@ -41,6 +41,15 @@ export interface AppMountEnv {
   mountContract: string
   /** 宿主面命令（白名单代理，ADR 0058 方案 A）：plugin_list_loaded / get_app_settings 等；真源在桌面宿主 APP_FRONTEND_INVOKE_WHITELIST */
   invoke: <T = unknown>(command: string, args?: Record<string, unknown>) => Promise<T>
+  /** 应用更新检查（宿主统一默认实现；appId 与宿主面凭证已绑定） */
+  appUpdate?: {
+    check: () => Promise<{
+      status: 'idle' | 'checking' | 'up-to-date' | 'available' | 'incompatible' | 'error'
+      latestVersion?: string
+      currentVersion?: string
+      reason?: { key: string; params?: Record<string, string> }
+    }>
+  }
   /** 插件面命令（plugin_invoke，本 app 通道令牌已绑定） */
   appInvoke: <T = unknown>(command: string, ...args: unknown[]) => Promise<T>
   /** 本 app 插件 KV 存储（plugin_storage_*，宿主面凭证已绑定） */
