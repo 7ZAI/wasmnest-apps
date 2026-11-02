@@ -97,6 +97,51 @@ pub const ENDPOINT_PATH: &str = "terminal";
 /// 单次 ring-fetch 上限（对齐宿主 `PLUGIN_PTY_RING_FETCH_MAX_BYTES` = 16 KiB；
 /// 宿主侧仍会钳位）
 const MAX_FETCH_BYTES: u32 = 16 * 1024;
+
+/// 进页重放的尾部窗口（issue #1 F6）：只回放环内最后 1 MiB。
+///
+/// xterm scrollback 10000 行约 0.7 MiB（80 列），而会话环可驻留 10 MiB——
+/// 每次进页整段重放纯属浪费（移动端尤其明显）。1 MiB 给宽行 / CJK 留了余量；
+/// 超出窗口的历史由 「环淘汰 → ring_resync」同款语义显性截断（客户端清屏从
+/// 窗口起点续画），不会假装历史完整。
+const REPLAY_TAIL_BYTES: u64 = 1024 * 1024;
+
+/// 重放起点对齐的扫描窗口（issue #1 F3）：在这段字节里找行首 / ESC 边界。
+///
+/// 起始游标可能落在转义序列或 UTF-8 多字节字符中段（环淘汰点、尾部窗口起点
+/// 都是任意字节位置），直接从那里重放会在顶部留半行脏字 / 半个控制序列。
+const REPLAY_ALIGN_SCAN_BYTES: u32 = 4 * 1024;
+
+/// 重放尾部窗口起点（F6）：环累计产出往前推 `REPLAY_TAIL_BYTES`
+fn replay_tail_start(producer: u64) -> u64 {
+    producer.saturating_sub(REPLAY_TAIL_BYTES)
+}
+
+/// 重放起点对齐（F3）：返回应从 `bytes` 起跳过的字节数。
+///
+/// 优先级：**行首**（相对下一个 `\n`）> **ESC 边界**（避免半条转义序列）>
+/// **UTF-8 字符边界**（跳过续字节，避免半个字符）。都找不到就原地起步——
+/// 对齐是显示优化，宁可顶部脏半行，也不能把整块重放吞掉。
+fn replay_align_skip(bytes: &[u8]) -> usize {
+    if bytes.is_empty() {
+        return 0;
+    }
+    // 1) 行首：第一个换行之后（块尾刚好是换行则整块跳过，下一块本就从行首起）
+    if let Some(i) = bytes.iter().position(|b| *b == b'\n') {
+        return i + 1;
+    }
+    // 2) 无换行（进度条 / alt-screen 重绘）：从第一个 ESC 起，避开半条序列
+    if let Some(i) = bytes.iter().position(|b| *b == 0x1b) {
+        return i;
+    }
+    // 3) 纯文本：跳过 UTF-8 续字节（0b10xx_xxxx），从完整字符起
+    let mut i = 0;
+    while i < bytes.len() && (bytes[i] & 0b1100_0000) == 0b1000_0000 {
+        i += 1;
+    }
+    i
+}
+
 /// 单轮 drain 的最大 fetch 次数（≈128 KiB 预算：每帧回调不无限拉取，
 /// 慢消费的积压靠下一轮 drain 续拉）
 const MAX_FETCHES_PER_CYCLE: u32 = 8;
@@ -138,7 +183,7 @@ pub enum Gate {
 ///
 /// | 插件动作 | 客户端动作 | `base` |
 /// |---|---|---|
-/// | `subscribe` → `conn.cursor = 0` | 收 `subscribed` → 本地计数归零 | [`Watermark::reset`] |
+/// | `subscribe` → 首拉前裁到尾部窗口并对齐起点 | 收 `subscribed` → 本地计数归零 | [`Watermark::reset`] → [`Watermark::reanchor`] |
 /// | 发 `ring_resync` → 游标跳新基准 | 收 `ring_resync` → 本地计数归零 | [`Watermark::reanchor`] |
 ///
 /// 换算偏差的两个方向安全性不同（这是 `acked` 取单调 max 的理由）：
@@ -315,6 +360,10 @@ struct TerminalConnection {
     /// 交付水位（背压记账；`Watermark` 是 Copy，drain 期间在局部副本上推进，
     /// 轮末 / 早退时整体回写——**不跨宿主调用持锁**）
     watermark: Watermark,
+    /// 全新订阅的首拉待做「尾部裁剪 + 起点对齐」（issue #1 F3/F6）。
+    /// 宿主 fetch 放在锁外的 [`prepare_replay`] 里做；无论成败都清标记，
+    /// 只在订阅后的第一轮 drain 生效。
+    replay_pending: bool,
     mode: TerminalMode,
 }
 
@@ -346,6 +395,7 @@ pub fn on_client_connect(client_id: &str, endpoint_id: &str) {
             pty_id: None,
             cursor: 0,
             watermark: Watermark::default(),
+            replay_pending: false,
             mode: TerminalMode::Live,
         });
     }
@@ -437,6 +487,9 @@ fn handle_text_frame(
             conn.pty_id = Some(pty_id);
             conn.cursor = 0;
             conn.watermark.reset();
+            // 首轮 drain 前做「尾部窗口裁剪 + 起点对齐」（F3/F6）；宿主调用在
+            // 锁外的 prepare_replay 里执行
+            conn.replay_pending = true;
             conn.mode = mode;
             Ok(true)
         }
@@ -452,6 +505,7 @@ fn handle_text_frame(
             conn.session_id = None;
             conn.pty_id = None;
             conn.cursor = 0;
+            conn.replay_pending = false;
             Ok(false)
         }
         // 流控信号：客户端按 **xterm 解析完成水位**确认已消费的本地累计字节。
@@ -552,12 +606,108 @@ pub fn on_client_message(
     })
     .unwrap_or(false);
     if need_drain {
+        // 首拉（subscribe 后第一轮）：先把重放窗口裁到尾部并对齐起点
+        prepare_replay(client_id);
         drain_for(endpoint_id, client_id).map_err(anyhow::Error::msg)?;
     }
     Ok(())
 }
 
 // ==================== 输出泵（有界 drain） ====================
+
+/// 探测环生产端累计偏移（宿主只暴露 `fetch`，没有水位查询接口）。
+///
+/// 语义依据（宿主 `pty_ring_fetch`）：`fetch(offset)` 在 `offset ≥ max_offset`
+/// 时返回 `Ok(None)`，否则返回 `Some`（含「游标落后于驻留起点」的 truncated 块）。
+/// 因此用「指数扩张找上界 + 二分找边界」即可，约 `2·log2(环字节数)` 次宿主调用、
+/// 每次 1 字节（10 MiB 环约 13 次），不必为拿一个偏移把整个环拉一遍。
+///
+/// 返回 `None` = 探测失败（宿主错误 / 溢出），调用方放弃裁剪、按原样从游标回放。
+#[cfg(target_arch = "wasm32")]
+fn probe_producer(pty_id: &str, cursor: u64) -> Option<u64> {
+    let has_data = |offset: u64| -> Option<bool> {
+        WasmHost
+            .pty_ring_fetch(pty_id, offset, 1)
+            .ok()
+            .map(|fetched| fetched.is_some())
+    };
+
+    // 已追平：生产端就是游标（空环 / 无新输出）
+    if !has_data(cursor)? {
+        return Some(cursor);
+    }
+
+    let mut lo = cursor;
+    let mut hi = cursor.saturating_add(REPLAY_ALIGN_SCAN_BYTES as u64);
+    loop {
+        if !has_data(hi)? {
+            break;
+        }
+        lo = hi;
+        hi = hi.checked_mul(2)?;
+    }
+    while hi.saturating_sub(lo) > 1 {
+        let mid = lo + (hi - lo) / 2;
+        if has_data(mid)? {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    Some(hi)
+}
+
+/// 全新订阅的首拉准备（issue #1 F3/F6）：把重放窗口裁到环尾部，并让起点落在
+/// 行首 / ESC / UTF-8 字符边界上。
+///
+/// 必须在 `CONNECTIONS` 锁外执行（含两次宿主 fetch），状态回写再取一次锁。
+/// 只在订阅后的第一轮 drain 前调用一次（`replay_pending` 门控）；失败也清标记
+/// ——重放对齐是体验优化，不能因为它让订阅永久停在未拉取状态。
+#[cfg(target_arch = "wasm32")]
+fn prepare_replay(client_id: &str) {
+    let state = with_conn(client_id, |c| {
+        (c.replay_pending, c.pty_id.clone(), c.cursor)
+    })
+    .and_then(|(pending, pty, cursor)| if pending { pty.map(|p| (p, cursor)) } else { None });
+    let Some((pty_id, cursor)) = state else { return };
+
+    // 生产端累计偏移（宿主无水位查询，用 fetch 边界二分探测）
+    let Some(producer) = probe_producer(&pty_id, cursor) else {
+        let _ = with_conn(client_id, |c| c.replay_pending = false);
+        return;
+    };
+
+    let desired = replay_tail_start(producer).max(cursor);
+    let aligned = match WasmHost.pty_ring_fetch(&pty_id, desired, REPLAY_ALIGN_SCAN_BYTES) {
+        Ok(Some(f)) if !f.data.is_empty() => {
+            let block_start = f.next_offset.saturating_sub(f.data.len() as u64);
+            if block_start == 0 {
+                // 会话起点（环未被裁过、也未做尾部裁剪）：本身就从第一行开始，
+                // 对齐反而会吞掉首行（提示符 / 首条输出）
+                0
+            } else {
+                block_start.saturating_add(replay_align_skip(&f.data) as u64)
+            }
+        }
+        _ => desired,
+    };
+
+    let changed = aligned > cursor;
+    let _ = with_conn(client_id, |c| {
+        c.replay_pending = false;
+        if aligned > c.cursor {
+            c.cursor = aligned;
+            // 客户端收到的第一个字节就在 aligned：本地 ack 零点 = 该偏移
+            // （与 subscribe 归零 / ring_resync 重锚同一套换算，见 Watermark 头注）
+            c.watermark.reanchor(aligned);
+        }
+    });
+    if changed {
+        WasmHost.log_debug(&format!(
+            "ws terminal: 重放窗口对齐（client_id={client_id}, producer={producer}, start={aligned}, tail_cap={REPLAY_TAIL_BYTES}）"
+        ));
+    }
+}
 
 /// 对指定连接做一轮有界 drain：背压裁决 → 逐次 ring-fetch 直到追平 / 预算用尽 /
 /// 环淘汰（truncated → 先发 `ring_resync` 再照发本块驻留数据）
@@ -1470,6 +1620,72 @@ mod tests {
             violations.is_empty(),
             "ws_terminal 实现段不得出现宿主业务类型（票 04）：\n{}",
             violations.join("\n")
+        );
+    }
+
+    // ==================== 重放窗口（issue #1 F3/F6） ====================
+
+    /// F6：重放窗口裁到环尾部 1 MiB；不足上限时从头回放
+    #[test]
+    fn replay_tail_start_caps_window_and_keeps_short_history() {
+        assert_eq!(replay_tail_start(10 * 1024 * 1024), 9 * 1024 * 1024);
+        assert_eq!(replay_tail_start(REPLAY_TAIL_BYTES), 0);
+        assert_eq!(replay_tail_start(1234), 0, "短历史必须从头回放，不得裁空");
+        assert_eq!(replay_tail_start(0), 0);
+    }
+
+    /// F3：起点优先对齐行首（顶部不留半行）
+    #[test]
+    fn replay_align_skip_prefers_line_start() {
+        // 从行中段开始：跳过到下一个换行之后
+        assert_eq!(replay_align_skip(b"alf-line\r\nnext"), 10);
+        // 块尾刚好是换行：整块跳过（下一块本就从行首起）
+        assert_eq!(replay_align_skip(b"tail\n"), 5);
+        // 空块：不动
+        assert_eq!(replay_align_skip(b""), 0);
+    }
+
+    /// F3：无换行时退到 ESC 边界（进度条 / alt-screen 重绘常见）
+    #[test]
+    fn replay_align_skip_falls_back_to_escape_boundary() {
+        assert_eq!(replay_align_skip(b"35mred\x1b[0m"), 6, "首个 ESC 之前的前缀应当丢弃");
+        assert_eq!(replay_align_skip(b"abc\x1b[2J"), 3);
+    }
+
+    /// F3：纯文本退到 UTF-8 字符边界（不从中文字节中段开始）
+    #[test]
+    fn replay_align_skip_falls_back_to_utf8_boundary() {
+        // "中" = E4 B8 AD；从第二个续字节起 → 跳过 1 个续字节
+        assert_eq!(replay_align_skip(&[0xB8, 0xAD, b'a']), 2);
+        // 完整字符开头：不动
+        assert_eq!(replay_align_skip("中文".as_bytes()), 0);
+    }
+
+    /// 结构锁：订阅后首轮 drain 前必须做窗口准备，且宿主 fetch 不在连接锁内
+    #[test]
+    fn subscribe_prepares_replay_window_before_first_drain() {
+        let src = source();
+        assert!(
+            src.contains("conn.replay_pending = true"),
+            "全新订阅必须标记待准备（否则重放仍从环起点整段灌入）"
+        );
+
+        let on_message = fn_body(&src, "pub fn on_client_message(");
+        let prepare = on_message.find("prepare_replay(client_id)").expect("首拉准备调用");
+        let drain = on_message.find("drain_for(").expect("drain 调用");
+        assert!(prepare < drain, "窗口准备必须先于首轮 drain");
+
+        let body = fn_body(&src, "fn prepare_replay(");
+        let fetch = body.find("pty_ring_fetch(").expect("生产端水位探测");
+        let reanchor = body.find("watermark.reanchor(aligned)").expect("对齐后重锚");
+        assert!(fetch < reanchor, "必须先取到块起点再重锚");
+        assert!(
+            body.contains("replay_tail_start(producer)"),
+            "裁剪窗口必须取尾部窗口起点"
+        );
+        assert!(
+            body.contains("replay_align_skip(&f.data)"),
+            "起点必须做边界对齐"
         );
     }
 }
