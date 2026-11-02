@@ -2,12 +2,13 @@
 /**
  * 宿主进程 / WebView 面板（桌面）：**与 wasm 指标分开的整机口径**。
  *
- * 显示的是宿主 `process` 段——宿主主进程 + WebKitGTK 子进程的 OS 账：
- * - PSS = 共享页按比例分摊后的「真占用」；RSS 是上界（同一棵树按进程加总会
- *   重复计共享库页，实测可差近两倍），两者并列显示，不互相顶替；
- * - CPU 是「占单核百分比」，并列下发核数供换算；
- * - `webview.present === false` 是「进程树里没有 WebView 子进程」（macOS 的
- *   内容进程由 launchd 拉起），页面必须显示「未归属」而不是 0 字节。
+ * 数据来自宿主 `process` 段。版面与「平台总览」同构（全宽横排卡片），因为它回答的
+ * 是同一层的整机问题，只是口径从「全部 wasm 的合计」换成「宿主进程树的 OS 账」：
+ * - PSS = 共享页按比例分摊后的真占用；RSS 是上界（按进程加总 RSS 会重复计共享库页，
+ *   实测可差 ~1.45 倍），两者并列，不互相顶替；
+ * - CPU 是「占单核百分比」，核数并列下发供换算；
+ * - `webview.present === false` 是「进程树里没有 WebView 子进程」（macOS 的内容进程
+ *   由 launchd 拉起），必须显示「未归属」而不是 0 字节。
  *
  * 段缺失（旧宿主）= `null`，显示「未提供」，不伪造数字。
  */
@@ -20,79 +21,44 @@ const props = defineProps<{ metrics: HostProcessMetrics | null }>()
 const context = inject<MonitorAppContext>('pluginContext')!
 const t = (key: string, params?: Record<string, unknown>): string => context.i18n.t(key, params)
 
-interface ScopeBlock {
-  id: 'self' | 'webview' | 'other' | 'tree'
-  scope: ProcessScope | null | undefined
-  processes: ProcessSample[] | undefined
-  /** 备注（没有 WebView / PSS 不可用等），null = 无需备注 */
-  note: string | null
-  testId: string
-}
-
-const scopes = computed<ScopeBlock[]>(() => {
-  const metrics = props.metrics
-  if (!metrics || !metrics.available) return []
-  const webview = metrics.webview
-  const other = metrics.otherChildren
-  return [
-    {
-      id: 'self',
-      scope: metrics.self ?? null,
-      processes: undefined,
-      note: null,
-      testId: 'self',
-    },
-    {
-      id: 'webview',
-      scope: webview ?? null,
-      processes: webview?.processes,
-      note: !webview
-        ? t('monitor.process.webviewMissing')
-        : !webview.present
-          ? t('monitor.process.webviewAbsent')
-          : null,
-      testId: 'webview',
-    },
-    {
-      id: 'other',
-      scope: other ?? null,
-      processes: other?.processes,
-      note: other && (other.processCount ?? 0) === 0 ? t('monitor.process.noOtherChildren') : null,
-      testId: 'other',
-    },
-    {
-      id: 'tree',
-      scope: metrics.tree ?? null,
-      processes: undefined,
-      note: null,
-      testId: 'tree',
-    },
-  ]
-})
+const available = computed(() => props.metrics?.available === true)
+const webview = computed(() => props.metrics?.webview)
+const webviewPresent = computed(() => webview.value?.present === true)
 
 /** WebView 占进程树 PSS 的比例（任一侧缺失 → null，不除零、不猜） */
-const webviewShare = computed<number | null>(() => {
-  const metrics = props.metrics
-  return usageRatio(metrics?.webview?.pssBytes ?? null, metrics?.tree?.pssBytes ?? null)
-})
+const webviewShare = computed<number | null>(() =>
+  usageRatio(webview.value?.pssBytes ?? null, props.metrics?.tree?.pssBytes ?? null),
+)
 
-/** CPU 口径说明：单核百分比 + 核数（无基线时缺省） */
+/** CPU 口径说明：占单核百分比 + 机器核数（缺省时不猜） */
 const cpuHint = computed<string | null>(() => {
-  const metrics = props.metrics
-  if (!metrics || !metrics.available) return null
-  const cores = metrics.cores
+  const cores = props.metrics?.cores
   if (typeof cores === 'number' && cores > 0) {
     return t('monitor.process.cpuCores', { n: cores })
   }
   return null
 })
 
-const cpuPending = computed<boolean>(() => {
-  const metrics = props.metrics
-  return !!metrics && metrics.available && (metrics.cpuWindowMs ?? null) === null
+const webviewShareScale = computed(() => {
+  const share = webviewShare.value
+  return share === null ? 0 : Math.min(1, Math.max(0, share))
 })
 
-function bytesText(scope: ProcessScope | null | undefined): string {
+/** WebView 明细（渲染 / 网络 / GPU）+ 其他子进程：横排一行一条 */
+const detailRows = computed<ProcessSample[]>(() => {
+  const metrics = props.metrics
+  if (!metrics || !metrics.available) return []
+  return [...(metrics.webview?.processes ?? []), ...(metrics.otherChildren?.processes ?? [])].sort(
+    (a, b) => a.pid - b.pid,
+  )
+})
+
+const detailBase = computed(() => {
+  const rows = detailRows.value
+  return rows.reduce((max, row) => Math.max(max, row.pssBytes ?? row.rssBytes ?? 0), 0)
+})
+
+function pssText(scope: ProcessScope | null | undefined): string {
   return formatBytes(scope?.pssBytes ?? null)
 }
 
@@ -104,24 +70,36 @@ function cpuText(scope: ProcessScope | null | undefined): string {
   return formatPercent(scope?.cpuPercent ?? null)
 }
 
-function sampleBytes(sample: ProcessSample): string {
+/** 卡片注释：RSS · CPU（· 进程数）；CPU 无基线时按 key 说明，不写 0% */
+function noteOf(scope: ProcessScope | null | undefined, withCount = false): string {
+  const parts = [
+    `${t('monitor.process.rss')} ${rssText(scope)}`,
+    props.metrics?.cpuWindowMs === null
+      ? t('monitor.process.cpuPending')
+      : `${t('monitor.process.cpu')} ${cpuText(scope)}`,
+  ]
+  if (withCount) {
+    parts.push(t('monitor.process.nProcesses', { n: formatNumber(scope?.processCount) }))
+  }
+  return parts.join(' · ')
+}
+
+function rowPss(sample: ProcessSample): string {
   return formatBytes(sample.pssBytes ?? sample.rssBytes ?? null)
 }
 
-function sampleCpu(sample: ProcessSample): string {
+function rowScale(sample: ProcessSample): number {
+  const value = sample.pssBytes ?? sample.rssBytes ?? 0
+  return detailBase.value > 0 ? Math.min(1, value / detailBase.value) : 0
+}
+
+function rowCpu(sample: ProcessSample): string {
   return formatPercent(sample.cpuPercent ?? null)
 }
 </script>
 
 <template>
-  <section class="mn-host-section" data-ui data-testid="monitor-process">
-    <header class="mn-section-head">
-      <div>
-        <h2 class="mn-section-title">{{ t('monitor.process.title') }}</h2>
-        <p class="mn-section-hint">{{ t('monitor.process.hint') }}</p>
-      </div>
-    </header>
-
+  <section class="mn-overview" data-testid="monitor-process">
     <p
       v-if="!props.metrics"
       class="mn-process-note"
@@ -132,7 +110,7 @@ function sampleCpu(sample: ProcessSample): string {
     </p>
 
     <p
-      v-else-if="!props.metrics.available"
+      v-else-if="!available"
       class="mn-process-note"
       role="status"
       data-testid="monitor-process-unavailable"
@@ -142,65 +120,95 @@ function sampleCpu(sample: ProcessSample): string {
     </p>
 
     <template v-else>
-      <div class="mn-process-share" data-testid="monitor-process-share">
-        <span class="mn-process-share-label">{{ t('monitor.process.webviewShare') }}</span>
-        <span class="mn-process-share-value">
-          {{ webviewShare === null ? '—' : formatRatio(webviewShare) }}
-        </span>
-      </div>
+      <div class="mn-overview-grid">
+        <!-- 宿主主进程：PSS 为主值，RSS / CPU 作注释 -->
+        <div class="mn-overview-card" data-testid="monitor-process-self">
+          <span class="mn-overview-label">{{ t('monitor.process.scope.self') }}</span>
+          <span class="mn-overview-value">{{ pssText(props.metrics.self) }}</span>
+          <span class="mn-overview-note">
+            {{ t('monitor.process.pss') }} · {{ noteOf(props.metrics.self) }}
+          </span>
+        </div>
 
-      <div class="mn-process-scopes">
-        <div
-          v-for="block in scopes"
-          :key="block.id"
-          class="mn-process-scope"
-          :data-testid="`monitor-process-${block.testId}`"
-        >
-          <h3 class="mn-process-scope-title">{{ t(`monitor.process.scope.${block.id}`) }}</h3>
-          <dl class="mn-system-grid">
-            <div class="mn-system-item">
-              <dd class="mn-system-value">{{ bytesText(block.scope) }}</dd>
-              <dt class="mn-system-label">{{ t('monitor.process.pss') }}</dt>
-            </div>
-            <div class="mn-system-item">
-              <dd class="mn-system-value">{{ rssText(block.scope) }}</dd>
-              <dt class="mn-system-label">{{ t('monitor.process.rss') }}</dt>
-            </div>
-            <div class="mn-system-item">
-              <dd class="mn-system-value">{{ cpuText(block.scope) }}</dd>
-              <dt class="mn-system-label">
-                {{ cpuPending ? t('monitor.process.cpuPending') : t('monitor.process.cpu') }}
-              </dt>
-            </div>
-            <div v-if="block.id !== 'self'" class="mn-system-item">
-              <dd class="mn-system-value">{{ formatNumber(block.scope?.processCount) }}</dd>
-              <dt class="mn-system-label">{{ t('monitor.process.processCount') }}</dt>
-            </div>
-          </dl>
-
-          <p
-            v-if="block.note"
-            class="mn-process-note"
-            :data-testid="`monitor-process-note-${block.testId}`"
+        <!-- WebView：没有子进程时显式「未归属」，不写 0 字节 -->
+        <div class="mn-overview-card" data-testid="monitor-process-webview">
+          <span class="mn-overview-label">{{ t('monitor.process.scope.webview') }}</span>
+          <span v-if="webviewPresent" class="mn-overview-value">{{ pssText(webview) }}</span>
+          <span v-else class="mn-overview-value is-muted">
+            {{ t('monitor.process.webviewAbsentShort') }}
+          </span>
+          <span
+            v-if="!webviewPresent"
+            class="mn-overview-note"
+            data-testid="monitor-process-note-webview"
           >
-            {{ block.note }}
-          </p>
+            {{ t('monitor.process.webviewAbsent') }}
+          </span>
+          <span v-else class="mn-overview-note">{{ noteOf(webview, true) }}</span>
+        </div>
 
-          <ul
-            v-if="block.processes && block.processes.length > 0"
-            class="mn-process-procs"
-            :data-testid="`monitor-process-list-${block.testId}`"
-          >
-            <li v-for="sample in block.processes" :key="sample.pid" class="mn-process-row">
-              <span class="mn-process-name">{{ sample.name || `pid ${sample.pid}` }}</span>
-              <span class="mn-process-cpu">{{ sampleCpu(sample) }}</span>
-              <span class="mn-process-bytes">{{ sampleBytes(sample) }}</span>
-            </li>
-          </ul>
+        <!-- 其他子进程：应用自己拉起的进程（桌面通常为 0） -->
+        <div class="mn-overview-card" data-testid="monitor-process-other">
+          <span class="mn-overview-label">{{ t('monitor.process.scope.other') }}</span>
+          <span class="mn-overview-value">{{ pssText(props.metrics.otherChildren) }}</span>
+          <span class="mn-overview-note">
+            <template v-if="(props.metrics.otherChildren?.processCount ?? 0) === 0">
+              {{ t('monitor.process.noOtherChildren') }}
+            </template>
+            <template v-else>
+              {{ noteOf(props.metrics.otherChildren, true) }}
+            </template>
+          </span>
+        </div>
+
+        <!-- 进程树合计：WebView 占比放进水位条（与总览的内存水位同一视觉语言） -->
+        <div class="mn-overview-card is-wide" data-testid="monitor-process-tree">
+          <span class="mn-overview-label">{{ t('monitor.process.scope.tree') }}</span>
+          <span class="mn-overview-value">{{ pssText(props.metrics.tree) }}</span>
+          <span class="mn-overview-note">{{ noteOf(props.metrics.tree, true) }}</span>
+          <div v-if="webviewPresent" class="mn-overview-gauge" aria-hidden="true">
+            <div
+              class="mn-overview-gauge-fill is-ok"
+              :style="{ transform: `scaleX(${webviewShareScale})` }"
+            ></div>
+          </div>
+          <span v-if="webviewPresent" class="mn-overview-ratio is-ok">
+            {{ webviewShare === null ? '—' : formatRatio(webviewShare) }}
+            <span class="mn-overview-unit">{{ t('monitor.process.webviewShare') }}</span>
+          </span>
         </div>
       </div>
 
-      <p class="mn-process-note" data-testid="monitor-process-hint">
+      <!-- 进程明细：横排一行一条（进程名 / PSS / RSS / CPU） -->
+      <div
+        v-if="detailRows.length > 0"
+        class="mn-proc-detail"
+        data-testid="monitor-process-details"
+      >
+        <span class="mn-consumers-title">{{ t('monitor.process.details') }}</span>
+        <ol class="mn-proc-detail-list">
+          <li
+            v-for="sample in detailRows"
+            :key="sample.pid"
+            class="mn-proc-detail-row"
+            :data-testid="`monitor-process-list-${sample.role}`"
+          >
+            <span class="mn-proc-detail-name" :title="`${sample.name} (pid ${sample.pid})`">
+              {{ sample.name || `pid ${sample.pid}` }}
+            </span>
+            <span class="mn-proc-detail-value">{{ rowPss(sample) }}</span>
+            <span class="mn-proc-detail-meta">{{ rowCpu(sample) }}</span>
+            <span class="mn-proc-detail-bar" aria-hidden="true">
+              <span
+                class="mn-proc-detail-bar-fill"
+                :style="{ transform: `scaleX(${rowScale(sample)})` }"
+              ></span>
+            </span>
+          </li>
+        </ol>
+      </div>
+
+      <p class="mn-overview-gap" data-testid="monitor-process-hint">
         {{ cpuHint ?? t('monitor.process.noCores') }}
       </p>
     </template>

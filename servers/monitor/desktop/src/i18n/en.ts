@@ -176,6 +176,9 @@ const en: MessageSchema = {
   'monitor.process.webviewMissing':
     'The host did not send the WebView section, so attribution cannot be determined.',
   'monitor.process.noOtherChildren': 'No other child processes.',
+  'monitor.process.nProcesses': '{n} processes',
+  'monitor.process.webviewAbsentShort': 'Not attributable',
+  'monitor.process.details': 'Process detail',
 
   'monitor.overview.title': 'Platform overview',
   'monitor.overview.hint':

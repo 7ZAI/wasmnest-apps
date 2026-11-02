@@ -187,6 +187,9 @@ export type MessageSchema = {
   'monitor.process.webviewAbsent': string
   'monitor.process.webviewMissing': string
   'monitor.process.noOtherChildren': string
+  'monitor.process.nProcesses': string
+  'monitor.process.webviewAbsentShort': string
+  'monitor.process.details': string
 
   // ==================== 平台总览 ====================
   'monitor.overview.title': string

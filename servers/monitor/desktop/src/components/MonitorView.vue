@@ -549,29 +549,20 @@ onBeforeUnmount(() => {
         <PlatformOverview :totals="platform" :consumers="memoryConsumers" />
       </section>
 
-      <!-- ==================== 预警（阈值 + 活动条目 + 最近解除） ==================== -->
+      <!-- ==================== 宿主进程 / WebView（整机口径，与上方 wasm 段分开） ==================== -->
       <section
         v-if="!initialLoading && rows.length > 0"
-        class="mn-wrap mn-alerts-section"
-        aria-labelledby="alerts-title"
+        class="mn-wrap mn-overview-section"
+        aria-labelledby="process-title"
         data-ui
       >
         <header class="mn-section-head mn-rise">
           <div>
-            <h2 id="alerts-title" class="mn-section-title">{{ t('monitor.alerts.title') }}</h2>
-            <p class="mn-section-hint">{{ t('monitor.alerts.hint') }}</p>
+            <h2 id="process-title" class="mn-section-title">{{ t('monitor.process.title') }}</h2>
+            <p class="mn-section-hint">{{ t('monitor.process.hint') }}</p>
           </div>
         </header>
-        <AlertPanel
-          :alerts="activeAlerts"
-          :resolved="resolvedAlerts"
-          :settings="alertSettings"
-          :rows="rows"
-          :settings-warning="alertSettingsWarning"
-          :notify-warning="notifyWarning"
-          @update="handleAlertUpdate"
-          @reset="handleAlertReset"
-        />
+        <HostProcessPanel :metrics="hostProcess" />
       </section>
 
       <!-- ==================== 加载骨架 ==================== -->
@@ -710,9 +701,6 @@ onBeforeUnmount(() => {
               </header>
               <SystemPanel :sections="systems" />
             </section>
-
-            <!-- 宿主进程（WebView）：整机口径，与上面的 wasm 段分开——两个口径不可相加 -->
-            <HostProcessPanel v-if="snapshot" :metrics="hostProcess" />
           </div>
 
           <div id="monitor-inspector" class="mn-inspector-slot">
@@ -724,6 +712,31 @@ onBeforeUnmount(() => {
             />
           </div>
         </div>
+      </section>
+
+      <!-- ==================== 预警（阈值 + 活动条目 + 最近解除） ==================== -->
+      <section
+        v-if="!initialLoading && rows.length > 0"
+        class="mn-wrap mn-alerts-section"
+        aria-labelledby="alerts-title"
+        data-ui
+      >
+        <header class="mn-section-head mn-rise">
+          <div>
+            <h2 id="alerts-title" class="mn-section-title">{{ t('monitor.alerts.title') }}</h2>
+            <p class="mn-section-hint">{{ t('monitor.alerts.hint') }}</p>
+          </div>
+        </header>
+        <AlertPanel
+          :alerts="activeAlerts"
+          :resolved="resolvedAlerts"
+          :settings="alertSettings"
+          :rows="rows"
+          :settings-warning="alertSettingsWarning"
+          :notify-warning="notifyWarning"
+          @update="handleAlertUpdate"
+          @reset="handleAlertReset"
+        />
       </section>
 
       <!-- ==================== 收束（脚注：数据来源 / 采样口径 / 会话寿命） ==================== -->

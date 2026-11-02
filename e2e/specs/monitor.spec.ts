@@ -282,6 +282,22 @@ describe('Monitor（桌面端 · 宿主内挂载）', () => {
     expectEqual(await exists(PROCESS_WEBVIEW_NOTE), false, 'WebView 归属本宿主进程树')
     // 整机口径与 wasm 台账同时在场（两块各说各的事实，不是二选一）
     expectEqual(await visible(SELF_CARD), true, 'wasm 台账仍按原口径展示')
+
+    // 版面顺序：平台总览 → 宿主进程 → 台账 → 预警（预警必须最后）。
+    // 用文档坐标比较，不受滚动 / 视口影响。
+    const tops: Array<[string, number | null]> = [
+      ['overview', await pageTop(OVERVIEW)],
+      ['process', await pageTop(PROCESS)],
+      ['ledger', await pageTop('monitor-plugin-list')],
+      ['alerts', await pageTop(ALERTS)],
+    ]
+    for (const [name, top] of tops) expectEqual(top !== null, true, `${name} 在版面内`)
+    const ys = tops.map(([, top]) => top as number)
+    expectEqual(
+      ys.every((y, i) => i === 0 || y > ys[i - 1]!),
+      true,
+      `版面顺序应为 总览 → 宿主进程 → 台账 → 预警；实际 y=${JSON.stringify(ys)}`,
+    )
   })
 
   it('平台总览与预警：合计内存 / 计算负载 / 阈值设置可见', async () => {

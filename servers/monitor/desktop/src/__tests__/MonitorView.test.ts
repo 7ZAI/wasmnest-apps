@@ -134,6 +134,35 @@ describe('MonitorView（桌面界面契约）', () => {
     expect(wrapper.find('[data-testid="monitor-system-process"]').exists()).toBe(false)
   })
 
+  it('版面顺序：平台总览 → 宿主进程 → 台账 → 预警（预警在最后）', async () => {
+    const execute = vi.fn(async () =>
+      snapshot(
+        { 'com.wasmnest.monitor': metrics() },
+        {
+          process: {
+            available: true,
+            cores: 8,
+            self: { pid: 1, name: 'host', role: 'host', rssBytes: 1, pssBytes: 1, cpuPercent: 1 },
+            webview: { present: false, processCount: 0, processes: [] },
+            tree: { processCount: 1, rssBytes: 1, pssBytes: 1, cpuPercent: 1 },
+          },
+        },
+      ),
+    )
+    const wrapper = mountView(makeContext(execute, async () => []))
+
+    await flushPromises()
+
+    const all = Array.from(wrapper.element.querySelectorAll('*'))
+    const indexOf = (testid: string): number =>
+      all.findIndex((el) => el instanceof Element && el.getAttribute('data-testid') === testid)
+    const ordered = ['monitor-overview', 'monitor-process', 'monitor-plugin-list', 'monitor-alerts']
+    const positions = ordered.map(indexOf)
+    // 四块都在场，且 DOM 顺序就是期望顺序（预警必须最后）
+    expect(positions.every((position) => position >= 0)).toBe(true)
+    expect(positions).toEqual([...positions].sort((a, b) => a - b))
+  })
+
   it('旧宿主没有 process 段：面板显示「未提供」，不拿 0 冒充', async () => {
     const execute = vi.fn(async () => snapshot({ a: metrics() }))
     const wrapper = mountView(makeContext(execute, undefined))

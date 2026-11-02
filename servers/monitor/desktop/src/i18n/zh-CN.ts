@@ -172,6 +172,9 @@ const zhCN: MessageSchema = {
     '进程树里没有 WebView 子进程：该平台把它放在独立进程树外（macOS 由 launchd 拉起），此处只报宿主主进程，不是 0 占用。',
   'monitor.process.webviewMissing': '宿主没有下发 WebView 段，无法判断是否归属。',
   'monitor.process.noOtherChildren': '没有其他子进程。',
+  'monitor.process.nProcesses': '{n} 个进程',
+  'monitor.process.webviewAbsentShort': '未归属',
+  'monitor.process.details': '进程明细',
 
   'monitor.overview.title': '平台总览',
   'monitor.overview.hint': '全部已加载 wasm 的内存与计算负载合计；数字直接来自宿主快照，不做估算。',
