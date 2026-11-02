@@ -76,7 +76,7 @@ test('planStaging：packed 用临时目录且标记 temp；cargo 落平台 targe
   assert.throws(() => planStaging({ mode: 'cargo' }), /WASMNEST_PLATFORM_ROOT/)
 })
 
-test('planArtifactCopy：packed 真构建=就地不复制；--skip-build=从 app 默认产物目录拷；cargo=从平台 resources 拷', () => {
+test('planArtifactCopy：packed 真构建=就地不复制；--skip-build / cargo=从 app 默认产物目录拷', () => {
   const built = planArtifactCopy({
     mode: 'packed',
     skipBuild: false,
@@ -106,16 +106,12 @@ test('planArtifactCopy：packed 真构建=就地不复制；--skip-build=从 app
     skipBuild: false,
     apps: [APP],
     pluginsDir: '/tmp/platform/e2e',
-    platformResourcesDir: '/tmp/platform/wasmnest-desktop/src-tauri/resources/plugins/desktop',
   })
   assert.equal(cargo[0].copy, true)
   assert.equal(
     cargo[0].src,
-    '/tmp/platform/wasmnest-desktop/src-tauri/resources/plugins/desktop/com.wasmnest.ai-chatbox',
-  )
-  assert.throws(
-    () => planArtifactCopy({ mode: 'cargo', apps: [APP], pluginsDir: '/x' }),
-    /cargo 模式需要平台宿主 resources 目录/,
+    '/apps/ai-chatbox/desktop/.build/plugins/com.wasmnest.ai-chatbox',
+    'cargo 模式必须从 app 默认产物目录拷（平台 resources 可能是陈旧副本 → 假绿）',
   )
 })
 

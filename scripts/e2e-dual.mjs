@@ -307,7 +307,8 @@ function hasDualSpec(slug) {
   return existsSync(resolve(APPS_ROOT, 'e2e', 'dual', `${slug}-pairing.spec.ts`))
 }
 
-/** 桌面 app 构建：packed 一律 --out 到临时 staging（不写平台 resources）；cargo 保持现状 */
+/** 桌面 app 构建：任何模式都不传 --out（产物落 app 默认 `.build/plugins/<id>`，
+ * staging 从那里搬）——cargo 也不写平台 resources，避免测到陈旧副本。 */
 function buildApp(app, { mode, skip, pluginsDir }) {
   if (skip) {
     console.log('[e2e-dual] 跳过桌面 app 构建（--skip-build）')
@@ -323,7 +324,6 @@ function buildApp(app, { mode, skip, pluginsDir }) {
 
 /** 桌面产物进「只装它一个」的隔离目录（与 e2e.mjs 共用 planArtifactCopy 判据） */
 function stagePlugins(app, { mode, skipBuild, pluginsDir }) {
-  const platformResourcesDir = `${desktopHostDir()}/src-tauri/resources/plugins/desktop`
   if (planStagingCleanup({ mode })) rmSync(pluginsDir, { recursive: true, force: true })
   mkdirSync(pluginsDir, { recursive: true })
   const [plan] = planArtifactCopy({
@@ -331,7 +331,6 @@ function stagePlugins(app, { mode, skipBuild, pluginsDir }) {
     skipBuild,
     apps: [app],
     pluginsDir,
-    platformResourcesDir,
   })
   if (plan.copy) {
     if (!existsSync(plan.src)) {

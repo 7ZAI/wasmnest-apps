@@ -26,7 +26,7 @@
  * | 模式 | 宿主来源 | dev server | app 产物 / staging |
  * | --- | --- | --- | --- |
  * | `packed`（默认） | `scripts/host-runtime.mjs`：显式 → 本机 host:pack → 下载缓存 | 不启 | `build.js --out <mkdtemp>`，就地使用 |
- * | `cargo` | `<平台仓>/wasmnest-desktop/src-tauri/target/debug/wasmnest-desktop` | 启 | 写平台宿主 resources（现状） |
+ * | `cargo` | `<平台仓>/wasmnest-desktop/src-tauri/target/debug/wasmnest-desktop` | 启 | app 默认产物 `.build/plugins/<id>` → 拷进 `target/debug/resources/plugins/e2e` |
  * | `runtime` | L2 通用 runtime crate 装出来的二进制（`WASMNEST_HOST_BIN` 等显式指定） | 不启 | 同 packed |
  *
  * packed / runtime 全程**不碰平台工作树**：这是「只拿到应用仓也能做完整前后端验证」的
@@ -381,12 +381,13 @@ function buildApp(app, { mode, skip, full, pluginsDir }) {
  * 目录与复制方式由 `planArtifactCopy` / `planStaging` 决定（纯函数，已单测）：
  * - packed / runtime 且本次真构建 ⇒ 产物已在临时 staging，就地使用（不复制 = 不会拿到陈旧副本）；
  * - packed / runtime 且 --skip-build ⇒ 从 app 的 `.build/plugins/<id>` 搬进 staging，缺失点名；
- * - cargo ⇒ 从平台宿主 resources 搬进 `target/debug/resources/plugins/e2e`（历史行为）。
+ * - cargo ⇒ 同样从 `.build/plugins/<id>` 搬（**不从平台 resources 搬**：那里是
+ *   `plugins:build` / `tauri dev` 的落点，未必是本次源码的产物）。
  */
-function stagePlugins(apps, { mode, skipBuild, pluginsDir, platformResourcesDir }) {
+function stagePlugins(apps, { mode, skipBuild, pluginsDir }) {
   if (planStagingCleanup({ mode })) rmSync(pluginsDir, { recursive: true, force: true })
   mkdirSync(pluginsDir, { recursive: true })
-  const plans = planArtifactCopy({ mode, skipBuild, apps, pluginsDir, platformResourcesDir })
+  const plans = planArtifactCopy({ mode, skipBuild, apps, pluginsDir })
   for (const plan of plans) {
     if (plan.copy) {
       if (!existsSync(plan.src)) {
@@ -461,8 +462,6 @@ async function main() {
   const platform = needsDevServer(mode) ? platformDirsOrDie() : null
   const stagingDir = mode === 'cargo' ? null : mkdtempSync(join(tmpdir(), 'wasmnest-e2e-plugins-'))
   const staging = planStaging({ mode, stagingDir, platformRoot: platform?.platformRoot })
-  const platformResourcesDir =
-    mode === 'cargo' ? `${platform.hostDir}/src-tauri/resources/plugins/desktop` : null
 
   for (const app of apps) {
     buildApp(app, {
@@ -498,7 +497,6 @@ async function main() {
         mode,
         skipBuild: args.skipBuild,
         pluginsDir: staging.pluginsDir,
-        platformResourcesDir,
       })
 
       // packed / runtime：全量模式下 base staging 会按需装多个 app；每个 wdio 仍只应
