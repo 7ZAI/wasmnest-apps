@@ -1,0 +1,43 @@
+{
+  "id": "com.wasmnest.notenote",
+  "name": "NoteNote",
+  "version": "0.0.1",
+  "platform": "desktop",
+  "update": { "provider": "github-release" },
+  "description": "轻量级桌面 Markdown 记事本：双栏布局（笔记列表 + 编辑/预览），支持 Markdown 实时预览、自动保存、会话恢复、时间分隔符、原生剪贴板集成。",
+  "author": "WasmNest",
+  "main": "index.js",
+  "type": "business-app",
+  "pluginType": "full",
+  "rustLibrary": "wasmnest_plugin_notenote",
+  "icon": "icon.svg",
+  "permissions": [
+    "fs:read",
+    "fs:write",
+    "storage",
+    "clipboard:read",
+    "clipboard:write"
+  ],
+  "contributes": {
+    "commands": [
+      { "id": "notenote.status", "title": "NoteNote Status" },
+      { "id": "notenote.note.create", "title": "Create Note" },
+      { "id": "notenote.note.read", "title": "Read Note" },
+      { "id": "notenote.note.update", "title": "Update Note" },
+      { "id": "notenote.note.delete", "title": "Delete Note" },
+      { "id": "notenote.note.rename", "title": "Rename Note" },
+      { "id": "notenote.note.list", "title": "List Notes" },
+      { "id": "notenote.note.search", "title": "Search Notes" },
+      { "id": "notenote.settings.read", "title": "Read Settings" },
+      { "id": "notenote.settings.save", "title": "Save Settings" },
+      { "id": "notenote.context.read", "title": "Read Context" },
+      { "id": "notenote.context.save", "title": "Save Context" },
+      { "id": "notenote.clipboard.read", "title": "Read Clipboard" },
+      { "id": "notenote.clipboard.write", "title": "Write Clipboard" }
+    ],
+    "lifecycle": {
+      "onStartup": false,
+      "onShutdown": false
+    }
+  }
+}
