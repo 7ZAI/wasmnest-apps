@@ -1,10 +1,10 @@
-# notenote 剪贴板能力：跨仓后端实现，不局限于前端 API
+# 烂笔头（lanbitou）剪贴板能力：跨仓后端实现，不局限于前端 API
 
-**状态**：proposed（2026-11-02）
+**状态**：proposed（2026-11-02；平台能力已落地，SDK 权限词汇同步待补）
 
 ## 背景与问题
 
-notenote 需要访问系统剪贴板，实现"从剪贴板粘贴"和"复制到剪贴板"功能。当前 WasmNest 平台**完全没有剪贴板后端能力**：
+烂笔头（lanbitou）需要访问系统剪贴板，实现"从剪贴板粘贴"和"复制到剪贴板"功能。决策时 WasmNest 平台**完全没有剪贴板后端能力**：
 
 - WIT 层：所有 `*.wit` 文件中无 `clipboard` 相关接口
 - SDK Rust trait 层：`host/` 目录下无 `clipboard.rs`
@@ -16,7 +16,7 @@ notenote 需要访问系统剪贴板，实现"从剪贴板粘贴"和"复制到�
 ### 两种实现路径
 
 **路径 A：仅用前端浏览器 API**
-- 在 notenote 前端直接调用 `navigator.clipboard.readText()` / `writeText()`
+- 在 烂笔头前端直接调用 `navigator.clipboard.readText()` / `writeText()`
 - 零后端改动，立即可用
 - 缺点：需要用户授权弹窗、某些 WebView 环境可能受限、无法监听剪贴板变化
 
@@ -112,7 +112,7 @@ impl HostClipboard for PluginContext {
 
 ### 应用仓使用
 
-notenote 的 `plugin.json` 声明权限：
+烂笔头的 `plugin.json` 声明权限：
 
 ```json
 {
@@ -156,7 +156,7 @@ ctx.clipboard_write_text("Hello")?;
 
 ### 正面
 
-- notenote 获得原生剪贴板体验，无授权弹窗
+- 烂笔头获得原生剪贴板体验，无授权弹窗
 - 其他应用可复用剪贴板能力（bedcode 终端、ai-chatbox 消息等）
 - 平台能力面更完整，接近 Tauri 原生应用的体验
 
@@ -195,7 +195,7 @@ ctx.clipboard_write_text("Hello")?;
 
 ### 阶段 3：应用仓（1 天）
 
-1. notenote `plugin.json` 声明权限
+1. 烂笔头 `plugin.json` 声明权限
 2. Rust 后端调用 `clipboard_read_text` / `clipboard_write_text`
 3. 前端 UI：工具栏"从剪贴板粘贴"按钮
 4. 测试：vitest + E2E
@@ -204,14 +204,14 @@ ctx.clipboard_write_text("Hello")?;
 ### 阶段 4：集成验证（0.5 天）
 
 1. 平台仓 `pnpm run check:manifest` 通过
-2. notenote 在真实宿主中测试剪贴板读写
+2. 烂笔头在真实宿主中测试剪贴板读写
 3. 回归测试：确认其他应用（bedcode、ai-chatbox）未受影响
 
 ## 替代方案
 
 ### 方案 A：仅用前端浏览器 API
 
-- 在 notenote 前端直接调用 `navigator.clipboard`
+- 在 烂笔头前端直接调用 `navigator.clipboard`
 - 优点：零后端改动，1 小时内完成
 - 缺点：用户体验差（授权弹窗）、无法复用、无法扩展
 - 结论：**拒绝**，短期省事但长期代价高
@@ -225,9 +225,9 @@ ctx.clipboard_write_text("Hello")?;
 
 ### 方案 C：延迟到有需要时再实现
 
-- notenote 先用前端 API，等其他应用也需要时再统一实现
+- 烂笔头先用前端 API，等其他应用也需要时再统一实现
 - 优点：避免过早优化
-- 缺点：notenote 用户体验差，且未来仍需迁移
+- 缺点：烂笔头用户体验差，且未来仍需迁移
 - 结论：**拒绝**，用户明确要求后端能力
 
 ## 参考

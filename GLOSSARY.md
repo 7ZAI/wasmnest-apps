@@ -67,48 +67,50 @@ _Avoid_: 适配器、adapter、profile、agent 类型（用于泛指）
 跨 agent 统一的事件形状（`kind` + `payload`），前端只认它，不认任何一家的原始格式。
 _Avoid_: 消息、message、日志行
 
-## 记事本（notenote 应用）
+## 烂笔头（lanbitou 应用）
 
 **笔记（Note）**：
-notenote 的一等公民：一段 Markdown 文本 + 元数据（id/title/createdAt/updatedAt）。
+烂笔头的一等公民：一段 Markdown 文本 + 元数据（id/title/createdAt/updatedAt）。
 一个笔记对应磁盘上一个 `.md` 文件，但"笔记"是业务概念，"文件"是存储概念。
 _Avoid_: 文档、document、文件（用于磁盘实体时见"笔记文件"）
 
 **笔记文件（Note file）**：
-笔记在磁盘上的物理载体，路径为 `~/.wasmnest/notenote/notes/<id>.md`。
+笔记在磁盘上的物理载体，路径为 `~/.wasmnest/lanbitou/notes/<id>.md`。
 笔记文件是 UTF-8 编码的纯文本，可被任何编辑器打开。
 _Avoid_: 文件（泛指时）、data file
 
 **笔记列表（Note list）**：
-notenote 左侧栏显示的所有笔记索引，按 updatedAt 降序排列。
-列表数据来自内存索引（启动时扫描 notes/ 目录构建），不持久化到单独文件。
+烂笔头左侧栏显示的所有笔记索引，按 updatedAt 降序排列。
+列表由 `index.json` 元数据 + `notes/` 目录扫描合成，标题取正文首行。
 _Avoid_: 文件树、目录、folder
 
 **工作上下文（Working context）**：
 用户当前的编辑状态：最后打开的笔记 ID、光标位置、滚动位置、最后编辑时间。
-持久化到 `~/.wasmnest/notenote/context.json`，用于应用重启后恢复现场。
+持久化到 `~/.wasmnest/lanbitou/context.json`，用于应用重启后恢复现场。
 _Avoid_: 会话、session（与 agent 域冲突）、状态
 
 **时间分隔符（Time divider）**：
-自动插入到笔记末尾的时间标记，格式可配置（默认 `--- {{date}} {{weekday}} {{time}} ---`）。
+按配置位置（顶部 / 末尾 / 光标处，默认末尾）插入的时间标记，格式可配置
+（默认 `--- {{date}} {{weekday}} {{time}} ---`）。
 触发条件：打开笔记且距上次编辑 > 阈值（默认 5 分钟）。
 用户手动删除后，该笔记不再自动插入（记录到工作上下文）。
 _Avoid_: 时间戳、timestamp、分隔线
 
 **系统剪贴板（System clipboard）**：
 操作系统级的剪贴板能力，跨应用共享。
-notenote 通过后端 WASM 调用宿主提供的 `clipboard.readText()` / `clipboard.writeText()`。
+烂笔头通过后端 WASM 调用宿主提供的 `host-clipboard.read-text` / `write-text`
+（权限 `clipboard:read` / `clipboard:write`）。
 _Avoid_: 剪贴板（泛指时）、paste buffer
 
 **保存模式（Save mode）**：
 笔记的自动保存策略：实时保存（默认，500ms 防抖）/ 失焦保存 / 手动保存。
-配置项持久化到 `~/.wasmnest/notenote/settings.json`。
+配置项持久化到 `~/.wasmnest/lanbitou/settings.json`。
 _Avoid_: 自动保存、autososave（是保存模式的一种）
 
 **笔记索引（Note index）**：
-内存中的笔记元数据缓存，启动时从 `notes/` 目录扫描构建。
-包含每个笔记的 id/title/createdAt/updatedAt/filePath。
-索引不持久化，每次启动重建（文件数量少，性能可接受）。
+持久化的元数据缓存，路径 `~/.wasmnest/lanbitou/index.json`。
+只存每个笔记的 id/createdAt/updatedAt；标题始终由正文首行派生。
+索引损坏时不阻塞启动：跳过坏行并按目录扫描重建。
 _Avoid_: 数据库、catalog、目录
 
 **Markdown 预览（Markdown preview）**：
