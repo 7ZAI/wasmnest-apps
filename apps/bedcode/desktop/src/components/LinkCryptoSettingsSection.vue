@@ -3,104 +3,23 @@
   <div
     class="bg-[var(--bg-card)] border border-[var(--border)] rounded-[10px] divide-y divide-[var(--border)]"
   >
-    <!-- 主开关：默认关（opt-in），关时全服务明文与现状一致 -->
+    <!-- 宿主下限：只读。整机策略归宿主设置页（写入口带宿主凭证），
+         应用不参与、也不反推自己端点是否加密（spec §6 / §8）。 -->
     <div class="px-5 py-3.5 flex items-center justify-between gap-4">
       <div class="min-w-0">
         <span class="text-[calc(13px*var(--ui-scale))] text-[var(--text-primary)]">{{
-          t('linkCrypto.master')
-        }}</span>
-      </div>
-      <button
-        class="relative w-10 h-5 rounded-[4px] border transition-colors flex-shrink-0"
-        :class="
-          config?.enabled
-            ? 'bg-[var(--color-primary)] border-[var(--color-primary)]'
-            : 'bg-[var(--bg-page)] border-[var(--border-strong)]'
-        "
-        role="switch"
-        :aria-checked="config?.enabled ?? false"
-        @click="update({ enabled: !config?.enabled })"
-      >
-        <span
-          class="absolute top-[3px] w-3 h-3 rounded-[2px] transition-all"
-          :class="
-            config?.enabled
-              ? 'left-[22px] bg-[var(--color-primary-contrast)]'
-              : 'left-[3px] bg-[var(--border-strong)]'
-          "
-        />
-      </button>
-    </div>
-
-    <!-- 通道子开关：主开关关时置灰不可点（粒度收窄是显式动作） -->
-    <div
-      v-for="channel in channels"
-      :key="channel.field"
-      class="px-5 py-3.5 flex items-center justify-between gap-4"
-      :class="{ 'opacity-50': !config?.enabled }"
-    >
-      <div class="min-w-0">
-        <span class="text-[calc(13px*var(--ui-scale))] text-[var(--text-primary)]">{{
-          t(channel.labelKey)
-        }}</span>
-      </div>
-      <button
-        class="relative w-10 h-5 rounded-[4px] border transition-colors flex-shrink-0 disabled:cursor-not-allowed"
-        :class="
-          config?.[channel.field]
-            ? 'bg-[var(--color-primary)] border-[var(--color-primary)]'
-            : 'bg-[var(--bg-page)] border-[var(--border-strong)]'
-        "
-        role="switch"
-        :aria-checked="config?.[channel.field] ?? false"
-        :disabled="!config?.enabled"
-        @click="update({ [channel.field]: !config?.[channel.field] })"
-      >
-        <span
-          class="absolute top-[3px] w-3 h-3 rounded-[2px] transition-all"
-          :class="
-            config?.[channel.field]
-              ? 'left-[22px] bg-[var(--color-primary-contrast)]'
-              : 'left-[3px] bg-[var(--border-strong)]'
-          "
-        />
-      </button>
-    </div>
-
-    <!-- 明文回退：关掉后非环回未协商请求一律拒绝（强加密模式） -->
-    <div
-      class="px-5 py-3.5 flex items-center justify-between gap-4"
-      :class="{ 'opacity-50': !config?.enabled }"
-    >
-      <div class="min-w-0">
-        <span class="text-[calc(13px*var(--ui-scale))] text-[var(--text-primary)]">{{
-          t('linkCrypto.plaintextFallback')
+          t('linkCrypto.floor')
         }}</span>
         <p class="text-xs text-[var(--text-tertiary)] mt-0.5">
-          {{ t('linkCrypto.plaintextFallbackDesc') }}
+          {{ t('linkCrypto.floorDesc') }}
         </p>
       </div>
-      <button
-        class="relative w-10 h-5 rounded-[4px] border transition-colors flex-shrink-0 disabled:cursor-not-allowed"
-        :class="
-          config?.allow_plaintext_fallback
-            ? 'bg-[var(--color-primary)] border-[var(--color-primary)]'
-            : 'bg-[var(--bg-page)] border-[var(--border-strong)]'
-        "
-        role="switch"
-        :aria-checked="config?.allow_plaintext_fallback ?? false"
-        :disabled="!config?.enabled"
-        @click="update({ allow_plaintext_fallback: !config?.allow_plaintext_fallback })"
+      <span
+        data-testid="link-crypto-floor"
+        class="flex-shrink-0 text-[calc(13px*var(--ui-scale))] font-medium"
+        :class="floorTone"
+        >{{ floorLabel }}</span
       >
-        <span
-          class="absolute top-[3px] w-3 h-3 rounded-[2px] transition-all"
-          :class="
-            config?.allow_plaintext_fallback
-              ? 'left-[22px] bg-[var(--color-primary-contrast)]'
-              : 'left-[3px] bg-[var(--border-strong)]'
-          "
-        />
-      </button>
     </div>
 
     <!-- 本机指纹：供双端人工核对（移动端 pin 展示比对） -->
@@ -118,71 +37,79 @@
         >{{ fingerprint ?? '—' }}</span
       >
     </div>
+
+    <!-- 能力缺失（旧宿主）/ 归属说明：只读面不提供写入口，避免两处开关语义打架 -->
+    <p
+      v-if="loadDone && !capabilities"
+      data-testid="link-crypto-unavailable"
+      class="px-5 py-3.5 text-xs text-[var(--color-danger-ink)] leading-relaxed"
+    >
+      {{ t('linkCrypto.capabilityMissing') }}
+    </p>
+    <p v-else class="px-5 py-3.5 text-xs text-[var(--text-tertiary)] leading-relaxed">
+      {{ t('linkCrypto.hostManaged') }}
+    </p>
   </div>
 </template>
 
 <script setup lang="ts">
 /**
- * LinkCryptoSettingsSection — 设置页「链路加密」分组正文（床 desktop 业务设置）
+ * LinkCryptoSettingsSection — 设置页「链路加密」分组正文（只读）
  *
- * 归属（设置归属修正 2026-10-19）：链路加密是终端业务数据面的设置项，不归宿主
- * 外壳；宿主系统页不再承载，本应用设置页直接读写宿主平台原语（加密引擎仍在
- * 宿主 / server-core，应用只做设置面）。
+ * 归属修正（按应用/端点加密策略 spec §6，2026-11-03）：链路加密**下限**是宿主
+ * 安全策略，只能由宿主设置页经宿主凭证门写入；应用不再读写整机开关（旧版这里
+ * 的开关会调用无凭证的 `set_traffic_encryption_config`，等于任意应用可关闭全机
+ * 加密——issue #45）。应用的安全要求改为在自己的端点注册时声明 `encryption`。
  *
- * 乐观更新失败回滚：不产生「UI 已开 / 后端未生效」的半启用状态。
+ * 本分组只做两件事：展示宿主当前下限（只读）与本机指纹；旧宿主不返回
+ * `get_link_crypto_capabilities` 时显性提示能力缺失，不假定已加密。
  */
-import { inject, onMounted } from 'vue'
-import { toast } from 'vue-sonner'
+import { computed, inject, onMounted, ref } from 'vue'
 import { useAppI18n } from '@/composables/useAppI18n'
 import type { AppMountEnv } from '@/entry'
-import { useLinkCryptoConfig, type LinkCryptoConfig } from '@/composables/useLinkCrypto'
+import { useLinkCryptoStatus } from '@/composables/useLinkCrypto'
 
 const env = inject<AppMountEnv | null>('appEnv', null)
 const t = useAppI18n()
-const { config, fingerprint, load, save } = useLinkCryptoConfig(env?.invoke.bind(env))
+const { capabilities, load } = useLinkCryptoStatus(env?.invoke.bind(env))
 
-/** 通道子开关元数据：字段名与 Rust serde snake_case 一致（deny_unknown_fields） */
-const channels: Array<{
-  field: keyof Omit<LinkCryptoConfig, 'enabled' | 'allow_plaintext_fallback'>
-  labelKey: string
-  descKey: string
-}> = [
-  {
-    field: 'encrypt_http',
-    labelKey: 'linkCrypto.encryptHttp',
-    descKey: 'linkCrypto.encryptHttpDesc',
-  },
-  {
-    field: 'encrypt_ws_terminal',
-    labelKey: 'linkCrypto.encryptWsTerminal',
-    descKey: 'linkCrypto.encryptWsTerminalDesc',
-  },
-  {
-    field: 'encrypt_ws_event',
-    labelKey: 'linkCrypto.encryptWsEvent',
-    descKey: 'linkCrypto.encryptWsEventDesc',
-  },
-]
+/** 加载完成标记：区分「加载中」与「旧宿主缺能力」，避免首帧误报 */
+const loadDone = ref(false)
 
-/**
- * 乐观更新 + 失败回滚：单次切换整体保存，落库失败恢复原值并提示，
- * 不产生「UI 已开 / 后端未生效」的半启用状态
- */
-async function update(patch: Partial<LinkCryptoConfig>): Promise<void> {
-  if (!config.value) return
-  const prev = config.value
-  const next = { ...prev, ...patch }
-  config.value = next
-  try {
-    await save(next)
-  } catch {
-    config.value = prev
-    toast.error(t('linkCrypto.saveFailed'))
+const floorLabel = computed(() => {
+  switch (capabilities.value?.floor) {
+    case 'required':
+      return t('linkCrypto.floorRequired')
+    case 'preferred':
+      return t('linkCrypto.floorPreferred')
+    case 'off':
+      return t('linkCrypto.floorOff')
+    default:
+      return '—'
   }
-}
+})
 
-onMounted(() => {
-  // 配置域加载失败不阻断设置页其余部分；指纹 / 开关展示占位符
-  void load().catch(() => {})
+const floorTone = computed(() => {
+  switch (capabilities.value?.floor) {
+    case 'required':
+      return 'text-[var(--color-success-ink)]'
+    case 'off':
+      return 'text-[var(--color-danger-ink)]'
+    default:
+      return 'text-[var(--text-secondary)]'
+  }
+})
+
+const fingerprint = computed(() => capabilities.value?.identity_fingerprint ?? null)
+
+onMounted(async () => {
+  // 读取失败不阻断设置页其余部分：能力缺失由说明行显性呈现
+  try {
+    await load()
+  } catch {
+    // 保持 capabilities = null；错误已在宿主只读命令侧记录
+  } finally {
+    loadDone.value = true
+  }
 })
 </script>
