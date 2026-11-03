@@ -13,7 +13,7 @@ export const messagesZhCN = {
   app: {
     nav: {
       connection: '连接',
-      sessions: '会话',
+      projects: '项目',
       tasks: '任务',
       settings: '设置',
       label: '主导航',
@@ -30,7 +30,7 @@ export const messagesZhCN = {
     },
     refresh: '刷新',
     reconnecting: '正在重连…',
-    terminalBack: '返回会话列表',
+    terminalBack: '返回运行列表',
   },
 }
 
@@ -38,7 +38,7 @@ export const messagesEn = {
   app: {
     nav: {
       connection: 'Connection',
-      sessions: 'Sessions',
+      projects: 'Projects',
       tasks: 'Tasks',
       settings: 'Settings',
       label: 'Main navigation',
@@ -55,6 +55,6 @@ export const messagesEn = {
     },
     refresh: 'Refresh',
     reconnecting: 'Reconnecting…',
-    terminalBack: 'Back to sessions',
+    terminalBack: 'Back to runs',
   },
 }

@@ -44,7 +44,7 @@
             <path d="M8.5 22.5h7" />
           </svg>
           <svg
-            v-else-if="tab.id === 'sessions'"
+            v-else-if="tab.id === 'projects'"
             class="w-6 h-6"
             fill="none"
             stroke="currentColor"
@@ -53,7 +53,8 @@
             stroke-linecap="round"
             stroke-linejoin="round"
           >
-            <path d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2z" />
+            <!-- 项目 = 目录（ADR 0003）：文件夹主体 + 标签页；几何居中以对齐顶部指示条 -->
+            <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" />
           </svg>
           <svg
             v-else-if="tab.id === 'tasks'"

@@ -8,7 +8,9 @@
  * 两端不因同名互相约束）。前端按域组织：
  * - `src/app/**`：应用壳域（票 2026-10-10：底部导航 + 页签容器 + 终端沉浸运行面，
  *   承接旧宿主 `MobileLayout + MobileSwipeContainer + MobileNav` 三件套职责）
- * - `src/host/**`：设备 / 会话 / 连接态内容面（票 2026-10-09 自宿主 src/ 迁入）
+ * - `src/host/**`：设备 / 连接态内容面（票 2026-10-09 自宿主 src/ 迁入）
+ * - `src/projects/**`：项目域（ADR 0003 移动消费面）——项目列表 → 运行 → 终端，
+ *   运行启动与 Agent 选择；项目写面仍在桌面
  * - `src/terminal/**`：终端消费 UI 域（TerminalView / terminalBuffer store / 终端
  *   输入助手 / 样式与文案，票 15 自宿主 src/ 整体迁入）
  * - `src/task/**`：任务域（原 auto-task 插件整体并入，票 16）——任务队列面板 /
@@ -27,6 +29,7 @@ import type { Disposable, PluginContext } from '@binblink/wasmnest-plugin-sdk-mo
 import { activateAppDomain } from './app/activate'
 import { activateFileExplorerDomain } from './fileExplorer/activate'
 import { activateHostPageDomain } from './host/activate'
+import { activateProjectsDomain } from './projects/activate'
 import { activateTaskDomain, deactivateTaskDomain } from './task/activate'
 import { activateTerminalDomain } from './terminal/activate'
 
@@ -35,13 +38,15 @@ export { devMock } from './task/devMock'
 
 let terminalDomain: Disposable | null = null
 let hostDomain: Disposable | null = null
+let projectsDomain: Disposable | null = null
 let appDomain: Disposable | null = null
 let fileExplorerDomain: Disposable | null = null
 
 export async function activate(context: PluginContext): Promise<void> {
   context.logger.info('WasmNest plugin activating (remote-terminal-consumer, mobile)')
-  // 内容域先于壳域激活：运行面组件 setup 时要能取到 host / terminal / task 三域文案
+  // 内容域先于壳域激活：运行面组件 setup 时要能取到 host / projects / terminal / task 四域文案
   hostDomain = activateHostPageDomain(context)
+  projectsDomain = activateProjectsDomain(context)
   terminalDomain = activateTerminalDomain(context)
   fileExplorerDomain = activateFileExplorerDomain(context)
   await activateTaskDomain(context)
@@ -54,6 +59,8 @@ export function deactivate(): void {
   appDomain = null
   hostDomain?.dispose()
   hostDomain = null
+  projectsDomain?.dispose()
+  projectsDomain = null
   terminalDomain?.dispose()
   terminalDomain = null
   fileExplorerDomain?.dispose()

@@ -133,14 +133,14 @@
                 </button>
               </div>
 
-              <!-- 会话页入口：连接 → 会话的联动（旧宿主由底部导航承担，此处就近给入口） -->
+              <!-- 项目页入口：连接 → 项目的联动（旧宿主由底部导航承担，此处就近给入口） -->
               <button
                 v-if="isAuthenticated"
                 class="mt-3 w-full h-11 rounded-xl text-sm font-medium transition-colors active:opacity-80"
                 style="background: var(--mobile-bg-secondary); color: var(--mobile-text-primary)"
-                @click="$emit('open-sessions')"
+                @click="$emit('open-projects')"
               >
-                {{ t('hub.sessions') }}
+                {{ t('hub.projects') }}
               </button>
             </div>
           </div>
@@ -645,8 +645,8 @@ interface DiscoveredService {
 
 const props = withDefaults(defineProps<{ active?: boolean }>(), { active: true })
 defineEmits<{
-  /** 打开会话页（连接 → 会话联动入口） */
-  (e: 'open-sessions'): void
+  /** 打开项目页（连接 → 项目联动入口） */
+  (e: 'open-projects'): void
 }>()
 
 const ctrl = useHostPage()

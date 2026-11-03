@@ -2,8 +2,9 @@
  * 宿主页两个区块组件 挂载契约测试
  * （票 2026-10-09 首版；2026-10-15 按「旧宿主形态还原」重写契约）
  *
- * 被测：`DevicesSection.vue` / `SessionsSection.vue`（经 `pluginContext` provide 驱动）。
- * 形态背景：两页已按旧宿主 `Views/DevicesView.vue` + `Views/SessionsView.vue` 还原——
+ * 被测：`DevicesSection.vue`（经 `pluginContext` provide 驱动）。
+ * 项目页（`ProjectsPage.vue`）的契约测试见 `src/projects/__tests__/projectsPage.test.ts`。
+ * 形态背景：设备页已按旧宿主 `Views/DevicesView.vue` 还原——
  * 页头 + 底部双 CTA + 弹出式认证（配对码弹窗 / 生物弹窗）+ 发现面板 + 二次确认弹窗。
  *
  * | 契约 | 来源 | 规则 | 预期 |
@@ -13,10 +14,6 @@
  * | C-C3 | 已认证设备卡 | isPaired | 名称 + 地址 + 断开 + 会话入口在场 |
  * | C-C7 | 已连未认证 | status=connected、paired=false | 自动进入认证流程（请求配对命令 + 配对弹窗） |
  * | C-C8 | 手动连接 | 点手动连接 → 弹层提交 | connectDevice 收到默认端口补齐的目标 |
- * | C-C4 | 会话行 | 已认证且有会话 | 会话名 + 状态徽章 + 停止按钮在场 |
- * | C-C5 | 会话未认证分支 | 未认证 | 空态 + 去连接入口（emit open-connection），不渲染会话 |
- * | C-C6 | 打开终端动作 | 点会话行 | emit open-terminal + prewarm（只建连，不发 subscribe） |
- * | C-C9 | 终端上限 | 运行中会话数达 maxOpenTerminals | 拒绝启动（不调命令）+ toast |
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { nextTick } from 'vue'
@@ -25,7 +22,6 @@ import { mount } from '@vue/test-utils'
 import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-mobile'
 import { messagesZhCN } from '../i18n'
 import DevicesSection from '../components/DevicesSection.vue'
-import SessionsSection from '../components/SessionsSection.vue'
 import { installMockMobileApi, uninstallMockMobileApi, type MockMobileApi } from '../../terminal/__tests__/testKit'
 
 // 扫码面板内嵌 html5-qrcode（浏览器库）：挂载测试不触碰相机，仅替身掉模块加载
@@ -147,7 +143,7 @@ describe('C-C1/C-C2/C-C3/C-C7/C-C8 连接页形态与流程契约', () => {
     expect(wrapper.text()).toContain('desk-9')
     expect(wrapper.text()).toContain('10.0.0.9:8765')
     expect(wrapper.text()).toContain('hub.disconnect')
-    expect(wrapper.text()).toContain('hub.sessions')
+    expect(wrapper.text()).toContain('hub.projects')
     wrapper.unmount()
   })
 
@@ -243,115 +239,6 @@ describe('C-C1/C-C2/C-C3/C-C7/C-C8 连接页形态与流程契约', () => {
     expect(connectDevice).toHaveBeenCalledWith({ address: '10.0.0.5', port: 9000, name: '10.0.0.5' })
     // 手动连接必须走认证流程（不允许静默用存量凭据）
     expect(ctx.commands.execute).toHaveBeenCalledWith('bedcode.request-pairing')
-    wrapper.unmount()
-  })
-})
-
-describe('C-C4/C-C5/C-C6/C-C9 会话页形态与动作契约', () => {
-  it('should_renderSessionRowWithStatusAndStop_when_authenticatedWithSessions', () => {
-    api.isConnected.value = true
-    api.isPaired.value = true
-    api.activeSessions.value = [{ id: 's-1', name: 'build', status: 'running' }]
-    const wrapper = mountSection(SessionsSection)
-
-    expect(wrapper.text()).toContain('build')
-    expect(wrapper.text()).toContain('hub.statusRunning')
-    expect(wrapper.find('button[title="hub.stopSession"]').exists()).toBe(true)
-    expect(wrapper.text()).toContain('hub.runningSessions')
-    wrapper.unmount()
-  })
-
-  it('should_renderResolvedRunTimeText_when_runningSessionHasStartTime', async () => {
-    // 回归：运行时长必须是解析后的文案（宿主 common.time.* 已在平台仓死键清理中退役，
-    // 曾因取不到键把系统键名直接渲染到卡片上）
-    ctx = makeRealI18nContext()
-    api.isConnected.value = true
-    api.isPaired.value = true
-    api.activeSessions.value = [
-      {
-        id: 's-1',
-        name: 'build',
-        status: 'running',
-        startedAt: new Date(Date.now() - 5000).toISOString(),
-      },
-    ]
-    const wrapper = mountSection(SessionsSection)
-    await nextTick()
-
-    expect(wrapper.text()).toContain('5秒')
-    expect(wrapper.text()).not.toContain('runTimeSeconds')
-    expect(wrapper.text()).not.toContain('common.time')
-    wrapper.unmount()
-  })
-
-  it('should_hideStoppedSessions_when_listRendered（用户裁决 2026-10-21：停止的会话不需要历史，会话卡片不显示）', () => {
-    api.isConnected.value = true
-    api.isPaired.value = true
-    api.activeSessions.value = [
-      { id: 's-1', name: 'build', status: 'running' },
-      { id: 's-2', name: 'old-session', status: 'stopped' },
-    ]
-    const wrapper = mountSection(SessionsSection)
-
-    // running 会话正常渲染
-    expect(wrapper.text()).toContain('build')
-    // stopped 会话不渲染会话卡片（其删除按钮入口随之不可达，记录不自动删除）
-    expect(wrapper.text()).not.toContain('old-session')
-    expect(wrapper.find('button[title="hub.deleteSession"]').exists()).toBe(false)
-    wrapper.unmount()
-  })
-
-  it('should_renderEmptyStateWithConnectEntry_when_notAuthenticated', async () => {
-    // 传输层已连但未认证同样算「不可用」：受保护端点会 401
-    api.isConnected.value = true
-    api.isPaired.value = false
-    api.activeSessions.value = [{ id: 's-1', name: 'build', status: 'running' }]
-    const wrapper = mountSection(SessionsSection)
-
-    expect(wrapper.text()).toContain('hub.notConnected')
-    expect(wrapper.text()).not.toContain('build')
-
-    // 会话 → 连接联动：空态的去连接入口上抛 open-connection
-    const connectBtn = wrapper.findAll('button').find((b) => b.text().includes('hub.qrConnect'))
-    expect(connectBtn, '未找到去连接入口').toBeTruthy()
-    await connectBtn!.trigger('click')
-    expect(wrapper.emitted('open-connection')).toBeTruthy()
-    wrapper.unmount()
-  })
-
-  it('should_emitOpenTerminalAndPrewarmLink_when_sessionTapped', async () => {
-    api.isConnected.value = true
-    api.isPaired.value = true
-    api.activeSessions.value = [{ id: 's-7', name: 'logs', status: 'running' }]
-    const wrapper = mountSection(SessionsSection)
-
-    const row = wrapper.findAll('.group-row').find((r) => r.text().includes('logs'))
-    expect(row, '未找到会话行').toBeTruthy()
-    await row!.trigger('click')
-
-    expect(wrapper.emitted('open-terminal')?.[0]).toEqual(['s-7', 'logs'])
-    expect(api.activeSessionId.value).toBe('s-7')
-    // 预热只建连（不发 subscribe）：桌面端每次 subscribe 都整段重放，预热期
-    // 页面通道未登记 ⇒ 走 subscribe 预热等于白传一遍大块历史
-    expect(ctx.commands.execute).toHaveBeenCalledWith('bedcode.prewarm', { sessionId: 's-7' })
-    wrapper.unmount()
-  })
-
-  it('should_rejectStart_when_runningSessionsReachTerminalLimit', async () => {
-    api.isConnected.value = true
-    api.isPaired.value = true
-    api.mobileSettings.value = { maxOpenTerminals: 1 }
-    api.activeSessions.value = [{ id: 's-1', name: 'build', status: 'running' }]
-    api.sessionConfigs.value = [{ id: 'c-1', name: 'cfg', environment: 'local', working_dir: '/w' }]
-
-    const wrapper = mountSection(SessionsSection)
-    const startBtn = wrapper.findAll('button').find((b) => b.text().includes('hub.start'))
-    expect(startBtn, '未找到启动按钮').toBeTruthy()
-    await startBtn!.trigger('click')
-    await settle()
-
-    expect(ctx.commands.execute).not.toHaveBeenCalledWith('bedcode.start-session', expect.anything())
-    expect(ctx.dialogs.showToast).toHaveBeenCalledWith('hub.maxReached', 'error')
     wrapper.unmount()
   })
 })

@@ -59,15 +59,16 @@
         >
           <DevicesSection
             :active="tabs.active.value === 'connection'"
-            @open-sessions="onSelectTab('sessions')"
+            @open-projects="onSelectTab('projects')"
           />
         </div>
         <div
-          v-if="isVisited('sessions')"
-          :class="['app-tab-panel absolute inset-0 overflow-y-auto', panelClass('sessions')]"
+          v-if="isVisited('projects')"
+          :class="['app-tab-panel absolute inset-0 overflow-y-auto', panelClass('projects')]"
         >
-          <SessionsSection
-            :active="tabs.active.value === 'sessions'"
+          <ProjectsPage
+            ref="projectsRef"
+            :active="tabs.active.value === 'projects'"
             @open-terminal="onOpenTerminal"
             @open-connection="onSelectTab('connection')"
           />
@@ -118,7 +119,7 @@ import { useSwipeTabs } from '@binblink/wasmnest-plugin-sdk-mobile/ui/swipe-tabs
 import type { Disposable } from '@binblink/wasmnest-plugin-sdk-mobile'
 import { registerAppBack } from './appBack'
 import DevicesSection from '../host/components/DevicesSection.vue'
-import SessionsSection from '../host/components/SessionsSection.vue'
+import ProjectsPage from '../projects/ProjectsPage.vue'
 import { useHostPage } from '../host/useHostPage'
 import SettingsPage from '../settings/SettingsPage.vue'
 import AutoTaskToolboxView from '../task/components/AutoTaskToolboxView.vue'
@@ -131,7 +132,7 @@ import { useAppSettings } from '../settings/useAppSettings'
 import './app.css'
 
 /** 本应用开放的全部页签（可用性过滤后的呈现集合见 useAppTabs） */
-const AVAILABLE_TABS: readonly AppTab[] = ['connection', 'sessions', 'tasks', 'settings']
+const AVAILABLE_TABS: readonly AppTab[] = ['connection', 'projects', 'tasks', 'settings']
 
 const ctrl = useHostPage()
 const t = ctrl.t
@@ -140,6 +141,13 @@ const appSettings = useAppSettings()
 
 const tabs = useAppTabs(AVAILABLE_TABS)
 const terminalSession = ref<{ id: string; name: string } | null>(null)
+
+/** 项目页暴露的二级返回契约（终端层优先，其次项目详情 → 列表） */
+interface ProjectsPageExposed {
+  canGoBack(): boolean
+  goBack(): void
+}
+const projectsRef = ref<ProjectsPageExposed | null>(null)
 
 /**
  * 主色色板（2026-10-16 从宿主外观页下沉）
@@ -165,11 +173,11 @@ const reconnectBanner = ctrl.reconnectBanner
 /**
  * 应用级头部是否渲染（仅任务 / 设置页签）
  *
- * 连接页与会话页自带 `page-header`（旧宿主形态），故这两页不再叠加应用级头部；
+ * 连接页与项目页自带 `page-header`（旧宿主形态），故这两页不再叠加应用级头部；
  * 任务 / 设置尚未自持页头，仍由本组件统一标题 + 状态 + 刷新。
  */
 const showAppHeader = computed(
-  () => tabs.active.value !== 'connection' && tabs.active.value !== 'sessions',
+  () => tabs.active.value !== 'connection' && tabs.active.value !== 'projects',
 )
 
 /**
@@ -320,7 +328,14 @@ let disposeBackPress: Disposable | null = null
 onMounted(() => {
   subscriptions = ctrl.subscribe()
   disposeBackPress = registerAppBack(ctrl.context, [
+    // 终端沉浸页优先：打开终端时页签容器已卸载，项目页的「详情」状态仍记在
+    // useProjects 的模块级记忆里；先收终端再退详情，否则返回会跳过终端。
     { canGoBack: () => terminalSession.value !== null, goBack: closeTerminal },
+    {
+      canGoBack: () =>
+        tabs.active.value === 'projects' && (projectsRef.value?.canGoBack() ?? false),
+      goBack: () => projectsRef.value?.goBack(),
+    },
   ])
   setSwipeDelegate((dir) => {
     stepTab(dir)
@@ -349,6 +364,8 @@ function onOpenTerminal(sessionId: string, sessionName: string): void {
 }
 
 function closeTerminal(): void {
+  // 终端返回时页签容器重新挂载，项目页 onMounted 会重取项目 / 运行与恢复详情；
+  // 这里不再额外触发刷新，避免同一屏连打两轮请求。
   terminalSession.value = null
 }
 

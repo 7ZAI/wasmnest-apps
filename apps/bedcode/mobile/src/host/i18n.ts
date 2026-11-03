@@ -19,7 +19,7 @@ export const messagesZhCN = {
       error: '连接失败',
       unknown: '未知状态',
     },
-    sessions: '会话',
+    projects: '项目',
     disconnect: '断开',
     // 设备
     manualConnect: '手动连接',
@@ -172,7 +172,7 @@ export const messagesEn = {
       error: 'Connection failed',
       unknown: 'Unknown state',
     },
-    sessions: 'Sessions',
+    projects: 'Projects',
     disconnect: 'Disconnect',
     manualConnect: 'Manual connect',
     connectFailed: 'Connection failed',
