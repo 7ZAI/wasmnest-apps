@@ -11,6 +11,8 @@
 //! 返回空」的静默降级；读面失败同样显性——项目列表读不出来等于工作台不可用，
 //! 伪装成空列表会让用户以为项目被删了。
 
+pub mod files;
+pub mod git;
 pub mod migrate;
 pub mod model;
 pub mod ops;

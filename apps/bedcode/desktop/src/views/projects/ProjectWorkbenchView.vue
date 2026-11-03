@@ -74,17 +74,38 @@
     </div>
 
     <div v-else ref="layoutEl" class="flex-1 flex min-h-0" data-testid="workbench-layout">
-      <!-- ==================== 左：运行列表 + 新建运行（宽度可拖拽） ==================== -->
+      <!-- ==================== 左：运行列表 + 新建运行（宽度可拖拽；可折叠） ==================== -->
       <aside
+        v-if="!runsCollapsed"
+        id="wb-pane-runs"
         class="shrink-0 flex flex-col bg-[var(--bg-card)]"
         :style="{ width: `${runsWidth}px` }"
         data-testid="pane-runs"
       >
         <div
-          class="h-10 px-3 shrink-0 flex items-center justify-between border-b border-[var(--border)]"
+          class="h-10 px-2.5 shrink-0 flex items-center justify-between gap-2 border-b border-[var(--border)]"
         >
+          <!-- 收起入口放在面板外侧边缘：箭头指向面板消失的方向，与右侧面板对称 -->
+          <button
+            class="w-6 h-6 shrink-0 rounded-[6px] flex items-center justify-center text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--color-primary)]"
+            :aria-expanded="!runsCollapsed"
+            aria-controls="wb-pane-runs"
+            :aria-label="t('project.run.collapse')"
+            :title="t('project.run.collapse')"
+            data-testid="run-collapse"
+            @click="toggleRuns"
+          >
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.75"
+                d="M15 19l-7-7 7-7"
+              />
+            </svg>
+          </button>
           <span
-            class="text-[calc(11px*var(--ui-scale))] uppercase tracking-wider text-[var(--text-tertiary)]"
+            class="min-w-0 flex-1 truncate text-[calc(11px*var(--ui-scale))] uppercase tracking-wider text-[var(--text-tertiary)]"
           >
             {{ t('project.run.title') }}
             <span v-if="runs.length > 0" class="wb-mono">· {{ runs.length }}</span>
@@ -156,7 +177,7 @@
                 @keydown.enter.prevent="selectRun(run.id)"
                 @keydown.space.prevent="selectRun(run.id)"
               >
-                <!-- 选中态左侧竖标：仅靠底色时，选中与 hover 同色，看不出右侧面板在看哪条 -->
+                <!-- 选中态左侧竖标：仅靠底色时，选中与 hover 同色，看不出主面在看哪条 -->
                 <span
                   v-if="isActiveRun(run)"
                   class="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-full bg-[var(--color-primary)]"
@@ -234,8 +255,42 @@
         </div>
       </aside>
 
-      <!-- 拖拽手柄：左栏 ↔ 对话面（双击复位；键盘 ←/→ 可调） -->
+      <!-- 折叠后的窄轨：常驻恢复入口（不靠悬停，否则等于没有入口） -->
+      <aside
+        v-else
+        class="shrink-0 flex flex-col items-center bg-[var(--bg-card)] border-r border-[var(--border)]"
+        :style="{ width: `${PANE_RAIL_WIDTH}px` }"
+        data-testid="pane-runs-rail"
+      >
+        <div class="h-10 shrink-0 flex items-center justify-center">
+          <button
+            class="w-6 h-6 rounded-[6px] flex items-center justify-center text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--color-primary)]"
+            :aria-expanded="!runsCollapsed"
+            aria-controls="wb-pane-runs"
+            :aria-label="t('project.run.expand')"
+            :title="t('project.run.expand')"
+            data-testid="run-collapse"
+            @click="toggleRuns"
+          >
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.75"
+                d="M9 5l7 7-7 7"
+              />
+            </svg>
+          </button>
+        </div>
+        <span class="wb-rail-label" aria-hidden="true">
+          {{ t('project.run.title') }}
+          <template v-if="runs.length > 0"> · {{ runs.length }}</template>
+        </span>
+      </aside>
+
+      <!-- 拖拽手柄：左栏 ↔ 终端主面（双击复位；键盘 ←/→ 可调；收起时不渲染） -->
       <div
+        v-if="!runsCollapsed"
         class="wb-split-handle"
         :class="runsResizing && 'wb-split-handle-active'"
         role="separator"
@@ -253,13 +308,13 @@
         @keydown="onRunsHandleKeydown"
       ></div>
 
-      <!-- ==================== 中：对话面（M3：run.events + run.send 接管） ==================== -->
-      <section class="flex-1 min-w-0 flex flex-col">
+      <!-- ==================== 中：终端主面（CLI 为核心：同一条 PTY 的真实字节） ==================== -->
+      <section class="flex-1 min-w-0 flex flex-col" data-testid="pane-terminal">
         <div class="h-10 px-3 shrink-0 flex items-center gap-2 border-b border-[var(--border)]">
           <span
             class="shrink-0 whitespace-nowrap text-[calc(11px*var(--ui-scale))] uppercase tracking-wider text-[var(--text-tertiary)]"
           >
-            {{ t('project.chat.title') }}
+            {{ t('project.terminal.title') }}
           </span>
           <template v-if="selectedRun">
             <span
@@ -267,23 +322,23 @@
             >
               {{ selectedRun.agentId || '—' }}
             </span>
-            <!-- 模型：桥接 meta 回填到运行行后可见（镜像模式无此数据，不占位） -->
+            <!-- 模型：桥接 meta 回填到运行行后可见（无此数据时不占位） -->
             <span
-              v-if="selectedRun.model && showChatSessionMeta"
+              v-if="selectedRun.model && showRunMeta"
               class="min-w-0 wb-mono text-[calc(10.5px*var(--ui-scale))] text-[var(--text-tertiary)] truncate"
               :title="selectedRun.model"
             >
               {{ selectedRun.model }}
             </span>
-            <!-- 对话面被拖窄时不硬塞会话 id：三样东西挤在一行只会互相裁剪 -->
+            <!-- 主面被拖窄时不硬塞会话 id：几样东西挤在一行只会互相裁剪 -->
             <span
-              v-if="selectedRun.agentSessionId && showChatSessionMeta"
+              v-if="selectedRun.agentSessionId && showRunMeta"
               class="flex items-center gap-1 min-w-0"
             >
               <span
                 class="text-[calc(10.5px*var(--ui-scale))] text-[var(--text-tertiary)] shrink-0"
               >
-                {{ t('project.chat.agentSessionId') }}
+                {{ t('project.run.agentSessionId') }}
               </span>
               <span
                 class="wb-mono text-[calc(10.5px*var(--ui-scale))] text-[var(--text-secondary)] truncate"
@@ -292,8 +347,8 @@
               </span>
               <button
                 class="w-5 h-5 shrink-0 rounded-[4px] flex items-center justify-center text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] transition-colors"
-                :title="t('project.chat.copyId')"
-                data-testid="chat-copy-session"
+                :title="t('project.run.copyId')"
+                data-testid="run-copy-session"
                 @click="copyAgentSessionId"
               >
                 <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -307,28 +362,52 @@
               </button>
             </span>
           </template>
+          <span class="flex-1"></span>
+          <!-- 打开独立终端窗口：跟终端主面走（原在检查器头部，终端迁中栏后随迁） -->
+          <button
+            v-if="selectedRun"
+            class="w-6 h-6 shrink-0 rounded-[6px] flex items-center justify-center text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            :disabled="!isLiveRun(selectedRun.status)"
+            :title="t('project.run.openWindow')"
+            data-testid="run-open-window"
+            @click="openWindow"
+          >
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.5"
+                d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25"
+              />
+            </svg>
+          </button>
         </div>
 
-        <ConversationSurface
-          class="flex-1 min-h-0"
-          :run-id="selectedRun?.id ?? null"
-          :run-active="selectedRunActive"
-          :agent-id="selectedRun?.agentId ?? null"
-          :events="runEvents.events.value"
-          :pending="runEvents.pending.value"
-          :truncated="runEvents.truncated.value"
-          :bridge-connected="runEvents.bridge.value?.connected ?? null"
-          :load-error="runEvents.loadError.value"
-          :loading="runEvents.loading.value"
-          :sending="isSending"
-          @send="onChatSend"
-          @stop="onChatStop"
-          @retry="onEventsRetry"
-        />
+        <!-- 未选中运行：显性空态，不白屏 -->
+        <div
+          v-if="!selectedRun"
+          class="flex-1 flex flex-col items-center justify-center px-6 text-center"
+          data-testid="workbench-empty"
+        >
+          <p class="text-[calc(12px*var(--ui-scale))] text-[var(--text-primary)]">
+            {{ t('project.terminal.empty') }}
+          </p>
+          <p
+            class="mt-1 text-[calc(11px*var(--ui-scale))] text-[var(--text-secondary)] leading-relaxed"
+          >
+            {{ t('project.terminal.emptyHint') }}
+          </p>
+        </div>
+
+        <!-- 终端：复用现有终端渲染管线（同一条 PTY 的真实字节） -->
+        <div v-else class="flex-1 min-h-0 relative" data-testid="run-terminal">
+          <TerminalPreview :session="selectedRunSession" :show-input="true" :show-header="false" />
+        </div>
       </section>
 
-      <!-- 拖拽手柄：对话面 ↔ 右栏检查器 -->
+      <!-- 拖拽手柄：终端主面 ↔ 右栏检查器（收起时不渲染） -->
       <div
+        v-if="!inspectorCollapsed"
         class="wb-split-handle"
         :class="inspectorResizing && 'wb-split-handle-active'"
         role="separator"
@@ -346,8 +425,10 @@
         @keydown="onInspectorHandleKeydown"
       ></div>
 
-      <!-- ==================== 右：检查器（变更 / 终端 / 事件；宽度可拖拽） ==================== -->
+      <!-- ==================== 右：检查器（文件 / Git / 变更；宽度可拖拽；可折叠） ==================== -->
       <aside
+        v-if="!inspectorCollapsed"
+        id="wb-pane-inspector"
         class="shrink-0 flex flex-col bg-[var(--bg-card)]"
         :style="{ width: `${inspectorWidth}px` }"
         data-testid="pane-inspector"
@@ -369,73 +450,115 @@
             :tabindex="inspectorTab === tab.key ? 0 : -1"
             :data-testid="`inspector-tab-${tab.key}`"
             role="tab"
-            @click="inspectorTab = tab.key"
+            @click="selectInspectorTab(tab.key)"
             @keydown="onTabKeydown"
           >
             {{ tab.label }}
           </button>
           <span class="flex-1"></span>
           <button
-            v-if="selectedRun"
-            class="w-6 h-6 shrink-0 rounded-[6px] flex items-center justify-center text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-            :disabled="!isLiveRun(selectedRun.status)"
-            :title="t('project.run.openWindow')"
-            data-testid="run-open-window"
-            @click="openWindow"
+            class="w-6 h-6 shrink-0 rounded-[6px] flex items-center justify-center text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--color-primary)]"
+            :aria-expanded="!inspectorCollapsed"
+            aria-controls="wb-pane-inspector"
+            :aria-label="t('project.inspector.collapse')"
+            :title="t('project.inspector.collapse')"
+            data-testid="inspector-collapse"
+            @click="toggleInspector"
           >
             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path
                 stroke-linecap="round"
                 stroke-linejoin="round"
-                stroke-width="1.5"
-                d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25"
+                stroke-width="1.75"
+                d="M9 5l7 7-7 7"
               />
             </svg>
           </button>
         </div>
 
-        <!-- 未选中运行 -->
-        <div
-          v-if="!selectedRun"
-          class="flex-1 flex items-center justify-center px-6 text-center"
-          data-testid="inspector-empty"
-        >
-          <p class="text-[calc(11.5px*var(--ui-scale))] text-[var(--text-secondary)]">
-            {{ t('project.inspector.noSelection') }}
-          </p>
+        <!-- 文件：默认页签；v-show 保活（切到变更再回来不丢展开态 / 不重复取数） -->
+        <div v-show="inspectorTab === 'files'" class="flex-1 min-h-0" data-testid="inspector-files">
+          <ProjectFileTree
+            :project-id="projectId"
+            :working-dir="project?.workingDir ?? ''"
+            :active="inspectorTabReady && inspectorTab === 'files'"
+            @open="openFile"
+          />
+        </div>
+
+        <!-- Git：提交历史 + 分支 DAG（文件树旁的提交图；同样 v-show 保活滚动位置） -->
+        <div v-show="inspectorTab === 'git'" class="flex-1 min-h-0" data-testid="inspector-git">
+          <ProjectGitGraph
+            :project-id="projectId"
+            :active="inspectorTabReady && inspectorTab === 'git'"
+          />
         </div>
 
         <!-- 变更（M3 才接管） -->
-        <div
-          v-else-if="inspectorTab === 'changes'"
-          class="flex-1 flex items-center justify-center px-6 text-center"
-          data-testid="inspector-changes"
-        >
-          <p class="text-[calc(11.5px*var(--ui-scale))] text-[var(--text-secondary)]">
-            {{ t('project.inspector.changesEmpty') }}
-          </p>
-        </div>
+        <template v-if="inspectorTab === 'changes'">
+          <!-- 未选中运行 -->
+          <div
+            v-if="!selectedRun"
+            class="flex-1 flex items-center justify-center px-6 text-center"
+            data-testid="inspector-empty"
+          >
+            <p class="text-[calc(11.5px*var(--ui-scale))] text-[var(--text-secondary)]">
+              {{ t('project.inspector.noSelection') }}
+            </p>
+          </div>
 
-        <!-- 终端：复用现有终端渲染管线（同一条 PTY 的真实字节） -->
-        <div
-          v-else-if="inspectorTab === 'terminal'"
-          class="flex-1 min-h-0 relative"
-          data-testid="run-terminal"
-        >
-          <TerminalPreview :session="selectedRunSession" :show-input="true" :show-header="false" />
-        </div>
+          <div
+            v-else
+            class="flex-1 flex items-center justify-center px-6 text-center"
+            data-testid="inspector-changes"
+          >
+            <p class="text-[calc(11.5px*var(--ui-scale))] text-[var(--text-secondary)]">
+              {{ t('project.inspector.changesEmpty') }}
+            </p>
+          </div>
+        </template>
+      </aside>
 
-        <!-- 事件：账本原始归一事件（只读，排障用；渲染版在中栏对话面） -->
-        <div v-else-if="inspectorTab === 'events'" class="flex-1 min-h-0">
-          <ChatEventInspector
-            :events="runEvents.events.value"
-            :loading="runEvents.loading.value"
-            :load-error="runEvents.loadError.value"
-            @retry="onEventsRetry"
-          />
+      <!-- 折叠后的窄轨：常驻恢复入口（与左侧同构，箭头指向面板展开方向） -->
+      <aside
+        v-if="inspectorCollapsed"
+        class="shrink-0 flex flex-col items-center bg-[var(--bg-card)] border-l border-[var(--border)]"
+        :style="{ width: `${PANE_RAIL_WIDTH}px` }"
+        data-testid="pane-inspector-rail"
+      >
+        <div class="h-10 shrink-0 flex items-center justify-center">
+          <button
+            class="w-6 h-6 rounded-[6px] flex items-center justify-center text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--color-primary)]"
+            :aria-expanded="!inspectorCollapsed"
+            aria-controls="wb-pane-inspector"
+            :aria-label="t('project.inspector.expand')"
+            :title="t('project.inspector.expand')"
+            data-testid="inspector-collapse"
+            @click="toggleInspector"
+          >
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.75"
+                d="M15 19l-7-7 7-7"
+              />
+            </svg>
+          </button>
         </div>
+        <span class="wb-rail-label" aria-hidden="true">
+          {{ t('project.inspector.title') }}
+        </span>
       </aside>
     </div>
+
+    <!-- 文件查看器：只读；点文件打开，关闭后保留文件页签位置 -->
+    <ProjectFileViewer
+      v-model="fileViewerOpen"
+      :project-id="projectId"
+      :path="fileViewerPath"
+      :name="fileViewerName"
+    />
 
     <!-- ==================== 选 agent 启动（项目 → 运行） ==================== -->
     <PluginModal v-model="showAgentPicker" :title="t('project.run.pickAgent')" size="lg">
@@ -451,8 +574,8 @@
             :data-testid="`run-agent-${agent.id}`"
             @click="pickAgent(agent)"
           >
-            <!-- 图标芯片：codex（细线条）与 opencode（厚边框）都是纯白前景，
-                 裸放在卡片底色上会糊成一团；给一层浅底再画，形状才立得住 -->
+            <!-- 图标芯片：四个 agent 都有固定品牌色（claude 橙 / pi 三色 / codex 蓝 /
+                 opencode 橙金），中性浅底只做形状衬托，不承载品牌色 -->
             <span
               class="w-8 h-8 shrink-0 rounded-[9px] bg-[var(--bg-hover)] flex items-center justify-center"
             >
@@ -510,40 +633,37 @@
 
 <script setup lang="ts">
 /**
- * 项目工作台（ADR 0003 / issue #23 M2；M3 对话面接线）
+ * 项目工作台（ADR 0003 / issue #23 M2；CLI 为核心：终端即主面）
  *
- * 三栏：左运行列表 + 新建运行｜中对话面（run.events / run.send）｜右检查器
- * （变更 / 终端 / 事件）。
+ * 三栏：左运行列表 + 新建运行｜中终端主面｜右检查器（文件 / Git / 变更）。右栏
+ * 文件页签是当前项目 workingDir 的目录树（与移动端文件浏览同语义），默认落在文件；
+ * Git 页签是同一目录的提交历史与分支图（project.git-log）；变更是 M3 占位。
  *
- * **对话面与事件页签共用一条账本读取**（`useRunEvents`，唯一实例挂在选中
- * 运行上）：中栏吃渲染模型（`ConversationSurface`），检查器「事件」页签看
- * 原始归一行（`ChatEventInspector`）；发送走 `run.send`（后端对镜像模式 /
- * 终态显性拒绝），停止复用 `session.close`。
- *
- * **两侧宽度可拖拽**（usePaneResize）：写死宽度在窄窗口下会把对话面挤成一条缝，
- * 而检查器里的终端宽度直接决定 PTY 列数与换行——宽度该由用户定。上限按容器实测
- * 宽度反推（保住对话面最小宽），拖拽 / 键盘 <- / -> / 双击复位三套入口，宽度记在
- * app KV 里下次沿用。
- *
- * **终端页签不是新写的渲染层**：它就是 `TerminalPreview`（现有渲染管线：xterm +
+ * **终端主面不是新写的渲染层**：它就是 `TerminalPreview`（现有渲染管线：xterm +
  * 输出拉取 + 背压 ack + IME/尺寸处理），只是把「运行视图」投影成它认的会话形状
- * ——「终端页签显示的是同一条 PTY 的真实字节」这条要求靠复用成立，不靠重写。
+ * ——「终端显示的是同一条 PTY 的真实字节」这条要求靠复用成立，不靠重写。
+ * 对话经 CLI（终端）直接进行，前端不再渲染对话流（M3 对话面已撤销）。
+ *
+ * **两侧宽度可拖拽**（usePaneResize）：写死宽度在窄窗口下会把终端主面挤成一条缝，
+ * 而终端宽度直接决定 PTY 列数与换行——宽度该由用户定。上限按容器实测宽度反推
+ * （保住终端主面最小宽），拖拽 / 键盘 <- / -> / 双击复位三套入口，宽度记在
+ * app KV 里下次沿用。
  *
  * **新建运行 = 在项目里选一个 agent**：后端按（项目, agent）取/建启动参数并走
  * 唯一启动链；前端只准备终端网格（先预测再启动，避免开终端后重排）。
  */
-import { computed, inject, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, inject, onMounted, onUnmounted, reactive, ref, watch, type Ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { toast } from 'vue-sonner'
 import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-desktop'
 import PluginModal from '@/components/PluginModal.vue'
+import ProjectFileTree from '@/components/projects/ProjectFileTree.vue'
+import ProjectFileViewer from '@/components/projects/ProjectFileViewer.vue'
+import ProjectGitGraph from '@/components/projects/ProjectGitGraph.vue'
 import TerminalPreview from '@/components/terminal/TerminalPreview.vue'
-import ConversationSurface from '@/components/chat/ConversationSurface.vue'
-import ChatEventInspector from '@/components/chat/ChatEventInspector.vue'
 import { resolvePluginErrorText } from '@/utils/pluginError'
 import { agentGlyph } from '@/agents/registry'
 import { usePaneResize } from '@/composables/usePaneResize'
-import { useRunEvents } from '@/composables/useRunEvents'
 import {
   envBadge,
   isLiveRun,
@@ -584,7 +704,85 @@ const selectedRunId = ref('')
 const notFound = ref(false)
 const isStarting = ref(false)
 const showAgentPicker = ref(false)
-const inspectorTab = ref<'changes' | 'terminal' | 'events'>('terminal')
+
+// ==================== 右栏页签（文件 / Git / 变更） ====================
+
+type InspectorTab = 'files' | 'git' | 'changes'
+
+/** 默认落在「文件」：项目页最常查的是目录，变更是 M3 才接管的空占位 */
+const inspectorTab = ref<InspectorTab>('files')
+/** 持久化偏好读回前不触发文件树取数（避免「上次停在变更」也先弹一次授权） */
+const inspectorTabReady = ref(false)
+/** 首帧不把默认值写回存储（只有用户操作 / 读回完成后才持久化） */
+let persistInspectorTab = false
+
+const INSPECTOR_TAB_KEY = 'project.workbench.inspectorTab'
+
+const inspectorTabs = computed<{ key: InspectorTab; label: string }[]>(() => [
+  { key: 'files', label: t('project.files.title') },
+  { key: 'git', label: t('project.git.title') },
+  { key: 'changes', label: t('project.inspector.changes') },
+])
+
+function selectInspectorTab(tab: InspectorTab): void {
+  inspectorTab.value = tab
+}
+
+/** 页签键盘导航（←/→ 循环、Home/End 到两端；焦点跟随选中项） */
+function onTabKeydown(event: KeyboardEvent): void {
+  const keys = inspectorTabs.value.map((tab) => tab.key)
+  const current = keys.indexOf(inspectorTab.value)
+  let next = current
+  if (event.key === 'ArrowRight') next = (current + 1) % keys.length
+  else if (event.key === 'ArrowLeft') next = (current - 1 + keys.length) % keys.length
+  else if (event.key === 'Home') next = 0
+  else if (event.key === 'End') next = keys.length - 1
+  else return
+  event.preventDefault()
+  inspectorTab.value = keys[next]
+  const tabs = (
+    event.currentTarget as HTMLElement | null
+  )?.parentElement?.querySelectorAll<HTMLElement>('[role="tab"]')
+  tabs?.[next]?.focus()
+}
+
+/** 读回上次停留的页签；读失败 / 值非法按默认「文件」处理 */
+async function loadInspectorTab(): Promise<void> {
+  try {
+    const raw = await context.storage.get(INSPECTOR_TAB_KEY)
+    if (raw === 'files' || raw === 'git' || raw === 'changes') inspectorTab.value = raw
+  } catch (e) {
+    console.warn('[Project Workbench] read inspector tab failed:', e)
+  } finally {
+    inspectorTabReady.value = true
+    persistInspectorTab = true
+  }
+}
+
+watch(inspectorTab, (tab) => {
+  if (!persistInspectorTab) return
+  void context.storage.set(INSPECTOR_TAB_KEY, tab).catch((e) => {
+    // 写失败只影响下次进入的默认页签，不阻断当前交互
+    console.warn('[Project Workbench] persist inspector tab failed:', e)
+  })
+})
+
+// ==================== 文件查看器 ====================
+
+const fileViewerOpen = ref(false)
+const fileViewerPath = ref('')
+const fileViewerName = ref('')
+
+function openFile(name: string, path: string): void {
+  fileViewerName.value = name
+  fileViewerPath.value = path
+  fileViewerOpen.value = true
+}
+
+/** 切到另一个项目时收起查看器：旧路径在新项目里没有意义 */
+watch(projectId, () => {
+  fileViewerOpen.value = false
+})
 
 // ==================== 三栏宽度（可拖拽） ====================
 
@@ -595,14 +793,37 @@ const RUNS_MIN_WIDTH = 200
 const INSPECTOR_DEFAULT_WIDTH = 420
 const INSPECTOR_MIN_WIDTH = 320
 /**
- * 中间对话面最小宽度。
+ * 中间终端主面最小宽度。
  *
- * 两侧是固定像素列，窗口一窄就会把中间挤成一条缝（实测 1180 宽时对话面只剩 250px，
- * 标题条里的「Agent 会话」直接和页签撞上）。上限据此反推：两侧再拖也不能吃掉它。
+ * 两侧是固定像素列，窗口一窄就会把中间挤成一条缝（实测 1180 宽时主面只剩 250px，
+ * 标题条里的「Agent 会话」直接和标题撞上）。上限据此反推：两侧再拖也不能吃掉它。
  */
-const CHAT_MIN_WIDTH = 320
+const CENTER_MIN_WIDTH = 320
 /** 两个拖拽手柄的宽度合计（手柄是布局内的实体，不是覆盖层） */
-const HANDLE_TOTAL_WIDTH = 12
+const SPLIT_HANDLE_WIDTH = 6
+
+/**
+ * 折叠后的窄轨宽度
+ *
+ * 收起两侧面板是为了把宽度还给终端，但恢复入口必须始终可达：按 hover 才显出按钮
+ * 等于没有入口（UX 准则 Compact Control Semantics 明确禁止把唯一动作藏在 hover 里）。
+ * 窄轨同时回答两个问题——「这里有一块面板」与「点哪里打开」。
+ */
+const PANE_RAIL_WIDTH = 36
+
+const runsCollapsed = ref(false)
+const inspectorCollapsed = ref(false)
+
+/** 折叠标记与宽度共用同一个 app KV：重进工作台沿用上次布局 */
+const RUNS_COLLAPSED_KEY = 'project.workbench.runsCollapsed'
+const INSPECTOR_COLLAPSED_KEY = 'project.workbench.inspectorCollapsed'
+
+/** 可见手柄宽度合计：收起的一侧不渲染手柄，那一段宽度就不该参与布局预算 */
+const handleWidth = computed(
+  () =>
+    (runsCollapsed.value ? 0 : SPLIT_HANDLE_WIDTH) +
+    (inspectorCollapsed.value ? 0 : SPLIT_HANDLE_WIDTH),
+)
 
 const layoutEl = ref<HTMLElement | null>(null)
 /** 三栏容器实测宽度（0 = 还没测到，此时不夹上限，避免把存下来的宽度误压到下限） */
@@ -611,24 +832,27 @@ const layoutWidth = ref(0)
 /**
  * 两侧当前宽度的镜像（上限函数要读「另一侧现在多宽」，但两个 pane 互相引用会在
  * setup 期踩 TDZ）。镜像由下面的 sync watcher 实时保持同步，拖动过程中也不滞后。
+ *
+ * 存的是**生效宽度**，不是用户拖出来的宽度：折叠的一侧只占窄轨，上限就该按窄轨算，
+ * 否则收起一块面板后另一侧仍然拖不宽（看起来像没生效）。
  */
-const paneMetrics = { runs: RUNS_DEFAULT_WIDTH, inspector: INSPECTOR_DEFAULT_WIDTH }
+const paneMetrics = reactive({ runs: RUNS_DEFAULT_WIDTH, inspector: INSPECTOR_DEFAULT_WIDTH })
 
-/** 运行列表上限：容器宽 − 检查器宽 − 中间最小宽 − 手柄 */
+/** 运行列表上限：容器宽 − 检查器生效宽 − 中间最小宽 − 手柄（收起的一侧不占手柄） */
 function runsMax(): number {
   if (layoutWidth.value <= 0) return Number.POSITIVE_INFINITY
   return Math.max(
     RUNS_MIN_WIDTH,
-    layoutWidth.value - paneMetrics.inspector - CHAT_MIN_WIDTH - HANDLE_TOTAL_WIDTH,
+    layoutWidth.value - paneMetrics.inspector - CENTER_MIN_WIDTH - handleWidth.value,
   )
 }
 
-/** 检查器上限：容器宽 − 运行列表宽 − 中间最小宽 − 手柄 */
+/** 检查器上限：容器宽 − 运行列表生效宽 − 中间最小宽 − 手柄 */
 function inspectorMax(): number {
   if (layoutWidth.value <= 0) return Number.POSITIVE_INFINITY
   return Math.max(
     INSPECTOR_MIN_WIDTH,
-    layoutWidth.value - paneMetrics.runs - CHAT_MIN_WIDTH - HANDLE_TOTAL_WIDTH,
+    layoutWidth.value - paneMetrics.runs - CENTER_MIN_WIDTH - handleWidth.value,
   )
 }
 
@@ -674,6 +898,42 @@ const {
   storage: context.storage,
 })
 
+// ==================== 两侧面板折叠 ====================
+
+/** 生效宽度：折叠的一侧只占窄轨（拖出来的宽度仍存着，展开时原样回来） */
+const effectiveRunsWidth = computed(() => (runsCollapsed.value ? PANE_RAIL_WIDTH : runsWidth.value))
+const effectiveInspectorWidth = computed(() =>
+  inspectorCollapsed.value ? PANE_RAIL_WIDTH : inspectorWidth.value,
+)
+
+/** 读不到就按展开算：布局偏好读失败不该让面板打不开 */
+async function loadCollapsed(key: string, target: Ref<boolean>): Promise<void> {
+  try {
+    target.value = (await context.storage.get(key)) === true
+  } catch (e) {
+    console.warn('[Project Workbench] read collapsed state failed:', e)
+  }
+}
+
+/** 写失败不影响交互（下进来回到默认布局，不报错） */
+async function persistCollapsed(key: string, collapsed: boolean): Promise<void> {
+  try {
+    await context.storage.set(key, collapsed)
+  } catch (e) {
+    console.warn('[Project Workbench] persist collapsed state failed:', e)
+  }
+}
+
+function toggleRuns(): void {
+  runsCollapsed.value = !runsCollapsed.value
+  void persistCollapsed(RUNS_COLLAPSED_KEY, runsCollapsed.value)
+}
+
+function toggleInspector(): void {
+  inspectorCollapsed.value = !inspectorCollapsed.value
+  void persistCollapsed(INSPECTOR_COLLAPSED_KEY, inspectorCollapsed.value)
+}
+
 /** 容器宽度变化：先压检查器，再压运行列表（顺序决定窄窗口下谁先让位） */
 watch(layoutWidth, (width) => {
   if (width <= 0) return
@@ -681,9 +941,13 @@ watch(layoutWidth, (width) => {
   reconcileRuns()
 })
 
-// 镜像必须同步更新：拖拽中每帧都会读上限，异步 watcher 会让上限慢一拍
-watch(runsWidth, (width) => (paneMetrics.runs = width), { immediate: true, flush: 'sync' })
-watch(inspectorWidth, (width) => (paneMetrics.inspector = width), {
+// 镜像必须同步更新：拖拽中每帧都会读上限，异步 watcher 会让上限慢一拍；
+// 镜像存的是生效宽度，所以折叠开关也要触发重算（否则收起一块后另一侧拖不宽）
+watch(effectiveRunsWidth, (width) => (paneMetrics.runs = width), {
+  immediate: true,
+  flush: 'sync',
+})
+watch(effectiveInspectorWidth, (width) => (paneMetrics.inspector = width), {
   immediate: true,
   flush: 'sync',
 })
@@ -708,91 +972,28 @@ watch(layoutEl, (el, _previous, onCleanup) => {
   onCleanup(() => observer.disconnect())
 })
 
-/** 对话面实际宽度（容器 − 两侧 − 手柄）：标题条据此取舍信息，而不是按窗口断点猜 */
-const chatWidth = computed(() =>
-  Math.max(0, layoutWidth.value - runsWidth.value - inspectorWidth.value - HANDLE_TOTAL_WIDTH),
+/** 终端主面实际宽度（容器 − 两侧生效宽 − 可见手柄）：标题条据此取舍信息，而不是按窗口断点猜 */
+const centerWidth = computed(() =>
+  Math.max(
+    0,
+    layoutWidth.value -
+      effectiveRunsWidth.value -
+      effectiveInspectorWidth.value -
+      handleWidth.value,
+  ),
 )
 
 /** 会话 id + 复制按钮约占 200px：放不下就整块收起，不切成半截 */
-const showChatSessionMeta = computed(() => chatWidth.value >= 460)
+const showRunMeta = computed(() => centerWidth.value >= 460)
 
 /** 工具栏里的项目路径：窄窗口下让位给「运行中 / 刷新」（悬停 title 仍能看到完整路径） */
 const showProjectPath = computed(() => layoutWidth.value === 0 || layoutWidth.value >= 820)
 
-/** 检查器页签的键盘导航（←/→ 循环、Home/End 到两端） */
-function onTabKeydown(event: KeyboardEvent): void {
-  const keys = inspectorTabs.value.map((tab) => tab.key)
-  const current = keys.indexOf(inspectorTab.value)
-  let next = current
-  if (event.key === 'ArrowRight') next = (current + 1) % keys.length
-  else if (event.key === 'ArrowLeft') next = (current - 1 + keys.length) % keys.length
-  else if (event.key === 'Home') next = 0
-  else if (event.key === 'End') next = keys.length - 1
-  else return
-  event.preventDefault()
-  inspectorTab.value = keys[next]
-  const tabs = (
-    event.currentTarget as HTMLElement | null
-  )?.parentElement?.querySelectorAll<HTMLElement>('[role="tab"]')
-  tabs?.[next]?.focus()
-}
-
-const inspectorTabs = computed<{ key: 'changes' | 'terminal' | 'events'; label: string }[]>(() => [
-  { key: 'changes', label: t('project.inspector.changes') },
-  { key: 'terminal', label: t('project.inspector.terminal') },
-  { key: 'events', label: t('project.inspector.events') },
-])
-
-/** 选中运行（选中 id 失配时退回第一条，避免删/停之后右侧空着） */
+/** 选中运行（选中 id 失配时退回第一条，避免删/停之后中栏空着） */
 const selectedRun = computed<RunView | null>(() => {
   const byId = runs.value.find((run) => run.id === selectedRunId.value)
   return byId ?? runs.value[0] ?? null
 })
-
-/** 非终态（轮询活性判据：终态运行补最后一拍后停轮询） */
-const selectedRunActive = computed(() => !!selectedRun.value && isLiveRun(selectedRun.value.status))
-
-// ==================== 对话面数据（run.events 唯一入口） ====================
-
-/**
- * 账本读取面：中栏对话面与检查器「事件」页签共用同一实例——一条运行一条
- * 轮询，两个消费者不各拉各的。`runId` 为 null（无运行）时组合式内部停拍。
- */
-const runEvents = useRunEvents(context, computed(() => selectedRun.value?.id ?? null), {
-  active: selectedRunActive,
-})
-
-/** 发送在途（按钮态；错误由 toast 承载） */
-const isSending = ref(false)
-
-/** 对话面发送 → `run.send`（镜像模式 / 终态由后端显性拒绝，这里转可读提示） */
-async function onChatSend(text: string): Promise<void> {
-  if (!selectedRun.value || isSending.value) return
-  isSending.value = true
-  try {
-    await runEvents.sendText(text)
-  } catch (e) {
-    console.error('[Project Workbench] send failed:', e)
-    toast.error(resolvePluginErrorText(context, e, 'project.chat.sendFailed'))
-  } finally {
-    isSending.value = false
-  }
-}
-
-/** 对话面停止 = 既有停止链（session.close：PTY 路径永远可用） */
-async function onChatStop(): Promise<void> {
-  const run = selectedRun.value
-  if (run) await stop(run)
-}
-
-/** 读取失败重试（横幅按钮 / 手动刷新共用）：从当前游标续拉 */
-async function onEventsRetry(): Promise<void> {
-  try {
-    await runEvents.retry()
-  } catch (e) {
-    console.error('[Project Workbench] events retry failed:', e)
-  }
-}
 
 /** 传给终端组件的会话形状（同一条 PTY，运行视图 ↔ 会话视图同源） */
 const selectedRunSession = computed(() =>
@@ -805,7 +1006,7 @@ const selectedRunSession = computed(() =>
  * 是否是「检查器正在看的那条」
  *
  * 判据取 `selectedRun`（含「没点过就回落到第一条」的兜底），不是 `selectedRunId`：
- * 后者在首次进入时是空的，会让列表一条都不高亮、而右侧却已经在渲染第一条的终端。
+ * 后者在首次进入时是空的，会让列表一条都不高亮、而中栏却已经在渲染第一条的终端。
  */
 function isActiveRun(run: RunView): boolean {
   return selectedRun.value?.id === run.id
@@ -883,12 +1084,7 @@ async function refreshRuns(): Promise<void> {
 
 async function refresh(): Promise<void> {
   try {
-    await Promise.all([
-      loadRuns(projectId.value),
-      loadProject(projectId.value),
-      loadAgents(),
-      runEvents.retry(),
-    ])
+    await Promise.all([loadRuns(projectId.value), loadProject(projectId.value), loadAgents()])
     toast.info(t('project.toast.refreshed'))
   } catch (e) {
     toast.error(resolvePluginErrorText(context, e, 'project.error.loadFailed'))
@@ -932,8 +1128,7 @@ async function start(agentId: string): Promise<void> {
   try {
     const created = await startRun(projectId.value, agentId)
     selectedRunId.value = created.runId
-    // 新运行立刻有字节可看：把检查器切回终端页签
-    inspectorTab.value = 'terminal'
+    // 新运行立刻有字节可看：终端主面随选中运行切换
     showAgentPicker.value = false
   } catch (e) {
     console.error('[Project Workbench] start run failed:', e)
@@ -979,7 +1174,7 @@ async function copyAgentSessionId(): Promise<void> {
   if (!id) return
   try {
     await navigator.clipboard.writeText(id)
-    toast.success(t('project.chat.copied'))
+    toast.success(t('project.run.copied'))
   } catch (e) {
     // 剪贴板不可用不影响阅读：id 就在标题条上可选中复制
     console.error('[Project Workbench] clipboard unavailable:', e)
@@ -996,9 +1191,12 @@ function backToList(): void {
 let eventDisposables: { dispose(): void }[] = []
 
 onMounted(async () => {
-  // 先读回上次的三栏布局（读不到即用默认宽度，不阻塞取数）
+  // 先读回上次的三栏布局（宽度 + 折叠状态；读不到即用默认值，不阻塞取数）
   void loadRunsWidth()
   void loadInspectorWidth()
+  void loadInspectorTab()
+  void loadCollapsed(RUNS_COLLAPSED_KEY, runsCollapsed)
+  void loadCollapsed(INSPECTOR_COLLAPSED_KEY, inspectorCollapsed)
   await load()
   startTicker()
   const refreshOnEvent = () => {
@@ -1013,7 +1211,6 @@ onMounted(async () => {
 
 onUnmounted(() => {
   stopTicker()
-  runEvents.dispose()
   disposeRuns()
   disposeInspector()
   for (const disposable of eventDisposables) disposable.dispose()
@@ -1065,5 +1262,20 @@ onUnmounted(() => {
 .wb-split-handle-active::before {
   width: 2px;
   background: var(--color-primary);
+}
+
+/**
+ * 折叠窄轨里的竖排面板名
+ *
+ * CJK 在 `vertical-rl` 下是正字竖排（不是旋转的字），刚好能让「运行」/「变更」在
+ * 36px 宽的轨道里读得出来；夹带的少量英文/数字会被旋转，仍然可辨。
+ */
+.wb-rail-label {
+  writing-mode: vertical-rl;
+  letter-spacing: 0.08em;
+  user-select: none;
+  font-size: calc(10px * var(--ui-scale));
+  text-transform: uppercase;
+  color: var(--text-tertiary);
 }
 </style>

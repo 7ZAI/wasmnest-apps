@@ -77,6 +77,9 @@ mod policy;
 /// 项目域（ADR 0003）：一级容器「项目 = 目录 + 执行环境」，含容器迁移
 /// （`sessions` → `runs`、配置 → 项目）与 `project.*` 命令面
 pub mod project;
+/// 项目 / 运行 / Agent 的移动端 REST 面（ABI v29）：`/api/projects`、`/api/runs*`、
+/// `/api/agents`——移动端项目视角的只读面 + 启动运行（项目写面仍在桌面）
+mod projects_http;
 /// 快捷指令域（票 02 第 4 域）：私有库持久化 + HTTP 查询面 + 迁移导入
 pub mod quick_actions;
 /// 运行域（ADR 0003）：从项目里启动一条运行（`run.start`）——项目给出执行环境
@@ -2142,6 +2145,52 @@ impl WasmPlugin for SessionPlugin {
             // 选项目目录 {} → {picked, path}（宿主对话框；取消 = picked:false）
             "project.pick-dir" => project::pick_dir_via_host().map_err(anyhow::Error::msg),
 
+            // 项目文件树 {projectId, dirPath?, excludeDirs?} → {children}
+            // 单层懒加载（目录树展开一次读一层）；整树递归留给 HTTP 面的移动端。
+            "project.file-tree" => {
+                let project_id = args
+                    .get("projectId")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| anyhow::anyhow!("projectId required"))?;
+                let dir_path = args.get("dirPath").and_then(|v| v.as_str()).unwrap_or("");
+                let exclude_dirs: Option<Vec<String>> =
+                    args.get("excludeDirs").and_then(|v| v.as_array()).map(|arr| {
+                        arr.iter()
+                            .filter_map(|v| v.as_str().map(str::to_string))
+                            .collect()
+                    });
+                project::files::tree_via_host(project_id, dir_path, exclude_dirs.as_deref())
+                    .map_err(anyhow::Error::msg)
+            }
+
+            // 项目文件内容 {projectId, filePath} → {content, fileName}
+            "project.file-content" => {
+                let project_id = args
+                    .get("projectId")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| anyhow::anyhow!("projectId required"))?;
+                let file_path = args
+                    .get("filePath")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| anyhow::anyhow!("filePath required"))?;
+                project::files::content_via_host(project_id, file_path)
+                    .map_err(anyhow::Error::msg)
+            }
+
+            // 项目 Git 提交图 {projectId, limit?} → {isGitRepo, currentBranch, commits, truncated}
+            // 只读提交历史（git log --all --topo-order，排除 stash / notes）；图形布局由前端纯函数完成。
+            "project.git-log" => {
+                let project_id = args
+                    .get("projectId")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| anyhow::anyhow!("projectId required"))?;
+                let limit = args
+                    .get("limit")
+                    .and_then(|v| v.as_u64())
+                    .map(|value| value as usize);
+                project::git::graph_via_host(project_id, limit).map_err(anyhow::Error::msg)
+            }
+
             // 运行列表 {projectId?} → {runs: RunView[]}（缺 projectId = 全部；倒序由前端定）
             "run.list" => {
                 let project_id = args.get("projectId").and_then(|v| v.as_str());
@@ -2359,6 +2408,11 @@ fn handle_http_endpoint(
         "sessions" | "sessions/start" | "sessions/stop" | "sessions/resize" | "sessions/input"
         | "sessions/history" | "sessions/remove" => {
             sessions_http::handle_sessions_http(host, method, path, body, query, params, device)
+        }
+        // 项目 / 运行 / Agent 的移动端 REST 面（桌面项目化的消费投影）：项目列表、
+        // 项目内运行列表、启动运行、agent 清单。项目写面需要桌面目录选择，不在此开放。
+        "projects" | "runs" | "runs/start" | "agents" => {
+            projects_http::handle_projects_http(host, method, path, body, query)
         }
         _ => task::handle_http_via_host(host, method, path, body, query),
     }

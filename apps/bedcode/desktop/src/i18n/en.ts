@@ -481,23 +481,21 @@ const en: MessageSchema = {
   'server.toggleOn': 'On',
   'server.toggleOff': 'Off',
 
-  // ==================== Link encryption settings (migrated from host `settings.linkCrypto.*`, 2026-10-27) ====================
+  // ==================== Link encryption settings (read-only host floor, 2026-11-03) ====================
   'linkCrypto.title': 'Link Encryption',
-  'linkCrypto.master': 'Enable Link Encryption',
-  'linkCrypto.encryptHttp': 'Encrypt HTTP Payload',
-  'linkCrypto.encryptHttpDesc':
-    'REST request/response body envelope encryption (terminal input echo etc.)',
-  'linkCrypto.encryptWsTerminal': 'Encrypt Terminal Channel',
-  'linkCrypto.encryptWsTerminalDesc': 'WS terminal frame encryption (PTY output stream)',
-  'linkCrypto.encryptWsEvent': 'Encrypt Event Channel',
-  'linkCrypto.encryptWsEventDesc': 'WS event frame encryption (sync event broadcast)',
-  'linkCrypto.plaintextFallback': 'Allow Plaintext Fallback',
-  'linkCrypto.plaintextFallbackDesc':
-    'Let unnegotiated legacy clients through in plaintext; when off, unnegotiated remote requests are rejected',
+  'linkCrypto.floor': 'Host floor',
+  'linkCrypto.floorDesc':
+    'Minimum encryption requirement for all peer traffic, managed in host settings',
+  'linkCrypto.floorOff': 'Plaintext',
+  'linkCrypto.floorPreferred': 'Prefer encrypted',
+  'linkCrypto.floorRequired': 'Require encrypted',
   'linkCrypto.fingerprint': 'Local Fingerprint',
   'linkCrypto.fingerprintDesc':
     'Local identity key fingerprint (first 16 hex of SHA-256); compare manually with the mobile end',
-  'linkCrypto.saveFailed': 'Failed to save link encryption config',
+  'linkCrypto.hostManaged':
+    'The floor is managed by the host: change it in Host Settings › Link Encryption. This app only declares its own encryption requirements when registering endpoints.',
+  'linkCrypto.capabilityMissing':
+    'This host does not expose link-encryption capabilities (older version); the floor and endpoint policies cannot be confirmed. Upgrade the host before relying on encryption.',
 
   // ==================== App-level fallbacks (migrated from host, 2026-10-27) ====================
   'notFound.title': 'Page Not Found',
@@ -1159,6 +1157,12 @@ const en: MessageSchema = {
   'project.split.resizeInspector': 'Drag to resize the inspector',
   'project.split.resizeHint': 'Drag to resize · double-click to reset · focus and use ←/→',
 
+  // 两侧面板折叠（收起后留窄轨，恢复入口不靠悬停）
+  'project.run.collapse': 'Collapse runs',
+  'project.run.expand': 'Expand runs',
+  'project.inspector.collapse': 'Collapse inspector',
+  'project.inspector.expand': 'Expand inspector',
+
   // Runs
   'project.run.title': 'Runs',
   'project.run.new': 'New Run',
@@ -1174,64 +1178,54 @@ const en: MessageSchema = {
   'project.run.agentMissing': 'not installed',
   'project.run.agentUnknown': 'not detected',
   'project.run.installHint': 'Install in Agent Management',
+  'project.run.agentSessionId': 'Agent session',
+  'project.run.copyId': 'Copy session id',
+  'project.run.copied': 'Copied',
 
-  // Conversation pane (M3: run.events ledger + run.send)
-  'project.chat.title': 'Conversation',
-  'project.chat.agentSessionId': 'Agent session',
-  'project.chat.copyId': 'Copy session id',
-  'project.chat.copied': 'Copied',
-  'project.chat.emptyTitle': 'No conversation yet',
-  'project.chat.emptyHint':
-    'Send the first message below, or switch to the terminal tab on the right to drive the agent directly',
-  'project.chat.emptyNoRun': 'Pick a run on the left to start a conversation',
-  'project.chat.emptyNoRunHint':
-    'Each run is one agent process launch plus its whole conversation; start one via "New run" on the left',
-  'project.chat.inputPlaceholder': 'Type a message — Enter to send, Shift+Enter for a new line',
-  'project.chat.send': 'Send',
-  'project.chat.sending': 'Sending…',
-  'project.chat.sendFailed': 'Failed to send',
-  'project.chat.stop': 'Stop run',
-  'project.chat.queued': 'Queued',
-  'project.chat.generating': 'Generating…',
-  'project.chat.thinking': 'Thinking',
-  'project.chat.thinkingRedacted': 'Thinking (redacted by the agent)',
-  'project.chat.toolState.pending': 'Pending',
-  'project.chat.toolState.running': 'Running',
-  'project.chat.toolState.done': 'Done',
-  'project.chat.toolState.error': 'Failed',
-  'project.chat.expandOutput': 'Show output',
-  'project.chat.collapse': 'Collapse',
-  'project.chat.patchTitle': 'File changes',
-  'project.chat.patchFiles': '{n} file(s)',
-  'project.chat.showDiff': 'View diff',
-  'project.chat.hideDiff': 'Hide diff',
-  'project.chat.planTitle': 'Plan',
-  'project.chat.permissionTitle': 'Permission request',
-  'project.chat.permissionNeedTerminal':
-    'Approve in the terminal tab (this agent cannot reply to permission prompts from the conversation yet)',
-  'project.chat.permissionDecidedBy': 'Handled by {by}',
-  'project.chat.agentState.busy': 'Working…',
-  'project.chat.agentState.retrying': 'Retrying…',
-  'project.chat.agentState.error': 'Error',
-  'project.chat.mirrorMode': 'Mirror mode',
-  'project.chat.runEnded': 'This run has ended — start a new run to keep chatting',
-  'project.chat.mirrorHint':
-    'Bridge offline: events come from the ledger mirror (may lag). Input is disabled — use the terminal tab',
-  'project.chat.mirrorPiTrust':
-    'Bridge not loaded: pi has not been granted trust for this project yet. Start pi in the terminal and trust this project; input resumes automatically afterwards',
-  'project.chat.truncated':
-    'The ledger is long; only the most recent events are kept (scroll back in the terminal tab for earlier output)',
-  'project.chat.loadFailed': 'Failed to read events',
-  'project.chat.retry': 'Retry',
-  'project.chat.expandPayload': 'Show JSON',
+  // Terminal main pane (CLI-first: conversation happens in the CLI; the UI renders no chat stream)
+  'project.terminal.title': 'Terminal',
+  'project.terminal.empty': 'Pick a run on the left — its terminal opens here',
+  'project.terminal.emptyHint':
+    'Each run is one agent process launch; start one via "New run" on the left',
 
   // Inspector
+  'project.inspector.title': 'Inspector',
   'project.inspector.changes': 'Changes',
-  'project.inspector.terminal': 'Terminal',
-  'project.inspector.events': 'Events',
-  'project.inspector.noSelection': 'Select a run to inspect its terminal and events',
+  'project.inspector.noSelection': 'Select a run to inspect its changes',
   'project.inspector.changesEmpty': 'Change cards arrive with M3 patch events',
-  'project.inspector.eventsEmpty': 'This run has no events yet',
+
+  // Git tab (commit history + branch graph; project.git-log)
+  'project.git.title': 'Git',
+  'project.git.refresh': 'Refresh commit history',
+  'project.git.loading': 'Reading commit history…',
+  'project.git.empty': 'No commits yet',
+  'project.git.emptyHint':
+    'This repository has no commits yet. Come back after the first commit to see the graph.',
+  'project.git.notRepo': 'This folder is not a Git repository',
+  'project.git.notRepoHint':
+    'Initialize Git in the project folder, then refresh to see commit history and the branch graph.',
+  'project.git.loadFailed': 'Could not read the Git commit history',
+  'project.git.retry': 'Retry',
+  'project.git.commitCount': '{n} commits',
+  'project.git.truncated': 'Showing the most recent {n} commits',
+  'project.git.detached': 'detached HEAD',
+  'project.git.noSubject': '(no commit message)',
+
+  // Files tab (project working directory tree / read-only viewer)
+  'project.files.title': 'Files',
+  'project.files.refresh': 'Refresh file tree',
+  'project.files.collapseAll': 'Collapse all',
+  'project.files.loading': 'Loading directory…',
+  'project.files.empty': 'This directory has no files',
+  'project.files.loadFailed': 'Could not load the file tree',
+  'project.files.retry': 'Retry',
+  'project.fileViewer.loading': 'Loading file…',
+  'project.fileViewer.loadFailed': 'Could not load the file',
+  'project.fileViewer.empty': 'This file is empty',
+  'project.fileViewer.lines': '{n} lines',
+  'project.fileViewer.copyPath': 'Copy path',
+  'project.fileViewer.copied': 'Path copied',
+  'project.fileViewer.close': 'Close',
 }
 
 export default en

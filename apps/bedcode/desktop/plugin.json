@@ -194,8 +194,20 @@
         "title": "Project: Create"
       },
       {
+        "id": "project.file-content",
+        "title": "Project: File Content"
+      },
+      {
+        "id": "project.file-tree",
+        "title": "Project: File Tree"
+      },
+      {
         "id": "project.get",
         "title": "Project: Get"
+      },
+      {
+        "id": "project.git-log",
+        "title": "Project: Git Log"
       },
       {
         "id": "project.list",

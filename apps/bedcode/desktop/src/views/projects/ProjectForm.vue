@@ -1,7 +1,7 @@
 <template>
   <div class="space-y-5" data-testid="project-form">
     <!-- 执行环境：按宿主平台过滤（同会话「新建配置」口径），不可用项禁用而非隐藏 -->
-    <Select
+    <AppSelectField
       v-model="form.environment"
       :label="t('project.form.environment')"
       :options="environmentOptions"
@@ -11,7 +11,7 @@
 
     <!-- WSL 发行版：仅 wsl2 分支需要；列表来自宿主平台事实 -->
     <div v-if="form.environment === 'wsl2'">
-      <Select
+      <AppSelectField
         v-if="!wslLoading"
         v-model="form.wslDistro"
         :label="t('project.form.wslDistro')"
@@ -37,7 +37,7 @@
     </div>
 
     <!-- 目录：唯一必填项；选择走项目域命令（宿主 fs:pick 权限门 + 路径授权校验） -->
-    <TextInput
+    <AppTextField
       v-model="form.workingDir"
       :label="t('project.form.workingDir')"
       :placeholder="t('project.form.workingDirPlaceholder')"
@@ -56,10 +56,10 @@
           {{ t('project.button.browse') }}
         </button>
       </template>
-    </TextInput>
+    </AppTextField>
 
     <!-- 项目名：可选，留空取目录末段（提示写在 placeholder 里） -->
-    <TextInput
+    <AppTextField
       v-model="form.name"
       :label="t('project.form.name')"
       :placeholder="t('project.form.namePlaceholder')"
@@ -73,10 +73,11 @@
 /**
  * 项目新建表单（ADR 0003 / issue #23 M2）
  *
- * 与「终端会话 → 新建配置」（SessionConfigForm）同形：自绘 Select / TextInput，
- * 不用原生 `<select>` / 裸 `<input>`——原生控件在本应用的主题 token 下既不吃
- * 深浅色，也不吃 `--ui-scale`，弹出的选项列表更是系统样式，与会话表单并排放
- * 会明显不是一套东西。
+ * 与「终端会话 → 新建配置」（SessionConfigForm）同形，但输入控件是本 app 自持的
+ * token 绑定组件（`ui/AppTextField` / `ui/AppSelectField`，后者基于开源 headless
+ * 原语 reka-ui）：早期用的 `TextInput` + SDK `Select` 依赖 `rounded-input` /
+ * `shadow-input-focus` 等 token 别名，而本工程 Tailwind 没映射它们，圆角与焦点环
+ * 全是死类——用户视角就是「原生控件一样难看」。
  *
  * 三处与会话表单对齐的规则：
  * 1. 执行环境按宿主平台过滤（Linux 只有 linux，Windows 有 windows/wsl2），
@@ -91,10 +92,10 @@
  */
 import { computed, inject, onMounted, ref, watch } from 'vue'
 import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-desktop'
-import Select from '@binblink/wasmnest-plugin-sdk-desktop/ui'
 import { platform } from '@tauri-apps/plugin-os'
 import { toast } from 'vue-sonner'
-import TextInput from '@/components/TextInput.vue'
+import AppTextField from '@/components/ui/AppTextField.vue'
+import AppSelectField from '@/components/ui/AppSelectField.vue'
 import { resolvePluginErrorText } from '@/utils/pluginError'
 
 export interface ProjectFormData {

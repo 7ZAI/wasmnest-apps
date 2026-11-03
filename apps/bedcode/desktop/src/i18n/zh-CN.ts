@@ -474,20 +474,19 @@ const zhCN: MessageSchema = {
   'server.toggleOn': '开',
   'server.toggleOff': '关',
 
-  // ==================== 链路加密设置（2026-10-27 自宿主 `settings.linkCrypto.*` 迁入） ====================
+  // ==================== 链路加密设置（2026-11-03 改为只读展示宿主下限） ====================
   'linkCrypto.title': '链路加密',
-  'linkCrypto.master': '启用链路加密',
-  'linkCrypto.encryptHttp': '加密 HTTP 载荷',
-  'linkCrypto.encryptHttpDesc': 'REST 请求/响应体信封加密（终端输入回传等）',
-  'linkCrypto.encryptWsTerminal': '加密终端通道',
-  'linkCrypto.encryptWsTerminalDesc': 'WS 终端帧加解密（PTY 输出流）',
-  'linkCrypto.encryptWsEvent': '加密事件通道',
-  'linkCrypto.encryptWsEventDesc': 'WS 事件帧加解密（同步事件广播）',
-  'linkCrypto.plaintextFallback': '允许明文回退',
-  'linkCrypto.plaintextFallbackDesc': '未协商的老客户端放行明文；关闭后非本机未协商请求一律拒绝',
+  'linkCrypto.floor': '宿主下限',
+  'linkCrypto.floorDesc': '整机对端流量的最低加密要求，由宿主设置页统一管理',
+  'linkCrypto.floorOff': '明文',
+  'linkCrypto.floorPreferred': '尽量加密',
+  'linkCrypto.floorRequired': '强制加密',
   'linkCrypto.fingerprint': '本机指纹',
   'linkCrypto.fingerprintDesc': '本机身份密钥指纹（SHA-256 前 16 位），请与移动端展示值人工比对',
-  'linkCrypto.saveFailed': '链路加密配置保存失败',
+  'linkCrypto.hostManaged':
+    '下限归宿主统一管理：请在宿主「设置 › 链路加密」中调整；本应用只在端点注册时声明自己的加密要求。',
+  'linkCrypto.capabilityMissing':
+    '当前宿主不提供链路加密能力查询（旧版本），无法确认下限与端点策略；请升级宿主后再依赖加密。',
 
   // ==================== 应用级兜底（2026-10-27 自宿主迁入） ====================
   'notFound.title': '页面不存在',
@@ -1128,6 +1127,12 @@ const zhCN: MessageSchema = {
   'project.split.resizeInspector': '拖拽调整检查器宽度',
   'project.split.resizeHint': '拖拽调整宽度 · 双击复位 · 聚焦后可用 ←/→ 微调',
 
+  // 两侧面板折叠（收起后留窄轨，恢复入口不靠悬停）
+  'project.run.collapse': '收起运行列表',
+  'project.run.expand': '展开运行列表',
+  'project.inspector.collapse': '收起检查器',
+  'project.inspector.expand': '展开检查器',
+
   // 运行
   'project.run.title': '运行',
   'project.run.new': '新建运行',
@@ -1142,60 +1147,52 @@ const zhCN: MessageSchema = {
   'project.run.agentMissing': '未安装',
   'project.run.agentUnknown': '未探测',
   'project.run.installHint': '去 Agent 管理安装',
+  'project.run.agentSessionId': 'Agent 会话',
+  'project.run.copyId': '复制会话 id',
+  'project.run.copied': '已复制',
 
-  // 对话面（M3：run.events 账本 + run.send 发送）
-  'project.chat.title': '对话',
-  'project.chat.agentSessionId': 'Agent 会话',
-  'project.chat.copyId': '复制会话 id',
-  'project.chat.copied': '已复制',
-  'project.chat.emptyTitle': '还没有对话',
-  'project.chat.emptyHint': '在下面发送第一条消息；也可以随时切到右侧「终端」页签直接操作 agent',
-  'project.chat.emptyNoRun': '左侧选一条运行开始对话',
-  'project.chat.emptyNoRunHint':
-    '每条运行是一次 agent 进程启动及其全部对话；先在左栏「新建运行」里选一个 agent',
-  'project.chat.inputPlaceholder': '输入消息，Enter 发送 / Shift+Enter 换行',
-  'project.chat.send': '发送',
-  'project.chat.sending': '发送中…',
-  'project.chat.sendFailed': '发送失败',
-  'project.chat.stop': '停止运行',
-  'project.chat.queued': '排队中',
-  'project.chat.generating': '生成中…',
-  'project.chat.thinking': '思考过程',
-  'project.chat.thinkingRedacted': '思考过程（已被 agent 隐去）',
-  'project.chat.toolState.pending': '等待',
-  'project.chat.toolState.running': '执行中',
-  'project.chat.toolState.done': '完成',
-  'project.chat.toolState.error': '出错',
-  'project.chat.expandOutput': '展开输出',
-  'project.chat.collapse': '收起',
-  'project.chat.patchTitle': '文件变更',
-  'project.chat.patchFiles': '{n} 个文件',
-  'project.chat.showDiff': '查看差异',
-  'project.chat.hideDiff': '收起差异',
-  'project.chat.planTitle': '计划',
-  'project.chat.permissionTitle': '权限请求',
-  'project.chat.permissionNeedTerminal': '需到「终端」页签确认（当前 agent 暂不支持在对话里批准/拒绝）',
-  'project.chat.permissionDecidedBy': '已由 {by} 处理',
-  'project.chat.agentState.busy': '执行中…',
-  'project.chat.agentState.retrying': '重试中…',
-  'project.chat.agentState.error': '出错',
-  'project.chat.mirrorMode': '镜像模式',
-  'project.chat.runEnded': '运行已结束——发起新运行后继续对话',
-  'project.chat.mirrorHint': '桥接未连接：事件由账本镜像供给（可能滞后），输入不可用，请在「终端」页签操作',
-  'project.chat.mirrorPiTrust':
-    '桥接未加载：pi 尚未授予本项目信任，请先在终端里启动 pi 并信任本项目，之后对话面自动恢复输入',
-  'project.chat.truncated': '事件较多，已只保留最近一部分（更早的正文请看「终端」页签回滚）',
-  'project.chat.loadFailed': '事件读取失败',
-  'project.chat.retry': '重试',
-  'project.chat.expandPayload': '展开 JSON',
+  // 终端主面（CLI 为核心：对话经 CLI 直接进行，前端不渲染对话流）
+  'project.terminal.title': '终端',
+  'project.terminal.empty': '左侧选一条运行，它的终端在这里打开',
+  'project.terminal.emptyHint':
+    '每条运行是一次 agent 进程启动；先在左栏「新建运行」里选一个 agent',
 
   // 检查器
+  'project.inspector.title': '检查器',
   'project.inspector.changes': '变更',
-  'project.inspector.terminal': '终端',
-  'project.inspector.events': '事件',
-  'project.inspector.noSelection': '选一条运行看它的终端与事件',
+  'project.inspector.noSelection': '选一条运行看它的变更',
   'project.inspector.changesEmpty': '变更卡随 M3 的 patch 事件接入',
-  'project.inspector.eventsEmpty': '这条运行还没有事件',
+
+  // Git 页签（提交历史 + 分支图；project.git-log）
+  'project.git.title': 'Git',
+  'project.git.refresh': '刷新提交记录',
+  'project.git.loading': '正在读取提交历史…',
+  'project.git.empty': '还没有提交',
+  'project.git.emptyHint': '这个仓库还没有任何提交；完成首次提交后回来刷新即可看到提交图',
+  'project.git.notRepo': '当前目录不是 Git 仓库',
+  'project.git.notRepoHint': '在项目目录里初始化 Git 后刷新，就能在这里查看提交历史与分支图',
+  'project.git.loadFailed': '读取 Git 提交记录失败',
+  'project.git.retry': '重试',
+  'project.git.commitCount': '{n} 条提交',
+  'project.git.truncated': '仅显示最近 {n} 条提交',
+  'project.git.detached': '游离 HEAD',
+  'project.git.noSubject': '（无提交说明）',
+
+  // 文件页签（项目工作目录树 / 只读查看器）
+  'project.files.title': '文件',
+  'project.files.refresh': '刷新文件树',
+  'project.files.collapseAll': '全部收起',
+  'project.files.loading': '正在读取目录…',
+  'project.files.empty': '这个目录没有文件',
+  'project.files.loadFailed': '读取文件树失败',
+  'project.files.retry': '重试',
+  'project.fileViewer.loading': '正在读取文件…',
+  'project.fileViewer.loadFailed': '读取文件失败',
+  'project.fileViewer.empty': '这是一个空文件',
+  'project.fileViewer.lines': '{n} 行',
+  'project.fileViewer.copyPath': '复制路径',
+  'project.fileViewer.copied': '已复制路径',
+  'project.fileViewer.close': '关闭',
 }
 
 export default zhCN

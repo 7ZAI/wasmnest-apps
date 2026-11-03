@@ -223,7 +223,10 @@ describe('C1 工程身份五处一致', () => {
       // ADR 0003 / issue #23：项目容器命令面（新能力只进 project.* / run.*；
       // session.* 冻结为运行的兼容投影，不再新增）
       'project.create',
+      'project.file-content',
+      'project.file-tree',
       'project.get',
+      'project.git-log',
       'project.list',
       'project.open',
       'project.pick-dir',

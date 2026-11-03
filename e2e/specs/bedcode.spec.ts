@@ -10,7 +10,8 @@
  * - 等状态不 sleep。
  */
 
-import { mkdirSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
@@ -35,6 +36,7 @@ import {
   waitForCount,
   waitForHostReady,
   waitForTerminalOutput,
+  waitForText,
   waitGone,
 } from '../harness/driver'
 import { expectEqual } from '../harness/expect'
@@ -61,6 +63,48 @@ const NAV_ITEMS = [
  */
 const E2E_PROJECT_DIR = join(homedir(), 'bedcode-e2e-project')
 mkdirSync(E2E_PROJECT_DIR, { recursive: true })
+
+/** 文件树锚点文件：内容固定，真实宿主里点开可断言「读到的就是磁盘上的字节」 */
+const E2E_PROJECT_FILE = 'bedcode-e2e.txt'
+const E2E_PROJECT_FILE_TEXT = 'bedcode e2e file tree'
+writeFileSync(join(E2E_PROJECT_DIR, E2E_PROJECT_FILE), `${E2E_PROJECT_FILE_TEXT}\n`)
+
+/**
+ * 项目目录做成真实 git 仓库（幂等）：Git 页签用例要在真实宿主里读到提交图，
+ * 而不是只验非仓库空态。用 `-c user.*` 传身份，不依赖机器全局 git 配置。
+ */
+function ensureGitSeed(): void {
+  if (existsSync(join(E2E_PROJECT_DIR, '.git'))) {
+    try {
+      // 已有仓库也可能停在「init 了但没有提交」的中间态（上次中断）
+      execFileSync('git', ['rev-parse', '--verify', 'HEAD'], {
+        cwd: E2E_PROJECT_DIR,
+        stdio: 'ignore',
+      })
+      return
+    } catch {
+      // 无 HEAD：继续补一次 seed commit
+    }
+  } else {
+    execFileSync('git', ['init', '-q'], { cwd: E2E_PROJECT_DIR })
+  }
+  // 只提交本用例的锚点文件：项目目录可能混有 agent 运行产物，别把无关文件塞进种子仓库
+  execFileSync('git', ['add', E2E_PROJECT_FILE], { cwd: E2E_PROJECT_DIR })
+  execFileSync(
+    'git',
+    [
+      '-c',
+      'user.name=BedCode E2E',
+      '-c',
+      'user.email=bedcode-e2e@example.invalid',
+      'commit',
+      '-qm',
+      'e2e seed commit',
+    ],
+    { cwd: E2E_PROJECT_DIR },
+  )
+}
+ensureGitSeed()
 
 /**
  * 等运行列表到稳态再读数：进工作台（project-workbench 可见）≠ 运行列表已加载，
@@ -168,9 +212,64 @@ describe('BedCode（桌面端 · 宿主内挂载）', () => {
     // 创建成功即跳工作台（重复目录也跳，只是提示不同）
     await waitFor('project-workbench')
     expectEqual(await visible('project-workbench'), true, '项目工作台可见')
-    // 同目录项目跨次复用：进工作台时**可能**已有历史运行，终端面板不是本步骤
-    // 产生的元素（无运行时检查器渲染 inspector-empty）。这里只断言页签结构在位。
-    expectEqual(await exists('inspector-tab-terminal'), true, '检查器终端页签在位')
+    // 同目录项目跨次复用：进工作台时**可能**已有历史运行，终端主面不是本步骤
+    // 产生的元素（无运行时主面渲染 workbench-empty）。这里只断言主面结构在位。
+    expectEqual(await exists('pane-terminal'), true, '终端主面在位')
+
+    // 右栏「文件」页签：真实宿主里按项目 workingDir 读目录（project.file-tree），
+    // 点文件走 project.file-content 读出真实字节。手输目录的项目首次读树会触发
+    // fs 授权，这里同真实用户一样点允许。
+    //
+    // 页签选择会持久化（工作台记住上次停留位置），用例显式切回文件页签，不依赖
+    // 宿主持久状态——上一轮停在 Git / 变更时「默认文件页签」不是必然事实。
+    await click('inspector-tab-files')
+    await waitFor('project-files')
+    expectEqual(await attr('inspector-tab-files', 'aria-selected'), 'true', '文件页签选中')
+    expectEqual(await visible('project-files'), true, '文件面板可见')
+    await allowFsAuthPrompts()
+    await waitForCount('file-tree-item', 1)
+    expectEqual(
+      await clickContaining('file-tree-item', E2E_PROJECT_FILE),
+      true,
+      '目录树里有锚点文件',
+    )
+    await waitFor('project-file-viewer')
+    await waitForText('project-file-viewer', E2E_PROJECT_FILE_TEXT)
+    expectEqual(await text('project-file-viewer-name'), E2E_PROJECT_FILE, '查看器标题 = 文件名')
+    await click('file-viewer-close')
+    await waitGone('project-file-viewer')
+
+    // Git 页签：文件树旁的提交图。项目目录是真 git 仓库（脚本预置 seed commit），
+    // 在真实宿主里走 project.git-log 读提交并渲染提交行与当前分支。
+    await click('inspector-tab-git')
+    await waitFor('project-git')
+    await waitForCount('git-commit-row', 1)
+    expectEqual(await visible('inspector-git'), true, 'Git 面板可见')
+    expectEqual(await visible('project-files'), false, 'Git 页签隐藏文件面板')
+    expectEqual(await exists('git-not-repo'), false, '目录是真 git 仓库')
+    expectEqual((await text('git-branch')).length > 0, true, '显示当前分支')
+
+    // 页签切换：文件 ↔ 变更
+    await click('inspector-tab-changes')
+    await waitFor('inspector-changes')
+    expectEqual(await visible('project-files'), false, '变更页签隐藏文件面板')
+    await click('inspector-tab-files')
+    await waitFor('project-files')
+
+    // 两侧面板可折叠：收起后完全不渲染（宽度还给终端），窄轨常驻当恢复入口
+    await click('run-collapse')
+    await waitFor('pane-runs-rail')
+    expectEqual(await exists('pane-runs'), false, '收起后不渲染运行列表')
+    expectEqual(await exists('split-runs'), false, '收起后不留空手柄')
+    await click('run-collapse')
+    await waitFor('pane-runs')
+    expectEqual(await visible('split-runs'), true, '再点同一入口展开运行列表')
+
+    await click('inspector-collapse')
+    await waitFor('pane-inspector-rail')
+    expectEqual(await exists('pane-inspector'), false, '收起后不渲染检查器面板')
+    await click('inspector-collapse')
+    await waitFor('pane-inspector')
     await waitForRunsSettled()
     const runsBefore = await count('run-item')
 
@@ -187,11 +286,11 @@ describe('BedCode（桌面端 · 宿主内挂载）', () => {
     await waitForCount('run-item', runsBefore + 1)
     expectEqual(await count('run-item'), runsBefore + 1, '运行列表新增一条运行')
     await waitFor('run-terminal')
-    expectEqual(await visible('run-terminal'), true, '终端页签显示该运行的终端')
+    expectEqual(await visible('run-terminal'), true, '终端主面显示该运行的终端')
 
     // 终端真实字节：证明 PTY 已起且输出进了渲染管线（不是只有空面板）
     const output = await waitForTerminalOutput()
-    expectEqual(output.trim().length > 0, true, '终端页签有真实输出')
+    expectEqual(output.trim().length > 0, true, '终端主面有真实输出')
 
     // 第二条运行：同一项目并发
     await click('run-new')
@@ -202,7 +301,7 @@ describe('BedCode（桌面端 · 宿主内挂载）', () => {
     const runsAfter = await count('run-item')
     expectEqual(runsAfter, runsBefore + 2, '同一项目可并发第二条运行')
 
-    // 运行间切换：选中态跟随点击，终端页签保持
+    // 运行间切换：选中态跟随点击，终端主面保持
     const beforeActive = await attrs('run-item', 'data-active')
     expectEqual(
       beforeActive.filter((value) => value === 'true').length,
@@ -214,7 +313,7 @@ describe('BedCode（桌面端 · 宿主内挂载）', () => {
     await waitFor('run-terminal')
     const afterActive = await attrs('run-item', 'data-active')
     expectEqual(afterActive[switchIndex], 'true', '选中态跟随点击切换')
-    expectEqual(await visible('run-terminal'), true, '切换运行后终端页签仍在位')
+    expectEqual(await visible('run-terminal'), true, '切换运行后终端主面仍在位')
 
     // 整页刷新后重新进入项目：运行列表来自后端持久化，不是前端缓存
     await click('project-back')
@@ -227,82 +326,11 @@ describe('BedCode（桌面端 · 宿主内挂载）', () => {
     if (!(await visible('project-workbench'))) {
       await click('nav-projects')
       await waitFor('projects-view')
-      expectEqual(
-        await clickContaining('project-card', E2E_PROJECT_DIR),
-        true,
-        '刷新后项目卡仍在',
-      )
+      expectEqual(await clickContaining('project-card', E2E_PROJECT_DIR), true, '刷新后项目卡仍在')
       await waitFor('project-workbench')
     }
     await waitForCount('run-item', runsAfter)
     expectEqual(await count('run-item'), runsAfter, '刷新后运行列表仍在')
-  })
-
-  // ==================== 对话面（ADR 0004 / issue #23 M3） ====================
-
-  /**
-   * 对话面接 run.events 的真实回环：桥接扩展随 run.start 部署进项目目录 →
-   * opencode 启动后回连 run-events / run-commands 回环（任意轮询都 touch 心跳）
-   * → 输入解锁 → 消息经 run.send 上行并回显 → 停止后输入带原因禁用。
-   *
-   * 判据纪律：断言状态位（testid 有无 / data-status）而非文案；不依赖模型
-   * 可用性——助手侧流式 / 工具状态机 / patch 卡属人工验收（handoff §5.1），
-   * 脚本层只证「事件回环 + 发送 / 停止入口」。
-   */
-  it('项目：对话面桥接在线、事件上行、发送与停止入口', async () => {
-    await click('nav-projects')
-    await waitFor('projects-view')
-
-    await click('projects-create')
-    await waitFor('project-form-dir')
-    await typeInto('project-form-dir', E2E_PROJECT_DIR)
-    await click('project-form-submit')
-    await waitFor('project-workbench')
-
-    // 起一条真实 opencode 运行（桥接扩展随会话创建部署进项目目录）
-    await waitForRunsSettled()
-    const runsBefore = await count('run-item')
-    await click('run-new')
-    await waitFor('run-agent-opencode')
-    await click('run-agent-opencode')
-    await allowFsAuthPrompts()
-    await waitForCount('run-item', runsBefore + 1)
-    await waitFor('run-terminal')
-
-    // 对话面在位；桥接回连后输入才解锁——chat-input 只在启用态渲染 testid，
-    // 禁用态只有 chat-input-reason（禁用必给原因，不渲染灰假输入框）。
-    await waitFor('conversation-surface')
-    await waitFor('chat-input', 30_000)
-    expectEqual(await exists('chat-mirror-banner'), false, '桥接在线不显示镜像横幅')
-    // status / session.meta 不进时间线：桥接在线但尚无对话行时是空态而非报错
-    expectEqual(await visible('chat-empty'), true, '无对话行时显示空态')
-
-    // 发送入口：文本经 run.send 上行，命令被桥接领取并执行（现场建会话 + prompt
-    // 被接受）——「排队中」本地气泡即发送链路的 UI 证词；事件流回显（用户气泡
-    // chat-row-user）依赖可用模型（本机 opencode 工作区隐私门拒绝其默认模型），
-    // 属人工验收（handoff §5.1），不进脚本判据。
-    await typeInto('chat-input', 'e2e 对话面探针：收到请原样回复 ok')
-    await click('chat-send')
-    await waitFor('chat-row-pending', 15_000)
-
-    // 事件上行：检查器「事件」页签出现归一行——桥接对 session.created 的
-    // status 上行不依赖模型（会话由发送侧现场创建），足以证明回环闭环
-    await click('inspector-tab-events')
-    await waitForCount('inspector-event-row', 1, 30_000)
-
-    // 停止入口：复用 session.close 停止链 → 运行转终态 → 输入带原因禁用
-    await click('chat-stop')
-    await waitGone('chat-input')
-    await waitFor('chat-input-reason')
-    await browser.waitUntil(
-      async () => {
-        const statuses = await attrs('run-item', 'data-status')
-        const actives = await attrs('run-item', 'data-active')
-        const idx = actives.indexOf('true')
-        return idx >= 0 && statuses[idx] !== 'running' && statuses[idx] !== 'starting'
-      },
-      { timeout: 15_000, interval: 200, timeoutMsg: '停止后运行未转终态（run-item data-status）' },
-    )
   })
 
   it('设备配对：页签可切换，设备面板出现、配对面板退场', async () => {

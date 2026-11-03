@@ -7,8 +7,9 @@
 //! 不通过声明配置路由，插件代码运行时注册）。
 //!
 //! 三类路由：
-//! - **业务别名**（17 条）：内部段 + 对外别名（`/api/configs` … `/api/git/*`），
-//!   移动端经网关别名直达；
+//! - **业务别名**（21 条）：内部段 + 对外别名（`/api/configs` … `/api/git/*`），
+//!   移动端经网关别名直达；其中 4 条是项目视角的移动面（`/api/projects`、
+//!   `/api/runs`、`/api/runs/start`、`/api/agents`，见 `projects_http`）；
 //! - **任务域内部路径**（17 条）：只挂内部路径（`/api/plugin/<id>/<path>`），
 //!   hook 脚本 / 移动端任务面经插件代理前缀访问；
 //! - **sessions REST**（7 条）：内部段 + 模板别名（`/api/sessions/{id}/…`）；
@@ -282,6 +283,34 @@ pub const ROUTES: &[HttpRouteDecl] = &[
         methods: &["DELETE"],
         auth: JWT,
     },
+    // ==================== 项目 / 运行 / Agent（移动端项目视角，ADR 0003） ====================
+    // 桌面以项目为一级容器后，移动端需要项目列表与项目内运行；写面（建/改名/删除/
+    // 选目录）留在桌面，不开放。响应口径与 sessions REST 一致（HTTP 200 +
+    // `{code:1002}` 业务错误），见 `projects_http`。
+    HttpRouteDecl {
+        path: "projects",
+        host: Some("/api/projects"),
+        methods: &["GET"],
+        auth: JWT,
+    },
+    HttpRouteDecl {
+        path: "runs",
+        host: Some("/api/runs"),
+        methods: &["GET"],
+        auth: JWT,
+    },
+    HttpRouteDecl {
+        path: "runs/start",
+        host: Some("/api/runs/start"),
+        methods: &["POST"],
+        auth: JWT,
+    },
+    HttpRouteDecl {
+        path: "agents",
+        host: Some("/api/agents"),
+        methods: &["GET"],
+        auth: JWT,
+    },
     // ==================== terminal-bg（/static/terminal-bg，auth:none——CSS 无法携带凭证） ====================
     HttpRouteDecl {
         path: "terminal-bg",
@@ -399,7 +428,7 @@ mod tests {
             .iter()
             .filter_map(|r| r.host.map(|h| (h, r.methods)))
             .collect();
-        // 旧 BUSINESS_ROUTES 的 17 条路径 + sessions 7 + terminal-bg 1
+        // 旧 BUSINESS_ROUTES 的 10 条 + sessions 7 + 项目/运行/Agent 4 + terminal-bg 1
         for (h, methods) in &aliases {
             assert!(
                 h.starts_with("/api/") || *h == "/static/terminal-bg",
@@ -412,8 +441,8 @@ mod tests {
                 .iter()
                 .filter(|(h, _)| h.starts_with("/api/"))
                 .count(),
-            17,
-            "别名表 = 业务 10 + sessions 7 = 17 条 /api 别名（auth 7 条已随中心迁出）"
+            21,
+            "别名表 = 业务 10 + sessions 7 + 项目/运行/Agent 4 = 21 条 /api 别名（auth 7 条已随中心迁出）"
         );
         assert!(
             aliases.iter().any(|(h, _)| *h == "/static/terminal-bg"),

@@ -7,7 +7,7 @@
  * 覆盖：
  * - 列表页：卡片（名称 / 环境徽标 / 活跃运行数 / 最近活动）、空态、
  *   新建后跳转工作台、目录为空不发命令、重命名与移除；
- * - 工作台：运行列表（标题 / agent / 状态）、终端页签把运行投影给终端组件、
+ * - 工作台：运行列表（标题 / agent / 状态）、终端主面把运行投影给终端组件、
  *   选 agent 启动（入参）、停止运行、项目不存在空态、无运行空态。
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
@@ -42,6 +42,7 @@ vi.mock('@tauri-apps/plugin-os', () => ({ platform: () => 'linux' }))
 
 import ProjectListView from '@/views/projects/ProjectListView.vue'
 import ProjectWorkbenchView from '@/views/projects/ProjectWorkbenchView.vue'
+import { PROJECT_GIT_LIMIT } from '@/composables/useProjectGit'
 
 // ==================== 命令面桩 ====================
 
@@ -106,24 +107,42 @@ function defaultRoutes(): Record<string, Handler> {
     'project.rename': () => projectRecord('p-1', '改名后'),
     'project.remove': () => ({ removed: true, runsRemoved: 0 }),
     'project.pick-dir': () => ({ picked: true, path: '/srv/picked' }),
-    'run.list': () => ({ runs: [runRecord('r-1', 'running', true)] }),
-    'run.start': () => ({ runId: 'r-new', name: '支付重构', configId: 'cfg-1' }),
-    'run.events': () => ({
-      runId: 'r-1',
+    'project.file-tree': () => ({
+      children: [
+        { name: 'src', nodeType: 'folder', path: 'src' },
+        { name: 'README.md', nodeType: 'file', path: 'README.md' },
+      ],
+    }),
+    'project.file-content': () => ({ content: '# hello', fileName: 'README.md' }),
+    'project.git-log': () => ({
+      isGitRepo: true,
+      currentBranch: 'dev',
       truncated: false,
-      cursor: 2,
-      events: [
-        { seq: 1, at: '2026-10-30T10:00:00Z', kind: 'user.message', payload: { text: '跑下测试' }, source: 'bridge' },
+      commits: [
         {
-          seq: 2,
-          at: '2026-10-30T10:00:05Z',
-          kind: 'assistant.text',
-          payload: { text: '开始执行', streaming: false, messageId: 'm1' },
-          source: 'bridge',
+          hash: 'aaaaaaa1111',
+          shortHash: 'aaaaaaa',
+          parents: ['bbbbbbb2222'],
+          author: 'Alice',
+          email: 'alice@example.com',
+          date: '2026-10-29T00:00:00+08:00',
+          refs: ['HEAD -> dev'],
+          subject: 'feat: 提交图',
+        },
+        {
+          hash: 'bbbbbbb2222',
+          shortHash: 'bbbbbbb',
+          parents: [],
+          author: 'Bob',
+          email: 'bob@example.com',
+          date: '2026-10-28T00:00:00+08:00',
+          refs: ['tag: v0.1.0'],
+          subject: 'chore: 首个提交',
         },
       ],
-      bridge: { connected: true, lastSeenAt: '2026-10-30T10:00:05Z' },
     }),
+    'run.list': () => ({ runs: [runRecord('r-1', 'running', true)] }),
+    'run.start': () => ({ runId: 'r-new', name: '支付重构', configId: 'cfg-1' }),
     'agent.list-agents': () => ({
       agents: [{ id: 'opencode', displayName: 'OpenCode', binary: 'opencode' }],
     }),
@@ -182,6 +201,8 @@ const commandsTo = (id: string) => execute.mock.calls.filter((call) => call[0] =
 
 beforeEach(() => {
   vi.clearAllMocks()
+  // clearAllMocks 只清调用记录，不清实现：storage 默认「读不到」每个用例都重设
+  storageGet.mockImplementation(async () => undefined)
   routes = defaultRoutes()
   execute.mockImplementation(async (id: string, args: any) => {
     const handler = routes[id]
@@ -334,12 +355,18 @@ describe('ProjectWorkbenchView（项目工作台）', () => {
     expect((terminal.props('session') as { id: string }).id).toBe('r-1')
   })
 
-  it('无运行：给空态与引导，检查器提示先选运行', async () => {
+  it('无运行：给空态与引导，主面提示先选运行；变更页签提示先选运行', async () => {
     routes['run.list'] = () => ({ runs: [] })
     const wrapper = mountView(ProjectWorkbenchView)
     await flushPromises()
 
     expect(wrapper.find('[data-testid="run-empty"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="workbench-empty"]').exists()).toBe(true)
+    // 默认文件页签不受「有无运行」影响：项目目录树照常可见
+    expect(wrapper.find('[data-testid="inspector-files"]').isVisible()).toBe(true)
+    expect(wrapper.find('[data-testid="project-file-tree"]').exists()).toBe(true)
+
+    await wrapper.get('[data-testid="inspector-tab-changes"]').trigger('click')
     expect(wrapper.find('[data-testid="inspector-empty"]').exists()).toBe(true)
     expect(wrapper.findComponent(TerminalStub).exists()).toBe(false)
   })
@@ -402,35 +429,167 @@ describe('ProjectWorkbenchView（项目工作台）', () => {
     expect(commandsTo('session.close')[0][1]).toEqual({ sessionId: 'r-1' })
   })
 
-  it('检查器页签可切换：变更占位、事件页签显示原始归一事件、切回终端仍渲染同一条运行', async () => {
+  it('检查器默认文件页签：读项目目录树；切到变更页签保留占位（终端/事件页签仍退役）', async () => {
     const wrapper = mountView(ProjectWorkbenchView)
     await flushPromises()
 
-    await wrapper.find('[data-testid="inspector-tab-changes"]').trigger('click')
+    // 默认页签 = 文件：进工作台即按项目 id 读根目录
+    expect(commandsTo('project.file-tree')[0][1]).toMatchObject({ projectId: 'p-1' })
+    expect(wrapper.get('[data-testid="inspector-tab-files"]').attributes('aria-selected')).toBe(
+      'true',
+    )
+    const nodes = wrapper.findAll('[data-testid="file-tree-item"]')
+    expect(nodes.map((node) => node.text())).toEqual(['src', 'README.md'])
+
+    // 变更页签仍只是占位；文件面板保活但不显示
+    await wrapper.get('[data-testid="inspector-tab-changes"]').trigger('click')
+    expect(wrapper.get('[data-testid="inspector-tab-changes"]').attributes('aria-selected')).toBe(
+      'true',
+    )
     expect(wrapper.find('[data-testid="inspector-changes"]').exists()).toBe(true)
-    expect(wrapper.findComponent(TerminalStub).exists()).toBe(false)
+    // v-show 保活：文件面板还在 DOM，但已隐藏（展开态不丢）
+    expect(wrapper.get('[data-testid="inspector-files"]').attributes('style') ?? '').toContain(
+      'display: none',
+    )
 
-    // 事件页签：中栏对话面之外的原始账本行（seq / kind / 来源）
-    await wrapper.find('[data-testid="inspector-tab-events"]').trigger('click')
-    expect(wrapper.find('[data-testid="inspector-events-raw"]').exists()).toBe(true)
-    const rows = wrapper.findAll('[data-testid="inspector-event-row"]')
-    expect(rows).toHaveLength(2)
-    expect(rows[0].attributes('data-kind')).toBe('user.message')
-    expect(rows[0].text()).toContain('bridge')
-
-    await wrapper.find('[data-testid="inspector-tab-terminal"]').trigger('click')
+    // 已退役的终端 / 事件页签不得复燃；Git 是文件旁的新提交图入口
+    expect(wrapper.find('[data-testid="inspector-tab-terminal"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="inspector-tab-events"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="inspector-tab-git"]').exists()).toBe(true)
+    // Git 页签未打开：不该触发一次 git 进程
+    expect(commandsTo('project.git-log')).toHaveLength(0)
+    // 终端主面不受影响：仍渲染选中的运行
     expect((wrapper.findComponent(TerminalStub).props('session') as { id: string }).id).toBe('r-1')
   })
 
-  it('对话面：中栏渲染账本事件（用户气泡 + 助手正文），发送走 run.send', async () => {
+  it('Git 页签：打开才读提交图（项目 id + 上限），渲染分支 / 提交行 / 引用徽标', async () => {
     const wrapper = mountView(ProjectWorkbenchView)
     await flushPromises()
 
-    expect(wrapper.find('[data-testid="conversation-surface"]').exists()).toBe(true)
-    expect(wrapper.find('[data-testid="chat-row-user"]').text()).toContain('跑下测试')
-    expect(wrapper.find('[data-testid="chat-row-text"]').exists()).toBe(true)
-    // 桥接在线：输入可用
-    expect(wrapper.find('[data-testid="chat-input"]').exists()).toBe(true)
+    await wrapper.get('[data-testid="inspector-tab-git"]').trigger('click')
+    await flushPromises()
+
+    expect(commandsTo('project.git-log')[0][1]).toEqual({
+      projectId: 'p-1',
+      limit: PROJECT_GIT_LIMIT,
+    })
+    // 文件面板保活但不显示；Git 面板显示
+    expect(wrapper.get('[data-testid="inspector-files"]').attributes('style') ?? '').toContain(
+      'display: none',
+    )
+    expect(wrapper.get('[data-testid="inspector-git"]').isVisible()).toBe(true)
+    expect(wrapper.get('[data-testid="git-branch"]').text()).toBe('dev')
+
+    const rows = wrapper.findAll('[data-testid="git-commit-row"]')
+    expect(rows).toHaveLength(2)
+    expect(rows[0].attributes('data-lane')).toBe('0')
+    expect(rows[0].text()).toContain('dev')
+    expect(rows[0].text()).toContain('feat: 提交图')
+    expect(rows[0].text()).toContain('aaaaaaa')
+    expect(rows[0].text()).toContain('Alice')
+    expect(rows[1].text()).toContain('v0.1.0')
+
+    // 再切走再回来：已加载不重取（滚动位置与数据都保活）
+    await wrapper.get('[data-testid="inspector-tab-files"]').trigger('click')
+    await wrapper.get('[data-testid="inspector-tab-git"]').trigger('click')
+    await flushPromises()
+    expect(commandsTo('project.git-log')).toHaveLength(1)
+  })
+
+  it('Git 页签：非仓库给引导空态；刷新按钮 force 重新取数', async () => {
+    routes['project.git-log'] = () => ({
+      isGitRepo: false,
+      currentBranch: null,
+      commits: [],
+      truncated: false,
+    })
+    const wrapper = mountView(ProjectWorkbenchView)
+    await flushPromises()
+
+    await wrapper.get('[data-testid="inspector-tab-git"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="git-not-repo"]').exists()).toBe(true)
+    expect(wrapper.findAll('[data-testid="git-commit-row"]')).toHaveLength(0)
+    expect(wrapper.find('[data-testid="git-error"]').exists()).toBe(false)
+
+    // 刷新是显式重取（空态也要能重新探测「是否已初始化仓库」）
+    await wrapper.get('[data-testid="git-refresh"]').trigger('click')
+    await flushPromises()
+    expect(commandsTo('project.git-log')).toHaveLength(2)
+  })
+
+  it('文件树：展开目录按 dirPath 懒加载；点文件打开只读查看器并按路径取内容', async () => {
+    routes['project.file-tree'] = (args: any) =>
+      args.dirPath === 'src'
+        ? { children: [{ name: 'main.ts', nodeType: 'file', path: 'src/main.ts' }] }
+        : { children: [{ name: 'src', nodeType: 'folder', path: 'src' }] }
+    routes['project.file-content'] = () => ({
+      content: 'console.log("hi")',
+      fileName: 'main.ts',
+    })
+
+    const wrapper = mountView(ProjectWorkbenchView)
+    await flushPromises()
+
+    const folder = wrapper.findAll('[data-testid="file-tree-item"]')[0]
+    await folder.trigger('click')
+    await flushPromises()
+
+    expect(commandsTo('project.file-tree')[1][1]).toMatchObject({
+      projectId: 'p-1',
+      dirPath: 'src',
+    })
+    const items = wrapper.findAll('[data-testid="file-tree-item"]')
+    expect(items.map((node) => node.text())).toEqual(['src', 'main.ts'])
+
+    await items[1].trigger('click')
+    await flushPromises()
+
+    expect(commandsTo('project.file-content')[0][1]).toEqual({
+      projectId: 'p-1',
+      filePath: 'src/main.ts',
+    })
+    expect(wrapper.get('[data-testid="project-file-viewer-name"]').text()).toBe('main.ts')
+    const viewer = wrapper.get('[data-testid="project-file-viewer"]')
+    expect(viewer.text()).toContain('console.log("hi")')
+  })
+
+  it('右栏页签偏好从 KV 读回：上次停在变更就不读文件树（避免多余授权）', async () => {
+    storageGet.mockImplementation(async (key: string) =>
+      key === 'project.workbench.inspectorTab' ? 'changes' : undefined,
+    )
+
+    const wrapper = mountView(ProjectWorkbenchView)
+    await flushPromises()
+
+    expect(storageGet).toHaveBeenCalledWith('project.workbench.inspectorTab')
+    expect(wrapper.get('[data-testid="inspector-tab-changes"]').attributes('aria-selected')).toBe(
+      'true',
+    )
+    expect(commandsTo('project.file-tree')).toHaveLength(0)
+
+    // 用户主动切到文件页签才取数
+    await wrapper.get('[data-testid="inspector-tab-files"]').trigger('click')
+    await flushPromises()
+    expect(commandsTo('project.file-tree')).toHaveLength(1)
+    expect(storageSet).toHaveBeenCalledWith('project.workbench.inspectorTab', 'files')
+  })
+
+  it('右栏页签偏好读回 git：直接读提交图，不读文件树', async () => {
+    storageGet.mockImplementation(async (key: string) =>
+      key === 'project.workbench.inspectorTab' ? 'git' : undefined,
+    )
+
+    const wrapper = mountView(ProjectWorkbenchView)
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="inspector-tab-git"]').attributes('aria-selected')).toBe(
+      'true',
+    )
+    expect(commandsTo('project.file-tree')).toHaveLength(0)
+    expect(commandsTo('project.git-log')).toHaveLength(1)
+    expect(wrapper.findAll('[data-testid="git-commit-row"]')).toHaveLength(2)
   })
 
   it('三栏宽度可调：默认宽度 + 键盘步进 + 双击复位（手柄是 separator，带 aria 值）', async () => {
@@ -498,5 +657,112 @@ describe('ProjectWorkbenchView（项目工作台）', () => {
     // 写入是防抖的（拖拽期间每帧写一次会打爆存储）
     await new Promise((resolve) => setTimeout(resolve, 350))
     expect(storageSet).toHaveBeenCalledWith('project.workbench.runsWidth', 272)
+  })
+
+  it('两侧面板可折叠：收起后不渲染面板与手柄，窄轨常驻且带 aria-expanded', async () => {
+    const wrapper = mountView(ProjectWorkbenchView)
+    await flushPromises()
+
+    // 展开态：面板 + 手柄都在，收起按钮报告 expanded
+    expect(wrapper.find('[data-testid="pane-runs"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="split-runs"]').exists()).toBe(true)
+    expect(wrapper.get('[data-testid="run-collapse"]').attributes('aria-expanded')).toBe('true')
+
+    // 收起运行列表：面板与手柄一起消失（手柄留着就是可拖的死区），窄轨接位
+    await wrapper.get('[data-testid="run-collapse"]').trigger('click')
+    expect(wrapper.find('[data-testid="pane-runs"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="split-runs"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="pane-runs-rail"]').attributes('style')).toContain(
+      'width: 36px',
+    )
+    expect(wrapper.get('[data-testid="run-collapse"]').attributes('aria-expanded')).toBe('false')
+    expect(wrapper.get('[data-testid="run-collapse"]').attributes('aria-controls')).toBe(
+      'wb-pane-runs',
+    )
+    expect(storageSet).toHaveBeenCalledWith('project.workbench.runsCollapsed', true)
+
+    // 再点同一个入口展开（窄轨是常态入口，不靠悬停出现）
+    await wrapper.get('[data-testid="run-collapse"]').trigger('click')
+    expect(wrapper.find('[data-testid="pane-runs"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="pane-runs-rail"]').exists()).toBe(false)
+    expect(storageSet).toHaveBeenCalledWith('project.workbench.runsCollapsed', false)
+
+    // 右侧同理：收起后终端只与两端窄轨/窗口边相邻
+    await wrapper.get('[data-testid="inspector-collapse"]').trigger('click')
+    expect(wrapper.find('[data-testid="pane-inspector"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="split-inspector"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="pane-inspector-rail"]').exists()).toBe(true)
+    expect(storageSet).toHaveBeenCalledWith('project.workbench.inspectorCollapsed', true)
+  })
+
+  it('折叠状态从 KV 读回：进页面即收起，不先闪一下展开态', async () => {
+    storageGet.mockImplementation(async (key: string) =>
+      key === 'project.workbench.inspectorCollapsed' ? true : undefined,
+    )
+
+    const wrapper = mountView(ProjectWorkbenchView)
+    await flushPromises()
+
+    expect(storageGet).toHaveBeenCalledWith('project.workbench.inspectorCollapsed')
+    expect(wrapper.find('[data-testid="pane-inspector"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="pane-inspector-rail"]').exists()).toBe(true)
+    // 另一侧不受牵连
+    expect(wrapper.find('[data-testid="pane-runs"]').exists()).toBe(true)
+  })
+
+  it('收起一侧后另一侧上限按窄轨重算：能拖到比原上限更宽', async () => {
+    // 容器宽度走 ResizeObserver 实测：桩成固定 1200px，两侧上限才是确定的数
+    const observers: ((entries: { contentRect: { width: number } }[]) => void)[] = []
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        private readonly callback: (entries: any[]) => void
+        constructor(callback: (entries: any[]) => void) {
+          this.callback = callback
+          observers.push(callback)
+        }
+        observe(): void {
+          this.callback([{ contentRect: { width: 1200 } }])
+        }
+        disconnect(): void {}
+      },
+    )
+
+    try {
+      const wrapper = mountView(ProjectWorkbenchView)
+      await flushPromises()
+      expect(observers.length).toBeGreaterThan(0)
+
+      // 挂载期间组件会先用 el.clientWidth（happy-dom 为 0）覆盖一次，所以量宽回调
+      // 要在那之后手动喂一次 1200px；clientWidth 同步设为同一值，避免回落
+      const layout = wrapper.get('[data-testid="workbench-layout"]').element as HTMLElement
+      Object.defineProperty(layout, 'clientWidth', { configurable: true, value: 1200 })
+      for (const callback of observers) callback([{ contentRect: { width: 1200 } }])
+      await flushPromises()
+
+      const inspectorWidth = () =>
+        Number(
+          /width: (\d+)px/.exec(
+            wrapper.get('[data-testid="pane-inspector"]').attributes('style') ?? '',
+          )?.[1],
+        )
+      const pushWide = async () => {
+        const handle = wrapper.get('[data-testid="split-inspector"]')
+        for (let i = 0; i < 40; i += 1) {
+          await handle.trigger('keydown', { key: 'ArrowLeft', shiftKey: true })
+        }
+      }
+
+      // 1200 − 运行列表 256 − 终端最小 320 − 两只手柄 12 → 检查器最多 612
+      await pushWide()
+      expect(inspectorWidth()).toBe(612)
+
+      // 收起运行列表（只占 36px 窄轨、也不再占手柄）→ 上限放宽到 838
+      await wrapper.get('[data-testid="run-collapse"]').trigger('click')
+      await pushWide()
+      expect(inspectorWidth()).toBe(1200 - 36 - 320 - 6)
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 })

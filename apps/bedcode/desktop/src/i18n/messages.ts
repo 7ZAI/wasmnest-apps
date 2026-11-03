@@ -498,20 +498,17 @@ export type MessageSchema = {
   'server.toggleOn': string
   'server.toggleOff': string
 
-  // ==================== 链路加密设置（2026-10-27 自宿主 `settings.linkCrypto.*` 迁入） ====================
+  // ==================== 链路加密设置（2026-11-03 改为只读展示宿主下限） ====================
   'linkCrypto.title': string
-  'linkCrypto.master': string
-  'linkCrypto.encryptHttp': string
-  'linkCrypto.encryptHttpDesc': string
-  'linkCrypto.encryptWsTerminal': string
-  'linkCrypto.encryptWsTerminalDesc': string
-  'linkCrypto.encryptWsEvent': string
-  'linkCrypto.encryptWsEventDesc': string
-  'linkCrypto.plaintextFallback': string
-  'linkCrypto.plaintextFallbackDesc': string
+  'linkCrypto.floor': string
+  'linkCrypto.floorDesc': string
+  'linkCrypto.floorOff': string
+  'linkCrypto.floorPreferred': string
+  'linkCrypto.floorRequired': string
   'linkCrypto.fingerprint': string
   'linkCrypto.fingerprintDesc': string
-  'linkCrypto.saveFailed': string
+  'linkCrypto.hostManaged': string
+  'linkCrypto.capabilityMissing': string
 
   // ==================== 应用级兜底（2026-10-27 自宿主 `desktop.notFound.*` / `desktop.runtimeUnexpected` 迁入） ====================
   'notFound.title': string
@@ -1170,6 +1167,12 @@ export type MessageSchema = {
   'project.split.resizeInspector': string
   'project.split.resizeHint': string
 
+  // 两侧面板折叠（收起后留窄轨，恢复入口不靠悬停）
+  'project.run.collapse': string
+  'project.run.expand': string
+  'project.inspector.collapse': string
+  'project.inspector.expand': string
+
   // 运行
   'project.run.title': string
   'project.run.new': string
@@ -1184,56 +1187,48 @@ export type MessageSchema = {
   'project.run.agentMissing': string
   'project.run.agentUnknown': string
   'project.run.installHint': string
+  'project.run.agentSessionId': string
+  'project.run.copyId': string
+  'project.run.copied': string
 
-  // 对话面（M3：run.events 账本 + run.send 发送）
-  'project.chat.title': string
-  'project.chat.agentSessionId': string
-  'project.chat.copyId': string
-  'project.chat.copied': string
-  'project.chat.emptyTitle': string
-  'project.chat.emptyHint': string
-  'project.chat.emptyNoRun': string
-  'project.chat.emptyNoRunHint': string
-  'project.chat.inputPlaceholder': string
-  'project.chat.send': string
-  'project.chat.sending': string
-  'project.chat.sendFailed': string
-  'project.chat.stop': string
-  'project.chat.queued': string
-  'project.chat.generating': string
-  'project.chat.thinking': string
-  'project.chat.thinkingRedacted': string
-  'project.chat.toolState.pending': string
-  'project.chat.toolState.running': string
-  'project.chat.toolState.done': string
-  'project.chat.toolState.error': string
-  'project.chat.expandOutput': string
-  'project.chat.collapse': string
-  'project.chat.patchTitle': string
-  'project.chat.patchFiles': string
-  'project.chat.showDiff': string
-  'project.chat.hideDiff': string
-  'project.chat.planTitle': string
-  'project.chat.permissionTitle': string
-  'project.chat.permissionNeedTerminal': string
-  'project.chat.permissionDecidedBy': string
-  'project.chat.agentState.busy': string
-  'project.chat.agentState.retrying': string
-  'project.chat.agentState.error': string
-  'project.chat.mirrorMode': string
-  'project.chat.runEnded': string
-  'project.chat.mirrorHint': string
-  'project.chat.mirrorPiTrust': string
-  'project.chat.truncated': string
-  'project.chat.loadFailed': string
-  'project.chat.retry': string
-  'project.chat.expandPayload': string
+  // 终端主面（CLI 为核心：对话经 CLI 直接进行，前端不渲染对话流）
+  'project.terminal.title': string
+  'project.terminal.empty': string
+  'project.terminal.emptyHint': string
 
   // 检查器
+  'project.inspector.title': string
   'project.inspector.changes': string
-  'project.inspector.terminal': string
-  'project.inspector.events': string
   'project.inspector.noSelection': string
   'project.inspector.changesEmpty': string
-  'project.inspector.eventsEmpty': string
+
+  // 文件页签（项目工作目录树 / 只读查看器）
+  'project.git.title': string
+  'project.git.refresh': string
+  'project.git.loading': string
+  'project.git.empty': string
+  'project.git.emptyHint': string
+  'project.git.notRepo': string
+  'project.git.notRepoHint': string
+  'project.git.loadFailed': string
+  'project.git.retry': string
+  'project.git.commitCount': string
+  'project.git.truncated': string
+  'project.git.detached': string
+  'project.git.noSubject': string
+
+  'project.files.title': string
+  'project.files.refresh': string
+  'project.files.collapseAll': string
+  'project.files.loading': string
+  'project.files.empty': string
+  'project.files.loadFailed': string
+  'project.files.retry': string
+  'project.fileViewer.loading': string
+  'project.fileViewer.loadFailed': string
+  'project.fileViewer.empty': string
+  'project.fileViewer.lines': string
+  'project.fileViewer.copyPath': string
+  'project.fileViewer.copied': string
+  'project.fileViewer.close': string
 }
