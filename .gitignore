@@ -32,6 +32,7 @@ apps/ai-chatbox/desktop/go/
 
 # AI agent
 *.codebuddy/
+*.workbuddy/
 
 # 日志与临时文件
 *.log
@@ -41,6 +42,10 @@ temp/
 *.tmp
 *.bak
 *.backup
+
+# 本机包管理器缓存 / 文件管理器回收站（pnpm store 落在仓根时）
+.pnpm-store/
+.Trash-*/
 
 # E2E 失败现场（截图 / logcat / 产物目录）：本地排查用，不入库
 e2e/artifacts/
