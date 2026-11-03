@@ -487,6 +487,11 @@ const zhCN: MessageSchema = {
     '下限归宿主统一管理：请在宿主「设置 › 链路加密」中调整；本应用只在端点注册时声明自己的加密要求。',
   'linkCrypto.capabilityMissing':
     '当前宿主不提供链路加密能力查询（旧版本），无法确认下限与端点策略；请升级宿主后再依赖加密。',
+  // 迁移期兼容：HEAD 的旧设置组件仍引用这些键（LinkCrypto UI 迁移提交后移除）
+  'linkCrypto.master': '启用链路加密',
+  'linkCrypto.plaintextFallback': '允许明文回退',
+  'linkCrypto.plaintextFallbackDesc': '未协商的老客户端放行明文；关闭后非本机未协商请求一律拒绝',
+  'linkCrypto.saveFailed': '链路加密配置保存失败',
 
   // ==================== 应用级兜底（2026-10-27 自宿主迁入） ====================
   'notFound.title': '页面不存在',

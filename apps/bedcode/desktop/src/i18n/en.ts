@@ -496,6 +496,13 @@ const en: MessageSchema = {
     'The floor is managed by the host: change it in Host Settings › Link Encryption. This app only declares its own encryption requirements when registering endpoints.',
   'linkCrypto.capabilityMissing':
     'This host does not expose link-encryption capabilities (older version); the floor and endpoint policies cannot be confirmed. Upgrade the host before relying on encryption.',
+  // Transitional: the previous settings component in HEAD still references these
+  // keys (drop them together with the LinkCrypto UI migration).
+  'linkCrypto.master': 'Enable Link Encryption',
+  'linkCrypto.plaintextFallback': 'Allow Plaintext Fallback',
+  'linkCrypto.plaintextFallbackDesc':
+    'Let unnegotiated legacy clients through in plaintext; when off, unnegotiated remote requests are rejected',
+  'linkCrypto.saveFailed': 'Failed to save link encryption config',
 
   // ==================== App-level fallbacks (migrated from host, 2026-10-27) ====================
   'notFound.title': 'Page Not Found',

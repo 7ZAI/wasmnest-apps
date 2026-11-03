@@ -509,6 +509,11 @@ export type MessageSchema = {
   'linkCrypto.fingerprintDesc': string
   'linkCrypto.hostManaged': string
   'linkCrypto.capabilityMissing': string
+  // 迁移期兼容：HEAD 的旧设置组件仍引用这些键（LinkCrypto UI 迁移提交后移除）
+  'linkCrypto.master': string
+  'linkCrypto.plaintextFallback': string
+  'linkCrypto.plaintextFallbackDesc': string
+  'linkCrypto.saveFailed': string
 
   // ==================== 应用级兜底（2026-10-27 自宿主 `desktop.notFound.*` / `desktop.runtimeUnexpected` 迁入） ====================
   'notFound.title': string
