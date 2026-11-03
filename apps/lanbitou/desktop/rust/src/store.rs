@@ -60,6 +60,7 @@ pub fn default_settings() -> serde_json::Value {
         "fontSize": 14,
         "fontFamily": "monospace",
         "language": "zh-CN",
+        "viewMode": "split",
         "timeDivider": {
             "enabled": true,
             "format": "--- {{date}} {{weekday}} {{time}} ---",

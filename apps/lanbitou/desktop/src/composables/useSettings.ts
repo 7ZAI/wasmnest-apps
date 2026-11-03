@@ -12,6 +12,7 @@ import {
   type Locale,
   type NoteSettings,
   type ThemeMode,
+  type ViewMode,
 } from '../types'
 
 const AUTO_SAVE_MODES: AutoSaveMode[] = ['realtime', 'onBlur', 'manual']
@@ -19,6 +20,7 @@ const THEMES: ThemeMode[] = ['system', 'light', 'dark']
 const POSITIONS: DividerPosition[] = ['top', 'bottom', 'cursor']
 const FONTS: FontFamily[] = ['monospace', 'sans-serif', 'serif']
 const LOCALES: Locale[] = ['zh-CN', 'en']
+const VIEW_MODES: ViewMode[] = ['edit', 'preview', 'split']
 const INTERVALS = [0, 1, 5, 10, 30]
 
 function pick<T extends string>(value: unknown, allowed: T[], fallback: T): T {
@@ -51,6 +53,7 @@ export function normalizeSettings(raw: unknown): NoteSettings {
     fontSize: clamp(r.fontSize, MIN_FONT_SIZE, MAX_FONT_SIZE, base.fontSize),
     fontFamily: pick(r.fontFamily, FONTS, base.fontFamily),
     language: pick(r.language, LOCALES, base.language),
+    viewMode: pick(r.viewMode, VIEW_MODES, base.viewMode),
     timeDivider: {
       enabled: typeof td.enabled === 'boolean' ? td.enabled : base.timeDivider.enabled,
       format:

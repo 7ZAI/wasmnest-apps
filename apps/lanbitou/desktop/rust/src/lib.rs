@@ -74,6 +74,11 @@ impl WasmPlugin for LanbitouPlugin {
 
     fn invoke_command(name: &str, args: serde_json::Value) -> anyhow::Result<serde_json::Value> {
         match name {
+            // 诊断命令（迁移自 notenote.status）：装机排查时确认插件版本
+            "lanbitou.status" => Ok(serde_json::json!({
+                "plugin": Self::ID,
+                "version": env!("CARGO_PKG_VERSION"),
+            })),
             "lanbitou.create-note" => commands::create_note(args),
             "lanbitou.open-note" => commands::open_note(args),
             "lanbitou.save-note" => commands::save_note(args),

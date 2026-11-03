@@ -51,6 +51,8 @@ export interface NoteSettings {
   fontSize: number
   fontFamily: FontFamily
   language: Locale
+  /** 上次使用的视图模式（工具栏切换后持久化，重启恢复） */
+  viewMode: ViewMode
   timeDivider: TimeDividerSettings
 }
 
@@ -83,6 +85,7 @@ export const DEFAULT_SETTINGS: NoteSettings = {
   fontSize: 14,
   fontFamily: 'monospace',
   language: 'zh-CN',
+  viewMode: 'split',
   timeDivider: {
     enabled: true,
     format: '--- {{date}} {{weekday}} {{time}} ---',

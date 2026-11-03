@@ -14,12 +14,14 @@ describe('normalizeSettings', () => {
       theme: 'neon',
       fontFamily: 'comic',
       language: 'fr',
+      viewMode: 'bogus',
       timeDivider: { position: 'left', triggerInterval: 7, format: '   ' },
     })
     expect(settings.autoSaveMode).toBe('realtime')
     expect(settings.theme).toBe('system')
     expect(settings.fontFamily).toBe('monospace')
     expect(settings.language).toBe('zh-CN')
+    expect(settings.viewMode).toBe('split')
     expect(settings.timeDivider.position).toBe('bottom')
     expect(settings.timeDivider.triggerInterval).toBe(5)
     expect(settings.timeDivider.format).toBe(DEFAULT_SETTINGS.timeDivider.format)
@@ -40,6 +42,7 @@ describe('normalizeSettings', () => {
       fontSize: 18,
       fontFamily: 'serif',
       language: 'en',
+      viewMode: 'preview',
       timeDivider: {
         enabled: false,
         format: '## {{date}}',
@@ -53,6 +56,7 @@ describe('normalizeSettings', () => {
     expect(settings.fontSize).toBe(18)
     expect(settings.fontFamily).toBe('serif')
     expect(settings.language).toBe('en')
+    expect(settings.viewMode).toBe('preview')
     // 15 不在允许档位内 → 回退默认 5
     expect(settings.timeDivider.triggerInterval).toBe(5)
     expect(settings.timeDivider).toEqual({

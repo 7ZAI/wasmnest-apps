@@ -327,6 +327,7 @@ fn save_settings_merges_missing_keys_with_defaults() {
     assert_eq!(settings["timeDivider"]["position"], "top");
     // 未提供的键保留默认值
     assert_eq!(settings["autoSaveMode"], "realtime");
+    assert_eq!(settings["viewMode"], "split");
     assert_eq!(settings["timeDivider"]["triggerInterval"], 5);
     assert_eq!(
         settings["timeDivider"]["format"],

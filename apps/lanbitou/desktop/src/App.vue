@@ -22,6 +22,7 @@
         </button>
         <div class="relative">
           <input
+            ref="searchEl"
             v-model="searchInput"
             type="text"
             :placeholder="t('searchPlaceholder')"
@@ -159,6 +160,7 @@ import NoteList from './components/NoteList.vue'
 import SettingsDialog from './components/SettingsDialog.vue'
 import StatusBar from './components/StatusBar.vue'
 import Toolbar from './components/Toolbar.vue'
+import { readClipboard, writeClipboard } from './clipboard'
 import { useAutoSave } from './composables/useAutoSave'
 import { useI18n } from './composables/useI18n'
 import { useNotes } from './composables/useNotes'
@@ -183,6 +185,8 @@ provide('appRootEl', rootEl)
 const editorContent = ref('')
 const previousContent = ref('')
 const searchInput = ref('')
+/** 搜索框元素（Ctrl/Cmd+F 聚焦用；v-model 的 ref 不能直接 focus） */
+const searchEl = ref<HTMLInputElement | null>(null)
 /** 窄窗自动收起侧栏（≤920px）；用户仍可用工具栏按钮手动展开 */
 const narrowViewportQuery =
   typeof window !== 'undefined' && typeof window.matchMedia === 'function'
@@ -195,7 +199,16 @@ const deleteTarget = ref<Note | null>(null)
 const toast = ref('')
 let toastTimer: ReturnType<typeof setTimeout> | null = null
 
-const { settings, load: loadSettings, save: saveSettings } = useSettings(ctx)
+const { settings, loaded: settingsLoaded, load: loadSettings, save: saveSettings } =
+  useSettings(ctx)
+
+/** 视图模式属于工作偏好：切换即持久化（旧版存 settings.viewMode，重启恢复） */
+watch(viewMode, (mode) => {
+  if (!settingsLoaded.value || settings.value.viewMode === mode) return
+  void saveSettings({ ...settings.value, viewMode: mode }).catch((e) => {
+    console.error('[Lanbitou] persist view mode failed:', e)
+  })
+})
 const {
   context,
   load: loadContext,
@@ -448,7 +461,7 @@ async function copySelection(): Promise<void> {
   const selection = editorRef.value?.getSelection() ?? ''
   if (!selection) return
   try {
-    await ctx!.commands.execute('lanbitou.clipboard-write', { text: selection })
+    await writeClipboard(ctx!, selection)
     showToast(t('copied'))
   } catch (e) {
     console.error('[Lanbitou] clipboard write failed:', e)
@@ -458,14 +471,12 @@ async function copySelection(): Promise<void> {
 
 async function pasteFromClipboard(): Promise<void> {
   try {
-    const result = (await ctx!.commands.execute('lanbitou.clipboard-read')) as {
-      text?: string | null
-    }
-    if (!result?.text) {
+    const text = await readClipboard(ctx!)
+    if (!text) {
       showToast(t('pasteEmpty'))
       return
     }
-    editorRef.value?.insertAtCursor(result.text)
+    editorRef.value?.insertAtCursor(text)
   } catch (e) {
     console.error('[Lanbitou] clipboard read failed:', e)
     showToast(t('clipboardReadFailed'))
@@ -516,6 +527,18 @@ function onKeydown(event: KeyboardEvent): void {
   } else if (event.shiftKey && key === 't') {
     event.preventDefault()
     insertDividerAtCursor()
+  } else if (key === 'f') {
+    // 查找：展开侧栏并聚焦搜索框（旧版 Ctrl/Cmd+F 行为）
+    event.preventDefault()
+    showSidebar.value = true
+    void nextTick(() => {
+      searchEl.value?.focus()
+      searchEl.value?.select()
+    })
+  } else if (key === '\\') {
+    // 侧栏显隐（旧版 Ctrl/Cmd+\ 行为）
+    event.preventDefault()
+    showSidebar.value = !showSidebar.value
   }
 }
 
@@ -553,6 +576,7 @@ onMounted(async () => {
     console.error('[Lanbitou] load settings/context failed:', e)
   }
   applyLocale(settings.value.language)
+  viewMode.value = settings.value.viewMode
 
   try {
     await loadNotes()

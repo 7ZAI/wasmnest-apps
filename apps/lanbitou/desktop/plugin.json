@@ -14,6 +14,7 @@
   "permissions": ["fs:read", "fs:write", "storage", "clipboard:read", "clipboard:write"],
   "contributes": {
     "commands": [
+      { "id": "lanbitou.status", "title": "Lanbitou Status" },
       { "id": "lanbitou.create-note", "title": "Create Note" },
       { "id": "lanbitou.open-note", "title": "Open Note" },
       { "id": "lanbitou.save-note", "title": "Save Note" },
