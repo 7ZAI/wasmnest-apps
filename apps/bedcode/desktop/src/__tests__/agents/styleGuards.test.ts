@@ -241,6 +241,9 @@ describe('S7 无写死第三方色板', () => {
       '#39d353',
       'rgba(217, 119, 87, 0.16)',
       'rgba(245, 158, 11, 0.16)',
+      // codex / opencode 品牌 chip 底色（各自 CLI TUI 强调色，见 agents/icons.ts 头注）
+      'rgba(99, 168, 248, 0.16)',
+      'rgba(250, 178, 131, 0.16)',
       'rgba(0, 0, 0, 0.5)', // 弹窗遮罩（宿主 Modal 同款）
       'rgb(0 0 0 / 0.04)', // 输入框常态阴影（= 宿主 tailwind.config 的 boxShadow.xs，--ah-ctl-shadow）
     ])

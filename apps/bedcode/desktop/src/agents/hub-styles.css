@@ -518,7 +518,7 @@
   border-top: 1px solid var(--border);
 }
 
-/* 品牌图标 chip：claude / pi 用品牌色低透明度派生底色，其余走中性 token。
+/* 品牌图标 chip：四家都用各自品牌色低透明度派生底色（claude / pi / codex / opencode）。
    品牌底色是**标识**而非语义/数据色，宿主 token 目录里没有对应项，
    故在此以 rgba 写死并在下方集中一处维护；它们只出现在 34px 图标底上，
    不承载任何文字（对比度门禁不适用）。 */
@@ -544,6 +544,16 @@
 
 .ah-cli-ic.brand-pi {
   background: rgba(245, 158, 11, 0.16);
+}
+
+/* codex / opencode 的品牌色是各自 CLI TUI 的强调色（见 icons.ts 头注），
+   chip 底色取同色低透明度 */
+.ah-cli-ic.brand-codex {
+  background: rgba(99, 168, 248, 0.16);
+}
+
+.ah-cli-ic.brand-opencode {
+  background: rgba(250, 178, 131, 0.16);
 }
 
 /* ==================== 安装与更新（票据 03） ==================== */
