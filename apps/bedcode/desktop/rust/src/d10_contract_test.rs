@@ -388,8 +388,10 @@ fn register_all_http_routes() -> usize {
         let auth = HttpEndpointAuth::parse_with(Some(decl.auth), HttpEndpointAuth::Jwt)
             .unwrap_or_else(|e| panic!("{} 的 auth 档位非法：{e}", decl.path));
         let methods: Vec<String> = decl.methods.iter().map(|m| m.to_string()).collect();
+        // encryption = None：本插件不覆盖宿主的链路加密下限（按宿主 floor 执行），
+        // 与生产注册路径的缺省口径一致。
         let entry = wasmnest_server_http::registry::register(
-            PLUGIN_ID, decl.path, decl.host, &methods, auth,
+            PLUGIN_ID, decl.path, decl.host, &methods, auth, None,
         )
         .unwrap_or_else(|e| {
             panic!(
@@ -451,6 +453,15 @@ const FROZEN_GATEWAY_ALIASES: &[(&str, &str, &[&str], &str)] = &[
     // 业务域（移动端配置页 / 快捷指令页）
     ("configs", "/api/configs", &["GET"], "jwt"),
     ("quick-actions", "/api/quick-actions", &["GET"], "jwt"),
+    // 项目 / 运行 / Agent（ADR 0003 桌面项目化的移动消费面；2026-10-31 新增）
+    //
+    // 跨端影响：移动端从「会话配置列表」改为「项目 → 运行 → 终端」后，需要
+    // 项目列表、项目内运行列表、启动运行与 agent 清单。写面（建/改名/删除/选目录）
+    // 仍只在桌面，不在此表。移动端字面量见 `apps/bedcode/mobile/rust/src/project.rs`。
+    ("projects", "/api/projects", &["GET"], "jwt"),
+    ("runs", "/api/runs", &["GET"], "jwt"),
+    ("runs/start", "/api/runs/start", &["POST"], "jwt"),
+    ("agents", "/api/agents", &["GET"], "jwt"),
     // 文件浏览域（移动端文件面板）
     ("file-tree", "/api/file-tree", &["POST"], "jwt"),
     (
@@ -695,8 +706,8 @@ async fn http_routes_reach_the_plugin_edge_with_declared_method_and_auth_tier() 
         .collect();
     assert_eq!(
         gateway_aliased.len(),
-        17,
-        "网关别名数 = 业务 10 + sessions 7（auth 7 条已随认证中心迁出）"
+        21,
+        "网关别名数 = 业务 10 + sessions 7 + 项目/运行/Agent 4（auth 7 条已随认证中心迁出）"
     );
     assert_eq!(
         static_aliased.len(),
@@ -1107,6 +1118,8 @@ async fn manifest_ws_endpoints_mount_and_gate_on_real_websocket_face() {
             // 之后 `announce_connect` 的接入事件就发在它上面（首版传了个新
             // `PilotBus::default()`，于是断言「看共享总线」永远看不到事件）
             bus.clone(),
+            // encryption = None：与 HTTP 面同口径，按宿主 floor 执行，不覆盖
+            None,
         )
         .unwrap_or_else(|e| panic!("ws 端点登记失败（该端点永久不可升级）：{path} → {e}"));
         assert_eq!(

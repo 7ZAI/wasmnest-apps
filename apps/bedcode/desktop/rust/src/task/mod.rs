@@ -563,12 +563,13 @@ mod tests {
         expected.extend(crate::BUSINESS_HTTP_ENDPOINTS.iter().copied());
         expected.extend(crate::FILE_BROWSE_HTTP_ENDPOINTS.iter().copied());
         expected.extend(crate::sessions_http::SESSIONS_HTTP_PATHS.iter().copied());
+        expected.extend(crate::projects_http::PROJECTS_HTTP_PATHS.iter().copied());
         expected.extend(crate::run::bridge::HTTP_ENDPOINTS.iter().copied());
         expected.push("terminal-bg");
         expected.sort();
         assert_eq!(
             declared, expected,
-            "http_routes::ROUTES 必须与 task::HTTP_ENDPOINTS + BUSINESS_HTTP_ENDPOINTS + FILE_BROWSE_HTTP_ENDPOINTS + SESSIONS_HTTP_PATHS + run::bridge::HTTP_ENDPOINTS + terminal-bg 逐项一致（auth 七条已随认证中心迁出）"
+            "http_routes::ROUTES 必须与 task::HTTP_ENDPOINTS + BUSINESS_HTTP_ENDPOINTS + FILE_BROWSE_HTTP_ENDPOINTS + SESSIONS_HTTP_PATHS + PROJECTS_HTTP_PATHS + run::bridge::HTTP_ENDPOINTS + terminal-bg 逐项一致（auth 七条已随认证中心迁出）"
         );
         assert_eq!(HTTP_ENDPOINTS.len(), 17);
         assert_eq!(crate::BUSINESS_HTTP_ENDPOINTS.len(), 2);
@@ -578,6 +579,7 @@ mod tests {
             "票 03 五条 + 票 04 git 三条"
         );
         assert_eq!(crate::sessions_http::SESSIONS_HTTP_PATHS.len(), 7);
+        assert_eq!(crate::projects_http::PROJECTS_HTTP_PATHS.len(), 4, "项目 / 运行 / Agent 四条移动面");
         assert_eq!(crate::run::bridge::HTTP_ENDPOINTS.len(), 4, "run-attach + 三条桥接路由");
         for endpoint in crate::GIT_HTTP_ENDPOINTS {
             assert!(
