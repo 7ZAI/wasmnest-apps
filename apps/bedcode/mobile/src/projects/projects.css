@@ -1,0 +1,10 @@
+/**
+ * 项目域局部样式补充
+ *
+ * 宿主 `mobile.css` 的徽章族只有 emerald / amber / cyan / zinc；运行出错需要红色
+ * 语义（与 chip-red 同一 token），在此补齐而不改平台仓全局样式。
+ */
+.badge-red {
+  color: var(--mobile-chip-red);
+  background: var(--mobile-chip-red-bg);
+}
