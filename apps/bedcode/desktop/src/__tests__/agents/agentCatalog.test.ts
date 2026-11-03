@@ -208,10 +208,10 @@ describe('useAgentCatalog', () => {
     const catalog = useAgentCatalog(makeContext())
     await catalog.load()
     expect(catalog.degraded.value).toBe(false)
-    expect(catalog.ids.value).toEqual(['claude', 'codex', 'opencode', 'pi', 'zeta'])
-    expect(catalog.skillsTargets.value).toEqual(['claude', 'pi', 'zeta'])
+    expect(catalog.ids.value).toEqual(['pi', 'opencode', 'codex', 'claude', 'zeta'])
+    expect(catalog.skillsTargets.value).toEqual(['pi', 'claude', 'zeta'])
     // 供应商目标：注册表顺序（与后端 ProviderSpec 集合一致）
-    expect(catalog.providerTargets.value).toEqual(['claude', 'codex', 'opencode', 'pi', 'zeta'])
+    expect(catalog.providerTargets.value).toEqual(['pi', 'opencode', 'codex', 'claude', 'zeta'])
   })
 
   it('失败：回退内置四家 + 可见降级（不抛给调用方）', async () => {
@@ -220,7 +220,7 @@ describe('useAgentCatalog', () => {
     await catalog.load()
     expect(catalog.degraded.value).toBe(true)
     expect(catalog.ids.value).toEqual(BUILTIN_CLI_IDS)
-    expect(catalog.skillsTargets.value).toEqual(['claude', 'pi'])
+    expect(catalog.skillsTargets.value).toEqual(['pi', 'claude'])
   })
 
   it('空载荷同样回退（不渲染空列表）', async () => {
@@ -270,7 +270,7 @@ describe('列表由清单派生', () => {
     })
     await flushPromises()
     const names = w.findAll('[data-testid^="cli-name-"]').map((n) => n.text())
-    expect(names).toEqual(['Claude Code', 'Codex CLI', 'OpenCode', 'Pi', 'Zeta CLI'])
+    expect(names).toEqual(['Pi', 'OpenCode', 'Codex CLI', 'Claude Code', 'Zeta CLI'])
     w.unmount()
   })
 
@@ -294,7 +294,7 @@ describe('列表由清单派生', () => {
     const w = mountComponent(StatsTab, { usage: usageStub(), agents: CATALOG })
     await flushPromises()
     const legend = w.findAll('.ah-donut-legend-name').map((n) => n.text())
-    expect(legend).toEqual(['claude', 'codex', 'opencode', 'pi', 'zeta'])
+    expect(legend).toEqual(['pi', 'opencode', 'codex', 'claude', 'zeta'])
     w.unmount()
   })
 
@@ -309,7 +309,7 @@ describe('列表由清单派生', () => {
     expect(text).toContain('hub.skill.targetIdle(name=Claude Code)')
     expect(text).toContain('hub.skill.targetIdle(name=Pi)')
     expect(text).toContain('hub.skill.targetIdle(name=Zeta CLI)')
-    expect(text).toContain('hub.skill.targetNoConvention(names=Codex CLI · OpenCode)')
+    expect(text).toContain('hub.skill.targetNoConvention(names=OpenCode · Codex CLI)')
     w.unmount()
   })
 
@@ -322,7 +322,7 @@ describe('列表由清单派生', () => {
     await flushPromises()
     expect(w.find('[data-testid="agent-catalog-degraded"]').exists()).toBe(false)
     const names = w.findAll('[data-testid^="cli-name-"]').map((n) => n.text())
-    expect(names).toEqual(['Claude Code', 'Codex CLI', 'OpenCode', 'Pi', 'Zeta CLI'])
+    expect(names).toEqual(['Pi', 'OpenCode', 'Codex CLI', 'Claude Code', 'Zeta CLI'])
     w.unmount()
   })
 
@@ -349,10 +349,10 @@ describe('列表由清单派生', () => {
     expect(w.get('[data-testid="target-pi"]').classes()).toContain('active')
     const targets = w.findAll('[data-testid^="target-"]').map((n) => n.attributes('data-testid'))
     expect(targets).toEqual([
-      'target-claude',
-      'target-codex',
-      'target-opencode',
       'target-pi',
+      'target-opencode',
+      'target-codex',
+      'target-claude',
       'target-zeta',
     ])
     w.unmount()

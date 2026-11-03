@@ -4320,7 +4320,8 @@ describe('A16 链式安装：nodeMissing → 引导 → 自动重入安装', () 
     await w.get('[data-testid="hub-tab-install"]').trigger('click')
     await flushPromises()
 
-    await w.findAll('.ah-inst-row .ah-btn-primary').at(0)!.trigger('click')
+    // 按行 testid 定位（不依赖展示顺序：注册表顺序是产品决策，会变）
+    await w.get('[data-testid="inst-row-claude"] .ah-btn-primary').trigger('click')
     await flushPromises()
 
     // 一次确认：弹窗打开，且说明装完继续装 claude（不额外弹第二个弹窗）

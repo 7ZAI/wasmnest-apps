@@ -134,7 +134,8 @@ fn ensure_env_os(env: &mut Value) {
     }
 }
 
-/// 默认探测状态（键集合 = 注册表 id 集合，顺序即展示顺序；契约测试锁死）
+/// 默认探测状态（键集合 = 注册表 id 集合；契约测试锁死集合，
+/// 展示顺序由 `agents::all()` 负责，不经 JSON 对象键序表达）
 pub(crate) fn default_clis() -> Value {
     let mut map = serde_json::Map::new();
     for agent in agents::all() {

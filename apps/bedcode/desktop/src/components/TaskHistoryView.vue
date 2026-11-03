@@ -685,7 +685,7 @@ function cancelEditPreset() {
 // ==================== 筛选选项与统计（Tab2/Tab4） ====================
 
 const statusOptions = ['', 'idle', 'in_progress', 'asking', 'retrying', 'completed', 'interrupted']
-const agentOptions = ['', 'claude', 'codex', 'opencode', 'pi', 'unknown']
+const agentOptions = ['', 'pi', 'opencode', 'codex', 'claude', 'unknown']
 const sourceOptions = ['', 'user', 'queue', 'scheduled']
 
 // 来源固定三种（手动输入/自动任务/定时任务）：预存被消费后归为自动任务，

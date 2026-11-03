@@ -681,8 +681,8 @@ mod tests {
         });
         let sections = scan_sections("/home/u", &state);
         let names: Vec<&str> = sections.iter().map(|(n, _)| n.as_str()).collect();
-        // 三内置 JSONL 根 + 一个自定义目录；opencode 不在其中
-        assert_eq!(names, vec!["claude", "codex", "pi", "my-logs"]);
+        // 三内置 JSONL 根（顺序 = 注册表顺序）+ 一个自定义目录；opencode 不在其中
+        assert_eq!(names, vec!["pi", "codex", "claude", "my-logs"]);
         assert!(!sections.iter().any(|(_, p)| p.contains("opencode.db")));
 
         // 自定义来源声明为 sqlite 也不进文件枚举（kind 是权威判据）
@@ -715,7 +715,7 @@ mod tests {
         let names: Vec<&str> = sections.iter().map(|(n, _)| n.as_str()).collect();
         assert_eq!(
             names,
-            vec!["claude", "codex", "pi", "pi", "my-logs", "my-logs"]
+            vec!["pi", "codex", "claude", "pi", "my-logs", "my-logs"]
         );
         assert!(sections
             .iter()

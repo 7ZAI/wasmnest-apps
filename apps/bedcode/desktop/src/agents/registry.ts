@@ -35,44 +35,50 @@ export const GENERIC_AGENT_GLYPH: BrandGlyph = {
 }
 
 /**
- * 内置四家（顺序 = 后端注册表顺序 = 展示顺序）。
+ * 内置四家（顺序 = 后端注册表顺序 = 展示顺序：pi → opencode → codex → claude）。
  *
  * `capabilities` 是后端 `list-agents` 不可用时的回退值，与当前适配器声明一致：
  * 四家都有供应商写入与使用统计；Skills 目录仅 claude / pi 声明。
  */
 export const BUILTIN_AGENTS: AgentUiEntry[] = [
   {
-    id: 'claude',
-    displayName: 'Claude Code',
-    glyph: CLI_ICONS.claude ?? GENERIC_AGENT_GLYPH,
+    id: 'pi',
+    displayName: 'Pi',
+    // 四家的二进制名与 id 同名（后端 `binary()` 默认实现）；显式写出是
+    // `AgentDescriptor.binary` 的必填项，回退清单也靠它拼启动命令
+    binary: 'pi',
+    glyph: CLI_ICONS.pi ?? GENERIC_AGENT_GLYPH,
     capabilities: { install: true, provider: true, skills: true, usage: true },
-    providerWritesModels: false,
-    providerConfigHint: '~/.claude/settings.json',
-  },
-  {
-    id: 'codex',
-    displayName: 'Codex CLI',
-    glyph: CLI_ICONS.codex ?? GENERIC_AGENT_GLYPH,
-    capabilities: { install: true, provider: true, skills: false, usage: true },
+    preferredProviderTarget: true,
     providerWritesModels: true,
-    providerConfigHint: '~/.codex/config.toml',
+    providerConfigHint: '~/.pi/agent/{models.json, auth.json}',
   },
   {
     id: 'opencode',
     displayName: 'OpenCode',
+    binary: 'opencode',
     glyph: CLI_ICONS.opencode ?? GENERIC_AGENT_GLYPH,
     capabilities: { install: true, provider: true, skills: false, usage: true },
     providerWritesModels: true,
     providerConfigHint: '~/.config/opencode/opencode.json',
   },
   {
-    id: 'pi',
-    displayName: 'Pi',
-    glyph: CLI_ICONS.pi ?? GENERIC_AGENT_GLYPH,
-    capabilities: { install: true, provider: true, skills: true, usage: true },
-    preferredProviderTarget: true,
+    id: 'codex',
+    displayName: 'Codex CLI',
+    binary: 'codex',
+    glyph: CLI_ICONS.codex ?? GENERIC_AGENT_GLYPH,
+    capabilities: { install: true, provider: true, skills: false, usage: true },
     providerWritesModels: true,
-    providerConfigHint: '~/.pi/agent/{models.json, auth.json}',
+    providerConfigHint: '~/.codex/config.toml',
+  },
+  {
+    id: 'claude',
+    displayName: 'Claude Code',
+    binary: 'claude',
+    glyph: CLI_ICONS.claude ?? GENERIC_AGENT_GLYPH,
+    capabilities: { install: true, provider: true, skills: true, usage: true },
+    providerWritesModels: false,
+    providerConfigHint: '~/.claude/settings.json',
   },
 ]
 

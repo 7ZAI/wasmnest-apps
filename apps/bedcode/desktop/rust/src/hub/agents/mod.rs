@@ -6,7 +6,8 @@
 //! [`all`] / [`get`] 访问 agent，不出现具体 id 分支；内置四家与未来新 agent 走
 //! 同一套接口——「内置」只是一组注册项，不是运行时特权。
 //!
-//! 注册顺序即产品展示顺序（概览 / 安装 / 统计）：claude → codex → opencode → pi。
+//! 注册顺序即产品展示顺序（概览 / 安装 / 统计 / 选 agent 弹窗）：
+//! pi → opencode → codex → claude（2026-11-01 用户裁决：常用在前、claude 置末）。
 //! 扩展 = 新增一个适配器模块 + 在 `AGENTS` 注册一行 + 前端登记图标/品牌名；
 //! 注册是编译期的（单 wasm 插件，不做运行时第三方适配器装载）。
 //!
@@ -101,7 +102,7 @@ pub(crate) trait Agent: Sync {
 
 /// 编译期注册表（顺序 = 产品展示顺序，行为等价的一部分）
 static AGENTS: [&'static dyn Agent; 4] =
-    [&claude::Claude, &codex::Codex, &opencode::Opencode, &pi::Pi];
+    [&pi::Pi, &opencode::Opencode, &codex::Codex, &claude::Claude];
 
 /// 全部注册项（按展示顺序）
 pub(crate) fn all() -> &'static [&'static dyn Agent] {
@@ -195,11 +196,11 @@ pub(crate) fn describe() -> Value {
 mod tests {
     use super::*;
 
-    /// 内置集合与展示顺序：行为等价的一部分（概览/安装/统计同序）
+    /// 内置集合与展示顺序：行为等价的一部分（概览/安装/统计/选 agent 同序）
     #[test]
     fn registry_has_builtin_four_in_display_order() {
         let ids: Vec<&str> = all().iter().map(|a| a.id()).collect();
-        assert_eq!(ids, vec!["claude", "codex", "opencode", "pi"]);
+        assert_eq!(ids, vec!["pi", "opencode", "codex", "claude"]);
     }
 
     /// 注册表完整性：id 唯一、展示名非空、二进制名非空
@@ -262,7 +263,7 @@ mod tests {
             .collect();
         assert_eq!(
             targets,
-            vec![("claude", ".claude/skills"), ("pi", ".pi/agent/skills")]
+            vec![("pi", ".pi/agent/skills"), ("claude", ".claude/skills")]
         );
     }
 
@@ -275,10 +276,10 @@ mod tests {
             .iter()
             .map(|a| a["id"].as_str().expect("id"))
             .collect();
-        assert_eq!(ids, vec!["claude", "codex", "opencode", "pi"]);
+        assert_eq!(ids, vec!["pi", "opencode", "codex", "claude"]);
 
         let first = &agents[0];
-        assert_eq!(first["displayName"], json!("Claude Code"));
+        assert_eq!(first["displayName"], json!("Pi"));
         for key in ["install", "provider", "skills", "usage"] {
             assert!(
                 first["capabilities"][key].is_boolean(),
@@ -286,11 +287,16 @@ mod tests {
             );
         }
         // 当前四家的能力事实（供应商 / Usage 全支持；Skills 仅 claude / pi）
-        for (i, a) in agents.iter().enumerate() {
+        for a in agents.iter() {
             assert_eq!(a["capabilities"]["install"], json!(true));
             assert_eq!(a["capabilities"]["provider"], json!(true));
             assert_eq!(a["capabilities"]["usage"], json!(true));
-            assert_eq!(a["capabilities"]["skills"], json!(i == 0 || i == 3));
+            let id = a["id"].as_str().expect("id");
+            assert_eq!(
+                a["capabilities"]["skills"],
+                json!(matches!(id, "pi" | "claude")),
+                "{id} skills capability"
+            );
         }
     }
 
@@ -303,7 +309,7 @@ mod tests {
             .filter(|a| a.provider().is_some())
             .map(|a| a.id())
             .collect();
-        assert_eq!(ids, vec!["claude", "codex", "opencode", "pi"]);
+        assert_eq!(ids, vec!["pi", "opencode", "codex", "claude"]);
 
         let mut view_keys: Vec<&str> = Vec::new();
         for agent in all() {
@@ -319,7 +325,7 @@ mod tests {
                 view_keys.push(key);
             }
         }
-        assert_eq!(view_keys, vec!["claude", "codex"]);
+        assert_eq!(view_keys, vec!["codex", "claude"]);
         for agent in all() {
             let spec = agent.provider().expect("provider target");
             assert_eq!(
@@ -392,7 +398,7 @@ mod tests {
                 }
             }
         }
-        assert_eq!(ids, vec!["claude", "codex", "opencode", "pi"]);
+        assert_eq!(ids, vec!["pi", "opencode", "codex", "claude"]);
 
         let source = |id: &str| {
             all()
@@ -443,17 +449,23 @@ mod tests {
         assert_eq!(active, vec!["claude"]);
     }
 
-    /// 契约：注册表 id 集合 == 探测状态 `clis` 键集合（含顺序）
+    /// 契约：注册表 id 集合 == 探测状态 `clis` 键集合
+    ///
+    /// 只比集合不比顺序：`serde_json::Map` 未开 `preserve_order` 时是 BTreeMap，
+    /// 键序恒为字典序（旧注册表恰好也是字典序，才让这条断言看起来在查顺序）。
+    /// 展示顺序由 `agents::all()` 负责，不在本契约里。
     #[test]
     fn detect_state_slots_match_registry() {
         let state = crate::hub::detect::default_clis();
-        let keys: Vec<&str> = state
+        let mut keys: Vec<String> = state
             .as_object()
             .expect("clis object")
             .keys()
-            .map(|k| k.as_str())
+            .cloned()
             .collect();
-        let ids: Vec<&str> = all().iter().map(|a| a.id()).collect();
+        let mut ids: Vec<String> = all().iter().map(|a| a.id().to_string()).collect();
+        keys.sort();
+        ids.sort();
         assert_eq!(keys, ids);
     }
 }

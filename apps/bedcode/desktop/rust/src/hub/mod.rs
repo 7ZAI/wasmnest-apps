@@ -309,8 +309,8 @@ mod tests {
             .iter()
             .map(|a| a["id"].as_str().expect("id"))
             .collect();
-        assert_eq!(ids, vec!["claude", "codex", "opencode", "pi"]);
-        assert_eq!(agents[0]["displayName"], serde_json::json!("Claude Code"));
+        assert_eq!(ids, vec!["pi", "opencode", "codex", "claude"]);
+        assert_eq!(agents[0]["displayName"], serde_json::json!("Pi"));
         assert!(agents[0]["capabilities"]["install"].is_boolean());
         assert!(invoke_command("agent.nope", serde_json::json!(null)).is_err());
     }
