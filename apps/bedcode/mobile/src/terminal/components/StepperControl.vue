@@ -52,30 +52,45 @@ function step(delta: number) {
 </script>
 
 <style scoped>
+/* 尺寸随视口流式缩放：360px 小屏 36px 按钮 / 8px 间距，1200px 及以上 44px / 16px。
+   与平台 --font-size-* 同一档位曲线（360 → 1200 线性插值）；设置页行内步进器
+   在窄屏不再固定占掉近半行、把标签挤成多行。 */
 .stepper-control {
   display: flex;
   align-items: center;
-  gap: 1rem;
+  gap: clamp(0.5rem, 0.5rem + (100vw - 360px) / 840 * 8, 1rem);
 }
 
 .size-btn {
-  width: 2.75rem;
-  height: 2.75rem;
+  width: clamp(2.25rem, 2.25rem + (100vw - 360px) / 840 * 8, 2.75rem);
+  height: clamp(2.25rem, 2.25rem + (100vw - 360px) / 840 * 8, 2.75rem);
   border-radius: 0.5rem;
-  background: var(--mobile-bg-elevated);
-  border: 1px solid var(--mobile-border);
-  color: var(--mobile-text-primary);
-  font-size: clamp(1rem, 1.25rem, 1.5rem);
+  /* 只显示符号，不画按钮底板：暗色主题下 --mobile-bg-elevated 会形成一块黑色方块，
+     与「设置项右侧的 + / − 就是两个符号」的视觉预期不符。触控目标尺寸保持不变。 */
+  background: transparent;
+  border: 0;
+  padding: 0;
+  color: var(--mobile-accent);
+  font-weight: 600;
+  line-height: 1;
+  -webkit-appearance: none;
+  appearance: none;
+  /* 取平台流式字阶（同时接受「字体大小」偏好），不再用裸 clamp 固定 */
+  font-size: var(--font-size-lg);
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: opacity 0.2s ease;
 }
 
-.size-btn:hover:not(:disabled) {
-  background: var(--mobile-bg-hover);
+.size-btn:hover:not(:disabled),
+.size-btn:active:not(:disabled) {
+  /* hover / 按下只降透明度：不再铺一层方块底色 */
+  background: transparent;
+  opacity: 0.65;
 }
 
 .size-btn:disabled {
-  opacity: 0.5;
+  color: var(--mobile-accent);
+  opacity: 0.35;
   cursor: not-allowed;
 }
 
@@ -83,7 +98,7 @@ function step(delta: number) {
   flex: 1;
   min-width: 3ch;
   text-align: center;
-  font-size: clamp(1rem, 1.125rem, 1.25rem);
+  font-size: var(--font-size-base);
   font-weight: 500;
   color: var(--mobile-text-primary);
 }

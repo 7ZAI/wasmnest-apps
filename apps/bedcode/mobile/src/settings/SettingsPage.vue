@@ -41,7 +41,7 @@
             @update:model-value="onToggle(item.key, $event)"
           />
 
-          <!-- 数值项：步进器（StepperControl 收敛件，#18；44px 触控目标） -->
+          <!-- 数值项：步进器（StepperControl 收敛件，#18；尺寸随视口流式缩放） -->
           <StepperControl
             v-else-if="item.kind === 'number'"
             :model-value="Number(ctrl.values[item.key])"
