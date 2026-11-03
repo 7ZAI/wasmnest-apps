@@ -243,7 +243,10 @@ mod tests {
         fn peer_set_download_dir(&self, _path: &str) -> Result<(), HostError> {
             unimplemented_peer!()
         }
-        fn peer_start_node(&self) -> Result<bool, HostError> {
+        fn peer_start_node(
+            &self,
+            _config: &wasmnest_plugin_api::host::PeerNodeConfig,
+        ) -> Result<bool, HostError> {
             unimplemented_peer!()
         }
         fn peer_stop_node(&self) -> Result<bool, HostError> {
