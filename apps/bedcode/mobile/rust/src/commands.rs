@@ -7,6 +7,7 @@ use wasmnest_plugin_api_mobile::wasm_host::WasmHost;
 
 use crate::auth;
 use crate::link::LinkManager;
+use crate::project;
 use crate::session;
 
 fn host() -> WasmHost {
@@ -105,6 +106,13 @@ pub(crate) fn dispatch(name: &str, args: &serde_json::Value) -> anyhow::Result<s
         "bedcode.stop-session" => session::stop_session(args),
         "bedcode.remove-session" => session::remove_session(args),
         "bedcode.send-http-input" => session::send_http_input(args),
+        // ==================== 项目 / 运行 / Agent（ADR 0003 移动消费面） ====================
+        // 项目写面（建 / 改名 / 删除 / 选目录）需要桌面目录选择与用户确认，不开放；
+        // 本端只有项目列表、项目内运行、启动运行与 agent 清单四条消费命令。
+        "bedcode.list-projects" => project::list_projects(),
+        "bedcode.list-runs" => project::list_runs(args),
+        "bedcode.start-run" => project::start_run(args),
+        "bedcode.list-agents" => project::list_agents(),
         _ => Err(anyhow::anyhow!("unknown command: {}", name)),
     }
 }

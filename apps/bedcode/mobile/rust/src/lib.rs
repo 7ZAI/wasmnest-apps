@@ -46,6 +46,7 @@ mod auth;
 mod commands;
 mod keys;
 mod link;
+mod project;
 mod protocol;
 mod session;
 

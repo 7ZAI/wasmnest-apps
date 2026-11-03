@@ -40,7 +40,7 @@ fn host() -> WasmHost {
 
 /// 会话列表（`GET /api/sessions`）
 pub(crate) fn list_sessions() -> anyhow::Result<serde_json::Value> {
-    http_call("GET", PATH_SESSIONS, None)
+    http_call("session", "GET", PATH_SESSIONS, None)
 }
 
 /// 启动会话（`POST /api/sessions/start`，body `{configId, cols?, rows?}`）
@@ -49,6 +49,7 @@ pub(crate) fn start_session(args: &serde_json::Value) -> anyhow::Result<serde_js
     let cols = args.get("cols").and_then(|v| v.as_u64());
     let rows = args.get("rows").and_then(|v| v.as_u64());
     http_call(
+        "session",
         "POST",
         PATH_SESSIONS_START,
         Some(build_start_body(&config_id, cols, rows)),
@@ -58,13 +59,13 @@ pub(crate) fn start_session(args: &serde_json::Value) -> anyhow::Result<serde_js
 /// 停止会话（`POST /api/sessions/{id}/stop`）
 pub(crate) fn stop_session(args: &serde_json::Value) -> anyhow::Result<serde_json::Value> {
     let session_id = require_str(args, "sessionId")?;
-    http_call("POST", &session_path(&session_id, "stop"), None)
+    http_call("session", "POST", &session_path(&session_id, "stop"), None)
 }
 
 /// 删除会话（`DELETE /api/sessions/{id}/remove`）
 pub(crate) fn remove_session(args: &serde_json::Value) -> anyhow::Result<serde_json::Value> {
     let session_id = require_str(args, "sessionId")?;
-    http_call("DELETE", &session_path(&session_id, "remove"), None)
+    http_call("session", "DELETE", &session_path(&session_id, "remove"), None)
 }
 
 /// 写入终端输入（`POST /api/sessions/{id}/input`，body `{data, specialKey?}`）
@@ -76,6 +77,7 @@ pub(crate) fn send_http_input(args: &serde_json::Value) -> anyhow::Result<serde_
     let data = args.get("data").and_then(|v| v.as_str()).unwrap_or("");
     let special_key = args.get("specialKey").and_then(|v| v.as_str());
     http_call(
+        "session",
         "POST",
         &session_path(&session_id, "input"),
         Some(build_input_body(data, special_key)),
@@ -84,19 +86,27 @@ pub(crate) fn send_http_input(args: &serde_json::Value) -> anyhow::Result<serde_
 
 // ==================== HTTP 调用 ====================
 
-/// 经宿主 `host-http` 打一次桌面会话控制请求，返回前端消费形状
+/// 经宿主 `host-http` 打一次桌面业务请求，返回前端消费形状
 /// （`{code, message, data?}`）；网络层失败（未连接 / 权限 / egress / 传输）
 /// 一律 Err 上抛。
-fn http_call(method: &str, path: &str, body: Option<serde_json::Value>) -> anyhow::Result<serde_json::Value> {
+///
+/// `domain` 只进错误文案（`session` / `project`），便于两端日志各自归域；
+/// HTTP 信封语义只有这一份（[`classify_http_response`]），不按域分叉。
+pub(crate) fn http_call(
+    domain: &str,
+    method: &str,
+    path: &str,
+    body: Option<serde_json::Value>,
+) -> anyhow::Result<serde_json::Value> {
     let target = read_primary_target()?; // 未配置目标 → 显性错误（fail-visible）
     let url = format!("http://{}:{}{}", target.address, target.port, path);
     let request = build_request(method, &url, body);
     let resp = host()
         .http_fetch(&request)
-        .map_err(|e| anyhow::anyhow!("session http fetch failed ({method} {path}): {e}"))?;
+        .map_err(|e| anyhow::anyhow!("{domain} http fetch failed ({method} {path}): {e}"))?;
     let Some(resp) = resp else {
         return Err(anyhow::anyhow!(
-            "session http fetch returned empty response ({method} {path})"
+            "{domain} http fetch returned empty response ({method} {path})"
         ));
     };
     Ok(classify_http_response(&resp))
