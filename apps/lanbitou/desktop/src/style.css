@@ -1,0 +1,98 @@
+/* Lanbitou app 基础样式（独立挂载包）
+ *
+ * - Tailwind 工具类由本工程自编译；设计 token（var(--bg-page) 等）由宿主文档根提供
+ *   （app 只在宿主窗口内运行）；暗色模式跟随宿主 <html class="dark">。
+ * - 设置里的主题覆盖（light / dark）只作用于本应用根容器：在 `.lanbitou-root`
+ *   上重定义应用用到的 token，不触碰宿主 :root / .theme-base。
+ * - 不写 :root token 兜底：挂载包 CSS 由 JS 在宿主 style.css 之后注入，
+ *   同特异性的 :root 会覆盖宿主浅色主题（整窗变暗）。
+ */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+.lanbitou-root {
+  height: 100%;
+  min-height: 0;
+}
+
+/* ==================== 主题覆盖（仅应用根容器） ====================
+ *
+ * token 副本同步来源：平台仓 `wasmnest-desktop/src/style.css` 的 warm 色板
+ * （`:root` 浅色 / `:root.dark` 深色），快照日期 2026-11-03。
+ * 宿主调整 token 值时，回来同步这两组覆盖；system 模式不走这里（直接用宿主值）。
+ */
+
+.lanbitou-root[data-theme='light'] {
+  color-scheme: light;
+  --bg-page: #f5f4f0;
+  --bg-sidebar: #efede7;
+  --bg-card: #fdfcfa;
+  --bg-hover: #e7e4dc;
+  --bg-input: #fdfcfa;
+  --text-primary: #26231b;
+  --text-secondary: #5e584c;
+  --text-tertiary: #736b58;
+  --border: #e4e1d8;
+  --border-strong: #d6d2c4;
+  --border-input: #d6d2c4;
+  --color-primary: #1d1a14;
+  --color-primary-hover: #0f0d09;
+  --color-primary-light: #efede5;
+  --color-primary-contrast: #fdfcfa;
+  --color-danger: #ef4444;
+  --color-danger-ink: #b91c1c;
+  --color-info: #2563eb;
+  --shadow-card: 0 1px 2px rgba(31, 41, 55, 0.06);
+}
+
+.lanbitou-root[data-theme='dark'] {
+  color-scheme: dark;
+  --bg-page: #15130f;
+  --bg-sidebar: #191712;
+  --bg-card: #1d1a15;
+  --bg-hover: #2a261e;
+  --bg-input: #1d1a15;
+  --text-primary: #ece8dc;
+  --text-secondary: #aaa393;
+  --text-tertiary: #948c79;
+  --border: #2e2a22;
+  --border-strong: #3c372b;
+  --border-input: #3c372b;
+  --color-primary: #ece8dc;
+  --color-primary-hover: #f5f2ea;
+  --color-primary-light: rgba(236, 232, 220, 0.12);
+  --color-primary-contrast: #15130f;
+  --color-danger: #ef4444;
+  --color-danger-ink: #f87171;
+  --color-info: #60a5fa;
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+/* ==================== 滚动条（仅应用根内） ==================== */
+
+.lanbitou-root {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--text-tertiary) 55%, transparent) transparent;
+}
+
+.lanbitou-root *::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.lanbitou-root *::-webkit-scrollbar-track {
+  background: transparent;
+}
+.lanbitou-root *::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text-tertiary) 55%, transparent);
+  background-clip: padding-box;
+}
+.lanbitou-root *::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--text-tertiary) 80%, transparent);
+  background-clip: padding-box;
+}
+.lanbitou-root *::-webkit-scrollbar-corner {
+  background: transparent;
+}

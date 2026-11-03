@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <!-- 烂笔头 · 朱漆笔杆，笔毫散开（暖墨底 + 米白笔毫 + 朱砂墨点） -->
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#33291F"/>
+      <stop offset="100%" stop-color="#0E0C09"/>
+    </linearGradient>
+    <linearGradient id="handle" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#C8523B"/>
+      <stop offset="100%" stop-color="#8A2E1E"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#E5C084"/>
+      <stop offset="100%" stop-color="#A87937"/>
+    </linearGradient>
+    <linearGradient id="hair" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#F7F0E2"/>
+      <stop offset="55%" stop-color="#E9DCC3"/>
+      <stop offset="100%" stop-color="#C9B48F"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="100" height="100" rx="20" fill="url(#bg)"/>
+
+  <g transform="rotate(-30 56 50)">
+    <!-- 朱漆笔杆（上宽下窄） -->
+    <path d="M52 4 Q52 1 55 1 L61 1 Q64 1 64 4 L62 29 L54 29 Z" fill="url(#handle)"/>
+    <path d="M53 3 L56 3 L55 29 L54 29 Z" fill="#E8775D" opacity="0.45"/>
+    <rect x="52.5" y="3" width="12.5" height="3.4" rx="1.7" fill="url(#gold)"/>
+
+    <!-- 笔箍 -->
+    <rect x="46" y="28" width="25" height="11" rx="4.5" fill="url(#gold)"/>
+    <rect x="46" y="35.5" width="25" height="2" rx="1" fill="#7C571F" opacity="0.6"/>
+    <rect x="46" y="28" width="25" height="2.6" rx="1.3" fill="#F6DCA6" opacity="0.5"/>
+
+    <!-- 笔毫：三束聚锋 + 散开的外毫 -->
+    <path d="M46 39 C42 51 43 65 46 82 C48 70 49 55 49 39 Z" fill="url(#hair)"/>
+    <path d="M62 39 C64 51 63 63 58 82 C57 70 55 55 55 39 Z" fill="url(#hair)"/>
+    <path d="M49 39 C47 55 51 73 52 88 C56 73 59 55 59 39 Z" fill="url(#hair)"/>
+    <path d="M43 43 C38 51 34 59 31 66" fill="none" stroke="url(#hair)" stroke-width="2.6" stroke-linecap="round" opacity="0.75"/>
+    <path d="M64 44 C68 51 71 57 73 62" fill="none" stroke="url(#hair)" stroke-width="2.2" stroke-linecap="round" opacity="0.6"/>
+    <path d="M44 40 C39 47 35 53 32 58" fill="none" stroke="url(#hair)" stroke-width="1.8" stroke-linecap="round" opacity="0.5"/>
+
+    <!-- 发丝线 -->
+    <g fill="none" stroke="#B9A381" stroke-width="1.1" stroke-linecap="round" opacity="0.45">
+      <path d="M51 40 C50 54 51 70 52 82"/>
+      <path d="M47 40 C45 52 45 65 46 76"/>
+      <path d="M58 40 C59 52 59 64 58 76"/>
+    </g>
+
+    <!-- 朱砂墨点 -->
+    <circle cx="52" cy="91" r="2.2" fill="#C4553B"/>
+    <circle cx="30" cy="69" r="1.2" fill="#C4553B" opacity="0.65"/>
+  </g>
+</svg>

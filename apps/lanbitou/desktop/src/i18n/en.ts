@@ -1,0 +1,90 @@
+import type { MessageSchema } from './messages'
+
+const en: MessageSchema = {
+  appTitle: 'Lanbitou',
+
+  newNote: 'New Note',
+  untitled: 'Untitled',
+  renameNote: 'Rename',
+  deleteNote: 'Delete Note',
+  deleteConfirmTitle: 'Delete Note',
+  deleteConfirmBody: 'Delete "{title}"? This cannot be undone.',
+  cancel: 'Cancel',
+  save: 'Save',
+
+  searchPlaceholder: 'Search title or content…',
+  clearSearch: 'Clear search',
+  noNotes: 'No Notes',
+  noNotesHint: 'Click "New Note" to start writing',
+  noSearchResults: 'No matching notes',
+
+  editMode: 'Edit',
+  previewMode: 'Preview',
+  splitMode: 'Split',
+
+  insertTimeDivider: 'Insert Time Divider',
+  timeDividerSettings: 'Time Divider',
+
+  settings: 'Settings',
+  settingsSectionEditor: 'Editor',
+  autoSaveMode: 'Auto Save',
+  autoSaveRealtime: 'Real-time (debounced)',
+  autoSaveOnBlur: 'On blur',
+  autoSaveManual: 'Manual (Ctrl+S)',
+  autoSaveDebounce: 'Debounce delay (ms)',
+  fontSize: 'Font Size',
+  fontFamily: 'Font Family',
+  fontMonospace: 'Monospace',
+  fontSansSerif: 'Sans-serif',
+  fontSerif: 'Serif',
+  theme: 'Theme',
+  themeSystem: 'Follow system',
+  themeLight: 'Light',
+  themeDark: 'Dark',
+  language: 'Language',
+  decrease: 'Decrease',
+  increase: 'Increase',
+
+  timeDividerEnabled: 'Insert time dividers automatically',
+  timeDividerFormat: 'Divider format',
+  timeDividerFormatHint: 'Variables: {{date}} {{time}} {{datetime}} {{weekday}} {{timestamp}}',
+  timeDividerPosition: 'Insert position',
+  positionTop: 'Top',
+  positionBottom: 'Bottom',
+  positionCursor: 'At cursor',
+  timeDividerInterval: 'Trigger interval',
+  intervalOff: 'Off',
+  intervalMinutes: '{count} min',
+
+  saveNow: 'Save now',
+  copySelection: 'Copy selection',
+  pasteFromClipboard: 'Paste from clipboard',
+  toggleSidebar: 'Toggle sidebar',
+
+  saveStatusIdle: 'Ready',
+  saveStatusUnsaved: 'Unsaved',
+  saveStatusSaving: 'Saving…',
+  saveStatusSaved: 'Saved',
+  saveStatusError: 'Save failed',
+  saveFailed: 'Save failed — your edits are still in the editor',
+  copied: 'Copied',
+  pasteEmpty: 'Clipboard is empty or contains no text',
+  clipboardReadFailed: 'Failed to read clipboard',
+
+  wordCount: '{count} words',
+  charCount: '{count} chars',
+  lastModified: 'Modified {time}',
+  never: 'Never modified',
+
+  justNow: 'just now',
+  minutesAgo: '{count} min ago',
+  hoursAgo: '{count} h ago',
+  daysAgo: '{count} d ago',
+
+  previewRecentNote: 'Recent Note',
+  previewNoteCount: '{count} notes',
+  previewNoNote: 'No Note',
+  previewNoNoteHint: 'No notes created yet',
+}
+
+export default en

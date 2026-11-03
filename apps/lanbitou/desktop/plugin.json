@@ -1,0 +1,32 @@
+{
+  "id": "com.wasmnest.lanbitou",
+  "name": "Lanbitou",
+  "version": "0.0.1",
+  "platform": "desktop",
+  "update": { "provider": "github-release" },
+  "description": "烂笔头（Lanbitou）：轻量级 Markdown 记事本，纯文本编辑 + 实时预览，自动保存，时间分隔符，系统剪贴板集成。\n使用：打开侧边栏「烂笔头」→ 新建笔记开始书写；支持 Markdown 语法，自动保存到文件系统。",
+  "author": "WasmNest",
+  "main": "index.js",
+  "type": "business-app",
+  "pluginType": "full",
+  "rustLibrary": "wasmnest_plugin_lanbitou",
+  "icon": "icon.svg",
+  "permissions": ["fs:read", "fs:write", "storage", "clipboard:read", "clipboard:write"],
+  "contributes": {
+    "commands": [
+      { "id": "lanbitou.create-note", "title": "Create Note" },
+      { "id": "lanbitou.open-note", "title": "Open Note" },
+      { "id": "lanbitou.save-note", "title": "Save Note" },
+      { "id": "lanbitou.delete-note", "title": "Delete Note" },
+      { "id": "lanbitou.list-notes", "title": "List Notes" },
+      { "id": "lanbitou.rename-note", "title": "Rename Note" },
+      { "id": "lanbitou.search-notes", "title": "Search Notes" },
+      { "id": "lanbitou.read-settings", "title": "Read Settings" },
+      { "id": "lanbitou.save-settings", "title": "Save Settings" },
+      { "id": "lanbitou.read-context", "title": "Read Context" },
+      { "id": "lanbitou.save-context", "title": "Save Context" },
+      { "id": "lanbitou.clipboard-read", "title": "Read Clipboard" },
+      { "id": "lanbitou.clipboard-write", "title": "Write Clipboard" }
+    ]
+  }
+}

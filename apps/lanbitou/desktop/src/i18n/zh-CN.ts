@@ -1,0 +1,90 @@
+import type { MessageSchema } from './messages'
+
+const zhCN: MessageSchema = {
+  appTitle: '烂笔头',
+
+  newNote: '新建笔记',
+  untitled: '无标题',
+  renameNote: '重命名',
+  deleteNote: '删除笔记',
+  deleteConfirmTitle: '删除笔记',
+  deleteConfirmBody: '确定删除「{title}」？此操作不可撤销。',
+  cancel: '取消',
+  save: '保存',
+
+  searchPlaceholder: '搜索标题或内容…',
+  clearSearch: '清除搜索',
+  noNotes: '暂无笔记',
+  noNotesHint: '点击「新建笔记」开始书写',
+  noSearchResults: '没有匹配的笔记',
+
+  editMode: '编辑',
+  previewMode: '预览',
+  splitMode: '分屏',
+
+  insertTimeDivider: '插入时间分隔符',
+  timeDividerSettings: '时间分隔符',
+
+  settings: '设置',
+  settingsSectionEditor: '编辑器',
+  autoSaveMode: '自动保存',
+  autoSaveRealtime: '实时（防抖）',
+  autoSaveOnBlur: '失焦时',
+  autoSaveManual: '手动（Ctrl+S）',
+  autoSaveDebounce: '防抖延迟（毫秒）',
+  fontSize: '字号',
+  fontFamily: '字体',
+  fontMonospace: '等宽',
+  fontSansSerif: '无衬线',
+  fontSerif: '衬线',
+  theme: '主题',
+  themeSystem: '跟随系统',
+  themeLight: '浅色',
+  themeDark: '深色',
+  language: '界面语言',
+  decrease: '减少',
+  increase: '增加',
+
+  timeDividerEnabled: '自动插入时间分隔符',
+  timeDividerFormat: '分隔符格式',
+  timeDividerFormatHint: '可用变量：{{date}} {{time}} {{datetime}} {{weekday}} {{timestamp}}',
+  timeDividerPosition: '插入位置',
+  positionTop: '顶部',
+  positionBottom: '底部',
+  positionCursor: '光标处',
+  timeDividerInterval: '触发间隔',
+  intervalOff: '关闭',
+  intervalMinutes: '{count} 分钟',
+
+  saveNow: '立即保存',
+  copySelection: '复制选中内容',
+  pasteFromClipboard: '从剪贴板粘贴',
+  toggleSidebar: '切换侧边栏',
+
+  saveStatusIdle: '就绪',
+  saveStatusUnsaved: '未保存',
+  saveStatusSaving: '保存中…',
+  saveStatusSaved: '已保存',
+  saveStatusError: '保存失败',
+  saveFailed: '保存失败，内容仍保留在编辑器中',
+  copied: '已复制',
+  pasteEmpty: '剪贴板为空或没有文本内容',
+  clipboardReadFailed: '读取剪贴板失败',
+
+  wordCount: '{count} 词',
+  charCount: '{count} 字符',
+  lastModified: '最后修改 {time}',
+  never: '从未修改',
+
+  justNow: '刚刚',
+  minutesAgo: '{count} 分钟前',
+  hoursAgo: '{count} 小时前',
+  daysAgo: '{count} 天前',
+
+  previewRecentNote: '最近笔记',
+  previewNoteCount: '{count} 篇笔记',
+  previewNoNote: '无笔记',
+  previewNoNoteHint: '尚未创建笔记',
+}
+
+export default zhCN
