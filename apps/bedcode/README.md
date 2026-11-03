@@ -1,6 +1,6 @@
 # BedCode（`com.wasmnest.bedcode`）
 
-终端会话中心：设备配对与信任、会话配置与生命周期编排、终端流、Agent 管理与任务队列的**单一权威**。桌面是服务端（会话宿主 / 工作台），移动是远程终端控制端——同名但职责不同，契约各自独立。
+项目 / 运行 / 终端中心：设备配对与信任、项目与运行编排、终端流、Agent 管理与任务队列的**单一权威**。桌面是服务端（会话宿主 / 工作台），移动是远程终端控制端——同名但职责不同，契约各自独立。
 
 | | 桌面（服务端） | 移动（控制端） |
 | --- | --- | --- |
@@ -63,13 +63,15 @@ apps/bedcode/
 │  │                            注入项目 hooks 的脚本模板（随插件资源分发）
 │  └─ rust/src/                 按域组织（见下表）
 └─ mobile/
-   ├─ src/index.ts              激活顺序：host → terminal → fileExplorer → task → app
+   ├─ src/index.ts              激活顺序：host → projects → terminal → fileExplorer → task → app
    ├─ src/app/                  壳域：底部导航 + 页签状态机 + 沉浸运行面
-   ├─ src/host/                 设备 / 会话 / 连接态
+   ├─ src/host/                 设备 / 连接态
+   ├─ src/projects/             项目域：项目列表 → 运行 → 终端入口 + Agent 选择
    ├─ src/terminal/             终端消费 UI（缓冲 store / 输入助手 / 样式）
    ├─ src/task/                 任务面板与只读投影
    ├─ src/fileExplorer/         文件浏览器域
-   └─ rust/src/                 auth.rs（配对与认证）/ commands.rs / keys.rs
+   └─ rust/src/                 auth.rs（配对与认证）/ project.rs（项目 / 运行 / Agent）
+                                 / commands.rs / keys.rs
 ```
 
 桌面后端按域分包（`rust/src/`）：
@@ -161,7 +163,7 @@ node scripts/e2e-dual.mjs --app bedcode   # 双端：真桌面宿主 ↔ USB 真
 ## 测试
 
 - **桌面单测**（55 个文件）：终端渲染管线（尺寸裁决 / 尺寸防抖 / 写入批处理 / 滚动缓冲 / 拉取策略 / IME 状态机）、会话中心、设备中心、连接历史、任务视图与队列、Agent 域、i18n 前缀纪律、插件契约、预览面。
-- **移动单测**（46 个文件）：壳域页签状态机、终端域、任务域、文件浏览器域、设置、返回键与滑动仲裁。
+- **移动单测**（50 个文件）：壳域页签状态机、项目域（项目 / 运行 / Agent 消费面）、终端域、任务域、文件浏览器域、设置、返回键与滑动仲裁。
 - **后端单测**：`pnpm run test:rust`；跨端契约断言写在 `rust/src/d10_contract_test.rs`（`#[cfg(test)]` 模块，不是 `tests/` 集成目标——crate 只声明 `cdylib`，见 Cargo.toml 注释）。
 - **E2E**：`e2e/specs/bedcode.spec.ts`（桌面单端）+ `e2e/dual/bedcode-pairing.spec.ts`（配对闭环，断言状态位而非文案）。
 
@@ -179,10 +181,11 @@ node scripts/e2e-dual.mjs --app bedcode   # 双端：真桌面宿主 ↔ USB 真
 
 ## 维护注记
 
-- **项目壳已落地（issue #23 M2）**：侧边栏「项目」+ `/projects` 列表 + `/projects/:id` 工作台（左运行列表 / 中对话面 / 右检查器 变更·终端·事件）。终端页签复用 `TerminalPreview`（同一条 PTY 的真实字节），对话面与「变更 / 事件」页签是 M3（桥接 + 事件账本）的显性占位。旧「终端会话」页与项目入口**并存**（用户 2026-10-29 裁定），退役时机待 M3 对话面覆盖旧页全部动作后评估——在此之前**不要**在旧会话页上加项目字段（两套入口会互相打架）。
+- **项目壳已落地（issue #23 M2）**：侧边栏「项目」+ `/projects` 列表 + `/projects/:id` 工作台（左运行列表 / 中终端主面 / 右检查器：文件 + 变更）。右栏默认「文件」页签展示当前项目 `workingDir` 的目录树（懒加载；点文件只读查看，命令面 `project.file-tree` / `project.file-content`），「变更」页签仍是 M3 占位。终端主面复用 `TerminalPreview`（同一条 PTY 的真实字节），CLI 为核心——对话经 CLI（终端）直接进行，前端不渲染对话流（M3 引入的对话面 / 事件页签已于 2026-10-31 撤销，rust 桥接与事件账本作为运行基础设施保留）。旧「终端会话」页与项目入口**并存**（用户 2026-10-29 裁定；并存期间不要在旧会话页上加项目字段——两套入口会互相打架）。
 - 「新建运行」不新建会话配置：`run.start` 按 `(项目执行环境, 项目目录, agent 二进制)` 取或建一条 `session_configs`（配置已降级为「项目 × agent 的启动参数」），再走唯一启动链 `launch::create_via_host`。agent → 二进制由后端注册表给出（`hub::binary_for`），前端不维护第二份映射。
-- `runs` 行不再随宿主重启清空：启动对账只把非终态运行收敛成 `Error` 并清空 `pty_id`，历史保留。因此「设备卡的 `sessionCount`」「移动端会话列表」现在都是**跨进程累计**的；改成只计活跃运行需要产品裁定（当前沿用既有「含 Stopped 历史」口径）。
+- `runs` 行不再随宿主重启清空：启动对账只把非终态运行收敛成 `Error` 并清空 `pty_id`，历史保留。因此「设备卡的 `sessionCount`」「移动端运行列表」现在都是**跨进程累计**的；改成只计活跃运行需要产品裁定（当前沿用既有「含 Stopped 历史」口径）。
 - `plugin.json` 的 `description` 已随 M2 改为「设备配对 / 项目 / 终端会话 / Agent 管理 / Agent 任务」的实际入口清单（不再写死「四目录」）。改 `description` 属跨仓可见变更，按 `AGENTS.md` §3 与平台仓 `release-manifest.json` 一起核对。
+- **移动端切到项目视角（2026-11-01）**：底栏「会话」→「项目」，移动端从「会话配置列表」改为「项目 → 运行 → 终端」；读面 `GET /api/projects`、`GET /api/runs`、`GET /api/agents`，写面只有 `POST /api/runs/start`（项目建 / 改名 / 删除 / 选目录仍在桌面）。插件命令为 `bedcode.list-projects` / `bedcode.list-runs` / `bedcode.start-run` / `bedcode.list-agents`；旧移动端会话配置 UI（SessionsSection / SessionCard / SessionConfigCard）已退役，`session.*` 命令作为运行投影保留给终端与任务域。
 - 桌面认证角色已迁出，本地 `auth_http` 只剩旧互调 api 仍引用的状态机副本，待「删除 bedcode 侧六域副本」后续票整体移除——新增认证逻辑不要再落在这里。
 
 ## 相关文档
