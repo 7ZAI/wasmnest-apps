@@ -153,6 +153,13 @@ src/
   - 桌面 `bedcode` 不再维护宿主消息集副本：业务 / 设置 / 服务器 / 侧边栏 / 配色等文案在 `src/i18n/{zh-CN,en}.ts`，错误信封 `errors.*` 的机制副本在 `src/i18n/mechanism.ts`（宿主机制契约，code 即 key）。
   - 引用宿主壳命名空间（`desktop.*` / `shell.*` / `common.*`）即取不到文案、界面上回显 key 原文——`i18nPrefixDiscipline.test.ts` L4 机器判。
   - 移动端同理：`wasmnest-mobile/src/locales/**` 只剩宿主壳 / 机制文案；应用 domain 文案（bedcode `hub.*` / `terminal.*` / `task.*` 等、ai-chatbox `chat.*`）由各自 app 注册。
+- **消息必须构建期预编译**（安全审查 #50：双端 CSP 已撤 `'unsafe-eval'`）：
+  - 语言文件仍写 TS（保留 `MessageSchema` 编译期 key 同步校验），由 `scripts/lib/i18n-precompile.mjs`
+    在构建期转成 `(ctx) => string`；桌面 / 服务型工程同时用 `vue-i18n` 运行时构建并置
+    `__INTLIFY_DROP_MESSAGE_COMPILER__`，产物里不再有 `new Function`。
+  - **新增语言文件必须加进该工程 `vite.config.ts` 的 `i18nPrecompile({ include })` 清单**，
+    漏了不会静默降级：丢编译器后字符串消息在运行期直接报错。
+  - 机器判：`scripts/__tests__/i18n-precompile.test.mjs`（插件行为 + 全部工程接线）。
 
 ---
 
