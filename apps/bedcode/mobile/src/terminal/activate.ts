@@ -5,7 +5,8 @@
  * - 注册终端域文案（zh-CN / en；键自动加插件 id 前缀，取文案走 host.t）
  * - 终端主视图不再独立注册（票 2026-10-10 批次 C2 退役 `registerTerminalView`），
  *   改由 app 域运行面在终端子页内直接渲染本域的 `TerminalView.vue`
- * - 全域样式注入（xterm.css / terminal.css / markdown-body.css，?inline 运行时挂载）
+ * - 全域样式注入（terminal-font.css / xterm.css / terminal.css / markdown-body.css，
+ *   ?inline 运行时挂载；字体声明经构建期内联为 data URL，见 vite.config.ts）
  * - 会话/连接生命周期 → 终端订阅状态联动（宿主 onSessionEvent 白名单事件；
  *   与迁移前 `useMobileConnection` 内的联动逐条一致）
  */
@@ -18,6 +19,7 @@ import { messagesEn, messagesZhCN } from './i18n'
 import { useTerminalBuffer } from './composables/useTerminalBuffer'
 import markdownCss from './styles/markdown-body.css?inline'
 import terminalCss from './styles/terminal.css?inline'
+import terminalFontCss from './styles/terminal-font.css?inline'
 
 /** 幂等样式注入（Disposable 移除；与 activate/deactivate 对称回收） */
 function injectStyle(id: string, css: string): Disposable {
@@ -41,6 +43,9 @@ export function activateTerminalDomain(context: PluginContext): Disposable {
   const buffer = useTerminalBuffer()
 
   const disposables: Disposable[] = [
+    // 字体声明最先注入：@font-face 先于任何终端测量存在，ensureTerminalFontLoaded
+    // （utils/metrics.ts）才能在首次 fit 前把内置等宽字体拉进排版
+    injectStyle('terminal-font', terminalFontCss),
     injectStyle('xterm', xtermCss),
     injectStyle('terminal', terminalCss),
     injectStyle('markdown-body', markdownCss),

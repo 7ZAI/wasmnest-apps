@@ -31,5 +31,9 @@ export default defineConfig({
     outDir: resolve(__dirname, 'dist'),
     emptyOutDir: true,
     minify: 'terser',
+    // 终端字体（styles/terminal-font.css）必须内联为 data URL：本应用 CSS 走
+    // `?inline` 运行时 <style> 注入，url() 指向独立文件时按宿主文档 base 解析，
+    // 在宿主 WebView / dev-shell 里不可达。其余资产维持默认阈值（4KB）。
+    assetsInlineLimit: (filePath) => (filePath.endsWith('.woff2') ? true : undefined),
   },
 })
