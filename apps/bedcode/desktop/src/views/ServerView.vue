@@ -95,13 +95,13 @@
               t('server.port')
             }}</span>
             <div class="flex items-center gap-3">
-              <input
-                v-model.number="portInput"
-                type="number"
-                min="1024"
-                max="65535"
+              <NumberField
+                v-model="portInput"
+                :min="1024"
+                :max="65535"
+                :aria-label="t('server.port')"
+                width="96px"
                 data-testid="server-port-input"
-                class="w-20 h-7 px-2 wb-mono rounded-[6px] border border-[var(--border-input)] bg-[var(--bg-input)] text-[var(--text-primary)] outline-none focus:border-[var(--color-primary)]"
                 @keyup.enter="handleSavePort"
               />
               <button
@@ -220,6 +220,7 @@ import { useAppI18n } from '@/composables/useAppI18n'
 import { useServer } from '@/composables/useServer'
 import { useToast } from '@/composables/useToast'
 import { showUserError } from '@/utils/userError'
+import NumberField from '@binblink/wasmnest-plugin-sdk-desktop/ui/number-field'
 import VChart from 'vue-echarts'
 import { use } from 'echarts/core'
 import { LineChart } from 'echarts/charts'
@@ -254,7 +255,14 @@ const {
 /** 首次加载未完成时显示骨架屏 */
 const initializing = ref(true)
 
-const portInput = ref(8765)
+/**
+ * 端口草稿值（未点「保存」时不落盘）。
+ *
+ * `NumberField` 清空输入时会回抛 null，故类型放宽为 `number | null`。null 表示
+ * 「已改动但没有可写入的值」：`portDirty` 因 `null !== port` 仍为真（保存按钮保持可点），
+ * 而 `handleSavePort` 会在取不到合法端口时直接返回，不落盘也不提示。
+ */
+const portInput = ref<number | null>(8765)
 
 /** 后端端口刷新后同步输入框（loadStatus / updatePort 等操作完成后调用） */
 function syncPortInput() {
@@ -274,9 +282,12 @@ const savingPort = ref(false)
  */
 async function handleSavePort() {
   if (!portDirty.value) return
+  // 空输入（NumberField 回抛 null）没有可写入的端口：不落盘、不提示，等用户补全
+  const nextPort = portInput.value
+  if (nextPort === null) return
   savingPort.value = true
   try {
-    await updatePort(portInput.value)
+    await updatePort(nextPort)
     toast.success(t('server.portSavedDelayed'))
   } catch (e) {
     showUserError(e, { retry: handleSavePort })

@@ -89,7 +89,7 @@ describe('错误信封垂直切片', () => {
       return Promise.resolve(undefined)
     })
 
-    await wrapper.find('input[type="number"]').setValue(9000)
+    await wrapper.find('[role="spinbutton"]').setValue(9000)
     await buttonByText('保存').trigger('click')
     await flushAsync()
 
@@ -123,7 +123,7 @@ describe('错误信封垂直切片', () => {
       return Promise.resolve(undefined)
     })
 
-    await wrapper.find('input[type="number"]').setValue(9000)
+    await wrapper.find('[role="spinbutton"]').setValue(9000)
     await buttonByText('保存').trigger('click')
     await flushAsync()
 

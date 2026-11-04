@@ -10,12 +10,14 @@
           t('pairing.settings.qrValidity')
         }}</span>
       </div>
-      <input
-        type="number"
-        :value="qrTokenTtl"
-        class="h-8 w-28 px-2.5 rounded-[6px] wb-mono text-right bg-[var(--bg-page)] border border-[var(--border-strong)] text-[var(--text-primary)] outline-none focus:border-[var(--color-primary)]"
-        @input="qrTokenTtl = Number(($event.target as HTMLInputElement).value)"
-        @blur="saveQrTokenTtl"
+      <NumberField
+        v-model="qrTokenTtl"
+        :min="TTL_MIN"
+        :max="TTL_MAX"
+        :aria-label="t('pairing.settings.qrValidity')"
+        width="112px"
+        data-testid="pairing-qr-ttl"
+        @commit="saveQrTokenTtl"
       />
     </div>
 
@@ -26,12 +28,14 @@
           t('pairing.settings.pairingCodeTtl')
         }}</span>
       </div>
-      <input
-        type="number"
-        :value="pairingCodeTtl"
-        class="h-8 w-28 px-2.5 rounded-[6px] wb-mono text-right bg-[var(--bg-page)] border border-[var(--border-strong)] text-[var(--text-primary)] outline-none focus:border-[var(--color-primary)]"
-        @input="pairingCodeTtl = Number(($event.target as HTMLInputElement).value)"
-        @blur="savePairingCodeTtl"
+      <NumberField
+        v-model="pairingCodeTtl"
+        :min="TTL_MIN"
+        :max="TTL_MAX"
+        :aria-label="t('pairing.settings.pairingCodeTtl')"
+        width="112px"
+        data-testid="pairing-code-ttl"
+        @commit="savePairingCodeTtl"
       />
     </div>
   </div>
@@ -55,6 +59,7 @@
 import { inject, onMounted, ref } from 'vue'
 import { toast } from 'vue-sonner'
 import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-desktop'
+import NumberField from '@binblink/wasmnest-plugin-sdk-desktop/ui/number-field'
 
 const context = inject<PluginContext>('pluginContext')!
 const { t } = context.i18n
@@ -68,17 +73,21 @@ const pairingCodeTtl = ref(60)
 
 async function loadTtls() {
   const info = (await context.commands.execute('session.settings.ttl.get', {})) as
-    | { qrTokenTtl: number; pairingCodeTtl: number }
-    | undefined
+    { qrTokenTtl: number; pairingCodeTtl: number } | undefined
   if (!info) return
   if (typeof info.qrTokenTtl === 'number') qrTokenTtl.value = info.qrTokenTtl
   if (typeof info.pairingCodeTtl === 'number') pairingCodeTtl.value = info.pairingCodeTtl
 }
 
-/** 写入一项 TTL（越界值收敛到边界后提交，与宿主原页同口径） */
-async function saveTtl(key: 'qrTokenTtl' | 'pairingCodeTtl'): Promise<void> {
-  const raw = key === 'qrTokenTtl' ? qrTokenTtl.value : pairingCodeTtl.value
-  const value = Math.max(TTL_MIN, Math.min(TTL_MAX, Math.round(raw)))
+/**
+ * 写入一项 TTL。
+ *
+ * `committed` 由 `NumberField` 的 `commit` 给出，已是按 [TTL_MIN, TTL_MAX] 钳制并取整过
+ * 的值；这里再做一次同口径收敛只是防御（写入面最终仲裁仍在宿主 `auth-setting-set`），
+ * 保证「提交值 / 回显值」始终同源。
+ */
+async function saveTtl(key: 'qrTokenTtl' | 'pairingCodeTtl', committed: number): Promise<void> {
+  const value = Math.max(TTL_MIN, Math.min(TTL_MAX, Math.round(committed)))
   if (key === 'qrTokenTtl') {
     qrTokenTtl.value = value
   } else {
@@ -93,12 +102,12 @@ async function saveTtl(key: 'qrTokenTtl' | 'pairingCodeTtl'): Promise<void> {
   }
 }
 
-function saveQrTokenTtl() {
-  void saveTtl('qrTokenTtl')
+function saveQrTokenTtl(value: number) {
+  void saveTtl('qrTokenTtl', value)
 }
 
-function savePairingCodeTtl() {
-  void saveTtl('pairingCodeTtl')
+function savePairingCodeTtl(value: number) {
+  void saveTtl('pairingCodeTtl', value)
 }
 
 onMounted(async () => {

@@ -48,11 +48,14 @@
       <span class="text-[calc(13px*var(--ui-scale))] text-[var(--text-primary)]">{{
         t('session.settings.defaultPort')
       }}</span>
-      <input
-        type="number"
-        :value="serverPort"
-        class="h-8 w-28 px-2.5 rounded-[6px] wb-mono text-right bg-[var(--bg-page)] border border-[var(--border-strong)] text-[var(--text-primary)] outline-none focus:border-[var(--color-primary)]"
-        @change="savePort(($event.target as HTMLInputElement).value)"
+      <NumberField
+        v-model="serverPort"
+        :min="1"
+        :max="65535"
+        :aria-label="t('session.settings.defaultPort')"
+        width="112px"
+        data-testid="session-default-port"
+        @commit="savePort"
       />
     </div>
   </div>
@@ -81,6 +84,7 @@ import { computed, inject, onMounted, ref } from 'vue'
 import { toast } from 'vue-sonner'
 import { platform } from '@tauri-apps/plugin-os'
 import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-desktop'
+import NumberField from '@binblink/wasmnest-plugin-sdk-desktop/ui/number-field'
 import type { AppMountEnv } from '@/entry'
 
 /** 宿主面 env（端口是宿主 AppConfig 真源，读写走宿主面命令而非插件面通道） */
@@ -138,9 +142,15 @@ const defaultCommand = computed(() => defaults.value.command ?? '')
 /** 默认端口：宿主 AppConfig `network.port`（服务器引擎配置，经宿主面命令读写） */
 const serverPort = ref(8765)
 
-/** 端口范围校验（1–65535）：越界不写入，提示后恢复显示值 */
-async function savePort(value: string): Promise<void> {
-  const port = Number(value)
+/**
+ * 端口范围校验（1–65535）：越界不写入，提示后恢复显示值。
+ *
+ * `NumberField` 已在提交前把值钳制到 [1, 65535] 并取整，所以这里正常路径下不会触发
+ * 越界分支；保留校验是因为写入面本身要 fail-visible（不静默接受非法端口），
+ * 且钳制边界由组件 props 与这里共同声明，任一处被改动都能被发现。
+ */
+async function savePort(value: number): Promise<void> {
+  const port = Math.round(value)
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
     toast.error(t('session.settings.portInvalid'))
     return

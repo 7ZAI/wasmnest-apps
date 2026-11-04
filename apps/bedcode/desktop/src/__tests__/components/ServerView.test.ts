@@ -15,6 +15,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { flushPromises, shallowMount } from '@vue/test-utils'
 import { defineComponent, h, ref } from 'vue'
 import { createI18n } from 'vue-i18n'
+import NumberField from '@binblink/wasmnest-plugin-sdk-desktop/ui/number-field'
 import ServerView from '@/views/ServerView.vue'
 
 // ==================== mocks ====================
@@ -133,8 +134,11 @@ describe('ServerView 端口保存（只读页）', () => {
     const wrapper = await mountView()
     await flushPromises()
     ;(wrapper.vm as any).portInput = 9000
-    const input = wrapper.find('input')
-    await input.trigger('keyup', { key: 'Enter' })
+    // shallowMount 会把 SDK 的 NumberField 存根掉，找不到内部 <input>；
+    // 直接在被存根的组件根元素上派发 keyup，等价于用户在输入框里按回车
+    const field = wrapper.findComponent(NumberField)
+    expect(field.exists()).toBe(true)
+    await field.trigger('keyup', { key: 'Enter' })
     await flushPromises()
     expect(serverMocks.mocks.updatePort).toHaveBeenCalledWith(9000)
   })
