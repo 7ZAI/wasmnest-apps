@@ -11,6 +11,7 @@ import type { Settings } from '../types'
 import type { RootItem } from '../composables/useSettings'
 import TrustedPeersSection from './TrustedPeersSection.vue'
 import AppUpdateSection from '@binblink/wasmnest-plugin-sdk-desktop/ui/app-update'
+import NumberField from '@binblink/wasmnest-plugin-sdk-desktop/ui/number-field'
 
 const context = inject<PluginContext>('pluginContext')!
 const t = (key: string, params?: Record<string, any>) => context.i18n.t(key, params)
@@ -51,6 +52,13 @@ const ENCRYPTION_OPTIONS: Array<{ value: boolean; key: string }> = [
 const MIN_CONCURRENCY = 1
 const MAX_CONCURRENCY = 8
 
+/** 同意超时范围（10–600 秒，与 `useSettings.setApprovalTimeoutSec` 的钳制同界） */
+const MIN_APPROVAL_TIMEOUT = 10
+const MAX_APPROVAL_TIMEOUT = 600
+
+/** 超时输入框 id（与上方 `<label for>` 配对，点标签能聚焦输入框） */
+const timeoutInputId = 'ft-approval-timeout'
+
 /** 步进：钳制在 1–8 后 emit */
 function stepConcurrency(delta: number): void {
   const next = Math.min(
@@ -59,10 +67,9 @@ function stepConcurrency(delta: number): void {
   )
   emit('setConcurrency', next)
 }
-/** 超时输入：数字键盘 + 失焦提交（钳制在 composable 内） */
-function onTimeoutBlur(e: Event): void {
-  const v = Number((e.target as HTMLInputElement).value)
-  if (Number.isFinite(v)) emit('setApprovalTimeoutSec', v)
+/** 超时提交（失焦 / 回车即写；`commit` 已按 10–600 钳制，composable 内再做一次同口径收敛） */
+function onTimeoutCommit(secs: number): void {
+  emit('setApprovalTimeoutSec', secs)
 }
 </script>
 
@@ -155,18 +162,18 @@ function onTimeoutBlur(e: Event): void {
             class="ft-settings-row ft-settings-timeout"
             data-testid="ft-settings-timeout"
           >
-            <label class="ft-timeout-label" for="ft-approval-timeout">
+            <label class="ft-timeout-label" :for="timeoutInputId">
               {{ t('transfer.settings.approvalTimeout') }}
             </label>
-            <input
-              id="ft-approval-timeout"
-              class="ft-timeout-input"
-              type="number"
-              min="10"
-              max="600"
-              step="1"
-              :value="settings.approvalTimeoutSec"
-              @blur="onTimeoutBlur"
+            <NumberField
+              :input-id="timeoutInputId"
+              :model-value="settings.approvalTimeoutSec"
+              :min="MIN_APPROVAL_TIMEOUT"
+              :max="MAX_APPROVAL_TIMEOUT"
+              size="md"
+              width="104px"
+              data-testid="ft-approval-timeout-input"
+              @commit="onTimeoutCommit"
             />
           </div>
         </section>
