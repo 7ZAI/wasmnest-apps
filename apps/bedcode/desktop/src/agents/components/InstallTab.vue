@@ -60,15 +60,24 @@ const nodeReady = computed(() => !!props.detection?.env?.node)
 const useMirror = ref(true)
 
 /**
- * node 缺失降级：每家的展示用命令经 guest `describe-install` 解析
- * （同一 recipe 白名单真源，前端不复刻包名）；随临时镜像开关重取
+ * 命令描述缓存（guest `describe-install` 单一真源）：
+ * - node 缺失时展示白名单安装命令（手工执行路径）
+ * - 已装且 PATH 生效副本在 Hub prefix 外（C 口径：Hub 不代为更新）时，
+ *   展示外部管理器的原地更新命令，不再给「更新」按钮
  */
-const displayCommands = ref<Record<string, string>>({})
+interface DescribedCommand {
+  command: string | null
+  /** false = 生效副本由外部管理器持有（Hub 不写它） */
+  managed: boolean
+  /** 外部管理器 id（nvm / npm / pnpm / volta / native / standalone / system / unknown） */
+  owner: string | null
+}
+
+const commands = ref<Record<string, DescribedCommand>>({})
 const copiedCli = ref<CliId | null>(null)
 let copiedTimer: ReturnType<typeof setTimeout> | null = null
 
-async function loadDisplayCommands() {
-  if (nodeReady.value) return
+async function loadCommands() {
   for (const agent of agentList.value) {
     const cli = agent.id
     try {
@@ -76,15 +85,26 @@ async function loadDisplayCommands() {
         cli,
         mirror: useMirror.value,
       })
-      if (d?.command) displayCommands.value[cli] = d.command as string
+      commands.value[cli] = {
+        command: typeof d?.command === 'string' ? d.command : null,
+        // 旧 guest 无 managed 字段：按 Hub 管理（不改变旧行为）
+        managed: d?.managed !== false,
+        owner: typeof d?.owner === 'string' ? d.owner : null,
+      }
     } catch (e) {
       // 解析失败（无对应 recipe / unknown method）：行内不展示命令
+      delete commands.value[cli]
       console.error('[Agent Hub] describe-install failed', cli, e)
     }
   }
 }
 
-watch([nodeReady, useMirror], loadDisplayCommands, { immediate: true })
+watch([useMirror, () => props.detection], loadCommands, { immediate: true })
+
+/** node 缺失降级行展示的命令（外部副本行有自己的一条，不复用） */
+function degradedCommand(row: Row): string {
+  return commands.value[row.cli]?.command ?? ''
+}
 
 async function copyCommand(cli: CliId, command: string) {
   try {
@@ -180,6 +200,8 @@ interface Row {
   hint: string | null
   action: RowAction
   disabled: boolean
+  /** 生效副本由外部管理器持有（C 口径）：非 null 时不给「更新」按钮 */
+  external: { owner: string; command: string | null } | null
 }
 
 const rows = computed<Row[]>(() =>
@@ -188,8 +210,22 @@ const rows = computed<Row[]>(() =>
     const info = props.detection?.clis?.[cli] ?? null
     const update = props.state?.updates?.[cli] ?? null
     const busy = activeRun.value !== null
+    const described = commands.value[cli]
+    const external =
+      described && described.managed === false
+        ? { owner: described.owner ?? 'unknown', command: described.command }
+        : null
 
-    const row: Row = { cli, name: agent.displayName, info, update, hint: null, action: 'waiting', disabled: true }
+    const row: Row = {
+      cli,
+      name: agent.displayName,
+      info,
+      update,
+      hint: null,
+      action: 'waiting',
+      disabled: true,
+      external,
+    }
 
     if (!authGranted.value) {
       // 页顶已有授权横幅，行内不重复提示
@@ -427,6 +463,17 @@ watch(
             >
               {{ t('hub.inst.install') }}
             </button>
+            <span v-else-if="row.action === 'latest'" class="ah-cli-tag ok">
+              <span class="ah-cli-dot"></span>{{ t('hub.inst.latest') }}
+            </span>
+            <!-- C 口径：生效副本由外部管理器持有 → Hub 不代为更新（不写 hub prefix） -->
+            <span
+              v-else-if="row.action === 'update' && row.external"
+              class="ah-inst-hint"
+              :data-testid="`inst-external-${row.cli}`"
+            >
+              {{ t('hub.inst.externalManaged', { manager: t(`hub.inst.owner.${row.external.owner}`) }) }}
+            </span>
             <button
               v-else-if="row.action === 'update'"
               type="button"
@@ -436,20 +483,32 @@ watch(
             >
               {{ t('hub.inst.update') }}
             </button>
-            <span v-else-if="row.action === 'latest'" class="ah-cli-tag ok">
-              <span class="ah-cli-dot"></span>{{ t('hub.inst.latest') }}
-            </span>
             <span v-else-if="row.action === 'waiting' && nodeReady" class="ah-cli-tag">
               <span class="ah-cli-dot"></span>{{ t('hub.card.detecting') }}
             </span>
           </span>
-          <!-- node 缺失降级：展示白名单解析命令 + 复制（spec §4.2），整行第二行 -->
-          <div v-if="!nodeReady && displayCommands[row.cli]" class="ah-inst-degraded">
-            <span class="ah-mono ah-inst-degraded-cmd">{{ displayCommands[row.cli] }}</span>
+          <!-- 外部管理器的原地更新命令（C 口径）：可复制到终端执行 -->
+          <div
+            v-if="row.external?.command"
+            class="ah-inst-degraded"
+            :data-testid="`inst-external-cmd-${row.cli}`"
+          >
+            <span class="ah-mono ah-inst-degraded-cmd">{{ row.external.command }}</span>
             <button
               type="button"
               class="ah-btn ah-btn-ghost ah-btn-sm"
-              @click="copyCommand(row.cli, displayCommands[row.cli]!)"
+              @click="copyCommand(row.cli, row.external.command)"
+            >
+              {{ copiedCli === row.cli ? t('hub.inst.copied') : t('hub.inst.copy') }}
+            </button>
+          </div>
+          <!-- node 缺失降级：展示白名单解析命令 + 复制（spec §4.2），整行第二行 -->
+          <div v-if="!nodeReady && !row.external && degradedCommand(row)" class="ah-inst-degraded">
+            <span class="ah-mono ah-inst-degraded-cmd">{{ degradedCommand(row) }}</span>
+            <button
+              type="button"
+              class="ah-btn ah-btn-ghost ah-btn-sm"
+              @click="copyCommand(row.cli, degradedCommand(row))"
             >
               {{ copiedCli === row.cli ? t('hub.inst.copied') : t('hub.inst.copy') }}
             </button>

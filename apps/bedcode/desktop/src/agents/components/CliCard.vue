@@ -50,6 +50,15 @@ const t = (key: string, params?: Record<string, unknown>) => context.i18n.t(key,
 
 const displayName = computed(() => props.name ?? builtinAgentName(props.cliId))
 
+/**
+ * 外部副本表（path → 清理命令）：不在表中 = hub 自持 prefix 下的生效副本。
+ * `paths` 首条是 PATH 生效者；后端只把「非 hub 管理」的逐条放进 `external`
+ * （含可复制的清理命令），本组件不做路径推断（管理器知识只在 guest 侧）。
+ */
+const externalByPath = computed(
+  () => new Map((props.info?.external ?? []).map((entry) => [entry.path, entry])),
+)
+
 const badge = computed(() => {
   const s = props.info?.status ?? 'idle'
   if (s === 'ok') {
@@ -164,7 +173,16 @@ onUnmounted(() => {
 
     <div v-if="props.info?.dual" class="ah-cli-dual">
       <div>{{ t('hub.card.dualWarning', { n: props.info.paths.length }) }}</div>
-      <div v-for="p in props.info.paths" :key="p" class="ah-mono ah-cli-path">{{ p }}</div>
+      <div v-for="p in props.info.paths" :key="p" class="ah-cli-path-row">
+        <span class="ah-mono ah-cli-path">{{ p }}</span>
+        <span class="ah-cli-path-tag">
+          {{ externalByPath.has(p) ? t('hub.card.pathExternal') : t('hub.card.pathManaged') }}
+        </span>
+        <template v-if="externalByPath.get(p)?.cleanup">
+          <span class="ah-cli-cleanup-label">{{ t('hub.card.cleanupHint') }}</span>
+          <code class="ah-mono ah-cli-cleanup">{{ externalByPath.get(p)!.cleanup }}</code>
+        </template>
+      </div>
     </div>
 
     <!-- 启动会话（闭环入口）：已装即可一键拉起运行该 agent 的终端会话 -->

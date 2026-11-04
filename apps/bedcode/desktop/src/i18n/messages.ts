@@ -582,6 +582,10 @@ export type MessageSchema = {
   'hub.card.detecting': string
   'hub.card.dual': string
   'hub.card.dualWarning': string
+  // 并存安装归属：hub 自持 prefix（更新/卸载作用的那份）vs 外部副本
+  'hub.card.pathManaged': string
+  'hub.card.pathExternal': string
+  'hub.card.cleanupHint': string
   'hub.card.versionUnknown': string
   'hub.card.idle': string
   'hub.card.method.npm-global': string
@@ -638,6 +642,16 @@ export type MessageSchema = {
   'hub.inst.install': string
   'hub.inst.update': string
   'hub.inst.latest': string
+  // C 口径：生效副本由外部管理器持有 → Hub 不代为更新
+  'hub.inst.externalManaged': string
+  'hub.inst.owner.nvm': string
+  'hub.inst.owner.npm': string
+  'hub.inst.owner.pnpm': string
+  'hub.inst.owner.volta': string
+  'hub.inst.owner.native': string
+  'hub.inst.owner.standalone': string
+  'hub.inst.owner.system': string
+  'hub.inst.owner.unknown': string
   'hub.inst.running': string
   'hub.inst.nodeGuide': string
   'hub.inst.copy': string
@@ -649,6 +663,8 @@ export type MessageSchema = {
   'hub.inst.error.busy': string
   'hub.inst.error.detectionPending': string
   'hub.inst.error.nodeMissing': string
+  'hub.inst.error.externalManaged': string
+  'hub.inst.error.externalManagedManual': string
   // 探测没结论（unavailable）：先重试检测，不是「不支持这种安装方式」
   'hub.inst.error.probeUnavailable': string
   'hub.inst.cancelled': string

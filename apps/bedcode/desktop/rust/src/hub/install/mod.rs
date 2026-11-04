@@ -23,7 +23,7 @@
 //! - 本模块：安装/更新执行 lifecycle（spawn → 进程回灌 → 自动重探测）
 
 use super::{host, pending, PendingRun, DATA_DIR, HOME, INSTALL_KEY};
-use crate::hub::agents;
+use crate::hub::agents::{self, Agent};
 use crate::hub::detect;
 use crate::hub::detect::path_bootstrap_unix;
 use crate::hub::util::{is_windows, shell_invocation};
@@ -46,6 +46,8 @@ pub(crate) use state::now_ms;
 
 use self::recipe::build_install_script;
 use self::recipe::build_uninstall_script;
+use self::recipe::external_update_command;
+use self::recipe::owner_for_path;
 use self::state::{emit, emit_and_return, read_state, write_state};
 
 /// 安装/更新超时：npm 全局安装含完整依赖下载，15 分钟上限（host 默认 10 分钟）
@@ -135,6 +137,55 @@ pub(crate) fn node_guard(node_ok: bool, requires_node: bool) -> NodeGuard {
     }
 }
 
+// ==================== 外部副本闸门（C 口径） ====================
+
+/// 闸门判定本体（纯函数，可测）：已装 + npm-global + PATH 生效副本不在 hub
+/// prefix 时，返回（所属管理器 id, 原地更新命令）。
+///
+/// native / standalone 不拦：它们的 recipe 本身就是原地更新
+/// （`claude update` / `opencode upgrade`），不写 hub prefix。
+fn external_rejection_for(
+    agent: &dyn Agent,
+    installed: bool,
+    method: &str,
+    primary: Option<&str>,
+    hub_managed: bool,
+    windows: bool,
+    use_mirror: bool,
+) -> Option<(String, Option<String>)> {
+    if !installed || method != "npm-global" || hub_managed {
+        return None;
+    }
+    let path = primary?;
+    let owner = owner_for_path(agent, path, windows);
+    Some((
+        owner.as_str().to_string(),
+        external_update_command(agent, owner, path, windows, use_mirror),
+    ))
+}
+
+/// 运行时闸门：从探测状态取生效副本 + hub prefix 归属后调 [`external_rejection_for`]
+fn external_update_rejection(
+    agent: &dyn Agent,
+    info: &Value,
+    method: &str,
+    windows: bool,
+    use_mirror: bool,
+) -> Option<(String, Option<String>)> {
+    let installed = info["installed"] == json!(true);
+    let primary = info["paths"].as_array().and_then(|a| a.first());
+    let primary_path = primary.and_then(|p| p.as_str());
+    external_rejection_for(
+        agent,
+        installed,
+        method,
+        primary_path,
+        primary_path.is_some_and(crate::hub::detect::is_hub_managed_path),
+        windows,
+        use_mirror,
+    )
+}
+
 // ==================== 安装/更新执行 ====================
 // ==================== 安装/更新执行 ====================
 
@@ -150,9 +201,9 @@ pub(crate) fn describe_install(h: &WasmHost, args: &Value) -> anyhow::Result<Val
         .get("cli")
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow::anyhow!("describe-install: missing cli"))?;
-    if agents::get(cli).is_none() {
+    let Some(agent) = agents::get(cli) else {
         return Err(anyhow::anyhow!("describe-install: unknown cli: {cli}"));
-    }
+    };
     let use_mirror = args.get("mirror").and_then(|v| v.as_bool()).unwrap_or(true);
 
     let detection = h
@@ -166,9 +217,25 @@ pub(crate) fn describe_install(h: &WasmHost, args: &Value) -> anyhow::Result<Val
     if probe_guard(info["status"].as_str().unwrap_or("idle")) == ProbeGuard::Unavailable {
         bail_probe_unavailable!();
     }
+    // C 口径：生效副本由外部管理器持有 → 不给 Hub 安装命令，交给外部原地更新
+    if let Some((owner, command)) =
+        external_update_rejection(agent, info, method, is_windows(), use_mirror)
+    {
+        return Ok(json!({
+            "command": command,
+            "action": "update",
+            "managed": false,
+            "owner": owner,
+        }));
+    }
     let (script, action) =
         build_install_script(cli, method, installed, use_mirror).map_err(anyhow::Error::msg)?;
-    Ok(json!({ "command": script, "action": action }))
+    Ok(json!({
+        "command": script,
+        "action": action,
+        "managed": true,
+        "owner": Value::Null,
+    }))
 }
 
 /// 触发安装/更新：recipe 白名单构造 → host-process 平台分派执行 →
@@ -213,6 +280,23 @@ pub(crate) fn start(h: &WasmHost, args: &Value) -> anyhow::Result<Value> {
     // 探测未完成（unavailable）：先重试检测（不是「node 缺失」也不是「方式未知」）
     if probe_guard(info["status"].as_str().unwrap_or("idle")) == ProbeGuard::Unavailable {
         bail_probe_unavailable!();
+    }
+    // C 口径（在 node 闸门之前）：生效副本由外部管理器持有 → 拒绝自动更新。
+    // npm-global 的 recipe 只会写 hub prefix，跑下去就是第二份安装；把所属
+    // 管理器与原地更新命令交给前端/用户（`describe-install` 同源）。
+    if let Some((owner, command)) =
+        external_update_rejection(agent, info, method, is_windows(), use_mirror)
+    {
+        match command {
+            Some(command) => wasmnest_plugin_api::bail_with_code!(
+                "com.wasmnest.bedcode.hub.inst.error.externalManaged",
+                json!({ "owner": owner, "command": command })
+            ),
+            None => wasmnest_plugin_api::bail_with_code!(
+                "com.wasmnest.bedcode.hub.inst.error.externalManagedManual",
+                json!({ "owner": owner })
+            ),
+        }
     }
     let node_ok = detection["env"]["node"].is_string();
     if node_guard(node_ok, agent.install_requires_node(method)) == NodeGuard::Missing {
@@ -639,5 +723,81 @@ mod tests {
         assert_eq!(node_guard(true, false), NodeGuard::Proceed);
         assert_eq!(node_guard(false, false), NodeGuard::Proceed);
         assert_eq!(node_guard(false, true), NodeGuard::Missing);
+    }
+
+    // ==================== 外部副本闸门（C 口径） ====================
+
+    /// 已装 + npm-global + 生效副本在 hub prefix 外 → 拦下并给管理器/原地更新
+    /// 命令；hub 管理 / native / standalone / 未装 / 系统路径 的边界
+    #[test]
+    fn external_rejection_matrix() {
+        let pi = agents::get("pi").expect("pi");
+        let nvm = "/home/u/.config/nvm/versions/node/v24.20.0/bin/pi";
+
+        let hit = external_rejection_for(pi, true, "npm-global", Some(nvm), false, false, false)
+            .expect("nvm 副本应被拦下");
+        assert_eq!(hit.0, "nvm");
+        assert!(
+            hit.1.as_deref().is_some_and(
+                |c| c.contains("--prefix") && c.contains("@earendil-works/pi-coding-agent")
+            ),
+            "应给原地更新命令：{:?}",
+            hit.1
+        );
+
+        // hub 自持 prefix 下的生效副本 → 放行（更新写的就是那份）
+        assert!(external_rejection_for(
+            pi,
+            true,
+            "npm-global",
+            Some("/home/u/.local/bin/pi"),
+            true,
+            false,
+            false
+        )
+        .is_none());
+
+        // native / standalone：recipe 本身原地更新，不拦
+        let claude = agents::get("claude").expect("claude");
+        assert!(external_rejection_for(
+            claude,
+            true,
+            "native",
+            Some("/home/u/.local/bin/claude"),
+            false,
+            false,
+            false
+        )
+        .is_none());
+        let opencode = agents::get("opencode").expect("opencode");
+        assert!(external_rejection_for(
+            opencode,
+            true,
+            "standalone",
+            Some("/home/u/.opencode/bin/opencode"),
+            false,
+            false,
+            false
+        )
+        .is_none());
+
+        // 未装：安装写 hub prefix 是预期，不拦
+        assert!(
+            external_rejection_for(pi, false, "npm-global", None, false, false, false).is_none()
+        );
+
+        // 系统目录：拦下但不给可复制命令（需提权）
+        let hit = external_rejection_for(
+            pi,
+            true,
+            "npm-global",
+            Some("/usr/bin/pi"),
+            false,
+            false,
+            false,
+        )
+        .expect("系统副本应被拦下");
+        assert_eq!(hit.0, "system");
+        assert!(hit.1.is_none());
     }
 }

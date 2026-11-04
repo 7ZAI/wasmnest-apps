@@ -46,8 +46,19 @@ export interface CliDetectInfo {
   method: 'npm-global' | 'native' | 'standalone' | 'unknown'
   paths: string[]
   dual: boolean
+  /**
+   * 非 hub 自持 prefix 下的并存副本（guest 标注）：安装/更新/卸载只作用于
+   * hub 管理的那份，外部副本不会被改动。旧 guest 载荷可缺该字段。
+   */
+  external?: CliExternalInstall[]
   status: DetectStatus
   error: string | null
+}
+
+/** 外部并存副本（`cleanup` 为可复制的清理命令；null = 需手动处理） */
+export interface CliExternalInstall {
+  path: string
+  cleanup: string | null
 }
 
 /** 开发环境采集（系统平台 + node/npm/pnpm 版本 + 当前 registry） */

@@ -12,7 +12,197 @@
 //!   `opencode uninstall --force`（官方命令，非交互跳过确认）
 
 use super::registry::NPMMIRROR;
-use crate::hub::agents;
+use crate::hub::agents::{self, Agent};
+
+/// 副本所属管理器（C 口径：Hub 的 npm-global 更新只写自持 prefix，生效副本
+/// 由外部管理器持有时不由 Hub 自动更新，只给原地更新命令）
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Owner {
+    /// 适配器声明的原生安装（如 claude `~/.local/bin`）
+    Native,
+    /// 适配器声明的 standalone安装（如 opencode `~/.opencode/bin`）
+    Standalone,
+    /// nvm / fnm 等版本管理器下的 node prefix
+    Nvm,
+    /// 普通 npm 全局 prefix
+    Npm,
+    /// pnpm 全局目录（`PNPM_HOME`）
+    Pnpm,
+    /// Volta
+    Volta,
+    /// 系统级目录（需提权）
+    System,
+    /// 认不出来的目录
+    Unknown,
+}
+
+impl Owner {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Owner::Native => "native",
+            Owner::Standalone => "standalone",
+            Owner::Nvm => "nvm",
+            Owner::Npm => "npm",
+            Owner::Pnpm => "pnpm",
+            Owner::Volta => "volta",
+            Owner::System => "system",
+            Owner::Unknown => "unknown",
+        }
+    }
+}
+
+/// 副本归属判定（纯函数）：先按适配器声明的路径特征（native / standalone），
+/// 再按 npm 系管理器目录特征。只看**该副本自身路径**，不看 PATH 生效那份的
+/// method——两份可能属不同管理器。
+pub(crate) fn owner_for_path(agent: &dyn Agent, path: &str, _windows: bool) -> Owner {
+    let p = path.to_lowercase();
+    for &(needle, method) in agent.path_methods() {
+        if p.contains(needle) {
+            return match method {
+                "native" => Owner::Native,
+                "standalone" => Owner::Standalone,
+                _ => Owner::Unknown,
+            };
+        }
+    }
+    if p.contains("/.local/share/pnpm/") || p.contains("/pnpm/") {
+        return Owner::Pnpm;
+    }
+    if p.contains("/.volta/") {
+        return Owner::Volta;
+    }
+    if is_system_path(&p) {
+        return Owner::System;
+    }
+    if p.contains("/nvm/") || p.contains("/.nvm/") || p.contains("/versions/node/") {
+        return Owner::Nvm;
+    }
+    if p.contains("/.npm-global")
+        || p.contains("/npm-global/")
+        || p.contains("/node_modules")
+        || p.contains("/node-v")
+        || p.contains("/roaming/npm/")
+        || p.contains("/nodejs/")
+        || p.contains("/.local/bin/")
+        || p.contains("/.local/")
+    {
+        return Owner::Npm;
+    }
+    Owner::Unknown
+}
+
+/// 外部副本的原地更新命令（仅供展示/复制，不执行）：无法安全推导时 None
+pub(crate) fn external_update_command(
+    agent: &dyn Agent,
+    owner: Owner,
+    path: &str,
+    windows: bool,
+    use_mirror: bool,
+) -> Option<String> {
+    match owner {
+        Owner::Native => agent
+            .install_recipe("native", true, use_mirror)
+            .ok()
+            .map(|(script, _)| script),
+        Owner::Standalone => agent
+            .install_recipe("standalone", true, use_mirror)
+            .ok()
+            .map(|(script, _)| script),
+        Owner::Nvm | Owner::Npm => {
+            let prefix = npm_prefix_of(path, agent.binary(), windows)?;
+            npm_install_with_prefix(agent.npm_package()?, &prefix, windows, use_mirror)
+        }
+        Owner::Pnpm => Some(pnpm_install_cmd(agent.npm_package()?, use_mirror)),
+        Owner::Volta => Some(format!("volta install {}", agent.npm_package()?)),
+        Owner::System | Owner::Unknown => None,
+    }
+}
+
+/// 外部副本的清理命令（仅供展示/复制，不执行）：无法安全推导时 None
+pub(crate) fn external_cleanup_command(
+    agent: &dyn Agent,
+    owner: Owner,
+    path: &str,
+    windows: bool,
+) -> Option<String> {
+    match owner {
+        Owner::Native | Owner::Standalone => agent.uninstall_recipe(owner.as_str(), windows).ok(),
+        Owner::Nvm | Owner::Npm => {
+            let prefix = npm_prefix_of(path, agent.binary(), windows)?;
+            shell_quote(&prefix, windows).map(|p| {
+                format!(
+                    "npm uninstall -g --prefix {p} {}",
+                    agent.npm_package().unwrap_or("")
+                )
+            })
+        }
+        Owner::Pnpm => Some(format!("pnpm remove -g {}", agent.npm_package()?)),
+        Owner::Volta => Some(format!("volta uninstall {}", agent.npm_package()?)),
+        Owner::System | Owner::Unknown => None,
+    }
+}
+
+/// 从二进制路径反推 npm prefix：unix `<prefix>/bin/<bin>`；Windows 为同级目录
+fn npm_prefix_of(path: &str, bin: &str, windows: bool) -> Option<String> {
+    if windows {
+        let (prefix, file) = path.rsplit_once('/')?;
+        let stem = file.rsplit_once('.').map(|(s, _)| s).unwrap_or(file);
+        if !stem.eq_ignore_ascii_case(bin) {
+            return None;
+        }
+        Some(prefix.to_string())
+    } else {
+        path.strip_suffix(&format!("/bin/{bin}"))
+            .map(str::to_string)
+    }
+}
+
+/// `npm install -g --prefix <prefix>`（镜像开关追加 `--registry`）
+fn npm_install_with_prefix(
+    pkg: &str,
+    prefix: &str,
+    windows: bool,
+    use_mirror: bool,
+) -> Option<String> {
+    let quoted = shell_quote(prefix, windows)?;
+    let mirror = if use_mirror {
+        format!(" --registry={NPMMIRROR}")
+    } else {
+        String::new()
+    };
+    Some(format!("npm install -g --prefix {quoted} {pkg}{mirror}"))
+}
+
+/// pnpm 全局安装（镜像开关追加 `--registry`）
+fn pnpm_install_cmd(pkg: &str, use_mirror: bool) -> String {
+    if use_mirror {
+        format!("pnpm add -g {pkg} --registry={NPMMIRROR}")
+    } else {
+        format!("pnpm add -g {pkg}")
+    }
+}
+
+/// 路径能否安全进展示命令：引号与 `%`（cmd 无法转义）与控制字符一律拒绝
+fn shell_quote(p: &str, windows: bool) -> Option<String> {
+    if p.contains('\'') || p.contains('"') || p.contains('%') || p.chars().any(|c| c.is_control()) {
+        return None;
+    }
+    Some(if windows {
+        format!("\"{}\"", p.replace('/', "\\"))
+    } else {
+        format!("'{p}'")
+    })
+}
+
+/// 系统级目录：写它们需要提权，不给「复制即执行」的命令
+fn is_system_path(p: &str) -> bool {
+    p.starts_with("/usr/")
+        || p.starts_with("/opt/")
+        || p.starts_with("/nix/")
+        || p.starts_with("/snap/")
+        || p.contains("/program files/")
+        || p.contains("/program files (x86)/")
+}
 
 /// npm 安装命令（mirror 开关追加 `--registry`；包名来自适配器注册表）。
 /// 公共默认 recipe 与适配器的 npm 回落分支共用
@@ -183,5 +373,178 @@ mod tests {
         assert!(build_uninstall_script("rm -rf /", "npm-global", false).is_err());
         assert!(build_uninstall_script("", "npm-global", false).is_err());
         assert!(build_uninstall_script("gemini", "native", true).is_err());
+    }
+
+    // ==================== 外部副本归属与命令（C 口径） ====================
+
+    fn agent(id: &str) -> &'static dyn Agent {
+        agents::get(id).unwrap_or_else(|| panic!("agent not registered: {id}"))
+    }
+
+    /// 归属判定：适配器声明优先；nvm / pnpm / volta / 系统 / 未知
+    #[test]
+    fn owner_for_path_matrix() {
+        let pi = agent("pi");
+        assert_eq!(
+            owner_for_path(
+                pi,
+                "/home/u/.config/nvm/versions/node/v24.20.0/bin/pi",
+                false
+            ),
+            Owner::Nvm
+        );
+        assert_eq!(
+            owner_for_path(pi, "/home/u/.local/bin/pi", false),
+            Owner::Npm
+        );
+        assert_eq!(
+            owner_for_path(pi, "/home/u/.local/share/pnpm/bin/pi", false),
+            Owner::Pnpm
+        );
+        assert_eq!(
+            owner_for_path(pi, "/home/u/.volta/bin/pi", false),
+            Owner::Volta
+        );
+        assert_eq!(
+            owner_for_path(pi, "/usr/local/bin/pi", false),
+            Owner::System
+        );
+        assert_eq!(owner_for_path(pi, "/home/u/bin/pi", false), Owner::Unknown);
+        assert_eq!(
+            owner_for_path(pi, "C:/Users/u/AppData/Roaming/npm/pi.cmd", true),
+            Owner::Npm
+        );
+        assert_eq!(
+            owner_for_path(pi, "C:/Users/u/AppData/Roaming/nvm/v24.20.0/pi.cmd", true),
+            Owner::Nvm
+        );
+        // 适配器声明优先：claude native / opencode standalone
+        assert_eq!(
+            owner_for_path(agent("claude"), "/home/u/.local/bin/claude", false),
+            Owner::Native
+        );
+        assert_eq!(
+            owner_for_path(agent("opencode"), "/home/u/.opencode/bin/opencode", false),
+            Owner::Standalone
+        );
+    }
+
+    /// 外部副本原地更新命令：nvm/npm → `npm --prefix`；pnpm/volta 各自命令；
+    /// 系统/未知不给命令；native/standalone 用适配器 recipe
+    #[test]
+    fn external_update_commands() {
+        let pi = agent("pi");
+        assert_eq!(
+            external_update_command(
+                pi,
+                Owner::Nvm,
+                "/home/u/.config/nvm/versions/node/v24.20.0/bin/pi",
+                false,
+                false
+            ),
+            Some(
+                "npm install -g --prefix '/home/u/.config/nvm/versions/node/v24.20.0' @earendil-works/pi-coding-agent"
+                    .to_string()
+            )
+        );
+        assert_eq!(
+            external_update_command(
+                pi,
+                Owner::Pnpm,
+                "/home/u/.local/share/pnpm/bin/pi",
+                false,
+                true
+            ),
+            Some(
+                "pnpm add -g @earendil-works/pi-coding-agent --registry=https://registry.npmmirror.com"
+                    .to_string()
+            )
+        );
+        assert_eq!(
+            external_update_command(pi, Owner::Volta, "/home/u/.volta/bin/pi", false, false),
+            Some("volta install @earendil-works/pi-coding-agent".to_string())
+        );
+        assert_eq!(
+            external_update_command(pi, Owner::System, "/usr/bin/pi", false, false),
+            None
+        );
+        assert_eq!(
+            external_update_command(pi, Owner::Unknown, "/home/u/bin/pi", false, false),
+            None
+        );
+        // Windows：前缀转反斜杠 + 双引号
+        assert_eq!(
+            external_update_command(
+                pi,
+                Owner::Nvm,
+                "C:/Users/u/AppData/Roaming/nvm/v24.20.0/pi.cmd",
+                true,
+                false
+            ),
+            Some(
+                "npm install -g --prefix \"C:\\Users\\u\\AppData\\Roaming\\nvm\\v24.20.0\" @earendil-works/pi-coding-agent"
+                    .to_string()
+            )
+        );
+        assert_eq!(
+            external_update_command(
+                agent("claude"),
+                Owner::Native,
+                "/home/u/.local/bin/claude",
+                false,
+                false
+            ),
+            Some("claude update".to_string())
+        );
+    }
+
+    /// 外部副本清理命令：与更新同源归属；native/standalone 用适配器卸载 recipe
+    #[test]
+    fn external_cleanup_commands() {
+        let pi = agent("pi");
+        assert_eq!(
+            external_cleanup_command(
+                pi,
+                Owner::Nvm,
+                "/home/u/.config/nvm/versions/node/v24.20.0/bin/pi",
+                false
+            ),
+            Some(
+                "npm uninstall -g --prefix '/home/u/.config/nvm/versions/node/v24.20.0' @earendil-works/pi-coding-agent"
+                    .to_string()
+            )
+        );
+        assert_eq!(
+            external_cleanup_command(pi, Owner::Pnpm, "/home/u/.local/share/pnpm/bin/pi", false),
+            Some("pnpm remove -g @earendil-works/pi-coding-agent".to_string())
+        );
+        assert_eq!(
+            external_cleanup_command(pi, Owner::Volta, "/home/u/.volta/bin/pi", false),
+            Some("volta uninstall @earendil-works/pi-coding-agent".to_string())
+        );
+        assert_eq!(
+            external_cleanup_command(pi, Owner::System, "/usr/bin/pi", false),
+            None
+        );
+        assert_eq!(
+            external_cleanup_command(
+                agent("claude"),
+                Owner::Native,
+                "/home/u/.local/bin/claude",
+                false
+            )
+            .as_deref()
+            .is_some_and(|c| c.contains("rm -f")),
+            true
+        );
+        assert_eq!(
+            external_cleanup_command(
+                agent("opencode"),
+                Owner::Standalone,
+                "/home/u/.opencode/bin/opencode",
+                false
+            ),
+            Some("opencode uninstall --force".to_string())
+        );
     }
 }

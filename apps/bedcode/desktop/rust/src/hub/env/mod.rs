@@ -567,6 +567,15 @@ pub(crate) fn shell_env_prefix(windows: bool) -> String {
     }
 }
 
+/// 当前平台 hub 自持 npm prefix（探测层标注「哪份副本由 hub 管理」用）。
+///
+/// 与 [`env_prefix_for`] 同一布局来源：unix `$HOME/.local`，Windows
+/// `<数据目录>/hub/npm-global`。activate 尚未落定目录时返回 None（不猜）。
+pub(crate) fn npm_prefix_path() -> Option<String> {
+    let (data, home) = state::dirs()?;
+    Some(Layout::new(is_windows(), &data, &home).npm_prefix())
+}
+
 /// 前缀构造（纯函数，双平台可测）：目录不可安全进脚本时返回空串
 pub(crate) fn env_prefix_for(windows: bool, data_dir: &str, home: &str) -> String {
     let l = Layout::new(windows, data_dir, home);

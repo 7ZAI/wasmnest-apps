@@ -2618,6 +2618,42 @@ describe('A6 InstallTab：行状态机与两击换源', () => {
     w.unmount()
   })
 
+  it('已装但生效副本由外部管理器持有（C 口径）→ 不给「更新」按钮，展示外部原地更新命令', async () => {
+    execute.mockImplementation(async (cmd: string, args?: Record<string, unknown>) => {
+      if (cmd !== 'agent.describe-install') return null
+      if (args?.cli === 'pi') {
+        return {
+          command:
+            "npm install -g --prefix '/home/u/.config/nvm/versions/node/v24.20.0' @earendil-works/pi-coding-agent",
+          action: 'update',
+          managed: false,
+          owner: 'nvm',
+        }
+      }
+      return { command: 'npm install -g other', action: 'update', managed: true, owner: null }
+    })
+    const w = mountInstall({
+      detection: {
+        ...detectionBase,
+        clis: { pi: { status: 'ok', version: '1.4.0', method: 'npm-global' } },
+      },
+      state: {
+        active: null,
+        last: null,
+        mirror: null,
+        updates: { pi: { latest: '1.5.0', outdated: true } },
+      },
+    })
+    await flushPromises()
+    const row = w.find('[data-testid="inst-row-pi"]')
+    // 不给一键更新（Hub 不写外部 prefix）
+    expect(row.text()).not.toContain('hub.inst.update')
+    // 点明所属管理器 + 给出原地更新命令
+    expect(row.find('[data-testid="inst-external-pi"]').text()).toContain('hub.inst.owner.nvm')
+    expect(row.find('[data-testid="inst-external-cmd-pi"]').text()).toContain('--prefix')
+    w.unmount()
+  })
+
   it('opencode standalone 已装且非落后 → 「已是最新」徽章（无动作按钮）', async () => {
     const w = mountInstall({
       detection: { ...detectionBase, clis: { opencode: { status: 'ok', version: '1.19.1', method: 'standalone' } } },
@@ -2752,6 +2788,57 @@ describe('A7-1 CliCard：已装 · 未初始化（第六态）', () => {
     })
     await flushPromises()
     expect(badgeText(w)).toBe('hub.card.notInstalled')
+    w.unmount()
+  })
+})
+
+describe('CliCard：并存安装归属与清理命令（guest external 标注）', () => {
+  const paths = ['/home/u/.local/bin/pi', '/home/u/.config/nvm/versions/node/v24.20.0/bin/pi']
+  const info = {
+    installed: true,
+    version: '1.5.0',
+    method: 'npm-global' as const,
+    paths,
+    dual: true,
+    status: 'ok' as const,
+    error: null,
+    external: [
+      {
+        path: paths[1],
+        cleanup:
+          "npm uninstall -g --prefix '/home/u/.config/nvm/versions/node/v24.20.0' @earendil-works/pi-coding-agent",
+      },
+    ],
+  }
+
+  it('正例：Hub 管理的副本与外部副本分开标注，外部副本带可复制清理命令', async () => {
+    const w = mountComponent(CliCard, { cliId: 'pi', info })
+    await flushPromises()
+    const rows = w.findAll('.ah-cli-path-row')
+    expect(rows).toHaveLength(2)
+    expect(rows[0].find('.ah-cli-path-tag').text()).toBe('hub.card.pathManaged')
+    expect(rows[1].find('.ah-cli-path-tag').text()).toBe('hub.card.pathExternal')
+    expect(rows[0].find('.ah-cli-cleanup').exists()).toBe(false)
+    expect(rows[1].find('.ah-cli-cleanup').text()).toContain('npm uninstall -g --prefix')
+    expect(rows[1].text()).toContain('hub.card.cleanupHint')
+    w.unmount()
+  })
+
+  it('边界：旧 guest 载荷缺 external 字段 → 只展示路径，不误标外部/不给命令', async () => {
+    const legacy = { ...info }
+    delete (legacy as Partial<typeof legacy>).external
+    const w = mountComponent(CliCard, { cliId: 'pi', info: legacy })
+    await flushPromises()
+    const rows = w.findAll('.ah-cli-path-row')
+    expect(rows).toHaveLength(2)
+    expect(w.findAll('.ah-cli-cleanup')).toHaveLength(0)
+    w.unmount()
+  })
+
+  it('反例：无 dual 时不渲染并存安装块', async () => {
+    const w = mountComponent(CliCard, { cliId: 'pi', info: { ...info, dual: false, paths: [paths[0]] } })
+    await flushPromises()
+    expect(w.find('.ah-cli-dual').exists()).toBe(false)
     w.unmount()
   })
 })

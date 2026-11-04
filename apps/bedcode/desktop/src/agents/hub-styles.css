@@ -499,10 +499,41 @@
   font-size: var(--font-size-tag);
 }
 
+.ah-cli-path-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-width: 100%;
+}
+
 .ah-cli-path {
   margin-top: 3px;
   color: var(--ah-text-data);
   word-break: break-all;
+}
+
+/* 并存副本归属标签：Hub 管理的（更新/卸载作用的那份）vs 外部副本 */
+.ah-cli-path-tag {
+  align-self: flex-start;
+  padding: 0 6px;
+  border-radius: var(--radius-tag);
+  background: var(--bg-hover);
+  color: var(--ah-text-data);
+}
+
+.ah-cli-cleanup-label {
+  color: var(--ah-text-data);
+}
+
+/* 可复制的清理命令（等宽、不截断，便于整行选中） */
+.ah-cli-cleanup {
+  display: block;
+  padding: 3px 6px;
+  border-radius: var(--radius-tag);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  word-break: break-all;
+  user-select: all;
 }
 
 /* 卸载动作行：顶部分隔线 + 右对齐（破坏性动作与信息区视觉分离）。

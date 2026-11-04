@@ -347,6 +347,7 @@ fn apply_output(state: &mut Value, kind: &str, output: &str) {
         state["envError"] = Value::Null;
     } else if let Some(agent) = agents::get(kind) {
         let mut info = parse_cli(agent, output);
+        annotate_external(agent, &mut info);
         info["status"] = json!(if info["installed"] == json!(true) {
             "ok"
         } else {
@@ -357,6 +358,88 @@ fn apply_output(state: &mut Value, kind: &str, output: &str) {
         // 注册表已无该 id（旧版本在途 run 的迟到回灌）：fail-visible 落错误
         set_cli_error(state, kind, &format!("unknown agent: {kind}"));
     }
+}
+
+// ==================== 并存安装归属（hub 管理 / 外部副本） ====================
+
+/// 标注非 hub 自持 prefix 下的并存副本 + 可复制的清理命令。
+///
+/// 安装/更新/卸载只作用于 hub prefix（unix `$HOME/.local`、Windows
+/// `<数据目录>/hub/npm-global`）：用户机器上可能还有 nvm / pnpm / volta 的
+/// 副本，它们不会被改动。前端据此把两份分开展示并给出清理指引，避免
+/// 「更新完旧副本还在」被误读成更新失败（2026-11-04 实测：pi 更新写进
+/// `~/.local`，nvm 下的 1.4.0 原地不动）。
+fn annotate_external(agent: &dyn Agent, info: &mut Value) {
+    let Some(prefix) = crate::hub::env::npm_prefix_path() else {
+        info["external"] = json!([]);
+        return;
+    };
+    let paths: Vec<String> = info["paths"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default();
+    info["external"] = json!(external_entries(
+        agent,
+        &paths,
+        &collapse_path(&prefix.replace('\\', "/")),
+        is_windows()
+    ));
+}
+
+/// 当前生效副本是否由 hub 自持 prefix 管理（安装/更新闸门用）。
+/// activate 尚未落定目录时按外部处理：不把更新写进 hub prefix，避免装出第二份。
+pub(crate) fn is_hub_managed_path(path: &str) -> bool {
+    let Some(prefix) = crate::hub::env::npm_prefix_path() else {
+        return false;
+    };
+    is_hub_managed(path, &collapse_path(&prefix.replace('\\', "/")))
+}
+/// 外部副本清单构造（纯函数，可测）：不在 hub prefix 下的路径逐条给
+/// `{path, cleanup}`；`cleanup` 为 None = 无法安全推导（前端只展示路径）
+fn external_entries(
+    agent: &dyn Agent,
+    paths: &[String],
+    hub_prefix: &str,
+    windows: bool,
+) -> Vec<Value> {
+    paths
+        .iter()
+        .filter(|p| !is_hub_managed(p, hub_prefix))
+        .map(|p| {
+            json!({
+                "path": p,
+                "cleanup": cleanup_command(agent, p, windows),
+            })
+        })
+        .collect()
+}
+
+/// 该副本是否由 hub 自持 prefix 管理。
+///
+/// 不能只比前缀：Linux hub prefix = `$HOME/.local`，而 pnpm 的全局目录在
+/// `$HOME/.local/share/pnpm`——它在前缀之下但属另一个管理器，hub 的
+/// `npm uninstall -g` 不会删到它。这类外部管理器路径先行排除。
+fn is_hub_managed(path: &str, hub_prefix: &str) -> bool {
+    let lower = path.to_lowercase();
+    if lower.contains("/.local/share/pnpm/")
+        || lower.contains("/.volta/")
+        || lower.contains("/.opencode/bin/")
+    {
+        return false;
+    }
+    path_is_under(path, hub_prefix)
+}
+
+/// 清理命令（仅供展示/复制，不执行）：按**该副本自身的路径特征**判断归属
+/// 管理器（不能按 PATH 生效那份的 method 判断——两份可能属不同管理器）；
+/// 无法确定归属 / 路径不能安全进 shell 时返回 None（用户手动处理）
+fn cleanup_command(agent: &dyn Agent, path: &str, windows: bool) -> Option<String> {
+    let owner = crate::hub::install::recipe::owner_for_path(agent, path, windows);
+    crate::hub::install::recipe::external_cleanup_command(agent, owner, path, windows)
 }
 
 // ==================== 采集脚本（按平台分派，分段标记两端一致） ====================
@@ -440,6 +523,7 @@ fn env_script_unix() -> String {
 /// 均来自适配器（注册表唯一真源）
 pub(crate) fn parse_cli(agent: &dyn Agent, output: &str) -> Value {
     let mut paths: Vec<String> = vec![];
+    let mut seen: HashSet<String> = HashSet::new();
     let mut version: Option<String> = None;
     let mut section = "";
     for line in output.lines() {
@@ -459,10 +543,14 @@ pub(crate) fn parse_cli(agent: &dyn Agent, output: &str) -> Value {
             continue;
         }
         match section {
-            // which/where 命中行：unix 以 `/` 开头，Windows 为盘符路径；未命中时该段为空
+            // which/where 命中行：unix 以 `/` 开头，Windows 为盘符路径；未命中时该段为空。
+            // 同一二进制可能以不同 PATH 条目形态出现（`~/.local/share/../bin`
+            // 与 `~/.local/bin`；Windows 同目录的 `.cmd`/`.ps1` shim）——按规范化
+            // 后的去重键判重，否则一份安装会被报成「多处并存」（2026-11-04 实测：
+            // 单份 claude 因上述 PATH 形态被判 dual）
             "paths" => {
                 if let Some(p) = normalize_path_line(line) {
-                    if !paths.contains(&p) {
+                    if seen.insert(path_dedupe_key(&p)) {
                         paths.push(p);
                     }
                 }
@@ -488,17 +576,91 @@ pub(crate) fn parse_cli(agent: &dyn Agent, output: &str) -> Value {
 }
 
 /// 路径行识别 + 规范化：unix 以 `/` 开头；Windows 为盘符路径（`X:\...`，
-/// where 输出反斜杠）。统一转 `/` 分隔存储——归类与前端展示共用
+/// where 输出反斜杠）。统一转 `/` 分隔并做词法折叠（`//` / `.` / `..`），
+/// 归类、去重与前端展示共用同一形态
 fn normalize_path_line(line: &str) -> Option<String> {
-    let is_path = line.starts_with('/')
-        || (line.len() >= 2
-            && line.as_bytes()[0].is_ascii_alphabetic()
-            && line.as_bytes()[1] == b':');
+    let p = line.replace('\\', "/");
+    let is_path = p.starts_with('/') || is_windows_drive_path(&p);
     if is_path {
-        Some(line.replace('\\', "/"))
+        Some(collapse_path(&p))
     } else {
         None
     }
+}
+
+/// Windows 盘符路径（`X:/...`，规范化后形态）
+fn is_windows_drive_path(p: &str) -> bool {
+    p.len() >= 2 && p.as_bytes()[0].is_ascii_alphabetic() && p.as_bytes()[1] == b':'
+}
+
+/// 绝对路径根拆分：unix `/…` → (`/`, rest)；Windows 盘符 `C:/…` → (`C:`, rest)。
+/// 非绝对路径返回 None（which/where 只会给绝对路径）
+fn split_root(p: &str) -> Option<(&str, &str)> {
+    if let Some(rest) = p.strip_prefix('/') {
+        return Some(("/", rest));
+    }
+    if is_windows_drive_path(p) {
+        return Some((&p[..2], &p[2..]));
+    }
+    None
+}
+
+/// 路径词法折叠：消去 `//` / `.` / `..`（不越过根），保留根形态。
+/// 只做词法处理（不做 realpath）：PATH 条目本身可能就带 `..`
+/// （`~/.local/share/../bin` 与 `~/.local/bin` 指向同一目录），不折叠就
+/// 谈不上「同一份安装」的去重。UNC 路径（`\\server\share`）原样保留。
+fn collapse_path(p: &str) -> String {
+    if p.starts_with("//") {
+        return p.to_string();
+    }
+    let Some((root, rest)) = split_root(p) else {
+        return p.to_string();
+    };
+    let mut segs: Vec<&str> = Vec::new();
+    for seg in rest.split('/') {
+        match seg {
+            "" | "." => {}
+            ".." => {
+                segs.pop();
+            }
+            s => segs.push(s),
+        }
+    }
+    if segs.is_empty() {
+        return root.to_string();
+    }
+    let joined = segs.join("/");
+    if root.ends_with('/') {
+        format!("{root}{joined}")
+    } else {
+        format!("{root}/{joined}")
+    }
+}
+
+/// 路径去重键：
+/// - Windows 大小写不敏感（`where` 输出随 PATH 条目大小写），统一小写；
+/// - Windows 同目录的 npm shim 变体（`pi` / `pi.cmd` / `pi.ps1`）是同一份安装，
+///   去掉 shim 扩展后比较（否则一份 Windows 安装会被算成 3 条路径）；
+/// - unix 大小写敏感，原样比较。
+fn path_dedupe_key(p: &str) -> String {
+    if !is_windows_drive_path(p) {
+        return p.to_string();
+    }
+    let mut key = p.to_lowercase();
+    for ext in [".cmd", ".ps1", ".bat", ".exe"] {
+        if let Some(stem) = key.strip_suffix(ext) {
+            key = stem.to_string();
+            break;
+        }
+    }
+    key
+}
+
+/// 路径是否落在某个前缀下（含前缀自身；Windows 大小写不敏感）
+fn path_is_under(path: &str, prefix: &str) -> bool {
+    let p = path_dedupe_key(path);
+    let base = path_dedupe_key(prefix);
+    p == base || p.starts_with(&format!("{base}/"))
 }
 
 /// 从版本行提取语义版本 token，兼容 `codex-cli 0.153.4` / `2.1.263 (Claude Code)` /
@@ -564,6 +726,10 @@ fn is_npm_global_path(p: &str) -> bool {
         || p.contains("node_modules")
         || p.contains("/.npm-global")
         || p.contains("/npm-global/")
+        // Linux hub 自持 npm prefix（`layout.rs::npm_prefix` = `$HOME/.local`）：
+        // 漏掉它会让 hub 装出来的 CLI 归类 unknown（卸载被禁用）。claude 的
+        // native 声明在适配器 `path_methods` 里先行匹配，不受本行影响
+        || p.contains("/.local/bin/")
         || p.contains("/.local/share/pnpm")
         || p.contains("volta")
         || p.contains("/roaming/npm/")
@@ -864,6 +1030,101 @@ mod tests {
             "== paths ==\nC:\\Users\\u\\.opencode\\bin\\opencode.exe\n== version ==\n1.18.30\n";
         let info = parse_cli(agent("opencode"), out);
         assert_eq!(info["method"], json!("standalone"));
+    }
+
+    /// 路径词法折叠 + 同文件不同 PATH 形态去重（2026-11-04 实测：PATH 同时
+    /// 含 `~/.local/share/../bin` 与 `~/.local/bin`，单份 claude 被算成双安装、
+    /// pi 同一文件出现两条路径）
+    #[test]
+    fn parse_cli_collapses_and_dedupes_paths() {
+        let out = "== paths ==\n/home/u/.local/share/../bin/pi\n/home/u/.local//bin/./pi\n== version ==\n1.5.0\n";
+        let info = parse_cli(agent("pi"), out);
+        assert_eq!(info["paths"], json!(["/home/u/.local/bin/pi"]));
+        assert_eq!(info["dual"], json!(false));
+        assert_eq!(info["method"], json!("npm-global"));
+    }
+
+    /// Windows 去重：反斜杠/大小写/同目录 shim 变体都是同一份安装
+    /// （`where` 会列出 `pi` / `pi.cmd` / `pi.ps1` 三条）
+    #[test]
+    fn parse_cli_windows_dedupes_case_and_shims() {
+        let out = "== paths ==\nC:\\Users\\u\\AppData\\Roaming\\npm\\pi.cmd\nc:/users/u/appdata/roaming/npm/pi.ps1\nC:\\Users\\u\\AppData\\Roaming\\npm\\pi\n== version ==\n0.85.1\n";
+        let info = parse_cli(agent("pi"), out);
+        assert_eq!(
+            info["paths"],
+            json!(["C:/Users/u/AppData/Roaming/npm/pi.cmd"])
+        );
+        assert_eq!(info["dual"], json!(false));
+        assert_eq!(info["method"], json!("npm-global"));
+    }
+
+    /// Linux hub 落点 `~/.local/bin` 归类为 npm 全局（漏掉会让 hub 装出来的
+    /// CLI 落 method=unknown → 卸载被禁用）；claude 的 native 声明仍优先
+    #[test]
+    fn classify_linux_hub_prefix_as_npm_global() {
+        let out = "== paths ==\n/home/u/.local/bin/pi\n== version ==\n1.5.0\n";
+        assert_eq!(parse_cli(agent("pi"), out)["method"], json!("npm-global"));
+
+        let out = "== paths ==\n/home/u/.local/bin/claude\n== version ==\n2.1.288\n";
+        assert_eq!(parse_cli(agent("claude"), out)["method"], json!("native"));
+    }
+
+    /// 并存副本归属：hub prefix 下的不算外部；外部副本按自身路径判管理器
+    /// （nvm 走 `npm --prefix`、pnpm/volta 走各自命令、系统目录不给命令）
+    #[test]
+    fn external_entries_split_hub_and_other_prefixes() {
+        let paths = vec![
+            "/home/u/.local/bin/pi".to_string(),
+            "/home/u/.config/nvm/versions/node/v24.20.0/bin/pi".to_string(),
+            "/home/u/.local/share/pnpm/bin/pi".to_string(),
+            "/usr/bin/pi".to_string(),
+        ];
+        let ext = external_entries(agent("pi"), &paths, "/home/u/.local", false);
+        assert_eq!(ext.len(), 3, "hub 自持 prefix 下的副本不得算外部：{ext:?}");
+        assert_eq!(
+            ext[0]["cleanup"],
+            json!("npm uninstall -g --prefix '/home/u/.config/nvm/versions/node/v24.20.0' @earendil-works/pi-coding-agent")
+        );
+        assert_eq!(
+            ext[1]["cleanup"],
+            json!("pnpm remove -g @earendil-works/pi-coding-agent")
+        );
+        assert_eq!(ext[2]["cleanup"], json!(null));
+    }
+
+    /// Windows 外部副本：只给 npm 系前缀的命令，路径转反斜杠；引号路径不给
+    #[test]
+    fn cleanup_command_windows_and_unsafe_paths() {
+        assert_eq!(
+            cleanup_command(
+                agent("pi"),
+                "C:/Users/u/AppData/Roaming/npm/pi.cmd",
+                true
+            ),
+            Some(
+                "npm uninstall -g --prefix \"C:\\Users\\u\\AppData\\Roaming\\npm\" @earendil-works/pi-coding-agent"
+                    .to_string()
+            )
+        );
+        assert_eq!(
+            cleanup_command(agent("pi"), "D:/tools/custom-bin/pi.cmd", true),
+            None,
+            "非 npm 系前缀不给命令（手动处理）"
+        );
+        assert_eq!(
+            cleanup_command(agent("pi"), "C:/Program Files/nodejs/pi.cmd", true),
+            None,
+            "系统 node 目录需提权，不给可复制命令"
+        );
+        assert_eq!(
+            cleanup_command(agent("pi"), "/home/a'b/.local/bin/pi", false),
+            None,
+            "引号路径不得拼进可复制命令"
+        );
+        assert_eq!(
+            cleanup_command(agent("opencode"), "/home/u/.opencode/bin/opencode", false),
+            Some("opencode uninstall --force".to_string())
+        );
     }
 
     /// 脚本以 PATH 引导开头（登录 shell 不读 ~/.bashrc，nvm 注入依赖引导），
