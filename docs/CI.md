@@ -56,11 +56,16 @@ app 也不需要去 Settings → Branches 维护检查列表。
 | `<group>/<slug>/<end>/package.json` → `version`              | 同上                                       |
 
 - **日常开发不动版本号**（平台仓 `docs/public/versioning.md` §1）；bump 只在发布时做。
+- **变更记录**：每个可独立发布的工程在 `<group>/<slug>/CHANGELOG.md` 维护变更记录（结构参考
+  Keep a Changelog）。日常开发只往 `[Unreleased]` 追加；发布时把 `[Unreleased]` 收为
+  `## [<version>] - <YYYY-MM-DD>`，与版本号 bump、tag 在同一批提交内完成。新增工程时同步
+  创建 `CHANGELOG.md`（骨架从现有工程复制）。
 - **工作流不写版本文件**：`version` 输入 / tag 里的版本必须等于已提交的清单版本，否则
   在 `resolve` 阶段直接失败（防止发出错版本的包）。判据实现：`scripts/ci/app-info.mjs`。
 - 发布动作顺序（本地）：
 
   ```bash
+  # 先把 apps/bedcode/CHANGELOG.md 的 [Unreleased] 收为 0.0.2
   node scripts/ci/set-app-version.mjs bedcode 0.0.2     # 写 plugin.json + package.json
   git add apps/bedcode && git commit -m "chore(bedcode): 发布 v0.0.2"
   git tag bedcode-v0.0.2 && git push origin dev bedcode-v0.0.2
