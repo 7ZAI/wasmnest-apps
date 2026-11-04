@@ -8,6 +8,9 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import {
   DEFAULT_TERMINAL_DISPLAY_SETTINGS,
+  FONT_SIZE_MAX,
+  LETTER_SPACING_MAX,
+  LETTER_SPACING_MIN,
   TERMINAL_DISPLAY_STORAGE_KEY,
   useTerminalDisplayStore,
 } from '../displaySettings'
@@ -144,5 +147,48 @@ describe('terminalDisplay store', () => {
     expect(store.settings).toEqual(DEFAULT_TERMINAL_DISPLAY_SETTINGS)
     const saved = JSON.parse(localStorage.getItem(TERMINAL_DISPLAY_STORAGE_KEY)!)
     expect(saved.fontSize).toBe(DEFAULT_TERMINAL_DISPLAY_SETTINGS.fontSize)
+  })
+
+  // ==================== 存档归一（2026-11-04） ====================
+
+  it('新键存档损坏：按字段类型回落默认值，不把脏值交给终端渲染', () => {
+    localStorage.setItem(
+      TERMINAL_DISPLAY_STORAGE_KEY,
+      JSON.stringify({
+        fontSize: 'big',
+        letterSpacing: 'wide',
+        theme: 123,
+        isThemeUserSet: 'yes',
+        onboardingPending: null,
+        headerToolbarItems: null,
+      }),
+    )
+
+    const store = newStore()
+    expect(store.settings).toEqual(DEFAULT_TERMINAL_DISPLAY_SETTINGS)
+  })
+
+  it('越界数值夹到合法区间；工具栏只保留字符串项', () => {
+    localStorage.setItem(
+      TERMINAL_DISPLAY_STORAGE_KEY,
+      JSON.stringify({ fontSize: 99, letterSpacing: -2, headerToolbarItems: ['folder', 3, null] }),
+    )
+
+    const store = newStore()
+    expect(store.settings.fontSize).toBe(FONT_SIZE_MAX)
+    expect(store.settings.letterSpacing).toBe(LETTER_SPACING_MIN)
+    expect(store.settings.headerToolbarItems).toEqual(['folder'])
+  })
+
+  it('空工具栏是用户的合法选择（不回落默认值）', () => {
+    localStorage.setItem(TERMINAL_DISPLAY_STORAGE_KEY, JSON.stringify({ headerToolbarItems: [] }))
+    expect(newStore().settings.headerToolbarItems).toEqual([])
+  })
+
+  it('saveSettings 的越界 patch 也会被归一', () => {
+    const store = newStore()
+    store.saveSettings({ fontSize: 99, letterSpacing: 9 })
+    expect(store.settings.fontSize).toBe(FONT_SIZE_MAX)
+    expect(store.settings.letterSpacing).toBe(LETTER_SPACING_MAX)
   })
 })

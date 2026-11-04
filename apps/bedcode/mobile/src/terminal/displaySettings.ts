@@ -59,6 +59,61 @@ function pickStrings(value: unknown): string[] | null {
   return items.length > 0 ? items : null
 }
 
+/** 字号 / 字间距的合法区间（与设置 UI 的滑块范围一致） */
+export const FONT_SIZE_MIN = 10
+export const FONT_SIZE_MAX = 24
+export const LETTER_SPACING_MIN = 0
+export const LETTER_SPACING_MAX = 4
+
+function clampNumber(value: unknown, min: number, max: number, fallback: number): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return fallback
+  return Math.min(max, Math.max(min, value))
+}
+
+/**
+ * 归一化显示设置（存档损坏 / 旧版本字段 / 手改 localStorage 均不得穿透到 xterm）
+ *
+ * 旧 `inputAssistant` store 有 sanitize，拆出 display store 时漏了这一步：
+ * `{ ...DEFAULT, ...JSON.parse(raw) }` 会把 `fontSize: "big"`、
+ * `headerToolbarItems: null` 原样交给终端渲染（后者会让 Header 的
+ * `items.includes` 直接抛错）。此处按字段类型 + 区间重建，缺项回落默认值。
+ */
+export function normalizeDisplaySettings(raw: unknown): TerminalDisplaySettings {
+  const defaults = DEFAULT_TERMINAL_DISPLAY_SETTINGS
+  const record =
+    raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {}
+
+  const theme =
+    record.theme === null
+      ? null
+      : typeof record.theme === 'string' && record.theme !== ''
+        ? record.theme
+        : defaults.theme
+  const toolbar = Array.isArray(record.headerToolbarItems)
+    ? record.headerToolbarItems.filter((item): item is string => typeof item === 'string')
+    : [...defaults.headerToolbarItems]
+
+  return {
+    fontSize: Math.round(
+      clampNumber(record.fontSize, FONT_SIZE_MIN, FONT_SIZE_MAX, defaults.fontSize),
+    ),
+    letterSpacing: clampNumber(
+      record.letterSpacing,
+      LETTER_SPACING_MIN,
+      LETTER_SPACING_MAX,
+      defaults.letterSpacing,
+    ),
+    theme,
+    isThemeUserSet:
+      typeof record.isThemeUserSet === 'boolean' ? record.isThemeUserSet : defaults.isThemeUserSet,
+    onboardingPending:
+      typeof record.onboardingPending === 'boolean'
+        ? record.onboardingPending
+        : defaults.onboardingPending,
+    headerToolbarItems: toolbar,
+  }
+}
+
 /** 从旧 blob 抽取显示字段（含 v1→v2 出厂默认升级） */
 function fromLegacy(legacy: Record<string, unknown>): TerminalDisplaySettings {
   const legacyVersion = Number(localStorage.getItem(LEGACY_VERSION_KEY) ?? 0)
@@ -109,14 +164,16 @@ export const useTerminalDisplayStore = defineStore('terminalDisplay', () => {
     try {
       const raw = localStorage.getItem(TERMINAL_DISPLAY_STORAGE_KEY)
       if (raw) {
-        settings.value = { ...DEFAULT_TERMINAL_DISPLAY_SETTINGS, ...JSON.parse(raw) }
+        settings.value = normalizeDisplaySettings(JSON.parse(raw))
         return
       }
 
       // 首次启动本版本：从旧 blob 迁移显示字段（写入新键即迁移完成标记）
       const legacyRaw = localStorage.getItem(LEGACY_SETTINGS_KEY)
       if (!legacyRaw) return
-      settings.value = fromLegacy(JSON.parse(legacyRaw) as Record<string, unknown>)
+      settings.value = normalizeDisplaySettings(
+        fromLegacy(JSON.parse(legacyRaw) as Record<string, unknown>),
+      )
       persist()
     } catch (e) {
       logger.error('[terminalDisplay] Failed to load display settings:', e)
@@ -124,7 +181,7 @@ export const useTerminalDisplayStore = defineStore('terminalDisplay', () => {
   }
 
   function saveSettings(patch: Partial<TerminalDisplaySettings>) {
-    settings.value = { ...settings.value, ...patch }
+    settings.value = normalizeDisplaySettings({ ...settings.value, ...patch })
     persist()
   }
 
