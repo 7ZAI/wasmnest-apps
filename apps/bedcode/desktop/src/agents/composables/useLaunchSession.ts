@@ -9,6 +9,10 @@
  * 目录选取走 `@tauri-apps/plugin-dialog`（与 SessionConfigForm.browseDir 同一
  * 形态；非 Tauri 环境显性失败留日志，路径保持可手填）。会话启动后由视图层
  * 导航到 /sessions（本 composable 不持路由）。
+ *
+ * 命令取值固定为目标 agent 的 `binary`：卡片语义就是「启动这个 agent」。
+ * `session.formDefaults` 只承接环境与工作目录——它的 `command` 是会话中心
+ * 上次保存的任意命令（可能是另一个 agent），拿来覆盖会让卡片启动错对象。
  */
 import { reactive, ref } from 'vue'
 import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-desktop'
@@ -39,21 +43,22 @@ export function useLaunchSession(context: PluginContext) {
   const agent = ref<AgentDescriptor | null>(null)
   const form = reactive<LaunchForm>({ environment: 'linux', workingDir: '', command: '' })
 
-  /** 打开弹窗：表单预填 = 插件存储的会话表单默认值（读取失败不阻断，可手填） */
+  /**
+   * 打开弹窗：环境 / 工作目录预填 = 插件存储的会话表单默认值（读取失败不阻断，
+   * 可手填）；启动命令恒取目标 agent 的 `binary`，不被默认值的 command 覆盖。
+   */
   async function show(target: AgentDescriptor): Promise<void> {
     agent.value = target
     error.value = ''
     form.command = target.binary
     try {
       const defaults = (await context.storage.get(FORM_DEFAULTS_KEY)) as
-        | { environment?: string; workingDir?: string; command?: string }
-        | undefined
+        { environment?: string; workingDir?: string } | undefined
       form.environment =
         defaults?.environment && VALID_ENVIRONMENTS.includes(defaults.environment)
           ? defaults.environment
           : 'linux'
       form.workingDir = defaults?.workingDir ?? ''
-      if (defaults?.command && defaults.command.trim()) form.command = defaults.command
     } catch {
       form.environment = 'linux'
       form.workingDir = ''

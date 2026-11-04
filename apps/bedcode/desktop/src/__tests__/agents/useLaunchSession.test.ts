@@ -50,6 +50,19 @@ describe('useLaunchSession 弹窗预填', () => {
     expect(s.form.command).toBe('pi')
   })
 
+  it('show()：默认值的 command 不覆盖目标 agent（卡片语义 = 启动该 agent）', async () => {
+    // 会话中心上次保存的命令可能是另一个 agent；拿来覆盖会让 pi 卡片启动 claude
+    storageGet.mockResolvedValue({
+      environment: 'linux',
+      workingDir: '/w',
+      command: 'claude',
+    })
+    const s = useLaunchSession(makeContext())
+    await s.show(AGENT)
+    expect(s.form.command).toBe('pi')
+    expect(s.form.workingDir).toBe('/w')
+  })
+
   it('show()：formDefaults 非法环境回退 linux，读取失败不阻断', async () => {
     storageGet.mockRejectedValue(new Error('storage down'))
     const s = useLaunchSession(makeContext())
