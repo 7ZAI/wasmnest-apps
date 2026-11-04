@@ -79,13 +79,18 @@ test('预编译：类型注解 + 具名导出的消息模块可编译，产物�
 
 test('预编译：消息函数插值与纯文本语义正确', async () => {
   const project = makeProject({
-    'en.ts': 'const en: Record<string, string> = { hello: "hi {name}", plain: "no vars" }\nexport default en',
+    'en.ts':
+      'const en: Record<string, string> = { hello: "hi {name}", plain: "no vars" }\nexport default en',
   })
   const { code } = transform(project, 'en.ts')
 
   const mod = await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`)
   const messages = mod.default
-  assert.equal(typeof messages.hello, 'function', '消息叶子必须编译成函数（否则运行期仍会走编译器）')
+  assert.equal(
+    typeof messages.hello,
+    'function',
+    '消息叶子必须编译成函数（否则运行期仍会走编译器）',
+  )
 
   const ctx = {
     normalize: (parts) => parts.join(''),
@@ -104,6 +109,23 @@ test('预编译：非纯数据导出 fail-visible（不静默退回运行期编�
     'bad.ts': 'export const messages = { a: "x" }\nexport const helper = () => 1',
   })
   assert.throws(() => transform(project, 'bad.ts'), /不是消息表或字符串/)
+})
+
+test('预编译：被导入的消息模块变更后重新求值（不吃旧缓存）', () => {
+  const project = makeProject(
+    {
+      'zh-CN.ts': "import { extra } from './extra'\nexport default { hello: extra }",
+      'extra.ts': "export const extra = 'one'",
+    },
+    ['zh-CN.ts'],
+  )
+  const first = transform(project, 'zh-CN.ts')
+  assert.match(first.code, /one/)
+
+  // 消息模块自身源码未变，但被导入模块变了：dev 下必须重新求值
+  writeFileSync(join(project.root, 'extra.ts'), "export const extra = 'two'")
+  const second = transform(project, 'zh-CN.ts')
+  assert.match(second.code, /two/, '依赖模块变了，预编译产物必须重新求值')
 })
 
 test('接线锁：所有前端工程的 vite 配置都接上预编译，桌面/服务型还须丢弃消息编译器', () => {

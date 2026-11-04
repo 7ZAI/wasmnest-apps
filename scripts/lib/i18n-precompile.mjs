@@ -130,7 +130,9 @@ function renderModule(exportsObject, filename, env) {
   const parts = [
     `/* 由 ${PLUGIN_NAME} 在构建期生成（源文件 ${path.basename(filename)}），请勿手改 */`,
   ]
-  const names = Object.keys(exportsObject).filter((name) => name !== '__esModule' && name !== 'default')
+  const names = Object.keys(exportsObject).filter(
+    (name) => name !== '__esModule' && name !== 'default',
+  )
   for (const name of names) {
     parts.push(`export const ${name} = ${renderExport(name, exportsObject[name], filename, env)}`)
   }
@@ -156,7 +158,6 @@ export function i18nPrecompile(options) {
   let included = new Set(includeList.map((item) => path.normalize(item)))
   let root = process.cwd()
   let env = 'production'
-  const moduleCache = new Map()
 
   return {
     name: PLUGIN_NAME,
@@ -168,18 +169,15 @@ export function i18nPrecompile(options) {
       env = config.command === 'build' ? 'production' : 'development'
     },
 
-    transform(code, id) {
+    transform(_code, id) {
       const abs = path.normalize(path.resolve(stripQuery(id)))
       if (!included.has(abs)) return null
 
-      // 源码变了要重新求值（dev 下语言文件会热更新）
-      const cached = moduleCache.get(abs)
-      if (cached && cached.code === code) return { code: cached.output, map: null }
-
+      // 不缓存：消息模块可能相对导入其它文件，只按自身 `code` 命中缓存会让
+      // 「编辑被导入模块」在 dev 下拿旧产物（Vite 会失效 importer，但源码未变）。
+      // 消息表很小，每次重求值 + 编译的成本可忽略；构建模式下每个模块本来只转一次。
       const exportsObject = loadMessageModule(abs, new Map())
-      const output = renderModule(exportsObject, abs, env)
-      moduleCache.set(abs, { code, output })
-      return { code: output, map: null }
+      return { code: renderModule(exportsObject, abs, env), map: null }
     },
   }
 }
