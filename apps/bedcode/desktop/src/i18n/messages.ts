@@ -498,22 +498,22 @@ export type MessageSchema = {
   'server.toggleOn': string
   'server.toggleOff': string
 
-  // ==================== 链路加密设置（2026-11-03 改为只读展示宿主下限） ====================
+  // ==================== 链路加密策略（应用自有，2026-11-04） ====================
   'linkCrypto.title': string
-  'linkCrypto.floor': string
-  'linkCrypto.floorDesc': string
-  'linkCrypto.floorOff': string
-  'linkCrypto.floorPreferred': string
-  'linkCrypto.floorRequired': string
+  'linkCrypto.policy': string
+  'linkCrypto.policyDesc': string
+  'linkCrypto.policyOff': string
+  'linkCrypto.policyPreferred': string
+  'linkCrypto.policyRequired': string
+  'linkCrypto.offHint': string
+  'linkCrypto.preferredHint': string
+  'linkCrypto.requiredHint': string
   'linkCrypto.fingerprint': string
   'linkCrypto.fingerprintDesc': string
-  'linkCrypto.hostManaged': string
-  'linkCrypto.capabilityMissing': string
-  // 迁移期兼容：HEAD 的旧设置组件仍引用这些键（LinkCrypto UI 迁移提交后移除）
-  'linkCrypto.master': string
-  'linkCrypto.plaintextFallback': string
-  'linkCrypto.plaintextFallbackDesc': string
+  'linkCrypto.saved': string
   'linkCrypto.saveFailed': string
+  'linkCrypto.wsNotEncrypted': string
+  'linkCrypto.capabilityMissing': string
 
   // ==================== 应用级兜底（2026-10-27 自宿主 `desktop.notFound.*` / `desktop.runtimeUnexpected` 迁入） ====================
   'notFound.title': string

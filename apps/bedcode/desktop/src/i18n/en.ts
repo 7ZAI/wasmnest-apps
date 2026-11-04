@@ -481,28 +481,29 @@ const en: MessageSchema = {
   'server.toggleOn': 'On',
   'server.toggleOff': 'Off',
 
-  // ==================== Link encryption settings (read-only host floor, 2026-11-03) ====================
+  // ==================== Link encryption policy (app-owned, 2026-11-04) ====================
   'linkCrypto.title': 'Link Encryption',
-  'linkCrypto.floor': 'Host floor',
-  'linkCrypto.floorDesc':
-    'Minimum encryption requirement for all peer traffic, managed in host settings',
-  'linkCrypto.floorOff': 'Plaintext',
-  'linkCrypto.floorPreferred': 'Prefer encrypted',
-  'linkCrypto.floorRequired': 'Require encrypted',
+  'linkCrypto.policy': 'Encryption policy',
+  'linkCrypto.policyDesc':
+    'Applies to all of this app’s HTTP / WS endpoints; unset means “not required” (plaintext by default)',
+  'linkCrypto.policyOff': 'Not required',
+  'linkCrypto.policyPreferred': 'Prefer encrypted',
+  'linkCrypto.policyRequired': 'Require encrypted',
+  'linkCrypto.offHint':
+    'Encryption is not required. Plaintext is accepted; a paired client that enables link encryption still gets its HTTP encrypted (WS stays plaintext).',
+  'linkCrypto.preferredHint':
+    'Encrypt when the peer supports it, otherwise allow plaintext; unpaired legacy clients can still connect.',
+  'linkCrypto.requiredHint':
+    'Non-loopback peers must complete encryption negotiation or be rejected (no plaintext fallback).',
   'linkCrypto.fingerprint': 'Local Fingerprint',
   'linkCrypto.fingerprintDesc':
     'Local identity key fingerprint (first 16 hex of SHA-256); compare manually with the mobile end',
-  'linkCrypto.hostManaged':
-    'The floor is managed by the host: change it in Host Settings › Link Encryption. This app only declares its own encryption requirements when registering endpoints.',
+  'linkCrypto.saved': 'Link encryption policy updated',
+  'linkCrypto.saveFailed': 'Failed to save link encryption policy',
+  'linkCrypto.wsNotEncrypted':
+    'This host does not support frame-level link encryption for WS endpoints (older build); the policy applies to HTTP only, and WS traffic stays plaintext. Upgrade the host to encrypt WS frames.',
   'linkCrypto.capabilityMissing':
-    'This host does not expose link-encryption capabilities (older version); the floor and endpoint policies cannot be confirmed. Upgrade the host before relying on encryption.',
-  // Transitional: the previous settings component in HEAD still references these
-  // keys (drop them together with the LinkCrypto UI migration).
-  'linkCrypto.master': 'Enable Link Encryption',
-  'linkCrypto.plaintextFallback': 'Allow Plaintext Fallback',
-  'linkCrypto.plaintextFallbackDesc':
-    'Let unnegotiated legacy clients through in plaintext; when off, unnegotiated remote requests are rejected',
-  'linkCrypto.saveFailed': 'Failed to save link encryption config',
+    'This host does not support app-scoped link encryption settings (older version); upgrade the host before relying on encryption.',
 
   // ==================== App-level fallbacks (migrated from host, 2026-10-27) ====================
   'notFound.title': 'Page Not Found',

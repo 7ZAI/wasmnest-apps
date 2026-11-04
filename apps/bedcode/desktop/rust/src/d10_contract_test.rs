@@ -388,10 +388,9 @@ fn register_all_http_routes() -> usize {
         let auth = HttpEndpointAuth::parse_with(Some(decl.auth), HttpEndpointAuth::Jwt)
             .unwrap_or_else(|e| panic!("{} 的 auth 档位非法：{e}", decl.path));
         let methods: Vec<String> = decl.methods.iter().map(|m| m.to_string()).collect();
-        // encryption = None：本插件不覆盖宿主的链路加密下限（按宿主 floor 执行），
-        // 与生产注册路径的缺省口径一致。
+        // 端点注册不携带 encryption：链路加密策略按应用由宿主执行（应用设置页决定）。
         let entry = wasmnest_server_http::registry::register(
-            PLUGIN_ID, decl.path, decl.host, &methods, auth, None,
+            PLUGIN_ID, decl.path, decl.host, &methods, auth,
         )
         .unwrap_or_else(|e| {
             panic!(
@@ -1118,8 +1117,6 @@ async fn manifest_ws_endpoints_mount_and_gate_on_real_websocket_face() {
             // 之后 `announce_connect` 的接入事件就发在它上面（首版传了个新
             // `PilotBus::default()`，于是断言「看共享总线」永远看不到事件）
             bus.clone(),
-            // encryption = None：与 HTTP 面同口径，按宿主 floor 执行，不覆盖
-            None,
         )
         .unwrap_or_else(|e| panic!("ws 端点登记失败（该端点永久不可升级）：{path} → {e}"));
         assert_eq!(

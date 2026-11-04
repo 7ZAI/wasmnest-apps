@@ -56,6 +56,14 @@ export interface AppMountEnv {
   appStorageGet: <T = unknown>(key: string) => Promise<T | undefined>
   appStorageSet: (key: string, value: unknown) => Promise<void>
   appStorageDelete: (key: string) => Promise<void>
+  /**
+   * 本应用链路加密策略（可选：旧宿主不注入 = 无此能力，界面必须显性提示）
+   *
+   * 策略属于应用：本应用在自己的设置页决定 off / preferred / required，覆盖
+   * 全部 HTTP / WS 端点；宿主不设整机下限、只执行与只读审计。
+   */
+  appLinkCryptoGet?: () => Promise<'off' | 'preferred' | 'required'>
+  appLinkCryptoSet?: (policy: 'off' | 'preferred' | 'required') => Promise<void>
   /** 宿主面事实（挂载时快照；后续变更经 setLocale 通知） */
   locale: string
   theme: string

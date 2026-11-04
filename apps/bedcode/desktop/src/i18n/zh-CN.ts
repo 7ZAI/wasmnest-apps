@@ -474,24 +474,25 @@ const zhCN: MessageSchema = {
   'server.toggleOn': '开',
   'server.toggleOff': '关',
 
-  // ==================== 链路加密设置（2026-11-03 改为只读展示宿主下限） ====================
+  // ==================== 链路加密策略（应用自有，2026-11-04） ====================
   'linkCrypto.title': '链路加密',
-  'linkCrypto.floor': '宿主下限',
-  'linkCrypto.floorDesc': '整机对端流量的最低加密要求，由宿主设置页统一管理',
-  'linkCrypto.floorOff': '明文',
-  'linkCrypto.floorPreferred': '尽量加密',
-  'linkCrypto.floorRequired': '强制加密',
+  'linkCrypto.policy': '加密策略',
+  'linkCrypto.policyDesc': '对本应用全部 HTTP / WS 端点生效；未设置 = 不要求加密（默认明文）',
+  'linkCrypto.policyOff': '不要求',
+  'linkCrypto.policyPreferred': '尽量加密',
+  'linkCrypto.policyRequired': '强制加密',
+  'linkCrypto.offHint':
+    '不要求加密：接受明文；已配对客户端开启链路加密时 HTTP 仍会加密（WS 保持明文）。',
+  'linkCrypto.preferredHint': '对端支持就加密，不支持则放行明文；未配对的老客户端仍可连接。',
+  'linkCrypto.requiredHint': '非本机对端必须完成加密协商，否则拒绝连接（不降级成明文）。',
   'linkCrypto.fingerprint': '本机指纹',
   'linkCrypto.fingerprintDesc': '本机身份密钥指纹（SHA-256 前 16 位），请与移动端展示值人工比对',
-  'linkCrypto.hostManaged':
-    '下限归宿主统一管理：请在宿主「设置 › 链路加密」中调整；本应用只在端点注册时声明自己的加密要求。',
+  'linkCrypto.saved': '链路加密策略已更新',
+  'linkCrypto.saveFailed': '链路加密策略保存失败',
+  'linkCrypto.wsNotEncrypted':
+    '当前宿主版本不支持 WS 端点的帧级链路加密；策略只对 HTTP 生效，WS 流量仍为明文。升级宿主后 WS 帧才会加密。',
   'linkCrypto.capabilityMissing':
-    '当前宿主不提供链路加密能力查询（旧版本），无法确认下限与端点策略；请升级宿主后再依赖加密。',
-  // 迁移期兼容：HEAD 的旧设置组件仍引用这些键（LinkCrypto UI 迁移提交后移除）
-  'linkCrypto.master': '启用链路加密',
-  'linkCrypto.plaintextFallback': '允许明文回退',
-  'linkCrypto.plaintextFallbackDesc': '未协商的老客户端放行明文；关闭后非本机未协商请求一律拒绝',
-  'linkCrypto.saveFailed': '链路加密配置保存失败',
+    '当前宿主不支持按应用的链路加密设置（旧版本）；请升级宿主后再依赖加密。',
 
   // ==================== 应用级兜底（2026-10-27 自宿主迁入） ====================
   'notFound.title': '页面不存在',
