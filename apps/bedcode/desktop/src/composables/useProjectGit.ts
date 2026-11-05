@@ -72,9 +72,9 @@ export function useProjectGit(context: PluginContext, projectId: Ref<string>) {
   /** 防止旧请求覆盖新请求（刷新 / 项目切换时可能出现竞态） */
   let loadSeq = 0
 
-  /** 读取提交图（`force` = 刷新：丢弃缓存重新拉） */
+  /** 读取提交图（`force` = 刷新：丢弃缓存重新拉；加载中也可覆盖旧请求） */
   async function load(force = false): Promise<void> {
-    if (isLoading.value) return
+    if (isLoading.value && !force) return
     if (isLoaded.value && !force) return
     const id = projectId.value
     if (!id) return

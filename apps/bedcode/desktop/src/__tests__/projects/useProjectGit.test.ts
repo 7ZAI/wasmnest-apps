@@ -183,4 +183,42 @@ describe('useProjectGit', () => {
     expect(domain.isLoaded.value).toBe(false)
     expect(domain.isGitRepo.value).toBe(true)
   })
+
+  it('加载中 force 刷新不被静默丢弃：新响应生效，旧响应被丢弃', async () => {
+    let releaseFirst: ((value: unknown) => void) | null = null
+    let calls = 0
+    routes['project.git-log'] = () => {
+      calls += 1
+      if (calls === 1) {
+        return new Promise((resolve) => {
+          releaseFirst = resolve
+        })
+      }
+      return {
+        isGitRepo: true,
+        currentBranch: 'fresh',
+        truncated: false,
+        commits: [commitRecord('fresh111')],
+      }
+    }
+
+    const domain = useProjectGit(makeContext(), ref('p-1'))
+    const first = domain.load()
+    await vi.waitFor(() => expect(commandsTo('project.git-log')).toHaveLength(1))
+
+    const second = domain.load(true)
+    await vi.waitFor(() => expect(commandsTo('project.git-log')).toHaveLength(2))
+
+    releaseFirst!({
+      isGitRepo: true,
+      currentBranch: 'stale',
+      truncated: false,
+      commits: [commitRecord('stale111')],
+    })
+    await Promise.all([first, second])
+
+    expect(domain.commits.value.map((commit) => commit.hash)).toEqual(['fresh111'])
+    expect(domain.currentBranch.value).toBe('fresh')
+    expect(domain.isLoading.value).toBe(false)
+  })
 })

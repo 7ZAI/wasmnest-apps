@@ -183,4 +183,31 @@ describe('useProjectFiles', () => {
     expect(domain.isLoaded.value).toBe(false)
     expect(domain.error.value).toBeNull()
   })
+
+  it('加载中 force 刷新不被静默丢弃：新响应生效，旧响应被丢弃', async () => {
+    let releaseFirst: ((value: unknown) => void) | null = null
+    let calls = 0
+    routes['project.file-tree'] = () => {
+      calls += 1
+      if (calls === 1) {
+        return new Promise((resolve) => {
+          releaseFirst = resolve
+        })
+      }
+      return { children: [{ name: 'fresh', nodeType: 'file', path: 'fresh' }] }
+    }
+
+    const domain = useProjectFiles(makeContext(), ref('p-1'))
+    const first = domain.loadRoot()
+    await vi.waitFor(() => expect(commandsTo('project.file-tree')).toHaveLength(1))
+
+    const second = domain.loadRoot(true)
+    await vi.waitFor(() => expect(commandsTo('project.file-tree')).toHaveLength(2))
+
+    releaseFirst!({ children: [{ name: 'stale', nodeType: 'file', path: 'stale' }] })
+    await Promise.all([first, second])
+
+    expect(domain.tree.value.map((node) => node.name)).toEqual(['fresh'])
+    expect(domain.isLoading.value).toBe(false)
+  })
 })

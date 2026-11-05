@@ -73,7 +73,9 @@ export function useProjectFiles(context: PluginContext, projectId: Ref<string>) 
 
   /** 读取根目录（`force` = 刷新：丢弃已缓存的整棵树） */
   async function loadRoot(force = false): Promise<void> {
-    if (isLoading.value) return
+    // force 刷新必须能覆盖进行中的请求（旧响应由 loadSeq 丢弃）；
+    // 否则刷新按钮在加载期间点击会被静默忽略。
+    if (isLoading.value && !force) return
     if (isLoaded.value && !force) return
     const seq = ++loadSeq
     isLoading.value = true
