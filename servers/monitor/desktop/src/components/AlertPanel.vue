@@ -73,6 +73,17 @@ function onNumber(field: keyof AlertSettings, event: Event, scale = 1): void {
 function onToggle(field: keyof AlertSettings, event: Event): void {
   emit('update', { [field]: (event.target as HTMLInputElement).checked } as Partial<AlertSettings>)
 }
+
+/**
+ * 数字框失焦：把非法 / 被夹紧的输入回写成设置里的权威值
+ *
+ * 用 `input[type=text] + inputmode=numeric`（原生 number 步进器禁用于本仓 UI 规范）：
+ * 非法文本不会触发 `update`，若不回写，输入框会停在无法保存的文本上。
+ */
+function syncInput(event: Event, value: number): void {
+  const input = event.target as HTMLInputElement
+  if (Number(input.value) !== value) input.value = String(value)
+}
 </script>
 
 <template>
@@ -166,24 +177,26 @@ function onToggle(field: keyof AlertSettings, event: Event): void {
         <label class="mn-alert-field is-number">
           <span>{{ t('monitor.alerts.platformMemoryWarn') }}</span>
           <input
-            type="number"
-            min="0"
-            step="64"
+            type="text"
+            inputmode="numeric"
+            autocomplete="off"
             :value="mibOf(props.settings.platformMemoryWarnBytes)"
             data-testid="monitor-alert-platform-warn"
             @change="onMib('platformMemoryWarnBytes', $event)"
+            @blur="syncInput($event, mibOf(props.settings.platformMemoryWarnBytes))"
           />
         </label>
 
         <label class="mn-alert-field is-number">
           <span>{{ t('monitor.alerts.platformMemoryCritical') }}</span>
           <input
-            type="number"
-            min="0"
-            step="64"
+            type="text"
+            inputmode="numeric"
+            autocomplete="off"
             :value="mibOf(props.settings.platformMemoryCriticalBytes)"
             data-testid="monitor-alert-platform-critical"
             @change="onMib('platformMemoryCriticalBytes', $event)"
+            @blur="syncInput($event, mibOf(props.settings.platformMemoryCriticalBytes))"
           />
         </label>
         <p class="mn-alert-field-hint">{{ t('monitor.alerts.bytesHint') }}</p>
@@ -191,25 +204,26 @@ function onToggle(field: keyof AlertSettings, event: Event): void {
         <label class="mn-alert-field is-number">
           <span>{{ t('monitor.alerts.pluginMemoryWarn') }}</span>
           <input
-            type="number"
-            min="5"
-            max="99"
-            step="1"
+            type="text"
+            inputmode="numeric"
+            autocomplete="off"
             :value="percentOf(props.settings.pluginMemoryWarn)"
             data-testid="monitor-alert-plugin-warn"
             @change="onNumber('pluginMemoryWarn', $event, 100)"
+            @blur="syncInput($event, percentOf(props.settings.pluginMemoryWarn))"
           />
         </label>
 
         <label class="mn-alert-field is-number">
           <span>{{ t('monitor.alerts.computeWarn') }}</span>
           <input
-            type="number"
-            min="0"
-            step="1000"
+            type="text"
+            inputmode="numeric"
+            autocomplete="off"
             :value="props.settings.computeWarnFuelPerSecond"
             data-testid="monitor-alert-compute-warn"
             @change="onNumber('computeWarnFuelPerSecond', $event)"
+            @blur="syncInput($event, props.settings.computeWarnFuelPerSecond)"
           />
         </label>
         <p class="mn-alert-field-hint">{{ t('monitor.alerts.computeHint') }}</p>
