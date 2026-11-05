@@ -138,10 +138,19 @@ export function attr(testid: string, name: string): Promise<string | null> {
   )
 }
 
-/** 表单控件当前值（读 DOM property；`attr` 读不到 v-model 的 value） */
+/** 表单控件当前值（读 DOM property；`attr` 读不到 v-model 的 value）
+ *
+ * 与 `typeInto` 同一兼容口径：testid 可能落在原生 input 上，也可能落在自绘控件
+ * （NumberField / TextInput）的**字段容器**上——后者向内找真正的输入元素。
+ * 否则 `value()` 对容器 testid 永远返回 null（2026-11-05 E2E 实测：SDK
+ * NumberField 的 testid 落在根 div 上，服务页端口断言因此失败）。
+ */
 export function value(testid: string): Promise<string | null> {
   return browser.execute((t: string) => {
-    const el = document.querySelector(`[data-testid="${t}"]`) as
+    const root = document.querySelector(`[data-testid="${t}"]`) as
+      (HTMLElement & { value?: string }) | null
+    if (!root) return null
+    const el = (root.matches('input, textarea') ? root : root.querySelector('input, textarea')) as
       (HTMLElement & { value?: string }) | null
     return el && typeof el.value === 'string' ? el.value : null
   }, testid)
@@ -386,9 +395,7 @@ export async function allowFsAuthIfPresent(): Promise<boolean> {
 export function attrs(testid: string, name: string): Promise<(string | null)[]> {
   return browser.execute(
     (t: string, n: string) =>
-      Array.from(document.querySelectorAll(`[data-testid="${t}"]`)).map((el) =>
-        el.getAttribute(n),
-      ),
+      Array.from(document.querySelectorAll(`[data-testid="${t}"]`)).map((el) => el.getAttribute(n)),
     testid,
     name,
   )
@@ -412,9 +419,7 @@ export function clickNth(testid: string, index: number): Promise<boolean> {
 export function clickContaining(testid: string, needle: string): Promise<boolean> {
   return browser.execute(
     (t: string, n: string) => {
-      const els = Array.from(
-        document.querySelectorAll(`[data-testid="${t}"]`),
-      ) as HTMLElement[]
+      const els = Array.from(document.querySelectorAll(`[data-testid="${t}"]`)) as HTMLElement[]
       const hit = els.find((el) => (el.textContent || '').includes(n))
       if (!hit) return false
       hit.click()
@@ -433,8 +438,7 @@ export function clickContaining(testid: string, needle: string): Promise<boolean
  */
 export function terminalBufferText(): Promise<string> {
   return browser.execute(() => {
-    const fn = (window as unknown as { __bedcodeTerminalText?: () => string })
-      .__bedcodeTerminalText
+    const fn = (window as unknown as { __bedcodeTerminalText?: () => string }).__bedcodeTerminalText
     return fn ? fn() : ''
   })
 }

@@ -216,6 +216,21 @@ describe('BedCode（桌面端 · 宿主内挂载）', () => {
     // 产生的元素（无运行时主面渲染 workbench-empty）。这里只断言主面结构在位。
     expectEqual(await exists('pane-terminal'), true, '终端主面在位')
 
+    // 折叠状态 / 拼屏模式都是按项目持久化的偏好：用例先归一到「两侧展开 + 单屏」，
+    // 不依赖上一轮或人工操作留下的布局（否则第一下点收起反而会把已收起的面板展开）。
+    if (await exists('pane-runs-rail')) {
+      await click('run-collapse')
+      await waitFor('pane-runs')
+    }
+    if (await exists('pane-inspector-rail')) {
+      await click('inspector-collapse')
+      await waitFor('pane-inspector')
+    }
+    if ((await attr('run-tile-toggle', 'aria-pressed')) === 'true') {
+      await click('run-tile-toggle')
+      await waitGone('run-tile-grid')
+    }
+
     // 右栏「文件」页签：真实宿主里按项目 workingDir 读目录（project.file-tree），
     // 点文件走 project.file-content 读出真实字节。手输目录的项目首次读树会触发
     // fs 授权，这里同真实用户一样点允许。
@@ -250,9 +265,18 @@ describe('BedCode（桌面端 · 宿主内挂载）', () => {
     expectEqual((await text('git-branch')).length > 0, true, '显示当前分支')
 
     // 页签切换：文件 ↔ 变更
+    //
+    // 变更面板有两种形态：有选中运行 = 占位卡（inspector-changes），无运行 = 先选一条
+    // 运行（inspector-empty）。本步骤只验页签切换，不能假定项目已有历史运行——
+    // 全新项目（或刚清理过数据）里没有任何运行，钉死 inspector-changes 就是状态依赖。
     await click('inspector-tab-changes')
-    await waitFor('inspector-changes')
+    await waitForAttr('inspector-tab-changes', 'aria-selected', 'true', 5_000)
     expectEqual(await visible('project-files'), false, '变更页签隐藏文件面板')
+    expectEqual(
+      (await exists('inspector-changes')) || (await exists('inspector-empty')),
+      true,
+      '变更面板在位（占位卡或先选运行）',
+    )
     await click('inspector-tab-files')
     await waitFor('project-files')
 
@@ -315,6 +339,23 @@ describe('BedCode（桌面端 · 宿主内挂载）', () => {
     expectEqual(afterActive[switchIndex], 'true', '选中态跟随点击切换')
     expectEqual(await visible('run-terminal'), true, '切换运行后终端主面仍在位')
 
+    // 拼屏（多终端同屏）：两条存活运行各一格，点格子换焦点，退出回单屏。
+    // 只铺存活运行——本用例刚起了两条 running，格子数应为 2。
+    await click('run-tile-toggle')
+    await waitFor('run-tile-grid')
+    await waitForCount('run-tile', 2)
+    expectEqual(await count('run-tile'), 2, '拼屏铺开两条存活运行')
+    expectEqual(await exists('run-terminal'), false, '拼屏时不渲染单屏主面')
+    // 点第二格的标题条换焦点（格中心的 xterm 也会经 focusin 换焦点，但标题条更稳定）
+    expectEqual(await clickNth('run-tile-header', 1), true, '可点选第二格')
+    const tileActive = await attrs('run-tile', 'data-active')
+    expectEqual(tileActive[1], 'true', '焦点格跟随点击')
+    expectEqual(tileActive.filter((value) => value === 'true').length, 1, '始终只有一格聚焦')
+    await click('run-tile-toggle')
+    await waitGone('run-tile-grid')
+    await waitFor('run-terminal')
+    expectEqual(await visible('run-terminal'), true, '退出拼屏回到单屏终端')
+
     // 整页刷新后重新进入项目：运行列表来自后端持久化，不是前端缓存
     await click('project-back')
     await waitFor('projects-view')
@@ -357,6 +398,10 @@ describe('BedCode（桌面端 · 宿主内挂载）', () => {
     await waitFor('session-input-name')
     expectEqual(await exists('session-input-working-dir'), true, '工作目录输入在场')
 
+    // 表单会预填「上次成功保存的默认值」（workingDir / command），在跑过用例的机器上
+    // 字段非空——「空表单」的前提要由用例自己建立，不能指望机器是干净的。
+    await typeInto('session-input-working-dir', '')
+
     await click('session-config-submit')
     await waitFor('session-input-name-error')
     expectEqual((await text('session-input-name-error'))?.length > 0, true, '名称必填错误')
@@ -382,6 +427,44 @@ describe('BedCode（桌面端 · 宿主内挂载）', () => {
       previousPanel = `tasks-panel-${key}`
     }
     expectEqual(await visible('tasks-panel-stats'), true, '统计面板可见')
+  })
+
+  /**
+   * 任务日志时间筛选：日期框必须为日历图标留出间隔。
+   *
+   * 回归成因（2026-11-05）：Agent 管理把日期框主题全局注入 document.head，
+   * `.dp__input` 左内边距被改成 16px（对齐 hub 的 .ah-input），而 vendor 日历
+   * 图标占 8–22px → 任务日志的开始/结束时间文字压在图标上。用例先访问 Agent
+   * 管理再回来，覆盖的正是「样式泄漏」路径。
+   */
+  it('任务日志时间筛选：日期框为日历图标留出间隔（先访问 Agent 管理后仍成立）', async () => {
+    await click('nav-agents')
+    await waitFor('hub-view')
+    await click('nav-tasks')
+    await waitFor('tasks-view')
+    await click('tasks-tab-records')
+    await waitFor('tasks-panel-records')
+    await waitFor('task-filter-since')
+
+    const spacing = (await browser.execute(() => {
+      const root = document.querySelector('[data-testid="task-filter-since"]') as HTMLElement | null
+      const input = root?.querySelector('input') as HTMLElement | null
+      const icon = root?.querySelector('.dp__input_icon') as HTMLElement | null
+      if (!root || !input || !icon) return null
+      const inputRect = input.getBoundingClientRect()
+      const iconRect = icon.getBoundingClientRect()
+      const padLeft = parseFloat(getComputedStyle(input).paddingLeft || '0')
+      return {
+        padLeft,
+        gap: inputRect.left + padLeft - iconRect.right,
+        iconWidth: iconRect.width,
+      }
+    })) as { padLeft: number; gap: number; iconWidth: number } | null
+
+    expectEqual(spacing !== null, true, '开始时间日期框渲染出输入框与日历图标')
+    expectEqual((spacing?.iconWidth ?? 0) > 0, true, '日历图标可见')
+    expectEqual((spacing?.padLeft ?? 0) >= 30, true, '左内边距为图标预留 ≥30px')
+    expectEqual((spacing?.gap ?? -1) >= 4, true, '图标与文字间隔 ≥4px')
   })
 
   it('设置：四个业务分组全部渲染', async () => {
