@@ -46,7 +46,15 @@
  */
 
 import { spawn, spawnSync } from 'node:child_process'
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import {
@@ -71,6 +79,16 @@ import {
 } from './e2e-plan.mjs'
 
 const HOST_DEV_URL = 'http://localhost:1420/'
+
+/**
+ * 数据根落在 `$HOME` 的应用（插件经 `ConfigKey::HomeDir` 拼数据目录）。
+ *
+ * 这些 app 的 E2E 必须把宿主 `HOME` 指到临时目录：否则用例会写进开发者真实用户
+ * 目录（lanbitou 的笔记就在 `~/.wasmnest/lanbitou`），既污染数据又让「本机已有
+ * 多少笔记」影响用例。**不能全局改 HOME**：bedcode 的 E2E 依赖真实
+ * `~/bedcode-e2e-project`（spec 进程与宿主进程必须看到同一路径）。
+ */
+const HOME_SCOPED_APPS = new Set(['lanbitou'])
 
 // ==================== 参数 ====================
 
@@ -502,6 +520,7 @@ async function main() {
       // packed / runtime：全量模式下 base staging 会按需装多个 app；每个 wdio 仍只应
       // 看到被测 app。这里为每个 app 复制到独立临时目录，跑完删除——单跑与全量同语义。
       let isolatedDir = null
+      let isolatedHome = null
       let appPluginsDir = staging.pluginsDir
       if (mode !== 'cargo') {
         isolatedDir = mkdtempSync(join(tmpdir(), `wasmnest-e2e-${app.slug}-`))
@@ -513,6 +532,25 @@ async function main() {
 
       try {
         const runEnv = { ...env, WASMNEST_PLUGINS_DIR: appPluginsDir }
+        if (HOME_SCOPED_APPS.has(app.slug)) {
+          isolatedHome = mkdtempSync(join(tmpdir(), `wasmnest-e2e-home-${app.slug}-`))
+          if (process.platform === 'win32') {
+            // Windows 无 sh：只能把 HOME / USERPROFILE 传给 wdio 进程（tauri-driver 继承）
+            runEnv.HOME = isolatedHome
+            runEnv.USERPROFILE = isolatedHome
+          } else {
+            // 只给宿主换 HOME：包装脚本经 WASMNEST_E2E_HOST_BIN 注入，wdio / pnpm /
+            // tauri-driver 仍用真实 HOME（pnpm store 与用户配置不受影响）。
+            const hostWrapper = join(isolatedHome, 'host-with-home.sh')
+            writeFileSync(
+              hostWrapper,
+              `#!/bin/sh\nHOME=${JSON.stringify(isolatedHome)} exec ${JSON.stringify(host.bin)} "$@"\n`,
+              { mode: 0o755 },
+            )
+            runEnv.WASMNEST_E2E_HOST_BIN = hostWrapper
+          }
+          console.log(`[e2e] ${app.slug} 数据根隔离：HOME=${isolatedHome}`)
+        }
 
         const wdioArgs = ['exec', 'wdio', 'run', 'e2e/wdio.conf.ts']
         // 用例按 app 分文件；传了 --spec 则以调用方的为准。
@@ -534,6 +572,7 @@ async function main() {
         }
       } finally {
         if (isolatedDir) rmSync(isolatedDir, { recursive: true, force: true })
+        if (isolatedHome) rmSync(isolatedHome, { recursive: true, force: true })
       }
     }
   } finally {

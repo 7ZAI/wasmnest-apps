@@ -131,6 +131,11 @@ node scripts/e2e.mjs --app bedcode --spec e2e/specs/bedcode.spec.ts
 --isolate      用临时 XDG_DATA_HOME 隔离宿主持久状态
 ```
 
+> **数据根落在 `$HOME` 的 app**（当前只有 `lanbitou`）：运行器会额外把宿主 `HOME`
+> 指到临时目录（`scripts/e2e.mjs` 的 `HOME_SCOPED_APPS`），避免用例写进
+> `~/.wasmnest/<app>` 污染真实用户数据；其余 app 仍用真实 `HOME`（bedcode 的
+> `~/bedcode-e2e-project` 依赖它）。
+
 **退出码即结论**（0 = 全绿）。CI / 钩子可直接用它。
 
 ### 环境前置（一次性）
@@ -271,6 +276,13 @@ export function labelSet(key: keyof typeof zhCN): string[] {
   Linux 验证过。
 - **wasm 产物可能是旧的**：E2E 默认只重建前端（wasm 复用上一份）。改了 Rust 后端要用
   `--build-full`，否则测的是旧后端 + 新前端。
+- **合成指针不进 CodeMirror**（2026-11-04 lanbitou 实测）：`browser.action(...)` 的鼠标
+  拖选只落到 WebView 的**原生选区**（`window.getSelection()` 有文本），CodeMirror 的
+  选区状态不动（`.cm-selectionBackground` 不出现、工具栏「复制选中内容」取不到）。
+  是自动化通道限制，不是产品缺陷：编辑器类 app 的拖选用例按「原生选区非空」判定，
+  复制/编辑链路用键盘驱动（`Ctrl+A` 等）另测；选区**样式**另在真实 WebKit 里目验。
+- **CodeMirror 光标要真点**：对 contenteditable 只做 JS `.focus()` 后 `browser.keys`
+  可能打给别的元素；用 `element.click()` 把焦点与光标一起落进去再输入。
 
 ---
 

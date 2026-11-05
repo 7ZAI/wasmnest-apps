@@ -87,12 +87,15 @@ export async function goHome(timeout = DEFAULT_TIMEOUT): Promise<void> {
 }
 
 /**
- * 点主屏应用卡，打开该 app
+ * 点主屏应用卡（只点，不等路由）
+ *
+ * 首次激活可能弹「文件访问授权」（挡住路由切换），需要调用方自己 `allowFsAuthPrompts`
+ * 再 `waitForAppRoute`；一般的 app 直接用 `openApp` 省事。
  *
  * @param displayName 应用显示名（= plugin.json 的 name，如 `BedCode`）
  * @throws 找不到卡片时抛错（fail-visible：静默跳过会把「应用没装上」伪装成「用例通过」）
  */
-export async function openApp(displayName: string, timeout = DEFAULT_TIMEOUT): Promise<void> {
+export async function clickAppCard(displayName: string, timeout = DEFAULT_TIMEOUT): Promise<void> {
   try {
     await browser.waitUntil(
       async () =>
@@ -119,6 +122,13 @@ export async function openApp(displayName: string, timeout = DEFAULT_TIMEOUT): P
     const cards = await homeAppCards()
     throw new Error(`主屏找不到应用卡「${displayName}」。当前主屏卡片：${JSON.stringify(cards)}`)
   }
+}
+
+/** 等壳路由离开主屏（应用装载成功的判据） */
+export async function waitForAppRoute(
+  displayName: string,
+  timeout = DEFAULT_TIMEOUT,
+): Promise<void> {
   await browser.waitUntil(
     async () => {
       const href = await browser.execute(() => window.location.pathname)
@@ -130,6 +140,12 @@ export async function openApp(displayName: string, timeout = DEFAULT_TIMEOUT): P
       timeoutMsg: `点开「${displayName}」后壳路由未离开主屏（应用可能装载失败）`,
     },
   )
+}
+
+/** 点主屏应用卡，打开该 app */
+export async function openApp(displayName: string, timeout = DEFAULT_TIMEOUT): Promise<void> {
+  await clickAppCard(displayName, timeout)
+  await waitForAppRoute(displayName, timeout)
 }
 
 /**
