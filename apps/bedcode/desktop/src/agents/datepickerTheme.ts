@@ -1,13 +1,19 @@
 /** 日期选择器主题覆盖（自 index.ts 抽出，entry.ts 复用；语义见原文件注释） */
 export const DATEPICKER_THEME_OVERRIDES = `
-/* 输入框与插件内其它表单控件保持同一规格（票 12；2026-09-28 改走 --ah-ctl-* 族） */
-.dp__main {
+/* 输入框与插件内其它表单控件保持同一规格（票 12；2026-09-28 改走 --ah-ctl-* 族）
+ *
+ * **必须限定在 .ah-view 内**（2026-11-05 实测）：这份覆盖是全局注入到 document.head 的，
+ * 不加前缀会连「任务日志」等页面里的日期框一起改写——.dp__input 左内边距从 30px 变 16px，
+ * 而 vendor 日历图标占 8–22px，文字直接压在图标上。hub 自己的日期框隐藏了图标（16px 对齐
+ * 同排 .ah-input），其他页面的日期框保留图标，必须继续用全局主题的 30px 留白。
+ * 弹层（Teleport 到 body）的字体 / 主题变量仍保持全局，见下方说明。 */
+.ah-view .dp__main {
   width: 100%;
 }
-.dp__input_wrap {
+.ah-view .dp__input_wrap {
   width: 100%;
 }
-.dp__input {
+.ah-view .dp__input {
   height: var(--ah-ctl-height);
   min-height: var(--ah-ctl-height);
   box-sizing: border-box;
@@ -38,17 +44,17 @@ export const DATEPICKER_THEME_OVERRIDES = `
 .dp__overlay {
   font-family: inherit;
 }
-:root.dark .dp__input {
+:root.dark .ah-view .dp__input {
   box-shadow: none;
 }
-.dp__input:hover {
+.ah-view .dp__input:hover {
   border-color: var(--ah-ctl-border-color);
 }
-.dp__input:focus {
+.ah-view .dp__input:focus {
   border-color: var(--ah-ctl-focus-border);
   box-shadow: var(--ah-ctl-focus-shadow);
 }
-.dp__input::placeholder {
+.ah-view .dp__input::placeholder {
   color: var(--ah-ctl-placeholder);
   opacity: 1;
 }

@@ -309,7 +309,7 @@ describe('S12 同排表单控件共用一份规格（查询条件条：下拉 / 
   // 同上：日期框覆盖现住 `src/index-datepicker-theme.ts`（index.ts 汇总导入）
   const INDEX = readFileSync(resolve(AGENT_HUB, 'src/agents/datepickerTheme.ts'), 'utf8')
   const input = declsOf('.ah-input')
-  const dp = declsOfBlock(INDEX, '.dp__input')
+  const dp = declsOfBlock(INDEX, '.ah-view .dp__input')
 
   it('高度 / 圆角 / 底色 / 前景色 / 字号 / 占位色 / 常态阴影：两侧同 token', () => {
     const pairs: [string, string][] = [
@@ -330,7 +330,7 @@ describe('S12 同排表单控件共用一份规格（查询条件条：下拉 / 
     expect(input.border).toBe('1px solid var(--ah-ctl-border-color)')
     // 占位色走各自的伪元素块
     const phInput = declsOf('.ah-input::placeholder')
-    const phDp = declsOfBlock(INDEX, '.dp__input::placeholder')
+    const phDp = declsOfBlock(INDEX, '.ah-view .dp__input::placeholder')
     expect(phDp.color).toBe(phInput.color)
     expect(phDp.opacity, 'vendor 占位符 opacity: .7 比同排控件淡 30%').toBe('1')
   })
@@ -417,10 +417,14 @@ describe('S12 同排表单控件共用一份规格（查询条件条：下拉 / 
     }
     expect(consumers.size, '未解析到 vendor 的字体消费方').toBeGreaterThan(1)
     for (const sel of consumers) {
-      const covered = parseRules(INDEX).some(
-        (r) => r.selector.split(',').map((s) => s.trim()).includes(sel) &&
-          r.decls['font-family'] === 'inherit',
-      )
+      const covered = parseRules(INDEX).some((r) => {
+        const selectors = r.selector.split(',').map((s) => s.trim())
+        return (
+          r.decls['font-family'] === 'inherit' &&
+          // 输入框覆盖限定在 .ah-view（见 2026-11-05 内边距回归），字体覆盖同样接受限定选择器
+          (selectors.includes(sel) || selectors.includes(`.ah-view ${sel}`))
+        )
+      })
       expect(covered, `vendor 的 ${sel} 用了自带字体栈，覆盖里必须显式 font-family: inherit`).toBe(true)
     }
   })
@@ -434,9 +438,25 @@ describe('S12 同排表单控件共用一份规格（查询条件条：下拉 / 
     expect(dp.padding, '左内边距须与 px-4 一致，右侧留清除按钮位').toContain('var(--ah-ctl-padding-x)')
   })
 
+  /**
+   * 全局注入不得改写其他页面的日期框（2026-11-05 实机回归）
+   *
+   * Agent Hub 的日期框覆盖是 document.head 里的一份全局 style；不加 .ah-view
+   * 前缀时，.dp__input { padding: 0 30px 0 16px } 会套到「任务日志」的时间筛选框：
+   * vendor 日历图标占 8–22px，文字从 16px 起 → 直接压在图标上。
+   */
+  it('日期框输入框覆盖限定在 .ah-view 内（不得全局改写 .dp__input 内边距）', () => {
+    const selectors = parseRules(INDEX).map((r) => r.selector)
+    expect(
+      selectors,
+      '全局 .dp__input 覆盖会把 hub 的 16px 内边距套到其他页面，日历图标与文字重叠',
+    ).not.toContain('.dp__input')
+    expect(selectors).toContain('.ah-view .dp__input')
+  })
+
   it('聚焦态两侧同 token（border-brand + shadow-input-focus）', () => {
     const fInput = declsOf('.ah-input:focus')
-    const fDp = declsOfBlock(INDEX, '.dp__input:focus')
+    const fDp = declsOfBlock(INDEX, '.ah-view .dp__input:focus')
     expect(fDp['border-color']).toBe(fInput['border-color'])
     expect(fDp['box-shadow']).toBe(fInput['box-shadow'])
   })

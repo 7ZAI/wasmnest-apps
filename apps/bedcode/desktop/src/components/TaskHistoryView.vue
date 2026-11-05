@@ -1770,6 +1770,7 @@ function onConfigQueueLiveChanged() {
                   :now-button-label="dpNowLabel"
                   :teleport="'body'"
                   :placeholder="t('task.filterSince')"
+                  data-testid="task-filter-since"
                   @update:model-value="onFilterChangedDebounced"
                 />
               </div>
@@ -1789,6 +1790,7 @@ function onConfigQueueLiveChanged() {
                   :now-button-label="dpNowLabel"
                   :teleport="'body'"
                   :placeholder="t('task.filterUntil')"
+                  data-testid="task-filter-until"
                   @update:model-value="onFilterChangedDebounced"
                 />
               </div>
