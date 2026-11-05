@@ -318,6 +318,10 @@
         "title": "Agent Hub: Get Providers State"
       },
       {
+        "id": "agent.get-resume-command",
+        "title": "Agent Hub: Build Session Resume Command"
+      },
+      {
         "id": "agent.get-run-output",
         "title": "Agent Hub: Get Run Output"
       },

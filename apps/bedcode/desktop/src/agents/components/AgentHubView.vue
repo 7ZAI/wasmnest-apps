@@ -324,7 +324,7 @@ const sessionStates = computed(() => {
         :providers="providers"
         :agents="catalog.agents.value"
       />
-      <SessionLogsTab v-else-if="activeTab === 'logs'" :usage="usage" />
+      <SessionLogsTab v-else-if="activeTab === 'logs'" :usage="usage" @resumed="onLaunched" />
       <StatsTab v-else :usage="usage" :agents="catalog.agents.value" />
       </Transition>
     </div>

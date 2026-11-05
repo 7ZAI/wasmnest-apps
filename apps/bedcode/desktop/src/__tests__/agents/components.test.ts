@@ -1732,6 +1732,57 @@ describe('A4 SessionLogsTab：查询 / 重置 / 翻页 / 详情 / 原始页签',
     w.unmount()
   })
 
+  it('任务记录倒序渲染：最后一条回复在最上面，更早的往来依次向下', async () => {
+    const w = mountComponent(SessionLogsTab, {
+      usage: usageStub({
+        openedSession: ref(
+          openedWithMessages([
+            { role: 'user', text: '第一问', ts: 1 },
+            { role: 'assistant', text: '第一答', ts: 2 },
+            { role: 'user', text: '第二问', ts: 3 },
+            { role: 'assistant', text: '最后回复', ts: 4 },
+          ]),
+        ) as never,
+      }),
+    })
+    await flushPromises()
+    const texts = w.findAll('.ah-msg .ah-msg-text').map((el) => el.text())
+    expect(texts).toEqual(['最后回复', '第二问', '第一答', '第一问'])
+    w.unmount()
+  })
+
+  it('详情头卡「恢复会话」：生成恢复命令并弹窗展示（工作目录 = 日志项目）', async () => {
+    execute.mockImplementation(async (cmd: string) => {
+      if (cmd === 'agent.get-resume-command') {
+        return { command: 'claude --resume c-1', binary: 'claude', displayName: 'Claude Code' }
+      }
+      return null
+    })
+    const opened = openedWithMessages([{ role: 'user', text: 'hi', ts: 1 }])
+    opened.session.project = '/work/proj'
+    const w = mountComponent(SessionLogsTab, {
+      usage: usageStub({ openedSession: ref(opened) as never }),
+    })
+    await flushPromises()
+    await w.get('[data-testid="lg-resume"]').trigger('click')
+    await flushPromises()
+
+    expect(callsTo('agent.get-resume-command')).toEqual([
+      ['agent.get-resume-command', { adapter: 'claude', cliSessionId: 'c-1' }],
+    ])
+    expect(w.find('[data-testid="resume-dialog"]').exists()).toBe(true)
+    expect((w.get('[data-testid="resume-working-dir"]').element as HTMLInputElement).value).toBe(
+      '/work/proj',
+    )
+    expect((w.get('[data-testid="resume-command"]').element as HTMLInputElement).value).toBe(
+      'claude --resume c-1',
+    )
+    await w.get('[data-testid="resume-cancel"]').trigger('click')
+    await flushPromises()
+    expect(w.find('[data-testid="resume-dialog"]').exists()).toBe(false)
+    w.unmount()
+  })
+
   // ------ 模型输出折叠（默认折叠：超阈值助手正文收起 + 展开/收起互切） ------
 
   /** 打开详情视图的通用夹具：长/短助手消息 + 长用户消息 */
@@ -2040,9 +2091,10 @@ describe('A4 SessionLogsTab：查询 / 重置 / 翻页 / 详情 / 原始页签',
       }),
     })
     await flushPromises()
+    // 任务记录倒序：后发生的事件在上面；失败行（ts=1）落在下方
     const bodies = w.findAll('.ah-msg.role-tool .ah-msg-body')
-    expect(bodies[0].classes()).toContain('is-error')
-    expect(bodies[1].classes()).not.toContain('is-error')
+    expect(bodies[0].classes()).not.toContain('is-error')
+    expect(bodies[1].classes()).toContain('is-error')
     w.unmount()
   })
 
@@ -2060,9 +2112,10 @@ describe('A4 SessionLogsTab：查询 / 重置 / 翻页 / 详情 / 原始页签',
       }),
     })
     await flushPromises()
+    // 任务记录倒序：后发生的事件在上面；失败行（ts=1）落在下方
     const bodies = w.findAll('.ah-msg.role-tool .ah-msg-body')
-    expect(bodies[0].classes()).toContain('is-error')
-    expect(bodies[1].classes()).not.toContain('is-error')
+    expect(bodies[0].classes()).not.toContain('is-error')
+    expect(bodies[1].classes()).toContain('is-error')
     w.unmount()
   })
 

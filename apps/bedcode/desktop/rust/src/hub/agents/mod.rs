@@ -98,6 +98,14 @@ pub(crate) trait Agent: Sync {
     fn latest_source(&self, _method: Option<&str>) -> Option<LatestSource> {
         self.npm_package().map(LatestSource::Npm)
     }
+    /// 恢复既有 CLI 会话的启动命令（二进制名 + 各家 resume 语法）
+    ///
+    /// 默认不支持（None）；已支持的四家在适配器内实现。`session_id` 必须
+    /// 先过 [`is_safe_session_id`] —— 命令最终交给登录 shell 执行，不能让
+    /// 日志里的任意字符串拼进命令行。
+    fn resume_command(&self, _session_id: &str) -> Option<String> {
+        None
+    }
 }
 
 /// 编译期注册表（顺序 = 产品展示顺序，行为等价的一部分）
@@ -188,6 +196,57 @@ pub(crate) fn describe() -> Value {
         })
         .collect();
     json!({ "agents": agents })
+}
+
+/// CLI 会话 ID 能否安全拼进启动命令（登录 shell 会执行整条命令）
+///
+/// 白名单：ASCII 字母 / 数字 / `-` `_` `.`。四家实际取值（UUID / `ses_...` /
+/// 时间戳式 id）全部命中；日志是本地可编辑文件，未校验的字符串可能带上
+/// 空格 / 引号 / `;`，一旦拼进命令就是任意命令执行。
+pub(crate) fn is_safe_session_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 128
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+}
+
+/// `agent.get-resume-command` 载荷：按注册表构造恢复命令
+///
+/// 失败一律 **fail-visible**：未知 agent / 空或超长会话 ID / 该 agent 未声明
+/// resume 能力都拒绝，不返回「看似可执行」的空命令（前端据此禁用确认）。
+pub(crate) fn resume_info(args: &Value) -> anyhow::Result<Value> {
+    let adapter = args
+        .get("adapter")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim();
+    let session_id = args
+        .get("cliSessionId")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim();
+    if session_id.is_empty() {
+        return Err(anyhow::anyhow!("get-resume-command: cliSessionId required"));
+    }
+    if !is_safe_session_id(session_id) {
+        return Err(anyhow::anyhow!(
+            "get-resume-command: unsafe cliSessionId (session ids allow [A-Za-z0-9._-])"
+        ));
+    }
+    let agent = get(adapter)
+        .ok_or_else(|| anyhow::anyhow!("get-resume-command: unknown agent {adapter}"))?;
+    let command = agent.resume_command(session_id).ok_or_else(|| {
+        anyhow::anyhow!(
+            "get-resume-command: agent {} does not support resume",
+            agent.id()
+        )
+    })?;
+    Ok(json!({
+        "command": command,
+        "binary": agent.binary(),
+        "displayName": agent.display_name(),
+    }))
 }
 
 // ==================== Tests（注册表契约） ====================
@@ -467,5 +526,48 @@ mod tests {
         keys.sort();
         ids.sort();
         assert_eq!(keys, ids);
+    }
+
+    /// 恢复命令由注册表派生：四家各自 resume 语法，二进制名来自适配器
+    #[test]
+    fn resume_commands_are_registry_derived() {
+        let cmd = |id: &str| {
+            get(id)
+                .and_then(|a| a.resume_command("s-1"))
+                .unwrap_or_else(|| panic!("{id} 缺少 resume_command"))
+        };
+        assert_eq!(cmd("pi"), "pi --session s-1");
+        assert_eq!(cmd("opencode"), "opencode --session s-1");
+        assert_eq!(cmd("codex"), "codex resume s-1");
+        assert_eq!(cmd("claude"), "claude --resume s-1");
+    }
+
+    /// resume_info：回显展示名；未知 agent / 空 / 带 shell 元字符的会话 ID 一律拒绝
+    #[test]
+    fn resume_info_rejects_unsafe_input() {
+        let out = resume_info(&json!({
+            "adapter": "claude",
+            "cliSessionId": "1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed",
+        }))
+        .expect("claude resume info");
+        assert_eq!(
+            out["command"],
+            "claude --resume 1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed"
+        );
+        assert_eq!(out["displayName"], "Claude Code");
+        assert_eq!(out["binary"], "claude");
+
+        assert!(resume_info(&json!({ "adapter": "gemini", "cliSessionId": "s-1" })).is_err());
+        assert!(resume_info(&json!({ "adapter": "claude", "cliSessionId": "" })).is_err());
+        assert!(resume_info(&json!({
+            "adapter": "claude",
+            "cliSessionId": "x; rm -rf /",
+        }))
+        .is_err());
+        assert!(resume_info(&json!({ "adapter": "claude", "cliSessionId": "a b" })).is_err());
+        assert!(is_safe_session_id("ses_01HZY8Q3K7X9V0"));
+        assert!(is_safe_session_id("1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed"));
+        assert!(!is_safe_session_id("bad/id"));
+        assert!(!is_safe_session_id("bad$id"));
     }
 }

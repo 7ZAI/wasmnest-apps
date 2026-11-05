@@ -171,6 +171,8 @@ pub(crate) fn invoke_command(
             Ok(serde_json::json!({ "state": state }))
         }
         "agent.list-agents" => Ok(agents::describe()),
+        // 日志恢复：按注册表生成 CLI resume 命令（未知 agent / 不安全会话 ID 拒绝）
+        "agent.get-resume-command" => agents::resume_info(&args),
         "agent.request-auth" => {
             let home = HOME
                 .get()
@@ -274,12 +276,35 @@ mod tests {
         let commands = m["contributes"]["commands"]
             .as_array()
             .expect("contributes.commands");
-        for cmd in ["agent.get-state", "agent.detect", "agent.install", "agent.uninstall"] {
+        for cmd in [
+            "agent.get-state",
+            "agent.detect",
+            "agent.install",
+            "agent.uninstall",
+            "agent.get-resume-command",
+        ] {
             assert!(
                 commands.iter().any(|c| c["id"].as_str() == Some(cmd)),
                 "command {cmd} missing from manifest"
             );
         }
+    }
+
+    /// 日志恢复命令路由：按适配器返回 resume 命令；未知 agent 拒绝（fail-visible）
+    #[test]
+    fn resume_command_route_is_registered() {
+        let out = invoke_command(
+            "agent.get-resume-command",
+            serde_json::json!({ "adapter": "pi", "cliSessionId": "sess-42" }),
+        )
+        .expect("resume command");
+        assert_eq!(out["command"], "pi --session sess-42");
+        assert_eq!(out["displayName"], "Pi");
+        assert!(invoke_command(
+            "agent.get-resume-command",
+            serde_json::json!({ "adapter": "nope", "cliSessionId": "sess-42" }),
+        )
+        .is_err());
     }
 
     /// 授权目录清单（注册表派生）：家目录绝对路径前缀、覆盖四家 CLI 配置/会话落点，

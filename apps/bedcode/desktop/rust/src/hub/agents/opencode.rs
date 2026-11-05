@@ -209,4 +209,9 @@ impl Agent for Opencode {
         }
         self.npm_package().map(LatestSource::Npm)
     }
+
+    /// opencode：`--session <id>` 续接既有会话
+    fn resume_command(&self, session_id: &str) -> Option<String> {
+        Some(format!("{} --session {session_id}", self.binary()))
+    }
 }

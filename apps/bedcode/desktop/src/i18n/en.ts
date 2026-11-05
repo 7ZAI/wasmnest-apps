@@ -1068,6 +1068,16 @@ const en: MessageSchema = {
   'hub.lg.role.thinking': 'Thinking',
   'hub.lg.role.tool': 'Tool',
   'hub.lg.role.system': 'System',
+  'hub.lg.resume.open': 'Resume session',
+  'hub.lg.resume.openTip': 'Resume this session with its CLI and open a terminal',
+  'hub.lg.resume.title': 'Resume session · {name}',
+  'hub.lg.resume.session': 'Session',
+  'hub.lg.resume.confirm': 'Resume & open terminal',
+  'hub.lg.resume.required': 'Working directory and resume command are required',
+  'hub.lg.resume.failed': 'Failed to resume session, please retry',
+  'hub.lg.resume.unsupported':
+    'Cannot build a resume command: this session has no resumable CLI session ID, or the agent does not support resume',
+  'hub.lg.resume.loading': 'Building resume command…',
 
   // ==================== Multitask card read-only preview (mountPreview) ====================
   'hub.preview.subtitle': 'CLI detection overview',

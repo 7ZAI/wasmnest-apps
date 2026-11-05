@@ -199,4 +199,9 @@ impl Agent for Pi {
     fn usage(&self) -> Option<&'static UsageSpec> {
         Some(&USAGE)
     }
+
+    /// pi：`--session <id>` 打开既有会话（cwd 由会话配置固定到日志项目目录）
+    fn resume_command(&self, session_id: &str) -> Option<String> {
+        Some(format!("{} --session {session_id}", self.binary()))
+    }
 }

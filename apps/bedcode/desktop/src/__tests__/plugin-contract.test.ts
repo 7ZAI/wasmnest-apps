@@ -254,6 +254,7 @@ describe('C1 工程身份五处一致', () => {
       'agent.get-bootstrap-state',
       'agent.get-install-state',
       'agent.get-providers-state',
+      'agent.get-resume-command',
       'agent.get-run-output',
       'agent.get-skills-state',
       'agent.get-state',

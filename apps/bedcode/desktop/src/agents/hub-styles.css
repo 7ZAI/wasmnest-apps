@@ -2757,6 +2757,11 @@
   font-weight: 600;
 }
 
+/* 详情头卡「恢复会话」：与页签同排、不参与标题伸缩 */
+.ah-lg-detail-resume {
+  flex: none;
+}
+
 /* ---------- Agent 官方图标（claude / pi + 字母徽标回退） ---------- */
 .ah-agent-ic {
   display: inline-flex;

@@ -16,6 +16,7 @@
 - 项目工作台拼屏：多条存活运行的终端同屏（最多 4 格自适应网格，点格子换焦点；超过 4 条由左栏点选换入，模式按项目记忆）。
 - 移动端项目页：底栏「会话」改为「项目」，项目列表 → 运行 → Agent 启动；新增项目 / 运行 / Agent 读面与 `start-run` 写面。
 - Agent 管理域（原 agent-hub 并入）：Node.js 环境引导 / 移除、CLI 探测 / 安装 / 更新 / 卸载、供应商预设导入与下发、用量统计、Skill 扫描 / 导入 / 编辑 / 分发；安装卡片可直达会话配置。
+- 会话日志恢复：日志详情新增「恢复会话」，按 adapter + CLI 会话 ID 生成各家 resume 命令（pi / opencode `--session`、codex `resume`、claude `--resume`），弹窗确认工作目录 / 环境 / 命令后启动终端。
 - 应用内检查更新：双端接入宿主 `appUpdate`，`plugin.json` 声明 GitHub Release 更新源。
 - 移动端终端内置 Sarasa Mono SC 等宽字体。
 
@@ -25,6 +26,7 @@
 - 链路加密策略改为按应用设置：应用设置页决定不要求（off）/ 尽量加密（preferred）/ 强制加密（required），宿主只执行与只读审计，未设置 = 明文（端点注册不再声明 encryption）。WS 升级期协商（客户端提案 + 101 策略/密钥回执）已接线，`required` 同时覆盖 HTTP 与 WS 帧级加密；旧宿主（能力 `wsSession=false`）仍禁用 `required` 并显性说明。
 - Agent 展示顺序改为 pi → opencode → codex → claude，四家 Agent 使用各自 TUI 强调色。
 - 移动端设置步进器随视口流式缩放并去掉按钮底板。
+- 会话日志详情「任务记录」改为倒序展示，最新回复在最上面（回看场景先看结果）。
 
 ### 修复
 

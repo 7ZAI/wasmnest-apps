@@ -17,23 +17,13 @@
 import { reactive, ref } from 'vue'
 import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-desktop'
 import type { AgentDescriptor } from '../types'
+import { SESSION_FORM_DEFAULTS_KEY, startSession, VALID_ENVIRONMENTS } from './sessionLaunch'
 
 /** 弹窗表单模型（environment 值域 = 会话配置三环境） */
 export interface LaunchForm {
   environment: string
   workingDir: string
   command: string
-}
-
-/** 与 SessionConfigForm 的默认值同一份插件存储（上次成功保存的取值） */
-const FORM_DEFAULTS_KEY = 'session.formDefaults'
-const VALID_ENVIRONMENTS = ['linux', 'wsl2', 'windows']
-
-interface SessionConfigLike {
-  id?: unknown
-  environment?: unknown
-  workingDir?: unknown
-  command?: unknown
 }
 
 export function useLaunchSession(context: PluginContext) {
@@ -52,7 +42,7 @@ export function useLaunchSession(context: PluginContext) {
     error.value = ''
     form.command = target.binary
     try {
-      const defaults = (await context.storage.get(FORM_DEFAULTS_KEY)) as
+      const defaults = (await context.storage.get(SESSION_FORM_DEFAULTS_KEY)) as
         { environment?: string; workingDir?: string } | undefined
       form.environment =
         defaults?.environment && VALID_ENVIRONMENTS.includes(defaults.environment)
@@ -98,22 +88,12 @@ export function useLaunchSession(context: PluginContext) {
     submitting.value = true
     error.value = ''
     try {
-      const configId = await ensureConfig(workingDir, command, form.environment)
-      const size = await context.session.predictTerminalSize()
-      const created = (await context.commands.execute('session.create', {
-        configId,
-        cols: size?.cols,
-        rows: size?.rows,
-        start: true,
-      })) as { sessionId?: string } | null
-      const sessionId = created?.sessionId ?? ''
-      if (!sessionId) throw new Error('session.create returned no sessionId')
-      let name = agent.value.displayName
-      const view = (await context.commands.execute('session.get', { sessionId })) as
-        | { name?: unknown }
-        | null
-      if (view && typeof view.name === 'string' && view.name) name = view.name
-      await context.session.openTerminal({ id: sessionId, name })
+      const { sessionId } = await startSession(context, {
+        environment: form.environment,
+        workingDir,
+        command,
+        name: agent.value.displayName,
+      })
       open.value = false
       return { sessionId }
     } catch (e) {
@@ -123,34 +103,6 @@ export function useLaunchSession(context: PluginContext) {
     } finally {
       submitting.value = false
     }
-  }
-
-  /** 同 (environment, workingDir, command) 配置复用；未命中新建（name 经 launch 域唯一化） */
-  async function ensureConfig(
-    workingDir: string,
-    command: string,
-    environment: string,
-  ): Promise<string> {
-    const raw = (await context.commands.execute('session.config.list', {})) as unknown
-    const configs: SessionConfigLike[] = Array.isArray(raw) ? raw : []
-    const same = (v: unknown, want: string) => v === want
-    const hit = configs.find(
-      (c) =>
-        !!c &&
-        same(c.environment, environment) &&
-        same(c.workingDir, workingDir) &&
-        same(c.command, command),
-    )
-    if (hit && typeof hit.id === 'string' && hit.id) return hit.id
-    const saved = (await context.commands.execute('session.config.upsert', {
-      name: agent.value?.displayName ?? command,
-      environment,
-      workingDir,
-      command,
-      autoStart: false,
-    })) as { id?: unknown } | null
-    if (saved && typeof saved.id === 'string' && saved.id) return saved.id
-    throw new Error('session.config.upsert returned no id')
   }
 
   return { open, submitting, error, agent, form, show, close, submit, browseDir }

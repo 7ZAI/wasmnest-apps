@@ -788,3 +788,16 @@ export interface UsageSessionDetail {
   rawTruncated: boolean
   skippedLines: number
 }
+
+/**
+ * 恢复命令（`agent.get-resume-command` 返回，guest 注册表派生）
+ *
+ * 界面只展示 / 允许微调 `command`；命令的 CLI 语法由后端适配器统一维护，
+ * 前端不再维护第二份「id → resume 参数」映射。
+ */
+export interface ResumeCommandInfo {
+  command: string
+  /** agent 的启动二进制名（命令已包含，仅诊断用） */
+  binary: string
+  displayName: string
+}

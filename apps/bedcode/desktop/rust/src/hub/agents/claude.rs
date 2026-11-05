@@ -238,6 +238,11 @@ impl Agent for Claude {
         }
         super::npm_uninstall_recipe(self, method)
     }
+
+    /// claude：`--resume <id>` 恢复指定会话（cwd 由会话配置固定到日志项目目录）
+    fn resume_command(&self, session_id: &str) -> Option<String> {
+        Some(format!("{} --resume {session_id}", self.binary()))
+    }
 }
 
 // ==================== Tests（配置权威活跃会话） ====================

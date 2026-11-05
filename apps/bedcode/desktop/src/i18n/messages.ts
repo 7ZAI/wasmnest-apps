@@ -1079,6 +1079,19 @@ export type MessageSchema = {
   'hub.lg.role.tool': string
   'hub.lg.role.system': string
 
+  // ==================== 恢复会话（日志详情 → CLI resume） ====================
+  /** 详情头卡按钮：用当前 CLI resume 这条日志会话 */
+  'hub.lg.resume.open': string
+  'hub.lg.resume.openTip': string
+  'hub.lg.resume.title': string
+  'hub.lg.resume.session': string
+  'hub.lg.resume.confirm': string
+  'hub.lg.resume.required': string
+  'hub.lg.resume.failed': string
+  /** 无法生成恢复命令（缺 CLI 会话 ID / agent 不支持 / 会话 ID 未过安全校验） */
+  'hub.lg.resume.unsupported': string
+  'hub.lg.resume.loading': string
+
   // ==================== 多任务卡片只读预览面（mountPreview） ====================
   'hub.preview.subtitle': string
   'hub.preview.loading': string

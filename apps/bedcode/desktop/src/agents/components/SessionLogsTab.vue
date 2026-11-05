@@ -5,7 +5,9 @@
  * 一级页：日志来源（折叠区：内置/自定义目录 + 扫描 + 添加目录）→ 多条件查询
  * （Agent / 关键词 / 时间范围）→ 分页表格（点击行进二级详情）。
  * 二级页：会话详情头卡 + 页签切换（任务记录 / 原始 JSONL），任务记录为只读
- * 对话样式（类 zcode/trae，无输入框）。
+ * 对话样式（类 zcode/trae，无输入框），按倒序展示（最新回复在最上面）；
+ * 头卡「恢复会话」按 adapter + cli_session_id 生成 CLI resume 命令，弹窗
+ * 确认后经会话链启动并打开终端。
  *
  * 数据流：列表分页与统计明细共用 useUsage 同一查询域；打开会话经
  * read-usage-session 按需解析（单会话一次读盘双消费）。
@@ -31,9 +33,13 @@ import {
 } from '../utils/format'
 import { markdownPlainPreview, renderMarkdown } from '../utils/markdown'
 import { suggestSourceName, isPathRegistered } from '../utils/sources'
+import { useResumeSession } from '../composables/useResumeSession'
+import ResumeSessionDialog from './ResumeSessionDialog.vue'
 import AgentIcon from './AgentIcon.vue'
 
 const props = defineProps<{ usage: UseUsageReturn }>()
+
+const emit = defineEmits<{ resumed: [] }>()
 
 const context = inject<PluginContext>('pluginContext')!
 const t = (key: string, params?: Record<string, unknown>) => context.i18n.t(key, params)
@@ -344,6 +350,15 @@ function openDetail(id: number) {
   void usage.openSession(id)
 }
 
+// ==================== 恢复会话（日志详情 → CLI resume） ====================
+const resume = useResumeSession(context)
+
+/** 头卡「恢复会话」：按当前打开的日志会话生成 resume 命令并弹窗确认 */
+function openResume(): void {
+  if (!opened.value) return
+  void resume.show(opened.value.session)
+}
+
 /** 助手事件 token 明细（↑ 输入 ↓ 输出 ⚡ 缓存读 +缓存写） */
 function tokenMeta(e: NormalizedEventView): string {
   if (!e.tokens) return ''
@@ -455,6 +470,10 @@ watch(opened, () => {
 /**
  * 聊天视图的行模型（一次算全：工具卡切片 + 折叠阈值 + markdown 正文 + 截断提示）
  *
+ * **顺序：倒序渲染**——日志是回看场景，最新一轮（最后回复）在最上面；
+ * 下方是更早的往来。行下标 `i` 仍是原始事件下标，折叠态 / aria-controls
+ * 因此跨会话与顺序调整都保持稳定。
+ *
  * 展示规则都落在这里，模板只做渲染：
  * - **折叠**：助手正文按 500 字、工具卡身按 400 字（工具输出上限 1000，见 format.ts）；
  *   超阈值默认收起，切换会话由下方 watch 重置。思考行（pi）**不看长度恒默认收起**
@@ -519,6 +538,8 @@ const chatRows = computed(() => {
       }
     })
     .filter((row) => !row.empty)
+    // 倒序：filter 产出新数组，reverse 不触碰源事件流；最新回复在最上面
+    .reverse()
 })
 
 function msgId(i: number): string {
@@ -902,6 +923,16 @@ function toggleExpand(i: number) {
                 {{ t('hub.lg.detail.tabRaw') }}
               </button>
             </span>
+            <!-- 一键恢复：按会话的 (adapter, cli_session_id) 生成 CLI resume 命令 -->
+            <button
+              type="button"
+              class="ah-btn ah-btn-primary ah-btn-sm ah-lg-detail-resume"
+              data-testid="lg-resume"
+              :title="t('hub.lg.resume.openTip')"
+              @click="openResume"
+            >
+              {{ t('hub.lg.resume.open') }}
+            </button>
           </div>
           <div class="ah-lg-head-src ah-mono" :title="opened.session.source_path || ''">
             {{ opened.session.source_path || t('hub.lg.noSource') }}
@@ -1044,5 +1075,8 @@ function toggleExpand(i: number) {
         </div>
       </div>
     </template>
+
+    <!-- 恢复会话弹窗（Teleport 到 body；成功 → 视图层导航 /sessions） -->
+    <ResumeSessionDialog :resume="resume" @resumed="emit('resumed')" />
   </div>
 </template>

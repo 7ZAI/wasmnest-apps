@@ -1037,6 +1037,16 @@ const zhCN: MessageSchema = {
   'hub.lg.role.thinking': '思考',
   'hub.lg.role.tool': '工具',
   'hub.lg.role.system': '系统',
+  'hub.lg.resume.open': '恢复会话',
+  'hub.lg.resume.openTip': '用当前 CLI 恢复这条会话并打开终端',
+  'hub.lg.resume.title': '恢复会话 · {name}',
+  'hub.lg.resume.session': '会话',
+  'hub.lg.resume.confirm': '恢复并打开终端',
+  'hub.lg.resume.required': '工作目录与恢复命令必填',
+  'hub.lg.resume.failed': '恢复会话失败，请重试',
+  'hub.lg.resume.unsupported':
+    '无法生成恢复命令：该会话缺少可恢复的 CLI 会话 ID，或该 Agent 不支持恢复',
+  'hub.lg.resume.loading': '正在生成恢复命令…',
 
   // ==================== 多任务卡片只读预览面（mountPreview） ====================
   'hub.preview.subtitle': 'CLI 检测概览',

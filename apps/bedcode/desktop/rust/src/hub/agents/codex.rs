@@ -118,4 +118,9 @@ impl Agent for Codex {
     fn usage(&self) -> Option<&'static UsageSpec> {
         Some(&USAGE)
     }
+
+    /// codex：`resume <id>` 子命令（UUID 或会话名；不用 --last，避免恢复错会话）
+    fn resume_command(&self, session_id: &str) -> Option<String> {
+        Some(format!("{} resume {session_id}", self.binary()))
+    }
 }
