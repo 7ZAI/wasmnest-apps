@@ -120,7 +120,13 @@ pub fn run_json(record: &SessionRecord, now: &str) -> serde_json::Value {
         "agentSessionId": nullable(&record.agent_session_id),
         "title": nullable(&record.title),
         "name": record.name,
-        "status": serde_json::to_value(&record.status).expect("SessionStatus 可序列化"),
+        // 状态一律出**字符串标签**（`wire_name`）：`RunView` 的桌面类型与移动端
+        // 展示层都只认字符串（`isLiveRun` / 终端接入判据）。出 externally-tagged
+        // `{"error": "…"}` 会让终态运行（如宿主重启后被标记 interrupted）被当成
+        // 存活：项目工作台自动选中它 → 终端每 50ms 拉一个不存在的 PTY，
+        // 未处理 rejection 灌成全局「未知错误」风暴（2026-11-04 实测）。
+        // 错误描述仍留在记录本体与 `session-get` 视图，不经运行列表透出。
+        "status": record.status.wire_name(),
         "model": nullable(&record.model),
         "createdAt": record.created_at,
         "startedAt": nullable(&record.started_at),
@@ -350,6 +356,29 @@ mod tests {
                 "{status:?} 的活跃位"
             );
         }
+    }
+
+    /// 运行列表状态出字符串标签：错误态不得是 `{"error"}` 对象
+    /// （桌面 `RunView.status` / `isLiveRun` 只认字符串；对象会让终态运行被判存活，
+    /// 工作台据此把已结束的运行接上输出轮询 → 不存在的 PTY 每 tick 报错）
+    #[test]
+    fn run_view_status_is_wire_string() {
+        let mut record = record();
+        assert_eq!(run_json(&record, "2026-09-23T00:00:06Z")["status"], "running");
+
+        record.status = SessionStatus::Error(Some(
+            "host process restarted; run interrupted".to_string(),
+        ));
+        assert_eq!(run_json(&record, "2026-09-23T00:00:06Z")["status"], "error");
+
+        record.status = SessionStatus::Error(None);
+        assert_eq!(run_json(&record, "2026-09-23T00:00:06Z")["status"], "error");
+
+        record.status = SessionStatus::Stopped;
+        assert_eq!(
+            run_json(&record, "2026-09-23T00:00:06Z")["status"],
+            "stopped"
+        );
     }
 
     /// 标题有值即透传（标题归 agent / 首条用户消息，视图不加工）

@@ -106,6 +106,20 @@ export function isLiveRun(status: string): boolean {
 }
 
 /**
+ * 运行状态线形状 → 展示字符串
+ *
+ * 后端 `run_json` 已统一出字符串标签；这里仍兜住旧载荷 / 旧缓存里的
+ * externally-tagged `{ error: "…" }`（与移动端 `normalizeRunStatus` 同口径）：
+ * 对象形态会被 `isLiveRun` 误判为「存活」，让工作台给已结束的运行接上
+ * 输出轮询（PTY 已回收 → 每次拉取都失败）。
+ */
+export function normalizeRunStatus(status: unknown): string {
+  if (typeof status === 'string' && status) return status
+  if (status && typeof status === 'object' && 'error' in status) return 'error'
+  return 'idle'
+}
+
+/**
  * 相对时间文案（纯函数：key + 参数交视图层 `t()` 渲染）
  *
  * 只给出「多久之前」的四档（刚刚 / 分钟 / 小时 / 天）；时间戳缺失或不可解析
@@ -207,12 +221,13 @@ export function useProjects(context: PluginContext) {
     return project.value
   }
 
-  /** 运行列表（最新在前由后端保证） */
+  /** 运行列表（最新在前由后端保证；状态在取数边界归一为字符串） */
   async function loadRuns(projectId: string): Promise<void> {
     const raw = (await context.commands.execute('run.list', { projectId })) as {
       runs?: RunView[]
     } | null
-    runs.value = Array.isArray(raw?.runs) ? raw!.runs! : []
+    const list = Array.isArray(raw?.runs) ? raw!.runs! : []
+    runs.value = list.map((run) => ({ ...run, status: normalizeRunStatus(run.status) }))
   }
 
   /**

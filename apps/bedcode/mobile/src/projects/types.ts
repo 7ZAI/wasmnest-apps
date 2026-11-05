@@ -122,9 +122,10 @@ export function envChipClass(environment: string | null | undefined): string {
 /**
  * 运行状态线形状 → 展示字符串
  *
- * 桌面 `SessionStatus` 是 externally tagged 枚举：普通态是 `"running"`，`Error`
- * 是 `{"error": "…"}`（见 `session::view::run_json`）。界面只认字符串，这里在
- * 取数边界把错误对象折成 `error`，避免错误运行被显示成「空闲」。
+ * 桌面插件 `run_json` 自 2026-11-04 起直接出字符串标签（`wire_name`），不再出
+ * externally-tagged `{error: …}`；这里仍兜住旧 wasm 载荷（普通态是 `"running"`，
+ * 旧 `Error` 变体是 `{"error": "…"}`）。界面只认字符串，不归一会让错误运行
+ * 被显示成「空闲」、甚至被 `isLiveRun` 判成存活。
  */
 export function normalizeRunStatus(status: unknown): string {
   if (typeof status === 'string' && status) return status

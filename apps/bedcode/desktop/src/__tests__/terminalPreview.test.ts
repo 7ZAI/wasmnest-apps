@@ -41,6 +41,7 @@ import {
 import type { TerminalSettingsAccessor } from '../composables/terminal/useTerminalSettingsSync'
 import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-desktop'
 import type { SessionInfo } from '../composables/terminal/model'
+import { OUTPUT_PULL_MAX_FAILURES } from '../utils/terminal/terminalPullPolicy'
 
 // ==================== mock 边界 ====================
 
@@ -640,6 +641,46 @@ describe('TerminalPreview（插件版组装）', () => {
       .mock.calls.filter(([cmd]) => cmd === 'session.output.pull')
       .map(([, args]) => args as { sessionId?: string })
     expect(pulls.some((args) => args.sessionId === 'sess-2')).toBe(false)
+  })
+
+  it('拉取命令持续失败：收敛为一次 warn + 达上限停机（不让 rejection 灌成全局提示风暴）', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const context = await mountRunning()
+      // 换成「会话已不在册 / 缺 PTY」的失败面：命令直接 reject（宿主信封形状）
+      vi.mocked(context.commands.execute).mockImplementation(async (cmd: string) => {
+        if (cmd === 'session.output.pull') {
+          throw { code: 'host.internal', params: { plugin: 'com.wasmnest.bedcode' } }
+        }
+        return null
+      })
+
+      await vi.waitFor(
+        () => {
+          const stopped = warn.mock.calls.some(([message]) =>
+            String(message).includes('已停止轮询'),
+          )
+          return expect(stopped).toBe(true)
+        },
+        { timeout: 3000 },
+      )
+      // 失败次数上限是「轮询 tick 级」的，只作下限 sanity（不绑死具体 tick 数）
+      expect(countCalls(context, 'session.output.pull')).toBeGreaterThanOrEqual(
+        OUTPUT_PULL_MAX_FAILURES,
+      )
+      const attempts = countCalls(context, 'session.output.pull')
+      // 达上限即停：等一个慢档周期后不再有新的 pull
+      await new Promise((resolve) => setTimeout(resolve, 300))
+      expect(countCalls(context, 'session.output.pull')).toBe(attempts)
+      // 失败只在首次与停机时各 warn 一次（不按 tick 刷日志）
+      const pullWarns = warn.mock.calls
+        .map(([message]) => String(message))
+        .filter((message) => message.includes('输出拉取'))
+      expect(pullWarns).toHaveLength(2)
+      expect(pullWarns.some((message) => message.includes('已停止轮询'))).toBe(true)
+    } finally {
+      warn.mockRestore()
+    }
   })
 
   it('过期世代响应丢弃：detach 前发出的 pull 迟到不写入终端', async () => {

@@ -16,6 +16,7 @@ import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-desktop'
 import {
   envBadge,
   isLiveRun,
+  normalizeRunStatus,
   relativeTimeSpec,
   runAsSession,
   useProjects,
@@ -206,6 +207,13 @@ describe('环境徽标与运行投影（纯函数）', () => {
     expect(isLiveRun('stopped')).toBe(false)
     expect(isLiveRun('error')).toBe(false)
   })
+
+  it('运行状态归一：错误对象折成 error（否则终态运行被当成存活去拉已回收的 PTY）', () => {
+    expect(normalizeRunStatus('running')).toBe('running')
+    expect(normalizeRunStatus({ error: 'host process restarted; run interrupted' })).toBe('error')
+    expect(normalizeRunStatus({ error: null })).toBe('error')
+    expect(normalizeRunStatus(null)).toBe('idle')
+  })
 })
 
 // ==================== 取数 ====================
@@ -230,6 +238,21 @@ describe('取数：项目 / 运行 / agent', () => {
     routes['run.list'] = () => ({ runs: [] })
     await d.loadRuns('p-1')
     expect(d.runs.value).toEqual([])
+  })
+
+  it('运行列表：错误状态对象在取数边界归一成 error（防终态运行被当成存活）', async () => {
+    const d = domain()
+    routes['run.list'] = () => ({
+      runs: [
+        {
+          ...run('r-interrupted', 'running', true),
+          status: { error: 'host process restarted; run interrupted' },
+        },
+      ],
+    })
+    await d.loadRuns('p-1')
+    expect(d.runs.value[0].status).toBe('error')
+    expect(isLiveRun(d.runs.value[0].status)).toBe(false)
   })
 
   it('单项目：后端返回 null → project 置空（工作台据此显示「已不存在」）', async () => {
