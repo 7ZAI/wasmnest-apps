@@ -363,6 +363,29 @@
             </span>
           </template>
           <span class="flex-1"></span>
+          <!-- 拼屏开关：把该项目存活运行的终端一起铺开（最多 4 格，点击格子换焦点） -->
+          <button
+            class="shrink-0 whitespace-nowrap inline-flex items-center gap-1.5 rounded-[6px] border h-6 px-2 text-[calc(11px*var(--ui-scale))] transition-colors"
+            :class="
+              tileMode
+                ? 'border-[var(--color-primary)] text-[var(--color-primary)] bg-[var(--bg-hover)]'
+                : 'border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'
+            "
+            :aria-pressed="tileMode"
+            :title="tileMode ? t('project.terminal.singleMode') : t('project.terminal.tileMode')"
+            data-testid="run-tile-toggle"
+            @click="toggleTileMode"
+          >
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.5"
+                d="M4 4h6.5v6.5H4zM13.5 4H20v6.5h-6.5zM4 13.5h6.5V20H4zM13.5 13.5H20V20h-6.5z"
+              />
+            </svg>
+            {{ tileMode ? t('project.terminal.singleMode') : t('project.terminal.tileMode') }}
+          </button>
           <!-- 打开独立终端窗口：跟终端主面走（原在检查器头部，终端迁中栏后随迁） -->
           <button
             v-if="selectedRun"
@@ -370,7 +393,7 @@
             :disabled="!isLiveRun(selectedRun.status)"
             :title="t('project.run.openWindow')"
             data-testid="run-open-window"
-            @click="openWindow"
+            @click="openWindow()"
           >
             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path
@@ -383,26 +406,139 @@
           </button>
         </div>
 
-        <!-- 未选中运行：显性空态，不白屏 -->
-        <div
-          v-if="!selectedRun"
-          class="flex-1 flex flex-col items-center justify-center px-6 text-center"
-          data-testid="workbench-empty"
-        >
-          <p class="text-[calc(12px*var(--ui-scale))] text-[var(--text-primary)]">
-            {{ t('project.terminal.empty') }}
-          </p>
-          <p
-            class="mt-1 text-[calc(11px*var(--ui-scale))] text-[var(--text-secondary)] leading-relaxed"
+        <!-- 拼屏：多条存活运行的终端同屏（每格复用同一渲染管线，各自一条真实 PTY） -->
+        <div v-if="tileMode" class="flex-1 min-h-0 flex flex-col" data-testid="run-tiles">
+          <div
+            v-if="tiledRuns.length === 0"
+            class="flex-1 flex flex-col items-center justify-center px-6 text-center"
+            data-testid="run-tiles-empty"
           >
-            {{ t('project.terminal.emptyHint') }}
+            <p class="text-[calc(12px*var(--ui-scale))] text-[var(--text-primary)]">
+              {{ t('project.terminal.tileEmpty') }}
+            </p>
+            <p
+              class="mt-1 text-[calc(11px*var(--ui-scale))] text-[var(--text-secondary)] leading-relaxed"
+            >
+              {{ t('project.terminal.tileEmptyHint') }}
+            </p>
+          </div>
+
+          <div
+            v-else
+            class="flex-1 min-h-0 grid gap-2 p-2"
+            :class="tileGridClass"
+            data-testid="run-tile-grid"
+          >
+            <div
+              v-for="(run, index) in tiledRuns"
+              :key="run.id"
+              class="min-w-0 min-h-0 flex flex-col rounded-[8px] border overflow-hidden bg-[var(--bg-page)] transition-colors"
+              :class="[
+                isActiveRun(run) ? 'border-[var(--color-primary)]' : 'border-[var(--border)]',
+                index === 0 && tileLayout.firstSpansRows && 'row-span-2',
+              ]"
+              data-testid="run-tile"
+              :data-run-id="run.id"
+              :data-active="isActiveRun(run) ? 'true' : 'false'"
+              @mousedown="onTilePointerDown(run)"
+              @click="focusTile(run)"
+              @focusin="focusTile(run)"
+            >
+              <div
+                class="h-8 shrink-0 flex items-center gap-1.5 px-2 border-b border-[var(--border)] bg-[var(--bg-card)]"
+                data-testid="run-tile-header"
+              >
+                <span :class="['w-1.5 h-1.5 rounded-full shrink-0', statusDot(run.status)]"></span>
+                <span
+                  class="min-w-0 flex-1 truncate text-[calc(11.5px*var(--ui-scale))] text-[var(--text-primary)]"
+                  :title="run.title || run.name"
+                >
+                  {{ run.title || run.name }}
+                </span>
+                <span
+                  class="wb-mono shrink-0 text-[calc(10px*var(--ui-scale))] text-[var(--text-tertiary)]"
+                >
+                  {{ statusText(run.status) }}
+                </span>
+                <button
+                  class="w-5 h-5 shrink-0 rounded-[4px] flex items-center justify-center text-[var(--color-danger)] hover:bg-[var(--bg-hover)] transition-colors"
+                  :title="t('project.run.stop')"
+                  data-testid="run-tile-stop"
+                  @click.stop="stop(run)"
+                >
+                  <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      stroke-width="2"
+                      d="M6 6h12v12H6z"
+                    />
+                  </svg>
+                </button>
+                <button
+                  class="w-5 h-5 shrink-0 rounded-[4px] flex items-center justify-center text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] transition-colors"
+                  :title="t('project.run.openWindow')"
+                  data-testid="run-tile-open"
+                  @click.stop="openWindow(run)"
+                >
+                  <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      stroke-width="1.5"
+                      d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25"
+                    />
+                  </svg>
+                </button>
+              </div>
+              <div class="flex-1 min-h-0 relative">
+                <TerminalPreview
+                  :ref="(el) => setTileTerminalRef(run.id, el)"
+                  :session="runAsSession(run)"
+                  :show-header="false"
+                  :auto-focus="isActiveRun(run)"
+                />
+              </div>
+            </div>
+          </div>
+
+          <!-- 超过 4 条不静默丢弃：点左栏运行把它换进网格 -->
+          <p
+            v-if="hiddenTileCount > 0"
+            class="shrink-0 px-2 pb-1.5 text-[calc(10.5px*var(--ui-scale))] text-[var(--text-tertiary)]"
+            data-testid="run-tiles-hint"
+          >
+            {{ t('project.terminal.tileHidden', { n: hiddenTileCount }) }}
           </p>
         </div>
 
-        <!-- 终端：复用现有终端渲染管线（同一条 PTY 的真实字节） -->
-        <div v-else class="flex-1 min-h-0 relative" data-testid="run-terminal">
-          <TerminalPreview :session="selectedRunSession" :show-input="true" :show-header="false" />
-        </div>
+        <!-- 单屏：一条运行的终端（既有行为不变） -->
+        <template v-else>
+          <!-- 未选中运行：显性空态，不白屏 -->
+          <div
+            v-if="!selectedRun"
+            class="flex-1 flex flex-col items-center justify-center px-6 text-center"
+            data-testid="workbench-empty"
+          >
+            <p class="text-[calc(12px*var(--ui-scale))] text-[var(--text-primary)]">
+              {{ t('project.terminal.empty') }}
+            </p>
+            <p
+              class="mt-1 text-[calc(11px*var(--ui-scale))] text-[var(--text-secondary)] leading-relaxed"
+            >
+              {{ t('project.terminal.emptyHint') }}
+            </p>
+          </div>
+
+          <!-- 终端：复用现有终端渲染管线（同一条 PTY 的真实字节） -->
+          <div v-else class="flex-1 min-h-0 relative" data-testid="run-terminal">
+            <TerminalPreview
+              :session="selectedRunSession"
+              :show-input="true"
+              :show-header="false"
+            />
+          </div>
+        </template>
       </section>
 
       <!-- 拖拽手柄：终端主面 ↔ 右栏检查器（收起时不渲染） -->
@@ -651,8 +787,23 @@
  *
  * **新建运行 = 在项目里选一个 agent**：后端按（项目, agent）取/建启动参数并走
  * 唯一启动链；前端只准备终端网格（先预测再启动，避免开终端后重排）。
+ *
+ * **拼屏（多终端同屏，2026-11-05）**：中栏可切「拼屏」，把该项目存活运行的终端
+ * 一起铺开（最多 4 格；1 / 2 / 3 / 4 格自适应网格）。每格复用 TerminalPreview
+ * （各自一条真实 PTY），点格子换焦点；超过 4 条由左栏点选换入，不静默丢弃。
+ * 模式按项目记在 app KV；只铺存活运行（终态运行的 PTY 已回收）。
  */
-import { computed, inject, onMounted, onUnmounted, reactive, ref, watch, type Ref } from 'vue'
+import {
+  computed,
+  inject,
+  nextTick,
+  onMounted,
+  onUnmounted,
+  reactive,
+  ref,
+  watch,
+  type Ref,
+} from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { toast } from 'vue-sonner'
 import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-desktop'
@@ -664,6 +815,7 @@ import TerminalPreview from '@/components/terminal/TerminalPreview.vue'
 import { resolvePluginErrorText } from '@/utils/pluginError'
 import { agentGlyph } from '@/agents/registry'
 import { usePaneResize } from '@/composables/usePaneResize'
+import { hiddenLiveRunCount, pickTiledRuns, tileGridLayout } from '@/utils/runTiles'
 import {
   envBadge,
   isLiveRun,
@@ -704,6 +856,107 @@ const selectedRunId = ref('')
 const notFound = ref(false)
 const isStarting = ref(false)
 const showAgentPicker = ref(false)
+
+// ==================== 拼屏（多终端同屏） ====================
+//
+// 口径（2026-11-05 用户裁决「按推荐」）：只铺**存活运行**，最多 4 格；顺序 =
+// 最近聚焦优先（左栏点选换入）→ 列表序。每格复用 TerminalPreview（一条真实
+// PTY），不新建渲染层。模式按项目持久化；优先序只在本次进入工作台内有效。
+const TILE_MODE_KEY_PREFIX = 'project.workbench.tileMode.'
+const tileMode = ref(false)
+/** 最近聚焦的存活运行 id（拼屏顺序；切项目即清） */
+const tilePriority = ref<string[]>([])
+/** 异步读回的代次：切项目 / 用户已手动切换时丢弃过期结果 */
+let tileModeLoadSeq = 0
+let tileModeUserSet = false
+
+const tiledRuns = computed(() => pickTiledRuns(runs.value, tilePriority.value))
+const hiddenTileCount = computed(() => hiddenLiveRunCount(runs.value, tiledRuns.value))
+const tileLayout = computed(() => tileGridLayout(tiledRuns.value.length))
+/** 列 / 行给静态类名（Tailwind 只编译源码里出现过的字面量，不拼接动态类） */
+const tileGridClass = computed(() => [
+  tileLayout.value.columns === 2 ? 'grid-cols-2' : 'grid-cols-1',
+  tileLayout.value.rows === 2 ? 'grid-rows-2' : 'grid-rows-1',
+])
+
+async function loadTileMode(pid: string): Promise<void> {
+  const seq = ++tileModeLoadSeq
+  tileModeUserSet = false
+  tileMode.value = false
+  if (!pid) return
+  try {
+    const raw = await context.storage.get(`${TILE_MODE_KEY_PREFIX}${pid}`)
+    if (seq !== tileModeLoadSeq || tileModeUserSet) return
+    tileMode.value = raw === true
+  } catch (e) {
+    // 读失败按单屏处理：布局偏好不该把工作台拦住
+    console.warn('[Project Workbench] read tile mode failed:', e)
+  }
+}
+
+function persistTileMode(): void {
+  const pid = projectId.value
+  if (!pid) return
+  void context.storage.set(`${TILE_MODE_KEY_PREFIX}${pid}`, tileMode.value).catch((e) => {
+    console.warn('[Project Workbench] persist tile mode failed:', e)
+  })
+}
+
+/** 把运行顶到拼屏最前（左栏点选「换入」；已在网格里则只换焦点，不重排） */
+function bumpTilePriority(runId: string): void {
+  tilePriority.value = [runId, ...tilePriority.value.filter((id) => id !== runId)]
+}
+
+function toggleTileMode(): void {
+  tileMode.value = !tileMode.value
+  tileModeUserSet = true
+  persistTileMode()
+  if (!tileMode.value) return
+  // 打开拼屏先铺用户正在看的那条；它不在存活态时把焦点落到第一格
+  const current = selectedRun.value
+  if (current && isLiveRun(current.status)) {
+    bumpTilePriority(current.id)
+    focusTileTerminal(current.id)
+  } else {
+    const first = tiledRuns.value[0]
+    if (first) {
+      selectedRunId.value = first.id
+      focusTileTerminal(first.id)
+    }
+  }
+}
+
+/** 点格子 = 换焦点（不重排：点第 4 格却把它弹到第 1 格会打断阅读） */
+function focusTile(run: RunView): void {
+  if (selectedRunId.value !== run.id) selectedRunId.value = run.id
+}
+
+/** 拼屏格子组件引用（按运行 id）：左栏换入 / 点标题条后把键盘焦点交给该格终端 */
+const tileTerminalRefs = new Map<string, { focus?: () => void }>()
+
+function setTileTerminalRef(runId: string, el: unknown): void {
+  if (el) tileTerminalRefs.set(runId, el as { focus?: () => void })
+  else tileTerminalRefs.delete(runId)
+}
+
+function focusTileTerminal(runId: string): void {
+  void nextTick(() => tileTerminalRefs.get(runId)?.focus?.())
+}
+
+/** 点格子（标题条 / 空白处）：换选中态，并把键盘焦点交给该格终端 */
+function onTilePointerDown(run: RunView): void {
+  focusTile(run)
+  focusTileTerminal(run.id)
+}
+
+watch(
+  projectId,
+  (pid) => {
+    tilePriority.value = []
+    void loadTileMode(pid)
+  },
+  { immediate: true },
+)
 
 // ==================== 右栏页签（文件 / Git / 变更） ====================
 
@@ -992,7 +1245,13 @@ const showProjectPath = computed(() => layoutWidth.value === 0 || layoutWidth.va
 /** 选中运行（选中 id 失配时退回第一条，避免删/停之后中栏空着） */
 const selectedRun = computed<RunView | null>(() => {
   const byId = runs.value.find((run) => run.id === selectedRunId.value)
-  return byId ?? runs.value[0] ?? null
+  if (byId) return byId
+  // 拼屏：选中失配时优先落到铺开的存活运行（否则标题条指向一条不在网格里的运行）
+  if (tileMode.value) {
+    const firstTiled = tiledRuns.value[0]
+    if (firstTiled) return firstTiled
+  }
+  return runs.value[0] ?? null
 })
 
 /** 传给终端组件的会话形状（同一条 PTY，运行视图 ↔ 会话视图同源） */
@@ -1095,6 +1354,13 @@ async function refresh(): Promise<void> {
 
 function selectRun(runId: string): void {
   selectedRunId.value = runId
+  if (!tileMode.value) return
+  const run = runs.value.find((item) => item.id === runId)
+  if (!run || !isLiveRun(run.status)) return
+  // 第 5 条以后的存活运行：点左栏把它顶进可见的 4 格
+  if (!tiledRuns.value.some((tile) => tile.id === runId)) bumpTilePriority(runId)
+  // 左栏点选 = 想看这条：把键盘焦点交给它的终端（与单屏切换后自动聚焦同语义）
+  focusTileTerminal(runId)
 }
 
 async function openAgentPicker(): Promise<void> {
@@ -1148,8 +1414,7 @@ async function stop(run: RunView): Promise<void> {
   }
 }
 
-async function openWindow(): Promise<void> {
-  const run = selectedRun.value
+async function openWindow(run: RunView | null = selectedRun.value): Promise<void> {
   if (!run) return
   // 终态运行没有存活 PTY：宿主开窗也会立刻空着，先在这里显性拒绝
   if (!isLiveRun(run.status)) {

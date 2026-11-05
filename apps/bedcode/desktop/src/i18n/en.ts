@@ -1213,6 +1213,15 @@ const en: MessageSchema = {
   'project.terminal.emptyHint':
     'Each run is one agent process launch; start one via "New run" on the left',
 
+  // Tile view (multiple terminals at once: live runs only, up to 4 tiles)
+  'project.terminal.tileMode': 'Tile',
+  'project.terminal.singleMode': 'Single',
+  'project.terminal.tileEmpty': 'No live runs',
+  'project.terminal.tileEmptyHint':
+    'Tile view only shows live runs — start one on the left, or select a run to switch back to single view',
+  'project.terminal.tileHidden':
+    '{n} more live run(s) not tiled — click a run on the left to swap it in',
+
   // Inspector
   'project.inspector.title': 'Inspector',
   'project.inspector.changes': 'Changes',

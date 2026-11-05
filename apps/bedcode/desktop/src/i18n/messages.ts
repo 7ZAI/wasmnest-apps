@@ -1216,6 +1216,12 @@ export type MessageSchema = {
   'project.terminal.title': string
   'project.terminal.empty': string
   'project.terminal.emptyHint': string
+  // 拼屏（多终端同屏：只铺存活运行，最多 4 格）
+  'project.terminal.tileMode': string
+  'project.terminal.singleMode': string
+  'project.terminal.tileEmpty': string
+  'project.terminal.tileEmptyHint': string
+  'project.terminal.tileHidden': string
 
   // 检查器
   'project.inspector.title': string

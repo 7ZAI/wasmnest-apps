@@ -1174,8 +1174,14 @@ const zhCN: MessageSchema = {
   // 终端主面（CLI 为核心：对话经 CLI 直接进行，前端不渲染对话流）
   'project.terminal.title': '终端',
   'project.terminal.empty': '左侧选一条运行，它的终端在这里打开',
-  'project.terminal.emptyHint':
-    '每条运行是一次 agent 进程启动；先在左栏「新建运行」里选一个 agent',
+  'project.terminal.emptyHint': '每条运行是一次 agent 进程启动；先在左栏「新建运行」里选一个 agent',
+
+  // 拼屏（多终端同屏：只铺存活运行，最多 4 格）
+  'project.terminal.tileMode': '拼屏',
+  'project.terminal.singleMode': '单屏',
+  'project.terminal.tileEmpty': '没有存活运行',
+  'project.terminal.tileEmptyHint': '拼屏只铺存活运行；先在左栏新建运行，或选中一条运行切回单屏',
+  'project.terminal.tileHidden': '还有 {n} 条存活运行未铺开，点左栏运行可换入',
 
   // 检查器
   'project.inspector.title': '检查器',

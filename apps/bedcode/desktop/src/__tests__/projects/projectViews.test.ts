@@ -15,16 +15,16 @@ import { mount, flushPromises } from '@vue/test-utils'
 import { defineComponent } from 'vue'
 import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-desktop'
 
-const { pushMock, toastSuccess, toastInfo, toastError, storageGet, storageSet } = vi.hoisted(
-  () => ({
+const { pushMock, toastSuccess, toastInfo, toastError, storageGet, storageSet, openTerminal } =
+  vi.hoisted(() => ({
     pushMock: vi.fn(async () => {}),
     toastSuccess: vi.fn(),
     toastInfo: vi.fn(),
     toastError: vi.fn(),
     storageGet: vi.fn(async () => undefined),
     storageSet: vi.fn(async () => {}),
-  }),
-)
+    openTerminal: vi.fn(async () => true),
+  }))
 
 // 两个视图都只用 useRouter / useRoute（无 router-link），桩掉即可；
 // 断言「创建后跳转到工作台」靠 push 的入参。
@@ -178,7 +178,7 @@ function makeContext(): PluginContext {
     commands: { execute },
     session: {
       predictTerminalSize: async () => ({ cols: 120, rows: 30 }),
-      openTerminal: async () => true,
+      openTerminal,
       closeTerminal: async () => {},
       isTerminalOpen: () => false,
     },
@@ -764,5 +764,135 @@ describe('ProjectWorkbenchView（项目工作台）', () => {
     } finally {
       vi.unstubAllGlobals()
     }
+  })
+
+  // ==================== 拼屏（多终端同屏，2026-11-05 用户裁决「按推荐」） ====================
+
+  it('拼屏默认关闭：终端主面仍是单屏，开关 aria-pressed=false', async () => {
+    const wrapper = mountView(ProjectWorkbenchView)
+    await flushPromises()
+
+    const toggle = wrapper.get('[data-testid="run-tile-toggle"]')
+    expect(toggle.attributes('aria-pressed')).toBe('false')
+    expect(wrapper.find('[data-testid="run-terminal"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="run-tiles"]').exists()).toBe(false)
+  })
+
+  it('拼屏：两条存活运行各一格，点格子换焦点，格子可独立开窗', async () => {
+    routes['run.list'] = () => ({
+      runs: [runRecord('r-1', 'running', true), runRecord('r-2', 'running', true)],
+    })
+    const wrapper = mountView(ProjectWorkbenchView)
+    await flushPromises()
+
+    await wrapper.get('[data-testid="run-tile-toggle"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="run-tile-toggle"]').attributes('aria-pressed')).toBe('true')
+    expect(wrapper.find('[data-testid="run-terminal"]').exists()).toBe(false)
+    const tiles = wrapper.findAll('[data-testid="run-tile"]')
+    expect(tiles).toHaveLength(2)
+    expect(tiles.map((tile) => tile.attributes('data-run-id'))).toEqual(['r-1', 'r-2'])
+    // 每格一条真实 PTY：终端组件收到的是各自的运行投影
+    expect(
+      wrapper
+        .findAllComponents(TerminalStub)
+        .map((stub) => (stub.props('session') as { id: string }).id),
+    ).toEqual(['r-1', 'r-2'])
+    expect(tiles[0].attributes('data-active')).toBe('true')
+    expect(tiles[1].attributes('data-active')).toBe('false')
+
+    // 点第二格：焦点跟随（始终只有一格 active）
+    await tiles[1].trigger('mousedown')
+    await flushPromises()
+    const after = wrapper.findAll('[data-testid="run-tile"]')
+    expect(after[1].attributes('data-active')).toBe('true')
+    expect(after[0].attributes('data-active')).toBe('false')
+
+    // 格子自己的开窗按钮：开的是这一格的运行，不是当前焦点
+    await after[0].get('[data-testid="run-tile-open"]').trigger('click')
+    await flushPromises()
+    expect(openTerminal).toHaveBeenCalledWith({ id: 'r-1', name: '支付重构' })
+  })
+
+  it('拼屏只铺存活运行：stopped / error 不进网格', async () => {
+    routes['run.list'] = () => ({
+      runs: [
+        runRecord('r-1', 'running', true),
+        runRecord('r-2', 'stopped', false),
+        runRecord('r-3', 'error', false),
+      ],
+    })
+    const wrapper = mountView(ProjectWorkbenchView)
+    await flushPromises()
+
+    await wrapper.get('[data-testid="run-tile-toggle"]').trigger('click')
+    await flushPromises()
+
+    const tiles = wrapper.findAll('[data-testid="run-tile"]')
+    expect(tiles).toHaveLength(1)
+    expect(tiles[0].attributes('data-run-id')).toBe('r-1')
+  })
+
+  it('拼屏：没有存活运行时给空态，不渲染空网格', async () => {
+    routes['run.list'] = () => ({ runs: [runRecord('r-1', 'stopped', false)] })
+    const wrapper = mountView(ProjectWorkbenchView)
+    await flushPromises()
+
+    await wrapper.get('[data-testid="run-tile-toggle"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="run-tiles-empty"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="run-tile-grid"]').exists()).toBe(false)
+  })
+
+  it('拼屏：超过 4 条存活运行只铺 4 格并提示剩余数，点左栏可换入', async () => {
+    routes['run.list'] = () => ({
+      runs: ['r-1', 'r-2', 'r-3', 'r-4', 'r-5'].map((id) => runRecord(id, 'running', true)),
+    })
+    const wrapper = mountView(ProjectWorkbenchView)
+    await flushPromises()
+
+    await wrapper.get('[data-testid="run-tile-toggle"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.findAll('[data-testid="run-tile"]')).toHaveLength(4)
+    expect(wrapper.get('[data-testid="run-tiles-hint"]').text()).toContain(
+      'project.terminal.tileHidden(n=1)',
+    )
+
+    // 第 5 条点左栏：顶进可见区，挤掉列表末尾
+    await wrapper.findAll('[data-testid="run-item"]')[4].trigger('click')
+    await flushPromises()
+    const ids = wrapper
+      .findAll('[data-testid="run-tile"]')
+      .map((tile) => tile.attributes('data-run-id'))
+    expect(ids).toEqual(['r-5', 'r-1', 'r-2', 'r-3'])
+    // 仍有 5 条存活、只铺 4 格：提示保持（换入的是 r-4 的位置，不是消灭未铺项）
+    expect(wrapper.get('[data-testid="run-tiles-hint"]').text()).toContain(
+      'project.terminal.tileHidden(n=1)',
+    )
+  })
+
+  it('拼屏模式按项目持久化：切换写入，重进读回', async () => {
+    const wrapper = mountView(ProjectWorkbenchView)
+    await flushPromises()
+
+    await wrapper.get('[data-testid="run-tile-toggle"]').trigger('click')
+    await flushPromises()
+    expect(storageSet).toHaveBeenCalledWith('project.workbench.tileMode.p-1', true)
+
+    await wrapper.get('[data-testid="run-tile-toggle"]').trigger('click')
+    await flushPromises()
+    expect(storageSet).toHaveBeenCalledWith('project.workbench.tileMode.p-1', false)
+
+    // 重进：存储里是 true 时直接落拼屏
+    storageGet.mockImplementation(async (key: string) =>
+      key === 'project.workbench.tileMode.p-1' ? true : undefined,
+    )
+    const reopened = mountView(ProjectWorkbenchView)
+    await flushPromises()
+    expect(reopened.get('[data-testid="run-tile-toggle"]').attributes('aria-pressed')).toBe('true')
+    expect(reopened.findAll('[data-testid="run-tile"]')).toHaveLength(1)
   })
 })
