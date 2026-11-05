@@ -30,9 +30,12 @@
 # 该 feature 合流进主线后删掉本规则与目录，届时 Go 版源码按常规源码入库。
 apps/ai-chatbox/desktop/go/
 
-# AI agent
+# AI agent（工具本地的插件 / 扩展 / 会话状态，不入库）
 *.codebuddy/
 *.workbuddy/
+.opencode/
+.pi/
+
 
 # 日志与临时文件
 *.log
