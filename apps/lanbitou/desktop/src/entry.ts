@@ -86,12 +86,17 @@ export async function mountApp(root: HTMLElement, env: AppMountEnv): Promise<App
   const app = createApp(App)
   app.use(i18n)
   app.provide('pluginContext', createAppContext(env))
-  app.mount(root)
+  const vm = app.mount(root) as unknown as { flushAll?: () => Promise<void> }
   vueApp = app
 
   return {
     async unmount() {
-      if (vueApp) {
+      if (!vueApp) return
+      try {
+        // 先落盘再卸载：实时防抖 / manual 模式的未保存正文与工作上下文
+        // 不能在关闭应用时丢掉（onBeforeUnmount 的 fire-and-forget 不保证完成）
+        await vm.flushAll?.()
+      } finally {
         vueApp.unmount()
         vueApp = null
       }
@@ -113,9 +118,9 @@ export async function mountPreview(
   root: HTMLElement,
   env: AppPreviewEnv,
 ): Promise<AppPreviewHandle> {
-  if (env.locale === 'en' || env.locale === 'zh-CN') i18n.global.locale.value = env.locale
+  // locale 由 PreviewCard 自己的 i18n 实例消费：预览挂载/卸载不得改写主应用
+  // 的模块级 i18n locale（用户在主应用里选的语言不能被卡片挂载改掉）。
   const app = createApp(PreviewCard, { env })
-  app.use(i18n)
   app.mount(root)
   return {
     async unmount() {

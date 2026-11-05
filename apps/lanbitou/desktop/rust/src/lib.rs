@@ -61,6 +61,13 @@ impl WasmPlugin for LanbitouPlugin {
         }
 
         store::init(&host, &data_dir)?;
+        // 默认文档必须存在：首次启动 / 外部删掉后都要自愈
+        let scratch = store::ensure_scratch(&host, &data_dir)?;
+        host.log_info(&format!(
+            "lanbitou scratch ready (id={}, {} bytes)",
+            scratch.id,
+            scratch.content.len()
+        ));
         let _ = DATA_ROOT.set(data_dir);
 
         host.log_info("Lanbitou plugin activated (wasm, host-fs access)");
@@ -86,6 +93,11 @@ impl WasmPlugin for LanbitouPlugin {
             "lanbitou.list-notes" => commands::list_notes(args),
             "lanbitou.rename-note" => commands::rename_note(args),
             "lanbitou.search-notes" => commands::search_notes(args),
+            // 临时记事（常驻默认文档） / 归档
+            "lanbitou.ensure-scratch" => commands::ensure_scratch(args),
+            "lanbitou.archive-scratch" => commands::archive_scratch(args),
+            "lanbitou.list-archives" => commands::list_archives(args),
+            "lanbitou.open-archive" => commands::open_archive(args),
             "lanbitou.read-settings" => commands::read_settings(args),
             "lanbitou.save-settings" => commands::save_settings(args),
             "lanbitou.read-context" => commands::read_context(args),

@@ -14,6 +14,31 @@
 .lanbitou-root {
   height: 100%;
   min-height: 0;
+
+  /* ==================== 编辑器选区 / 当前行底纹 ====================
+   *
+   * 为什么不用 color-mix：WebKitGTK 老版本不支持时整条声明作废，
+   * 选区就变成「看不见」（鼠标框选看起来失效）。这里给固定 rgba，
+   * 再按宿主暗色 / 应用主题覆盖，保证任何渲染器下都能看见选区。
+   */
+  --lb-selection-bg: rgba(29, 26, 20, 0.3);
+  --lb-selection-bg-idle: rgba(29, 26, 20, 0.16);
+  --lb-active-line-bg: rgba(29, 26, 20, 0.045);
+  --lb-search-match-bg: rgba(37, 99, 235, 0.22);
+  --lb-search-match-active-bg: rgba(37, 99, 235, 0.38);
+}
+
+/* 宿主暗色（system 模式不写 data-theme，只能跟 html.dark） */
+.dark .lanbitou-root {
+  --lb-selection-bg: rgba(236, 232, 220, 0.28);
+  --lb-selection-bg-idle: rgba(236, 232, 220, 0.16);
+  --lb-active-line-bg: rgba(236, 232, 220, 0.05);
+}
+
+.lanbitou-root[data-theme='dark'] {
+  --lb-selection-bg: rgba(236, 232, 220, 0.28);
+  --lb-selection-bg-idle: rgba(236, 232, 220, 0.16);
+  --lb-active-line-bg: rgba(236, 232, 220, 0.05);
 }
 
 /* ==================== 主题覆盖（仅应用根容器） ====================
@@ -44,6 +69,9 @@
   --color-danger-ink: #b91c1c;
   --color-info: #2563eb;
   --shadow-card: 0 1px 2px rgba(31, 41, 55, 0.06);
+  --lb-selection-bg: rgba(29, 26, 20, 0.3);
+  --lb-selection-bg-idle: rgba(29, 26, 20, 0.16);
+  --lb-active-line-bg: rgba(29, 26, 20, 0.045);
 }
 
 .lanbitou-root[data-theme='dark'] {
@@ -67,6 +95,9 @@
   --color-danger-ink: #f87171;
   --color-info: #60a5fa;
   --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.2);
+  --lb-selection-bg: rgba(236, 232, 220, 0.28);
+  --lb-selection-bg-idle: rgba(236, 232, 220, 0.16);
+  --lb-active-line-bg: rgba(236, 232, 220, 0.05);
 }
 
 /* ==================== 滚动条（仅应用根内） ==================== */

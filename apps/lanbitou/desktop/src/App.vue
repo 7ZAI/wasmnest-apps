@@ -5,13 +5,33 @@
     :data-theme="themeOverride"
     data-testid="lanbitou-root"
   >
-    <!-- 左侧：笔记列表 -->
+    <!-- 左侧：笔记 / 归档 -->
     <aside
       v-if="showSidebar"
       class="flex w-64 shrink-0 flex-col border-r border-[var(--border)] bg-[var(--bg-sidebar)]"
       data-testid="sidebar"
     >
-      <div class="space-y-2 border-b border-[var(--border)] p-2">
+      <!-- 分区切换：笔记（临时记事 + 其它笔记） / 归档（固定文件夹里的只读记录） -->
+      <div class="flex gap-1 border-b border-[var(--border)] p-2" data-testid="sidebar-tabs">
+        <button
+          v-for="tab in sidebarTabs"
+          :key="tab.value"
+          type="button"
+          class="flex-1 rounded-[var(--radius-tag)] px-2 py-1 text-[length:var(--font-size-sm)] transition-colors"
+          :class="
+            sidebarTab === tab.value
+              ? 'bg-[var(--color-primary)] font-medium text-[var(--color-primary-contrast)]'
+              : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'
+          "
+          :data-testid="`sidebar-tab-${tab.value}`"
+          :aria-selected="sidebarTab === tab.value"
+          @click="switchTab(tab.value)"
+        >
+          {{ t(tab.label) }}
+        </button>
+      </div>
+
+      <div v-if="sidebarTab === 'notes'" class="space-y-2 border-b border-[var(--border)] p-2">
         <button
           type="button"
           class="w-full rounded-[var(--radius-button)] bg-[var(--color-primary)] px-3 py-2 text-[length:var(--font-size-sm)] font-medium text-[var(--color-primary-contrast)] transition-colors hover:bg-[var(--color-primary-hover)]"
@@ -52,12 +72,21 @@
       </div>
       <div class="flex-1 overflow-y-auto">
         <NoteList
+          v-if="sidebarTab === 'notes'"
           :notes="notes"
           :active-note-id="activeNoteId"
           :search-query="searchQuery"
+          :scratch-id="SCRATCH_NOTE_ID"
           @select="handleSelect"
           @delete="requestDelete"
           @rename="handleRename"
+        />
+        <ArchiveList
+          v-else
+          :archives="archives"
+          :active-id="archiveView?.archive.id ?? null"
+          :loading="archivesLoading"
+          @select="handleOpenArchive"
         />
       </div>
     </aside>
@@ -66,8 +95,11 @@
     <main class="flex min-w-0 flex-1 flex-col">
       <Toolbar
         :view-mode="viewMode"
-        :has-active-note="activeNote !== null"
+        :has-active-note="activeNote !== null && archiveView === null"
         :save-status="autoSave.status.value"
+        :archive-mode="archiveView !== null"
+        :can-archive="canArchive"
+        :archiving="archiving"
         @toggle-sidebar="showSidebar = !showSidebar"
         @create="handleCreate"
         @delete="requestDeleteActive"
@@ -75,12 +107,57 @@
         @copy="copySelection"
         @paste="pasteFromClipboard"
         @insert-time-divider="insertDividerAtCursor"
+        @archive="requestArchive"
         @set-view-mode="viewMode = $event"
         @open-settings="showSettings = true"
       />
 
+      <!-- 归档只读提示条：标题 = 时间范围，右侧一键回到笔记 -->
+      <div
+        v-if="archiveView"
+        class="flex shrink-0 items-center gap-2 border-b border-[var(--border)] bg-[var(--bg-card)] px-3 py-1.5 text-[length:var(--font-size-xs)] text-[var(--text-secondary)]"
+        data-testid="archive-banner"
+      >
+        <span class="truncate font-medium text-[var(--text-primary)]">
+          {{ archiveView.archive.title }}
+        </span>
+        <span class="shrink-0 rounded-[var(--radius-tag)] bg-[var(--bg-input)] px-1.5 py-0.5">
+          {{ t('archiveReadOnly') }}
+        </span>
+        <span class="flex-1" />
+        <button
+          type="button"
+          class="shrink-0 rounded-[var(--radius-tag)] px-2 py-0.5 text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+          data-testid="archive-close"
+          @click="closeArchive"
+        >
+          {{ t('backToNotes') }}
+        </button>
+      </div>
+
       <div class="flex flex-1 overflow-hidden">
-        <template v-if="activeNote">
+        <!-- 归档：只读面（源码 + 预览同宽分屏，与笔记同一套版式） -->
+        <template v-if="archiveView">
+          <div
+            v-if="viewMode !== 'preview'"
+            class="min-w-0 flex-1 overflow-hidden"
+            :class="{ 'border-r border-[var(--border)]': viewMode === 'split' }"
+          >
+            <CodeEditor
+              ref="archiveEditorRef"
+              :model-value="archiveView.content"
+              :document-id="`archive:${archiveView.archive.id}`"
+              :font-size="settings.fontSize"
+              :font-family="settings.fontFamily"
+              read-only
+            />
+          </div>
+          <div v-if="viewMode !== 'edit'" class="min-w-0 flex-1 overflow-y-auto p-4">
+            <MarkdownPreview :content="archiveView.content" />
+          </div>
+        </template>
+
+        <template v-else-if="activeNote">
           <div
             v-if="viewMode !== 'preview'"
             class="min-w-0 flex-1 overflow-hidden"
@@ -89,6 +166,7 @@
             <CodeEditor
               ref="editorRef"
               :model-value="editorContent"
+              :document-id="activeNoteId"
               :font-size="settings.fontSize"
               :font-family="settings.fontFamily"
               @update:model-value="onContentChange"
@@ -123,11 +201,11 @@
       </div>
 
       <StatusBar
-        :char-count="charCount"
-        :word-count="wordCount"
-        :updated-at="activeNote?.updatedAt ?? null"
+        :char-count="displayCharCount"
+        :word-count="displayWordCount"
+        :updated-at="archiveView ? null : (activeNote?.updatedAt ?? null)"
         :toast="toast"
-        :error-text="autoSave.status.value === 'error' ? t('saveFailed') : ''"
+        :error-text="archiveView === null && autoSave.status.value === 'error' ? t('saveFailed') : ''"
       />
     </main>
 
@@ -148,11 +226,22 @@
       @confirm="confirmDelete"
       @cancel="deleteTarget = null"
     />
+
+    <ConfirmDialog
+      v-if="archiveConfirm"
+      :title="t('archiveConfirmTitle')"
+      :body="t('archiveConfirmBody')"
+      :confirm-text="t('archiveScratch')"
+      :cancel-text="t('cancel')"
+      @confirm="confirmArchive"
+      @cancel="archiveConfirm = false"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, provide, ref, watch } from 'vue'
+import ArchiveList from './components/ArchiveList.vue'
 import CodeEditor from './components/CodeEditor.vue'
 import ConfirmDialog from './components/ConfirmDialog.vue'
 import MarkdownPreview from './components/MarkdownPreview.vue'
@@ -160,6 +249,7 @@ import NoteList from './components/NoteList.vue'
 import SettingsDialog from './components/SettingsDialog.vue'
 import StatusBar from './components/StatusBar.vue'
 import Toolbar from './components/Toolbar.vue'
+import { localDateString } from './archive'
 import { readClipboard, writeClipboard } from './clipboard'
 import { useAutoSave } from './composables/useAutoSave'
 import { useI18n } from './composables/useI18n'
@@ -173,12 +263,23 @@ import {
   shouldAutoInsert,
 } from './composables/useTimeDivider'
 import { useWorkingContext } from './composables/useWorkingContext'
-import type { CursorPosition, Locale, Note, NoteSettings, ViewMode } from './types'
+import {
+  SCRATCH_NOTE_ID,
+  type ArchiveDetail,
+  type CursorPosition,
+  type Locale,
+  type Note,
+  type NoteSettings,
+  type SidebarTab,
+  type ViewMode,
+} from './types'
 
 const { t, ctx } = useI18n()
 if (!ctx) throw new Error('pluginContext not provided')
 
 const editorRef = ref<InstanceType<typeof CodeEditor> | null>(null)
+/** 归档只读面的编辑器（与笔记编辑器不同实例，内容也不同源） */
+const archiveEditorRef = ref<InstanceType<typeof CodeEditor> | null>(null)
 /** 应用根元素（SelectField 的浮层 Teleport 目标：在根内继承应用主题 token） */
 const rootEl = ref<HTMLElement | null>(null)
 provide('appRootEl', rootEl)
@@ -196,11 +297,25 @@ const showSidebar = ref(!narrowViewportQuery?.matches)
 const showSettings = ref(false)
 const viewMode = ref<ViewMode>('split')
 const deleteTarget = ref<Note | null>(null)
+const sidebarTab = ref<SidebarTab>('notes')
+/** 当前打开的归档（null = 在笔记面）；只读不改写 */
+const archiveView = ref<ArchiveDetail | null>(null)
+const archiveConfirm = ref(false)
+const archiving = ref(false)
 const toast = ref('')
 let toastTimer: ReturnType<typeof setTimeout> | null = null
 
-const { settings, loaded: settingsLoaded, load: loadSettings, save: saveSettings } =
-  useSettings(ctx)
+const sidebarTabs: { value: SidebarTab; label: string }[] = [
+  { value: 'notes', label: 'tabNotes' },
+  { value: 'archives', label: 'tabArchives' },
+]
+
+const {
+  settings,
+  loaded: settingsLoaded,
+  load: loadSettings,
+  save: saveSettings,
+} = useSettings(ctx)
 
 /** 视图模式属于工作偏好：切换即持久化（旧版存 settings.viewMode，重启恢复） */
 watch(viewMode, (mode) => {
@@ -221,6 +336,9 @@ const {
   notes,
   activeNote,
   activeNoteId,
+  scratchNote,
+  archives,
+  archivesLoading,
   query: searchQuery,
   loadNotes,
   setQuery,
@@ -229,6 +347,10 @@ const {
   saveNote,
   deleteNote,
   renameNote,
+  ensureScratch,
+  loadArchives,
+  archiveScratch,
+  openArchive,
 } = useNotes(ctx)
 
 /** 搜索框 → 列表查询（200ms 防抖在 setQuery 内） */
@@ -251,8 +373,16 @@ const themeOverride = computed(() =>
   settings.value.theme === 'system' ? undefined : settings.value.theme,
 )
 
-const charCount = computed(() => editorContent.value.length)
-const wordCount = computed(() => countWords(editorContent.value))
+/** 状态栏口径：归档面统计归档正文，笔记面统计编辑器 */
+const displayContent = computed(() => archiveView.value?.content ?? editorContent.value)
+const displayCharCount = computed(() => displayContent.value.length)
+const displayWordCount = computed(() => countWords(displayContent.value))
+
+/** 可归档：临时记事存在且有正文（归档只针对它） */
+const canArchive = computed(() => {
+  if (activeNote.value?.id === SCRATCH_NOTE_ID) return editorContent.value.trim().length > 0
+  return (scratchNote.value?.content.trim().length ?? 0) > 0
+})
 
 /** 中文按字、拉丁按词计数（状态栏口径） */
 function countWords(text: string): number {
@@ -268,6 +398,8 @@ function countWords(text: string): number {
 }
 
 function displayTitle(note: Note): string {
+  // 临时记事是默认文档：名字固定，不随正文首行变
+  if (note.id === SCRATCH_NOTE_ID) return t('scratchNote')
   return note.title && note.title !== 'Untitled' ? note.title : t('untitled')
 }
 
@@ -324,8 +456,9 @@ async function flushPendingSave(): Promise<boolean> {
 // ==================== 笔记操作 ====================
 
 async function handleSelect(id: string): Promise<void> {
-  if (id === activeNoteId.value) return
+  if (id === activeNoteId.value && archiveView.value === null) return
   if (!(await flushPendingSave())) return
+  archiveView.value = null
 
   try {
     const note = await openNote(id)
@@ -335,13 +468,14 @@ async function handleSelect(id: string): Promise<void> {
     editorRef.value?.focus()
     maybeAutoInsertDivider(note)
   } catch (e) {
-    showToast(t('saveFailed'))
+    showToast(t('openFailed'))
     console.error('[Lanbitou] open note failed:', e)
   }
 }
 
 async function handleCreate(): Promise<void> {
   if (!(await flushPendingSave())) return
+  archiveView.value = null
   try {
     const note = await createNote()
     searchInput.value = ''
@@ -395,11 +529,15 @@ async function confirmDelete(): Promise<void> {
 }
 
 async function handleRename(id: string, title: string): Promise<void> {
+  // 重命名 = 从磁盘读正文、改首行、写回：先把待保存内容落盘，
+  // 否则磁盘旧内容会覆盖编辑器里尚未保存的编辑（manual / onBlur 模式必现）
+  if (!(await flushPendingSave())) return
   try {
     const note = await renameNote(id, title)
     if (id === activeNoteId.value) {
       loadNoteIntoEditor(note)
-      // 重命名已由 Rust 落盘：同步保存状态，避免状态栏停在“未保存”
+      // 重命名已由 Rust 落盘：再存一次同内容只为同步保存状态，
+      // 避免状态栏停在“未保存”（pending 已在上面 flush 清空，不会覆盖编辑）
       await autoSave.saveNow(id, note.content)
     }
   } catch (e) {
@@ -411,6 +549,66 @@ async function handleRename(id: string, title: string): Promise<void> {
 function loadNoteIntoEditor(note: Note): void {
   editorContent.value = note.content
   previousContent.value = note.content
+}
+
+// ==================== 归档 ====================
+
+function switchTab(tab: SidebarTab): void {
+  sidebarTab.value = tab
+  // 回到笔记分区 = 回到编辑面（归档只是查看，不能拦住编辑）
+  if (tab === 'notes' && archiveView.value) closeArchive()
+}
+
+async function handleOpenArchive(id: string): Promise<void> {
+  if (archiveView.value?.archive.id === id) return
+  if (!(await flushPendingSave())) return
+  try {
+    archiveView.value = await openArchive(id)
+    sidebarTab.value = 'archives'
+  } catch (e) {
+    console.error('[Lanbitou] open archive failed:', e)
+    showToast(t('openArchiveFailed'))
+  }
+}
+
+function closeArchive(): void {
+  archiveView.value = null
+  void nextTick(() => {
+    if (activeNote.value) editorRef.value?.focus()
+  })
+}
+
+function requestArchive(): void {
+  if (!canArchive.value || archiving.value) return
+  archiveConfirm.value = true
+}
+
+/** 归档 = 把临时记事的全部内容剪进新的归档文档，源文档清空 */
+async function confirmArchive(): Promise<void> {
+  archiveConfirm.value = false
+  if (archiving.value) return
+  archiving.value = true
+  try {
+    if (!(await flushPendingSave())) return
+    const createdAt = scratchNote.value?.createdAt ?? 0
+    const outcome = await archiveScratch(
+      localDateString(),
+      localDateString(createdAt > 0 ? new Date(createdAt) : new Date()),
+    )
+    // 源文档被剪空：正在看它时同步编辑器，并清掉待保存状态（否则空内容会被再次写盘）
+    if (activeNoteId.value === SCRATCH_NOTE_ID) {
+      autoSave.cancel()
+      loadNoteIntoEditor(outcome.source)
+    }
+    patchContext({ lastEditTimestamp: null })
+    showToast(t('archivedTo', { name: outcome.archive.title }))
+    await loadArchives()
+  } catch (e) {
+    console.error('[Lanbitou] archive failed:', e)
+    showToast(t('archiveFailed'))
+  } finally {
+    archiving.value = false
+  }
 }
 
 // ==================== 时间分隔符 ====================
@@ -458,7 +656,9 @@ function maybeAutoInsertDivider(note: Note): void {
 // ==================== 剪贴板 ====================
 
 async function copySelection(): Promise<void> {
-  const selection = editorRef.value?.getSelection() ?? ''
+  // 归档面也要能复制：从归档编辑器取选区
+  const editor = archiveView.value ? archiveEditorRef.value : editorRef.value
+  const selection = editor?.getSelection() ?? ''
   if (!selection) return
   try {
     await writeClipboard(ctx!, selection)
@@ -470,6 +670,7 @@ async function copySelection(): Promise<void> {
 }
 
 async function pasteFromClipboard(): Promise<void> {
+  if (archiveView.value) return
   try {
     const text = await readClipboard(ctx!)
     if (!text) {
@@ -513,28 +714,43 @@ function closeSettings(): void {
 
 // ==================== 生命周期 ====================
 
+/** 事件是否发生在编辑器内（编辑器自己的快捷键优先：Ctrl+F 查找等） */
+function isEditorEvent(event: KeyboardEvent): boolean {
+  const target = event.target as HTMLElement | null
+  return !!target?.closest?.('.cm-editor')
+}
+
+function focusSidebarSearch(): void {
+  showSidebar.value = true
+  sidebarTab.value = 'notes'
+  void nextTick(() => {
+    searchEl.value?.focus()
+    searchEl.value?.select()
+  })
+}
+
 function onKeydown(event: KeyboardEvent): void {
   const mod = event.ctrlKey || event.metaKey
   if (!mod) return
 
   const key = event.key.toLowerCase()
+  const inEditor = isEditorEvent(event)
+
   if (key === 's') {
     event.preventDefault()
-    void saveActive()
+    if (!archiveView.value) void saveActive()
   } else if (key === 'n') {
     event.preventDefault()
     void handleCreate()
+  } else if (key === 'f') {
+    // 编辑器内让给 CodeMirror 的查找面板（常规编辑器行为）；
+    // 编辑器外 / Ctrl+Shift+F 仍搜笔记标题与正文
+    if (inEditor && !event.shiftKey) return
+    event.preventDefault()
+    focusSidebarSearch()
   } else if (event.shiftKey && key === 't') {
     event.preventDefault()
-    insertDividerAtCursor()
-  } else if (key === 'f') {
-    // 查找：展开侧栏并聚焦搜索框（旧版 Ctrl/Cmd+F 行为）
-    event.preventDefault()
-    showSidebar.value = true
-    void nextTick(() => {
-      searchEl.value?.focus()
-      searchEl.value?.select()
-    })
+    if (!archiveView.value) insertDividerAtCursor()
   } else if (key === '\\') {
     // 侧栏显隐（旧版 Ctrl/Cmd+\ 行为）
     event.preventDefault()
@@ -543,8 +759,9 @@ function onKeydown(event: KeyboardEvent): void {
 }
 
 async function restoreSession(): Promise<void> {
-  const targetId = context.value.lastOpenedNoteId
-  const target = (targetId && notes.value.find((n) => n.id === targetId)) || notes.value[0] || null
+  // 默认进入临时记事（用户口径：默认文档一直打开）；上次的光标 / 滚动只在它仍是
+  // 当前文档时恢复，别把其它笔记的定位带过来。
+  const target = scratchNote.value ?? notes.value[0] ?? null
   if (!target) return
 
   const note = await openNote(target.id)
@@ -552,7 +769,7 @@ async function restoreSession(): Promise<void> {
   patchContext({ lastOpenedNoteId: note.id })
   await nextTick()
 
-  if (target.id === targetId) {
+  if (note.id === context.value.lastOpenedNoteId) {
     if (context.value.cursorPosition) editorRef.value?.setCursor(context.value.cursorPosition)
     if (context.value.scrollPosition !== null) {
       editorRef.value?.setScrollTop(context.value.scrollPosition)
@@ -580,24 +797,50 @@ onMounted(async () => {
 
   try {
     await loadNotes()
+    // 默认文档自愈（activate 已建过；这里幂等），并把归档清单预热
+    await ensureScratch()
     await restoreSession()
   } catch (e) {
     console.error('[Lanbitou] initial load failed:', e)
     showToast(t('saveFailed'))
   }
 
+  try {
+    await loadArchives()
+  } catch (e) {
+    // 归档列表读失败不阻断编辑（侧栏显示空态 + 控制台留痕）
+    console.error('[Lanbitou] load archives failed:', e)
+  }
+
   document.addEventListener('keydown', onKeydown)
 })
+
+/**
+ * 卸载前落盘：待保存正文 + 工作上下文
+ *
+ * 宿主 `mountApp` 返回的 `unmount()` 是 async，会先 await 本方法再卸载；
+ * `onBeforeUnmount` 里的调用只是「应用被直接卸载」时的兜底（重复执行是幂等的）。
+ */
+async function flushAll(): Promise<void> {
+  try {
+    if (activeNoteId.value && autoSave.hasPending()) {
+      await autoSave.saveNow(activeNoteId.value, editorContent.value)
+    }
+  } finally {
+    cancelContextSave()
+    await flushContext().catch((e) => {
+      console.error('[Lanbitou] flush context failed:', e)
+    })
+  }
+}
+
+defineExpose({ flushAll })
 
 onBeforeUnmount(() => {
   narrowViewportQuery?.removeEventListener('change', onNarrowViewportChange)
   document.removeEventListener('keydown', onKeydown)
   if (toastTimer) clearTimeout(toastTimer)
-  if (activeNoteId.value && autoSave.hasPending()) {
-    void autoSave.saveNow(activeNoteId.value, editorContent.value)
-  }
-  cancelContextSave()
-  void flushContext()
+  void flushAll()
 })
 </script>
 

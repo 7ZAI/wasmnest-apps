@@ -18,6 +18,24 @@ const zhCN: MessageSchema = {
   noNotesHint: '点击「新建笔记」开始书写',
   noSearchResults: '没有匹配的笔记',
 
+  tabNotes: '笔记',
+  tabArchives: '归档',
+  scratchNote: '临时记事',
+  scratchNoteHint: '默认文档 · 常驻',
+
+  archiveScratch: '归档临时记事',
+  archiveConfirmTitle: '归档临时记事',
+  archiveConfirmBody:
+    '会把「临时记事」的全部内容剪切到新的归档文档（archives/，名为「起日_今天」），归档后临时记事清空。',
+  archivedTo: '已归档：{name}',
+  archiveFailed: '归档失败，内容仍留在临时记事中',
+  archiveReadOnly: '只读记录',
+  backToNotes: '返回笔记',
+  noArchives: '还没有归档',
+  noArchivesHint: '在「临时记事」点归档，全部内容会剪到 archives/ 下',
+  openArchiveFailed: '打开归档失败',
+  loading: '加载中…',
+
   editMode: '编辑',
   previewMode: '预览',
   splitMode: '分屏',
@@ -67,6 +85,7 @@ const zhCN: MessageSchema = {
   saveStatusSaved: '已保存',
   saveStatusError: '保存失败',
   saveFailed: '保存失败，内容仍保留在编辑器中',
+  openFailed: '打开笔记失败',
   copied: '已复制',
   pasteEmpty: '剪贴板为空或没有文本内容',
   clipboardReadFailed: '读取剪贴板失败',

@@ -110,10 +110,10 @@ _Avoid_: 自动保存、autososave（是保存模式的一种）
 **笔记索引（Note index）**：
 持久化的元数据缓存，路径 `~/.wasmnest/lanbitou/index.json`。
 只存每个笔记的 id/createdAt/updatedAt；标题始终由正文首行派生。
-索引损坏时不阻塞启动：跳过坏行并按目录扫描重建。
+索引损坏时不阻塞启动：整份回退为空索引，列表扫描目录重建（时间戳回退为当前时间）。
 _Avoid_: 数据库、catalog、目录
 
 **Markdown 预览（Markdown preview）**：
 编辑区右侧的实时渲染视图，使用 marked 库将 Markdown 源码转换为 HTML。
-预览与编辑同步滚动（可选关闭）。
+预览独立滚动（同步滚动尚未实现）。
 _Avoid_: 渲染、render、WYSIWYG

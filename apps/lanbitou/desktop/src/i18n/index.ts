@@ -19,6 +19,14 @@ export const messages: Record<string, Record<string, unknown>> = {
 /** app 域消息在统一实例里的命名空间前缀 */
 export const MESSAGE_NAMESPACE = 'com.wasmnest.lanbitou'
 
+/** 支持的 locale（宿主注入值；未知值回落默认中文） */
+export type AppLocale = 'zh-CN' | 'en'
+
+/** 宿主 locale → 受支持 locale（未知值回落 zh-CN，与 mountApp 的判定同口径） */
+export function normalizeLocale(value: string | undefined): AppLocale {
+  return value === 'en' ? 'en' : 'zh-CN'
+}
+
 /** 域消息表 → 扁平命名空间 key 表（`<namespace>.<key>`，供 merge 进实例） */
 function toNamespacedFlat(table: Record<string, unknown>): Record<string, string> {
   const flat: Record<string, string> = {}
@@ -28,14 +36,25 @@ function toNamespacedFlat(table: Record<string, unknown>): Record<string, string
   return flat
 }
 
-const i18n = createI18n({
-  legacy: false,
-  locale: 'zh-CN',
-  fallbackLocale: 'zh-CN',
-  messages: {
-    'zh-CN': toNamespacedFlat(messages['zh-CN']),
-    en: toNamespacedFlat(messages.en),
-  },
-})
+/**
+ * 新建独立 i18n 实例
+ *
+ * 主应用与多任务预览**各持一份**：`mountPreview` 若直接改写模块单例的
+ * `global.locale`，卡片以宿主 locale 挂载时会把用户在主应用里选的语言改掉
+ * （预览是只读面，不得有这种副作用）。消息表每次重新摊平，避免实例间共享可变对象。
+ */
+export function createAppI18n(locale: AppLocale = 'zh-CN') {
+  return createI18n({
+    legacy: false,
+    locale,
+    fallbackLocale: 'zh-CN',
+    messages: {
+      'zh-CN': toNamespacedFlat(messages['zh-CN']),
+      en: toNamespacedFlat(messages.en),
+    },
+  })
+}
+
+const i18n = createAppI18n('zh-CN')
 
 export default i18n

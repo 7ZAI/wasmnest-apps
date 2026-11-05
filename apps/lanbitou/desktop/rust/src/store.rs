@@ -94,8 +94,18 @@ pub fn validate_id(id: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// 临时记事（scratch）固定 id：常驻默认文档，不可删除
+///
+/// 归档只针对它（见 `archive_scratch`）；普通笔记走 `create_note` 随机 uuid。
+pub const SCRATCH_ID: &str = "scratch";
+
 fn notes_dir(data_root: &str) -> String {
     format!("{}/notes", data_root)
+}
+
+/// 归档固定文件夹（与 notes/ 平级）
+fn archives_dir(data_root: &str) -> String {
+    format!("{}/archives", data_root)
 }
 
 fn note_path(data_root: &str, id: &str) -> anyhow::Result<String> {
@@ -105,20 +115,37 @@ fn note_path(data_root: &str, id: &str) -> anyhow::Result<String> {
 
 /// 笔记路径必须落在 notes 目录内（存在时用 canonicalize 判定，防 symlink 逃逸）
 fn ensure_contained<H: HostFs>(host: &H, data_root: &str, path: &str) -> anyhow::Result<()> {
-    let notes = notes_dir(data_root);
+    ensure_under_dir(host, &notes_dir(data_root), path, "notes")
+}
+
+/// 归档路径必须落在 archives 目录内（口径同笔记）
+fn ensure_archive_contained<H: HostFs>(
+    host: &H,
+    data_root: &str,
+    path: &str,
+) -> anyhow::Result<()> {
+    ensure_under_dir(host, &archives_dir(data_root), path, "archives")
+}
+
+/// 路径必须落在 dir 目录内（存在时用 canonicalize 判定，防 symlink 逃逸）
+fn ensure_under_dir<H: HostFs>(host: &H, dir: &str, path: &str, label: &str) -> anyhow::Result<()> {
     let Some(canonical_notes) = host
-        .fs_canonicalize(&notes)
-        .map_err(|e| anyhow::anyhow!("failed to canonicalize {}: {}", notes, e))?
+        .fs_canonicalize(dir)
+        .map_err(|e| anyhow::anyhow!("failed to canonicalize {}: {}", dir, e))?
     else {
-        // notes 目录尚未落盘（首建）：id 白名单已排除穿越字符
+        // 目录尚未落盘（首建）：id 白名单已排除穿越字符
         return Ok(());
     };
     if let Some(canonical_path) = host
         .fs_canonicalize(path)
         .map_err(|e| anyhow::anyhow!("failed to canonicalize {}: {}", path, e))?
     {
-        if !canonical_path.starts_with(&canonical_notes) {
-            anyhow::bail!("note path escapes notes directory: {}", path);
+        // 按路径组件比较（`Path::starts_with`），不能用字符串前缀：
+        // `/x/notes-evil/a.md` 的字符串前缀也是 `/x/notes`，会被误判为在目录内。
+        let notes_path = std::path::Path::new(&canonical_notes);
+        let candidate = std::path::Path::new(&canonical_path);
+        if !candidate.starts_with(notes_path) {
+            anyhow::bail!("{} path escapes its directory: {}", label, path);
         }
     }
     Ok(())
@@ -274,6 +301,10 @@ pub fn save_note<H: HostLog + HostFs + HostConfig>(
 }
 
 pub fn delete_note<H: HostLog + HostFs>(host: &H, data_root: &str, id: &str) -> anyhow::Result<()> {
+    // 默认文档不可删：界面上没有入口，命令面也挡一道（外部调用者同样受限）
+    if id == SCRATCH_ID {
+        anyhow::bail!("scratch note cannot be deleted");
+    }
     let path = note_path(data_root, id)?;
     ensure_contained(host, data_root, &path)?;
     delete_file(host, &path)?;
@@ -291,9 +322,22 @@ pub fn list_notes<H: HostLog + HostFs + HostConfig>(
     let entries: Vec<FsDirEntry> = match host.fs_read_dir(&dir) {
         Ok(entries) => entries,
         Err(e) => {
-            // 首次启动 notes 目录可能尚不存在：视为空列表而非激活失败
-            host.log_warn(&format!("notes dir unreadable ({}): {}", dir, e));
-            return Ok(Vec::new());
+            // 首次启动 notes/ 可能尚未创建（init 只写数据根下的文件）→ 空列表；
+            // 其余失败（权限 / IO）必须上抛：伪装成空列表会让用户以为笔记全没了。
+            match host.fs_stat(&dir) {
+                Ok(None) => return Ok(Vec::new()),
+                Ok(Some(_)) => {
+                    return Err(anyhow::anyhow!("failed to read notes dir {}: {}", dir, e))
+                }
+                Err(stat_err) => {
+                    return Err(anyhow::anyhow!(
+                        "failed to read notes dir {}: {} (stat failed: {})",
+                        dir,
+                        e,
+                        stat_err
+                    ))
+                }
+            }
         }
     };
 
@@ -387,6 +431,313 @@ pub fn search_notes<H: HostLog + HostFs + HostConfig>(
             n.title.to_lowercase().contains(&needle) || n.content.to_lowercase().contains(&needle)
         })
         .collect())
+}
+
+// ==================== 临时记事 / 归档 ====================
+
+/// 归档条目（命令面 JSON，camelCase）
+///
+/// 归档就是 `archives/<时间范围>.md`：文件名即时时间范围，正文是临时记事剪出来的原样内容。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Archive {
+    /// 文件主名（= 时间范围，也是列表/打开归档用的 id）
+    pub id: String,
+    /// 展示标题（同 id：`2026-10-01_2026-11-04`）
+    pub title: String,
+    /// 完整文件名（含 `.md`）
+    pub file_name: String,
+    pub size: u64,
+}
+
+/// 归档正文
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ArchiveDetail {
+    pub archive: Archive,
+    pub content: String,
+}
+
+/// 确保临时记事存在（缺失则建空文档），返回它
+///
+/// 没有它就不存在「默认文档」：首次安装、或被外部删除后启动都要自愈，
+/// 不依赖前端写文件。
+pub fn ensure_scratch<H: HostLog + HostFs + HostConfig>(
+    host: &H,
+    data_root: &str,
+) -> anyhow::Result<Note> {
+    let path = note_path(data_root, SCRATCH_ID)?;
+    ensure_contained(host, data_root, &path)?;
+
+    let exists = host
+        .fs_exists(&path)
+        .map_err(|e| anyhow::anyhow!("failed to check {}: {}", path, e))?;
+    if !exists {
+        let now = now_ms(host);
+        write_file(host, &path, "")?;
+        let mut index = read_index(host, data_root);
+        index.notes.entry(SCRATCH_ID.to_string()).or_insert(NoteMeta {
+            created_at: now,
+            updated_at: now,
+        });
+        write_index(host, data_root, &index)?;
+    }
+
+    open_note(host, data_root, SCRATCH_ID)
+}
+
+/// 归档临时记事：全部内容剪到 `archives/<起日_今日>.md`，源文档清空
+///
+/// - 起日取正文里最早的 `YYYY-MM-DD`（时间分隔符里的日期），没有则用调用方给的
+///   `fallback_start`（前端按本地时区算的创建日），再退回 createdAt（UTC）；
+/// - 终日落点：调用方传的 `today`（本地时区），否则按宿主时钟（UTC）；
+/// - 同名归档已存在时追加 `_2`/`_3`…：每次归档都是**新文档**，不覆盖旧记录。
+///
+/// 日期参数由前端给：wasm 侧拿不到本地时区，`CurrentTimeMs` 只能算出 UTC 日。
+pub fn archive_scratch<H: HostLog + HostFs + HostConfig>(
+    host: &H,
+    data_root: &str,
+    today: Option<&str>,
+    fallback_start: Option<&str>,
+) -> anyhow::Result<(Archive, Note)> {
+    let scratch = open_note(host, data_root, SCRATCH_ID)?;
+    if scratch.content.trim().is_empty() {
+        anyhow::bail!("scratch note is empty: nothing to archive");
+    }
+
+    let content_start = earliest_date(&scratch.content);
+    let start = content_start
+        .or_else(|| fallback_start.and_then(normalize_date))
+        .unwrap_or_else(|| date_from_ms(scratch.created_at));
+    let end = today
+        .and_then(normalize_date)
+        .unwrap_or_else(|| date_from_ms(now_ms(host)));
+    // 正文里的日期比今天晚（时钟回拨 / 手写了未来日期）时按区间两端排序，不让名字倒序
+    let (start, end) = if start > end { (end, start) } else { (start, end) };
+    let title = if start == end {
+        end
+    } else {
+        format!("{}_{}", start, end)
+    };
+
+    let dir = archives_dir(data_root);
+    let (id, path) = unique_archive_path(host, &dir, &title)?;
+    write_file(host, &path, &scratch.content)?;
+    // 源文档清空（“剪切”）：先写归档再改源，失败也不会丢正文
+    let source = save_note(host, data_root, SCRATCH_ID, "")?;
+
+    Ok((
+        Archive {
+            title: id.clone(),
+            file_name: format!("{}.md", id),
+            id,
+            size: scratch.content.len() as u64,
+        },
+        source,
+    ))
+}
+
+/// 列出归档（新的在前；缺目录 = 空列表）
+pub fn list_archives<H: HostLog + HostFs>(host: &H, data_root: &str) -> anyhow::Result<Vec<Archive>> {
+    let dir = archives_dir(data_root);
+    let entries = match host.fs_read_dir(&dir) {
+        Ok(entries) => entries,
+        Err(e) => {
+            // 与 notes 同口径：目录不存在 = 还没归档过；其余失败必须上抛
+            return match host.fs_stat(&dir) {
+                Ok(None) => Ok(Vec::new()),
+                _ => Err(anyhow::anyhow!("failed to read archives dir {}: {}", dir, e)),
+            };
+        }
+    };
+
+    let mut archives = Vec::new();
+    for entry in entries {
+        if entry.node_type != FsNodeType::File {
+            continue;
+        }
+        let Some(id) = entry.name.strip_suffix(".md") else {
+            continue;
+        };
+        if validate_archive_id(id).is_err() {
+            host.log_warn(&format!(
+                "skipping archive with unexpected name: {}",
+                entry.name
+            ));
+            continue;
+        }
+        let path = format!("{}/{}", dir, entry.name);
+        let size = host
+            .fs_stat(&path)
+            .ok()
+            .flatten()
+            .map(|stat| stat.size)
+            .unwrap_or(0);
+        archives.push(Archive {
+            id: id.to_string(),
+            title: id.to_string(),
+            file_name: entry.name.clone(),
+            size,
+        });
+    }
+
+    archives.sort_by(|a, b| b.id.cmp(&a.id));
+    Ok(archives)
+}
+
+/// 读归档正文（只读面：归档不改写）
+pub fn open_archive<H: HostLog + HostFs>(
+    host: &H,
+    data_root: &str,
+    id: &str,
+) -> anyhow::Result<ArchiveDetail> {
+    validate_archive_id(id)?;
+    let path = format!("{}/{}.md", archives_dir(data_root), id);
+    ensure_archive_contained(host, data_root, &path)?;
+
+    let content = host
+        .fs_read(&path)
+        .map_err(|e| anyhow::anyhow!("failed to read {}: {}", path, e))?
+        .ok_or_else(|| anyhow::anyhow!("archive not found: {}", id))?;
+    let size = content.len() as u64;
+
+    Ok(ArchiveDetail {
+        archive: Archive {
+            id: id.to_string(),
+            title: id.to_string(),
+            file_name: format!("{}.md", id),
+            size,
+        },
+        content,
+    })
+}
+
+/// 归档 id 合法性：时间范围形态（数字、`-`、`_`；不允许分隔符 / `..`）
+pub fn validate_archive_id(id: &str) -> anyhow::Result<()> {
+    if id.is_empty() || id.len() > 128 {
+        anyhow::bail!("invalid archive id length");
+    }
+    if !id
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    {
+        anyhow::bail!("invalid archive id: {}", id);
+    }
+    Ok(())
+}
+
+/// 取一个不冲突的归档文件名：`<title>.md` → `<title>_2.md` → …
+fn unique_archive_path<H: HostFs>(
+    host: &H,
+    dir: &str,
+    title: &str,
+) -> anyhow::Result<(String, String)> {
+    for suffix in 1..1000 {
+        let id = if suffix == 1 {
+            title.to_string()
+        } else {
+            format!("{}_{}", title, suffix)
+        };
+        validate_archive_id(&id)?;
+        let path = format!("{}/{}.md", dir, id);
+        let exists = host
+            .fs_exists(&path)
+            .map_err(|e| anyhow::anyhow!("failed to check {}: {}", path, e))?;
+        if !exists {
+            return Ok((id, path));
+        }
+    }
+    anyhow::bail!("too many archives with the same time range: {}", title)
+}
+
+// ==================== 日期（归档命名） ====================
+
+/// `YYYY-MM-DD` 合法性（归档名只用 ISO 日；月/日范围一并校验）
+pub fn is_iso_date(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    if bytes.len() != 10 || bytes[4] != b'-' || bytes[7] != b'-' {
+        return false;
+    }
+    if !bytes
+        .iter()
+        .enumerate()
+        .all(|(i, b)| i == 4 || i == 7 || b.is_ascii_digit())
+    {
+        return false;
+    }
+    let month = value[5..7].parse::<u32>().unwrap_or(0);
+    let day = value[8..10].parse::<u32>().unwrap_or(0);
+    (1..=12).contains(&month) && (1..=31).contains(&day)
+}
+
+fn normalize_date(value: &str) -> Option<String> {
+    let value = value.trim();
+    if is_iso_date(value) {
+        Some(value.to_string())
+    } else {
+        None
+    }
+}
+
+/// 正文里最早的 ISO 日期（时间分隔符的 `{{date}}`）
+///
+/// 按字节滑块扫，但一律用 `str::get` 切片：位置落在非 char 边界时返回 `None`，不 panic。
+pub fn earliest_date(content: &str) -> Option<String> {
+    let len = content.len();
+    let mut best: Option<&str> = None;
+    let mut i = 0;
+    while i + 10 <= len {
+        if let Some(candidate) = content.get(i..i + 10) {
+            if is_iso_date(candidate)
+                && !is_digit_before(content, i)
+                && !is_digit_after(content, i + 10)
+            {
+                if best.map_or(true, |b| candidate < b) {
+                    best = Some(candidate);
+                }
+                i += 10;
+                continue;
+            }
+        }
+        i += 1;
+    }
+    best.map(str::to_string)
+}
+
+fn is_digit_before(content: &str, index: usize) -> bool {
+    index > 0
+        && content
+            .get(index - 1..index)
+            .is_some_and(|c| c.as_bytes()[0].is_ascii_digit())
+}
+
+fn is_digit_after(content: &str, index: usize) -> bool {
+    content
+        .get(index..index + 1)
+        .is_some_and(|c| c.as_bytes()[0].is_ascii_digit())
+}
+
+/// Unix 毫秒 → `YYYY-MM-DD`（UTC）
+///
+/// 只是兜底口径：正常路径由前端传本地日期。wasm 侧拿不到本地时区，
+/// 也不为格式化日期引 chrono。
+pub fn date_from_ms(ms: u64) -> String {
+    let (year, month, day) = civil_from_days((ms / 86_400_000) as i64);
+    format!("{year:04}-{month:02}-{day:02}")
+}
+
+/// Howard Hinnant 的 civil_from_days：1970-01-01 起的天数 → 公历年月日
+fn civil_from_days(days: i64) -> (i64, u32, u32) {
+    let z = days + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = z - era * 146_097; // [0, 146096]
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365; // [0, 399]
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100); // [0, 365]
+    let mp = (5 * doy + 2) / 153; // [0, 11]
+    let d = (doy - (153 * mp + 2) / 5 + 1) as u32; // [1, 31]
+    let m = (if mp < 10 { mp + 3 } else { mp - 9 }) as u32; // [1, 12]
+    (if m <= 2 { y + 1 } else { y }, m, d)
 }
 
 // ==================== 设置 / 上下文 ====================

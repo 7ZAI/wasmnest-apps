@@ -9,12 +9,15 @@ use wasmnest_plugin_api::host::{FsDirEntry, FsNodeType, FsStat, HostError};
 /// 测试宿主：日志静默 + host-fs 直连真实文件系统（临时目录内）+ 可控时钟
 struct TestHost {
     clock: Cell<u64>,
+    /// 模拟 `fs_read_dir` 失败（权限 / IO）；`fs_stat` 仍按真实文件系统返回
+    fail_read_dir: Cell<bool>,
 }
 
 impl TestHost {
     fn new() -> Self {
         Self {
             clock: Cell::new(1_700_000_000_000),
+            fail_read_dir: Cell::new(false),
         }
     }
 
@@ -91,6 +94,9 @@ impl HostFs for TestHost {
     }
 
     fn fs_read_dir(&self, path: &str) -> Result<Vec<FsDirEntry>, HostError> {
+        if self.fail_read_dir.get() {
+            return Err(host_err(format!("read_dir {}: permission denied", path)));
+        }
         let dir =
             std::fs::read_dir(path).map_err(|e| host_err(format!("read_dir {}: {}", path, e)))?;
         let mut entries = Vec::new();
@@ -170,6 +176,25 @@ fn note_path_stays_inside_notes_dir() {
     assert!(note_path("/root", "../../etc/passwd").is_err());
 }
 
+/// containment 按路径组件比较：共享前缀的兄弟目录（`notes-evil/`）不得被当成 notes 内
+#[test]
+fn containment_rejects_sibling_dir_with_shared_prefix() {
+    let (host, dir) = setup();
+    std::fs::create_dir_all(format!("{}/notes", dir)).unwrap();
+    std::fs::create_dir_all(format!("{}/notes-evil", dir)).unwrap();
+    std::fs::write(format!("{}/notes-evil/x.md", dir), "x").unwrap();
+
+    let escape = format!("{}/notes-evil/x.md", dir);
+    assert!(
+        ensure_contained(&host, &dir, &escape).is_err(),
+        "notes-evil/ 与 notes/ 只是字符串前缀相同，必须拒绝"
+    );
+
+    // 正常的 notes/<id>.md 仍然通过
+    std::fs::write(format!("{}/notes/ok.md", dir), "ok").unwrap();
+    assert!(ensure_contained(&host, &dir, &format!("{}/notes/ok.md", dir)).is_ok());
+}
+
 // ==================== CRUD ====================
 
 #[test]
@@ -243,6 +268,31 @@ fn list_notes_picks_up_externally_copied_files() {
     let list = list_notes(&host, &dir).unwrap();
     assert_eq!(list.len(), 1);
     assert_eq!(list[0].title, "外部笔记");
+}
+
+/// 首次启动（notes/ 尚未创建）是空列表，不是错误
+#[test]
+fn list_notes_missing_dir_is_empty_not_error() {
+    let host = TestHost::new();
+    let dir = data_root();
+    init(&host, &dir).unwrap();
+
+    let list = list_notes(&host, &dir).unwrap();
+    assert!(list.is_empty());
+}
+
+/// 目录存在但读失败（权限 / IO）必须上抛：伪装成空列表会让用户以为笔记全没了
+#[test]
+fn list_notes_propagates_read_dir_failure_when_dir_exists() {
+    let (host, dir) = setup();
+    create_note(&host, &dir).unwrap();
+    host.fail_read_dir.set(true);
+
+    let err = list_notes(&host, &dir).unwrap_err();
+    assert!(
+        err.to_string().contains("failed to read notes dir"),
+        "{err}"
+    );
 }
 
 #[test]
@@ -363,4 +413,216 @@ fn save_context_round_trips() {
     assert_eq!(context["lastOpenedNoteId"], "abc");
     assert_eq!(context["cursorPosition"]["line"], 3);
     assert_eq!(context["deletedDividerNotes"], serde_json::json!(["abc"]));
+}
+
+// ==================== 临时记事 ====================
+
+#[test]
+fn ensure_scratch_creates_once_and_keeps_content() {
+    let (host, dir) = setup();
+
+    let first = ensure_scratch(&host, &dir).unwrap();
+    assert_eq!(first.id, SCRATCH_ID);
+    assert_eq!(first.content, "");
+    assert!(std::path::Path::new(&format!("{}/notes/scratch.md", dir)).exists());
+    assert!(first.created_at > 0);
+
+    // 已存在时不得重置正文 / 时间戳
+    save_note(&host, &dir, SCRATCH_ID, "# 临时记事\n\n今天写的东西").unwrap();
+    let created_before = first.created_at;
+    let second = ensure_scratch(&host, &dir).unwrap();
+    assert_eq!(second.content, "# 临时记事\n\n今天写的东西");
+    assert_eq!(second.created_at, created_before);
+
+    // 外部删掉文件后有一次自愈
+    std::fs::remove_file(format!("{}/notes/scratch.md", dir)).unwrap();
+    let healed = ensure_scratch(&host, &dir).unwrap();
+    assert_eq!(healed.content, "");
+}
+
+#[test]
+fn delete_note_refuses_default_document() {
+    let (host, dir) = setup();
+    ensure_scratch(&host, &dir).unwrap();
+
+    let err = delete_note(&host, &dir, SCRATCH_ID).unwrap_err();
+    assert!(err.to_string().contains("cannot be deleted"), "{}", err);
+    assert!(
+        std::path::Path::new(&format!("{}/notes/scratch.md", dir)).exists(),
+        "拒绝删除后文件必须还在"
+    );
+}
+
+// ==================== 归档 ====================
+
+#[test]
+fn archive_scratch_names_by_date_range_and_clears_source() {
+    let (host, dir) = setup();
+    ensure_scratch(&host, &dir).unwrap();
+    save_note(
+        &host,
+        &dir,
+        SCRATCH_ID,
+        "--- 2026-10-25 周日 10:00 ---\n第一段\n\n--- 2026-10-01 周四 09:00 ---\n更早的一段\n",
+    )
+    .unwrap();
+
+    let (archive, source) = archive_scratch(&host, &dir, Some("2026-11-04"), None).unwrap();
+
+    assert_eq!(archive.id, "2026-10-01_2026-11-04");
+    assert_eq!(archive.title, "2026-10-01_2026-11-04");
+    assert_eq!(archive.file_name, "2026-10-01_2026-11-04.md");
+    assert!(archive.size > 0);
+    // 正文原样搬过去（不重排、不加头）
+    let archived =
+        std::fs::read_to_string(format!("{}/archives/{}.md", dir, archive.id)).unwrap();
+    assert!(archived.starts_with("--- 2026-10-25"));
+    // 源文档被剪空
+    assert_eq!(source.id, SCRATCH_ID);
+    assert_eq!(source.content, "");
+    assert_eq!(
+        std::fs::read_to_string(format!("{}/notes/scratch.md", dir)).unwrap(),
+        ""
+    );
+}
+
+#[test]
+fn archive_scratch_uses_fallback_start_when_content_has_no_date() {
+    let (host, dir) = setup();
+    ensure_scratch(&host, &dir).unwrap();
+    save_note(&host, &dir, SCRATCH_ID, "没有日期的一坨笔记").unwrap();
+
+    let (archive, _) = archive_scratch(&host, &dir, Some("2026-11-04"), Some("2026-11-01")).unwrap();
+    assert_eq!(archive.id, "2026-11-01_2026-11-04");
+}
+
+#[test]
+fn archive_scratch_same_day_range_is_single_date() {
+    let (host, dir) = setup();
+    ensure_scratch(&host, &dir).unwrap();
+    save_note(
+        &host,
+        &dir,
+        SCRATCH_ID,
+        "--- 2026-11-04 周三 08:00 ---\n只有今天\n",
+    )
+    .unwrap();
+
+    let (archive, _) = archive_scratch(&host, &dir, Some("2026-11-04"), None).unwrap();
+    assert_eq!(archive.id, "2026-11-04");
+}
+
+#[test]
+fn archive_scratch_rejects_empty_and_creates_no_file() {
+    let (host, dir) = setup();
+    ensure_scratch(&host, &dir).unwrap();
+    save_note(&host, &dir, SCRATCH_ID, "   \n\n").unwrap();
+
+    let err = archive_scratch(&host, &dir, Some("2026-11-04"), None).unwrap_err();
+    assert!(err.to_string().contains("nothing to archive"), "{}", err);
+    assert!(
+        list_archives(&host, &dir).unwrap().is_empty(),
+        "空白内容不得产生空归档文件"
+    );
+}
+
+#[test]
+fn archive_scratch_same_range_gets_suffix_not_overwrite() {
+    let (host, dir) = setup();
+    ensure_scratch(&host, &dir).unwrap();
+
+    save_note(&host, &dir, SCRATCH_ID, "第一次").unwrap();
+    let (first, _) = archive_scratch(&host, &dir, Some("2026-11-04"), Some("2026-11-04")).unwrap();
+    save_note(&host, &dir, SCRATCH_ID, "第二次").unwrap();
+    let (second, _) = archive_scratch(&host, &dir, Some("2026-11-04"), Some("2026-11-04")).unwrap();
+
+    assert_eq!(first.id, "2026-11-04");
+    assert_eq!(second.id, "2026-11-04_2");
+    assert_eq!(second.file_name, "2026-11-04_2.md");
+    assert_eq!(
+        std::fs::read_to_string(format!("{}/archives/2026-11-04.md", dir)).unwrap(),
+        "第一次",
+        "旧归档不被覆盖"
+    );
+}
+
+#[test]
+fn list_archives_sorted_desc_and_skips_non_md() {
+    let (host, dir) = setup();
+    let archives = format!("{}/archives", dir);
+    std::fs::create_dir_all(&archives).unwrap();
+    std::fs::write(format!("{}/2026-10-01_2026-10-20.md", archives), "a").unwrap();
+    std::fs::write(format!("{}/2026-11-01_2026-11-04.md", archives), "bb").unwrap();
+    std::fs::write(format!("{}/notes.txt", archives), "ignore").unwrap();
+    std::fs::create_dir_all(format!("{}/sub", archives)).unwrap();
+
+    let list = list_archives(&host, &dir).unwrap();
+    assert_eq!(
+        list.iter().map(|a| a.id.as_str()).collect::<Vec<_>>(),
+        vec!["2026-11-01_2026-11-04", "2026-10-01_2026-10-20"]
+    );
+    assert_eq!(list[0].size, 2);
+    assert_eq!(list[0].file_name, "2026-11-01_2026-11-04.md");
+}
+
+#[test]
+fn list_archives_missing_dir_is_empty() {
+    let (host, dir) = setup();
+    assert!(list_archives(&host, &dir).unwrap().is_empty());
+}
+
+#[test]
+fn open_archive_reads_content_and_rejects_traversal() {
+    let (host, dir) = setup();
+    ensure_scratch(&host, &dir).unwrap();
+    save_note(&host, &dir, SCRATCH_ID, "归档正文").unwrap();
+    let (archive, _) = archive_scratch(&host, &dir, Some("2026-11-04"), None).unwrap();
+
+    let detail = open_archive(&host, &dir, &archive.id).unwrap();
+    assert_eq!(detail.content, "归档正文");
+    assert_eq!(detail.archive.id, archive.id);
+
+    assert!(open_archive(&host, &dir, "../notes/scratch").is_err());
+    assert!(open_archive(&host, &dir, "a/b").is_err());
+    assert!(open_archive(&host, &dir, "2026-11-04\n").is_err());
+    assert!(open_archive(&host, &dir, "2099-01-01").is_err());
+}
+
+#[test]
+fn validate_archive_id_allows_date_range_only() {
+    assert!(validate_archive_id("2026-10-01_2026-11-04").is_ok());
+    assert!(validate_archive_id("2026-11-04_2").is_ok());
+    assert!(validate_archive_id("../escape").is_err());
+    assert!(validate_archive_id("2026-11-04/../x").is_err());
+    assert!(validate_archive_id("").is_err());
+    assert!(validate_archive_id(&"x".repeat(129)).is_err());
+}
+
+// ==================== 日期解析 ====================
+
+#[test]
+fn earliest_date_picks_min_and_ignores_false_positives() {
+    assert_eq!(
+        earliest_date("--- 2026-10-25 ---\n--- 2026-01-09 ---").as_deref(),
+        Some("2026-01-09")
+    );
+    // 更长的数字串不算日期（避免从 12026-01-01 / 2026-01-011 里抠出假日期）
+    assert_eq!(earliest_date("12026-01-01"), None);
+    assert_eq!(earliest_date("2026-01-011"), None);
+    // 非法月日直接排除
+    assert_eq!(earliest_date("2026-13-01"), None);
+    assert_eq!(earliest_date("2026-00-10"), None);
+    // 多字节正文里不得 panic（按字节滑块 + str::get 边界保护）
+    assert_eq!(
+        earliest_date("中文中文 2026-02-28 中文").as_deref(),
+        Some("2026-02-28")
+    );
+    assert_eq!(earliest_date("无日期"), None);
+}
+
+#[test]
+fn date_from_ms_formats_utc_days() {
+    assert_eq!(date_from_ms(0), "1970-01-01");
+    assert_eq!(date_from_ms(1_700_000_000_000), "2023-11-14");
+    assert_eq!(date_from_ms(1_767_225_600_000), "2026-01-01");
 }

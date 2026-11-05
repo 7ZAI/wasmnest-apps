@@ -17,6 +17,23 @@ export interface MessageSchema {
   noNotesHint: string
   noSearchResults: string
 
+  tabNotes: string
+  tabArchives: string
+  scratchNote: string
+  scratchNoteHint: string
+
+  archiveScratch: string
+  archiveConfirmTitle: string
+  archiveConfirmBody: string
+  archivedTo: string
+  archiveFailed: string
+  archiveReadOnly: string
+  backToNotes: string
+  noArchives: string
+  noArchivesHint: string
+  openArchiveFailed: string
+  loading: string
+
   editMode: string
   previewMode: string
   splitMode: string
@@ -66,6 +83,7 @@ export interface MessageSchema {
   saveStatusSaved: string
   saveStatusError: string
   saveFailed: string
+  openFailed: string
   copied: string
   pasteEmpty: string
   clipboardReadFailed: string

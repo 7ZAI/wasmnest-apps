@@ -7,12 +7,20 @@
  * DOM 内无可聚焦控件（卡片本身是唯一动作层）。
  */
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import i18n, { MESSAGE_NAMESPACE } from '../i18n'
+import { createAppI18n, MESSAGE_NAMESPACE, normalizeLocale } from '../i18n'
 import { toPlainExcerpt } from './excerpt'
 import type { AppPreviewEnv } from '../entry'
 import type { Note } from '../types'
 
 const props = defineProps<{ env: AppPreviewEnv }>()
+
+/**
+ * 预览独立 i18n 实例（不碰主应用的模块单例）
+ *
+ * 卡片按宿主 locale 渲染，但 `mountPreview` 不能改全局 `i18n.global.locale`：
+ * 主应用可能被用户设成另一种语言，预览挂载 / 卸载不得把它改回去。
+ */
+const previewI18n = createAppI18n(normalizeLocale(props.env.locale))
 
 const EXCERPT_MAX = 72
 
@@ -23,7 +31,7 @@ const notes = ref<Note[]>([])
 let disposed = false
 
 function t(key: string, params?: Record<string, unknown>): string {
-  return i18n.global.t(`${MESSAGE_NAMESPACE}.${key}`, params ?? {})
+  return previewI18n.global.t(`${MESSAGE_NAMESPACE}.${key}`, params ?? {})
 }
 
 const latest = computed<Note | null>(() => notes.value[0] ?? null)

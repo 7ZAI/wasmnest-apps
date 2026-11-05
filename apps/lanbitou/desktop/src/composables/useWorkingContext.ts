@@ -61,7 +61,10 @@ export function useWorkingContext(ctx: PluginContext) {
     cancelPending()
     timer = setTimeout(() => {
       timer = null
-      void ctx.commands.execute('lanbitou.save-context', { context: context.value })
+      void ctx.commands.execute('lanbitou.save-context', { context: context.value }).catch((e) => {
+        // 上下文是「恢复现场」的辅助数据：写失败不阻断编辑，但必须留痕
+        console.error('[Lanbitou] save context failed:', e)
+      })
     }, CONTEXT_SAVE_DEBOUNCE_MS)
   }
 

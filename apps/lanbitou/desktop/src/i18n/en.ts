@@ -18,6 +18,24 @@ const en: MessageSchema = {
   noNotesHint: 'Click "New Note" to start writing',
   noSearchResults: 'No matching notes',
 
+  tabNotes: 'Notes',
+  tabArchives: 'Archive',
+  scratchNote: 'Scratchpad',
+  scratchNoteHint: 'Default document · always open',
+
+  archiveScratch: 'Archive scratchpad',
+  archiveConfirmTitle: 'Archive scratchpad',
+  archiveConfirmBody:
+    'All scratchpad content will be moved into a new archive document in archives/ (named "<start>_<today>"). The scratchpad is cleared afterwards.',
+  archivedTo: 'Archived: {name}',
+  archiveFailed: 'Archive failed — content is still in the scratchpad',
+  archiveReadOnly: 'Read-only record',
+  backToNotes: 'Back to notes',
+  noArchives: 'No archives yet',
+  noArchivesHint: 'Archive the scratchpad to move its content into archives/',
+  openArchiveFailed: 'Failed to open archive',
+  loading: 'Loading…',
+
   editMode: 'Edit',
   previewMode: 'Preview',
   splitMode: 'Split',
@@ -67,6 +85,7 @@ const en: MessageSchema = {
   saveStatusSaved: 'Saved',
   saveStatusError: 'Save failed',
   saveFailed: 'Save failed — your edits are still in the editor',
+  openFailed: 'Failed to open note',
   copied: 'Copied',
   pasteEmpty: 'Clipboard is empty or contains no text',
   clipboardReadFailed: 'Failed to read clipboard',

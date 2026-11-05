@@ -12,6 +12,30 @@ export interface Note {
   filePath: string
 }
 
+/**
+ * 临时记事（默认文档）固定 id：与 Rust `store::SCRATCH_ID` 同值
+ *
+ * 它常驻、默认打开、不可删除，且是归档的唯一源文档。
+ */
+export const SCRATCH_NOTE_ID = 'scratch'
+
+/** 归档条目（= `archives/<时间范围>.md`） */
+export interface Archive {
+  id: string
+  title: string
+  fileName: string
+  size: number
+}
+
+/** 归档正文（只读面） */
+export interface ArchiveDetail {
+  archive: Archive
+  content: string
+}
+
+/** 侧栏分区：笔记 / 归档 */
+export type SidebarTab = 'notes' | 'archives'
+
 /** 视图模式：纯编辑 / 纯预览 / 左右分屏 */
 export type ViewMode = 'edit' | 'preview' | 'split'
 

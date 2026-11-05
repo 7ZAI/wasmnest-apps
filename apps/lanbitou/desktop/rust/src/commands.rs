@@ -87,6 +87,52 @@ pub fn search_notes(args: serde_json::Value) -> anyhow::Result<serde_json::Value
     serde_json::to_value(&notes).context("serialize notes")
 }
 
+// ==================== 临时记事 / 归档 ====================
+
+/// 确保临时记事存在（缺失则建空文档）；前端启动时先调它拿默认文档
+pub fn ensure_scratch(_args: serde_json::Value) -> anyhow::Result<serde_json::Value> {
+    let note = store::ensure_scratch(&host(), root()?)?;
+    serde_json::to_value(&note).context("serialize note")
+}
+
+/// 归档临时记事：全部内容剪到 `archives/<起日_今日>.md`，源文档清空
+///
+/// 日期由前端传（wasm 拿不到本地时区）：`today` = 今天，
+/// `fallbackStart` = 源文档创建日的本地日期（正文里找不到日期时用）。
+pub fn archive_scratch(args: serde_json::Value) -> anyhow::Result<serde_json::Value> {
+    #[derive(Deserialize, Default)]
+    #[serde(rename_all = "camelCase")]
+    struct Args {
+        today: Option<String>,
+        fallback_start: Option<String>,
+    }
+    let args: Args = serde_json::from_value(args).unwrap_or_default();
+    let (archive, source) = store::archive_scratch(
+        &host(),
+        root()?,
+        args.today.as_deref(),
+        args.fallback_start.as_deref(),
+    )?;
+    Ok(serde_json::json!({ "archive": archive, "source": source }))
+}
+
+/// 列出归档（时间范围名，新的在前）
+pub fn list_archives(_args: serde_json::Value) -> anyhow::Result<serde_json::Value> {
+    let archives = store::list_archives(&host(), root()?)?;
+    serde_json::to_value(&archives).context("serialize archives")
+}
+
+/// 读归档正文
+pub fn open_archive(args: serde_json::Value) -> anyhow::Result<serde_json::Value> {
+    #[derive(Deserialize)]
+    struct Args {
+        id: String,
+    }
+    let args: Args = serde_json::from_value(args).context("parse args")?;
+    let archive = store::open_archive(&host(), root()?, &args.id)?;
+    serde_json::to_value(&archive).context("serialize archive")
+}
+
 /// 读取设置（缺项按默认值深合并）
 pub fn read_settings(_args: serde_json::Value) -> anyhow::Result<serde_json::Value> {
     Ok(store::read_settings(&host(), root()?))

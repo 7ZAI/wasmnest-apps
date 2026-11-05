@@ -11,7 +11,7 @@
   "pluginType": "full",
   "rustLibrary": "wasmnest_plugin_lanbitou",
   "icon": "icon.svg",
-  "permissions": ["fs:read", "fs:write", "storage", "clipboard:read", "clipboard:write"],
+  "permissions": ["fs:read", "fs:write", "clipboard:read", "clipboard:write"],
   "contributes": {
     "commands": [
       { "id": "lanbitou.status", "title": "Lanbitou Status" },
@@ -22,6 +22,10 @@
       { "id": "lanbitou.list-notes", "title": "List Notes" },
       { "id": "lanbitou.rename-note", "title": "Rename Note" },
       { "id": "lanbitou.search-notes", "title": "Search Notes" },
+      { "id": "lanbitou.ensure-scratch", "title": "Ensure Scratch Note" },
+      { "id": "lanbitou.archive-scratch", "title": "Archive Scratch Note" },
+      { "id": "lanbitou.list-archives", "title": "List Archives" },
+      { "id": "lanbitou.open-archive", "title": "Open Archive" },
       { "id": "lanbitou.read-settings", "title": "Read Settings" },
       { "id": "lanbitou.save-settings", "title": "Save Settings" },
       { "id": "lanbitou.read-context", "title": "Read Context" },

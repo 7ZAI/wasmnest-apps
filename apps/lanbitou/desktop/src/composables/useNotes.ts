@@ -1,6 +1,17 @@
 import { computed, ref } from 'vue'
 import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-desktop'
-import type { Note } from '../types'
+import {
+  SCRATCH_NOTE_ID,
+  type Archive,
+  type ArchiveDetail,
+  type Note,
+} from '../types'
+
+/** 归档结果（Rust `archive_scratch` 的返回形状） */
+export interface ArchiveOutcome {
+  archive: Archive
+  source: Note
+}
 
 /** 笔记索引与 CRUD（所有持久化经 Rust 命令面，前端不碰文件系统） */
 export function useNotes(ctx: PluginContext) {
@@ -9,13 +20,22 @@ export function useNotes(ctx: PluginContext) {
   const query = ref('')
   const loading = ref(false)
   const error = ref<string | null>(null)
+  const archives = ref<Archive[]>([])
+  const archivesLoading = ref(false)
 
   let searchTimer: ReturnType<typeof setTimeout> | null = null
 
   const activeNote = computed(() => notes.value.find((n) => n.id === activeNoteId.value) ?? null)
+  /** 临时记事（默认文档）：常驻列表第一位，不受更新时间排序影响 */
+  const scratchNote = computed(() => notes.value.find((n) => n.id === SCRATCH_NOTE_ID) ?? null)
 
+  /** 排序：临时记事固定置顶，其余按更新时间倒序 */
   function sortNotes(): void {
-    notes.value = [...notes.value].sort((a, b) => b.updatedAt - a.updatedAt)
+    notes.value = [...notes.value].sort((a, b) => {
+      if (a.id === SCRATCH_NOTE_ID) return -1
+      if (b.id === SCRATCH_NOTE_ID) return 1
+      return b.updatedAt - a.updatedAt
+    })
   }
 
   function upsert(note: Note): void {
@@ -33,7 +53,8 @@ export function useNotes(ctx: PluginContext) {
     const result = needle
       ? await ctx.commands.execute('lanbitou.search-notes', { query: needle })
       : await ctx.commands.execute('lanbitou.list-notes')
-    notes.value = (result as Note[]).sort((a, b) => b.updatedAt - a.updatedAt)
+    notes.value = [...(result as Note[])]
+    sortNotes()
   }
 
   async function loadNotes(): Promise<void> {
@@ -96,10 +117,52 @@ export function useNotes(ctx: PluginContext) {
     return note
   }
 
+  // ==================== 临时记事 / 归档 ====================
+
+  /** 取默认文档（缺失时 Rust 侧自愈建空文档），并入列表 */
+  async function ensureScratch(): Promise<Note> {
+    const note = (await ctx.commands.execute('lanbitou.ensure-scratch')) as Note
+    upsert(note)
+    return note
+  }
+
+  async function loadArchives(): Promise<void> {
+    archivesLoading.value = true
+    try {
+      const result = (await ctx.commands.execute('lanbitou.list-archives')) as Archive[]
+      archives.value = [...result]
+    } finally {
+      archivesLoading.value = false
+    }
+  }
+
+  /**
+   * 归档临时记事：全部内容剪到新的归档文档，源文档清空
+   *
+   * 日期由前端给（本地时区）：`today` = 今天，`fallbackStart` = 正文没有日期时
+   * 用作起日的创建日。
+   */
+  async function archiveScratch(today: string, fallbackStart: string): Promise<ArchiveOutcome> {
+    const outcome = (await ctx.commands.execute('lanbitou.archive-scratch', {
+      today,
+      fallbackStart,
+    })) as ArchiveOutcome
+    upsert(outcome.source)
+    archives.value = [outcome.archive, ...archives.value.filter((a) => a.id !== outcome.archive.id)]
+    return outcome
+  }
+
+  async function openArchive(id: string): Promise<ArchiveDetail> {
+    return (await ctx.commands.execute('lanbitou.open-archive', { id })) as ArchiveDetail
+  }
+
   return {
     notes,
     activeNote,
     activeNoteId,
+    scratchNote,
+    archives,
+    archivesLoading,
     query,
     loading,
     error,
@@ -111,5 +174,9 @@ export function useNotes(ctx: PluginContext) {
     saveNote,
     deleteNote,
     renameNote,
+    ensureScratch,
+    loadArchives,
+    archiveScratch,
+    openArchive,
   }
 }

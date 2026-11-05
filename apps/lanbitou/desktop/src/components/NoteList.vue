@@ -32,13 +32,14 @@
           <div
             class="truncate text-[length:var(--font-size-base)] font-medium text-[var(--text-primary)]"
           >
-            {{ note.title && note.title !== 'Untitled' ? note.title : t('untitled') }}
+            {{ displayTitle(note) }}
           </div>
           <div class="mt-1 text-[length:var(--font-size-xs)] text-[var(--text-tertiary)]">
-            {{ formatRelative(note.updatedAt) }}
+            {{ note.id === scratchId ? t('scratchNoteHint') : formatRelative(note.updatedAt) }}
           </div>
         </div>
         <div
+          v-if="note.id !== scratchId"
           class="flex shrink-0 gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
         >
           <button
@@ -101,6 +102,8 @@ const props = defineProps<{
   notes: Note[]
   activeNoteId: string | null
   searchQuery?: string
+  /** 临时记事 id：常驻默认文档，显示固定名、不给重命名/删除 */
+  scratchId?: string
 }>()
 
 const emit = defineEmits<{
@@ -114,6 +117,12 @@ const { t, ctx } = useI18n()
 const editingId = ref<string | null>(null)
 const editingTitle = ref('')
 const renameInput = ref<HTMLInputElement | null>(null)
+
+function displayTitle(note: Note): string {
+  // 临时记事是默认文档：名字固定，不跟随正文首行（首行常是时间分隔符）
+  if (note.id === props.scratchId) return t('scratchNote')
+  return note.title && note.title !== 'Untitled' ? note.title : t('untitled')
+}
 
 function startRename(note: Note): void {
   editingId.value = note.id

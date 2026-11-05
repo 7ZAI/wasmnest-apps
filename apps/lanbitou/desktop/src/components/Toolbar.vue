@@ -40,7 +40,7 @@
     <button
       type="button"
       class="toolbar-btn disabled:opacity-40"
-      :disabled="!hasActiveNote"
+      :disabled="!hasActiveNote || archiveMode"
       :title="t('deleteNote')"
       data-testid="delete-note"
       @click="$emit('delete')"
@@ -58,7 +58,7 @@
     <button
       type="button"
       class="toolbar-btn disabled:opacity-40"
-      :disabled="!hasActiveNote"
+      :disabled="!hasActiveNote || archiveMode"
       :title="t('saveNow')"
       data-testid="save-note"
       @click="$emit('save')"
@@ -78,7 +78,7 @@
     <button
       type="button"
       class="toolbar-btn disabled:opacity-40"
-      :disabled="!hasActiveNote"
+      :disabled="!hasActiveNote || archiveMode"
       :title="t('pasteFromClipboard')"
       data-testid="paste-clipboard"
       @click="$emit('paste')"
@@ -114,7 +114,7 @@
     <button
       type="button"
       class="toolbar-btn disabled:opacity-40"
-      :disabled="!hasActiveNote"
+      :disabled="!hasActiveNote || archiveMode"
       :title="t('insertTimeDivider')"
       data-testid="insert-time-divider"
       @click="$emit('insertTimeDivider')"
@@ -129,9 +129,31 @@
       </svg>
     </button>
 
+    <span class="mx-1 h-4 w-px bg-[var(--border)]" />
+
+    <!-- 归档：把「临时记事」全部内容剪进 archives/<起日_今天>.md 并清空源文档 -->
+    <button
+      type="button"
+      class="toolbar-btn disabled:opacity-40"
+      :disabled="!canArchive || archiving"
+      :title="t('archiveScratch')"
+      data-testid="archive-scratch"
+      @click="$emit('archive')"
+    >
+      <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="2"
+          d="M4 7h16l-1 11.2A2 2 0 0117 20H7a2 2 0 01-2-1.8L4 7zm2 0V5a2 2 0 012-2h8a2 2 0 012 2v2M9.5 11.5h5"
+        />
+      </svg>
+    </button>
+
     <div class="flex-1" />
 
     <span
+      v-if="!archiveMode"
       class="mr-2 text-[length:var(--font-size-xs)]"
       :class="statusClass"
       data-testid="save-status"
@@ -191,6 +213,12 @@ const props = defineProps<{
   viewMode: ViewMode
   hasActiveNote: boolean
   saveStatus: SaveStatus
+  /** 正在看归档（只读）：编辑类动作一律禁用 */
+  archiveMode?: boolean
+  /** 「临时记事」有正文才可归档 */
+  canArchive?: boolean
+  /** 归档进行中（防重复点） */
+  archiving?: boolean
 }>()
 
 defineEmits<{
@@ -201,6 +229,7 @@ defineEmits<{
   copy: []
   paste: []
   insertTimeDivider: []
+  archive: []
   setViewMode: [mode: ViewMode]
   openSettings: []
 }>()

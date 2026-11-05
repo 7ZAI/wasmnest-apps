@@ -100,4 +100,68 @@ describe('useAutoSave', () => {
     api.schedule('n', 'x')
     expect(fake.tasks[0].delay).toBe(5000)
   })
+
+  // ==================== 并发回归（2026-11-04） ====================
+
+  it('保存中继续输入：旧保存完成后新内容仍会落盘（不丢最新编辑）', async () => {
+    const saves: string[] = []
+    let releaseFirst: (() => void) | null = null
+    const save = vi.fn((_id: string, content: string) => {
+      saves.push(content)
+      if (saves.length === 1) {
+        return new Promise<void>((resolve) => {
+          releaseFirst = resolve
+        })
+      }
+      return Promise.resolve()
+    })
+    const { api, fake } = setup('realtime', save)
+
+    api.schedule('n1', 'A')
+    fake.runLast()
+    await vi.waitFor(() => expect(save).toHaveBeenCalledTimes(1))
+
+    // 保存 A 还在飞行中，用户继续输入 AB
+    api.schedule('n1', 'AB')
+    expect(api.hasPending()).toBe(true)
+
+    releaseFirst!()
+    await Promise.resolve()
+    await Promise.resolve()
+    // 旧保存完成不能清掉更新的 pending、也不能谎报已保存
+    expect(api.hasPending()).toBe(true)
+    expect(api.status.value).toBe('unsaved')
+
+    fake.runLast()
+    await vi.waitFor(() => expect(saves).toEqual(['A', 'AB']))
+    await vi.waitFor(() => expect(api.status.value).toBe('saved'))
+    expect(api.hasPending()).toBe(false)
+  })
+
+  it('并发保存串行化：后一次保存不会先于前一次落盘', async () => {
+    const order: string[] = []
+    let releaseFirst: (() => void) | null = null
+    const save = vi.fn((_id: string, content: string) => {
+      order.push(content)
+      if (content === 'A') {
+        return new Promise<void>((resolve) => {
+          releaseFirst = resolve
+        })
+      }
+      return Promise.resolve()
+    })
+    const { api } = setup('manual', save)
+
+    const first = api.saveNow('n1', 'A')
+    const second = api.saveNow('n1', 'AB')
+    await vi.waitFor(() => expect(order).toEqual(['A']))
+
+    releaseFirst!()
+    await first
+    await second
+
+    expect(order).toEqual(['A', 'AB'])
+    expect(api.hasPending()).toBe(false)
+    expect(api.status.value).toBe('saved')
+  })
 })

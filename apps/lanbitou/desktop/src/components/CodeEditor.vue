@@ -6,7 +6,7 @@
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { basicSetup } from 'codemirror'
 import { markdown } from '@codemirror/lang-markdown'
-import { Compartment, EditorState } from '@codemirror/state'
+import { Compartment, EditorState, Transaction } from '@codemirror/state'
 import { EditorView, keymap } from '@codemirror/view'
 import type { CursorPosition, FontFamily } from '../types'
 
@@ -16,8 +16,10 @@ const props = withDefaults(
     fontSize?: number
     fontFamily?: FontFamily
     readOnly?: boolean
+    /** 当前文档 id：变化 = 换文档（重置撤销栈，避免 Ctrl+Z 撤到上一篇的正文） */
+    documentId?: string | null
   }>(),
-  { fontSize: 14, fontFamily: 'monospace', readOnly: false },
+  { fontSize: 14, fontFamily: 'monospace', readOnly: false, documentId: null },
 )
 
 const emit = defineEmits<{
@@ -46,24 +48,72 @@ function appearanceExtension() {
         fontSize: `${props.fontSize}px`,
         backgroundColor: 'transparent',
         color: 'var(--text-primary)',
+        // 宿主壳根是 user-select: none，编辑器必须显式要回文本选中（鼠标框选的前提）
+        userSelect: 'text',
+        WebkitUserSelect: 'text',
       },
       '.cm-content': {
         fontFamily: FONT_STACKS[props.fontFamily],
         caretColor: 'var(--text-primary)',
         // 与预览区 p-4（1rem）同宽，分屏时两侧留白一致
         padding: '1rem',
+        userSelect: 'text',
+        WebkitUserSelect: 'text',
+      },
+      '.cm-scroller': {
+        fontFamily: FONT_STACKS[props.fontFamily],
+        userSelect: 'text',
+        WebkitUserSelect: 'text',
       },
       '.cm-gutters': {
         backgroundColor: 'transparent',
         color: 'var(--text-tertiary)',
         border: 'none',
       },
-      '.cm-activeLine': { backgroundColor: 'var(--bg-hover)' },
+      // 当前行只做极淡底纹：与选区同屏时不能抢眼（此前用 --bg-hover 会盖过选区）
+      '.cm-activeLine': { backgroundColor: 'var(--lb-active-line-bg)' },
       '.cm-activeLineGutter': { backgroundColor: 'transparent', color: 'var(--text-secondary)' },
       '&.cm-focused': { outline: 'none' },
-      '.cm-scroller': { fontFamily: FONT_STACKS[props.fontFamily] },
+      // 选区用应用 token 上色（style.css 里的 --lb-selection-*）：
+      // CM 默认的淡紫在米色纸面上几乎看不见，用户会以为框选坏了
+      '.cm-selectionBackground': { backgroundColor: 'var(--lb-selection-bg-idle)' },
+      '&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground': {
+        backgroundColor: 'var(--lb-selection-bg)',
+      },
+      '.cm-content ::selection': { backgroundColor: 'var(--lb-selection-bg)' },
+      // 选中词的同名高亮 / 查找高亮
+      '.cm-selectionMatch': { backgroundColor: 'var(--lb-selection-bg-idle)' },
+      '.cm-searchMatch': { backgroundColor: 'var(--lb-search-match-bg)' },
+      '.cm-searchMatch.cm-searchMatch-selected': {
+        backgroundColor: 'var(--lb-search-match-active-bg)',
+      },
+      // 查找面板（Ctrl+F）跟应用主题走，不用 CM 默认浅灰
+      '.cm-panels': {
+        backgroundColor: 'var(--bg-card)',
+        color: 'var(--text-primary)',
+        fontFamily: FONT_STACKS[props.fontFamily],
+      },
+      '.cm-panels.cm-panels-top': { borderBottom: '1px solid var(--border)' },
+      '.cm-panel.cm-search': { padding: '6px 8px' },
+      '.cm-panel.cm-search label': { color: 'var(--text-secondary)' },
+      '.cm-textfield': {
+        backgroundColor: 'var(--bg-input)',
+        color: 'var(--text-primary)',
+        border: '1px solid var(--border-input)',
+        borderRadius: 'var(--radius-input)',
+        padding: '2px 6px',
+      },
+      '.cm-button': {
+        backgroundImage: 'none',
+        backgroundColor: 'var(--bg-input)',
+        color: 'var(--text-primary)',
+        border: '1px solid var(--border-input)',
+        borderRadius: 'var(--radius-button)',
+      },
+      '.cm-panel button[name="close"]': { color: 'var(--text-secondary)' },
     }),
     EditorView.lineWrapping,
+    EditorState.readOnly.of(props.readOnly),
   ]
 }
 
@@ -73,6 +123,7 @@ function cursorOf(view: EditorView): CursorPosition {
   return { line: line.number, ch: head - line.from }
 }
 
+/** 选区包裹 Markdown 标记（有选区 = 包住，无选区 = 插入成对标记） */
 function toggleWrap(marker: string): boolean {
   if (!editorView || props.readOnly) return false
   const { from, to } = editorView.state.selection.main
@@ -91,18 +142,29 @@ function toggleWrap(marker: string): boolean {
   return true
 }
 
-let onScroll: (() => void) | null = null
+/** 快捷键表：基础编辑（全选 / 复制 / 剪切 / 粘贴 / 撤销 / 重做 / 查找）由 basicSetup 提供 */
+const formattingKeymap = keymap.of([
+  { key: 'Mod-b', run: () => toggleWrap('**') },
+  { key: 'Mod-i', run: () => toggleWrap('*') },
+  { key: 'Mod-Shift-x', run: () => toggleWrap('~~') },
+  { key: 'Mod-e', run: () => toggleWrap('`') },
+])
 
-onMounted(() => {
-  if (!editorContainer.value) return
+/** 基础扩展：外观 / 只读在 compartment 里（字号、字体、只读可热改） */
+function baseExtensions() {
+  return [
+    basicSetup,
+    markdown(),
+    appearance.of(appearanceExtension()),
+    formattingKeymap,
+  ]
+}
 
-  const state = EditorState.create({
-    doc: props.modelValue,
+function createState(doc: string): EditorState {
+  return EditorState.create({
+    doc,
     extensions: [
-      basicSetup,
-      markdown(),
-      appearance.of(appearanceExtension()),
-      EditorState.readOnly.of(props.readOnly),
+      ...baseExtensions(),
       EditorView.updateListener.of((update) => {
         if (update.docChanged) {
           emit('update:modelValue', update.state.doc.toString())
@@ -111,14 +173,18 @@ onMounted(() => {
           emit('cursor-change', cursorOf(update.view))
         }
       }),
-      keymap.of([
-        { key: 'Mod-b', run: () => toggleWrap('**') },
-        { key: 'Mod-i', run: () => toggleWrap('*') },
-      ]),
     ],
   })
+}
 
-  editorView = new EditorView({ state, parent: editorContainer.value })
+let onScroll: (() => void) | null = null
+
+onMounted(() => {
+  if (!editorContainer.value) return
+  editorView = new EditorView({
+    state: createState(props.modelValue),
+    parent: editorContainer.value,
+  })
 
   onScroll = () => {
     if (editorView) emit('scroll-change', editorView.scrollDOM.scrollTop)
@@ -136,21 +202,35 @@ onBeforeUnmount(() => {
 })
 
 watch(
-  () => [props.fontSize, props.fontFamily] as const,
+  () => [props.fontSize, props.fontFamily, props.readOnly] as const,
   () => {
     editorView?.dispatch({ effects: appearance.reconfigure(appearanceExtension()) })
   },
 )
 
+/** 换文档：整份换 state（撤销栈随文档走，不跨文档） */
+function setDocument(value: string): void {
+  if (!editorView) return
+  editorView.setState(createState(value))
+}
+
 watch(
   () => props.modelValue,
   (value) => {
-    if (editorView && value !== editorView.state.doc.toString()) {
-      editorView.dispatch({
-        changes: { from: 0, to: editorView.state.doc.length, insert: value },
-      })
-    }
+    if (!editorView || value === editorView.state.doc.toString()) return
+    // 程序化写入（打开笔记 / 自动插入分隔符）不进撤销栈：
+    // 否则 Ctrl+Z 会把「刚打开的正文」撤成空文档，自动保存再把这个空内容写回磁盘。
+    editorView.dispatch({
+      changes: { from: 0, to: editorView.state.doc.length, insert: value },
+      annotations: Transaction.addToHistory.of(false),
+    })
   },
+)
+
+// 换文档一律重建 state：即使两篇正文恰好相同，也不能把上一篇的撤销栈带过来
+watch(
+  () => props.documentId,
+  () => setDocument(props.modelValue),
 )
 
 function focus(): void {
@@ -203,5 +283,6 @@ defineExpose({
   setScrollTop,
   insertAtCursor,
   getSelection,
+  setDocument,
 })
 </script>
