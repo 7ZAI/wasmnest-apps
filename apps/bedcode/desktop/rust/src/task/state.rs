@@ -5,6 +5,8 @@
 //!
 //! SQL 一律使用参数绑定（`*_params` + `?N` 占位符），无手写转义。
 
+use serde_json::Value;
+use std::collections::{HashMap, HashSet};
 use wasmnest_plugin_api::constants::{EVENT_SESSION_MODE_CHANGED, EVENT_TASK_STATUS_CHANGED};
 use wasmnest_plugin_api::host::{
     ConfigKey, HostBus, HostConfig, HostEvents, HostLog, HostPluginDatabase,
@@ -12,8 +14,6 @@ use wasmnest_plugin_api::host::{
 use wasmnest_plugin_api::http_response;
 use wasmnest_plugin_api::sql_params;
 use wasmnest_plugin_api::wasm_host::WasmHost;
-use serde_json::Value;
-use std::collections::{HashMap, HashSet};
 
 use crate::task::agent;
 use crate::task::yield_guard;
@@ -597,12 +597,11 @@ pub fn create_task_from_dispatch(
     prompt: &str,
     agent: &str,
     source: &str,
-) {
+) -> Result<(), String> {
     // 写表失败 / 缺行：短路后续广播与派发（不发布幻影 in_progress 事件、
-    // 不占投影槽位——DB 无行却发事件会让下游按不存在的任务推进）
-    if !insert_task_row(host, session_id, prompt, agent, source) {
-        return;
-    }
+    // 不占投影槽位——DB 无行却发事件会让下游按不存在的任务推进）。
+    // 编排派发依赖这个返回值 fail-visible（无任务行时不得继续 send）。
+    insert_task_row(host, session_id, prompt, agent, source)?;
 
     // 调度触发的任务同样发布状态变更（bus + emit + WS，票 06 起不经宿主
     // broadcast_sync；票 02 补 WS 第三通道）
@@ -635,6 +634,7 @@ pub fn create_task_from_dispatch(
         Some(&format!("Dispatched from {}", source)),
         None,
     );
+    Ok(())
 }
 
 /// 插入任务行的内部实现
@@ -642,7 +642,7 @@ pub fn create_task_from_dispatch(
 /// auto_approve 取会话当前的 auto_answer 开关（自动应答）：开启则新任务行
 /// 标记为可自动应答（hook 据此自动回答提问），关闭则标记手动，随会话设置同步。
 ///
-/// 返回是否成功写入了行（`Err` 或缺行 → `false`）：调用方据此短路广播——
+/// 返回 `Err(detail)`：写表失败或 0 行受影响。调用方据此短路广播——
 /// 写历史失败被当 log-only 会让「DB 无行却发 in_progress」的幻影事件溜过。
 fn insert_task_row(
     host: &WasmHost,
@@ -650,7 +650,7 @@ fn insert_task_row(
     input: &str,
     agent: &str,
     source: &str,
-) -> bool {
+) -> Result<(), String> {
     let claude_sid = find_claude_sid_by_session(host, session_id);
     let (_, auto_answer) = session_flags(host, session_id);
     // 记录会话配置的工程目录：任务日志直接展示配置目录，后续配置变更不影响历史行
@@ -685,7 +685,7 @@ fn insert_task_row(
             "Task row inserted: session_id={} agent={} source={} len={} auto_answer={} affected={}",
             session_id, agent, source, input.len(), auto_answer, affected
         ));
-            true
+            Ok(())
         }
         Ok(affected) => {
             // 缺行（0 affected）：与 Err 同待遇——写没发生，调用方不得广播
@@ -695,14 +695,18 @@ fn insert_task_row(
                 source,
                 input.len()
             ));
-            false
+            Err(format!(
+                "task row insert affected 0 rows (session_id={session_id}, source={source})"
+            ))
         }
         Err(e) => {
             host.log_error(&format!(
                 "Failed to insert task row: session_id={} source={} err={}",
                 session_id, source, e
             ));
-            false
+            Err(format!(
+                "task row insert failed (session_id={session_id}, source={source}): {e}"
+            ))
         }
     }
 }
@@ -769,7 +773,7 @@ pub fn handle_submitted_input(host: &WasmHost, session_id: &str, text: &str) {
 /// 只带 wasmnest_session_id）都能命中该行。
 pub fn create_task_from_input(host: &WasmHost, session_id: &str, input: &str) {
     let agent_name = session_agent(host, session_id);
-    if !insert_task_row(host, session_id, input, agent_name, "user") {
+    if insert_task_row(host, session_id, input, agent_name, "user").is_err() {
         return;
     }
 

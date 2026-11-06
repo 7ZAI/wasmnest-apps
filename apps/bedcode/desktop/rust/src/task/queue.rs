@@ -24,12 +24,12 @@
 //!
 //! SQL 一律使用参数绑定（`*_params` + `?N` 占位符），无手写转义。
 
+use serde_json::Value;
 use wasmnest_plugin_api::constants::EVENT_TASK_QUEUE_CHANGED;
 use wasmnest_plugin_api::host::{HostBus, HostEvents, HostLog, HostPluginDatabase};
 use wasmnest_plugin_api::http_response;
 use wasmnest_plugin_api::sql_params;
 use wasmnest_plugin_api::wasm_host::WasmHost;
-use serde_json::Value;
 
 use crate::task::agent;
 use crate::task::yield_guard;
@@ -932,8 +932,11 @@ fn dispatch_task(
         &sql_params![task_id],
     );
 
-    // 出队直接写任务行（description=prompt、source 随队列项），不再依赖输入行重建
-    crate::task::state::create_task_from_dispatch(host, session_id, prompt, agent_name, source);
+    // 出队直接写任务行（description=prompt、source 随队列项），不再依赖输入行重建。
+    // 写行失败已在任务域留痕；队列路径仍投递输入（不丢用户 prompt），
+    // 编排派发路径则把 Err 转成节点失败（fail-visible）。
+    let _ =
+        crate::task::state::create_task_from_dispatch(host, session_id, prompt, agent_name, source);
 
     // 投递输入必须以提交符结尾（统一 Enter 字节 \r，见 input_submit_char）：
     // PTY 写入原样透传（宿主不会自动补提交符，见 SessionManager::write_input）。
