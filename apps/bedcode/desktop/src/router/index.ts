@@ -51,6 +51,17 @@ const router = createRouter({
       component: () => import('@/agents/components/AgentHubView.vue'),
     },
     {
+      // Agent 编排（v1）：计划 / 执行 / 证据三平面；列表 + 详情
+      path: '/orchestrations',
+      name: 'orchestrations',
+      component: () => import('@/views/orchestration/OrchestrationListView.vue'),
+    },
+    {
+      path: '/orchestrations/:id',
+      name: 'orchestration-detail',
+      component: () => import('@/views/orchestration/OrchestrationDetailView.vue'),
+    },
+    {
       path: '/tasks',
       name: 'tasks',
       component: () => import('@/components/TaskHistoryView.vue'),

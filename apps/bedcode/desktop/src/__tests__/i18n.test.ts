@@ -38,6 +38,8 @@ describe('插件 i18n 键集', () => {
       'task.',
       // 项目与运行域（ADR 0003 / issue #23 M2）：项目是一级容器，运行挂在项目下
       'project.',
+      // Agent 编排（v1）：计划 / 执行 / 证据三平面
+      'orchestration.',
       'appearance.',
       'server.',
       'sidebar.',
