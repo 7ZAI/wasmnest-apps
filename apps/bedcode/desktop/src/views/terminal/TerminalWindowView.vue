@@ -24,7 +24,7 @@
           {{ sessionName }}
         </span>
         <span
-          class="text-[calc(10.5px*var(--ui-scale))] font-semibold tracking-[0.08em] uppercase shrink-0"
+          class="text-[calc(11px*var(--ui-scale))] font-medium shrink-0"
           :class="statusLabelClass"
           data-tauri-drag-region
         >
@@ -207,170 +207,36 @@
     >
       <div class="flex items-center gap-2">
         <span :class="['w-1.5 h-1.5 rounded-full', statusColor]"></span>
-        <span
-          class="text-[calc(10.5px*var(--ui-scale))] font-semibold tracking-[0.08em] uppercase"
-          :class="statusLabelClass"
-          >{{ statusText }}</span
-        >
+        <span class="text-[calc(11px*var(--ui-scale))] font-medium" :class="statusLabelClass">{{
+          statusText
+        }}</span>
       </div>
       <div
         class="flex items-center gap-1.5 wb-mono text-[calc(11px*var(--ui-scale))] text-[var(--text-secondary)]"
       >
         <span
-          class="text-[calc(10.5px*var(--ui-scale))] tracking-[0.08em] text-[var(--text-tertiary)]"
+          class="text-[calc(11px*var(--ui-scale))] tracking-[0.08em] text-[var(--text-tertiary)]"
           >{{ t('session.terminal.uptime').toUpperCase() }}</span
         >
         <span class="text-[var(--text-primary)]">{{ uptimeText }}</span>
       </div>
     </footer>
 
-    <!-- 设置面板遮罩：点击关闭 -->
-    <transition name="settings-backdrop">
-      <div
-        v-if="isSettingsOpen"
-        class="absolute inset-0 top-10 z-20 bg-black/25"
-        @click="isSettingsOpen = false"
-      ></div>
-    </transition>
-
-    <!-- 设置面板：从右侧滑出 -->
-    <transition name="settings-panel">
-      <aside
-        v-if="isSettingsOpen"
-        class="absolute top-10 right-0 bottom-0 z-30 w-64 flex flex-col bg-[var(--bg-card)] border-l border-[var(--border)] shadow-xl"
-      >
-        <div
-          class="h-10 shrink-0 px-4 flex items-center justify-between border-b border-[var(--border)]"
-        >
-          <span
-            class="text-[calc(13px*var(--ui-scale))] font-semibold text-[var(--text-primary)]"
-            >{{ t('session.terminal.settings') }}</span
-          >
-          <button
-            class="w-6 h-6 shrink-0 rounded-[6px] flex items-center justify-center text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] transition-colors"
-            :title="t('session.terminal.close')"
-            @click="isSettingsOpen = false"
-          >
-            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="1.5"
-                d="M6 18L18 6M6 6l12 12"
-              />
-            </svg>
-          </button>
-        </div>
-
-        <div class="flex-1 overflow-y-auto p-4 space-y-5">
-          <!-- 终端主题 -->
-          <div>
-            <span
-              class="block mb-1.5 text-[calc(11px*var(--ui-scale))] uppercase tracking-wider text-[var(--text-tertiary)]"
-              >{{ t('session.terminal.theme') }}</span
-            >
-            <select
-              class="w-full h-8 rounded-[6px] px-2 cursor-pointer text-[calc(12px*var(--ui-scale))] bg-[var(--bg-card)] border border-[var(--border)] text-[var(--text-primary)] focus:outline-none focus:border-brand"
-              :value="settingsTheme"
-              @change="settingsTheme = ($event.target as HTMLSelectElement).value"
-              @click.stop
-              @mousedown.stop
-            >
-              <option v-for="opt in themeSelectOptions" :key="opt.value" :value="opt.value">
-                {{ opt.label }}
-              </option>
-            </select>
-          </div>
-
-          <!-- 字体大小 -->
-          <div>
-            <span
-              class="block mb-1.5 text-[calc(11px*var(--ui-scale))] uppercase tracking-wider text-[var(--text-tertiary)]"
-              >{{ t('session.terminal.fontSize') }}</span
-            >
-            <select
-              class="w-full h-8 rounded-[6px] px-2 cursor-pointer text-[calc(12px*var(--ui-scale))] bg-[var(--bg-card)] border border-[var(--border)] text-[var(--text-primary)] focus:outline-none focus:border-brand"
-              :value="settingsFontSize"
-              @change="settingsFontSize = Number(($event.target as HTMLSelectElement).value)"
-              @click.stop
-              @mousedown.stop
-            >
-              <option v-for="opt in fontSizeSelectOptions" :key="opt.value" :value="opt.value">
-                {{ opt.label }}
-              </option>
-            </select>
-          </div>
-
-          <!-- 字间距（xterm letterSpacing 选项：格宽同步膨胀，网格保持对齐） -->
-          <div>
-            <span
-              class="block mb-1.5 text-[calc(11px*var(--ui-scale))] uppercase tracking-wider text-[var(--text-tertiary)]"
-              >{{ t('session.terminal.letterSpacing') }}</span
-            >
-            <select
-              class="w-full h-8 rounded-[6px] px-2 cursor-pointer text-[calc(12px*var(--ui-scale))] bg-[var(--bg-card)] border border-[var(--border)] text-[var(--text-primary)] focus:outline-none focus:border-brand"
-              :value="settingsLetterSpacing"
-              @change="settingsLetterSpacing = Number(($event.target as HTMLSelectElement).value)"
-              @click.stop
-              @mousedown.stop
-            >
-              <option v-for="opt in letterSpacingSelectOptions" :key="opt.value" :value="opt.value">
-                {{ opt.label }}
-              </option>
-            </select>
-          </div>
-
-          <!-- 背景图片 -->
-          <div class="space-y-3">
-            <div>
-              <span
-                class="block mb-1.5 text-[calc(11px*var(--ui-scale))] uppercase tracking-wider text-[var(--text-tertiary)]"
-                >{{ t('session.terminal.bgImage') }}</span
-              >
-              <div class="flex items-center gap-2">
-                <button
-                  class="wb-btn-ghost !h-7 !px-2.5 text-[calc(11px*var(--ui-scale))]"
-                  @click="pickBgImage"
-                  @mousedown.stop
-                >
-                  {{ t('session.terminal.bgImageSelect') }}
-                </button>
-                <button
-                  v-if="hasBgImage"
-                  class="wb-btn-ghost !h-7 !px-2.5 text-[calc(11px*var(--ui-scale))]"
-                  @click="removeBgImage"
-                  @mousedown.stop
-                >
-                  {{ t('session.terminal.bgImageRemove') }}
-                </button>
-              </div>
-              <span v-if="bgImageName" class="block mt-1 text-[calc(11px*var(--ui-scale))] text-[var(--text-secondary)] truncate">
-                {{ bgImageName }}
-              </span>
-            </div>
-
-            <div>
-              <div class="flex items-center justify-between mb-1">
-                <span
-                  class="text-[calc(11px*var(--ui-scale))] uppercase tracking-wider text-[var(--text-tertiary)]"
-                  >{{ t('session.terminal.bgImageOpacity') }}</span
-                >
-                <span class="wb-mono">{{ settingsBgOpacity }}%</span>
-              </div>
-              <input
-                v-model.number="settingsBgOpacity"
-                type="range"
-                min="0"
-                max="100"
-                step="1"
-                class="w-full h-1 appearance-none bg-[var(--border-strong)] cursor-pointer accent-[var(--color-primary)]"
-                @click.stop
-              />
-            </div>
-          </div>
-        </div>
-      </aside>
-    </transition>
+    <!-- 设置抽屉：与工作台终端 pane 同一实现（TerminalSettingsPanel 纯受控） -->
+    <TerminalSettingsPanel
+      v-model:open="isSettingsOpen"
+      v-model:theme="settingsTheme"
+      v-model:font-size="settingsFontSize"
+      v-model:letter-spacing="settingsLetterSpacing"
+      v-model:bg-opacity="settingsBgOpacity"
+      :has-bg-image="hasBgImage"
+      :bg-image-name="bgImageName"
+      :theme-options="themeSelectOptions"
+      :font-size-options="fontSizeSelectOptions"
+      :letter-spacing-options="letterSpacingSelectOptions"
+      @pick-bg="pickBgImage"
+      @remove-bg="removeBgImage"
+    />
   </div>
 </template>
 
@@ -399,6 +265,7 @@ import { emit, listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { inject } from 'vue'
 import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-desktop'
 import TerminalPreview from '../../components/terminal/TerminalPreview.vue'
+import TerminalSettingsPanel from '../../components/terminal/TerminalSettingsPanel.vue'
 import { currentSessionId } from '../../utils/route'
 import {
   useTerminalHostCapabilities,
@@ -406,7 +273,11 @@ import {
 } from '../../components/terminal/terminalHostCapabilities'
 import { taskModalVisible } from '../../state'
 import type { SessionInfo } from '../../composables/terminal/model'
-import { TERMINAL_THEME_NAMES } from '../../utils/terminal/terminalThemes'
+import { useTerminalChrome } from '../../composables/terminal/useTerminalChrome'
+import {
+  TERMINAL_THEME_SELECT_OPTIONS,
+  TERMINAL_FONT_SIZE_SELECT_OPTIONS,
+} from '../../utils/terminal/terminalThemes'
 
 const appWindow = getCurrentWindow()
 
@@ -431,8 +302,15 @@ const isMaximized = ref(false)
 const isLoading = ref(true)
 const isShown = ref(false) // 是否已允许显示（由主窗口在内容就绪后通知）
 const revealDone = ref(false) // 进入动画是否已结束（结束后移除残留 transform）
-const nowTick = ref(Date.now())
-let uptimeTimer: ReturnType<typeof setInterval> | null = null
+
+// ==================== 状态 / 时长 / 任务域适配（与工作台终端 pane 共用） ====================
+const chrome = useTerminalChrome({
+  t,
+  status: computed(() => session.value?.status ?? null),
+  startedAt: computed(() => session.value?.startedAt ?? null),
+  sessionId: ref(sessionId),
+})
+const { statusColor, statusText, statusLabelClass, uptimeText, taskSupported } = chrome
 
 // TerminalPreview 组件引用，访问暴露的 fontSize/terminalTheme 等
 const terminalPreviewRef = ref<InstanceType<typeof TerminalPreview> | null>(null)
@@ -462,111 +340,11 @@ const settingsLetterSpacing = computed({
   },
 })
 
-// 设置面板字间距下拉选项（px，0-4）：0 = 不加（字间留白仅来自字体自身）
+// 设置面板下拉选项：与工作台共用同一份常量（不各自枚举一套）
+// 字间距（px，0-4）：0 = 不加（字间留白仅来自字体自身）
 const letterSpacingSelectOptions = [0, 1, 2, 3, 4].map((v) => ({ value: v, label: `${v}px` }))
-
-// 设置面板主题/字号下拉选项（label 由共享 Select 的 label prop 渲染）
-const themeSelectOptions = computed(() => Object.entries(TERMINAL_THEME_NAMES).map(([value, label]) => ({ value, label })))
-const fontSizeSelectOptions = computed(() => {
-  const sizes: number[] = []
-  for (let size = 8; size <= 20; size++) {
-    sizes.push(size)
-  }
-  return sizes.map((size) => ({ value: size, label: `${size}px` }))
-})
-
-// ==================== 任务队列入口（D5 静态工具栏） ====================
-
-// 当前会话是否任务域适配：判据取后端 `session.task.running-sessions` 的
-// is_supported 字段，不在前端 hardcode 白名单——权威来源是 Rust 侧 AGENT_PROFILES。
-// 异步评估加序号：会话切换时丢弃过期结果，避免旧会话的 agent 覆盖新状态。
-const taskSupported = ref(false)
-let taskSupportSeq = 0
-
-async function evaluateTaskSupport() {
-  const seq = ++taskSupportSeq
-  try {
-    const result: any = await context.commands.execute('session.task.running-sessions')
-    if (seq !== taskSupportSeq) return // 过期结果丢弃
-    const match = (result?.sessions ?? []).find((s: any) => s.session_id === sessionId)
-    taskSupported.value = match?.is_supported ?? false
-  } catch {
-    // 判据取不到时不显示入口（fail-safe：不猜支持）
-    if (seq === taskSupportSeq) taskSupported.value = false
-  }
-}
-
-// 会话 id 来自路由参数、窗口生命周期内不变（每个终端窗口 = 一个会话），
-// 故只需挂载时评估一次任务适配，不做路由 watch（旧宿主形态的动态注册已退役）
-
-// ==================== 状态展示 ====================
-
-const isLive = computed(() => {
-  const s = session.value?.status
-  return s === 'running' || s === 'waitingInput' || s === 'starting'
-})
-
-const statusColor = computed(() => {
-  if (!session.value) return 'bg-[var(--text-tertiary)]'
-  switch (session.value.status) {
-    case 'running':
-      return 'bg-green-500'
-    case 'waitingInput':
-      return 'bg-yellow-500 animate-pulse'
-    case 'error':
-      return 'bg-red-500'
-    case 'stopped':
-      return 'bg-[var(--text-tertiary)]'
-    case 'starting':
-      return 'bg-blue-500 animate-pulse'
-    default:
-      return 'bg-[var(--text-tertiary)]'
-  }
-})
-
-const statusText = computed(() => {
-  switch (session.value?.status) {
-    case 'starting':
-      return t('session.status.starting')
-    case 'running':
-      return t('session.status.running')
-    case 'waitingInput':
-      return t('session.status.asking')
-    case 'error':
-      return t('session.status.error')
-    case 'stopped':
-      return t('session.status.stopped')
-    default:
-      return t('session.status.unknown')
-  }
-})
-
-const statusLabelClass = computed(() => {
-  switch (session.value?.status) {
-    case 'running':
-      return 'text-green-600 dark:text-green-400'
-    case 'waitingInput':
-      return 'text-yellow-600 dark:text-yellow-400'
-    case 'error':
-      return 'text-red-600 dark:text-red-400'
-    case 'starting':
-      return 'text-blue-500 dark:text-blue-400'
-    default:
-      return 'text-[var(--text-tertiary)]'
-  }
-})
-
-// 运行时长：从 startedAt 起算，每秒刷新
-const uptimeText = computed(() => {
-  const start = session.value?.startedAt
-  if (!start || !isLive.value) return '--:--:--'
-  const diff = Math.floor((nowTick.value - new Date(start).getTime()) / 1000)
-  if (diff < 0) return '--:--:--'
-  const h = Math.floor(diff / 3600)
-  const m = Math.floor((diff % 3600) / 60)
-  const s = diff % 60
-  return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`
-})
+const themeSelectOptions = TERMINAL_THEME_SELECT_OPTIONS
+const fontSizeSelectOptions = TERMINAL_FONT_SIZE_SELECT_OPTIONS
 
 // ==================== 背景图片（经宿主能力桥） ====================
 
@@ -605,9 +383,9 @@ async function loadSessionInfo() {
   try {
     // 票 08：宿主不再有会话数据命令面，单会话读取走本插件命令通道
     // （`session.get` → 登记域视图，与互调 api `session-get` 同实现）
-    const result = (await context.commands.execute('session.get', { sessionId })) as
-      | SessionInfo
-      | null
+    const result = (await context.commands.execute('session.get', {
+      sessionId,
+    })) as SessionInfo | null
     session.value = result as SessionInfo
     // 名为空 → 通用名（2026-09-27）：配置表单的 name 非必填，历史遗留行也可能为空，
     // 空名会让窗口标题栏只剩状态标签、没有身份（插件侧已在创建时用 cwd basename
@@ -686,7 +464,7 @@ function onRevealEnd(e: AnimationEvent) {
 }
 
 onMounted(async () => {
-  evaluateTaskSupport()
+  void chrome.evaluateTaskSupport()
   // Esc 关闭设置面板
   window.addEventListener('keydown', handleKeydown)
   // 先注册显示事件监听，再加载会话，避免与主窗口的显示通知产生竞态
@@ -706,10 +484,7 @@ onMounted(async () => {
   // 会话被关闭（自动任务轮换关旧会话 / 会话停止）→ 本窗口随之关闭，避免死窗口继续轮询
   subscribeSessionShutdown()
 
-  // 运行时长每秒刷新
-  uptimeTimer = setInterval(() => {
-    nowTick.value = Date.now()
-  }, 1000)
+  // 运行时长由 useTerminalChrome 内部每秒推进（与工作台共用同一实现）
 
   loadSessionInfo()
 })
@@ -733,9 +508,7 @@ function subscribeSessionShutdown() {
 async function closeWindowForSessionShutdown() {
   if (shutdownClosed) return
   shutdownClosed = true
-  console.info(
-    `[bedcode] session stopped, closing terminal window (session=${sessionId})`,
-  )
+  console.info(`[bedcode] session stopped, closing terminal window (session=${sessionId})`)
   try {
     await context.session.closeTerminal(sessionId)
   } catch (e) {
@@ -750,10 +523,6 @@ onUnmounted(() => {
     clearTimeout(bgSaveTimeout)
     bgSaveTimeout = null
   }
-  if (uptimeTimer) {
-    clearInterval(uptimeTimer)
-    uptimeTimer = null
-  }
   if (unlistenShow) unlistenShow()
   if (unlistenFocus) unlistenFocus()
   sessionStoppedDisposable?.dispose()
@@ -761,25 +530,6 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-/* 设置面板滑出过渡：will-change 提升为独立合成层，避免动画期间页面抖动 */
-.settings-panel-enter-active,
-.settings-panel-leave-active {
-  transition: transform 0.25s ease;
-  will-change: transform;
-}
-
-.settings-panel-enter-from,
-.settings-panel-leave-to {
-  transform: translateX(100%);
-}
-
-/* 设置面板遮罩淡入淡出 */
-.settings-backdrop-enter-active,
-.settings-backdrop-leave-active {
-  transition: opacity 0.2s ease;
-  will-change: opacity;
-}
-
 /* 插件扩展点图标（页面工具栏 / 终端工具栏 / 标题栏项）
  *
  * 宿主三个 Plugin*Toolbar 组件各自 scoped 定义 .plugin-icon —— scoped 样式不外泄，

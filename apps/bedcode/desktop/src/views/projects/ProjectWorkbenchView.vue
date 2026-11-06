@@ -26,7 +26,7 @@
         </h2>
         <span
           v-if="project"
-          class="wb-mono text-[calc(10.5px*var(--ui-scale))] uppercase px-1.5 py-0.5 rounded border border-[var(--border-strong)] text-[var(--text-secondary)] flex-shrink-0"
+          class="wb-mono text-[calc(11px*var(--ui-scale))] uppercase px-1.5 py-0.5 rounded border border-[var(--border-strong)] text-[var(--text-secondary)] flex-shrink-0"
         >
           {{ envBadge(project.environment) }}
         </span>
@@ -42,9 +42,9 @@
       <div class="flex items-center gap-2 shrink-0">
         <span
           v-if="activeRunCount > 0"
-          class="wb-mono text-[calc(11px*var(--ui-scale))] text-green-600 dark:text-green-400 flex items-center gap-1.5"
+          class="wb-mono text-[calc(11px*var(--ui-scale))] text-[var(--color-success-ink)] flex items-center gap-1.5"
         >
-          <span class="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span>
+          <span class="w-1.5 h-1.5 rounded-full bg-[var(--color-success)]"></span>
           {{ t('project.workbench.activeRuns', { n: activeRunCount }) }}
         </span>
         <button class="wb-btn-ghost" data-testid="workbench-refresh" @click="refresh">
@@ -105,10 +105,10 @@
             </svg>
           </button>
           <span
-            class="min-w-0 flex-1 truncate text-[calc(11px*var(--ui-scale))] uppercase tracking-wider text-[var(--text-tertiary)]"
+            class="min-w-0 flex-1 truncate text-[calc(11px*var(--ui-scale))] text-[var(--text-tertiary)]"
           >
             {{ t('project.run.title') }}
-            <span v-if="runs.length > 0" class="wb-mono">· {{ runs.length }}</span>
+            <span v-if="liveRuns.length > 0" class="wb-mono">· {{ liveRuns.length }}</span>
           </span>
           <button
             class="w-6 h-6 rounded-[6px] flex items-center justify-center text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] transition-colors"
@@ -152,7 +152,11 @@
             </svg>
           </div>
 
-          <div v-else-if="runs.length === 0" class="px-3 py-6 text-center" data-testid="run-empty">
+          <div
+            v-else-if="liveRuns.length === 0"
+            class="px-3 py-6 text-center"
+            data-testid="run-empty"
+          >
             <p class="text-[calc(12px*var(--ui-scale))] text-[var(--text-primary)]">
               {{ t('project.run.empty') }}
             </p>
@@ -163,76 +167,78 @@
             </p>
           </div>
 
-          <ul v-else class="space-y-0.5 px-1.5">
-            <li v-for="run in runs" :key="run.id">
-              <div
-                class="group relative rounded-[6px] pl-2.5 pr-2 py-1.5 cursor-pointer transition-colors hover:bg-[var(--bg-hover)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--border-strong)]"
-                :class="isActiveRun(run) && 'bg-[var(--bg-hover)]'"
-                role="button"
-                tabindex="0"
-                data-testid="run-item"
-                :data-status="run.status"
-                :data-active="isActiveRun(run) ? 'true' : 'false'"
-                @click="selectRun(run.id)"
-                @keydown.enter.prevent="selectRun(run.id)"
-                @keydown.space.prevent="selectRun(run.id)"
-              >
-                <!-- 选中态左侧竖标：仅靠底色时，选中与 hover 同色，看不出主面在看哪条 -->
-                <span
-                  v-if="isActiveRun(run)"
-                  class="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-full bg-[var(--color-primary)]"
-                  aria-hidden="true"
-                ></span>
-                <div class="flex items-center gap-2 min-w-0">
+          <template v-else>
+            <ul v-if="liveRuns.length > 0" class="space-y-0.5 px-1.5">
+              <li v-for="run in liveRuns" :key="run.id">
+                <div
+                  class="group relative rounded-[6px] pl-2.5 pr-2 py-1.5 cursor-pointer transition-colors hover:bg-[var(--bg-hover)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--border-strong)]"
+                  :class="isActiveRun(run) && 'bg-[var(--bg-hover)]'"
+                  role="button"
+                  tabindex="0"
+                  data-testid="run-item"
+                  :data-status="run.status"
+                  :data-active="isActiveRun(run) ? 'true' : 'false'"
+                  @click="selectRun(run.id)"
+                  @keydown.enter.prevent="selectRun(run.id)"
+                  @keydown.space.prevent="selectRun(run.id)"
+                >
+                  <!-- 选中态左侧竖标：仅靠底色时，选中与 hover 同色，看不出主面在看哪条 -->
                   <span
-                    :class="['w-1.5 h-1.5 rounded-full shrink-0', statusDot(run.status)]"
+                    v-if="isActiveRun(run)"
+                    class="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-full bg-[var(--color-primary)]"
+                    aria-hidden="true"
                   ></span>
-                  <span
-                    class="text-[calc(12px*var(--ui-scale))] text-[var(--text-primary)] truncate flex-1"
-                    :class="isActiveRun(run) && 'font-medium'"
-                  >
-                    {{ run.title || run.name }}
-                  </span>
-                  <!-- 无标题时 agent 名会与主标题重复（run.name 就是 agent 名），此时不再重复标注 -->
-                  <span
-                    v-if="run.agentId && run.agentId !== (run.title || run.name)"
-                    class="wb-mono text-[calc(10px*var(--ui-scale))] text-[var(--text-tertiary)] shrink-0"
-                    >{{ run.agentId }}</span
-                  >
+                  <div class="flex items-center gap-2 min-w-0">
+                    <span
+                      :class="['w-1.5 h-1.5 rounded-full shrink-0', statusDot(run.status)]"
+                    ></span>
+                    <span
+                      class="text-[calc(12px*var(--ui-scale))] text-[var(--text-primary)] truncate flex-1"
+                      :class="isActiveRun(run) && 'font-medium'"
+                    >
+                      {{ run.title || run.name }}
+                    </span>
+                    <!-- 无标题时 agent 名会与主标题重复（run.name 就是 agent 名），此时不再重复标注 -->
+                    <span
+                      v-if="run.agentId && run.agentId !== (run.title || run.name)"
+                      class="wb-mono text-[calc(10px*var(--ui-scale))] text-[var(--text-tertiary)] shrink-0"
+                      >{{ run.agentId }}</span
+                    >
+                  </div>
+                  <div class="mt-0.5 flex items-center gap-2 pl-3.5">
+                    <span
+                      class="wb-mono text-[calc(11px*var(--ui-scale))] text-[var(--text-secondary)]"
+                    >
+                      {{ statusText(run.status) }}
+                    </span>
+                    <span
+                      class="wb-mono text-[calc(11px*var(--ui-scale))] text-[var(--text-tertiary)]"
+                    >
+                      {{ relativeText(run.updatedAt) }}
+                    </span>
+                    <span class="flex-1"></span>
+                    <!-- 停止：破坏性动作走 danger ghost（与会话页同口径） -->
+                    <button
+                      v-if="run.active"
+                      class="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 w-5 h-5 rounded-[4px] flex items-center justify-center text-[var(--color-danger)] hover:bg-[var(--bg-card)] transition-opacity"
+                      :title="t('project.run.stop')"
+                      data-testid="run-stop"
+                      @click.stop="stop(run)"
+                    >
+                      <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          stroke-width="2"
+                          d="M6 6h12v12H6z"
+                        />
+                      </svg>
+                    </button>
+                  </div>
                 </div>
-                <div class="mt-0.5 flex items-center gap-2 pl-3.5">
-                  <span
-                    class="wb-mono text-[calc(10.5px*var(--ui-scale))] text-[var(--text-secondary)]"
-                  >
-                    {{ statusText(run.status) }}
-                  </span>
-                  <span
-                    class="wb-mono text-[calc(10.5px*var(--ui-scale))] text-[var(--text-tertiary)]"
-                  >
-                    {{ relativeText(run.updatedAt) }}
-                  </span>
-                  <span class="flex-1"></span>
-                  <!-- 停止：破坏性动作走 danger ghost（与会话页同口径） -->
-                  <button
-                    v-if="run.active"
-                    class="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 w-5 h-5 rounded-[4px] flex items-center justify-center text-[var(--color-danger)] hover:bg-[var(--bg-card)] transition-opacity"
-                    :title="t('project.run.stop')"
-                    data-testid="run-stop"
-                    @click.stop="stop(run)"
-                  >
-                    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width="2"
-                        d="M6 6h12v12H6z"
-                      />
-                    </svg>
-                  </button>
-                </div>
-              </div>
-            </li>
-          </ul>
+              </li>
+            </ul>
+          </template>
         </div>
 
         <div class="p-2 border-t border-[var(--border)]">
@@ -284,7 +290,7 @@
         </div>
         <span class="wb-rail-label" aria-hidden="true">
           {{ t('project.run.title') }}
-          <template v-if="runs.length > 0"> · {{ runs.length }}</template>
+          <template v-if="liveRuns.length > 0"> · {{ liveRuns.length }}</template>
         </span>
       </aside>
 
@@ -309,39 +315,63 @@
       ></div>
 
       <!-- ==================== 中：终端主面（CLI 为核心：同一条 PTY 的真实字节） ==================== -->
-      <section class="flex-1 min-w-0 flex flex-col" data-testid="pane-terminal">
+      <section class="flex-1 min-w-0 flex flex-col relative" data-testid="pane-terminal">
         <div class="h-10 px-3 shrink-0 flex items-center gap-2 border-b border-[var(--border)]">
           <span
-            class="shrink-0 whitespace-nowrap text-[calc(11px*var(--ui-scale))] uppercase tracking-wider text-[var(--text-tertiary)]"
+            class="shrink-0 whitespace-nowrap text-[calc(11px*var(--ui-scale))] text-[var(--text-tertiary)]"
           >
             {{ t('project.terminal.title') }}
           </span>
-          <template v-if="selectedRun">
+          <!-- 拼屏：主 header 只留全局信息；每条运行的标题 / 状态 / 控制都在各自格子上 -->
+          <span
+            v-if="tileMode"
+            class="shrink-0 whitespace-nowrap wb-mono text-[calc(11px*var(--ui-scale))] text-[var(--text-secondary)]"
+            data-testid="terminal-tile-summary"
+          >
+            {{ t('project.terminal.tileMode') }} · {{ tiledRuns.length }}
+          </span>
+          <template v-if="selectedRun && !tileMode">
             <span
               class="min-w-0 wb-mono text-[calc(11px*var(--ui-scale))] text-[var(--text-secondary)] truncate"
             >
               {{ selectedRun.agentId || '—' }}
             </span>
-            <!-- 模型：桥接 meta 回填到运行行后可见（无此数据时不占位） -->
+
+            <!-- 状态与运行时长：与独立终端窗口同一实现（useTerminalChrome） -->
             <span
-              v-if="selectedRun.model && showRunMeta"
-              class="min-w-0 wb-mono text-[calc(10.5px*var(--ui-scale))] text-[var(--text-tertiary)] truncate"
-              :title="selectedRun.model"
+              class="shrink-0 flex items-center gap-1.5"
+              data-testid="terminal-status"
+              :title="chromeStatusText"
+              :data-status="selectedRun.status"
             >
-              {{ selectedRun.model }}
+              <span :class="['w-1.5 h-1.5 rounded-full', chromeStatusColor]"></span>
+              <span
+                :class="['text-[calc(11px*var(--ui-scale))] font-medium', chromeStatusLabelClass]"
+              >
+                {{ chromeStatusText }}
+              </span>
             </span>
+            <span
+              v-if="showRunMeta"
+              class="shrink-0 wb-mono text-[calc(11px*var(--ui-scale))] text-[var(--text-tertiary)]"
+              data-testid="terminal-uptime"
+            >
+              {{ chromeUptimeText }}
+            </span>
+
+            <!-- 模型 / 思考等级：控制项属于运行，由共享 selects 组件取数与切换 -->
+            <RunAgentSelects :run="selectedRun" @changed="refreshRuns" />
+
             <!-- 主面被拖窄时不硬塞会话 id：几样东西挤在一行只会互相裁剪 -->
             <span
               v-if="selectedRun.agentSessionId && showRunMeta"
               class="flex items-center gap-1 min-w-0"
             >
-              <span
-                class="text-[calc(10.5px*var(--ui-scale))] text-[var(--text-tertiary)] shrink-0"
-              >
+              <span class="text-[calc(11px*var(--ui-scale))] text-[var(--text-tertiary)] shrink-0">
                 {{ t('project.run.agentSessionId') }}
               </span>
               <span
-                class="wb-mono text-[calc(10.5px*var(--ui-scale))] text-[var(--text-secondary)] truncate"
+                class="wb-mono text-[calc(11px*var(--ui-scale))] text-[var(--text-secondary)] truncate"
               >
                 {{ selectedRun.agentSessionId }}
               </span>
@@ -363,6 +393,94 @@
             </span>
           </template>
           <span class="flex-1"></span>
+
+          <!-- ==================== 操作区（与独立窗口功能对齐；窗口控制不搬） ==================== -->
+          <!-- 任务队列：判据取后端 is_supported，不在前端 hardcode agent 白名单。
+               拼屏时每格自带任务入口（RunTileControls），主 header 不再代替焦点行。 -->
+          <button
+            v-if="!tileMode && selectedRun && chromeTaskSupported"
+            class="w-6 h-6 shrink-0 rounded-[6px] flex items-center justify-center text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] transition-colors"
+            :title="t('task.title')"
+            data-testid="terminal-task-queue"
+            @click="openTaskQueue()"
+          >
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.5"
+                d="M4 6h16M4 12h16M4 18h10"
+              />
+            </svg>
+          </button>
+          <!-- 停止运行：破坏性动作，danger ghost（与独立窗口同族语义）。
+               拼屏后停止属于每一条运行，放在各自格子 header 上。 -->
+          <button
+            v-if="!tileMode && selectedRun && isRunLive"
+            class="h-6 shrink-0 rounded-[6px] border px-2 flex items-center justify-center text-[calc(11px*var(--ui-scale))] border-[color-mix(in_srgb,var(--color-danger)_35%,transparent)] text-[var(--color-danger)] hover:bg-[var(--color-danger)] hover:text-[var(--color-primary-contrast)] transition-colors"
+            :title="t('project.run.stop')"
+            data-testid="terminal-stop"
+            @click="stop(selectedRun)"
+          >
+            {{ t('session.button.stop') }}
+          </button>
+          <!-- 设置面板：主题 / 字号 / 字间距 / 背景图 / 不透明度 -->
+          <button
+            class="w-6 h-6 shrink-0 rounded-[6px] flex items-center justify-center text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] transition-colors"
+            :class="{ 'bg-[var(--bg-hover)]': settingsOpen }"
+            :title="t('session.terminal.settings')"
+            data-testid="terminal-settings-toggle"
+            @click.stop="toggleSettings"
+          >
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.5"
+                d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
+              />
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.5"
+                d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+              />
+            </svg>
+          </button>
+          <!-- 清屏 / 刷新格式：作用于当前焦点终端（拼屏时 = 选中格） -->
+          <button
+            class="w-6 h-6 shrink-0 rounded-[6px] flex items-center justify-center text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            :disabled="!activeTerminal()"
+            :title="t('session.terminal.clearScreen')"
+            data-testid="terminal-clear"
+            @click="clearActiveTerminal"
+          >
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.5"
+                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+              />
+            </svg>
+          </button>
+          <button
+            class="w-6 h-6 shrink-0 rounded-[6px] flex items-center justify-center text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            :disabled="!activeTerminal()"
+            :title="t('session.terminal.refreshFormat')"
+            data-testid="terminal-refresh"
+            @click="refreshActiveTerminal"
+          >
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.5"
+                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+              />
+            </svg>
+          </button>
+
           <!-- 拼屏开关：把该项目存活运行的终端一起铺开（最多 4 格，点击格子换焦点） -->
           <button
             class="shrink-0 whitespace-nowrap inline-flex items-center gap-1.5 rounded-[6px] border h-6 px-2 text-[calc(11px*var(--ui-scale))] transition-colors"
@@ -386,11 +504,12 @@
             </svg>
             {{ tileMode ? t('project.terminal.singleMode') : t('project.terminal.tileMode') }}
           </button>
-          <!-- 打开独立终端窗口：跟终端主面走（原在检查器头部，终端迁中栏后随迁） -->
+          <!-- 打开独立终端窗口：跟终端主面走（原在检查器头部，终端迁中栏后随迁）。
+               拼屏时每格有自己的开窗按钮。 -->
           <button
-            v-if="selectedRun"
+            v-if="!tileMode && selectedRun"
             class="w-6 h-6 shrink-0 rounded-[6px] flex items-center justify-center text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-            :disabled="!isLiveRun(selectedRun.status)"
+            :disabled="!isRunLive"
             :title="t('project.run.openWindow')"
             data-testid="run-open-window"
             @click="openWindow()"
@@ -405,6 +524,22 @@
             </svg>
           </button>
         </div>
+
+        <!-- 设置抽屉：与独立终端窗口同一实现（纯受控，值绑当前焦点终端） -->
+        <TerminalSettingsPanel
+          v-model:open="settingsOpen"
+          v-model:theme="settingsTheme"
+          v-model:font-size="settingsFontSize"
+          v-model:letter-spacing="settingsLetterSpacing"
+          v-model:bg-opacity="settingsBgOpacity"
+          :has-bg-image="hasBgImage"
+          :bg-image-name="bgImageName"
+          :theme-options="themeSelectOptions"
+          :font-size-options="fontSizeSelectOptions"
+          :letter-spacing-options="letterSpacingSelectOptions"
+          @pick-bg="pickBgImage"
+          @remove-bg="removeBgImage"
+        />
 
         <!-- 拼屏：多条存活运行的终端同屏（每格复用同一渲染管线，各自一条真实 PTY） -->
         <div v-if="tileMode" class="flex-1 min-h-0 flex flex-col" data-testid="run-tiles">
@@ -460,36 +595,14 @@
                 >
                   {{ statusText(run.status) }}
                 </span>
-                <button
-                  class="w-5 h-5 shrink-0 rounded-[4px] flex items-center justify-center text-[var(--color-danger)] hover:bg-[var(--bg-hover)] transition-colors"
-                  :title="t('project.run.stop')"
-                  data-testid="run-tile-stop"
-                  @click.stop="stop(run)"
-                >
-                  <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="2"
-                      d="M6 6h12v12H6z"
-                    />
-                  </svg>
-                </button>
-                <button
-                  class="w-5 h-5 shrink-0 rounded-[4px] flex items-center justify-center text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] transition-colors"
-                  :title="t('project.run.openWindow')"
-                  data-testid="run-tile-open"
-                  @click.stop="openWindow(run)"
-                >
-                  <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="1.5"
-                      d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25"
-                    />
-                  </svg>
-                </button>
+                <!-- 每格自己的模型 / 思考等级 / 任务 / 停止 / 开窗（非全局功能不挂在主 header） -->
+                <RunTileControls
+                  :run="run"
+                  @stop="stop(run)"
+                  @open="openWindow(run)"
+                  @task="openTaskQueue(run)"
+                  @changed="refreshRuns"
+                />
               </div>
               <div class="flex-1 min-h-0 relative">
                 <TerminalPreview
@@ -505,7 +618,7 @@
           <!-- 超过 4 条不静默丢弃：点左栏运行把它换进网格 -->
           <p
             v-if="hiddenTileCount > 0"
-            class="shrink-0 px-2 pb-1.5 text-[calc(10.5px*var(--ui-scale))] text-[var(--text-tertiary)]"
+            class="shrink-0 px-2 pb-1.5 text-[calc(11px*var(--ui-scale))] text-[var(--text-tertiary)]"
             data-testid="run-tiles-hint"
           >
             {{ t('project.terminal.tileHidden', { n: hiddenTileCount }) }}
@@ -530,13 +643,33 @@
             </p>
           </div>
 
-          <!-- 终端：复用现有终端渲染管线（同一条 PTY 的真实字节） -->
-          <div v-else class="flex-1 min-h-0 relative" data-testid="run-terminal">
+          <!-- 终端：复用现有终端渲染管线（同一条 PTY 的真实字节）。
+               只有存活运行才挂终端：终态运行的 PTY 已回收，挂上去只会得到一块
+               永远空白的 xterm，且 fit/resize 会向不存在的 PTY 反复发命令
+               （宿主「会话缺少 PTY 句柄」错误日志）。 -->
+          <div v-else-if="isRunLive" class="flex-1 min-h-0 relative" data-testid="run-terminal">
             <TerminalPreview
+              ref="singleTerminalRef"
               :session="selectedRunSession"
               :show-input="true"
               :show-header="false"
             />
+          </div>
+
+          <!-- 选中终态运行：显性说明「运行已结束」，不打开空终端 -->
+          <div
+            v-else
+            class="flex-1 flex flex-col items-center justify-center px-6 text-center"
+            data-testid="run-terminal-ended"
+          >
+            <p class="text-[calc(12px*var(--ui-scale))] text-[var(--text-primary)]">
+              {{ t('project.terminal.runEnded') }}
+            </p>
+            <p
+              class="mt-1 text-[calc(11px*var(--ui-scale))] text-[var(--text-secondary)] leading-relaxed"
+            >
+              {{ t('project.terminal.runEndedHint') }}
+            </p>
           </div>
         </template>
       </section>
@@ -735,7 +868,7 @@
                 {{ agent.displayName }}
               </div>
               <div
-                class="wb-mono text-[calc(10.5px*var(--ui-scale))] text-[var(--text-tertiary)] truncate"
+                class="wb-mono text-[calc(11px*var(--ui-scale))] text-[var(--text-tertiary)] truncate"
               >
                 {{ agent.binary }}
               </div>
@@ -754,7 +887,7 @@
             </span>
             <button
               v-if="agent.readiness === 'missing'"
-              class="shrink-0 whitespace-nowrap leading-none py-1 text-[calc(10.5px*var(--ui-scale))] text-[var(--text-secondary)] underline underline-offset-2 hover:text-[var(--text-primary)]"
+              class="shrink-0 whitespace-nowrap leading-none py-1 text-[calc(11px*var(--ui-scale))] text-[var(--text-secondary)] underline underline-offset-2 hover:text-[var(--text-primary)]"
               data-testid="run-agent-install"
               @click.stop="goInstall"
             >
@@ -788,10 +921,17 @@
  * **新建运行 = 在项目里选一个 agent**：后端按（项目, agent）取/建启动参数并走
  * 唯一启动链；前端只准备终端网格（先预测再启动，避免开终端后重排）。
  *
+ * **运行列表与 agent CLI 同生命周期**（herdr agents 区口径）：卡片只在 agent
+ * 进程存活期间展示；用户在 CLI 里 exit / 进程被杀 → 会话终态 → 卡片消失。
+ * 不做「归档」整理：结束的运行不再留在列表里，记录仍归会话域持有。
+ *
  * **拼屏（多终端同屏，2026-11-05）**：中栏可切「拼屏」，把该项目存活运行的终端
  * 一起铺开（最多 4 格；1 / 2 / 3 / 4 格自适应网格）。每格复用 TerminalPreview
  * （各自一条真实 PTY），点格子换焦点；超过 4 条由左栏点选换入，不静默丢弃。
  * 模式按项目记在 app KV；只铺存活运行（终态运行的 PTY 已回收）。
+ * **运行相关控制（停止 / 模型 / 思考等级 / 任务队列 / 独立开窗）住在各自格子的
+ * header 上**：它们只对某一条运行生效，挂在全局 header 会被误读成对所有格生效。
+ * 主 header 只留拼屏开关、终端设置与作用于焦点终端的动作。
  */
 import {
   computed,
@@ -809,9 +949,12 @@ import { toast } from 'vue-sonner'
 import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-desktop'
 import PluginModal from '@/components/PluginModal.vue'
 import ProjectFileTree from '@/components/projects/ProjectFileTree.vue'
+import RunAgentSelects from '@/components/projects/RunAgentSelects.vue'
+import RunTileControls from '@/components/projects/RunTileControls.vue'
 import ProjectFileViewer from '@/components/projects/ProjectFileViewer.vue'
 import ProjectGitGraph from '@/components/projects/ProjectGitGraph.vue'
 import TerminalPreview from '@/components/terminal/TerminalPreview.vue'
+import TerminalSettingsPanel from '@/components/terminal/TerminalSettingsPanel.vue'
 import { resolvePluginErrorText } from '@/utils/pluginError'
 import { agentGlyph } from '@/agents/registry'
 import { usePaneResize } from '@/composables/usePaneResize'
@@ -825,6 +968,16 @@ import {
   type AgentEntry,
   type RunView,
 } from '@/composables/useProjects'
+import {
+  useTerminalHostCapabilities,
+  createFallbackHostCapabilities,
+} from '@/components/terminal/terminalHostCapabilities'
+import { useTerminalChrome } from '@/composables/terminal/useTerminalChrome'
+import {
+  TERMINAL_THEME_SELECT_OPTIONS,
+  TERMINAL_FONT_SIZE_SELECT_OPTIONS,
+} from '@/utils/terminal/terminalThemes'
+import { taskModalSessionId, taskModalVisible } from '@/state'
 
 const context = inject<PluginContext>('pluginContext')!
 const t = (key: string, params?: Record<string, any>) => context.i18n.t(key, params)
@@ -856,6 +1009,13 @@ const selectedRunId = ref('')
 const notFound = ref(false)
 const isStarting = ref(false)
 const showAgentPicker = ref(false)
+
+// ==================== 运行列表（与 agent CLI 同生命周期） ====================
+//
+// 只列存活运行：agent CLI 退出 → 会话终态 → 卡片立即从列表消失（记录仍留在
+// 会话域）。已取消「归档」整理面：用户不需要手动把结束的运行藏起来。
+// 选中项若是刚结束的运行，主面给「运行已结束」空态，不自动跳到别的运行。
+const liveRuns = computed(() => runs.value.filter((run) => isLiveRun(run.status)))
 
 // ==================== 拼屏（多终端同屏） ====================
 //
@@ -930,6 +1090,9 @@ function toggleTileMode(): void {
 function focusTile(run: RunView): void {
   if (selectedRunId.value !== run.id) selectedRunId.value = run.id
 }
+
+/** 单屏终端实例（清屏 / 刷新 / 设置读写的作用对象） */
+const singleTerminalRef = ref<InstanceType<typeof TerminalPreview> | null>(null)
 
 /** 拼屏格子组件引用（按运行 id）：左栏换入 / 点标题条后把键盘焦点交给该格终端 */
 const tileTerminalRefs = new Map<string, { focus?: () => void }>()
@@ -1242,7 +1405,12 @@ const showRunMeta = computed(() => centerWidth.value >= 460)
 /** 工具栏里的项目路径：窄窗口下让位给「运行中 / 刷新」（悬停 title 仍能看到完整路径） */
 const showProjectPath = computed(() => layoutWidth.value === 0 || layoutWidth.value >= 820)
 
-/** 选中运行（选中 id 失配时退回第一条，避免删/停之后中栏空着） */
+/**
+ * 选中运行
+ *
+ * 选中 id 仍按**全量记录**解析：刚结束（终态）的运行留在主面显示「运行已结束」，
+ * 不自动跳到别的运行；只有 id 失配（运行被移除 / 深链）才退回第一条存活运行。
+ */
 const selectedRun = computed<RunView | null>(() => {
   const byId = runs.value.find((run) => run.id === selectedRunId.value)
   if (byId) return byId
@@ -1251,12 +1419,171 @@ const selectedRun = computed<RunView | null>(() => {
     const firstTiled = tiledRuns.value[0]
     if (firstTiled) return firstTiled
   }
-  return runs.value[0] ?? null
+  // 列表只展示存活运行；选中 id 仍按全量记录解析——刚结束的运行留在主面
+  // 显示「运行已结束」，不自动跳到下一条
+  return liveRuns.value[0] ?? null
 })
+
+// 兜底选中的运行固化为真实选中：否则它退出后选中 id 仍在空串上，主面会
+// 跟着兜底跳去别的运行（或掉回未选中空态），看不到「运行已结束」。
+watch(
+  () => selectedRun.value?.id ?? '',
+  (id) => {
+    if (!id || id === selectedRunId.value) return
+    // 原选中仍有效（用户点过 / 刚切换）→ 不接管；只有失效（运行被移除 / 深链
+    // 未指定）才把兜底结果固化
+    if (runs.value.some((run) => run.id === selectedRunId.value)) return
+    selectedRunId.value = id
+  },
+)
 
 /** 传给终端组件的会话形状（同一条 PTY，运行视图 ↔ 会话视图同源） */
 const selectedRunSession = computed(() =>
   selectedRun.value ? runAsSession(selectedRun.value) : null,
+)
+
+// ==================== 终端 chrome（状态 / 时长 / 任务入口，与独立窗口共用） ====================
+
+const chrome = useTerminalChrome({
+  t,
+  status: computed(() => selectedRun.value?.status ?? null),
+  startedAt: computed(() => selectedRun.value?.startedAt ?? null),
+  sessionId: computed(() => selectedRun.value?.id ?? ''),
+})
+const {
+  statusColor: chromeStatusColor,
+  statusText: chromeStatusText,
+  statusLabelClass: chromeStatusLabelClass,
+  uptimeText: chromeUptimeText,
+  taskSupported: chromeTaskSupported,
+  evaluateTaskSupport: evaluateChromeTaskSupport,
+} = chrome
+
+/** 中栏当前运行是否存活（可看终端 / 可停止 / 可切换控制项） */
+const isRunLive = computed(() => !!selectedRun.value && isLiveRun(selectedRun.value.status))
+
+/** 点任务队列入口：把目标运行注入共享弹窗（单屏 = 当前运行；拼屏 = 该格运行） */
+function openTaskQueue(run: RunView | null = selectedRun.value): void {
+  if (!run) return
+  taskModalSessionId.value = run.id
+  taskModalVisible.value = true
+}
+
+// ==================== 终端设置（主题 / 字号 / 字间距 / 背景图） ====================
+
+const caps = useTerminalHostCapabilities() ?? createFallbackHostCapabilities()
+
+const settingsOpen = ref(false)
+const settingsTheme = ref('dracula')
+const settingsFontSize = ref(12)
+const settingsLetterSpacing = ref(0)
+const settingsBgOpacity = ref<number>(caps.settings.getBgOpacity() ?? 30)
+const themeSelectOptions = TERMINAL_THEME_SELECT_OPTIONS
+const fontSizeSelectOptions = TERMINAL_FONT_SIZE_SELECT_OPTIONS
+const letterSpacingSelectOptions = [0, 1, 2, 3, 4].map((value) => ({
+  value,
+  label: `${value}px`,
+}))
+
+const hasBgImage = computed(() => caps.bgImage.hasImage)
+const bgImageName = computed(() => caps.bgImage.imageName)
+
+/** 当前焦点终端：单屏 = 中栏实例；拼屏 = 选中格的实例 */
+function activeTerminal(): InstanceType<typeof TerminalPreview> | null {
+  if (tileMode.value) {
+    const runId = selectedRun.value?.id ?? ''
+    return (tileTerminalRefs.get(runId) as InstanceType<typeof TerminalPreview> | undefined) ?? null
+  }
+  return singleTerminalRef.value
+}
+
+/** 打开面板 / 换焦点运行：把终端上的当前值同步进受控字段 */
+function syncSettingsFromTerminal(): void {
+  const term = activeTerminal()
+  if (!term) return
+  settingsTheme.value = term.terminalTheme ?? settingsTheme.value
+  settingsFontSize.value = term.fontSize ?? settingsFontSize.value
+  settingsLetterSpacing.value = term.letterSpacing ?? settingsLetterSpacing.value
+  settingsBgOpacity.value = caps.settings.getBgOpacity() ?? settingsBgOpacity.value
+}
+
+function toggleSettings(): void {
+  settingsOpen.value = !settingsOpen.value
+  if (settingsOpen.value) syncSettingsFromTerminal()
+}
+
+// 面板改动写回终端（TerminalPreview 内部走既有防抖持久化链）
+watch(settingsTheme, (value) => {
+  const term = activeTerminal()
+  if (term) term.terminalTheme = value
+})
+watch(settingsFontSize, (value) => {
+  const term = activeTerminal()
+  if (term) term.fontSize = value
+})
+watch(settingsLetterSpacing, (value) => {
+  const term = activeTerminal()
+  if (term) term.letterSpacing = value
+})
+
+// 背景不透明度：本地实时预览 + 防抖持久化（与独立窗口同一口径）
+let bgSaveTimeout: ReturnType<typeof setTimeout> | null = null
+watch(settingsBgOpacity, () => {
+  if (bgSaveTimeout) clearTimeout(bgSaveTimeout)
+  bgSaveTimeout = setTimeout(() => {
+    caps.settings.save({ bgOpacity: settingsBgOpacity.value })
+  }, 300)
+})
+
+async function pickBgImage(): Promise<void> {
+  await caps.bgImage.pickAndSet()
+}
+
+async function removeBgImage(): Promise<void> {
+  await caps.bgImage.remove()
+}
+
+function clearActiveTerminal(): void {
+  activeTerminal()?.clearTerminal()
+}
+
+function refreshActiveTerminal(): void {
+  activeTerminal()?.refreshTerminal()
+}
+
+/** Esc 关闭设置抽屉（与独立窗口同口径） */
+function onChromeKeydown(event: KeyboardEvent): void {
+  if (event.key === 'Escape' && settingsOpen.value) settingsOpen.value = false
+}
+
+// ==================== 换焦点 / 任务入口（单屏 header） ====================
+
+/**
+ * 换焦点运行：任务入口判据跟着换（拼屏点格子也走这里）。
+ *
+ * `bridgeConnected` 进依赖：运行刚启动时桥接还没心跳（能力判为 bridge-offline），
+ * 心跳到达后要重新取一次，否则入口会一直灰着。
+ * 拼屏时任务入口在每格自己身上（RunTileControls），主 header 不取。
+ * 模型 / 思考等级也由 RunAgentSelects 自己按运行取，这里不再重复请求。
+ */
+watch(
+  () => ({
+    runId: selectedRun.value?.id ?? '',
+    bridge: selectedRun.value?.bridgeConnected ?? false,
+    tile: tileMode.value,
+  }),
+  (next, previous) => {
+    if (
+      !next.tile &&
+      (next.tile !== previous?.tile ||
+        next.runId !== previous?.runId ||
+        next.bridge !== previous?.bridge)
+    ) {
+      void evaluateChromeTaskSupport()
+    }
+    if (settingsOpen.value) syncSettingsFromTerminal()
+  },
+  { immediate: true },
 )
 
 // ==================== 状态展示 ====================
@@ -1274,13 +1601,13 @@ function isActiveRun(run: RunView): boolean {
 function statusDot(status: string): string {
   switch (status) {
     case 'running':
-      return 'bg-green-500 animate-pulse'
+      return 'bg-[var(--color-success)]'
     case 'waitingInput':
-      return 'bg-amber-500'
+      return 'bg-[var(--color-warning)]'
     case 'starting':
-      return 'bg-blue-500 animate-pulse'
+      return 'bg-[var(--color-info)] animate-pulse'
     case 'error':
-      return 'bg-red-500'
+      return 'bg-[var(--color-danger)]'
     default:
       return 'bg-[var(--text-tertiary)]'
   }
@@ -1404,7 +1731,8 @@ async function start(agentId: string): Promise<void> {
   }
 }
 
-async function stop(run: RunView): Promise<void> {
+async function stop(run: RunView | null): Promise<void> {
+  if (!run) return
   try {
     await stopRun(run.id, projectId.value)
     toast.info(t('session.toast.stopped'))
@@ -1456,6 +1784,8 @@ function backToList(): void {
 let eventDisposables: { dispose(): void }[] = []
 
 onMounted(async () => {
+  // 设置抽屉的 Esc 关闭（与独立窗口同口径）
+  window.addEventListener('keydown', onChromeKeydown)
   // 先读回上次的三栏布局（宽度 + 折叠状态；读不到即用默认值，不阻塞取数）
   void loadRunsWidth()
   void loadInspectorWidth()
@@ -1475,6 +1805,11 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  window.removeEventListener('keydown', onChromeKeydown)
+  if (bgSaveTimeout) {
+    clearTimeout(bgSaveTimeout)
+    bgSaveTimeout = null
+  }
   stopTicker()
   disposeRuns()
   disposeInspector()
@@ -1537,10 +1872,9 @@ onUnmounted(() => {
  */
 .wb-rail-label {
   writing-mode: vertical-rl;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.02em;
   user-select: none;
   font-size: calc(10px * var(--ui-scale));
-  text-transform: uppercase;
   color: var(--text-tertiary);
 }
 </style>

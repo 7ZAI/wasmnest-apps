@@ -8,7 +8,7 @@
  */
 import { ref, computed, watch, onMounted, onUnmounted, inject, nextTick } from 'vue'
 import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-desktop'
-import { taskModalVisible } from '../state'
+import { taskModalSessionId, taskModalVisible } from '../state'
 import { currentSessionId } from '../utils/route'
 
 const context = inject<PluginContext>('pluginContext')!
@@ -43,6 +43,11 @@ interface PresetItem {
 // ==================== State ====================
 
 const visible = taskModalVisible
+// 关闭即清掉注入的会话 id：同一弹窗的其它入口（终端窗口 / 会话页）仍按路由取，
+// 残留值会把它们指向工作台最后一次选中的运行
+watch(visible, (open) => {
+  if (!open) taskModalSessionId.value = ''
+})
 const queue = ref<QueueItem[]>([])
 // 当前处理中的队列项（waiting/executing）：活动任务展示 + 取消入口（与移动端面板对齐）
 const activeTask = ref<QueueItem | null>(null)
@@ -94,7 +99,8 @@ function onInputKeydown(e: KeyboardEvent) {
 }
 
 // 当前会话 id：宿主共享运行时的路由参数（仅终端窗口存在）
-const sessionId = computed(() => currentSessionId())
+// 目标会话：显式注入（项目工作台）优先，否则按路由取（终端窗口 / 会话页既有行为）
+const sessionId = computed(() => taskModalSessionId.value || currentSessionId())
 
 // ==================== Status Display ====================
 
@@ -120,7 +126,10 @@ const statusColor: Record<string, string> = {
 
 // 当前执行中的任务（执行中/重试中/等待输入），否则显示空闲
 const displayTask = computed(() => {
-  if (currentTask.value && ['in_progress', 'asking', 'retrying'].includes(currentTask.value.status)) {
+  if (
+    currentTask.value &&
+    ['in_progress', 'asking', 'retrying'].includes(currentTask.value.status)
+  ) {
     return currentTask.value
   }
   return null

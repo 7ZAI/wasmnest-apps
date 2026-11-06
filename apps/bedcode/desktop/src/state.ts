@@ -8,3 +8,11 @@ import { ref } from 'vue'
 
 /** 任务队列弹窗是否可见 */
 export const taskModalVisible = ref(false)
+
+/**
+ * 任务队列弹窗的目标会话（空串 = 按路由取，终端窗口/会话页的既有行为）
+ *
+ * 项目工作台没有「终端窗口路由」，同一弹窗要能指向中栏当前选中的运行；
+ * 打开前写入本 ref，弹窗优先用它，避免为了一个参数复制第二份弹窗。
+ */
+export const taskModalSessionId = ref('')
