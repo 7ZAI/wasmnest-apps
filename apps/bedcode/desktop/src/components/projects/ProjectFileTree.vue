@@ -6,7 +6,7 @@
       data-testid="project-files-toolbar"
     >
       <span
-        class="min-w-0 flex-1 truncate wb-mono text-[calc(10.5px*var(--ui-scale))] text-[var(--text-tertiary)]"
+        class="min-w-0 flex-1 truncate wb-mono text-[calc(11px*var(--ui-scale))] text-[var(--text-tertiary)]"
         :title="workingDir"
         data-testid="project-files-root"
       >

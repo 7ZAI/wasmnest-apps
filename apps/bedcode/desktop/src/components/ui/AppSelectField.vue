@@ -1,5 +1,5 @@
 <template>
-  <div class="app-field" :data-testid="testid">
+  <div class="app-field" :class="{ 'app-field-compact': compact }">
     <span v-if="label" :id="labelId" class="app-field-label">
       {{ label }}
       <span v-if="required" class="app-field-req" aria-hidden="true">*</span>
@@ -10,8 +10,10 @@
         class="app-control app-select-trigger"
         :class="{ 'app-control-invalid': !!error }"
         :aria-labelledby="label ? labelId : undefined"
+        :aria-label="!label ? ariaLabel : undefined"
         :aria-invalid="error ? 'true' : undefined"
         :aria-describedby="describedBy"
+        :data-testid="testid || undefined"
       >
         <span class="app-select-text" :class="{ 'app-select-placeholder': !selectedLabel }">
           {{ selectedLabel || placeholder || '' }}
@@ -29,7 +31,12 @@
       </SelectTrigger>
 
       <SelectPortal>
-        <SelectContent position="popper" :side-offset="4" class="app-select-content">
+        <SelectContent
+          position="popper"
+          :side-offset="4"
+          class="app-select-content"
+          :class="{ 'app-select-content-compact': compact }"
+        >
           <SelectViewport>
             <!-- 占位项 = 「未选」，用哨兵值占位（reka-ui 不接受空字符串作为选项值） -->
             <SelectItem
@@ -114,12 +121,25 @@ interface Props {
   required?: boolean
   error?: string
   help?: string
+  /** 无可见标签时的可读名称（工具栏筛选等紧凑场景） */
+  ariaLabel?: string
+  /** 紧凑尺寸：工具栏筛选，高度与字号收敛但 padding / 圆角仍走 token */
+  compact?: boolean
+  /** 落在触发器上，点击即可展开 */
   testid?: string
 }
 
 const props = withDefaults(defineProps<Props>(), {
+  label: '',
+  // placeholder 故意不给默认值：undefined = 不提供「未选」项，''
+  // 会改变根值哨兵映射并多渲染一个空选项（单测已钉住该行为）。
+  placeholder: undefined,
   disabled: false,
   required: false,
+  error: '',
+  help: '',
+  compact: false,
+  ariaLabel: '',
   testid: '',
 })
 
@@ -218,6 +238,22 @@ const selectedLabel = computed(() => {
 .app-select-trigger:disabled {
   opacity: 0.55;
   cursor: not-allowed;
+}
+
+/* 紧凑档：只用于工具栏/筛选条；高度 28px 与 wb-btn-ghost 同高，避免一高一矮 */
+.app-field-compact .app-control {
+  height: calc(28px * var(--ui-scale));
+  padding: 0 calc(8px * var(--ui-scale));
+  font-size: calc(11.5px * var(--ui-scale));
+}
+
+.app-field-compact .app-field-label {
+  font-size: calc(10.5px * var(--ui-scale));
+}
+
+.app-select-content-compact .app-select-item {
+  padding: calc(4px * var(--ui-scale)) calc(8px * var(--ui-scale));
+  font-size: calc(11.5px * var(--ui-scale));
 }
 
 .app-control-invalid,

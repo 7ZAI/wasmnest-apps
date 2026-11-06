@@ -31,7 +31,7 @@
         </div>
       </div>
       <!-- 无 WSL 时给提示而不是空下拉（与会话表单同口径） -->
-      <p v-if="!wslLoading && wslError" class="mt-1 text-sm text-amber-500">
+      <p v-if="!wslLoading && wslError" class="mt-1 text-sm text-[var(--color-warning-ink)]">
         {{ t('project.form.wslNotDetected') }}
       </p>
     </div>

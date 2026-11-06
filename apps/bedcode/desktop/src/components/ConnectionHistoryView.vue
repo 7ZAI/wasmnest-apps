@@ -26,7 +26,13 @@
           v-if="!isLoading && entries.length > 0"
           class="wb-mono text-[calc(11px*var(--ui-scale))] text-[var(--text-tertiary)] whitespace-nowrap"
         >
-          {{ t('pairing.history.statistics', { total: entries.length, ok: successCount, fail: failCount }) }}
+          {{
+            t('pairing.history.statistics', {
+              total: entries.length,
+              ok: successCount,
+              fail: failCount,
+            })
+          }}
         </span>
       </div>
       <div class="flex items-center gap-2">
@@ -95,9 +101,7 @@
       <!-- 按日期分组的 section -->
       <div v-else class="space-y-6 max-w-3xl">
         <section v-for="group in groups" :key="group.date" class="history-group">
-          <h3 class="wb-section-title font-mono tracking-[0.12em]">
-            {{ group.date }} · {{ group.entries.length }}
-          </h3>
+          <h3 class="wb-section-title font-mono">{{ group.date }} · {{ group.entries.length }}</h3>
           <div
             class="border border-[var(--border)] rounded-[10px] bg-[var(--bg-card)] divide-y divide-[var(--border)] overflow-hidden"
           >
@@ -109,7 +113,9 @@
               <span
                 :class="[
                   'w-2 h-2 rounded-full shrink-0',
-                  entry.result === 'success' ? 'bg-green-500' : 'bg-red-400',
+                  entry.result === 'success'
+                    ? 'bg-[var(--color-success)]'
+                    : 'bg-[var(--color-danger)]',
                 ]"
               ></span>
               <span class="text-xs font-medium text-[var(--text-primary)] w-16 shrink-0">{{
@@ -128,8 +134,8 @@
                 :class="[
                   'wb-mono text-[calc(11px*var(--ui-scale))] w-12 text-right shrink-0',
                   entry.result === 'success'
-                    ? 'text-green-700 dark:text-green-400'
-                    : 'text-red-700 dark:text-red-400',
+                    ? 'text-[var(--color-success-ink)]'
+                    : 'text-[var(--color-danger-ink)]',
                 ]"
               >
                 {{ resultLabel(entry.result) }}
@@ -246,8 +252,7 @@ function backToDevices() {
 
 async function loadDevices() {
   const list = (await context.commands.execute('session.devices.paired-list', {})) as
-    | PairedDeviceInfo[]
-    | undefined
+    PairedDeviceInfo[] | undefined
   devices.value = Array.isArray(list) ? list : []
   // 无路由参数时默认选第一台设备（与「从侧边栏点进来也能看到内容」一致）
   if (!deviceId.value && devices.value.length > 0) {

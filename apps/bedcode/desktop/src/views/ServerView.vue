@@ -14,10 +14,7 @@
         <span class="text-[calc(11px*var(--ui-scale))] text-[var(--text-tertiary)]">{{
           t('server.surfaceHint')
         }}</span>
-        <button
-          class="wb-btn-ghost !text-[var(--text-secondary)]"
-          @click="handleResetDefaults"
-        >
+        <button class="wb-btn-ghost !text-[var(--text-secondary)]" @click="handleResetDefaults">
           {{ t('server.resetDefaults') }}
         </button>
       </div>
@@ -113,7 +110,9 @@
               >
                 {{ t('server.portSave') }}
               </button>
-              <span class="text-[calc(11px*var(--ui-scale))] text-[var(--text-tertiary)]">{{ t('server.portHint') }}</span>
+              <span class="text-[calc(11px*var(--ui-scale))] text-[var(--text-tertiary)]">{{
+                t('server.portHint')
+              }}</span>
             </div>
           </div>
           <div
@@ -309,10 +308,10 @@ const statusText = computed(() => {
 
 const dotClass = computed(() =>
   status.value === 'running'
-    ? 'bg-green-500'
+    ? 'bg-[var(--color-success)]'
     : status.value === 'starting'
-      ? 'bg-yellow-500'
-      : 'bg-red-500',
+      ? 'bg-[var(--color-warning)]'
+      : 'bg-[var(--color-danger)]',
 )
 
 /** 运行时长本地计时 — 每秒刷新，不依赖后端轮询 */

@@ -24,7 +24,7 @@
       </svg>
       <span
         v-if="isLoaded && isGitRepo && currentBranch"
-        class="min-w-0 truncate wb-mono text-[calc(10.5px*var(--ui-scale))] text-[var(--text-secondary)]"
+        class="min-w-0 truncate wb-mono text-[calc(11px*var(--ui-scale))] text-[var(--text-secondary)]"
         :title="currentBranch"
         data-testid="git-branch"
       >
@@ -32,7 +32,7 @@
       </span>
       <span
         v-else-if="isLoaded && isGitRepo"
-        class="min-w-0 truncate text-[calc(10.5px*var(--ui-scale))] text-[var(--text-tertiary)]"
+        class="min-w-0 truncate text-[calc(11px*var(--ui-scale))] text-[var(--text-tertiary)]"
         data-testid="git-branch"
       >
         {{ t('project.git.detached') }}
@@ -215,7 +215,7 @@
               {{ row.commit.shortHash }}
             </span>
             <span
-              class="min-w-0 truncate text-[calc(10.5px*var(--ui-scale))] text-[var(--text-secondary)]"
+              class="min-w-0 truncate text-[calc(11px*var(--ui-scale))] text-[var(--text-secondary)]"
             >
               {{ row.commit.author }}
             </span>
@@ -230,7 +230,7 @@
 
       <div
         v-if="truncated"
-        class="px-3 py-2 text-center text-[calc(10.5px*var(--ui-scale))] text-[var(--text-tertiary)]"
+        class="px-3 py-2 text-center text-[calc(11px*var(--ui-scale))] text-[var(--text-tertiary)]"
         data-testid="git-truncated"
       >
         {{ t('project.git.truncated', { n: commits.length }) }}

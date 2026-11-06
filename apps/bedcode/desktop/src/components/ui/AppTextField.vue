@@ -1,12 +1,30 @@
 <template>
-  <div class="app-field" :data-testid="testid">
+  <div class="app-field">
     <label v-if="label" :for="inputId" class="app-field-label">
       {{ label }}
       <span v-if="required" class="app-field-req" aria-hidden="true">*</span>
     </label>
 
     <div class="relative">
+      <textarea
+        v-if="multiline"
+        :id="inputId"
+        :value="modelValue"
+        :rows="rows"
+        :placeholder="placeholder"
+        :disabled="disabled"
+        :required="required"
+        class="app-control app-textarea"
+        :class="{ 'app-control-invalid': !!error }"
+        :aria-label="!label ? ariaLabel : undefined"
+        :aria-invalid="error ? 'true' : undefined"
+        :aria-describedby="describedBy"
+        :data-testid="testid || undefined"
+        @input="onInput"
+        @change="onChange"
+      />
       <input
+        v-else
         :id="inputId"
         :type="type"
         :value="modelValue"
@@ -15,12 +33,15 @@
         :required="required"
         class="app-control"
         :class="{ 'app-control-invalid': !!error, 'pr-16': !!$slots.suffix }"
+        :aria-label="!label ? ariaLabel : undefined"
         :aria-invalid="error ? 'true' : undefined"
         :aria-describedby="describedBy"
+        :data-testid="testid || undefined"
         @input="onInput"
+        @change="onChange"
       />
       <div
-        v-if="$slots.suffix"
+        v-if="$slots.suffix && !multiline"
         class="absolute inset-y-0 right-2.5 flex items-center gap-1 text-[var(--text-tertiary)]"
       >
         <slot name="suffix" />
@@ -54,19 +75,39 @@ interface Props {
   modelValue: string
   label?: string
   type?: 'text' | 'password' | 'email' | 'url'
+  /** 多行文本：渲染 textarea（同一套 token 外观，行高与内边距单独适配） */
+  multiline?: boolean
+  rows?: number
   placeholder?: string
   disabled?: boolean
   required?: boolean
   error?: string
   help?: string
+  /** 无可见标签时的可读名称（紧凑表单用） */
+  ariaLabel?: string
+  /** 落在实际控件上，E2E / 单测可直接 setValue 或 typeInto */
   testid?: string
+  /**
+   * 只在 change（失焦/回车）时向外提交。
+   * 用于「输入过程中不能重排原文」的字段（空格分隔 argv、逐行写集）：
+   * 受控值在输入期间保持不变，Vue 不会回写 DOM，用户可正常键入。
+   */
+  commitOnChange?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
+  label: '',
   type: 'text',
+  multiline: false,
+  rows: 3,
+  placeholder: '',
   disabled: false,
   required: false,
+  error: '',
+  help: '',
   testid: '',
+  ariaLabel: '',
+  commitOnChange: false,
 })
 
 const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
@@ -79,6 +120,12 @@ const describedBy = computed(() => {
 })
 
 function onInput(event: Event): void {
+  if (props.commitOnChange) return
+  emit('update:modelValue', (event.target as HTMLInputElement).value)
+}
+
+function onChange(event: Event): void {
+  if (!props.commitOnChange) return
   emit('update:modelValue', (event.target as HTMLInputElement).value)
 }
 </script>
@@ -127,6 +174,15 @@ function onInput(event: Event): void {
 
 .app-control::placeholder {
   color: var(--text-tertiary);
+}
+
+/* 多行：高度交给 rows，垂直内边距与行高单独给；允许用户纵向拉伸 */
+.app-textarea {
+  height: auto;
+  min-height: var(--input-height);
+  padding: calc(8px * var(--ui-scale)) calc(11px * var(--ui-scale));
+  line-height: 1.5;
+  resize: vertical;
 }
 
 .app-control:hover:not(:disabled) {

@@ -51,7 +51,7 @@ describe('Input Component', () => {
       })
 
       expect(wrapper.find('label').text()).toContain('*')
-      expect(wrapper.find('.text-red-500').exists()).toBe(true)
+      expect(wrapper.find('.field-required').exists()).toBe(true)
     })
   })
 
@@ -208,8 +208,8 @@ describe('Input Component', () => {
         },
       })
 
-      expect(wrapper.find('.text-red-500').exists()).toBe(true)
-      expect(wrapper.find('.text-red-500').text()).toBe('This field is required')
+      expect(wrapper.find('.field-error').exists()).toBe(true)
+      expect(wrapper.find('.field-error').text()).toBe('This field is required')
     })
 
     it('should apply error border styling', () => {
@@ -221,7 +221,7 @@ describe('Input Component', () => {
       })
 
       const input = wrapper.find('input')
-      expect(input.classes()).toContain('border-red-500')
+      expect(input.classes()).toContain('border-[var(--color-danger)]')
     })
 
     it('should use normal border when no error', () => {
@@ -261,7 +261,7 @@ describe('Input Component', () => {
 
       const helpEls = wrapper.findAll('p').filter((p) => p.text() === 'Enter a valid email address')
       expect(helpEls).toHaveLength(0)
-      expect(wrapper.find('.text-red-500').text()).toBe('Invalid email')
+      expect(wrapper.find('.field-error').text()).toBe('Invalid email')
     })
   })
 

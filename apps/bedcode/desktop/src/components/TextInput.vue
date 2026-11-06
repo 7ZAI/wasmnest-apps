@@ -6,7 +6,7 @@
       class="block text-xs font-medium mb-1.5 text-[var(--text-secondary)]"
     >
       {{ label }}
-      <span v-if="required" class="text-red-500">*</span>
+      <span v-if="required" class="text-[var(--color-danger-ink)] field-required">*</span>
     </label>
 
     <div class="relative">
@@ -17,9 +17,9 @@
         :placeholder="placeholder"
         :disabled="disabled"
         :required="required"
-        class="w-full h-[var(--input-height)] border rounded-input px-4 transition-all duration-200 outline-none bg-[var(--bg-input)] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] focus:border-brand focus:shadow-input-focus shadow-xs dark:shadow-none"
+        class="w-full h-[var(--input-height)] border rounded-input px-4 transition-[border-color,box-shadow,background-color,color] duration-150 outline-none bg-[var(--bg-input)] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] focus:border-brand focus:shadow-input-focus shadow-xs dark:shadow-none"
         :class="[
-          error ? 'border-red-500' : 'border-[var(--border-input)]',
+          error ? 'border-[var(--color-danger)]' : 'border-[var(--border-input)]',
           { 'pr-16': $slots.suffix },
           { 'opacity-50 cursor-not-allowed': disabled },
         ]"
@@ -36,7 +36,7 @@
 
     <p
       v-if="error"
-      class="mt-1 text-xs text-red-500"
+      class="mt-1 text-xs text-[var(--color-danger-ink)] field-error"
       :data-testid="testid ? `${testid}-error` : undefined"
     >
       {{ error }}

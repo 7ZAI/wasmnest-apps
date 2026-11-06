@@ -87,11 +87,11 @@ const colorClass = computed(() => {
     case 'dark':
       return 'text-gray-400 dark:text-dark-400'
     case 'danger':
-      return 'text-red-500'
+      return 'text-[var(--color-danger-ink)]'
     case 'success':
-      return 'text-green-500'
+      return 'text-[var(--color-success-ink)]'
     case 'warning':
-      return 'text-yellow-500'
+      return 'text-[var(--color-warning-ink)]'
     default:
       return 'text-primary-500'
   }

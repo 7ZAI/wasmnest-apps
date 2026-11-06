@@ -33,7 +33,7 @@
       <div v-else class="form-group">
         <label class="block text-xs font-medium mb-1.5 text-[var(--text-secondary)]">
           {{ t('session.form.wslDistro') }}
-          <span class="text-red-500">*</span>
+          <span class="text-[var(--color-danger-ink)]">*</span>
         </label>
         <div
           class="border rounded-input px-4 py-2 border-[var(--border-input)] bg-[var(--bg-input)] text-[var(--text-tertiary)]"
@@ -42,7 +42,7 @@
         </div>
       </div>
       <!-- 宿主无 WSL：提示而非空下拉（原语显性报错，见 environment 模块） -->
-      <p v-if="!wslLoading && wslError" class="mt-1 text-sm text-amber-500">
+      <p v-if="!wslLoading && wslError" class="mt-1 text-sm text-[var(--color-warning-ink)]">
         {{ t('session.form.wslNotDetected') }}
       </p>
     </div>

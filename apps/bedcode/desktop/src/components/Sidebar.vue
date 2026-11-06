@@ -162,9 +162,9 @@ function itemLabel(item: SidebarMenuItem) {
 const statusDotClass = computed(() => {
   switch (status.value) {
     case 'running':
-      return 'bg-green-500'
+      return 'bg-[var(--color-success)]'
     case 'starting':
-      return 'bg-yellow-500'
+      return 'bg-[var(--color-warning)]'
     default:
       return 'bg-gray-400'
   }

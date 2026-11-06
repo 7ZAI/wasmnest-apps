@@ -80,9 +80,9 @@ describe('Spinner Component', () => {
       },
     })
 
-    // danger 颜色应该使用 text-red-500
+    // danger 颜色应该使用 text-[var(--color-danger-ink)]
     const dots = wrapper.findAll('.animate-bounce')
-    expect(dots[0].classes()).toContain('text-red-500')
+    expect(dots[0].classes()).toContain('text-[var(--color-danger-ink)]')
   })
 
   it('should apply success color', () => {
@@ -92,7 +92,7 @@ describe('Spinner Component', () => {
       },
     })
 
-    expect(wrapper.find('svg').classes()).toContain('text-green-500')
+    expect(wrapper.find('svg').classes()).toContain('text-[var(--color-success-ink)]')
   })
 
   it('should apply warning color', () => {
@@ -102,7 +102,7 @@ describe('Spinner Component', () => {
       },
     })
 
-    expect(wrapper.find('svg').classes()).toContain('text-yellow-500')
+    expect(wrapper.find('svg').classes()).toContain('text-[var(--color-warning-ink)]')
   })
 
   it('should apply correct color for pulse variant', () => {

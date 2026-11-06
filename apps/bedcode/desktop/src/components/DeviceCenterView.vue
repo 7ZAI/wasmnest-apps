@@ -43,9 +43,7 @@
          ③ 水平内边距 px-6 与内容列同宽，tab 条左右缘与卡片对齐。
          早前是 inline-flex 收缩条浮在页面底色上（整条 172px、两项各 80px），
          读起来像一对工具按钮而不是页签导航。 -->
-    <div
-      class="px-6 pt-3 pb-3 flex-shrink-0 bg-[var(--bg-card)] border-b border-[var(--border)]"
-    >
+    <div class="px-6 pt-3 pb-3 flex-shrink-0 bg-[var(--bg-card)] border-b border-[var(--border)]">
       <div class="flex items-center gap-1 p-1 rounded-lg bg-[var(--bg-hover)]" role="tablist">
         <button
           v-for="tab in deviceTabs"
@@ -89,9 +87,7 @@
       ></span>
       <div class="min-w-0 flex-1">
         <template v-if="centerStatusError === 'not_ready'">
-          <p
-            class="text-[calc(13px*var(--ui-scale))] font-semibold text-[var(--color-danger)]"
-          >
+          <p class="text-[calc(13px*var(--ui-scale))] font-semibold text-[var(--color-danger)]">
             {{ t('pairing.center.notReadyTitle') }}
           </p>
           <p class="text-[calc(12px*var(--ui-scale))] text-[var(--text-secondary)] mt-0.5">
@@ -104,9 +100,7 @@
         <!-- 状态未知：**不**给「重建产物」指引——那是未就位的修法，
              状态读不到是另一类问题，给错指引会把排障方向带偏 -->
         <template v-else>
-          <p
-            class="text-[calc(13px*var(--ui-scale))] font-semibold text-[var(--text-secondary)]"
-          >
+          <p class="text-[calc(13px*var(--ui-scale))] font-semibold text-[var(--text-secondary)]">
             {{ t('pairing.center.statusUnknown') }}
           </p>
         </template>
@@ -121,9 +115,7 @@
           <div
             class="rounded-[10px] border border-[var(--border)] bg-[var(--bg-card)] px-4 py-2.5 flex items-center gap-3 flex-wrap"
           >
-            <span
-              class="text-[calc(11px*var(--ui-scale))] font-semibold uppercase tracking-wider text-[var(--text-tertiary)]"
-            >
+            <span class="text-[calc(11px*var(--ui-scale))] font-medium text-[var(--text-tertiary)]">
               {{ t('pairing.network.title') }}
             </span>
             <span class="text-[var(--border)]">|</span>
@@ -186,9 +178,7 @@
                   v-if="pairingCode"
                   class="wb-mono text-[calc(11px*var(--ui-scale))] inline-flex items-center gap-1.5 px-2 h-5 rounded-[6px] bg-[var(--color-success-light)] text-[var(--color-success)]"
                 >
-                  <span
-                    class="w-1.5 h-1.5 rounded-full bg-[var(--color-success)] animate-pulse"
-                  ></span>
+                  <span class="w-1.5 h-1.5 rounded-full bg-[var(--color-success)]"></span>
                   {{ remainingSeconds }}{{ t('pairing.time.seconds') }}
                 </span>
               </div>
@@ -271,9 +261,7 @@
                   v-if="hasQr"
                   class="wb-mono text-[calc(11px*var(--ui-scale))] inline-flex items-center gap-1.5 px-2 h-5 rounded-[6px] bg-[var(--color-success-light)] text-[var(--color-success)]"
                 >
-                  <span
-                    class="w-1.5 h-1.5 rounded-full bg-[var(--color-success)] animate-pulse"
-                  ></span>
+                  <span class="w-1.5 h-1.5 rounded-full bg-[var(--color-success)]"></span>
                   {{ qrRemainingSeconds }}{{ t('pairing.time.seconds') }}
                 </span>
               </div>
@@ -282,7 +270,9 @@
             <div class="flex flex-col items-center text-center">
               <template v-if="hasQr">
                 <!-- 白底衬底保证二维码在暗色模式下可读 -->
-                <div class="inline-block bg-white p-3 rounded-lg border border-[var(--border)] mb-4">
+                <div
+                  class="inline-block bg-white p-3 rounded-lg border border-[var(--border)] mb-4"
+                >
                   <canvas ref="qrCanvasRef" class="block"></canvas>
                 </div>
                 <p
@@ -355,9 +345,7 @@
                 class="px-4 py-3 rounded-[10px] border border-[var(--border)] bg-[var(--bg-card)] hover:shadow-sm transition-shadow"
               >
                 <div class="flex items-center gap-3 min-w-0">
-                  <span
-                    class="w-2 h-2 rounded-full shrink-0 bg-[var(--color-success)] animate-pulse"
-                  ></span>
+                  <span class="w-2 h-2 rounded-full shrink-0 bg-[var(--color-success)]"></span>
                   <p
                     class="flex-1 min-w-0 text-[calc(13px*var(--ui-scale))] font-medium text-[var(--text-primary)] truncate"
                   >
@@ -374,13 +362,13 @@
                     >{{ device.address }}</span
                   >
                   <button
-                    class="h-7 px-2.5 rounded-[6px] border border-[var(--border)] wb-mono text-[calc(11px*var(--ui-scale))] uppercase tracking-wide text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] transition-colors"
+                    class="h-7 px-2.5 rounded-[6px] border border-[var(--border)] wb-mono text-[calc(11px*var(--ui-scale))] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] transition-colors"
                     @click="viewHistory(device.id)"
                   >
                     {{ t('pairing.device.historyView') }}
                   </button>
                   <button
-                    class="h-7 px-2.5 rounded-[6px] border border-transparent wb-mono text-[calc(11px*var(--ui-scale))] uppercase tracking-wide text-[var(--text-tertiary)] hover:border-[var(--border)] hover:text-red-500 transition-colors"
+                    class="h-7 px-2.5 rounded-[6px] border border-transparent wb-mono text-[calc(11px*var(--ui-scale))] text-[var(--text-tertiary)] hover:border-[var(--border)] hover:text-[var(--color-danger-ink)] transition-colors"
                     @click="removeDevice(device.id)"
                   >
                     {{ t('pairing.button.remove') }}
@@ -444,13 +432,13 @@
                     >{{ device.address }}</span
                   >
                   <button
-                    class="h-7 px-2.5 rounded-[6px] border border-[var(--border)] wb-mono text-[calc(11px*var(--ui-scale))] uppercase tracking-wide text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] transition-colors"
+                    class="h-7 px-2.5 rounded-[6px] border border-[var(--border)] wb-mono text-[calc(11px*var(--ui-scale))] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] transition-colors"
                     @click="viewHistory(device.id)"
                   >
                     {{ t('pairing.device.historyView') }}
                   </button>
                   <button
-                    class="h-7 px-2.5 rounded-[6px] border border-transparent wb-mono text-[calc(11px*var(--ui-scale))] uppercase tracking-wide text-[var(--text-tertiary)] hover:border-[var(--border)] hover:text-red-500 transition-colors"
+                    class="h-7 px-2.5 rounded-[6px] border border-transparent wb-mono text-[calc(11px*var(--ui-scale))] text-[var(--text-tertiary)] hover:border-[var(--border)] hover:text-[var(--color-danger-ink)] transition-colors"
                     @click="removeDevice(device.id)"
                   >
                     {{ t('pairing.button.remove') }}
@@ -489,7 +477,7 @@
                 {{ t('pairing.key.description') }}
               </p>
               <button
-                class="h-8 px-3 rounded-[6px] border border-[var(--border)] wb-mono text-[calc(11px*var(--ui-scale))] uppercase tracking-wide text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] transition-colors flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
+                class="h-8 px-3 rounded-[6px] border border-[var(--border)] wb-mono text-[calc(11px*var(--ui-scale))] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] transition-colors flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
                 :disabled="isRotatingKey"
                 @click="showRotateKeyDialog = true"
               >
@@ -522,11 +510,7 @@
       </template>
     </PluginModal>
     <!-- 轮换入场密钥确认 -->
-    <PluginModal
-      v-model="showRotateKeyDialog"
-      :title="t('pairing.key.confirmTitle')"
-      size="sm"
-    >
+    <PluginModal v-model="showRotateKeyDialog" :title="t('pairing.key.confirmTitle')" size="sm">
       <p class="text-[var(--text-primary)] text-[calc(13px*var(--ui-scale))]">
         {{ t('pairing.key.confirmMsg') }}
       </p>
@@ -535,11 +519,7 @@
           <button class="wb-btn-ghost" @click="showRotateKeyDialog = false">
             {{ t('pairing.button.cancel') }}
           </button>
-          <button
-            class="wb-btn-primary"
-            :disabled="isRotatingKey"
-            @click="confirmRotateKey"
-          >
+          <button class="wb-btn-primary" :disabled="isRotatingKey" @click="confirmRotateKey">
             {{ t('pairing.key.rotate') }}
           </button>
         </div>
@@ -677,7 +657,11 @@ async function renderQrCanvas() {
   }
 }
 
-watch(() => qrPayload(), () => void renderQrCanvas(), { flush: 'post' })
+watch(
+  () => qrPayload(),
+  () => void renderQrCanvas(),
+  { flush: 'post' },
+)
 // canvas 元素重建（Tab 切换 / 分支重渲染）后补画：载荷不变时上面的 watch 不会触发
 watch(qrCanvasRef, () => void renderQrCanvas(), { flush: 'post' })
 // 路由切回（KeepAlive 激活）时确保图案可见

@@ -14,7 +14,7 @@
         </span>
         <span
           v-if="!isLoading && !error && lineCount > 0"
-          class="wb-mono shrink-0 text-[calc(10.5px*var(--ui-scale))] text-[var(--text-tertiary)]"
+          class="wb-mono shrink-0 text-[calc(11px*var(--ui-scale))] text-[var(--text-tertiary)]"
           data-testid="project-file-viewer-lines"
         >
           {{ t('project.fileViewer.lines', { n: lineCount }) }}
@@ -89,7 +89,7 @@
     <template #footer>
       <div class="flex items-center gap-2">
         <span
-          class="min-w-0 flex-1 truncate wb-mono text-[calc(10.5px*var(--ui-scale))] text-[var(--text-tertiary)]"
+          class="min-w-0 flex-1 truncate wb-mono text-[calc(11px*var(--ui-scale))] text-[var(--text-tertiary)]"
           :title="path"
         >
           {{ path }}

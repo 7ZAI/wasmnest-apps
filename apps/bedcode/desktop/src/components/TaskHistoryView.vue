@@ -272,21 +272,21 @@ const statusLabel: Record<string, string> = {
 
 const statusColor: Record<string, string> = {
   idle: 'text-[var(--text-tertiary)]',
-  in_progress: 'text-blue-500',
-  asking: 'text-amber-500',
-  retrying: 'text-amber-500',
-  completed: 'text-green-500',
-  interrupted: 'text-red-500',
+  in_progress: 'text-[var(--color-info-ink)]',
+  asking: 'text-[var(--color-warning-ink)]',
+  retrying: 'text-[var(--color-warning-ink)]',
+  completed: 'text-[var(--color-success-ink)]',
+  interrupted: 'text-[var(--color-danger-ink)]',
   pending: 'text-[var(--text-tertiary)]',
 }
 
 const statusDot: Record<string, string> = {
   idle: 'bg-[var(--text-tertiary)]',
-  in_progress: 'bg-blue-500',
-  asking: 'bg-amber-500',
-  retrying: 'bg-amber-500 animate-pulse',
-  completed: 'bg-green-500',
-  interrupted: 'bg-red-500',
+  in_progress: 'bg-[var(--color-info)]',
+  asking: 'bg-[var(--color-warning)]',
+  retrying: 'bg-[var(--color-warning)] animate-pulse',
+  completed: 'bg-[var(--color-success)]',
+  interrupted: 'bg-[var(--color-danger)]',
   pending: 'bg-[var(--text-tertiary)]',
 }
 
@@ -303,10 +303,10 @@ function scheduledStatusBadge(status: string): string {
     'inline-flex items-center h-5 px-2 rounded-full text-[calc(11px*var(--ui-scale))] font-medium'
   const colors: Record<string, string> = {
     pending: 'bg-[var(--bg-hover)] text-[var(--text-secondary)]',
-    creating: 'bg-blue-500/10 text-blue-500',
-    executed: 'bg-green-500/10 text-green-500',
-    failed: 'bg-red-500/10 text-red-500',
-    missed: 'bg-amber-500/10 text-amber-500',
+    creating: 'bg-[var(--color-info-light)] text-[var(--color-info-ink)]',
+    executed: 'bg-[var(--color-success-light)] text-[var(--color-success-ink)]',
+    failed: 'bg-[var(--color-danger-light)] text-[var(--color-danger-ink)]',
+    missed: 'bg-[var(--color-warning-light)] text-[var(--color-warning-ink)]',
   }
   return `${base} ${colors[status] || colors.pending}`
 }
@@ -351,7 +351,9 @@ const tabs: { key: TabKey; label: string }[] = [
 
 // 执行中的任务（in_progress / asking / retrying）
 const activeTasks = computed(() =>
-  runningSessions.value.filter((s) => ['in_progress', 'asking', 'retrying'].includes(s.task_status)),
+  runningSessions.value.filter((s) =>
+    ['in_progress', 'asking', 'retrying'].includes(s.task_status),
+  ),
 )
 // 有待执行队列的会话（执行任务区段）
 const executingSessions = computed(() => runningSessions.value.filter((s) => s.queue.length > 0))
@@ -545,10 +547,7 @@ async function loadConfigQueues() {
     const result: any = await context.commands.execute('session.task.config-queues-list')
     configQueues.value = (result?.queues as ConfigQueue[]) ?? []
     // 预设目标任务队列选择：失效 → 回退第一个；空 → 保持空（按钮禁用）
-    if (
-      presetQueueId.value &&
-      !configQueues.value.some((q) => q.id === presetQueueId.value)
-    ) {
+    if (presetQueueId.value && !configQueues.value.some((q) => q.id === presetQueueId.value)) {
       presetQueueId.value = configQueues.value[0]?.id ?? ''
     } else if (!presetQueueId.value) {
       presetQueueId.value = configQueues.value[0]?.id ?? ''
@@ -1198,7 +1197,9 @@ function onConfigQueueLiveChanged() {
               >
                 {{ t('task.createTaskPresetHint') }}
               </p>
-              <p v-if="createError" class="text-xs text-red-500 break-words">{{ createError }}</p>
+              <p v-if="createError" class="text-xs text-[var(--color-danger-ink)] break-words">
+                {{ createError }}
+              </p>
             </div>
 
             <!-- 任务队列（按配置分组的未绑定会话批次：启动/自动模式时才建会话执行） -->
@@ -1250,7 +1251,12 @@ function onConfigQueueLiveChanged() {
                           :title="t('task.save')"
                           @click="saveEditTask"
                         >
-                          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <svg
+                            class="w-4 h-4"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
                             <path
                               stroke-linecap="round"
                               stroke-linejoin="round"
@@ -1264,7 +1270,12 @@ function onConfigQueueLiveChanged() {
                           :title="t('task.cancel')"
                           @click="cancelEditTask"
                         >
-                          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <svg
+                            class="w-4 h-4"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
                             <path
                               stroke-linecap="round"
                               stroke-linejoin="round"
@@ -1280,13 +1291,20 @@ function onConfigQueueLiveChanged() {
                           class="text-xs text-[var(--text-tertiary)] w-5 text-right flex-shrink-0"
                           >#{{ item.position }}</span
                         >
-                        <span class="text-sm text-[var(--text-primary)] truncate flex-1">{{ item.prompt }}</span>
+                        <span class="text-sm text-[var(--text-primary)] truncate flex-1">{{
+                          item.prompt
+                        }}</span>
                         <button
                           class="flex-shrink-0 w-6 h-6 rounded-[6px] flex items-center justify-center text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors duration-200"
                           :title="t('task.edit')"
                           @click="startEditTask(q.id, item)"
                         >
-                          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <svg
+                            class="w-3.5 h-3.5"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
                             <path
                               stroke-linecap="round"
                               stroke-linejoin="round"
@@ -1335,7 +1353,7 @@ function onConfigQueueLiveChanged() {
                         "
                       >
                         <span
-                          class="absolute top-[2px] w-3 h-3 rounded-full transition-all duration-200"
+                          class="absolute top-[2px] w-3 h-3 rounded-full transition-[left,background-color] duration-200"
                           :class="
                             q.auto_mode
                               ? 'left-[18px] bg-[var(--color-primary-contrast)]'
@@ -1357,7 +1375,7 @@ function onConfigQueueLiveChanged() {
                   </div>
                 </div>
               </div>
-              <p v-if="configQueueError" class="text-xs text-red-500 break-words">
+              <p v-if="configQueueError" class="text-xs text-[var(--color-danger-ink)] break-words">
                 {{ configQueueError }}
               </p>
             </div>
@@ -1372,7 +1390,9 @@ function onConfigQueueLiveChanged() {
               </h3>
               <!-- 目标任务队列：预设加入哪个任务队列由用户选定（一次性消耗） -->
               <div>
-                <label class="block text-xs text-[var(--text-secondary)] mb-1">{{ t('task.presetQueueLabel') }}</label>
+                <label class="block text-xs text-[var(--text-secondary)] mb-1">{{
+                  t('task.presetQueueLabel')
+                }}</label>
                 <Select
                   v-model="presetQueueId"
                   :options="presetQueueOptions"
@@ -1466,7 +1486,7 @@ function onConfigQueueLiveChanged() {
                       </svg>
                     </button>
                     <button
-                      class="flex-shrink-0 w-7 h-7 rounded-[6px] flex items-center justify-center text-[var(--text-tertiary)] hover:text-red-500 hover:bg-red-500/10 transition-colors duration-200"
+                      class="flex-shrink-0 w-7 h-7 rounded-[6px] flex items-center justify-center text-[var(--text-tertiary)] hover:text-[var(--color-danger-ink)] hover:bg-[var(--color-danger-light)] transition-colors duration-200"
                       :title="t('task.delete')"
                       @click="deletePreset(p.id)"
                     >
@@ -1482,33 +1502,33 @@ function onConfigQueueLiveChanged() {
                   </template>
                 </div>
               </div>
-              <p v-if="!presetQueueId" class="text-xs text-red-500 break-words">
+              <p v-if="!presetQueueId" class="text-xs text-[var(--color-danger-ink)] break-words">
                 {{ t('task.presetQueueHint') }}
               </p>
-              <p v-if="presetError" class="text-xs text-red-500 break-words">{{ presetError }}</p>
+              <p v-if="presetError" class="text-xs text-[var(--color-danger-ink)] break-words">
+                {{ presetError }}
+              </p>
             </div>
 
             <!-- 当前任务（执行中的任务） -->
             <div v-if="activeTasks.length > 0">
-              <h3
-                class="text-xs font-semibold text-[var(--text-tertiary)] uppercase tracking-wider mb-2"
-              >
+              <h3 class="text-xs font-medium text-[var(--text-tertiary)] mb-2">
                 {{ t('task.currentTaskTitle') }}
               </h3>
               <div class="space-y-1.5">
                 <div
                   v-for="s in activeTasks"
                   :key="s.session_id"
-                  class="rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20 p-3"
+                  class="rounded-lg border border-[color-mix(in_srgb,var(--color-info)_35%,transparent)] dark:border-[var(--color-info)] bg-[var(--color-info-light)] dark:bg-[var(--color-info-light)] p-3"
                 >
                   <div class="flex items-center gap-2 mb-1">
                     <div
                       class="w-2 h-2 rounded-full animate-pulse flex-shrink-0"
-                      :class="statusDot[s.task_status] || 'bg-blue-500'"
+                      :class="statusDot[s.task_status] || 'bg-[var(--color-info)]'"
                     ></div>
                     <span
                       class="text-xs font-medium flex-shrink-0"
-                      :class="statusColor[s.task_status] || 'text-blue-500'"
+                      :class="statusColor[s.task_status] || 'text-[var(--color-info-ink)]'"
                     >
                       {{ statusLabel[s.task_status] || s.task_status }}
                     </span>
@@ -1534,9 +1554,7 @@ function onConfigQueueLiveChanged() {
 
             <!-- 执行任务（各会话待执行队列） -->
             <div v-if="executingSessions.length > 0">
-              <h3
-                class="text-xs font-semibold text-[var(--text-tertiary)] uppercase tracking-wider mb-2"
-              >
+              <h3 class="text-xs font-medium text-[var(--text-tertiary)] mb-2">
                 {{ t('task.executingTaskTitle') }}
               </h3>
               <div class="space-y-2.5">
@@ -1560,7 +1578,7 @@ function onConfigQueueLiveChanged() {
                         "
                       >
                         <span
-                          class="absolute top-[2px] w-3 h-3 rounded-full transition-all duration-200"
+                          class="absolute top-[2px] w-3 h-3 rounded-full transition-[left,background-color] duration-200"
                           :class="
                             s.auto_execute
                               ? 'left-[18px] bg-[var(--color-primary-contrast)]'
@@ -1591,7 +1609,7 @@ function onConfigQueueLiveChanged() {
                         "
                       >
                         <span
-                          class="absolute top-[2px] w-3 h-3 rounded-full transition-all duration-200"
+                          class="absolute top-[2px] w-3 h-3 rounded-full transition-[left,background-color] duration-200"
                           :class="
                             s.auto_answer
                               ? 'left-[18px] bg-[var(--color-primary-contrast)]'
@@ -1618,7 +1636,9 @@ function onConfigQueueLiveChanged() {
                       class="flex items-center gap-2 px-3 py-2 rounded-md bg-[var(--bg-hover)] text-sm"
                     >
                       <!-- 未执行（pending）任务支持行内编辑，作用域 = 会话 id -->
-                      <template v-if="editingTaskId === item.id && editingTaskScope === s.session_id">
+                      <template
+                        v-if="editingTaskId === item.id && editingTaskScope === s.session_id"
+                      >
                         <textarea
                           :ref="(el) => autosizeTextarea(el as HTMLTextAreaElement | null)"
                           v-model="editingTaskText"
@@ -1634,7 +1654,12 @@ function onConfigQueueLiveChanged() {
                           :title="t('task.save')"
                           @click="saveEditTask"
                         >
-                          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <svg
+                            class="w-4 h-4"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
                             <path
                               stroke-linecap="round"
                               stroke-linejoin="round"
@@ -1648,7 +1673,12 @@ function onConfigQueueLiveChanged() {
                           :title="t('task.cancel')"
                           @click="cancelEditTask"
                         >
-                          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <svg
+                            class="w-4 h-4"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
                             <path
                               stroke-linecap="round"
                               stroke-linejoin="round"
@@ -1663,13 +1693,20 @@ function onConfigQueueLiveChanged() {
                           class="text-xs text-[var(--text-tertiary)] w-5 text-right flex-shrink-0"
                           >#{{ item.position }}</span
                         >
-                        <span class="text-[var(--text-primary)] truncate flex-1">{{ item.prompt }}</span>
+                        <span class="text-[var(--text-primary)] truncate flex-1">{{
+                          item.prompt
+                        }}</span>
                         <button
                           class="flex-shrink-0 w-6 h-6 rounded-[6px] flex items-center justify-center text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors duration-200"
                           :title="t('task.edit')"
                           @click="startEditTask(s.session_id, item)"
                         >
-                          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <svg
+                            class="w-3.5 h-3.5"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
                             <path
                               stroke-linecap="round"
                               stroke-linejoin="round"
@@ -1896,11 +1933,15 @@ function onConfigQueueLiveChanged() {
                     <span class="text-[var(--text-primary)] truncate min-w-0">{{
                       formatTime(task.completed_at)
                     }}</span>
-                    <span class="text-[var(--text-tertiary)]">{{ t('task.detailWorkingDir') }}</span>
+                    <span class="text-[var(--text-tertiary)]">{{
+                      t('task.detailWorkingDir')
+                    }}</span>
                     <span class="text-[var(--text-primary)] truncate min-w-0">{{
                       task.working_dir || '-'
                     }}</span>
-                    <span class="text-[var(--text-tertiary)]">{{ t('task.detailExitReason') }}</span>
+                    <span class="text-[var(--text-tertiary)]">{{
+                      t('task.detailExitReason')
+                    }}</span>
                     <span class="text-[var(--text-primary)] truncate min-w-0">{{
                       task.exit_reason || '-'
                     }}</span>
@@ -1936,7 +1977,9 @@ function onConfigQueueLiveChanged() {
                 />
               </svg>
               <p class="text-sm text-[var(--text-tertiary)]">{{ t('task.emptyHistory') }}</p>
-              <p class="text-xs text-[var(--text-tertiary)] mt-1">{{ t('task.emptyHistoryHint') }}</p>
+              <p class="text-xs text-[var(--text-tertiary)] mt-1">
+                {{ t('task.emptyHistoryHint') }}
+              </p>
             </div>
           </div>
 
@@ -2042,7 +2085,7 @@ function onConfigQueueLiveChanged() {
                     p
                   }}</span>
                   <button
-                    class="flex-shrink-0 w-7 h-7 rounded-[6px] flex items-center justify-center text-[var(--text-tertiary)] hover:text-red-500 hover:bg-red-500/10 transition-colors duration-200"
+                    class="flex-shrink-0 w-7 h-7 rounded-[6px] flex items-center justify-center text-[var(--text-tertiary)] hover:text-[var(--color-danger-ink)] hover:bg-[var(--color-danger-light)] transition-colors duration-200"
                     :title="t('task.delete')"
                     @click="removePrompt(idx)"
                   >
@@ -2092,7 +2135,7 @@ function onConfigQueueLiveChanged() {
           <!-- 错误提示 -->
           <div
             v-if="errorMessage"
-            class="rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-xs text-red-500 break-words"
+            class="rounded-lg border border-[color-mix(in_srgb,var(--color-danger)_40%,transparent)] bg-[var(--color-danger-light)] px-3 py-2 text-xs text-[var(--color-danger-ink)] break-words"
           >
             {{ errorMessage }}
           </div>
@@ -2116,7 +2159,9 @@ function onConfigQueueLiveChanged() {
               />
             </svg>
             <p class="text-sm text-[var(--text-tertiary)]">{{ t('task.scheduledEmpty') }}</p>
-            <p class="text-xs text-[var(--text-tertiary)] mt-1">{{ t('task.scheduledEmptyHint') }}</p>
+            <p class="text-xs text-[var(--text-tertiary)] mt-1">
+              {{ t('task.scheduledEmptyHint') }}
+            </p>
           </div>
 
           <!-- 任务列表：进行中在前，历史在后（单循环 + 区段头） -->
@@ -2156,7 +2201,7 @@ function onConfigQueueLiveChanged() {
                 </span>
                 <button
                   v-if="item.group === 'finished' && executedCount > 0"
-                  class="inline-flex items-center gap-1 h-6 px-2 rounded-[6px] text-xs text-[var(--text-tertiary)] hover:text-red-500 hover:bg-red-500/10 transition-colors duration-200"
+                  class="inline-flex items-center gap-1 h-6 px-2 rounded-[6px] text-xs text-[var(--text-tertiary)] hover:text-[var(--color-danger-ink)] hover:bg-[var(--color-danger-light)] transition-colors duration-200"
                   :title="t('task.scheduledClearFinished')"
                   @click="clearFinished"
                 >
@@ -2180,7 +2225,8 @@ function onConfigQueueLiveChanged() {
                       {{ item.job?.name || '-' }}
                     </p>
                     <p class="text-xs text-[var(--text-secondary)] mt-0.5">
-                      {{ t('task.scheduledTriggerAt') }}: {{ formatTime(item.job?.trigger_at ?? null) }}
+                      {{ t('task.scheduledTriggerAt') }}:
+                      {{ formatTime(item.job?.trigger_at ?? null) }}
                     </p>
                     <p class="text-xs text-[var(--text-secondary)] mt-0.5">
                       {{ t('task.scheduledConfig') }}: {{ item.job?.config_id }}
@@ -2199,17 +2245,24 @@ function onConfigQueueLiveChanged() {
                     {{ idx + 1 }}. {{ p }}
                   </p>
                 </div>
-                <p v-if="item.job?.error" class="text-xs text-red-500 mt-1.5 break-words">
+                <p
+                  v-if="item.job?.error"
+                  class="text-xs text-[var(--color-danger-ink)] mt-1.5 break-words"
+                >
                   {{ t('task.scheduledError') }}
                 </p>
 
                 <!-- 操作区：pending 可删除；missed/failed 可删除或重新设置（重置回 pending 重新调度）；executed 可删除（清档） -->
                 <div
-                  v-if="['pending', 'missed', 'failed', 'executed'].includes(item.job?.status ?? '')"
+                  v-if="
+                    ['pending', 'missed', 'failed', 'executed'].includes(item.job?.status ?? '')
+                  "
                   class="flex justify-end gap-1 mt-2"
                 >
                   <button
-                    v-if="item.job && item.job?.status !== 'pending' && item.job?.status !== 'executed'"
+                    v-if="
+                      item.job && item.job?.status !== 'pending' && item.job?.status !== 'executed'
+                    "
                     class="inline-flex items-center gap-1 h-6 px-2 rounded-[6px] text-xs text-[var(--color-primary)] hover:bg-[var(--color-primary)]/10 transition-colors duration-200"
                     :title="t('task.scheduledReset')"
                     @click="item.job && startReset(item.job)"
@@ -2225,7 +2278,7 @@ function onConfigQueueLiveChanged() {
                     {{ t('task.scheduledReset') }}
                   </button>
                   <button
-                    class="inline-flex items-center gap-1 h-6 px-2 rounded-[6px] text-xs text-red-500 hover:bg-red-500/10 transition-colors duration-200"
+                    class="inline-flex items-center gap-1 h-6 px-2 rounded-[6px] text-xs text-[var(--color-danger-ink)] hover:bg-[var(--color-danger-light)] transition-colors duration-200"
                     :title="t('task.delete')"
                     @click="deleteJob(item.job?.id ?? '')"
                   >
@@ -2373,7 +2426,9 @@ function onConfigQueueLiveChanged() {
                 />
               </svg>
               <p class="text-sm text-[var(--text-tertiary)]">{{ t('task.emptyHistory') }}</p>
-              <p class="text-xs text-[var(--text-tertiary)] mt-1">{{ t('task.emptyHistoryHint') }}</p>
+              <p class="text-xs text-[var(--text-tertiary)] mt-1">
+                {{ t('task.emptyHistoryHint') }}
+              </p>
             </div>
           </div>
         </div>

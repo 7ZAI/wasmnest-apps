@@ -150,13 +150,13 @@
                       {{ config.name }}
                     </h4>
                     <span
-                      class="wb-mono text-[calc(10.5px*var(--ui-scale))] uppercase px-1.5 py-0.5 rounded border border-[var(--border-strong)] text-[var(--text-secondary)] flex-shrink-0"
+                      class="wb-mono text-[calc(11px*var(--ui-scale))] uppercase px-1.5 py-0.5 rounded border border-[var(--border-strong)] text-[var(--text-secondary)] flex-shrink-0"
                     >
                       {{ envBadge(config.environment) }}
                     </span>
                     <span
                       v-if="config.autoStart"
-                      class="wb-mono text-[calc(10.5px*var(--ui-scale))] uppercase px-1.5 py-0.5 rounded border border-[var(--border-strong)] text-[var(--text-secondary)] flex-shrink-0"
+                      class="wb-mono text-[calc(11px*var(--ui-scale))] uppercase px-1.5 py-0.5 rounded border border-[var(--border-strong)] text-[var(--text-secondary)] flex-shrink-0"
                       >auto</span
                     >
                   </div>
@@ -288,7 +288,7 @@
                         </svg>
                       </button>
                       <button
-                        class="w-6 h-6 rounded-[6px] flex items-center justify-center text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] hover:text-red-600 dark:hover:text-red-400 transition-colors flex-shrink-0"
+                        class="w-6 h-6 rounded-[6px] flex items-center justify-center text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] hover:text-[var(--color-danger-ink)] transition-colors flex-shrink-0"
                         :title="t('session.button.delete')"
                         @click.stop="confirmDeleteSession(session)"
                       >
@@ -325,16 +325,16 @@
                     <span class="flex-1"></span>
                     <span
                       v-if="runningOf(config.id).length > 0"
-                      class="wb-mono text-[calc(11px*var(--ui-scale))] text-green-600 dark:text-green-400 flex items-center gap-1.5"
+                      class="wb-mono text-[calc(11px*var(--ui-scale))] text-[var(--color-success-ink)] flex items-center gap-1.5"
                     >
-                      <span class="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span>
+                      <span class="w-1.5 h-1.5 rounded-full bg-[var(--color-success)]"></span>
                       {{ runningOf(config.id).length }}
                     </span>
                     <button class="wb-btn-ghost" @click="openEditDialog(config)">
                       {{ t('session.button.edit') }}
                     </button>
                     <button
-                      class="wb-btn-ghost hover:!text-red-600 dark:hover:!text-red-400"
+                      class="wb-btn-ghost hover:!text-[var(--color-danger-ink)]"
                       @click="confirmDeleteConfig(config.id)"
                     >
                       {{ t('session.button.delete') }}
@@ -434,7 +434,7 @@
                 </button>
                 <!-- 删除 -->
                 <button
-                  class="w-7 h-7 rounded-[6px] flex items-center justify-center text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] hover:text-red-600 dark:hover:text-red-400 transition-colors flex-shrink-0"
+                  class="w-7 h-7 rounded-[6px] flex items-center justify-center text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] hover:text-[var(--color-danger-ink)] transition-colors flex-shrink-0"
                   :title="t('session.button.delete')"
                   @click.stop="confirmDeleteSession(session)"
                 >
@@ -750,11 +750,11 @@ function envBadge(env: string | undefined | null): string {
 function statusDot(status: string): string {
   switch (status) {
     case 'running':
-      return 'bg-green-500 animate-pulse'
+      return 'bg-[var(--color-success)]'
     case 'waitingInput':
-      return 'bg-amber-500'
+      return 'bg-[var(--color-warning)]'
     case 'error':
-      return 'bg-red-500'
+      return 'bg-[var(--color-danger)]'
     default:
       return 'bg-[var(--text-tertiary)]'
   }

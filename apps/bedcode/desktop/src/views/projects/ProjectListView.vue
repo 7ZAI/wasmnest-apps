@@ -118,13 +118,13 @@
               </h4>
               <span
                 v-if="project.activeRuns > 0"
-                class="wb-mono text-[calc(10.5px*var(--ui-scale))] px-1.5 py-0.5 rounded border border-green-600/40 text-green-600 dark:text-green-400 flex items-center gap-1 flex-shrink-0"
+                class="wb-mono text-[calc(11px*var(--ui-scale))] px-1.5 py-0.5 rounded border border-[color-mix(in_srgb,var(--color-success)_40%,transparent)] text-[var(--color-success-ink)] flex items-center gap-1 flex-shrink-0"
               >
-                <span class="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span>
+                <span class="w-1.5 h-1.5 rounded-full bg-[var(--color-success)]"></span>
                 {{ t('project.card.activeRuns', { n: project.activeRuns }) }}
               </span>
               <span
-                class="wb-mono text-[calc(10.5px*var(--ui-scale))] uppercase px-1.5 py-0.5 rounded border border-[var(--border-strong)] text-[var(--text-secondary)] flex-shrink-0"
+                class="wb-mono text-[calc(11px*var(--ui-scale))] uppercase px-1.5 py-0.5 rounded border border-[var(--border-strong)] text-[var(--text-secondary)] flex-shrink-0"
               >
                 {{ envBadge(project.environment) }}
               </span>
@@ -185,7 +185,7 @@
                 {{ t('project.button.rename') }}
               </button>
               <button
-                class="wb-btn-ghost hover:!text-red-600 dark:hover:!text-red-400"
+                class="wb-btn-ghost hover:!text-[var(--color-danger-ink)]"
                 data-testid="project-remove"
                 @click.stop="confirmRemove(project)"
               >
