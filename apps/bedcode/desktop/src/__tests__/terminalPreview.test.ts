@@ -306,6 +306,27 @@ describe('TerminalPreview（插件版组装）', () => {
     expect(vm(wrapper!).themeNames).toHaveProperty('dracula')
   })
 
+  it('挂载终态会话：不发起 resize / 输出拉取（PTY 已回收，命令必然失败）', async () => {
+    const context = makeContext()
+    wrapper = mount(TerminalPreview, {
+      props: { session: { ...makeRunningSession(), status: 'error' } },
+      global: {
+        provide: {
+          pluginContext: context,
+          [TERMINAL_HOST_CAPABILITIES_KEY]: caps,
+        },
+      },
+      attachTo: document.body,
+    })
+
+    // 等挂载后的 fit / ResizeObserver / 轮询窗口都过去：终态会话不应发任何 PTY 命令
+    await flushAsync()
+    await new Promise((r) => setTimeout(r, 50))
+    expect(wrapper!.element.querySelector('.xterm')).toBeTruthy()
+    expect(countCalls(context, 'session.action.resize')).toBe(0)
+    expect(countCalls(context, 'session.output.pull')).toBe(0)
+  })
+
   it('输出数据帧经写入管线渲染到 xterm buffer（DOM 渲染器文本可读）', async () => {
     const context = makeContext()
     const text = 'hello terminal\r\nworld'

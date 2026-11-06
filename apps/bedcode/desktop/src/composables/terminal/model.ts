@@ -22,3 +22,15 @@ export interface SessionInfo {
   /** 任务状态原因 */
   taskReason?: string
 }
+
+/**
+ * 会话是否可能持有 PTY（resize / 输入等 PTY 命令的前置判据）
+ *
+ * `stopped` / `error` 的 PTY 已回收、`idle` 从未启动，对它们发 PTY 命令宿主会以
+ * 「会话缺少 PTY 句柄」显性报错。`error` 经 `session.get`（`SessionInfoView`）读出
+ * 时是 externally-tagged 的 `{ error: "…" }` 对象，同样视为无 PTY。
+ */
+export function sessionHasPty(status: unknown): boolean {
+  if (typeof status !== 'string') return false
+  return status !== 'idle' && status !== 'stopped' && status !== 'error'
+}

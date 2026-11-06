@@ -209,6 +209,7 @@ import { Unicode11Addon } from '@xterm/addon-unicode11'
 import { platform } from '@tauri-apps/plugin-os'
 import type { Disposable, PluginContext } from '@binblink/wasmnest-plugin-sdk-desktop'
 import type { SessionInfo } from '../../composables/terminal/model'
+import { sessionHasPty } from '../../composables/terminal/model'
 import { createTerminalKernel } from '../../composables/terminal/terminalKernel'
 import {
   useTerminalWritePipeline,
@@ -390,15 +391,15 @@ const statusColor = computed(() => {
   if (!props.session) return 'bg-slate-400 dark:bg-dark-500'
   switch (props.session.status) {
     case 'running':
-      return 'bg-green-500'
+      return 'bg-[var(--color-success)]'
     case 'waitingInput':
-      return 'bg-yellow-500 animate-pulse'
+      return 'bg-[var(--color-warning)] animate-pulse'
     case 'error':
-      return 'bg-red-500'
+      return 'bg-[var(--color-danger)]'
     case 'stopped':
       return 'bg-slate-400 dark:bg-dark-500'
     case 'starting':
-      return 'bg-blue-500 animate-pulse'
+      return 'bg-[var(--color-info)] animate-pulse'
     default:
       return 'bg-slate-400 dark:bg-dark-500'
   }
@@ -1019,6 +1020,10 @@ function initTerminal() {
       }
       return
     }
+
+    // 终态 / 未启动会话没有 PTY：写入只会在宿主侧报错（且是无 catch 的
+    // fire-and-forget，rejection 会冒成全局提示），静默忽略输入
+    if (!sessionHasPty(props.session.status)) return
 
     // 票 08：输入经**本插件命令通道**写入（宿主不再有会话输入命令面）。
     // 提交行重建 + 任务域观察 + `host-pty.write` 全在本插件 WASM 内完成

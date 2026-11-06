@@ -12,6 +12,7 @@
  * 逐字等价。
  */
 import type { TerminalKernelContext } from './terminalKernel'
+import { sessionHasPty } from './model'
 import { ref } from 'vue'
 
 /**
@@ -70,6 +71,13 @@ export function useTerminalResize(
   async function requestResize(cols: number, rows: number, force = false) {
     const session = ctx.getSession()
     if (!session) return
+    // 终态 / 未启动会话没有 PTY：命令只会在宿主侧报「缺少 PTY 句柄」，重试也打不中。
+    // 工作台选中已结束运行、窗口停留期间会话刚好退出都会走到这里，静默跳过。
+    if (!sessionHasPty(session.status)) {
+      rendererOverrideTarget.value = null
+      showRendererOverrideModal.value = false
+      return
+    }
     // 用户刚拒绝过的相同尺寸：抑制（每次成功应用后清空）
     if (!force && rejectedSize && rejectedSize.cols === cols && rejectedSize.rows === rows) {
       return
