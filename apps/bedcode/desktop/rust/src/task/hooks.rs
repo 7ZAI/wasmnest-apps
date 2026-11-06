@@ -829,7 +829,9 @@ fn pi_extension_port_matches(content: &str, port: u16) -> bool {
 /// v7：补 NON_RETRYABLE_LIMIT_PATTERN 守卫（限额/额度类错误不再误推 retrying）。
 /// v8：插件 id 改名（com.wasmnest.terminal-session → com.wasmnest.bedcode，2026-10-25），模板随包重写、已部署副本自动重部署。
 /// v9（ADR 0004）：任务 hook 合并为 `wasmnest_bridge.ts`（事件上行 + 命令下行 + 任务状态），旧文件部署时清理。
-pub(crate) const PI_EXTENSION_TEMPLATE_VERSION: &str = "9";
+/// v10（2026-11-05）：新增 `agent-control` 下行命令（模型 / 思考等级运行内切换）与
+/// `model_select` / `thinking_level_select` 上行——工作台终端 header 的模型下拉。
+pub(crate) const PI_EXTENSION_TEMPLATE_VERSION: &str = "10";
 
 /// 检查已部署扩展是否携带当前模板版本标记
 fn pi_extension_version_matches(content: &str) -> bool {
@@ -1085,7 +1087,7 @@ fn opencode_plugin_port_matches(content: &str, port: u16) -> bool {
 /// 会话存在：opencode 会话懒创建）；发送遇无会话现场 createSessionForRun。
 /// v12：V2 发送形状改 `prompt({sessionID, text})`（2.x action API schema 要求根级
 /// text，parts 形状被拒）；回执不等生成完成（10s 内接受即 ok，失败走 session.error）。
-pub(crate) const OPENCODE_PLUGIN_TEMPLATE_VERSION: &str = "12";
+pub(crate) const OPENCODE_PLUGIN_TEMPLATE_VERSION: &str = "13";
 
 /// 检查已部署插件是否携带当前模板版本标记
 fn opencode_plugin_version_matches(content: &str) -> bool {

@@ -435,6 +435,7 @@ fn sync_run_meta(
     let mut agent_session_id: Option<String> = None;
     let mut title: Option<String> = None;
     let mut model: Option<String> = None;
+    let mut thinking: Option<String> = None;
     let mut first_user: Option<String> = None;
     for raw in raws {
         let outcome = crate::run::events::normalize::normalize(driver, raw, now);
@@ -465,6 +466,16 @@ fn sync_run_meta(
                     {
                         model = Some(value.to_string());
                     }
+                    // 思考等级不是运行行的形状字段，落注解槽（`agent.thinking`）：
+                    // 与 `run.agent.options` 读侧同一事实源，不另加库列
+                    if let Some(value) = draft
+                        .payload
+                        .get("thinkingLevel")
+                        .and_then(Value::as_str)
+                        .filter(|value| !value.is_empty())
+                    {
+                        thinking = Some(value.to_string());
+                    }
                 }
                 "user.message" if first_user.is_none() => {
                     first_user = draft
@@ -480,7 +491,7 @@ fn sync_run_meta(
     if title.is_none() && record.title.is_none() {
         title = first_user;
     }
-    if agent_session_id.is_none() && title.is_none() && model.is_none() {
+    if agent_session_id.is_none() && title.is_none() && model.is_none() && thinking.is_none() {
         return Ok(());
     }
     crate::session::note_run_meta(
@@ -489,7 +500,16 @@ fn sync_run_meta(
         title.as_deref(),
         model.as_deref(),
     )
-    .map_err(RouteError::Internal)
+    .map_err(RouteError::Internal)?;
+    if let Some(level) = thinking.as_deref() {
+        crate::session::note_annotation(
+            &record.id,
+            crate::run::agent_control::ANNOTATION_THINKING,
+            level,
+        )
+        .map_err(RouteError::Internal)?;
+    }
+    Ok(())
 }
 
 // ==================== 前端命令：run.send ====================

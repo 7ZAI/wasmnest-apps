@@ -39,6 +39,13 @@ pub trait CommandStore {
         error: Option<&str>,
         now: &str,
     ) -> Result<bool, String>;
+    /// 单条命令状态（`pending` / `claimed` / `done` / `failed` + error 原文）。
+    /// 编排等 `agent-control` 回执用；None = 行不存在。
+    fn status(
+        &self,
+        run_id: &str,
+        id: i64,
+    ) -> Result<Option<(String, Option<String>)>, String>;
 }
 
 /// 一次最多领取的命令数（轮询频率 500ms，20 条足够；防止一条坏命令拖住队列）
@@ -175,6 +182,32 @@ mod wasm_impl {
                 .map_err(|e| format!("run_commands ack failed: {}", e.message))?;
             Ok(affected > 0)
         }
+
+        fn status(
+            &self,
+            run_id: &str,
+            id: i64,
+        ) -> Result<Option<(String, Option<String>)>, String> {
+            let rows = self
+                .plugin_db_query_params(
+                    "SELECT status, error FROM run_commands WHERE id = ?1 AND run_id = ?2",
+                    &sql_params![id, run_id],
+                )
+                .map_err(|e| format!("run_commands status query failed: {}", e.message))?
+                .unwrap_or_else(|| serde_json::json!([]));
+            Ok(rows.as_array().and_then(|rows| rows.first()).map(|row| {
+                (
+                    row.get("status")
+                        .and_then(|value| value.as_str())
+                        .unwrap_or("pending")
+                        .to_string(),
+                    row.get("error")
+                        .and_then(|value| value.as_str())
+                        .filter(|value| !value.is_empty())
+                        .map(str::to_string),
+                )
+            }))
+        }
     }
 }
 
@@ -192,6 +225,7 @@ pub(crate) mod tests {
         kind: String,
         payload: Value,
         status: String,
+        error: Option<String>,
         claimed_at: Option<String>,
     }
 
@@ -232,6 +266,7 @@ pub(crate) mod tests {
                 kind: kind.to_string(),
                 payload: payload.clone(),
                 status: "pending".to_string(),
+                error: None,
                 claimed_at: None,
             });
             Ok(*next)
@@ -275,7 +310,7 @@ pub(crate) mod tests {
             run_id: &str,
             id: i64,
             ok: bool,
-            _error: Option<&str>,
+            error: Option<&str>,
             _now: &str,
         ) -> Result<bool, String> {
             let mut rows = self.rows.borrow_mut();
@@ -289,7 +324,21 @@ pub(crate) mod tests {
                 return Ok(false);
             }
             row.status = if ok { "done" } else { "failed" }.to_string();
+            row.error = error.map(str::to_string);
             Ok(true)
+        }
+
+        fn status(
+            &self,
+            run_id: &str,
+            id: i64,
+        ) -> Result<Option<(String, Option<String>)>, String> {
+            Ok(self
+                .rows
+                .borrow()
+                .iter()
+                .find(|row| row.id == id && row.run_id == run_id)
+                .map(|row| (row.status.clone(), row.error.clone())))
         }
     }
 

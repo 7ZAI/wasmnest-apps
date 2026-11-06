@@ -2247,6 +2247,16 @@ impl WasmPlugin for SessionPlugin {
                 orchestration::invoke_command(name, args).map_err(anyhow::Error::msg)
             }
 
+            // agent 控制面（唯一入口）：{runId} → 当前模型/思考等级 + 可选清单 + 能力
+            "run.agent.options" => {
+                run::agent_control::options_via_host(&args).map_err(anyhow::Error::msg)
+            }
+
+            // 切换模型 / 思考等级 {runId, model?, thinkingLevel?}（运行内生效，不重启）
+            "run.agent.set" => {
+                run::agent_control::set_via_host(&args).map_err(anyhow::Error::msg)
+            }
+
             // ==================== Agent 管理域（原 agent-hub 并入） ====================
             // `agent.*` 命令面整体转发到 hub 域路由（探测/安装/引导/Skills/供应商/
             // 用量），未知 agent.* 命令由 hub 显性报错。

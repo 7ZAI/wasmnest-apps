@@ -87,6 +87,13 @@ fn line_tracker() -> &'static input_line::SubmittedLineTracker {
     LINE_TRACKER.get_or_init(input_line::SubmittedLineTracker::new)
 }
 
+/// 是否有未提交草稿（PTY 斜杠命令注入前的闸门）：有草稿时宁可显性拒绝，
+/// 也不把 `/model …` 拼进用户输入行后当 prompt 提交。
+#[cfg(target_arch = "wasm32")]
+pub fn has_pending_input(session_id: &str) -> bool {
+    line_tracker().has_pending_input(session_id)
+}
+
 // ==================== 激活期装配（建表 + 进程域对账） ====================
 
 /// 建表（幂等）+ 进程启动对账（把上一进程遗留的非终态运行收敛到 Error）
@@ -361,6 +368,28 @@ pub fn note_run_meta(
     _title: Option<&str>,
     _model: Option<&str>,
 ) -> Result<(), String> {
+    Err("session registry store unavailable outside wasm runtime".to_string())
+}
+
+/// 某会话的全部注解槽（键值对；不在册返回 `None`）
+///
+/// 供运行域读 `agent.thinking` 这类「不属于运行行形状」的控制状态：注解槽是
+/// 既有唯一通用槽位，不为单个字段加库列（迁移成本 > 收益）。
+#[cfg(target_arch = "wasm32")]
+pub fn annotations_via_host(session_id: &str) -> Result<Option<Vec<(String, String)>>, String> {
+    match REGISTRY.get(&WasmHost, session_id)? {
+        Some(_) => Ok(Some(
+            REGISTRY
+                .annotations(&WasmHost, session_id)?
+                .into_iter()
+                .collect(),
+        )),
+        None => Ok(None),
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn annotations_via_host(_session_id: &str) -> Result<Option<Vec<(String, String)>>, String> {
     Err("session registry store unavailable outside wasm runtime".to_string())
 }
 

@@ -1,5 +1,5 @@
 /**
- * 表单控件契约（ui/AppTextField、ui/AppSelectField）
+ * 表单控件契约（ui/AppTextField、ui/AppSelectField、ui/AppNumberField）
  *
  * 只断言外部行为：输入/选择后对外抛出什么、错误态如何暴露给辅助技术、
  * 下拉展开后有哪些可选项、禁用项能不能被选中。不测 class 名与 DOM 结构。
@@ -11,6 +11,7 @@ import { describe, it, expect, beforeAll, afterEach } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import AppTextField from '@/components/ui/AppTextField.vue'
 import AppSelectField from '@/components/ui/AppSelectField.vue'
+import AppNumberField from '@/components/ui/AppNumberField.vue'
 
 /**
  * happy-dom 缺 Pointer Capture 与 scrollIntoView（reka-ui 的触发器/选项会调），
@@ -77,6 +78,60 @@ describe('AppTextField（token 化文本框）', () => {
   it('禁用态透传到原生 input（不是只靠样式）', () => {
     const wrapper = mount(AppTextField, { props: { modelValue: 'x', disabled: true } })
     expect(wrapper.get('input').attributes('disabled')).toBeDefined()
+  })
+})
+
+describe('AppNumberField（token 化数字字段）', () => {
+  it('渲染文本输入（不是 input[type=number]），输入数字向上抛 number', async () => {
+    const wrapper = mount(AppNumberField, {
+      props: { modelValue: 2, label: '最大并发', min: 1, max: 4 },
+    })
+
+    const input = wrapper.get('input')
+    expect(input.attributes('type')).toBe('text')
+    await input.setValue('3')
+    expect(wrapper.emitted('update:modelValue')?.at(-1)).toEqual([3])
+  })
+
+  it('± 步进遵守边界：最小/最大值处按钮禁用', async () => {
+    const wrapper = mount(AppNumberField, {
+      props: { modelValue: 1, min: 1, max: 3 },
+    })
+    const buttons = wrapper.findAll('button')
+    expect(buttons[0]?.attributes('disabled')).toBeDefined()
+    expect(buttons[1]?.attributes('disabled')).toBeUndefined()
+
+    await buttons[1]?.trigger('click')
+    expect(wrapper.emitted('update:modelValue')?.at(-1)).toEqual([2])
+  })
+
+  it('空值不两侧禁用；输入即时钳制到边界（M36）', async () => {
+    const wrapper = mount(AppNumberField, {
+      props: { modelValue: null, min: 1, max: 3, allowEmpty: true },
+    })
+    const buttons = wrapper.findAll('button')
+    expect(buttons[0]?.attributes('disabled')).toBeUndefined()
+    expect(buttons[1]?.attributes('disabled')).toBeUndefined()
+
+    await wrapper.get('input').setValue('99')
+    expect(wrapper.emitted('update:modelValue')?.at(-1)).toEqual([3])
+  })
+
+  it('allowEmpty：清空对外发 null；必填项清空后失焦回填上次值', async () => {
+    const optional = mount(AppNumberField, {
+      props: { modelValue: 5, min: 1, allowEmpty: true },
+    })
+    await optional.get('input').setValue('')
+    expect(optional.emitted('update:modelValue')?.at(-1)).toEqual([null])
+    optional.unmount()
+
+    const required = mount(AppNumberField, {
+      props: { modelValue: 2, min: 1 },
+    })
+    const input = required.get('input')
+    await input.setValue('')
+    await input.trigger('blur')
+    expect((input.element as HTMLInputElement).value).toBe('2')
   })
 })
 

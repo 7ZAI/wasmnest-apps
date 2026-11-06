@@ -59,7 +59,8 @@ import type { Plugin } from '@opencode-ai/plugin'
 // 部署时由宿主按当前端口改写（hooks.rs replace_opencode_plugin_port），勿手改
 const WASMNEST_PORT = 8765 // @wasmnest-port
 // 模板版本标记：内容升级时递增，宿主据此对旧部署副本自动重部署（hooks.rs）
-// @wasmnest-template-version 12
+// v13（2026-11-05）：新增 `agent-control` 命令（`session.switchModel` 运行内切模型）。
+// @wasmnest-template-version 13
 
 const PLUGIN_ID = 'com.wasmnest.bedcode'
 const HOST = '127.0.0.1'
@@ -166,7 +167,6 @@ async function push(
     }
   }
 }
-
 
 // ==================== 桥接：事件上行 + 命令下行（ADR 0004） ====================
 //
@@ -359,7 +359,10 @@ type CommandExecutor = (command: BridgeCommand, runId: string) => Promise<void>
  *  重投窗口只有 30s 回收窗，这个量级远超任何真实在途命令数，FIFO 淘汰即可 */
 const EXECUTED_COMMAND_CAP = 512
 
-function startCommandLoop(pollTargets: () => string[], execute: CommandExecutor): ReturnType<typeof setInterval> | null {
+function startCommandLoop(
+  pollTargets: () => string[],
+  execute: CommandExecutor,
+): ReturnType<typeof setInterval> | null {
   if (!bridgeEnabled()) return null
   const executedCommands = new Set<string>()
   let polling = false
@@ -377,9 +380,10 @@ function startCommandLoop(pollTargets: () => string[], execute: CommandExecutor)
         }
         // 404 = 运行行还没写入（启动竞态）或已被移除：下一拍再试，不能永久停用
         if (!resp.ok) continue
-        const body = (await resp.json().catch(() => null)) as
-          | { data?: { commands?: BridgeCommand[] }; commands?: BridgeCommand[] }
-          | null
+        const body = (await resp.json().catch(() => null)) as {
+          data?: { commands?: BridgeCommand[] }
+          commands?: BridgeCommand[]
+        } | null
         const commands = body?.data?.commands ?? body?.commands ?? []
         if (!Array.isArray(commands) || commands.length === 0) continue
         const results: Array<Record<string, unknown>> = []
@@ -463,9 +467,10 @@ async function listOwnableRuns(cwd: string): Promise<string[]> {
   try {
     const resp = await bridgePost('run-attach', { cwd })
     if (!resp.ok) return []
-    const body = (await resp.json().catch(() => null)) as
-      | { data?: { runIds?: unknown }; runIds?: unknown }
-      | null
+    const body = (await resp.json().catch(() => null)) as {
+      data?: { runIds?: unknown }
+      runIds?: unknown
+    } | null
     const runIds = body?.data?.runIds ?? body?.runIds
     return Array.isArray(runIds) ? runIds.filter((id): id is string => typeof id === 'string') : []
   } catch {
@@ -487,9 +492,10 @@ async function attachRun(
   try {
     const resp = await bridgePost('run-attach', { cwd, agentSessionId, claim })
     if (!resp.ok) return null
-    const body = (await resp.json().catch(() => null)) as
-      | { data?: { runId?: string | null }; runId?: string | null }
-      | null
+    const body = (await resp.json().catch(() => null)) as {
+      data?: { runId?: string | null }
+      runId?: string | null
+    } | null
     const runId = body?.data?.runId ?? body?.runId ?? null
     return typeof runId === 'string' && runId ? runId : null
   } catch {
@@ -542,6 +548,68 @@ async function executeSendCommand(
   ])
 }
 
+/** 模型引用 → `{providerID, id}`（`provider/model`；opencode 必须带 provider） */
+function splitModelRef(ref: string): { providerID: string; id: string } {
+  const slash = ref.indexOf('/')
+  if (slash <= 0) return { providerID: '', id: ref }
+  return { providerID: ref.slice(0, slash), id: ref.slice(slash + 1) }
+}
+
+/**
+ * 模型切换（运行内生效，不重启、不丢上下文）
+ *
+ * opencode 2.x 的插件运行时（V1 `client.session` / V2 `ctx.session`）自带
+ * `session.switchModel({sessionID, model:{providerID, id}})`——TUI 的 `/models`
+ * 走的就是这条。思考等级由模型 variant 承载，服务端没有独立入口：请求里出现
+ * thinkingLevel 说明后端画像与运行时漂移，显性失败而不是静默忽略。
+ */
+async function executeAgentControlCommand(
+  command: BridgeCommand,
+  sessionApi: Record<string, unknown> | undefined,
+  fallbackSessionId: string | null,
+): Promise<void> {
+  const payload = command.payload as {
+    model?: unknown
+    thinkingLevel?: unknown
+    agentSessionId?: string
+  } | null
+  const modelRef = typeof payload?.model === 'string' ? payload.model.trim() : ''
+  if (typeof payload?.thinkingLevel === 'string' && payload.thinkingLevel.trim()) {
+    throw new Error('opencode: thinking level is not switchable (use model variants)')
+  }
+  if (!modelRef) throw new Error('agent-control: model required')
+  const targetSession = payload?.agentSessionId ?? fallbackSessionId
+  if (!targetSession) throw new Error('agent session id unknown (no session event yet)')
+  const switchModel = sessionApi?.switchModel
+  if (typeof switchModel !== 'function') {
+    throw new Error('opencode runtime has no session.switchModel')
+  }
+  const { providerID, id } = splitModelRef(modelRef)
+  if (!providerID) throw new Error(`opencode model must be provider/model: ${modelRef}`)
+  await (switchModel as (input: unknown) => Promise<unknown>)({
+    sessionID: targetSession,
+    model: { providerID, id },
+  })
+}
+
+/** 命令分派（下行通道的 kind → 实现；未知 kind 显性失败） */
+async function executeCommand(
+  command: BridgeCommand,
+  sessionApi: Record<string, unknown> | undefined,
+  fallbackSessionId: string | null,
+  style: 'parts' | 'text',
+): Promise<void> {
+  if (command.kind === 'send') {
+    await executeSendCommand(command, sessionApi, fallbackSessionId, style)
+    return
+  }
+  if (command.kind === 'agent-control') {
+    await executeAgentControlCommand(command, sessionApi, fallbackSessionId)
+    return
+  }
+  throw new Error(`unsupported command: ${command.kind}`)
+}
+
 /** 现场建会话并绑定到运行（opencode 会话是懒创建的：首条消息还没有任何会话）。
  * 建好的会话事件经 bindings 归到本运行；后端 meta 回填随后落 agent_session_id。 */
 async function createSessionForRun(
@@ -553,7 +621,10 @@ async function createSessionForRun(
   if (typeof create !== 'function') return null
   try {
     const created = (await create.call(sessionApi, {})) as { id?: unknown } | null
-    const id = typeof (created as { id?: unknown } | null)?.id === 'string' ? String((created as { id: unknown }).id) : null
+    const id =
+      typeof (created as { id?: unknown } | null)?.id === 'string'
+        ? String((created as { id: unknown }).id)
+        : null
     if (id) bindings.set(id, runId)
     return id
   } catch {
@@ -564,11 +635,9 @@ async function createSessionForRun(
 async function handleBridgeEvent(event: BridgeRawEvent, runtime: BridgeRuntime): Promise<void> {
   const properties = (event.properties ?? {}) as Record<string, unknown>
   const info = properties.info as
-    | { id?: string; sessionID?: string; role?: string; parentID?: string }
-    | undefined
+    { id?: string; sessionID?: string; role?: string; parentID?: string } | undefined
   const part = properties.part as
-    | { id?: string; messageID?: string; sessionID?: string; type?: string }
-    | undefined
+    { id?: string; messageID?: string; sessionID?: string; type?: string } | undefined
   const sessionID =
     String(properties.sessionID ?? info?.sessionID ?? part?.sessionID ?? '') ||
     (event.type === 'session.updated' || event.type === 'session.created'
@@ -734,8 +803,9 @@ export const WasmNestBridge: Plugin = async ({ client }) => {
       },
     }
     bridgeCommandLoop = bridgeEnabled()
-      ? startCommandLoop(() => (RUN_ID ? [RUN_ID] : []), (command) =>
-          executeSendCommand(command, sessionApi, agentSessionID, 'parts'),
+      ? startCommandLoop(
+          () => (RUN_ID ? [RUN_ID] : []),
+          (command) => executeCommand(command, sessionApi, agentSessionID, 'parts'),
         )
       : null
   }
@@ -843,8 +913,9 @@ async function setupBridgeV2(ctx: BridgeV2Context): Promise<() => void> {
     return [...ownableRuns]
   }
   bridgeCommandLoop = startCommandLoop(boundRuns, async (command, runId) => {
-    const fallback = reverseTarget(runId) ?? (await createSessionForRun(ctx.session, runId, bindings))
-    await executeSendCommand(command, ctx.session, fallback, 'text')
+    const fallback =
+      reverseTarget(runId) ?? (await createSessionForRun(ctx.session, runId, bindings))
+    await executeCommand(command, ctx.session, fallback, 'text')
   })
 
   // 引导补绑（重绑模式）：插件（重）加载时把**已绑定**的会话接回来（bridge
@@ -852,8 +923,9 @@ async function setupBridgeV2(ctx: BridgeV2Context): Promise<() => void> {
   // 新认领只属于事件驱动路径（session.created / message.updated）。
   void (async () => {
     try {
-      const list = await (ctx.session as { list?: () => Promise<{ data?: Array<Record<string, unknown>> }> })
-        .list?.()
+      const list = await (
+        ctx.session as { list?: () => Promise<{ data?: Array<Record<string, unknown>> }> }
+      ).list?.()
       for (const session of list?.data ?? []) {
         const directory = String(session.directory ?? '')
         if (directory && directory !== cwd) continue

@@ -32,8 +32,11 @@ pub fn normalize(raw: &Value, now: &str) -> Outcome {
         "agent_settled" | "session_start" | "session_shutdown" => status(raw, "idle", now),
         "session" => session_meta(raw, now),
         "model_change" => model_meta(raw, now),
+        // 思考等级变化（桥接 `thinking_level_select` 上行 / JSONL 同名条目）：
+        // 与模型同一条 `session.meta` 通道，后端据此回填 `agent.thinking` 注解
+        "thinking_level_change" => thinking_meta(raw, now),
         "message" => jsonl_message(raw, now),
-        "custom" | "thinking_level_change" | "compaction" | "branch_summary" => Outcome::ignored(),
+        "custom" | "compaction" | "branch_summary" => Outcome::ignored(),
         "" => Outcome::unknown("pi:missing-type"),
         other => Outcome::unknown(format!("pi:{other}")),
     }
@@ -257,6 +260,23 @@ fn model_meta(raw: &Value, now: &str) -> Outcome {
         kind: "session.meta",
         payload: serde_json::json!({ "model": model }),
         dedupe_key: "meta:model".to_string(),
+        rev: rev_of(raw.get("timestamp")),
+        at: event_time(raw.get("timestamp"), now),
+    }])
+}
+
+/// 思考等级变化（桥接扩展上报 `{level}` / JSONL 条目 `{thinkingLevel}`，两种字段名都认）
+fn thinking_meta(raw: &Value, now: &str) -> Outcome {
+    let level = text(raw, "thinkingLevel")
+        .or_else(|| text(raw, "level"))
+        .unwrap_or("");
+    if level.is_empty() {
+        return Outcome::ignored();
+    }
+    Outcome::events(vec![DraftEvent {
+        kind: "session.meta",
+        payload: serde_json::json!({ "thinkingLevel": level }),
+        dedupe_key: "meta:thinking".to_string(),
         rev: rev_of(raw.get("timestamp")),
         at: event_time(raw.get("timestamp"), now),
     }])

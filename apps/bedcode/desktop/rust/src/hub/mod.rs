@@ -38,6 +38,19 @@ mod usage_parse;
 mod usage_sqlite;
 mod util;
 
+/// 平台分派与脚本工具（供运行域的控制面复用同一份 PATH / 执行壳口径）
+pub(crate) use util::{is_windows, shell_invocation};
+
+/// 供应商状态（与 `agent.get-providers-state` 同一份 `build_state` 结果，取内层 state）
+///
+/// 运行域读它只为拿「用户配置过的模型清单」作为下拉兜底来源，不写任何供应商配置。
+pub(crate) fn providers_state(h: &WasmHost) -> anyhow::Result<serde_json::Value> {
+    let raw = providers::get_state(h)?;
+    raw.get("state")
+        .cloned()
+        .ok_or_else(|| anyhow::anyhow!("providers state missing"))
+}
+
 /// host-storage 键：探测状态 JSON（前端 `AgentHubState` wire 形状）
 const STATE_KEY: &str = "detection";
 /// host-storage 键：目录授权结果（"granted" | "declined"）

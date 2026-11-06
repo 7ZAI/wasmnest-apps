@@ -50,12 +50,14 @@
  * 首次启动需用户在终端确认信任。
  */
 
-import type { ExtensionAPI } from '@earendil-works/pi-coding-agent'
+import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent'
 
 // 部署时由宿主按当前端口改写（hooks.rs replace_pi_extension_port），勿手改
 const WASMNEST_PORT = 8765 // @wasmnest-port
 // 模板版本标记：内容升级时递增，宿主据此对旧部署副本自动重部署（hooks.rs）
-// @wasmnest-template-version 9
+// v10（2026-11-05）：新增 `agent-control` 命令（模型 / 思考等级运行内切换）+
+// model_select / thinking_level_select 上行（工作台终端 header 的下拉）。
+// @wasmnest-template-version 10
 
 const PLUGIN_ID = 'com.wasmnest.bedcode'
 const HOST = '127.0.0.1'
@@ -126,7 +128,6 @@ async function push(status: string, reason: string): Promise<void> {
     }
   }
 }
-
 
 // ==================== 桥接：事件上行 + 命令下行（ADR 0004） ====================
 //
@@ -267,9 +268,10 @@ function startCommandLoop(execute: CommandExecutor): ReturnType<typeof setInterv
       }
       // 404 = 运行行还没写入（启动竞态）或已被移除：下一拍再试，不能永久停用
       if (!resp.ok) return
-      const body = (await resp.json().catch(() => null)) as
-        | { data?: { commands?: BridgeCommand[] }; commands?: BridgeCommand[] }
-        | null
+      const body = (await resp.json().catch(() => null)) as {
+        data?: { commands?: BridgeCommand[] }
+        commands?: BridgeCommand[]
+      } | null
       const commands = body?.data?.commands ?? body?.commands ?? []
       if (!Array.isArray(commands) || commands.length === 0) return
       const results: Array<Record<string, unknown>> = []
@@ -385,30 +387,101 @@ function recordLastRunFailure(messages: unknown): void {
 export default function (pi: ExtensionAPI) {
   let agentBusy = false
   let bridgeLoop: ReturnType<typeof setInterval> | null = null
+
+  // 最近一次事件回调带来的扩展上下文（Host 只在这个参数里给 modelRegistry /
+  // 当前 model / thinkingLevel）；命令执行发生在轮询回调里，必须缓存下来。
+  let lastCtx: ExtensionContext | null = null
+
+  /** 按 `provider/model` 或裸 model id 解析出可用的 Model 对象 */
+  function resolveModel(ctx: ExtensionContext, ref: string) {
+    const slash = ref.indexOf('/')
+    if (slash > 0) {
+      const provider = ref.slice(0, slash)
+      const id = ref.slice(slash + 1)
+      const found = ctx.modelRegistry.find(provider, id)
+      if (found) return found
+    }
+    return ctx.modelRegistry
+      .getAvailable()
+      .find((model) => model.id === ref || `${model.provider}/${model.id}` === ref)
+  }
+
   if (bridgeEnabled()) {
     bridgeLoop = startCommandLoop(async (command) => {
-      if (command.kind !== 'send') throw new Error(`unsupported command: ${command.kind}`)
-      const text = String((command.payload as { text?: unknown } | null)?.text ?? '')
-      if (!text) throw new Error('empty message')
-      // ADR 0004：空闲起 turn，忙时排队（followUp），不另起第二会话
-      if (agentBusy) await pi.sendUserMessage(text, { deliverAs: 'followUp' })
-      else await pi.sendUserMessage(text)
+      // 发送消息（ADR 0004）：空闲起 turn，忙时排队（followUp），不另起第二会话
+      if (command.kind === 'send') {
+        const text = String((command.payload as { text?: unknown } | null)?.text ?? '')
+        if (!text) throw new Error('empty message')
+        if (agentBusy) await pi.sendUserMessage(text, { deliverAs: 'followUp' })
+        else await pi.sendUserMessage(text)
+        return
+      }
+      // 模型 / 思考等级切换（运行内生效，不重启、不丢上下文）
+      if (command.kind === 'agent-control') {
+        const payload = (command.payload ?? {}) as { model?: unknown; thinkingLevel?: unknown }
+        const modelRef = typeof payload.model === 'string' ? payload.model.trim() : ''
+        const level = typeof payload.thinkingLevel === 'string' ? payload.thinkingLevel.trim() : ''
+        if (!modelRef && !level) throw new Error('agent-control: model or thinkingLevel required')
+        const ctx = lastCtx
+        if (!ctx) throw new Error('agent-control: extension context not ready')
+        if (modelRef) {
+          const model = resolveModel(ctx, modelRef)
+          if (!model) throw new Error(`model not available: ${modelRef}`)
+          // setModel 返回 false = 该 provider 没配认证（显性失败，不静默保持旧模型）
+          const ok = await pi.setModel(model)
+          if (!ok) throw new Error(`model auth not configured: ${modelRef}`)
+        }
+        if (level) {
+          pi.setThinkingLevel(level as Parameters<typeof pi.setThinkingLevel>[0])
+        }
+        return
+      }
+      throw new Error(`unsupported command: ${command.kind}`)
     })
   }
 
   // 会话启动 / 重建（/new 后 pi 重新加载扩展并再次触发 session_start）：
-  // 推送 idle，宿主驱动 waiting 态队列任务放行
-  pi.on('session_start', (event) => {
+  // 推送 idle，宿主驱动 waiting 态队列任务放行；顺带上报当前模型 / 思考等级
+  // （header 下拉的首帧真值，不必等一次 usage 事件）
+  pi.on('session_start', (event, ctx) => {
+    lastCtx = ctx
     agentBusy = false
     void push('idle', 'Session started')
     enqueueEvent({ type: 'session_start', reason: event.reason })
+    if (ctx.model) {
+      enqueueEvent({
+        type: 'model_change',
+        modelId: `${ctx.model.provider}/${ctx.model.id}`,
+        provider: ctx.model.provider,
+        id: ctx.model.id,
+      })
+    }
+    if (ctx.thinkingLevel) {
+      enqueueEvent({ type: 'thinking_level_change', level: ctx.thinkingLevel })
+    }
   })
 
   // 用户提交 prompt（含队列自动投递）→ 任务进入执行状态
-  pi.on('before_agent_start', (event) => {
+  pi.on('before_agent_start', (event, ctx) => {
+    lastCtx = ctx
     agentBusy = true
     void push('in_progress', `User submitted: ${promptPreview(event.prompt)}`)
     enqueueEvent({ type: 'before_agent_start' })
+  })
+
+  // 模型 / 思考等级变化（含用户在 TUI 里手动切换）→ 上行，后端回填运行行与注解
+  pi.on('model_select', (event) => {
+    enqueueEvent({
+      type: 'model_change',
+      modelId: `${event.model.provider}/${event.model.id}`,
+      provider: event.model.provider,
+      id: event.model.id,
+      source: event.source,
+    })
+  })
+
+  pi.on('thinking_level_select', (event) => {
+    enqueueEvent({ type: 'thinking_level_change', level: event.level })
   })
 
   // LLM 调用返回可重试 HTTP 错误（429 限流 / 408 / 5xx）→ pi 将自动重试：
@@ -450,10 +523,11 @@ export default function (pi: ExtensionAPI) {
     const delta = { ...(event.assistantMessageEvent as any) }
     delete delta.partial
     const message = event.message as { timestamp?: number }
-    enqueueStream(
-      `pi:${message.timestamp ?? '?'}:${String(delta.contentIndex ?? '')}`,
-      { type: 'message_update', message: event.message, assistantMessageEvent: delta },
-    )
+    enqueueStream(`pi:${message.timestamp ?? '?'}:${String(delta.contentIndex ?? '')}`, {
+      type: 'message_update',
+      message: event.message,
+      assistantMessageEvent: delta,
+    })
   })
 
   pi.on('message_end', (event) => {

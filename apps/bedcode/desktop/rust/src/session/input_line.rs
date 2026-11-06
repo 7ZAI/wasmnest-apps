@@ -66,6 +66,15 @@ impl SubmittedLineTracker {
         let mut map = self.buffers.lock().unwrap_or_else(|e| e.into_inner());
         map.remove(session_id);
     }
+
+    /// 是否存在未提交草稿（含未闭合的转义序列 / 括号粘贴块）。
+    ///
+    /// 程序化注入 `/model …` 经普通输入路径写入时会与草稿拼成一行，
+    /// 既让命令失效、又会把用户草稿当 prompt 提交；调用方据此显性拒绝。
+    pub fn has_pending_input(&self, session_id: &str) -> bool {
+        let map = self.buffers.lock().unwrap_or_else(|e| e.into_inner());
+        map.get(session_id).is_some_and(LineBuffer::has_pending_input)
+    }
 }
 
 /// ESC 转义序列解析状态
@@ -99,6 +108,12 @@ struct LineBuffer {
 }
 
 impl LineBuffer {
+    /// 是否还有未提交内容；`prev_cr` 只是 `\r\n` 去重标志，不算草稿
+    /// （刚提交完一行的会话仍允许程序化注入）。
+    fn has_pending_input(&self) -> bool {
+        !self.text.is_empty() || self.in_paste || self.esc != EscState::Ground
+    }
+
     /// 喂入一块，返回产生的提交行列表
     fn feed(&mut self, data: &str) -> Vec<String> {
         let mut submitted = Vec::new();
@@ -530,5 +545,23 @@ mod tests {
         let t = SubmittedLineTracker::new();
         let out = feed_chunks(&t, "s1", &["typed\x03", "ok\r"]);
         assert_eq!(out, vec!["ok"]);
+    }
+
+    #[test]
+    fn test_has_pending_input_tracks_drafts_not_submitted_lines() {
+        let tracker = SubmittedLineTracker::new();
+        assert!(!tracker.has_pending_input("s1"));
+        assert!(tracker.feed("s1", "draft").is_empty());
+        assert!(tracker.has_pending_input("s1"));
+        assert!(!tracker.has_pending_input("s2"));
+
+        // 提交后只剩 \r\n 去重标志，不算草稿：注入不应被永久拒绝
+        assert_eq!(tracker.feed("s1", "\r"), vec!["draft".to_string()]);
+        assert!(!tracker.has_pending_input("s1"));
+
+        tracker.feed("s1", "abc\x15");
+        assert!(!tracker.has_pending_input("s1"));
+        assert!(tracker.feed("s1", "\x1b[200~").is_empty());
+        assert!(tracker.has_pending_input("s1"), "unclosed paste is a draft");
     }
 }
