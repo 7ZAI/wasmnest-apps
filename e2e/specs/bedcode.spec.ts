@@ -45,12 +45,13 @@ import { goHome, openApp } from '../harness/shell'
 /** 应用显示名（= bedcode 的 plugin.json `name`） */
 const APP_NAME = 'BedCode'
 
-/** 侧边栏六个目录（= `useSidebarMenu` 的菜单项 id，顺序即视觉顺序） */
+/** 侧边栏七个目录（= `useSidebarMenu` 的菜单项 id，顺序即视觉顺序） */
 const NAV_ITEMS = [
   { id: 'pairing', view: 'pairing-view' },
   { id: 'projects', view: 'projects-view' },
   { id: 'sessions', view: 'sessions-view' },
   { id: 'agents', view: 'hub-view' },
+  { id: 'orchestrations', view: 'orchestration-list' },
   { id: 'tasks', view: 'tasks-view' },
   { id: 'settings', view: 'settings-view' },
 ] as const
@@ -142,7 +143,7 @@ describe('BedCode（桌面端 · 宿主内挂载）', () => {
     }, path)
   }
 
-  it('侧边栏渲染六个目录项', async () => {
+  it('侧边栏渲染七个目录项', async () => {
     for (const item of NAV_ITEMS) {
       expectEqual(await visible(`nav-${item.id}`), true, `侧边栏目录 ${item.id} 可见`)
     }
@@ -437,6 +438,36 @@ describe('BedCode（桌面端 · 宿主内挂载）', () => {
    * 图标占 8–22px → 任务日志的开始/结束时间文字压在图标上。用例先访问 Agent
    * 管理再回来，覆盖的正是「样式泄漏」路径。
    */
+  /**
+   * Agent 池：编排的选人面。默认用例只验入口与稳定锚点，不创建成员——
+   * 创建依赖本机已安装 pi/opencode，属于显式 E2E（bedcode.visual.spec.ts）
+   * 的机器前提，不能污染默认套件的「不依赖机器状态」纪律。
+   */
+  it('Agent 池：从 Agent 编排进入，空态 / 成员清单可见', async () => {
+    await click('nav-orchestrations')
+    await waitFor('orchestration-list')
+    await click('orchestration-tab-pool')
+    await waitFor('orchestration-pool')
+
+    // 池成员是异步取数：等「卡片 / 空态 / 错误」之一落定，避免把加载态当空态
+    await browser.waitUntil(
+      async () =>
+        (await exists('orchestration-pool-card')) ||
+        (await exists('orchestration-pool-empty')) ||
+        (await exists('orchestration-pool-error')),
+      { timeout: 15_000, interval: 150, timeoutMsg: 'Agent 池取数未落定' },
+    )
+    const hasCards = await exists('orchestration-pool-card')
+    const hasEmpty = await exists('orchestration-pool-empty')
+    expectEqual(hasCards || hasEmpty, true, 'Agent 池渲染成员清单或空态')
+    expectEqual(await exists('orchestration-pool-create'), true, '新建 Agent 入口可见')
+    // 复位到会话页：本用例只验入口，不把下一个用例的起始路由留在编排域
+    await click('orchestration-tab-list')
+    await waitFor('orchestration-list')
+    await click('nav-sessions')
+    await waitFor('sessions-view')
+  })
+
   it('任务日志时间筛选：日期框为日历图标留出间隔（先访问 Agent 管理后仍成立）', async () => {
     await click('nav-agents')
     await waitFor('hub-view')

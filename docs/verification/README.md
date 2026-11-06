@@ -32,14 +32,19 @@
 
 | 模板                                 | 插件 id                      | 端          | 自动化基线（当前用例数）                                                              | 主要人工依赖                              |
 | ------------------------------------ | ---------------------------- | ----------- | ------------------------------------------------------------------------------------- | ----------------------------------------- |
-| [agent-hub.md](agent-hub.md)         | `com.wasmnest.agent-hub`     | 桌面        | `e2e/specs/agent-hub.spec.ts`（12）                                                   | 网络 / npm 源 / GitHub / CLI 配置目录授权 |
 | [ai-chatbox.md](ai-chatbox.md)       | `com.wasmnest.ai-chatbox`    | 桌面 + 移动 | `e2e/specs/ai-chatbox.spec.ts`（桌面 8；移动暂无真机 E2E）                            | 有效供应商 API Key / 网络                 |
-| [bedcode.md](bedcode.md)             | `com.wasmnest.bedcode`       | 桌面 + 移动 | `e2e/specs/bedcode.spec.ts`（9）、`e2e/dual/bedcode-pairing.spec.ts`（1）             | 真机 / 双端在线 / 桌面 PTY                |
+| [bedcode.md](bedcode.md)             | `com.wasmnest.bedcode`       | 桌面 + 移动 | `e2e/specs/bedcode.spec.ts`（12）、`e2e/dual/bedcode-pairing.spec.ts`（1）            | 真机 / 双端在线 / 桌面 PTY                |
 | [file-transfer.md](file-transfer.md) | `com.wasmnest.file-transfer` | 桌面 + 移动 | `e2e/specs/file-transfer.spec.ts`（8）、`e2e/mobile/file-transfer-shell.spec.ts`（4） | 真实对端 / 共享目录 / 真机                |
 | [monitor.md](monitor.md)             | `com.wasmnest.monitor`       | 桌面 + 移动 | `e2e/specs/monitor.spec.ts`（10）、`e2e/specs/sys-apps.spec.ts`（3）                  | 宿主已装配 metrics 快照源                 |
 | [auth-center.md](auth-center.md)     | `com.wasmnest.auth-center`   | 桌面        | `e2e/specs/auth-center.spec.ts`（6）；双端配对间接                                    | BedCode / File Transfer 消费链路          |
 
-> 2026-10-26 实跑基线：桌面全量 `node scripts/e2e.mjs` 6/6 app、53 例全绿；
+> **BedCode 专项分册**：[agent-hub.md](agent-hub.md) 描述 BedCode 的 Agent 管理域（`/agents`）——
+> 原独立应用 agent-hub 已按 [ADR 0002](../adr/0002-agent-hub-merge-into-bedcode.md) 并入 bedcode，
+> 不再是独立 app / 独立报告对象。其 §2 / §3 随 [bedcode.md](bedcode.md) 同报告归档，
+> 自动化基线同为 `--app bedcode`；六分区交互无 E2E，全部按分册人工步骤验。
+> `com.wasmnest.agent-hub`、`e2e/specs/agent-hub.spec.ts`、`e2e/pages/agentHub.ts` 与 `--app agent-hub` 均已退役。
+
+> 2026-10-26 实跑基线（整合前，含独立 agent-hub 套件）：桌面全量 `node scripts/e2e.mjs` 6/6 app、53 例全绿；
 > 真机 `node scripts/e2e-mobile.mjs --app file-transfer` 4/4 绿（运行器自动起 1423 dev server）。
 
 > 自动化基线只代表「交互契约有回归」；功能清单中「验证方式」含「自动」的条目可直接引用对应用例结果，
