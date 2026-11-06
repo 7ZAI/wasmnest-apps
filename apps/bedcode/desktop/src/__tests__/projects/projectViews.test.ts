@@ -14,6 +14,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { defineComponent } from 'vue'
 import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-desktop'
+import { taskModalSessionId, taskModalVisible } from '@/state'
 
 const { pushMock, toastSuccess, toastInfo, toastError, storageGet, storageSet, openTerminal } =
   vi.hoisted(() => ({
@@ -143,6 +144,27 @@ function defaultRoutes(): Record<string, Handler> {
     }),
     'run.list': () => ({ runs: [runRecord('r-1', 'running', true)] }),
     'run.start': () => ({ runId: 'r-new', name: '支付重构', configId: 'cfg-1' }),
+    // 运行内 agent 控制：默认给一条「可切」的画像（模型 + 思考等级）。
+    // runId 回显请求值：拼屏时每格都取自己的清单，不能用固定 r-1 串味。
+    'run.agent.options': (args: { runId?: string }) => ({
+      runId: args?.runId ?? 'r-1',
+      agent: 'pi',
+      current: { model: 'amd/x', thinkingLevel: 'high' },
+      models: [
+        { value: 'amd/x', label: 'amd/x', source: 'current' },
+        { value: 'amd/y', label: 'amd/y', source: 'catalog' },
+      ],
+      thinkingLevels: ['low', 'high'],
+      capabilities: {
+        model: { supported: true, channel: 'bridge', reason: null, message: null },
+        thinking: { supported: true, channel: 'bridge', reason: null, message: null },
+      },
+    }),
+    'run.agent.set': (args: { runId?: string; model?: string; thinkingLevel?: string }) => ({
+      runId: args?.runId ?? 'r-1',
+      applied: { model: args?.model, thinkingLevel: args?.thinkingLevel },
+    }),
+    'session.task.running-sessions': () => ({ sessions: [] }),
     'agent.list-agents': () => ({
       agents: [{ id: 'opencode', displayName: 'OpenCode', binary: 'opencode' }],
     }),
@@ -353,6 +375,42 @@ describe('ProjectWorkbenchView（项目工作台）', () => {
     const terminal = wrapper.findComponent(TerminalStub)
     expect(terminal.exists()).toBe(true)
     expect((terminal.props('session') as { id: string }).id).toBe('r-1')
+  })
+
+  it('终态运行不进运行列表：默认只把存活运行喂给终端组件', async () => {
+    routes['run.list'] = () => ({
+      runs: [runRecord('r-dead', 'error', false), runRecord('r-live', 'running', true)],
+    })
+    const wrapper = mountView(ProjectWorkbenchView)
+    await flushPromises()
+
+    // 运行卡片与 agent CLI 同生命周期：CLI 已退出（error / stopped）的卡片不渲染
+    const items = wrapper.findAll('[data-testid="run-item"]')
+    expect(items).toHaveLength(1)
+    expect(items[0].attributes('data-status')).toBe('running')
+    expect(wrapper.find('[data-testid="run-terminal-ended"]').exists()).toBe(false)
+    expect((wrapper.findComponent(TerminalStub).props('session') as { id: string }).id).toBe(
+      'r-live',
+    )
+  })
+
+  it('选中运行退出后：卡片消失，主面留在该运行并提示已结束', async () => {
+    const wrapper = mountView(ProjectWorkbenchView)
+    await flushPromises()
+    expect(wrapper.findAll('[data-testid="run-item"]')).toHaveLength(1)
+
+    // 用户在 CLI 里 exit → 会话终态 → 刷新后卡片消失（不自动跳别的运行）
+    routes['run.list'] = () => ({ runs: [runRecord('r-1', 'stopped', false)] })
+    await wrapper.get('[data-testid="workbench-refresh"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.findAll('[data-testid="run-item"]')).toHaveLength(0)
+    expect(wrapper.find('[data-testid="run-empty"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="run-terminal"]').exists()).toBe(false)
+    expect(wrapper.findComponent(TerminalStub).exists()).toBe(false)
+    expect(wrapper.get('[data-testid="run-terminal-ended"]').text()).toContain(
+      'project.terminal.runEnded',
+    )
   })
 
   it('无运行：给空态与引导，主面提示先选运行；变更页签提示先选运行', async () => {
@@ -815,6 +873,84 @@ describe('ProjectWorkbenchView（项目工作台）', () => {
     expect(openTerminal).toHaveBeenCalledWith({ id: 'r-1', name: '支付重构' })
   })
 
+  it('拼屏后运行控制下放到各格 header：主 header 不再显示焦点运行的模型 / 停止', async () => {
+    routes['run.list'] = () => ({
+      runs: [runRecord('r-1', 'running', true), runRecord('r-2', 'running', true)],
+    })
+    const wrapper = mountView(ProjectWorkbenchView)
+    await flushPromises()
+
+    // 单屏：运行控制属于当前运行，挂在全局 header
+    expect(wrapper.find('[data-testid="agent-model-select"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="terminal-stop"]').exists()).toBe(true)
+
+    await wrapper.get('[data-testid="run-tile-toggle"]').trigger('click')
+    await flushPromises()
+
+    // 拼屏：全局 header 只留全局动作；每条运行的模型 / 停止 / 开窗进各自格子
+    expect(wrapper.find('[data-testid="agent-model-select"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="terminal-stop"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="run-open-window"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="terminal-tile-summary"]').text()).toContain(
+      'project.terminal.tileMode',
+    )
+    const tiles = wrapper.findAll('[data-testid="run-tile"]')
+    expect(tiles).toHaveLength(2)
+    for (const tile of tiles) {
+      expect(tile.find('[data-testid="run-tile-model"]').exists()).toBe(true)
+      expect(tile.find('[data-testid="run-tile-thinking"]').exists()).toBe(true)
+      expect(tile.find('[data-testid="run-tile-stop"]').exists()).toBe(true)
+      expect(tile.find('[data-testid="run-tile-open"]').exists()).toBe(true)
+    }
+  })
+
+  it('拼屏：每格模型下拉切的是该格运行，不是当前焦点运行', async () => {
+    routes['run.list'] = () => ({
+      runs: [runRecord('r-1', 'running', true), runRecord('r-2', 'running', true)],
+    })
+    const wrapper = mountView(ProjectWorkbenchView)
+    await flushPromises()
+    await wrapper.get('[data-testid="run-tile-toggle"]').trigger('click')
+    await flushPromises()
+
+    const models = wrapper
+      .findAll('[data-testid="run-tile"]')
+      .map((tile) => tile.get('[data-testid="run-tile-model"]'))
+    expect(models).toHaveLength(2)
+    expect(models.map((select) => (select.element as HTMLSelectElement).value)).toEqual([
+      'amd/x',
+      'amd/x',
+    ])
+
+    // 焦点仍在 r-1（第一格）；改第二格的模型必须落到 r-2
+    await models[1].setValue('amd/y')
+    await flushPromises()
+    expect(commandsTo('run.agent.set')[0][1]).toEqual({ runId: 'r-2', model: 'amd/y' })
+  })
+
+  it('拼屏：任务入口按每格自己的 is_supported 显示', async () => {
+    routes['run.list'] = () => ({
+      runs: [runRecord('r-1', 'running', true), runRecord('r-2', 'running', true)],
+    })
+    routes['session.task.running-sessions'] = () => ({
+      sessions: [{ session_id: 'r-2', is_supported: true }],
+    })
+    const wrapper = mountView(ProjectWorkbenchView)
+    await flushPromises()
+    await wrapper.get('[data-testid="run-tile-toggle"]').trigger('click')
+    await flushPromises()
+
+    const tiles = wrapper.findAll('[data-testid="run-tile"]')
+    expect(tiles[0].find('[data-testid="run-tile-task"]').exists()).toBe(false)
+    expect(tiles[1].find('[data-testid="run-tile-task"]').exists()).toBe(true)
+
+    await tiles[1].get('[data-testid="run-tile-task"]').trigger('click')
+    await flushPromises()
+    expect(taskModalVisible.value).toBe(true)
+    expect(taskModalSessionId.value).toBe('r-2')
+    taskModalVisible.value = false
+  })
+
   it('拼屏只铺存活运行：stopped / error 不进网格', async () => {
     routes['run.list'] = () => ({
       runs: [
@@ -894,5 +1030,88 @@ describe('ProjectWorkbenchView（项目工作台）', () => {
     await flushPromises()
     expect(reopened.get('[data-testid="run-tile-toggle"]').attributes('aria-pressed')).toBe('true')
     expect(reopened.findAll('[data-testid="run-tile"]')).toHaveLength(1)
+  })
+
+  it('终端 header 的模型 / 思考等级下拉：取 options 后按当前值渲染，切换走 run.agent.set', async () => {
+    const wrapper = mountView(ProjectWorkbenchView)
+    await flushPromises()
+
+    expect(commandsTo('run.agent.options')[0][1]).toEqual({ runId: 'r-1' })
+
+    const modelSelect = wrapper.get('[data-testid="agent-model-select"]')
+    expect((modelSelect.element as HTMLSelectElement).value).toBe('amd/x')
+    const thinkingSelect = wrapper.get('[data-testid="agent-thinking-select"]')
+    expect((thinkingSelect.element as HTMLSelectElement).value).toBe('high')
+    expect(thinkingSelect.findAll('option').map((option) => option.attributes('value'))).toEqual([
+      'low',
+      'high',
+    ])
+
+    await modelSelect.setValue('amd/y')
+    await flushPromises()
+    expect(commandsTo('run.agent.set')[0][1]).toEqual({ runId: 'r-1', model: 'amd/y' })
+
+    await thinkingSelect.setValue('low')
+    await flushPromises()
+    expect(commandsTo('run.agent.set')[1][1]).toEqual({ runId: 'r-1', thinkingLevel: 'low' })
+  })
+
+  it('能力不可用时下拉禁用，并把结构化 reason 放进 title（不静默隐藏）', async () => {
+    routes['run.agent.options'] = () => ({
+      runId: 'r-1',
+      agent: 'codex',
+      current: { model: 'gpt-6-astra', thinkingLevel: null },
+      models: [{ value: 'gpt-6-astra', label: 'gpt-6-astra', source: 'current' }],
+      thinkingLevels: ['low', 'high'],
+      capabilities: {
+        model: {
+          supported: false,
+          channel: 'pty',
+          reason: 'codex-update-required',
+          message: 'codex 0.164+ is required',
+        },
+        thinking: {
+          supported: false,
+          channel: 'pty',
+          reason: 'codex-update-required',
+          message: 'codex 0.164+ is required',
+        },
+      },
+    })
+    const wrapper = mountView(ProjectWorkbenchView)
+    await flushPromises()
+
+    const modelSelect = wrapper.get('[data-testid="agent-model-select"]')
+    expect(modelSelect.attributes('disabled')).toBeDefined()
+    expect(modelSelect.attributes('title')).toBe('project.agent.reason.codexUpdateRequired')
+    expect(
+      wrapper.get('[data-testid="agent-thinking-select"]').attributes('disabled'),
+    ).toBeDefined()
+  })
+
+  it('task 队列入口：判据取后端 is_supported；点击把当前运行注入共享弹窗', async () => {
+    routes['session.task.running-sessions'] = () => ({
+      sessions: [{ session_id: 'r-1', is_supported: true }],
+    })
+    const wrapper = mountView(ProjectWorkbenchView)
+    await flushPromises()
+
+    const entry = wrapper.get('[data-testid="terminal-task-queue"]')
+    await entry.trigger('click')
+    await flushPromises()
+
+    expect(taskModalVisible.value).toBe(true)
+    expect(taskModalSessionId.value).toBe('r-1')
+    taskModalVisible.value = false
+  })
+
+  it('header 的停止按钮：直接走 session.close（与左栏停止同一编排）', async () => {
+    const wrapper = mountView(ProjectWorkbenchView)
+    await flushPromises()
+
+    await wrapper.get('[data-testid="terminal-stop"]').trigger('click')
+    await flushPromises()
+
+    expect(commandsTo('session.close')[0][1]).toEqual({ sessionId: 'r-1' })
   })
 })

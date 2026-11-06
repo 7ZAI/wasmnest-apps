@@ -221,7 +221,13 @@ export function useProjects(context: PluginContext) {
     return project.value
   }
 
-  /** 运行列表（最新在前由后端保证；状态在取数边界归一为字符串） */
+  /**
+   * 运行列表（最新在前由后端保证；状态在取数边界归一为字符串）
+   *
+   * 这里保留后端给出的全量运行（含终态），「运行区域只展示存活运行」由视图层
+   * 用 `isLiveRun` 过滤：卡片与 agent CLI 同生命周期，CLI 退出即从列表消失；
+   * 记录本身仍留在会话域（移动端 REST / 会话视图仍可读历史）。
+   */
   async function loadRuns(projectId: string): Promise<void> {
     const raw = (await context.commands.execute('run.list', { projectId })) as {
       runs?: RunView[]

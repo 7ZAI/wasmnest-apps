@@ -232,6 +232,8 @@ describe('C1 工程身份五处一致', () => {
       'project.pick-dir',
       'project.remove',
       'project.rename',
+      'run.agent.options',
+      'run.agent.set',
       'run.events',
       'run.list',
       'run.send',
@@ -283,6 +285,28 @@ describe('C1 工程身份五处一致', () => {
       'agent.scan-usage',
       'agent.speed-test',
       'agent.uninstall',
+      // Agent 编排（v1）：命令面 + 宿主定时器回调（manifest_gen 以 invoke_command
+      // 匹配臂为准；这里锁 declaration 顺序与 Rust 分派面同步）
+      'agent.profile.list',
+      'agent.profile.create',
+      'agent.profile.update',
+      'agent.profile.delete',
+      'agent.profile.options',
+      'orchestration.meta',
+      'orchestration.list',
+      'orchestration.get',
+      'orchestration.create',
+      'orchestration.plan',
+      'orchestration.update-plan',
+      'orchestration.approve',
+      'orchestration.start',
+      'orchestration.pause',
+      'orchestration.resume',
+      'orchestration.cancel',
+      'orchestration.retry-node',
+      'orchestration.skip-node',
+      'orchestration.events',
+      'session.orchestration.tick',
     ])
     // ABI v29（HTTP 路由代码注册下沉）：manifest `contributes.httpEndpoints` 静态声明面
     // 已退役（用户裁定 ④：不通过声明配置路由，插件代码运行时注册）。
@@ -427,7 +451,7 @@ describe('C3 入口契约（挂载包形态：mountApp + 直连上下文 + 内�
     expect(ctx.http).toBeUndefined()
   })
 
-  it('静态路由表：菜单六项 + 诊断/深链页 + not-found 兜底（内存路由，宿主 history 归宿主）', () => {
+  it('静态路由表：菜单七项 + 诊断/深链页 + not-found 兜底（内存路由，宿主 history 归宿主）', () => {
     const routes = router.getRoutes()
     const byName = new Map(routes.map((r) => (r.name ? [r.name, r] : [null, r])))
     // 菜单页（D3 静态表）
@@ -438,6 +462,9 @@ describe('C3 入口契约（挂载包形态：mountApp + 直连上下文 + 内�
     expect(byName.get('sessions')?.path).toBe('/sessions')
     // Agent 管理域（原 agent-hub 并入）
     expect(byName.get('agents')?.path).toBe('/agents')
+    // Agent 编排（v1）：列表 + 详情
+    expect(byName.get('orchestrations')?.path).toBe('/orchestrations')
+    expect(byName.get('orchestration-detail')?.path).toBe('/orchestrations/:id')
     expect(byName.get('tasks')?.path).toBe('/tasks')
     expect(byName.get('settings')?.path).toBe('/settings')
     // 诊断页（URL 直达不进导航）
@@ -522,21 +549,23 @@ describe('C4 退役锁（D8 fail-visible：插件运行时回接零命中）', (
 })
 
 describe('C5 静态侧边栏菜单表与设置分组表（D3/D4）', () => {
-  it('侧边栏 = 静态表：六项（含项目与 Agent 管理）、顺序槽位、路由与路由表一一对应', () => {
+  it('侧边栏 = 静态表：七项（含项目、Agent 管理与编排）、顺序槽位、路由与路由表一一对应', () => {
     expect(sidebarMenuItems.map((i) => i.id)).toEqual([
       'pairing',
       'projects',
       'sessions',
       'agents',
+      'orchestrations',
       'tasks',
       'settings',
     ])
-    expect(sidebarMenuItems.map((i) => i.order)).toEqual([100, 190, 200, 205, 210, 9999])
+    expect(sidebarMenuItems.map((i) => i.order)).toEqual([100, 190, 200, 205, 207, 210, 9999])
     expect(sidebarMenuItems.map((i) => i.path)).toEqual([
       '/pairing',
       '/projects',
       '/sessions',
       '/agents',
+      '/orchestrations',
       '/tasks',
       '/settings',
     ])
@@ -546,6 +575,7 @@ describe('C5 静态侧边栏菜单表与设置分组表（D3/D4）', () => {
       projects: 190,
       sessions: 200,
       agents: 205,
+      orchestrations: 207,
       tasks: 210,
       settings: 9999,
     })
@@ -560,7 +590,8 @@ describe('C5 静态侧边栏菜单表与设置分组表（D3/D4）', () => {
     expect(sidebarMenuItems[1].labelKey).toBe('project.sidebar.title')
     // Agent 管理域（原 agent-hub 并入）：hub.* 键随 i18n 三件套并入
     expect(sidebarMenuItems[3].labelKey).toBe('hub.sidebar.title')
-    expect(sidebarMenuItems[5].labelKey).toBe('sidebar.settings')
+    expect(sidebarMenuItems[4].labelKey).toBe('orchestration.sidebar.title')
+    expect(sidebarMenuItems[6].labelKey).toBe('sidebar.settings')
   })
 
   it('设置分组 = 静态表：业务五分组、order 升序、带标题 key（平台分组归宿主系统页）', () => {
@@ -594,10 +625,12 @@ describe('C6 前端调用面与后端/文案同源（票 17）', () => {
   // Agent 管理域（原 agent-hub 并入）：`agent.*` 臂在 hub/mod.rs 路由（缩进 8 空格）
   const hubDispatch = readFileSync(resolve(PLUGIN_ROOT, 'rust/src/hub/mod.rs'), 'utf-8')
   /** Rust `invoke_command` 的匹配臂（含宿主桥接与调试臂，非仅 manifest 声明面） */
-  const rustArms = new Set([
-    ...rustDispatch.matchAll(/^\s{12}"([\w.-]+)"\s*=>/gm),
-    ...hubDispatch.matchAll(/^\s{8}"([\w.-]+)"\s*=>/gm),
-  ].map((m) => m[1]))
+  const rustArms = new Set(
+    [
+      ...rustDispatch.matchAll(/^\s{12}"([\w.-]+)"\s*=>/gm),
+      ...hubDispatch.matchAll(/^\s{8}"([\w.-]+)"\s*=>/gm),
+    ].map((m) => m[1]),
+  )
 
   it('前端调用的每条命令在 Rust 分派表里有同名臂（改名/漏臂即红）', () => {
     // 票 15/16 把 28 条任务命令从 `auto-task.*` 改指 `session.task.*`：调用点与
