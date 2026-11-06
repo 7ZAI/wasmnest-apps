@@ -230,6 +230,14 @@
         "title": "Project: Rename"
       },
       {
+        "id": "run.agent.options",
+        "title": "Run: Agent Control Options"
+      },
+      {
+        "id": "run.agent.set",
+        "title": "Run: Set Model / Thinking Level"
+      },
+      {
         "id": "run.events",
         "title": "Run: Events"
       },
@@ -432,6 +440,86 @@
       {
         "id": "agent.uninstall",
         "title": "Agent Hub: Uninstall CLI"
+      },
+      {
+        "id": "agent.profile.list",
+        "title": "Agent Pool: List"
+      },
+      {
+        "id": "agent.profile.create",
+        "title": "Agent Pool: Create"
+      },
+      {
+        "id": "agent.profile.update",
+        "title": "Agent Pool: Update"
+      },
+      {
+        "id": "agent.profile.delete",
+        "title": "Agent Pool: Delete"
+      },
+      {
+        "id": "agent.profile.options",
+        "title": "Agent Pool: CLI Models & Thinking Levels"
+      },
+      {
+        "id": "orchestration.meta",
+        "title": "Orchestration: Vocabulary & Agents"
+      },
+      {
+        "id": "orchestration.list",
+        "title": "Orchestration: List"
+      },
+      {
+        "id": "orchestration.get",
+        "title": "Orchestration: Get"
+      },
+      {
+        "id": "orchestration.create",
+        "title": "Orchestration: Create"
+      },
+      {
+        "id": "orchestration.plan",
+        "title": "Orchestration: Generate Plan"
+      },
+      {
+        "id": "orchestration.update-plan",
+        "title": "Orchestration: Update Plan"
+      },
+      {
+        "id": "orchestration.approve",
+        "title": "Orchestration: Approve Plan"
+      },
+      {
+        "id": "orchestration.start",
+        "title": "Orchestration: Start"
+      },
+      {
+        "id": "orchestration.pause",
+        "title": "Orchestration: Pause"
+      },
+      {
+        "id": "orchestration.resume",
+        "title": "Orchestration: Resume"
+      },
+      {
+        "id": "orchestration.cancel",
+        "title": "Orchestration: Cancel"
+      },
+      {
+        "id": "orchestration.retry-node",
+        "title": "Orchestration: Retry Node"
+      },
+      {
+        "id": "orchestration.skip-node",
+        "title": "Orchestration: Skip Node"
+      },
+      {
+        "id": "orchestration.events",
+        "title": "Orchestration: Events"
+      },
+      {
+        "id": "session.orchestration.tick",
+        "title": "Orchestration scheduler tick (host timer)"
       }
     ],
     "wsEndpoints": [

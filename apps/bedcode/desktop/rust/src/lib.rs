@@ -36,6 +36,8 @@
 
 /// 会话动作域（票 10）：重启 / 移除 / 改名编排 + 尺寸正统端裁决
 mod actions;
+/// Agent 池（编排的选人真源）：`agent.profile.*` 命令面 + 私有库 `agent_profiles`
+mod agent_pool;
 /// 认证中心互调消费面（issue #6 切换）：设备中心 / consent / 连接记录改指
 /// `com.wasmnest.auth-center`，本地六域副本停止作为数据源
 mod auth_center_client;
@@ -998,6 +1000,15 @@ impl WasmPlugin for SessionPlugin {
             ),
             Err(e) => host.log_warn(&format!(
                 "task domain schema init failed at activate (task face degraded): {}",
+                e
+            )),
+        }
+        // Agent 池建表（幂等，一张表：agent_profiles）。池不可用只降级编排的选人面；
+        // 命令缺表会显性报错，不影响会话核心。
+        match agent_pool::ensure_schema() {
+            Ok(()) => host.log_info("agent pool schema ready (agent_profiles)"),
+            Err(e) => host.log_warn(&format!(
+                "agent pool schema init failed at activate (orchestration agents degraded): {}",
                 e
             )),
         }
