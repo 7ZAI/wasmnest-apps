@@ -84,7 +84,7 @@
           />
         </svg>
         <p class="group-row-sub">{{ t('hub.notConnected') }}</p>
-        <p class="text-sm mt-1" style="color: var(--mobile-text-disabled)">
+        <p class="text-sm mt-1" style="color: var(--mobile-text-secondary)">
           {{ t('project.notConnectedHint') }}
         </p>
         <button
@@ -148,7 +148,7 @@
             />
           </svg>
           <p class="group-row-sub">{{ t('project.empty') }}</p>
-          <p class="text-sm mt-1" style="color: var(--mobile-text-disabled)">
+          <p class="text-sm mt-1" style="color: var(--mobile-text-secondary)">
             {{ t('project.emptyHint') }}
           </p>
         </div>
@@ -233,7 +233,7 @@
             />
           </svg>
           <p class="group-row-sub">{{ t('project.run.empty') }}</p>
-          <p class="text-sm mt-1" style="color: var(--mobile-text-disabled)">
+          <p class="text-sm mt-1" style="color: var(--mobile-text-secondary)">
             {{ t('project.run.emptyHint') }}
           </p>
         </div>
@@ -252,7 +252,7 @@
         <p
           v-if="runs.some((run) => run.active)"
           class="text-center mt-3"
-          style="font-size: var(--font-size-sm); color: var(--mobile-text-disabled)"
+          style="font-size: var(--font-size-sm); color: var(--mobile-text-muted)"
         >
           {{ t('project.detail.openHint') }}
         </p>
@@ -541,12 +541,6 @@ defineExpose({ canGoBack, goBack: handleBack })
 </script>
 
 <style scoped>
-/* 与内容容器 px-4 对齐：全局 page-header 左右 20px，会让标题比项目卡左移 4px */
-.page-header {
-  padding-left: 1rem;
-  padding-right: 1rem;
-}
-
 /* 详情分组标题（原 SessionsSection 的 scoped 样式已随旧 UI 退役，此处自持） */
 .section-head__label {
   display: block;

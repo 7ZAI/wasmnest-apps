@@ -54,7 +54,10 @@ const emit = defineEmits<{
   font-weight: 500;
   border-radius: 0.5rem;
   color: var(--mobile-text-muted);
-  transition: all 0.2s ease;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease,
+    box-shadow 0.15s ease;
   background: none;
   border: none;
   cursor: pointer;
@@ -63,7 +66,7 @@ const emit = defineEmits<{
 .segmented-btn.active {
   background: var(--mobile-bg-card);
   color: var(--mobile-text-primary);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+  box-shadow: var(--mobile-card-shadow);
 }
 
 .segmented-badge {

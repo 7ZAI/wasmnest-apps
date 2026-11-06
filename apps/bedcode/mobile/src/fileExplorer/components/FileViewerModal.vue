@@ -600,8 +600,6 @@ watch(
   color: var(--mobile-text-primary);
   font-weight: 600;
   font-size: var(--font-size-sm);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
   border-bottom: 2px solid var(--mobile-border);
   white-space: nowrap;
 }

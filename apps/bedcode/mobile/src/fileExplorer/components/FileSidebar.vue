@@ -218,7 +218,7 @@
 
     <!-- 分支切换确认弹窗 -->
     <Modal v-model="showBranchConfirm" :title="t('file.switchConfirmTitle')" size="sm">
-      <p class="text-[var(--mobile-text-disabled)] text-sm">{{ branchConfirmMsg }}</p>
+      <p class="text-[var(--mobile-text-secondary)] text-sm">{{ branchConfirmMsg }}</p>
       <template #footer>
         <div class="flex justify-end gap-3">
           <Button variant="ghost" @click="showBranchConfirm = false">{{ t('common.button.cancel') }}</Button>
@@ -739,7 +739,7 @@ onUnmounted(() => {
 }
 
 .branch-label--no-git {
-  color: var(--mobile-text-disabled);
+  color: var(--mobile-text-muted);
   font-weight: 400;
   cursor: default;
 }
@@ -783,10 +783,9 @@ onUnmounted(() => {
 .branch-dropdown-title {
   padding: 0.5rem 0.75rem;
   font-size: var(--font-size-sm);
-  font-weight: 600;
+  font-weight: 500;
   color: var(--mobile-text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.01em;
   border-bottom: 1px solid var(--mobile-border);
   flex-shrink: 0;
 }
@@ -1017,13 +1016,13 @@ onUnmounted(() => {
   border-radius: 50%;
   background: var(--mobile-accent);
   transform: translate(-50%, -50%);
-  box-shadow: 0 0 0 3px rgba(0, 212, 255, 0.2);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--mobile-accent) 15%, transparent);
   transition: box-shadow 0.15s ease;
   z-index: 2;
 }
 
 .slider-thumb:hover {
-  box-shadow: 0 0 0 5px rgba(0, 212, 255, 0.3);
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--mobile-accent) 25%, transparent);
 }
 
 .slider-dots {
@@ -1056,7 +1055,7 @@ onUnmounted(() => {
   justify-content: space-between;
   margin-top: 0.25rem;
   font-size: var(--font-size-sm);
-  color: var(--mobile-text-disabled);
+  color: var(--mobile-text-muted);
 }
 
 .settings-panel-actions {
@@ -1140,7 +1139,7 @@ onUnmounted(() => {
 }
 
 .sidebar-body::-webkit-scrollbar-thumb:hover {
-  background: rgba(0, 212, 255, 0.4);
+  background: var(--mobile-border-active);
 }
 
 /* Sidebar States */

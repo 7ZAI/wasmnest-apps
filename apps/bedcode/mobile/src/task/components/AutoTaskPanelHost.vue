@@ -348,16 +348,16 @@ function presetStatusLabel(status: string): string {
 }
 
 const statusColor: Record<string, string> = {
-  idle: 'var(--mobile-text-disabled)',
+  idle: 'var(--mobile-text-muted)',
   in_progress: 'var(--mobile-accent)',
-  asking: '#f59e0b',
-  completed: '#22c55e',
+  asking: 'var(--mobile-warning)',
+  completed: 'var(--mobile-success)',
   interrupted: 'var(--mobile-error)',
-  pending: 'var(--mobile-text-disabled)',
+  pending: 'var(--mobile-text-muted)',
   // 队列项处理中状态（active_task）
-  waiting: '#f59e0b',
+  waiting: 'var(--mobile-warning)',
   // 预设任务执行状态（本地，入队即视为已执行）
-  unused: 'var(--mobile-text-disabled)',
+  unused: 'var(--mobile-text-muted)',
   executing: 'var(--mobile-accent)',
 }
 

@@ -226,7 +226,7 @@
 
 .scrollbar-thumb.visible {
   opacity: 1;
-  background: rgba(0, 212, 255, 0.4);
+  background: var(--mobile-border-active);
 }
 
 /* xterm 容器 */
@@ -347,7 +347,7 @@
   font-size: var(--font-size-sm);
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease, opacity 0.15s ease;
   white-space: nowrap;
 }
 

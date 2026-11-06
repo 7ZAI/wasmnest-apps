@@ -286,11 +286,11 @@ function statusLabel(status: string): string {
 
 function badgeStyle(status: string): Record<string, string> {
   const color: Record<string, string> = {
-    pending: 'var(--mobile-text-disabled)',
+    pending: 'var(--mobile-text-muted)',
     creating: 'var(--mobile-accent)',
-    executed: '#22c55e',
+    executed: 'var(--mobile-success)',
     failed: 'var(--mobile-error)',
-    missed: '#f59e0b',
+    missed: 'var(--mobile-warning)',
   }
   const c = color[status] || color.pending
   return {

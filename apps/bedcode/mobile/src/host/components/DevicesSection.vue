@@ -18,10 +18,7 @@
               </span>
             </template>
             <template v-else>
-              <span
-                class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full border"
-                style="border-color: color-mix(in srgb, var(--mobile-accent) 30%, transparent)"
-              >
+              <span class="inline-flex items-center gap-1.5">
                 <span
                   class="status-dot"
                   :style="{
@@ -227,7 +224,7 @@
               />
             </svg>
             <p class="group-row-sub mb-1">{{ t('hub.discoverNoDevices') }}</p>
-            <p class="text-sm" style="color: var(--mobile-text-disabled)">
+            <p class="text-sm" style="color: var(--mobile-text-secondary)">
               {{ t('hub.discoverNoDevicesHint') }}
             </p>
           </div>
@@ -333,39 +330,46 @@
               </div>
 
               <TransitionGroup name="config-list" tag="div" class="space-y-3">
-                <button
+                <div
                   v-for="item in connectionHistory"
                   :key="item.address"
-                  class="w-full bg-[var(--mobile-bg-card)] border border-[var(--mobile-border)] rounded-xl p-4 text-left cursor-pointer transition-[border-color,opacity] duration-300 active:opacity-90 hover:border-[var(--mobile-border-hover)]"
-                  :disabled="isConnecting"
+                  class="w-full bg-[var(--mobile-bg-card)] border border-[var(--mobile-border)] rounded-xl p-4 transition-[border-color,opacity] duration-300 hover:border-[var(--mobile-border-hover)]"
                   :class="{ 'opacity-50 pointer-events-none': isConnecting }"
-                  @click="handleConnectFromHistory(item)"
                 >
                   <div class="flex items-center gap-3">
-                    <span class="device-icon chip-cyan">
-                      <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                          stroke-width="1.75"
-                          d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
-                        />
-                      </svg>
-                    </span>
-                    <div class="flex-1 min-w-0">
-                      <div class="text-base font-medium text-[var(--mobile-text-primary)] truncate">
-                        {{ item.name || item.address }}
-                      </div>
-                      <p class="text-xs mt-1 font-mono text-[var(--mobile-text-muted)]">
-                        {{ item.address }}
-                      </p>
-                      <p class="text-xs mt-0.5" style="color: var(--mobile-text-disabled)">
-                        {{ formatLastConnected(item.lastConnected, t) }}
-                      </p>
-                    </div>
+                    <!-- 主区独立按钮：删除键是它的兄弟而不是子元素（按钮不得嵌套） -->
                     <button
-                      class="p-1.5 rounded-lg transition-colors active:opacity-80 flex-shrink-0"
-                      style="color: var(--mobile-text-disabled)"
+                      type="button"
+                      class="flex flex-1 min-w-0 items-center gap-3 text-left cursor-pointer active:opacity-80 disabled:cursor-not-allowed"
+                      :disabled="isConnecting"
+                      @click="handleConnectFromHistory(item)"
+                    >
+                      <span class="device-icon chip-cyan">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            stroke-width="1.75"
+                            d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
+                          />
+                        </svg>
+                      </span>
+                      <span class="flex-1 min-w-0 block">
+                        <span class="text-base font-medium text-[var(--mobile-text-primary)] truncate block">
+                          {{ item.name || item.address }}
+                        </span>
+                        <span class="text-xs mt-1 font-mono text-[var(--mobile-text-muted)] block">
+                          {{ item.address }}
+                        </span>
+                        <span class="text-xs mt-0.5 block" style="color: var(--mobile-text-muted)">
+                          {{ formatLastConnected(item.lastConnected, t) }}
+                        </span>
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      class="flex items-center justify-center rounded-lg transition-colors active:opacity-80 flex-shrink-0 min-w-[var(--mobile-touch-target-min)] min-h-[var(--mobile-touch-target-min)]"
+                      style="color: var(--mobile-text-muted)"
                       :disabled="isConnecting"
                       :aria-label="t('hub.remove')"
                       :title="t('hub.remove')"
@@ -381,7 +385,7 @@
                       </svg>
                     </button>
                   </div>
-                </button>
+                </div>
               </TransitionGroup>
             </template>
 
@@ -544,7 +548,7 @@
 
     <!-- Clear History Confirmation Modal -->
     <Modal v-model="showClearHistoryConfirm" :title="t('hub.clearHistory')" size="sm">
-      <p style="color: var(--mobile-text-disabled)">{{ t('hub.historyClearConfirm') }}</p>
+      <p style="color: var(--mobile-text-secondary)">{{ t('hub.historyClearConfirm') }}</p>
       <template #footer>
         <div class="flex justify-end gap-3">
           <Button variant="ghost" @click="showClearHistoryConfirm = false">
@@ -557,7 +561,7 @@
 
     <!-- Disconnect Confirmation Modal -->
     <Modal v-model="showDisconnectConfirm" :title="t('hub.disconnect')" size="sm">
-      <p style="color: var(--mobile-text-disabled)">{{ t('hub.disconnectConfirm') }}</p>
+      <p style="color: var(--mobile-text-secondary)">{{ t('hub.disconnectConfirm') }}</p>
       <template #footer>
         <div class="flex justify-end gap-3">
           <Button variant="ghost" @click="showDisconnectConfirm = false">
@@ -1222,11 +1226,11 @@ function errText(e: unknown): string {
 }
 
 .config-list-enter-active {
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1), transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .config-list-leave-active {
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: opacity 0.2s cubic-bezier(0.4, 0, 0.2, 1), transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .config-list-enter-from {

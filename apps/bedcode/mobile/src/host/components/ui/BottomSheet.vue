@@ -5,9 +5,9 @@
         <!-- Backdrop -->
         <div class="absolute inset-0 bg-[var(--mobile-overlay)]" @click="handleBackdropClick"></div>
 
-        <!-- Panel - 居中显示，避免被输入法遮挡 -->
+        <!-- Panel - 居中显示，避免被输入法遮挡；圆角 / 阴影与 Modal 同口径 -->
         <div
-          class="relative w-full max-w-sm bg-[var(--mobile-bg-card)] border border-[var(--mobile-border)] rounded-2xl p-6 shadow-xl modal-panel"
+          class="relative w-full max-w-sm bg-[var(--mobile-bg-card)] border border-[var(--mobile-border)] rounded-xl p-6 shadow-[0_1px_2px_rgba(0,0,0,0.08)] modal-panel"
           data-testid="mobile-manual-sheet"
         >
           <!-- Close button (loading 时禁用) -->

@@ -573,7 +573,7 @@ watch(() => props.visible, (show) => {
   height: 2.25rem;
   border-radius: 0.625rem;
   color: var(--mobile-text-muted);
-  transition: all 0.15s ease;
+  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease, opacity 0.15s ease, transform 0.15s ease;
 }
 
 .icon-btn:hover,
@@ -592,9 +592,8 @@ watch(() => props.visible, (show) => {
 
 .section-title {
   font-size: var(--font-size-sm);
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  font-weight: 500;
+  letter-spacing: 0.01em;
   color: var(--mobile-text-muted);
   margin-bottom: 0.5rem;
 }
@@ -682,7 +681,7 @@ watch(() => props.visible, (show) => {
   color: var(--mobile-danger-color, var(--mobile-text-muted));
   cursor: pointer;
   flex-shrink: 0;
-  transition: all 0.15s ease;
+  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease, opacity 0.15s ease, transform 0.15s ease;
 }
 
 .delete-btn:active {
@@ -713,7 +712,7 @@ watch(() => props.visible, (show) => {
   border: 1px solid var(--mobile-border);
   border-radius: 0.75rem;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease, opacity 0.15s ease, transform 0.15s ease;
 }
 
 .ghost-btn:active {
@@ -760,7 +759,7 @@ watch(() => props.visible, (show) => {
   justify-content: center;
   border-radius: 9999px;
   color: var(--mobile-text-muted);
-  transition: all 0.15s ease;
+  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease, opacity 0.15s ease, transform 0.15s ease;
 }
 
 .clear-btn:hover,
@@ -818,7 +817,7 @@ watch(() => props.visible, (show) => {
   background: var(--mobile-bg-elevated);
   color: var(--mobile-text-secondary);
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease, opacity 0.15s ease, transform 0.15s ease;
 }
 
 .modifier-btn.selected {
@@ -851,7 +850,7 @@ watch(() => props.visible, (show) => {
   background: var(--mobile-bg-elevated);
   color: var(--mobile-text-secondary);
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease, opacity 0.15s ease, transform 0.15s ease;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -895,7 +894,7 @@ watch(() => props.visible, (show) => {
   background: var(--mobile-accent);
   color: var(--mobile-text-on-accent);
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease, opacity 0.15s ease, transform 0.15s ease;
 }
 
 .add-btn:active:not(:disabled) {

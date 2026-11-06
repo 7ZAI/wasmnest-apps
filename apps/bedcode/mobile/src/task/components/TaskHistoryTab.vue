@@ -184,15 +184,15 @@ function statusLabel(status: string): string {
 /** 状态徽标底色：状态色 10% tint + 状态色文字（与 atp-clear-btn 同款扁平风格） */
 function badgeStyle(status: string): Record<string, string> {
   const color: Record<string, string> = {
-    idle: 'var(--mobile-text-disabled)',
+    idle: 'var(--mobile-text-muted)',
     in_progress: 'var(--mobile-accent)',
-    asking: '#f59e0b',
-    retrying: '#f59e0b',
-    completed: '#22c55e',
+    asking: 'var(--mobile-warning)',
+    retrying: 'var(--mobile-warning)',
+    completed: 'var(--mobile-success)',
     interrupted: 'var(--mobile-error)',
     failed: 'var(--mobile-error)',
-    pending: 'var(--mobile-text-disabled)',
-    waiting: '#f59e0b',
+    pending: 'var(--mobile-text-muted)',
+    waiting: 'var(--mobile-warning)',
   }
   const c = color[status] || color.idle
   return {

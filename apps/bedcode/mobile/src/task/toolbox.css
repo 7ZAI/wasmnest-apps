@@ -342,7 +342,7 @@
 
 .att-no-more {
   font-size: 0.75rem;
-  color: var(--mobile-text-disabled);
+  color: var(--mobile-text-muted);
 }
 
 /* ==================== 定时任务：创建入口与表单 ==================== */
@@ -474,7 +474,7 @@
 }
 
 .att-picker-empty {
-  color: var(--mobile-text-disabled);
+  color: var(--mobile-text-muted);
 }
 
 /* UTC 预览提示 */

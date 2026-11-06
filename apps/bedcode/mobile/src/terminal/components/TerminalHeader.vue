@@ -156,7 +156,7 @@ function emitAction(key: string) {
 }
 
 .back-btn:hover {
-  color: var(--accent, #ece8dc);
+  color: var(--mobile-accent);
 }
 
 .help-btn {
@@ -208,7 +208,7 @@ function emitAction(key: string) {
   border: 1px solid var(--mobile-border);
   color: var(--mobile-text-secondary);
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease, opacity 0.2s ease, transform 0.2s ease;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -218,7 +218,7 @@ function emitAction(key: string) {
 .task-btn:hover,
 .folder-btn:hover,
 .overflow-btn:hover {
-  border-color: rgba(0, 212, 255, 0.3);
+  border-color: color-mix(in srgb, var(--mobile-accent) 30%, transparent);
 }
 
 .task-btn {

@@ -23,7 +23,7 @@
         {{ t('toolbox.repeatableOff') }}
       </button>
     </div>
-    <p class="text-xs mt-1" style="color: var(--mobile-text-disabled)">
+    <p class="text-xs mt-1" style="color: var(--mobile-text-secondary)">
       {{ modelValue ? t('toolbox.repeatableOnHint') : t('toolbox.repeatableOffHint') }}
     </p>
   </div>

@@ -581,7 +581,7 @@ onMounted(() => {
   border-radius: 50%;
   border: 1px solid;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease, opacity 0.15s ease, transform 0.15s ease;
   flex-shrink: 0;
   padding: 0;
   /* 长按双操作防系统手势干扰：禁用长按呼出菜单/文本选择，消除双击缩放延迟 */
@@ -750,7 +750,7 @@ onMounted(() => {
   font-size: var(--font-size-base);
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease, opacity 0.15s ease, transform 0.15s ease;
 }
 
 .dialog-btn.cancel {

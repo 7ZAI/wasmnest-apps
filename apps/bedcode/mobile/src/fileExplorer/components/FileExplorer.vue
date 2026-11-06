@@ -66,7 +66,7 @@
           <svg class="w-8 h-8 text-[var(--mobile-text-disabled)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
           </svg>
-          <p class="text-[var(--mobile-text-disabled)] text-sm mt-2">{{ t('codeViewer.selectFile') }}</p>
+          <p class="text-[var(--mobile-text-muted)] text-sm mt-2">{{ t('codeViewer.selectFile') }}</p>
         </div>
 
         <!-- 加载中 -->
@@ -685,8 +685,6 @@ watch(
   color: var(--mobile-text-primary);
   font-weight: 600;
   font-size: var(--font-size-sm);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
   border-bottom: 2px solid var(--mobile-border);
   white-space: nowrap;
 }

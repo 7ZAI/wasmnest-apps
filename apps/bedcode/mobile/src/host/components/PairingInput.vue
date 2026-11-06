@@ -209,11 +209,11 @@ function submit() {
 .code-cell--filled {
   color: var(--mobile-accent);
   border-color: var(--mobile-accent);
-  box-shadow: 0 0 10px var(--mobile-accent-muted);
+  background: var(--mobile-accent-muted);
 }
 
 .code-cell--empty {
-  color: var(--mobile-text-disabled);
+  color: var(--mobile-text-muted);
 }
 
 .keypad {

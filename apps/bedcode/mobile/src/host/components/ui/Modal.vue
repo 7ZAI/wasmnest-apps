@@ -9,9 +9,10 @@
         <!-- Backdrop -->
         <div class="absolute inset-0 bg-[var(--mobile-overlay)] backdrop-blur-sm"></div>
 
-        <!-- Modal Content -->
+        <!-- Modal Content：浅色小阴影，深色靠 surface step + hairline，不用大阴影
+             （2026-11-05 unslop 审核，与桌面端 Modal 同口径） -->
         <div
-          class="relative rounded-xl shadow-2xl border bg-[var(--mobile-bg-card)] border-[var(--mobile-border)] modal-panel"
+          class="relative rounded-xl shadow-[0_1px_2px_rgba(0,0,0,0.08)] border bg-[var(--mobile-bg-card)] border-[var(--mobile-border)] modal-panel"
           :class="[sizeClass]"
         >
           <!-- Header -->

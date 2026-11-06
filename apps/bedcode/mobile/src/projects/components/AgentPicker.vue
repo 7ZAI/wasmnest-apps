@@ -142,7 +142,7 @@ const hasMissing = computed(() => props.agents.some((agent) => agent.readiness =
 .picker-note {
   font-size: var(--font-size-sm);
   line-height: 1.5;
-  color: var(--mobile-text-disabled);
+  color: var(--mobile-text-secondary);
 }
 
 @media (prefers-reduced-motion: reduce) {

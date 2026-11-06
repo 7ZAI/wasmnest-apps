@@ -101,11 +101,11 @@ const activityText = computed(() => {
 <style scoped>
 .project-meta {
   font-size: var(--font-size-sm);
-  color: var(--mobile-text-disabled);
+  color: var(--mobile-text-muted);
 }
 
 .project-meta-label {
-  color: var(--mobile-text-disabled);
+  color: var(--mobile-text-muted);
 }
 
 .project-meta-value {

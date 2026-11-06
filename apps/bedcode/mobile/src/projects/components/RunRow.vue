@@ -74,11 +74,12 @@ const emit = defineEmits<{ open: [run: RunView]; stop: [run: RunView] }>()
 
 const t = useHostPage().t
 
+/**
+ * 过渡态才呼吸（2026-11-05 unslop 审核，与桌面端同口径）：
+ * 稳态 running 是事实，用静态点；starting / stopping 才是进行中的变化。
+ */
 const isPulsing = computed(
-  () =>
-    props.run.status === 'running' ||
-    props.run.status === 'starting' ||
-    props.run.status === 'stopping',
+  () => props.run.status === 'starting' || props.run.status === 'stopping',
 )
 
 const relativeText = computed(() => {

@@ -164,7 +164,7 @@ export const messagesZhCN = {
     "add": "添加",
     "addTaskTitle": "添加预设任务",
     "editTask": "编辑预设任务",
-    "insertAiTemplate": "Prompt模板",
+    "insertAiTemplate": "Prompt 模板",
     "repeatable": "可重复执行",
     "repeatableOn": "可重复",
     "repeatableOff": "不可重复",
