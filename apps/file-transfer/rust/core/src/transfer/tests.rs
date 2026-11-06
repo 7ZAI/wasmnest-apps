@@ -158,6 +158,55 @@ fn merge_upserts_by_batch_id_and_keeps_retry_meta() {
 }
 
 #[test]
+fn merge_snapshot_new_row_keeps_retry_meta_from_dto() {
+    // 新行路径（占位行/失败行的唯一入店出口）：DTO 自带的 retryMeta 必须落进
+    // store——并发闸门（占位行占槽）与历史重试（retry_source）都读它。
+    // 回归（审查修复 2026-11-05）：from_dto 曾硬编码 None，运行时发起的发送批
+    // 全部丢凭证（闸门漏计、历史重试失效）。
+    let mut store = vec![];
+    let with_meta = json!({
+        "batchId": "b-new", "nodeId": "aa", "peerName": "Pixel",
+        "direction": "send", "status": "pending",
+        "files": [{"path": "/tmp/a.bin", "size": 7}],
+        "totalBytes": 7u64, "transferredBytes": 0u64,
+        "createdAtMs": 1u64, "updatedAtMs": 2u64,
+        "retryMeta": { "kind": "send", "paths": ["/tmp/a.bin"] },
+    });
+    assert!(merge_snapshot(&mut store, &[with_meta]));
+    assert_eq!(
+        store[0].retry_meta,
+        Some(RetryMeta::Send {
+            paths: vec!["/tmp/a.bin".into()]
+        }),
+        "新行入店保留重试凭证"
+    );
+    // 无凭证的行（引擎建行）如实为 None
+    let mut store2 = vec![];
+    merge_snapshot(&mut store2, &[dto("b3", "receive", "running", 5)]);
+    assert_eq!(store2[0].retry_meta, None);
+}
+
+/// L14：引擎先建的无凭证行遇到同 batchId 且带 retryMeta 的快照时，
+/// 凭证必须补齐；同内容重放（DTO 仍带凭证）不得误判 changed。
+#[test]
+fn merge_backfills_dto_retry_meta_without_spurious_changes() {
+    let mut store = vec![];
+    merge_snapshot(&mut store, &[dto("b1", "send", "running", 10)]);
+    assert_eq!(store[0].retry_meta, None);
+
+    let mut with_meta = dto("b1", "send", "running", 10);
+    with_meta["retryMeta"] = json!({ "kind": "send", "paths": ["/tmp/a.bin"] });
+    assert!(merge_snapshot(&mut store, &[with_meta.clone()]));
+    assert_eq!(
+        store[0].retry_meta,
+        Some(RetryMeta::Send {
+            paths: vec!["/tmp/a.bin".into()]
+        })
+    );
+    assert!(!merge_snapshot(&mut store, &[with_meta]));
+}
+
+#[test]
 fn interrupted_entry_revived_by_fresh_engine_snapshot() {
     // 插件重启标注 interrupted 后，引擎仍报 running 的批次以引擎为准恢复
     let mut store = vec![entry(

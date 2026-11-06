@@ -105,8 +105,9 @@ pub(crate) fn set_for_test(platform: Platform) {
 /// 所有消费平台分支的用例统一用本锁。
 #[cfg(test)]
 pub(crate) fn test_lock() -> &'static std::sync::Mutex<()> {
-    static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
-    LOCK.get_or_init(|| std::sync::Mutex::new(()))
+    // 与 device_bridge 的会话表锁合并为同一把：SESSIONS / STORE / DETECTED
+    // 都是进程级静态，两把独立的锁会让并行用例互相清表（M25）。
+    crate::device_bridge::statics_lock()
 }
 
 #[cfg(test)]

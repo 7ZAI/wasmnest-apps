@@ -143,7 +143,12 @@ impl TransferEntry {
                 .map(|s| s.to_string()),
             created_at_ms: dto.get("createdAtMs").and_then(|v| v.as_u64()).unwrap_or(0),
             updated_at_ms: dto.get("updatedAtMs").and_then(|v| v.as_u64()).unwrap_or(0),
-            retry_meta: None,
+            // 重试凭证是发起方判据的命脉：并发闸门（占位行占槽）、历史重试
+            // （retry_source）都读它。快照入店走本函数，漏读会把运行时刚落的
+            // 占位行/失败行凭证清零（审查修复 2026-11-05）。
+            retry_meta: dto
+                .get("retryMeta")
+                .and_then(|v| serde_json::from_value(v.clone()).ok()),
             local_path: dto
                 .get("localPath")
                 .and_then(|v| v.as_str())
@@ -202,12 +207,21 @@ pub fn merge_snapshot(store: &mut Vec<TransferEntry>, snapshot: &[Value]) -> boo
             // 无实质变更不触发持久化（进度事件高频同内容重放）
             let mut current = existing.clone();
             current.retry_meta = None;
-            if current == incoming {
+            let mut cmp = incoming.clone();
+            cmp.retry_meta = None;
+            // 本地凭证优先；引擎先建的无凭证行 / 旧占位行要保留 DTO 带来的
+            // 凭证，否则并发闸门漏计、历史重试失效（L14）。
+            let merged_meta = existing.retry_meta.clone().or_else(|| incoming.retry_meta.clone());
+            if current == cmp {
+                // 内容无变化：只在补齐凭证时落库，高频进度重放不重复持久化。
+                if existing.retry_meta != merged_meta {
+                    existing.retry_meta = merged_meta;
+                    changed = true;
+                }
                 continue;
             }
-            let meta = existing.retry_meta.take();
             *existing = incoming;
-            existing.retry_meta = meta;
+            existing.retry_meta = merged_meta;
             changed = true;
         } else {
             store.push(incoming);
