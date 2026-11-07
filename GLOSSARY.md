@@ -117,3 +117,29 @@ _Avoid_: 数据库、catalog、目录
 编辑区右侧的实时渲染视图，使用 marked 库将 Markdown 源码转换为 HTML。
 预览独立滚动（同步滚动尚未实现）。
 _Avoid_: 渲染、render、WYSIWYG
+
+## 语音识别（speech 服务）
+
+**识别任务（Transcription job）**：
+一次「音频字节 → 文本」的请求生命周期，从 `transcribe-submit` 到终态（completed / failed / cancelled）。任务持有实际执行的通道与是否发生回退。
+_Avoid_: 请求、record、转写（用于任务本身）、session
+
+**通道（Channel）**：
+识别实际发生的两条路之一：`local`（用户自建的本机/局域网 HTTP 端点）与 `remote`（云厂商 API）。通道是「谁执行识别」的答案，不是协议名。
+_Avoid_: 方式、模式、mode、provider（provider 指厂商，不等同通道）
+
+**回退（Fallback）**：
+`auto` 模式下，前一通道因**连接类失败**（拒绝、超时、解析失败、502/503/504）不可达时，改由下一通道执行。识别失败（格式错误、鉴权失败、限流）**不构成回退理由**。
+_Avoid_: 降级、重试、切换、failover
+
+**优先级（Priority）**：
+由 `mode`（local-only / remote-only / auto）与本模式下的 `order` 共同表达，决定通道尝试顺序。调用方只能覆盖 `mode`，不能覆盖 `order`。
+_Avoid_: 偏好、preference（仅指调用方覆盖 mode 的那个字段）
+
+**识别分段（Segment）**：
+一段连续语音的识别结果单元，带起止毫秒与 `isFinal`。v1 恒为单元素且 `isFinal=true`；该字段是为将来的流式预留，不是当前的空壳。
+_Avoid_: 句子、chunk、片段
+
+**音频片段（Audio clip）**：
+调用方交给服务的音频字节及其描述（容器格式、采样率、声道）。服务**只认字节**，不关心它是麦克风录的还是文件读的。
+_Avoid_: 录音（暗示已采集）、voice、audio file

@@ -141,6 +141,15 @@ src/
 └─ index.ts    按域顺序激活（内容域先于壳域：运行面 setup 时要能取到各域文案）
 ```
 
+### 2.4 主题隔离：宿主主题预设不进入应用（2026-11-06）
+
+- 宿主外观设置里的**内置主题预设**（`glass` / `hyper`）只属于壳。应用外观自持，不从 `<html data-theme>` 继承预设 token，也不吃预设的全局结构规则（`.group-card` 材质、`.mobile-ui` 环境光等）。
+- **作用域锚点 = `data-bedcode-surface`**：运行面根（`AppRoot.vue`）+ 每个 `Teleport to="body"` 的弹层根。新增 body 挂载面（含 `createApp(...).mount(document.body)` / 尾部挂到 `document.body` 的 UI）必须补该属性，否则脱离运行面后会被预设 token 污染；`src/app/__tests__/themeScope.test.ts` T-S5 机器判（Teleport 计数 vs 属性计数）。
+- 隔离层 = `src/app/themeScope.css`：在锚点上重声明宿主默认档 token（深 / 浅两套）、归零 `--theme-ambient`，并中和宿主预设作用在 `.group-card` 上的材质 / 硬边规则与棱线 / 噪点伪元素；运行面根自铺 `--mobile-bg-primary` 底色（不透出壳的主题环境光 / 壁纸）。
+- **仍跟随宿主**：深浅色（`html:not(.dark)`）与主色色板（`[data-palette]` 挂运行面根）。隔离层**不声明** accent 系 token，否则会压掉色板。
+- 数值真源 = 平台仓 `wasmnest-mobile/src/styles/mobile.css` 默认档。改宿主默认 token 必须同改 `themeScope.css`；`themeScope.test.ts` T-S1/T-S2 逐 token 比对，宿主主题预设新增基础 token 时点名缺失。
+- 应用源码避免使用宿主主题结构规则命中的类名（`.settings-group` / `.notify-card` / `.shell-*` 等）。允许项只有 `.group-card`（分组卡基础语汇）与 `.mobile-ui`（弹层排版口径），两者已在隔离层中和（T-S4）。
+
 ---
 
 ## 3. i18n
