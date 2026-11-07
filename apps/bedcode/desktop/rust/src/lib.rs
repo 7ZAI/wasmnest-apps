@@ -2264,9 +2264,19 @@ impl WasmPlugin for SessionPlugin {
                 run::agent_control::set_via_host(&args).map_err(anyhow::Error::msg)
             }
 
+            // ==================== Agent 池（编排的选人真源） ====================
+            // `agent.profile.*` 必须在下一行 `agent.*` 的 hub 转发**之前**截获：池是
+            // 业务实体（私有库 `agent_profiles`），不是 CLI 安装台的子路由（见
+            // `agent_pool` 模块文档）。顺序反过来就被 hub 兜底判成 `unknown command`，
+            // 用户面只看到「操作未完成，请稍后重试」。
+            name if name.starts_with("agent.profile.") => {
+                agent_pool::invoke_command(name, args).map_err(anyhow::Error::msg)
+            }
+
             // ==================== Agent 管理域（原 agent-hub 并入） ====================
             // `agent.*` 命令面整体转发到 hub 域路由（探测/安装/引导/Skills/供应商/
-            // 用量），未知 agent.* 命令由 hub 显性报错。
+            // 用量），未知 agent.* 命令由 hub 显性报错。**不含 `agent.profile.*`**
+            // ——它在上面已被池域截获。
             name if name.starts_with("agent.") => hub::invoke_command(name, args),
 
             other => Err(anyhow::anyhow!("Unknown command: {}", other)),
@@ -2758,6 +2768,33 @@ mod tests {
             err.to_string().contains("invalid consent request"),
             "got: {err}"
         );
+    }
+
+    /// Agent 池命令面接线：`agent.profile.*` 必须**先于** `agent.*` 的 hub 转发
+    /// 被池域截获。
+    ///
+    /// 回归锁（2026-11-07 实机 bug）：分派表只写了 `agent.*` → hub，缺池域分支，
+    /// 于是五个池命令全被 hub 兜底判成 `unknown command: agent.profile.list`，
+    /// 前端只能报通用文案「操作未完成，请稍后重试」（agent 池整面不可用）。
+    /// native 下池命令依赖宿主私有库，实现体显性失败——断言的正是**这条错误
+    /// 文案**（区别于 hub 的 `unknown command`），证明分派落在池域而不是 hub。
+    #[test]
+    fn agent_profile_commands_route_to_pool_before_hub() {
+        for command in [
+            crate::agent_pool::LIST_COMMAND,
+            crate::agent_pool::CREATE_COMMAND,
+            crate::agent_pool::UPDATE_COMMAND,
+            crate::agent_pool::DELETE_COMMAND,
+            crate::agent_pool::OPTIONS_COMMAND,
+        ] {
+            let err = SessionPlugin::invoke_command(command, serde_json::json!({}))
+                .expect_err("native 下池命令不可用，必须显性失败");
+            let text = err.to_string();
+            assert!(
+                text.contains("only available in the wasm host"),
+                "{command} 必须派发到 agent_pool（而非 hub 的 unknown command）: {text}"
+            );
+        }
     }
 
     /// 票 05 命令面接线：`session.auth.rotate-key` 必须**派发到轮换实现体**而非
