@@ -3,7 +3,7 @@
     "version": "0.0.1",
     "sourceCommit": "21c84dd57fd4900257db9ecb3a2e7ec8968225bb",
     "libTag": "lib-v0.0.1",
-    "witVersion": "0.0.2",
+    "witVersion": "0.1.0",
     "sdkVersion": "0.0.1",
     "mountContract": "1",
     "artifacts": {}

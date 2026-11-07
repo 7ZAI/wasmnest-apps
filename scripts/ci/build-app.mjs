@@ -41,6 +41,7 @@ import { join, resolve } from 'node:path'
 import { APPS_ROOT, appInfo, readJson } from './app-info.mjs'
 import { checkReleasePurity } from './check-release-purity.mjs'
 import { readHostCompat } from '../lib/host-compat.mjs'
+import { listWitPackages } from '../lib/wit-packages.mjs'
 import {
   desktopHostResourcesDir,
   mobileHostResourcesDir,
@@ -236,7 +237,16 @@ async function main() {
 
   // 宿主兼容声明（应用版本更新全链路）：构建时刻锁住的宿主运行时版本轴，
   // 供宿主更新检查判断「这个包能不能装进当前平台」；缺锁即 fail（见 host-compat.mjs）
-  const compat = readHostCompat()
+  // `compat.witPackages`（ADR 0061 §6.2）：从**组件二进制本身**提取实际 import /
+  // export 的 wasmnest 包 → 版本，宿主 vendor 门禁据此逐包判定是否需要重发。
+  const witPackages = listWitPackages(wasmPath)
+  const compat = { ...readHostCompat(), witPackages: witPackages }
+  if (compat.witVersion !== witPackages['wasmnest:plugin']) {
+    fail(
+      `compat.witVersion=${compat.witVersion} 与组件实际 wasmnest:plugin 版本 ` +
+        `${witPackages['wasmnest:plugin']} 不一致（host-runtime.lock 与构建 SDK 不同源？）`,
+    )
+  }
 
   const metadata = {
     schema: 1,
