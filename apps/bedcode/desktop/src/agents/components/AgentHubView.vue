@@ -72,9 +72,12 @@ function handleLaunch(cli: CliId): void {
   if (target) void launch.show(target)
 }
 
-/** 启动成功：跳转 /sessions（会话列表可见 + 终端窗已开） */
+/**
+ * 启动成功：跳转项目列表（终端会话面已于 2026-11-06 停用；启动出来的运行
+ * 归属项目，在项目工作台可见 + 终端窗已开）
+ */
 function onLaunched(): void {
-  void router.push('/sessions')
+  void router.push('/projects')
 }
 
 const activeTab = ref<HubTab>('overview')

@@ -216,6 +216,22 @@ mod tests {
         }
     }
 
+    // ==================== 终端会话面归属判据 ====================
+
+    /// 无项目归属 = 终端会话面；有归属 = 项目运行（不进终端会话列表）
+    ///
+    /// 回归 2026-11-06：终端会话面停用后，项目运行的会话仍照常落库（项目工作台
+    /// 靠 `run.list` 读它），但不得从 `session.list` 透出。
+    #[test]
+    fn session_scope_excludes_project_runs() {
+        // 无归属 → 终端会话面
+        assert!(super::super::is_session_scope(None));
+        // 空串等价于无归属（迁移遗留 / 未绑定行的两种写法）
+        assert!(super::super::is_session_scope(Some("")));
+        // 有归属 → 项目运行，不属于终端会话面
+        assert!(!super::super::is_session_scope(Some("p-1")));
+    }
+
     // ==================== 状态机合法性矩阵 ====================
 
     /// 正常生命周期：Starting → Running → Stopping → Stopped 全链合法

@@ -1,7 +1,7 @@
 <template>
   <Teleport to="body">
     <transition name="center-modal">
-      <div v-if="visible" class="viewer-overlay mobile-ui" :class="{ 'viewer-overlay-fullscreen': isFullscreen }" @click.self="handleClose" @touchstart.stop @touchmove.stop>
+      <div v-if="visible" class="viewer-overlay mobile-ui" data-bedcode-surface :class="{ 'viewer-overlay-fullscreen': isFullscreen }" @click.self="handleClose" @touchstart.stop @touchmove.stop>
         <div class="viewer-modal modal-panel" :class="{ 'viewer-fullscreen': isFullscreen }" :style="modalStyle">
         <!-- Header -->
         <div class="viewer-header">

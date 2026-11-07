@@ -15,7 +15,7 @@
         :min="TTL_MIN"
         :max="TTL_MAX"
         :aria-label="t('pairing.settings.qrValidity')"
-        width="112px"
+        width="132px"
         data-testid="pairing-qr-ttl"
         @commit="saveQrTokenTtl"
       />
@@ -33,7 +33,7 @@
         :min="TTL_MIN"
         :max="TTL_MAX"
         :aria-label="t('pairing.settings.pairingCodeTtl')"
-        width="112px"
+        width="132px"
         data-testid="pairing-code-ttl"
         @commit="savePairingCodeTtl"
       />

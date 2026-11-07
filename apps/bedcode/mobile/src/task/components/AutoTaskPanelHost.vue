@@ -1,6 +1,6 @@
 <template>
   <Transition name="atp-sheet">
-    <div v-if="autoTaskPanelVisible" class="fixed inset-0 z-[100] flex items-end justify-center mobile-ui">
+    <div v-if="autoTaskPanelVisible" class="fixed inset-0 z-[100] flex items-end justify-center mobile-ui" data-bedcode-surface>
       <div class="absolute inset-0 bg-[var(--mobile-overlay-heavy)]" @click="close"></div>
       <div class="atp-panel" :style="panelStyle">
         <!-- Header -->
@@ -214,6 +214,7 @@
       <div
         v-if="editingTask"
         class="fixed inset-0 z-[110] flex items-end justify-center mobile-ui"
+        data-bedcode-surface
         @click.self="cancelEdit"
       >
         <div class="absolute inset-0 bg-[var(--mobile-overlay-heavy)]" @click="cancelEdit"></div>

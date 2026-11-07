@@ -19,7 +19,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { readFileSync, readdirSync } from 'node:fs'
 import { resolve, join } from 'node:path'
-import router from '@/router'
+import router, { DEFAULT_ROUTE } from '@/router'
 import { messages } from '@/i18n'
 import { mechanismZhCN, mechanismEn } from '@/i18n/mechanism'
 import { createAppContext } from '@/appContext'
@@ -422,7 +422,8 @@ function makeEnv(overrides: Partial<Parameters<typeof createAppContext>[0]> = {}
     appStorageDelete: vi.fn(async () => {}),
     locale: 'zh-CN',
     theme: 'dark',
-    initialRoute: '/sessions',
+    // 宿主传入的应用内路由（默认落地面；终端会话面已停用，主面归项目列表）
+    initialRoute: '/projects',
     ...overrides,
   }
 }
@@ -451,7 +452,7 @@ describe('C3 入口契约（挂载包形态：mountApp + 直连上下文 + 内�
     expect(ctx.http).toBeUndefined()
   })
 
-  it('静态路由表：菜单七项 + 诊断/深链页 + not-found 兜底（内存路由，宿主 history 归宿主）', () => {
+  it('静态路由表：菜单项 + 诊断/深链页 + not-found 兜底（内存路由，宿主 history 归宿主）', () => {
     const routes = router.getRoutes()
     const byName = new Map(routes.map((r) => (r.name ? [r.name, r] : [null, r])))
     // 菜单页（D3 静态表）
@@ -459,7 +460,8 @@ describe('C3 入口契约（挂载包形态：mountApp + 直连上下文 + 内�
     // 项目（ADR 0003：一级容器）+ 项目工作台（id = 项目 id）
     expect(byName.get('projects')?.path).toBe('/projects')
     expect(byName.get('project-workbench')?.path).toBe('/projects/:id')
-    expect(byName.get('sessions')?.path).toBe('/sessions')
+    // 终端会话面已于 2026-11-06 停用（路由整条注释保留以便回滚）
+    expect(byName.get('sessions')).toBeUndefined()
     // Agent 管理域（原 agent-hub 并入）
     expect(byName.get('agents')?.path).toBe('/agents')
     // Agent 编排（v1）：列表 + 详情
@@ -473,9 +475,10 @@ describe('C3 入口契约（挂载包形态：mountApp + 直连上下文 + 内�
     expect(byName.get('history')?.path).toBe('/history')
     expect(byName.get('terminal-window')?.path).toBe('/terminal-window/:id')
     expect(byName.get('terminal-window')?.meta.bareWindow).toBe(true)
-    // 默认落地 = 应用主面（/sessions；宿主 '/' 壳主屏由宿主路由表承载）
+    // 默认落地 = 应用主面（/sessions 停用后归项目列表；宿主 '/' 壳主屏由宿主路由表承载）
     const root = routes.find((r) => r.path === '/')
-    expect(root?.redirect).toBe('/sessions')
+    expect(root?.redirect).toBe('/projects')
+    expect(DEFAULT_ROUTE).toBe('/projects')
     // 遗留深链：/settings/authorization 显性重定向到 /settings（授权管理归宿主 /sys/perms）
     expect(byName.get('settings-authorization-legacy')?.redirect).toBe('/settings')
     // not-found 兜底在位（D3 fail-visible）
@@ -549,21 +552,20 @@ describe('C4 退役锁（D8 fail-visible：插件运行时回接零命中）', (
 })
 
 describe('C5 静态侧边栏菜单表与设置分组表（D3/D4）', () => {
-  it('侧边栏 = 静态表：七项（含项目、Agent 管理与编排）、顺序槽位、路由与路由表一一对应', () => {
+  it('侧边栏 = 静态表：六项（终端会话已停用）、顺序槽位、路由与路由表一一对应', () => {
     expect(sidebarMenuItems.map((i) => i.id)).toEqual([
       'pairing',
       'projects',
-      'sessions',
       'agents',
       'orchestrations',
       'tasks',
       'settings',
     ])
-    expect(sidebarMenuItems.map((i) => i.order)).toEqual([100, 190, 200, 205, 207, 210, 9999])
+    // sessions 槽位（200）保留在常量里但表中无项：2026-11-06 停用终端会话面
+    expect(sidebarMenuItems.map((i) => i.order)).toEqual([100, 190, 205, 207, 210, 9999])
     expect(sidebarMenuItems.map((i) => i.path)).toEqual([
       '/pairing',
       '/projects',
-      '/sessions',
       '/agents',
       '/orchestrations',
       '/tasks',
@@ -586,12 +588,12 @@ describe('C5 静态侧边栏菜单表与设置分组表（D3/D4）', () => {
     }
     // 菜单 key 一律为 app 域相对键（渲染处经 useAppI18n 补命名空间）
     expect(sidebarMenuItems[0].labelKey).toBe('pairing.sidebar.title')
-    // 项目是一级容器（ADR 0003），排在终端会话之前
+    // 项目是一级容器（ADR 0003），排在原本的终端会话槽位之前
     expect(sidebarMenuItems[1].labelKey).toBe('project.sidebar.title')
     // Agent 管理域（原 agent-hub 并入）：hub.* 键随 i18n 三件套并入
-    expect(sidebarMenuItems[3].labelKey).toBe('hub.sidebar.title')
-    expect(sidebarMenuItems[4].labelKey).toBe('orchestration.sidebar.title')
-    expect(sidebarMenuItems[6].labelKey).toBe('sidebar.settings')
+    expect(sidebarMenuItems[2].labelKey).toBe('hub.sidebar.title')
+    expect(sidebarMenuItems[3].labelKey).toBe('orchestration.sidebar.title')
+    expect(sidebarMenuItems[5].labelKey).toBe('sidebar.settings')
   })
 
   it('设置分组 = 静态表：业务五分组、order 升序、带标题 key（平台分组归宿主系统页）', () => {

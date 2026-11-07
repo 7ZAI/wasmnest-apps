@@ -1,0 +1,103 @@
+/**
+ * 应用主题作用域（移动端）——宿主主题预设不得渗入 bedcode
+ *
+ * ==================== 为什么需要这一层 ====================
+ * 宿主壳的内置主题预设（`glass` / `hyper`；未来新增预设按同一机制）在 `<html data-theme>` 上重写
+ * `--mobile-*` 基础 token，并附带 `:root[data-theme='…'] .group-card` / `.mobile-ui`
+ * 这类全局结构规则。应用运行面渲染在同一文档里：
+ *   · token 会从 `<html>` 继承进应用子树 → 壳切玻璃，应用底色 / 边框 / 阴影跟着变；
+ *   · 结构规则会命中同名类（bedcode 的分组卡就用 `.group-card`）→ 应用卡片被套上
+ *     玻璃材质、棱线伪元素与噪点；`.mobile-ui`（应用弹层沿用它拿排版口径）还会被
+ *     铺上主题环境光。
+ * 这些都不是应用自持的外观，所以应用在自己的作用域里重新声明**默认档** token 与
+ * 默认卡片形态，把宿主主题预设挡在运行面之外。
+ *
+ * ==================== 口径（用户 2026-11-06 裁决，方案 2） ====================
+ *   · 内置主题预设（glass / hyper）**不命中**应用；
+ *   · 应用仍跟随宿主**深浅色**（`html:not(.dark)`）与**主色色板**（`[data-palette]`
+ *     挂在运行面根节点）。本文件**不声明 accent 系 token**，避免压掉宿主与应用的
+ *     色板声明。
+ *
+ * ==================== 作用域锚点 ====================
+ * `[data-bedcode-surface]`：运行面根 + 每个 Teleport 到 body 的弹层根（脱离运行面
+ * 后仍要拿到同一套 token 与默认形态）。**新增 body 挂载面必须补这个属性**——由
+ * `src/app/__tests__/themeScope.test.ts` 的源码锁兜底（Teleport 计数 vs 属性计数）。
+ *
+ * 数值真源 = 宿主 `wasmnest-mobile/src/styles/mobile.css` 的默认档
+ * （`:root, .theme-base` 深色 / `html:not(.dark)` 浅色）。改宿主默认 token 必须同改
+ * 本文件；`themeScope.test.ts` 逐 token 比对，并在宿主主题预增设新 token 时点名缺失。
+ */
+
+/* ==================== 默认档 token 快照（深色） ==================== */
+[data-bedcode-surface] {
+  /* 背景 / 边框 / 分组 / 导航 / 输入 / 遮罩：宿主 glass 与 hyper 都会重写这些 */
+  --mobile-bg-primary: #15130f;
+  --mobile-bg-secondary: #191712;
+  --mobile-bg-tertiary: #3c372b;
+  --mobile-bg-elevated: #2a261e;
+  --mobile-border: rgba(236, 232, 220, 0.1);
+  --mobile-border-hover: rgba(236, 232, 220, 0.2);
+  --mobile-group-bg: #1d1a15;
+  --mobile-group-border: rgba(236, 232, 220, 0.08);
+  --mobile-nav-bg: rgba(21, 19, 15, 0.9);
+  --mobile-nav-border: rgba(236, 232, 220, 0.2);
+  --mobile-input-bg: #1d1a15;
+  --mobile-overlay: rgba(0, 0, 0, 0.6);
+  --mobile-card-shadow: 0 2px 8px rgba(0, 0, 0, 0.3), 0 1px 2px rgba(0, 0, 0, 0.2);
+  --mobile-card-shadow-hover: 0 4px 16px rgba(0, 0, 0, 0.4), 0 2px 4px rgba(0, 0, 0, 0.3);
+
+  /* 主题自带语汇归零：环境光不再铺到应用的 .mobile-ui 弹层，图标外框回默认档 */
+  --theme-ambient: none;
+  --theme-icon-radius: 24%;
+  --theme-icon-shadow: none;
+}
+
+/* ==================== 默认档 token 快照（浅色，跟随宿主深浅色） ==================== */
+html:not(.dark) [data-bedcode-surface] {
+  --mobile-bg-primary: #f5f4f0;
+  --mobile-bg-secondary: #efede7;
+  --mobile-bg-tertiary: #d6d2c4;
+  --mobile-bg-elevated: #e7e4dc;
+  --mobile-border: rgba(38, 35, 27, 0.12);
+  --mobile-border-hover: rgba(38, 35, 27, 0.2);
+  --mobile-group-bg: #fdfcfa;
+  --mobile-group-border: rgba(38, 35, 27, 0.08);
+  --mobile-nav-bg: rgba(253, 252, 250, 0.9);
+  --mobile-nav-border: rgba(38, 35, 27, 0.1);
+  --mobile-input-bg: #f5f4f0;
+  --mobile-overlay: rgba(0, 0, 0, 0.4);
+  --mobile-card-shadow: 0 1px 3px rgba(0, 0, 0, 0.1), 0 1px 2px rgba(0, 0, 0, 0.06);
+  --mobile-card-shadow-hover: 0 4px 12px rgba(0, 0, 0, 0.12), 0 2px 4px rgba(0, 0, 0, 0.08);
+
+  --theme-ambient: none;
+  --theme-icon-radius: 24%;
+  --theme-icon-shadow: none;
+}
+
+/* 运行面自铺默认底色：宿主运行屏的底色会被主题预设染色，应用打开时不得透出
+   壳的玻璃环境光 / 壁纸。弹层根不铺（它们自带上遮罩与面板底）。 */
+.app-root[data-bedcode-surface] {
+  background: var(--mobile-bg-primary);
+}
+
+/* ==================== 结构规则中和：分组卡 ====================
+   宿主 glass 规则给 .group-card 套上材质渐变 / backdrop-filter / 镜面棱线伪元素 /
+   噪点 / 液体圆角；hyper 规则改成 2px 硬边 + 硬偏移投影。这里把应用作用域内的
+   分组卡还原成宿主默认档的 `.group-card` 基础形态（见 mobile.css「分组卡片通用语言」）。
+   选择器带 `:root[data-theme]`（0,4,0 / 伪元素 0,4,1）以压过宿主预设规则的 0,3,0。 */
+:root[data-theme] [data-bedcode-surface] .group-card {
+  background: var(--mobile-group-bg);
+  border: 1px solid var(--mobile-group-border);
+  border-radius: 1rem;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  isolation: auto;
+  position: static;
+}
+
+/* 棱线（::before）与噪点（::after）是主题预设挂上的装饰层，直接取消生成 */
+:root[data-theme] [data-bedcode-surface] .group-card::before,
+:root[data-theme] [data-bedcode-surface] .group-card::after {
+  content: none;
+}

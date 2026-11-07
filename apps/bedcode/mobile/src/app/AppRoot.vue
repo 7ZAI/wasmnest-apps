@@ -2,6 +2,7 @@
   <div
     class="app-root flex flex-col h-full min-h-0"
     data-testid="mobile-bedcode-root"
+    data-bedcode-surface
     :data-palette="accentPalette"
   >
     <!-- 终端子页：整页沉浸（自带 Header / 输入栏 / 键盘避让），不进页签容器也不带导航 -->
@@ -130,6 +131,9 @@ import { setSwipeDelegate } from './swipeArbitration'
 import { useAppTabs, type AppTab } from './useAppTabs'
 import { useAppSettings } from '../settings/useAppSettings'
 import './app.css'
+// 宿主主题预设（glass / hyper）隔离层：应用自持默认档 token 与卡片形态，
+// 深浅色 / 主色色板仍跟随宿主（见文件头注释）
+import './themeScope.css'
 
 /** 本应用开放的全部页签（可用性过滤后的呈现集合见 useAppTabs） */
 const AVAILABLE_TABS: readonly AppTab[] = ['connection', 'projects', 'tasks', 'settings']

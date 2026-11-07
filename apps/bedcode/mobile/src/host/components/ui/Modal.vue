@@ -4,6 +4,7 @@
       <div
         v-if="modelValue"
         class="fixed inset-0 z-50 flex items-center justify-center p-4 mobile-ui"
+        data-bedcode-surface
         @click.self="closeOnBackdrop && close()"
       >
         <!-- Backdrop -->

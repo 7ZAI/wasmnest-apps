@@ -4,6 +4,7 @@
       <div
         v-if="visible"
         class="fixed inset-0 flex items-end justify-center mobile-ui"
+        data-bedcode-surface
         :style="{ zIndex: zIndex }"
         @click.self="emit('close')"
       >

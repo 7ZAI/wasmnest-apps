@@ -17,18 +17,26 @@
  * 卡片内也不得再出现按钮（嵌套交互会抢点击）。
  *
  * 壳 Home 直接渲染（不经 PluginViewHost），不依赖 pluginContext——只读
- * mobileApi.activeSessions（宿主连接域投影）计数。文案一律走宿主共享 i18n
+ * mobileApi.activeSessions（宿主连接域投影）的**存活会话数**（running / waitingInput；
+ * stopped 只是历史记录，不计数）。槽位本身由 `../host/activate.ts` 按同一判据动态
+ * 注册 / 回收：没有存活会话时卡片不存在（不出现 0 值空卡）。文案一律走宿主共享 i18n
  * 实例（本域在 activate 期已注册插件前缀键）；插件键取不到时退回宿主自有的
  * 槽位标题键（同义且双语），仍取不到则留空（模板隐藏标签，不落硬编码文案）。
  */
 import { computed } from 'vue'
 import QuickCard from '@binblink/wasmnest-plugin-sdk-mobile/ui/quick-card'
 import { getI18n, getMobileApi } from '@binblink/wasmnest-plugin-sdk-mobile'
+import { isSessionActive } from './utils'
 
 defineProps<{ app: any }>()
 
 const api = getMobileApi()
-const count = computed(() => api.activeSessions.value?.length ?? 0)
+const count = computed(
+  () =>
+    (api.activeSessions.value ?? []).filter((session: { status?: string }) =>
+      isSessionActive(session.status ?? ''),
+    ).length,
+)
 
 /** 右上角装饰图标：终端窗口 + 提示符（24 视框 stroke 线稿） */
 const ICON = ['M4 5h16v14H4z', 'M8 10l3 2.5-3 2.5', 'M13.5 15H16']

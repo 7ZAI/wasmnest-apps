@@ -74,11 +74,15 @@ pub fn handle_sessions_http(
 }
 
 /// 会话列表（GET /api/sessions）→ `{sessions: SessionItem[]}`（旧控制器逐字段形状）
+///
+/// `scope: "session"`：与插件命令面 `session.list` 同口径——只列无项目归属的
+/// 终端会话。项目运行的会话不进这个面（用户 2026-11-06 裁定两套入口不互相
+/// 透出）；移动端拉到的是同一份裁剪结果。
 fn list_sessions(host: &WasmHost, method: &str) -> Value {
     if method != "GET" {
         return http_response::error(405, &format!("Method not allowed: {method}"));
     }
-    let views = match SessionPlugin::session_list(serde_json::json!({})) {
+    let views = match SessionPlugin::session_list(serde_json::json!({ "scope": "session" })) {
         Ok(v) => {
             // 契约违规显性报错（缺 sessions / 非数组 = 插件实现故障，
             // 不是「空列表」）——伪装成 200 OK 空成功会让移动端拿到

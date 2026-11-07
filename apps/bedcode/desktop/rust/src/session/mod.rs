@@ -457,18 +457,44 @@ pub fn diagnostics_via_host() -> serde_json::Value {
 
 // ==================== 读取面（互调 api `session-list` / `session-get` 的实现） ====================
 
+/// 是否属于**终端会话面**（无项目归属的会话）
+///
+/// 项目运行的会话带 `project_id`（`launch.rs` 按配置目录 + 执行环境推断，
+/// ADR 0003），它们在 `runs` 表里与终端会话同表共存，但归 `run.list` 消费。
+/// 终端会话面（`session.list { scope: "session" }`）只列无归属的行——用户
+/// 2026-11-06 裁定两套入口不互相透出。
+///
+/// 纯函数：不过滤链、不碰注册表，native 可全量断言（`list_views_via_host`
+/// 是 wasm-gated 的）。
+pub fn is_session_scope(project_id: Option<&str>) -> bool {
+    !project_id.is_some_and(|v| !v.is_empty())
+}
+
 /// 全部会话的对外视图（`SessionInfoView` 形状，见 [`view`]）→ `{sessions: [...]}`
 ///
 /// 可选入参 `{filter: "running"}`：只返回需要关窗确认的会话
 /// （[`ops::needs_close_confirmation`]，Running / Starting / WaitingInput）——
 /// 宿主窗口关闭守卫的专用过滤，判据语义在本域（2026-09-25 自宿主下沉）。
 /// 缺省 / 其他值 = 全量（向后兼容，老调用方无感知）。
+///
+/// 可选入参 `{scope: "session"}`：**只返回终端会话面**（[`is_session_scope`]）。
+/// 项目运行的会话行照常落库（项目工作台 / 任务队列 / agent 桥接都读它），但不再
+/// 出现在终端会话列表里。
+///
+/// 两个入参正交：`filter=running` 是守卫判据（必须看全部，含项目运行——正在跑的
+/// 项目会话同样要阻止关窗），`scope=session` 是列表面的可见性裁剪
+/// （`hub/install` 也走 running 过滤且不需要裁剪）。
 #[cfg(target_arch = "wasm32")]
 pub fn list_views_via_host(draft: &serde_json::Value) -> Result<serde_json::Value, String> {
     let records = REGISTRY.all(&WasmHost)?;
     let filter_running = draft.get("filter").and_then(|v| v.as_str()) == Some("running");
+    let session_scope = draft.get("scope").and_then(|v| v.as_str()) == Some("session");
     let mut sessions = Vec::with_capacity(records.len());
     for record in records {
+        // 终端会话面只认无项目归属的行；带 project_id 的属于项目运行，归 run.list
+        if session_scope && !is_session_scope(record.project_id.as_deref()) {
+            continue;
+        }
         if filter_running && !ops::needs_close_confirmation(&record.status) {
             continue;
         }

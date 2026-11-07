@@ -14,6 +14,15 @@
  *
  * 本模块只做「取数 + 编排 + 终端窗口生命周期跟随」，不含文案与弹窗：
  * 错误上抛由视图层决定用户可见提示（错误文案一律 i18n，禁硬编码）。
+ *
+ * **两条状态口径别混用**（2026-11-06 修正）：
+ * - `isRunningStatus` = 仍持有 PTY（非 stopped/error）→ 决定删除前是否先 close、
+ *   终端窗口是否跟随关闭
+ * - `isRunningStatusCounted` = 真正运行中（running/starting/waitingInput）→ 只用于
+ *   「运行中的会话」计数，与后端 `list_running_sessions` 同源
+ *
+ * 两者都先经 `normalizeSessionStatus` 归一：`session.list` 的错误态是对象而非
+ * 字符串，直接比对会把所有历史错误会话误算成运行中（虚报计数的根因）。
  */
 import { computed, ref, watch, type ComputedRef, type Ref } from 'vue'
 import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-desktop'
@@ -34,7 +43,13 @@ export interface SessionDto {
   id: string
   configId: string
   name: string
-  /** 'idle' | 'starting' | 'running' | 'waitingInput' | 'stopping' | 'stopped' | 'error' */
+  /**
+   * 已归一的状态字符串：'idle' | 'starting' | 'running' | 'waitingInput' |
+   * 'stopping' | 'stopped' | 'error'
+   *
+   * 线形态上错误态是对象 `{ error }`（见 `normalizeSessionStatus`），
+   * `loadSessions()` 已归一，故此处恒为字符串。
+   */
   status: string
   createdAt?: string
   startedAt?: string | null
@@ -52,14 +67,54 @@ export interface ConfigDraft {
   autoStart?: boolean
 }
 
-/** 运行中判定：只有 stopped / error 不算运行中（与宿主 `SessionsFallbackView` 同口径） */
-export function isRunningStatus(status: string): boolean {
-  return status !== 'stopped' && status !== 'error'
+/**
+ * 会话状态线形状 → 展示字符串
+ *
+ * `session.list` 走的是 `view_json`，它把状态按宿主 externally-tagged 形态原样
+ * 出线：`SessionStatus::Error` 是 **对象** `{ "error": "…" }` 而非字符串
+ * （`rust/src/session/view.rs` 的 `error_status_keeps_its_payload_shape` 单测钉死了这一点）。
+ * 不归一就直接比对字符串，`status !== 'error'` 恒为真 → 每条历史错误会话都被
+ * 算成「运行中」（实测桌面端因此虚报出三十余个）。
+ *
+ * 口径与 `useProjects.ts::normalizeRunStatus` 一致：对象带 `error` 键即错误态，
+ * 其余缺失/异常值一律降级 `'idle'`（非终态但也不计入运行数，见下）。
+ */
+export function normalizeSessionStatus(status: unknown): string {
+  if (typeof status === 'string' && status) return status
+  if (status && typeof status === 'object' && 'error' in status) return 'error'
+  return 'idle'
+}
+
+/**
+ * 「仍持有 PTY」的判定：只有 stopped / error 之外才算（与宿主
+ * `SessionsFallbackView` 同口径）。调用方据此决定操作语义——删除前是否要先
+ * `session.close`、终端窗口是否还要跟随关闭。
+ *
+ * 注意它**不是**计数口径：`idle` / `stopping` 这里算「未终止」，但不进
+ * 「运行中的会话」计数（见 `isRunningStatusCounted`）。
+ */
+export function isRunningStatus(status: unknown): boolean {
+  const normalized = normalizeSessionStatus(status)
+  return normalized !== 'stopped' && normalized !== 'error'
+}
+
+/**
+ * 「运行中的会话」计数口径：只认真正占着 PTY 的三个状态。
+ *
+ * 与后端 `task/state.rs::list_running_sessions` 和关窗守卫
+ * `ops::needs_close_confirmation`（Running / Starting / WaitingInput）逐字同源。
+ * 早先这里沿用「非终态即运行」的宽口径，于是 `idle` / `stopping` 这类过渡态
+ * 也被算进 Tab 计数，与后端同一份数据给出不同的数。
+ */
+export function isRunningStatusCounted(status: unknown): boolean {
+  const normalized = normalizeSessionStatus(status)
+  return normalized === 'running' || normalized === 'starting' || normalized === 'waitingInput'
 }
 
 /** 终端窗口可查看的判定（宿主会话页原语义：仅 running / waitingInput 可看） */
-export function isViewableStatus(status: string): boolean {
-  return status === 'running' || status === 'waitingInput'
+export function isViewableStatus(status: unknown): boolean {
+  const normalized = normalizeSessionStatus(status)
+  return normalized === 'running' || normalized === 'waitingInput'
 }
 
 export function useSessionCenter(context: PluginContext) {
@@ -70,7 +125,7 @@ export function useSessionCenter(context: PluginContext) {
   const now = ref(Date.now())
 
   const runningSessions = computed<SessionDto[]>(() =>
-    sessions.value.filter((s) => isRunningStatus(s.status)),
+    sessions.value.filter((s) => isRunningStatusCounted(s.status)),
   )
 
   // ==================== 取数 ====================
@@ -81,12 +136,22 @@ export function useSessionCenter(context: PluginContext) {
     configs.value = Array.isArray(raw) ? (raw as SessionConfigDto[]) : []
   }
 
-  /** 会话列表：本插件登记域真源（命令通道 → `session-list` 视图面） */
+  /**
+   * 会话列表：本插件登记域真源（命令通道 → `session-list` 视图面）
+   *
+   * `session.list` 返回**全量**登记（含终态历史），且 `status` 是宿主 wire 形态
+   * ——错误态为对象 `{ "error": "…" }`。这里统一归一成字符串再进响应式数据，
+   * 下游（过滤 / 状态点 / 删除语义）才不必各自重复防御。
+   */
   async function loadSessions(): Promise<void> {
-    const raw = (await context.commands.execute('session.list', {})) as
-      | { sessions?: SessionDto[] }
-      | null
-    sessions.value = Array.isArray(raw?.sessions) ? raw!.sessions! : []
+    const raw = (await context.commands.execute('session.list', {})) as {
+      sessions?: Array<SessionDto & { status: unknown }>
+    } | null
+    const rows = Array.isArray(raw?.sessions) ? raw.sessions : []
+    sessions.value = rows.map((row) => ({
+      ...row,
+      status: normalizeSessionStatus(row.status),
+    }))
   }
 
   /** 全量加载（配置 + 会话）：任一失败上抛，由调用方提示 */

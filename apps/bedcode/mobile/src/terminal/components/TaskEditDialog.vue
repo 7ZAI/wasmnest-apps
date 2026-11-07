@@ -1,7 +1,7 @@
 <template>
   <Teleport to="body">
     <Transition name="center-modal">
-      <div v-if="visible" class="fixed inset-0 z-[100] flex items-center justify-center p-4 mobile-ui">
+      <div v-if="visible" class="fixed inset-0 z-[100] flex items-center justify-center p-4 mobile-ui" data-bedcode-surface>
         <div class="absolute inset-0 bg-[var(--mobile-overlay-heavy)]" @click="emit('close')"></div>
         <div class="relative w-full max-w-lg bg-[var(--mobile-bg-card)] border border-[var(--mobile-border)] rounded-2xl p-6 shadow-xl max-h-[85vh] flex flex-col modal-panel">
           <div class="flex items-center justify-between mb-4 flex-shrink-0">
@@ -118,7 +118,7 @@
   <!-- File Explorer Dialog (层级高于 Edit Dialog) -->
   <Teleport to="body">
     <Transition name="center-modal">
-      <div v-if="showFileExplorer && fileExplorerSessionId" class="fixed inset-0 z-[100] flex items-center justify-center p-[10%] mobile-ui">
+      <div v-if="showFileExplorer && fileExplorerSessionId" class="fixed inset-0 z-[100] flex items-center justify-center p-[10%] mobile-ui" data-bedcode-surface>
         <div class="absolute inset-0 bg-[var(--mobile-overlay-heavy)]" @click="showFileExplorer = false"></div>
         <div class="relative w-full h-full bg-[var(--mobile-bg-card)] border border-[var(--mobile-border)] rounded-2xl shadow-xl overflow-hidden flex flex-col modal-panel">
           <FileExplorer

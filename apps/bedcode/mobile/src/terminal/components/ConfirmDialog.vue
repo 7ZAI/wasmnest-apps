@@ -4,6 +4,7 @@
       <div
         v-if="modelValue"
         class="fixed inset-0 z-[var(--mobile-z-modal)] flex items-center justify-center mobile-ui"
+        data-bedcode-surface
       >
         <!-- Backdrop -->
         <div

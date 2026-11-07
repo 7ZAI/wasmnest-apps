@@ -134,7 +134,7 @@
     <!-- 会话配置选择弹层（自绘 bottom-sheet，禁原生 select） -->
     <Teleport to="body">
       <Transition name="bottom-sheet">
-        <div v-if="showConfigPicker" class="att-picker-overlay mobile-ui" @click.self="showConfigPicker = false">
+        <div v-if="showConfigPicker" class="att-picker-overlay mobile-ui" data-bedcode-surface @click.self="showConfigPicker = false">
           <div class="att-picker-sheet modal-panel">
             <h4 class="att-picker-title">{{ t('scheduled.create.config') }}</h4>
             <div v-if="configs.length === 0" class="att-picker-empty-state">{{ t('scheduled.create.configEmpty') }}</div>

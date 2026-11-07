@@ -1,7 +1,7 @@
 <template>
   <Teleport to="body">
     <Transition name="center-modal">
-      <div v-if="modelValue" class="fixed inset-0 z-50 flex items-center justify-center p-4 mobile-ui">
+      <div v-if="modelValue" class="fixed inset-0 z-50 flex items-center justify-center p-4 mobile-ui" data-bedcode-surface>
         <!-- Backdrop -->
         <div class="absolute inset-0 bg-[var(--mobile-overlay)]" @click="handleBackdropClick"></div>
 

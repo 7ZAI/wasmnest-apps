@@ -20,7 +20,7 @@ import './styles/datepicker-theme.css'
 import './style.css'
 import App from './App.vue'
 import PreviewCard from './preview/PreviewCard.vue'
-import router from './router'
+import router, { DEFAULT_ROUTE } from './router'
 import i18n, { MESSAGE_NAMESPACE } from './i18n'
 import { initFrontendLogger, logger } from './utils/frontendLogger'
 import { createAppContext } from './appContext'
@@ -186,9 +186,13 @@ export async function mountApp(root: HTMLElement, env: AppMountEnv): Promise<App
     })
   }
 
-  // 初始路由（宿主按路由目录传入；未传 / 非应用路径 → 应用默认落地 /sessions）
-  const initial = env.initialRoute && env.initialRoute !== '/' ? env.initialRoute : '/sessions'
-  if (initial !== '/sessions') {
+  // 初始路由（宿主按路由目录传入；未传 / 非应用路径 → 应用默认落地页）
+  //
+  // 默认落地随 `/sessions` 停用改为 `/projects`（2026-11-06）。宿主若仍传
+  // `/sessions`（存量 lastRoute / 路由目录未同步），push 会落到 not-found ——
+  // 显性可见而非白屏，用户可自行返回；这里不改写宿主的显式意图。
+  const initial = env.initialRoute && env.initialRoute !== '/' ? env.initialRoute : DEFAULT_ROUTE
+  if (initial !== DEFAULT_ROUTE) {
     await router.push(initial).catch((e) => {
       // 未知子路径（如应用内已退役路由）：兜底 not-found 由路由表处理，不抛
       logger.warn(`[AppMount] initial route push failed: ${initial}`, e)
@@ -203,7 +207,7 @@ export async function mountApp(root: HTMLElement, env: AppMountEnv): Promise<App
     async unmount() {
       routeReporting = false
       try {
-        await router.push('/sessions').catch(() => undefined)
+        await router.push(DEFAULT_ROUTE).catch(() => undefined)
       } catch {
         // 卸载路径尽力而为
       }

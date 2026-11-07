@@ -4,6 +4,7 @@
       <div
         v-if="modelValue"
         class="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto mobile-ui"
+        data-bedcode-surface
       >
         <!-- Backdrop -->
         <div class="absolute inset-0 bg-[var(--mobile-overlay-heavy)]"></div>

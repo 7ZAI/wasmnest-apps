@@ -18,6 +18,7 @@
       <div
         v-if="showAddDialog"
         class="dialog-overlay mobile-ui"
+        data-bedcode-surface
         @click.self="showAddDialog = false"
       >
         <div class="dialog-box">

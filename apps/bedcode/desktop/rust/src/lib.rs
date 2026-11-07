@@ -303,6 +303,8 @@ pub trait SessionApi {
     /// 全部会话的对外视图 → `{sessions: SessionInfoView[]}`（按 `createdAt, id` 稳定序）。
     /// 形状与宿主 `SessionInfoView` 逐字段一致（产出口在 `session::view`，有形状锁）。
     /// 入参 `{filter: "running"}` 可选：只返回需要关窗确认的会话（判据见 `session/ops`）。
+    /// 入参 `{scope: "session"}` 可选：只返回终端会话面（无项目归属的行），
+    /// 列表类调用方用它把项目运行挡在外面（判据见 `session::is_session_scope`）。
     #[api("session-list")]
     fn session_list(draft: serde_json::Value) -> Result<serde_json::Value, String>;
 
@@ -1442,7 +1444,12 @@ impl WasmPlugin for SessionPlugin {
             //   与互调 api `session-input` 同实现；特殊键走 `specialKey` 直写）
             // 身份令牌 + 激活门由 `plugin_invoke` 通道保证（迁移路由不放宽门禁）。
             "session.list" => {
-                session::list_views_via_host(&serde_json::json!({})).map_err(anyhow::Error::msg)
+                // `scope: "session"`：终端会话面只列无项目归属的会话。项目运行
+                // （带 `project_id` 的行）仍照常落库，只是不从这条读面透出——用户
+                // 2026-11-06 裁定两套入口不互相透出。互调 api `session-list` 不带
+                // 该入参，关窗守卫与 hub 安装判据仍看全量。
+                session::list_views_via_host(&serde_json::json!({ "scope": "session" }))
+                    .map_err(anyhow::Error::msg)
             }
 
             // 单会话视图：不在册 → `null`（命令面恒回 JSON 值，不区分「空」与「无」）

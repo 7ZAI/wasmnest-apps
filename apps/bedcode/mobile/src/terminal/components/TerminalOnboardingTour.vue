@@ -1,7 +1,7 @@
 <template>
   <Teleport to="body">
     <Transition name="fade">
-      <div v-if="visible" class="fixed inset-0 z-[100] mobile-ui">
+      <div v-if="visible" class="fixed inset-0 z-[100] mobile-ui" data-bedcode-surface>
         <!-- 聚光灯遮罩：四块暗化区域围出目标高亮孔，整体 pointer-events none
              不阻挡对真实元素的操作（交互步骤要求用户在真机元素上完成手势） -->
         <div class="absolute inset-0 pointer-events-none">

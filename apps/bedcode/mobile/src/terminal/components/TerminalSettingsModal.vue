@@ -4,6 +4,7 @@
       <div
         v-if="visible"
         class="fixed inset-0 z-[var(--mobile-z-sheet)] flex items-end justify-center mobile-ui"
+        data-bedcode-surface
         @click.self="emit('close')"
       >
         <div class="absolute inset-0 bg-[var(--mobile-overlay-light)]" @click="emit('close')"></div>

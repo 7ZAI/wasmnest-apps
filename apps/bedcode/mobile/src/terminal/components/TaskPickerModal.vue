@@ -101,7 +101,7 @@ async function handleEditSave(data: PresetTask | { content: string }) {
 <template>
   <Teleport to="body">
     <Transition name="bottom-sheet">
-    <div v-if="visible" class="modal-overlay mobile-ui" @click.self="emit('close')">
+    <div v-if="visible" class="modal-overlay mobile-ui" data-bedcode-surface @click.self="emit('close')">
       <div class="modal-content modal-panel">
         <div class="modal-header">
           <h3>{{ t('taskPicker.title') }}</h3>

@@ -178,6 +178,7 @@
         <div
           v-if="showFileExplorer && fileExplorerSessionId"
           class="fixed inset-0 z-[100] flex items-center justify-center p-[10%] mobile-ui"
+          data-bedcode-surface
         >
           <div class="absolute inset-0 bg-[var(--mobile-overlay-heavy)]" @click="showFileExplorer = false"></div>
           <div class="relative w-full h-full bg-[var(--mobile-bg-card)] border border-[var(--mobile-border)] rounded-2xl shadow-xl overflow-hidden flex flex-col modal-panel">

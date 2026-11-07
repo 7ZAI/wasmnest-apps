@@ -578,6 +578,7 @@
         <div
           v-if="showPairingLoading"
           class="fixed inset-0 z-[100] flex items-center justify-center backdrop-blur-sm mobile-ui"
+          data-bedcode-surface
           style="background: var(--mobile-overlay)"
         >
           <div
