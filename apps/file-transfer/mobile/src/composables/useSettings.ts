@@ -9,6 +9,7 @@
 import { ref } from 'vue'
 import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-mobile'
 import type { Settings, SharedRoot, ReceivingPolicy } from '../types'
+import { errorMessage } from '../utils/errorMessage'
 
 /** 宿主 SharedDirDto → 前端 SharedRoot */
 function mapWireRoot(raw: any): SharedRoot {
@@ -63,15 +64,19 @@ export function useSettings(context: PluginContext) {
   /**
    * 追加共享目录：弹系统目录树选择器（授权由宿主完成）
    * ok / cancelled / failed / unsupported
+   *
+   * 宿主错误经 `commands.execute` 统一包装成 `{ code, request_id }`，真实原因只在
+   * 服务端文案里——判定文案前必须先取出来，否则 `String(e)` 只是 `[object Object]`，
+   * 既判不了 `cancelled`（取消会被报成 failed），排障时也无从下手。
    */
   async function addRoot(): Promise<'ok' | 'duplicate' | 'cancelled' | 'failed' | 'unsupported'> {
     try {
       await context.commands.execute('file-transfer.mount-local', {})
     } catch (e) {
-      const msg = String(e)
+      const msg = errorMessage(e)
       if (msg.includes('cancelled')) return 'cancelled'
       if (msg.includes('not supported') || msg.includes('unsupported')) return 'unsupported'
-      console.error('[File Transfer] mount-local failed:', e)
+      console.error('[File Transfer] mount-local failed:', msg, e)
       return 'failed'
     }
     await load()

@@ -1498,6 +1498,11 @@ fn mount_local_desktop(
 ///
 /// 2026-10-13 功能级统一后走 core `host-platform.pick-folders`（多选形）；
 /// 移动宿主底层是 SAF 单选选择器，返回 0/1 项 ⇒ 取首项，空数组 = 用户取消。
+///
+/// **不写 `preauth_paths`**：那是「插件自报、要在启用期弹框授权」的数据目录清单
+/// （走 `host-fs` 的路径 IO）。SAF 树 URI 的访问权由 Android 的持久 URI 授权持有
+/// （`takePersistableUriPermission` 在选择时即落），既不需要也经不起这条路径授权
+/// ——把 `content://` 写进该清单只会让启用期拿着一条非路径去申请授权。
 fn mount_local_mobile(
     h: &(impl HostPlatform + HostPluginDatabase + HostPeer + HostStorage),
 ) -> Result<serde_json::Value> {
@@ -1514,9 +1519,6 @@ fn mount_local_mobile(
         roots_registry::upsert(list, entry.clone());
     })?;
     let added = next.iter().find(|r| r.id == entry.id);
-    if let Some(r) = &added {
-        push_preauth_path(h, &r.path)?;
-    }
     Ok(added
         .map(|r| serde_json::json!({ "id": r.id, "name": r.name, "treeUri": r.path }))
         .unwrap_or_default())
@@ -1969,6 +1971,9 @@ mod tests {
     }
 
     /// 移动 mount-local：SAF 单选 + 树 URI 展示名派生 + safTreeUri 推送字段
+    ///
+    /// 反向锁：树 URI **不得**进 `preauth_paths`——该清单是「启用期要弹框申请路径
+    /// 授权」的数据目录（`host-fs` 路径 IO），SAF 的访问权归 Android 持久 URI 授权。
     #[test]
     fn mount_local_mobile_registers_saf_tree_uri() {
         let _g = platform::test_lock().lock().unwrap();
@@ -1984,7 +1989,11 @@ mod tests {
         );
         // 推送 wire 用 safTreeUri（引擎按 SAF 树 URI 解析目录）
         assert_eq!(h.pushed_roots.borrow()[0]["safTreeUri"], out["treeUri"]);
-        assert_eq!(h.preauth(), vec![out["treeUri"].as_str().unwrap().to_string()]);
+        assert!(
+            h.preauth().is_empty(),
+            "SAF 树 URI 不得写入 preauth_paths（授权归 Android 持久 URI 授权），got {:?}",
+            h.preauth()
+        );
     }
 
     /// 移动 mount-local 取消：空串视为用户取消

@@ -6,7 +6,9 @@
   "type": "module",
   "scripts": {
     "build": "node ../../../../wasmnest/wasmnest-mobile/scripts/plugin-build.js --plugin com.wasmnest.file-transfer",
-    "dev": "wasmnest-plugin dev"
+    "dev": "wasmnest-plugin dev",
+    "test:run": "vitest run",
+    "test": "vitest"
   },
   "wasmnest": {
     "sharedRustManifest": "../rust/plugin/Cargo.toml"
@@ -17,6 +19,7 @@
   "devDependencies": {
     "@vitejs/plugin-vue": "^6.0.0",
     "vite": "^8.0.0",
+    "vitest": "^3.2.7",
     "vue": "^3.4.0",
     "vue-i18n": "^9.0.0",
     "typescript": "^5.0.0",

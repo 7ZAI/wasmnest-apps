@@ -32,26 +32,32 @@
    - 主操作走「墨/纸」对比（浅色=墨底纸字，深色=纸底墨字），与宿主确认对话框同源
    - 深色不再自造冷蓝灰，直接继承宿主暖墨底，避免与宿主设置页 / 弹窗跳色 */
 .ft-app {
-  /* 表面与文字：全部跟随宿主主题 token（深浅两套由宿主统一切换） */
-  --ft-bg-primary: var(--mobile-bg-primary);
-  --ft-bg-secondary: var(--mobile-bg-secondary);
-  --ft-bg-tertiary: var(--mobile-bg-elevated);
-  --ft-bg-card: var(--mobile-bg-card);
-  --ft-bg-elevated: var(--mobile-bg-elevated);
+  /* 表面与文字：**应用自持的不透明色阶**（不是 var(--mobile-*) 别名）。
+     2026-11-06 真机反馈：直接绑定 --mobile-bg-* / --mobile-group-* 时，宿主
+     外观设置会污染应用底色——glass 主题把 group-bg 算成 40% 底色 + 白、把
+     bg-primary 混入 info 色相（顶部偏蓝底部偏暖），壳根壁纸即从这两处透出来。
+     应用是独立配色运行面：只跟随宿主**语义**（明暗档位 + 状态语义色 + 文件类型
+     chip 色），纸张色相与不透明度自持，用户换壁纸 / 调遮罩不再改变应用观感。 */
+  /* 深色档（暖墨纸）：与宿主「暖墨」系同调，只是不再取半透明派生值 */
+  --ft-bg-primary: #15130f;
+  --ft-bg-secondary: #191712;
+  --ft-bg-card: #1d1a15;
+  --ft-bg-tertiary: #2a261e;
+  --ft-bg-elevated: #2a261e;
   --ft-text-primary: var(--mobile-text-primary);
   /* 次级/弱化文字比宿主默认档再提一点对比度（宿主 muted 在深色面约 3.2:1，
      12px 的指纹、说明文字不达标）；两档都保持暖色系 */
   --ft-text-secondary: #a69e8b;
   --ft-text-muted: #9c9482;
   --ft-text-disabled: var(--mobile-text-disabled);
-  --ft-border: var(--mobile-border);
-  --ft-border-strong: var(--mobile-border-hover);
-  --ft-group-divider: var(--mobile-group-divider);
-  --ft-group-row-active: var(--mobile-group-row-active);
+  --ft-border: rgb(255 255 255 / 10%);
+  --ft-border-strong: rgb(255 255 255 / 18%);
+  --ft-group-divider: rgb(255 255 255 / 7%);
+  --ft-group-row-active: #2a261e;
 
   /* 主操作（墨/纸）：浅色墨底纸字、深色纸底墨字；与宿主确认对话框主按钮同源 */
-  --ft-action-bg: var(--mobile-text-primary);
-  --ft-action-fg: var(--mobile-bg-primary);
+  --ft-action-bg: #f5f4f0;
+  --ft-action-fg: #15130f;
 
   /* 功能色（雾青）：只用于进行中进度、选择、焦点与少量方向提示 */
   --ft-accent: #356873;
@@ -83,6 +89,20 @@
 }
 
 html:not(.dark) .ft-app {
+  /* 浅色档（暖纸）：不透明度 1，壁纸不会从页面底与分组卡里透出 */
+  --ft-bg-primary: #f5f4f0;
+  --ft-bg-secondary: #efede7;
+  --ft-bg-card: #fdfcfa;
+  --ft-bg-tertiary: #e7e4dc;
+  --ft-bg-elevated: #e7e4dc;
+  --ft-text-primary: #26231b;
+  --ft-border: rgb(38 35 27 / 11%);
+  --ft-border-strong: rgb(38 35 27 / 18%);
+  --ft-group-divider: rgb(38 35 27 / 8%);
+  --ft-group-row-active: #ece9e2;
+  --ft-action-bg: #26231b;
+  --ft-action-fg: #fdfcfa;
+
   --ft-accent: #2a5b66;
   --ft-accent-text: #2a5b66;
   --ft-accent-muted: rgba(42, 91, 102, 0.1);
@@ -176,12 +196,34 @@ html:not(.dark) .ft-app {
  */
 
 /* ==================== 页面根 ==================== */
-/* 声明为查询容器：为将来嵌入面板/抽屉留正确基准（本页当前作为整屏工具页） */
-.fv2-view {
+/* 声明为查询容器：为将来嵌入面板/抽屉留正确基准（本页当前作为整屏工具页）。
+
+   背景隔离（2026-11-06 真机反馈「应用背景被宿主更改背景污染」）：
+   应用根同时带 .mobile-ui，而宿主 glass / hyper 档有两条规则会往它身上叠背景——
+   1. `:root[data-theme='glass'] .mobile-ui { background-image: var(--theme-ambient) }`
+      → 四枚光团（左上 info 蓝 / 右上 error 红 / 底部 warning 琥珀）整屏铺开，
+      就是截图里「上蓝下暖」的渐变脏底；
+   2. `:root[data-theme='x'] :is(…, .group-card, .settings-group, …)` 给分组卡加
+      多层玻璃渐变 + backdrop-filter，卡内直接采样身后的壳根壁纸。
+
+   应用是**独立自持配色的运行面**（registerSurface accent 契约，见 docs/FRONTEND.md），
+   宿主外观设置不该改写应用的可视区。这里把根底色改成不透明实色栈并清掉继承来的
+   环境光：宿主只负责明暗档（html.dark）与语义色（状态四色 / 文件类型 chip）跟随，
+   纸张色相由应用自持。`.ft-host-page`（平台设置二级页）另有变体，见文末。
+
+   两条选择器：第二条带 :root[data-theme] 是为了压过宿主主题档的特异性。 */
+.fv2-view,
+:root[data-theme] .fv2-view {
   display: flex;
   flex-direction: column;
   height: 100%;
   background: var(--ft-bg-primary);
+  /* background 简写已把宿主铺在 .mobile-ui 上的环境光（background-image）
+     重置为 none；这里显式再写一遍，防止后续有人把它改回 background-color
+     而让光团悄悄回潮 */
+  background-image: none;
+  /* 自成层叠上下文：卡片与底栏的轻微透明只读应用自己的底，不透到壳根壁纸 */
+  isolation: isolate;
   container-type: inline-size;
 }
 
@@ -1327,8 +1369,13 @@ html:not(.dark) .ft-app {
 }
 
 /* ==================== 下拉刷新箭头（跟手旋转） ==================== */
-/* 拖动中 1:1 跟随手指（无过渡）；松手未达阈值时带 snap 类弹性回正 */
+/* 拖动中 1:1 跟随手指（无过渡）；松手未达阈值时带 snap 类弹性回正。
+   尺寸必须显式给：宿主不注入 Tailwind preflight，裸 <svg> 没有 width/height
+   就按 viewBox 撑成整行宽度（2026-11-06 真机：箭头撑到 ~110px 盖住列表第一行）。
+   视觉 1.125rem（18px）与相邻文字字号同档，命中区由容器高度承担。 */
 .fv2-pull-arrow {
+  width: 1.125rem;
+  height: 1.125rem;
   flex-shrink: 0;
   color: var(--ft-text-secondary);
 }
@@ -1415,20 +1462,36 @@ html:not(.dark) .ft-app {
    不是应用自持运行面：结构面（底 / 卡片 / 描边 / 行高）跟着宿主设置流走，
    避免一页自造底色插在宿主设置流里跳色（2026-10-15 真机反馈）。
    文字仍用应用的可读暖色阶（宿主 light muted 对比度偏低，12px 说明文字不达标）。
+
+   但**底色不能取 --mobile-bg-* 原值**（2026-11-06）：宿主 glass 档把
+   bg-primary 混成带色偏的半透明纸、group-bg 算成 40% 底色 + 白，壳根壁纸
+   会从设置页底与卡片里透出来。这里只跟随宿主的**不透明基底**：底色取页面
+   primary 的不透明近似（深色 #15130f / 浅色 #f5f4f0，与宿主自持值一致），
+   卡片改用应用的实色 card（与设置流其余页的观感差一档纸白，不跳色）。
    选择器写两条：浅色主题由 `html:not(.dark) .ft-app` 定义，特异性比 `.ft-app` 高，
    不跟一条同结构的浅色选择器就压不住它。 */
-.ft-app.ft-host-page,
-html:not(.dark) .ft-app.ft-host-page {
-  --ft-bg-primary: var(--mobile-bg-primary);
-  --ft-bg-secondary: var(--mobile-bg-secondary);
-  --ft-bg-tertiary: var(--mobile-bg-elevated);
-  --ft-bg-card: var(--mobile-bg-card);
-  --ft-bg-elevated: var(--mobile-bg-elevated);
-  --ft-border: var(--mobile-border);
-  --ft-group-divider: var(--mobile-group-border);
-  --ft-group-row-active: var(--mobile-bg-tertiary);
+.ft-app.ft-host-page {
+  --ft-bg-primary: #15130f;
+  --ft-bg-secondary: #191712;
+  --ft-bg-tertiary: #2a261e;
+  --ft-bg-card: #1d1a15;
+  --ft-bg-elevated: #2a261e;
+  --ft-border: rgb(255 255 255 / 10%);
+  --ft-group-divider: rgb(255 255 255 / 7%);
+  --ft-group-row-active: #2a261e;
   /* 错误色不跟随宿主（宿主浅色 error 仅 3.7:1，危险操作文字需可读） */
   --ft-error-muted: var(--mobile-error-muted);
+}
+
+html:not(.dark) .ft-app.ft-host-page {
+  --ft-bg-primary: #f5f4f0;
+  --ft-bg-secondary: #efede7;
+  --ft-bg-tertiary: #e7e4dc;
+  --ft-bg-card: #fdfcfa;
+  --ft-bg-elevated: #e7e4dc;
+  --ft-border: rgb(38 35 27 / 11%);
+  --ft-group-divider: rgb(38 35 27 / 8%);
+  --ft-group-row-active: #ece9e2;
 }
 
 /* ==================== 宿主结构类的 .ft-app 主题覆写 ==================== */
@@ -1449,33 +1512,51 @@ html:not(.dark) .ft-app.ft-host-page {
   color: var(--ft-text-muted);
 }
 
-.ft-app .settings-group {
+/* 宿主 glass / hyper 主题会强制给 .settings-group 加渐变 + backdrop-filter
+   （同 .group-card 的理由），应用侧显式压回实色并清掉采样 */
+.ft-app .settings-group,
+:root[data-theme] .ft-app .settings-group {
   background: var(--ft-bg-card);
   border-color: var(--ft-border);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
-.ft-app .settings-row + .settings-row {
+.ft-app .settings-row + .settings-row,
+:root[data-theme] .ft-app .settings-row + .settings-row {
   border-top-color: var(--ft-group-divider);
 }
 
-.ft-app button.settings-row:active {
+.ft-app button.settings-row:active,
+:root[data-theme] .ft-app button.settings-row:active {
   background: var(--ft-group-row-active);
 }
 
-/* 列表容器（BrowseTab 文件列表 / DevicesTab 设备列表沿用宿主 group-card 结构） */
-.ft-app .group-card {
+/* 列表容器（BrowseTab 文件列表 / DevicesTab 设备列表沿用宿主 group-card 结构）。
+   宿主 glass / hyper 主题用 `:root[data-theme='x'] :is(…, .group-card, …)` 给
+   分组卡强制加多层渐变 + backdrop-filter（特异性 0,3,0，且 backdrop-filter 会
+   实打实地去采样身后的壳根壁纸）。应用选择器必须压过它：(0,4,0) 起步并显式
+   清掉 backdrop-filter 与渐变，否则应用里会透出宿主壁纸 —— 2026-11-06 真机。 */
+.ft-app .group-card,
+:root[data-theme] .ft-app .group-card {
   background: var(--ft-bg-card);
   border-color: var(--ft-border);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
 .ft-app .group-row-btn:active {
   background: var(--ft-group-row-active);
 }
 
-.ft-app .settings-select {
+/* 输入类控件：宿主 glass 档用 `:root[data-theme='glass'] :is(.settings-select, …)`
+   （特异性 0,2,1）改成凹陷玻璃槽 + 内壁阴影，会采到身后的壁纸。同理压回实色。 */
+.ft-app .settings-select,
+:root[data-theme] .ft-app .settings-select {
   background: var(--ft-bg-elevated);
   border-color: var(--ft-border);
   color: var(--ft-text-primary);
+  box-shadow: none;
 }
 
 /* 文件类型 chip（FileTypeIcon）：沿用宿主文件系统图标色板（目录=纸墨，

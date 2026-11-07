@@ -348,7 +348,9 @@ const pullArrowStyle = computed(() => ({
 
 <style scoped>
 /* 下拉刷新指示器：贴滚动容器顶部，高度随位移露出。
-   过渡只挂在 .fv2-pull--snap（全局样式，松手后启用）——拖动中开过渡会阻尼迟滞 */
+   过渡只挂在 .fv2-pull--snap（全局样式，松手后启用）——拖动中开过渡会阻尼迟滞。
+   overflow 已裁掉超出部分；line-height:1 让 18px 箭头不被行高撑高，
+   指示器高度与实际露出的内容一致（位移小时不会顶到列表首行）。 */
 .fv2-pull {
   display: flex;
   align-items: center;
@@ -356,5 +358,6 @@ const pullArrowStyle = computed(() => ({
   gap: 0.5rem;
   overflow: hidden;
   color: var(--ft-text-secondary);
+  line-height: 1;
 }
 </style>
