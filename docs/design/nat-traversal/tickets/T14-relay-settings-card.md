@@ -76,7 +76,8 @@
 | SettingsView / plugin-contract / i18n | 3 + 26 + 4 passed（`SettingsView` 的六分组断言与静态表已同步） |
 | 全量 app 单测 | 3 个 shard：26/26、26/26、24/24 文件全绿（291 + 522 + 461 = **1274 passed**）；整包单进程 / 2 worker 会 OOM，按 shard 隔离（shard 2 用 `--maxWorkers=1`）跑 |
 | 根 lint | `pnpm run lint`：**0 errors**，44 warnings（既有基线，均不在 `relay*` 文件） |
-| 真实宿主目验 / E2E | **未跑（环境阻塞）**：`host-runtime.lock.json` 的 `artifacts` 为空，取不到宿主运行时；`docs/E2E.md` 链路需要 `tauri-driver` + WebKitWebDriver。锚点已按 `docs/E2E.md` 同步到 `e2e/specs/bedcode.spec.ts`，待宿主产物发布后补跑 |
+| 前端产物构建 | link 到平台仓 `dev` 后 `pnpm run build:frontend` 成功（`dist/index.js` 2.7 MB，含卡片文案）；单测不覆盖的 SFC 打包路径已验证 |
+| 真实宿主目验 / E2E | **未跑（环境阻塞）**：本 worktree 的 SDK 指向旧副本，`scripts/e2e.mjs` 在 app 构建阶段就失败（`./ui/app-update` 未导出）；link 后前端构建已过，但仍需 `host-runtime.lock.json` 的 `artifacts`（当前为空）+ `tauri-driver` / WebKitWebDriver。锚点已按 `docs/E2E.md` 同步到 `e2e/specs/bedcode.spec.ts`，待宿主产物发布后补跑 |
 | 环境说明（非代码缺陷） | 验证期用 `scripts/link-platform-sdk.mjs --no-install` 把 SDK 指到平台仓 `dev`（旧副本缺 `./ui/app-update`，会让 SettingsView / plugin-contract collect 失败）；跑完已 `unlink-platform-sdk.mjs` 并按 HEAD 还原 package.json / pnpm-lock / `.cargo/config.toml`，**link 状态未提交** |
 
 ### 6. 后续接线
