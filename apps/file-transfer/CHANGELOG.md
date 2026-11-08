@@ -14,6 +14,7 @@
 - 应用内检查更新：双端接入宿主 `appUpdate`，`plugin.json` 声明 GitHub Release 更新源。
 - 远程设备接入（内网穿透 T12）：双端「添加远程设备」粘贴配对连接串
   `wasmnest://pair/<base64url>` / 纯 JSON（只含 `nodeId` + 多地址 + 可选一次性票据，不含长期密钥）；
+  移动端另支持**扫码**（`html5-qrcode`，与粘贴同一解析口径，非法码不打断扫描）；
   手动添加的设备按 nodeId 持久化（`addrs` + `paired`），不参与 mDNS 过期清扫。
 - 多地址拨号（`dial-peer-addrs`）：LAN 候选优先、relay 候选仅在显式「尝试外网」或没有 LAN 候选时纳入；
   设备行显示宿主上报的真实传输形态「内网直连 / 外网中继」，断开即清除。

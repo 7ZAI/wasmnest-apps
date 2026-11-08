@@ -115,7 +115,12 @@ file-transfer 跨 NAT：远程设备连接串/QR 导入、多地址拨号（内�
 
 ### 4. 未做 / 依赖外部
 
-- **扫码**：T12 验收的「扫码或粘贴」只实现粘贴（双端）；file-transfer 未引入摄像头扫码依赖（bedcode 的 `html5-qrcode` 未复用），记为已知缺口。
+- **扫码**：已补（2026-11-08 追加切片，移动端）：新增 `components/ScanPanel.vue` + `html5-qrcode@2.3.8`
+  依赖，扫码结果与粘贴走同一 `parseRemotePeerLink`；非法码继续扫、不落二维码原文；
+  相机失败 / 无权限分开提示（无权限给系统设置出路）；桌面端仍只有粘贴（无摄像头）。
+- **扫码验证边界**：本 worktree 移动 `pnpm run build` 的 frontend-only 阶段仍被 SDK JS `dist`
+  缺失阻塞，未做相机实机目验；静态校验用临时 tsconfig（paths 指向 SDK `src`）跑
+  `vue-tsc --noEmit` 全绿（临时文件已删，未入库）。
 - **中继接收端预留**：应用侧只能把 relay circuit 加入拨号候选；对端 peer 节点建立 relay 预留仍需宿主 `peer-node-config` relay 面（T02/T06 未落地）。跨 NAT **双向接收**因此仍受宿主能力限制，应用侧按「拨号失败可见」呈现。
 - 真实跨网验收（真机蜂窝 ↔ 家庭宽带）与 1GB 中继传输归 T15。
 - `allowWan` / `relayMaxBytesPerTask` 的**产品语义**按默认口径实现：`allowWan` 只控制拨号候选（与加密正交）；`relayMaxBytesPerTask` 是「提示阈值」而非硬限额（0 = 每次经中继发送都提示），真正的中继字节/时长配额在 relay 服务端（T13）。

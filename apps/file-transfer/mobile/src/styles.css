@@ -914,6 +914,81 @@ html:not(.dark) .ft-app {
   resize: vertical;
 }
 
+/* 扫码面板（T12）：全屏取景 + 定位框（无遮挡读码） */
+.ft-scan-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  background: #000;
+}
+
+.ft-scan-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  color: #fff;
+}
+
+.ft-scan-title {
+  font-size: var(--font-size-label);
+  font-weight: 600;
+}
+
+.ft-scan-overlay .fv2-btn-text {
+  color: #fff;
+}
+
+.ft-scan-stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.ft-scan-reader {
+  width: 100%;
+  height: 100%;
+}
+
+.ft-scan-frame {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 250px;
+  height: 250px;
+  transform: translate(-50%, -50%);
+  border: 2px solid var(--ft-accent-text, #fff);
+  border-radius: 0.75rem;
+  box-shadow: 0 0 0 100vmax rgb(0 0 0 / 0.45);
+  pointer-events: none;
+}
+
+.ft-scan-hint {
+  padding: 0.75rem 1rem 1.25rem;
+  text-align: center;
+  font-size: var(--font-size-sm);
+  color: rgb(255 255 255 / 0.8);
+}
+
+.ft-scan-error {
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  align-items: center;
+  color: #fff;
+}
+
+.ft-scan-error-text {
+  font-size: var(--font-size-sm);
+  text-align: center;
+  color: rgb(255 255 255 / 0.85);
+}
+
 .fv2-scan-icon {
   animation: fv2-spin 0.8s linear infinite;
 }

@@ -15,6 +15,7 @@ import {
   type RemotePeerLink,
   type RemotePeerLinkError,
 } from '../utils/pairingLink'
+import ScanPanel from './ScanPanel.vue'
 
 type Translate = (key: string, params?: Record<string, any>) => string
 
@@ -43,6 +44,8 @@ const emit = defineEmits<{
 const addOpen = ref(false)
 const addText = ref('')
 const addError = ref<RemotePeerLinkError | null>(null)
+/** 扫码面板（相机路径；与粘贴共用同一解析） */
+const scanOpen = ref(false)
 
 const ADD_ERROR_KEYS: Record<RemotePeerLinkError, string> = {
   malformed: 'transfer.remote.errorMalformed',
@@ -65,6 +68,15 @@ function submitRemote(): void {
 function openAddRemote(): void {
   addError.value = null
   addOpen.value = true
+}
+
+/** 扫码成功：与粘贴同一落点（父级设备缓存），关闭两个面板 */
+function onScanned(link: RemotePeerLink): void {
+  scanOpen.value = false
+  addOpen.value = false
+  addText.value = ''
+  addError.value = null
+  emit('add-remote', link)
 }
 
 /** 传输形态文案（宿主 transport 词表；未知形态不渲染） */
@@ -119,6 +131,8 @@ function metaText(row: DeviceRow): string {
 
 <template>
   <div class="flex-1 min-h-0 flex flex-col">
+    <!-- 扫码添加远程设备（相机路径；fixed 全屏覆盖） -->
+    <ScanPanel v-if="scanOpen" :t="t" @link="onScanned" @close="scanOpen = false" />
     <!-- 标题行：标题 + 副标题 + 行尾探索发现（空态时隐藏，避免与空态内标题/CTA 重复） -->
     <div v-if="rows.length > 0" class="fv2-section-head flex-shrink-0">
       <div class="flex-1 min-w-0">
@@ -185,6 +199,13 @@ function metaText(row: DeviceRow): string {
         {{ t(ADD_ERROR_KEYS[addError]) }}
       </p>
       <div class="flex items-center justify-end gap-2 pt-1">
+        <button
+          class="fv2-btn-text"
+          data-testid="mobile-remote-scan-open"
+          @click="scanOpen = true"
+        >
+          {{ t('transfer.remote.scan') }}
+        </button>
         <button class="fv2-btn-text" @click="addOpen = false">
           {{ t('transfer.remote.cancel') }}
         </button>

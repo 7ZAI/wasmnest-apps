@@ -267,6 +267,13 @@ export type MessageSchema = {
   'transfer.remote.cancel': string
   'transfer.remote.confirm': string
   'transfer.remote.added': string
+  'transfer.remote.scan': string
+  'transfer.remote.scanTitle': string
+  'transfer.remote.scanHint': string
+  'transfer.remote.scanClose': string
+  'transfer.remote.scanRetry': string
+  'transfer.remote.scanFailed': string
+  'transfer.remote.scanPermission': string
   'transfer.remote.errorMalformed': string
   'transfer.remote.errorIncomplete': string
   'transfer.remote.errorAddressInvalid': string

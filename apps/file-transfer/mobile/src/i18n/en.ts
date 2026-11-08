@@ -270,6 +270,14 @@ export default {
   'transfer.remote.cancel': 'Cancel',
   'transfer.remote.confirm': 'Add',
   'transfer.remote.added': 'Remote device added',
+  'transfer.remote.scan': 'Scan',
+  'transfer.remote.scanTitle': 'Scan to add device',
+  'transfer.remote.scanHint': 'Point the camera at the pairing QR code on the other device',
+  'transfer.remote.scanClose': 'Close',
+  'transfer.remote.scanRetry': 'Retry',
+  'transfer.remote.scanFailed': 'Cannot start the camera',
+  'transfer.remote.scanPermission':
+    'Camera permission denied; allow camera access for this app in system settings and retry',
   'transfer.remote.errorMalformed': 'Invalid pairing link or JSON',
   'transfer.remote.errorIncomplete':
     'Pairing data is incomplete (nodeId and at least one address are required)',
