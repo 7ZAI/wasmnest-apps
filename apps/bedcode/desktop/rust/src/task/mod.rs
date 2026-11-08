@@ -634,6 +634,76 @@ mod tests {
         );
     }
 
+    /// T17：免凭证端点的调用方门禁（LAN 匿名调用被拒，hook / 已验签设备 / 隧道 peer 照常）
+    ///
+    /// 宿主对每条 `/api/plugin/*` 与网关别名请求都传 `caller`（四档：`peer` / `device` /
+    /// `localhost` / `anonymous`；空串 = 宿主未传 / 直接命令调用）。本用例锁住
+    /// 「auth:none 只表达不验签」与「最小可达面」两件事的映射：
+    /// - `task-status`：hook 脚本与桌面 WebView 都走 127.0.0.1 → `localhost`；隧道
+    ///   对等面入站的已匹配远端（`peer`，设计 §0.4 裁定）由隧道层匹配校验授权，本层
+    ///   放行；LAN 匿名与普通面上的未验签调用无消费方 → 拒。
+    /// - `session-mode`：hook（`localhost`）+ 移动端经宿主壳代发带 JWT（`device`）+
+    ///   隧道 peer 三种消费方并存 → 三档放行，匿名仍拒。
+    /// - 缺失 `caller` → 拒绝（fail-closed，与桥接本机门禁同口径）。
+    #[test]
+    fn none_auth_endpoints_gate_by_caller() {
+        // task-status：环回 + 隧道对等面；LAN 匿名 / 普通面未验签拒绝
+        assert!(caller_allowed_for_none_auth(
+            "task-status",
+            CALLER_LOCALHOST
+        ));
+        assert!(caller_allowed_for_none_auth("task-status", CALLER_PEER));
+        assert!(!caller_allowed_for_none_auth("task-status", CALLER_DEVICE));
+        assert!(!caller_allowed_for_none_auth("task-status", "anonymous"));
+        assert!(!caller_allowed_for_none_auth("task-status", ""));
+
+        // session-mode：环回 + 已验签设备（移动端 LAN 远程控制）+ 隧道对等面
+        assert!(caller_allowed_for_none_auth(
+            "session-mode",
+            CALLER_LOCALHOST
+        ));
+        assert!(caller_allowed_for_none_auth("session-mode", CALLER_DEVICE));
+        assert!(caller_allowed_for_none_auth("session-mode", CALLER_PEER));
+        assert!(!caller_allowed_for_none_auth("session-mode", "anonymous"));
+        assert!(!caller_allowed_for_none_auth("session-mode", ""));
+
+        // 清单外端点不经本门禁（JWT 档由宿主判，业务门禁各自负责）
+        for path in [
+            "session-settings",
+            "task-history/current",
+            "task-queue/add",
+            "scheduled-jobs/create",
+        ] {
+            assert!(
+                caller_allowed_for_none_auth(path, "anonymous"),
+                "{path} 不在门禁清单内，判定必须放行（否则会无声改写 JWT 档的准入）"
+            );
+        }
+    }
+
+    /// T17 契约：门禁清单必须是本域端点清单的子集，且全部标 auth:none
+    ///
+    /// 两侧同源锁：漏标 none → hook 静默 401（宿主先拦）；把业务端点误入清单 →
+    /// LAN 匿名可写的面被无声砍断。清单任何变动都必须两张表同时改。
+    #[test]
+    fn caller_gated_endpoints_are_none_auth_task_endpoints() {
+        for path in CALLER_GATED_ENDPOINTS {
+            assert!(
+                HTTP_ENDPOINTS.contains(path),
+                "门禁端点 {path} 必须在本域端点清单里"
+            );
+            assert!(
+                crate::NO_AUTH_HTTP_ENDPOINTS.contains(path),
+                "门禁端点 {path} 必须声明 auth:none（否则宿主先判 JWT，门禁无意义）"
+            );
+        }
+        assert_eq!(
+            CALLER_GATED_ENDPOINTS,
+            &["task-status", "session-mode"],
+            "门禁清单变动必须逐条交代消费方（环回 hook / 移动端）"
+        );
+    }
+
     /// 票 16（对照）：path 段与旧 auto-task 的分派集合完全相同
     ///
     /// golden 清单逐字取自 `plugins/auto-task/rust/src/lib.rs` 的 `_http_endpoint`
@@ -1109,17 +1179,69 @@ pub fn classify_http_path(path: &str) -> HttpRoute<'_> {
     }
 }
 
+// ==================== 免凭证端点的调用方门禁（T17） ====================
+
+/// 宿主判定的调用方档位（`_http_endpoint` 的 `caller` 字段）：环回调用方
+/// （hook 脚本 / 桌面 WebView，都固定走 `127.0.0.1`）
+pub const CALLER_LOCALHOST: &str = "localhost";
+/// 宿主判定的调用方档位：已验签设备（移动端经宿主壳 `mobileApi.httpRequest` 代发，
+/// 宿主壳会附带 JWT，认证闸门验签后即此档）
+pub const CALLER_DEVICE: &str = "device";
+/// 宿主判定的调用方档位：经对等 HTTP/WS 面入站的隧道流量（穿透 T03；TCP 对端虽是
+/// 127.0.0.1 也不得当 `localhost`）
+pub const CALLER_PEER: &str = "peer";
+
+/// 免凭证但受调用方门禁约束的端点（契约用例锁死：必须是 [`HTTP_ENDPOINTS`] 子集，
+/// 且都在 `http_routes::ROUTES` 里标 `auth: "none"`——档位与门禁同源）
+pub const CALLER_GATED_ENDPOINTS: &[&str] = &["task-status", "session-mode"];
+
+/// 免凭证端点的调用方准入（纯判定，native 可测）
+///
+/// `auth: none` 只表达「不验签」，不等于「LAN 面公开」：宿主 HTTP 服务绑
+/// `0.0.0.0`（`wasmnest-server-base::constants::BIND_ADDRESS`），本机之外的同网段
+/// 设备今天就能匿名直调。按**最小可达面**收口（T17）：
+/// - `task-status`：消费方只有 hook 脚本与桌面 WebView（都固定环回）→ 认 `localhost`；
+/// - `session-mode`：hook 之外还有移动端（`mobileApi.httpRequest` 由宿主壳代发、
+///   带 JWT → `device`）→ 认 `localhost` 与 `device`。
+///
+/// 两条另认 `peer`（对等面隧道流量）：设计 §0.4 裁定「经隧道的已匹配远端保持可达」，
+/// 授权点是隧道层的匹配校验（T05/T07），本层不得重复拦成死路。
+///
+/// `caller` 缺失（宿主未按协议传档 / 直接命令调用）落空串 → 拒绝（fail-closed，
+/// 与 [`crate::run::bridge::caller_allowed`] 同口径）。清单外端点不经本门禁
+/// （JWT 档由宿主判，业务门禁各自负责）。
+pub fn caller_allowed_for_none_auth(path: &str, caller: &str) -> bool {
+    match path {
+        "task-status" => matches!(caller, CALLER_LOCALHOST | CALLER_PEER),
+        "session-mode" => matches!(caller, CALLER_LOCALHOST | CALLER_DEVICE | CALLER_PEER),
+        _ => true,
+    }
+}
+
 /// HTTP 端点入口（宿主 `_http_endpoint` command 调用）
 ///
 /// 返回体形状固定为 `{status, body, contentType?}`——由三域各自的 handler 产出
 /// （`http_response::{ok, ok_with_data, error}`），宿主 `plugin_controller` 提取。
+/// `caller` 是宿主判定的调用方档位，只用于免凭证端点的门禁（见
+/// [`caller_allowed_for_none_auth`]）。
 pub fn handle_http_via_host(
     host: &WasmHost,
     method: &str,
     path: &str,
     body: &serde_json::Value,
     query: &serde_json::Value,
+    caller: &str,
 ) -> serde_json::Value {
+    // T17：免凭证端点不等于 LAN 公开——层/档不对一律 403（fail-closed）
+    if !caller_allowed_for_none_auth(path, caller) {
+        host.log_warn(&format!(
+            "task http {path} denied: caller={caller:?}（免凭证端点只对环回 / 已验签设备 / 隧道 peer 开放）"
+        ));
+        return wasmnest_plugin_api::http_response::error(
+            403,
+            &format!("forbidden caller for {path}"),
+        );
+    }
     match classify_http_path(path) {
         HttpRoute::Queue(sub) => queue::handle_queue_http(host, method, sub, body, query),
         HttpRoute::Scheduled(sub) => {

@@ -2397,7 +2397,10 @@ pub const GIT_HTTP_ENDPOINTS: &[&str] = &["git/branches", "git/status", "git/che
 /// 移动端 JWT 验签）。本清单是**仅有的**必须免凭证可达的端点，逐条理由：
 /// - `task-status` / `session-mode`：Claude Code / codex / pi / opencode 的 hook 脚本由
 ///   插件注入 PTY 环境，拿不到 JWT，只能按环回地址匿名调用（宿主转发的 `caller`
-///   字段给 `localhost`，插件据此可自行区分，裁决 3）。
+///   字段给 `localhost`，插件据此可自行区分，裁决 3）。**免凭证 ≠ LAN 公开**：两条
+///   都过 `task::caller_allowed_for_none_auth` 门禁（T17，宿主服务绑 `0.0.0.0`）——
+///   `task-status` 认 `localhost` 与隧道面 `peer`，`session-mode` 另认 `device`
+///   （移动端经宿主壳代发带 JWT）；LAN 匿名一律 403。
 /// - 桥接四条（`run-*`）：同环回先例，且**额外收紧为只接受 `localhost` 档**
 ///   （`run::bridge::caller_allowed` 本机门禁，issue #25 H3）——`run-commands`
 ///   会交出用户待发正文、`run-events` 可注入伪造对话，`auth: none` 只表达
@@ -2462,7 +2465,7 @@ fn handle_http_endpoint(
         "projects" | "runs" | "runs/start" | "agents" => {
             projects_http::handle_projects_http(host, method, path, body, query)
         }
-        _ => task::handle_http_via_host(host, method, path, body, query),
+        _ => task::handle_http_via_host(host, method, path, body, query, caller),
     }
 }
 
