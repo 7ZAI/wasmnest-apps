@@ -112,6 +112,21 @@ native 双 feature 测试全绿、Android `cargo check` 绿且依赖树零 rustl
 
 **实施进度（2026-11-08 追加 7，T06 第二轮：§4.9 模式判定）**：T06 的**传输模式判定与事件出口**已落地，落点裁定在**能力仓**（`wasmnest-server-peer-net/src/tunnel/{mode,netinfo}.rs`），平台仓本轮零改动——判据输入只有接口子网 / 蜂窝 / 拨号成因，与宿主类型无关，写两份必然漂移；能力仓本身就是宿主侧库，符合「判定由宿主完成、不暴露给前端 JS」。内容：判据表全实现（蜂窝直切 / 跨子网 / 无 LAN 候选 / `EHOSTUNREACH` 切 wan；timeout / `ECONNREFUSED` / 服务未启动 / 认证失败保持 LAN 并显性 `lan-unreachable`；事实未知一律先试 LAN）、8 态状态机与每对端视图（wan-active 回切需连续两次 LAN 探测成功）、`connect` 改 LAN-first（LAN 打通不建 reservation，进 wan 才按引用计数建）、失败成因分类（`DialTimeout` / 认证 / 传输层 unreachable / 保守 `Other`）、`status.modes`、`set_manual_wan` / `on_network_changed` / `on_lan_probe_result`，以及 `peer:mode` / `peer:transport` / `tunnel:state` / `tunnel:error` 四事件进宿主事件面 + 插件总线（topic 映射已补）。实跑：peer-net 默认 **236 passed**、`common-host,relay` **237 passed**、`fmt --check` 绿、平台桌面 `check --lib` + `plugin::tunnel` 2 passed 绿、移动 `check --lib` 绿。**未做**：wan-active 周期 / 换网 LAN 探测**循环**（状态与防抖已就绪，探测动作待消费端）、Android `ConnectivityManager` 精确网络类型（当前按接口名归类，认不出按非蜂窝）、`pairing` 态接线、移动前台服务、T07/T08/T09 消费与真实宿主 E2E；**未跑**（磁盘 100%）格式化后复跑与移动 `plugin::tunnel_ports` 2。详见 [T06](tickets/T06-platform-assembly.md)。
 
+**实施进度（2026-11-08 追加 10，T09 bedcode 移动）**：T09 的**拨号方应用切片**已落地（只改
+`apps/bedcode/mobile/**`，与同 worktree 的 T06/T07/T08 在途改动零重叠）——新增 `rust/src/tunnel.rs`
+（`TunnelHost` 端口 + 对端记录 `nodeId/relayAddrs/deviceName/逻辑端口/最近模式与原因`，**不存
+LAN IP**、损坏显性报错；`configure` 的 `allowWan` 由设置 × relay 地址决定；拨号入参校验后原样
+交给宿主做 LAN 优先判定；句柄登记 + `deactivate` 全关；`peer:mode`/`peer:transport`/
+`tunnel:state`/`tunnel:error` 四 topic 订阅并转发 `bedcode-tunnel-event`、`peer:mode` 落盘）、
+前端纯映射 `src/host/tunnel.ts`（八态文案 / 手动入口三条件 / 错误码映射 / 回执归一）、
+扫码路径先建隧道再连回环代理（旧载荷不回归）、已连接与失败态两条状态栏（模式 + 不可关闭
+「已加密」徽标 + 外网关闭提示 + 手动「尝试外网」）、断开/失败先关通道再断 WS。实跑：移动
+`test:run` 56 files / **681 passed**（+17）、`cargo test --lib` **79 passed**（+22）、
+`cargo check --target wasm32-unknown-unknown` 绿、`vue-tsc` 干净、`pnpm run build` 绿
+（650,698 bytes 组件）、根 lint 0 error / 44 warning。**未做**：已匹配省略票据与历史/mDNS
+重连（连接历史缺 `nodeId`，需先扩应用数据结构）、移动侧链加密测试锁（平台仓面）、
+Android dev / 真机目验与双端 E2E（`host-runtime.lock.json` 的 `artifacts` 为空，既有缺口）。
+
 | Ticket | 阶段 | 落仓（issue 真源仓） | 主题 | 依赖 |
 | --- | --- | --- | --- | --- |
 | [T01](tickets/T01-p0-relay-poc.md) | P0 | wasmnest-lib | relay PoC + Android 依赖树验证 | — |

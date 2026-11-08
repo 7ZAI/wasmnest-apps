@@ -83,6 +83,51 @@
         </div>
       </Transition>
 
+      <!-- 穿透状态（T09）：拨号失败（如内网不可达）也要可见，否则用户只看到「连接失败」
+           而不知道可以尝试外网。状态文字才是判据，颜色仅是提示。 -->
+      <Transition name="fade">
+        <div
+          v-if="!isConnected && tunnelAttempted && tunnelView"
+          class="mb-4"
+          data-testid="mobile-tunnel-status"
+        >
+          <div class="group-card">
+            <div class="group-row flex-wrap gap-2">
+              <span
+                class="px-2 py-0.5 rounded-full text-xs font-medium"
+                :class="tunnelToneClass"
+                data-testid="mobile-tunnel-mode"
+                :title="tunnelReasonText"
+                >{{ t(tunnelView.modeKey) }}</span
+              >
+              <span
+                class="px-2 py-0.5 rounded-full text-xs font-medium chip-emerald"
+                data-testid="mobile-tunnel-encryption"
+                :title="t('hub.tunnelEncryptionNote')"
+                >{{ t('hub.tunnelEncrypted') }}</span
+              >
+              <span
+                v-if="tunnelView.wanOff"
+                class="text-xs"
+                style="color: var(--mobile-text-muted)"
+                data-testid="mobile-tunnel-wan-off"
+                >{{ t('hub.tunnelWanOff') }}</span
+              >
+              <button
+                v-if="tunnelView.manualWan"
+                class="h-11 px-3 rounded-lg text-sm font-medium chip-amber"
+                data-testid="mobile-tunnel-try-wan"
+                :disabled="isConnecting"
+                :class="{ 'opacity-50': isConnecting }"
+                @click="handleTryWan"
+              >
+                {{ t('hub.tunnelTryWan') }}
+              </button>
+            </div>
+          </div>
+        </div>
+      </Transition>
+
       <!-- 主内容区互斥分支（已连接 / 扫描面板 / mDNS 发现 / 历史列表）：切换时淡入淡出（mode="out-in"），
           避免卡片硬切闪动；分支均需显式 key（同标签 div 复用会跳过过渡） -->
       <Transition name="fade" mode="out-in">
@@ -127,6 +172,43 @@
                     />
                   </svg>
                   <span>{{ t('hub.disconnect') }}</span>
+                </button>
+              </div>
+
+              <!-- 穿透状态（T09）：模式是宿主事实；「已加密」是常量徽标（不可关闭） -->
+              <div
+                v-if="tunnelView && tunnelView.viaTunnel"
+                class="mt-3 flex items-center gap-1.5 flex-wrap"
+                data-testid="mobile-tunnel-status-connected"
+              >
+                <span
+                  class="px-2 py-0.5 rounded-full text-xs font-medium"
+                  :class="tunnelToneClass"
+                  data-testid="mobile-tunnel-mode-connected"
+                  :title="tunnelReasonText"
+                  >{{ t(tunnelView.modeKey) }}</span
+                >
+                <span
+                  class="px-2 py-0.5 rounded-full text-xs font-medium chip-emerald"
+                  data-testid="mobile-tunnel-encryption-connected"
+                  :title="t('hub.tunnelEncryptionNote')"
+                  >{{ t('hub.tunnelEncrypted') }}</span
+                >
+                <span
+                  v-if="tunnelView.wanOff"
+                  class="text-xs"
+                  style="color: var(--mobile-text-muted)"
+                  data-testid="mobile-tunnel-wan-off-connected"
+                  >{{ t('hub.tunnelWanOff') }}</span
+                >
+                <button
+                  v-if="tunnelView.manualWan"
+                  class="text-xs font-medium underline"
+                  style="color: var(--mobile-accent)"
+                  data-testid="mobile-tunnel-try-wan-connected"
+                  @click="handleTryWan"
+                >
+                  {{ t('hub.tunnelTryWan') }}
                 </button>
               </div>
 
@@ -631,6 +713,7 @@ import { useHostPage, type HostDeviceTarget } from '../useHostPage'
 import { connectionErrorKey } from '../errors'
 import { formatLastConnected, parseAddressWithDefault } from '../utils'
 import { parseQrText, type QrPayload } from '../qr'
+import { buildTunnelView, type PeerTarget } from '../tunnel'
 import BottomSheet from './ui/BottomSheet.vue'
 import Button from './ui/Button.vue'
 import LoadingDialog from './ui/LoadingDialog.vue'
@@ -718,6 +801,28 @@ const discoveredServices = computed<DiscoveredService[]>(() =>
   Array.isArray(ctrl.mdnsServices.value) ? (ctrl.mdnsServices.value as DiscoveredService[]) : [],
 )
 
+
+// ── 内网穿透（T09）：状态栏事实全部来自宿主；本组件不推断传输路径 ──
+const tunnelStatus = computed(() => ctrl.tunnelStatus.value)
+/** 本会话试过拨号（句柄或对端 id 存在）：失败态也要能展示「内网不可达 + 尝试外网」 */
+const tunnelAttempted = computed(() => !!ctrl.tunnelNodeId.value)
+const tunnelView = computed(() => buildTunnelView(tunnelStatus.value, !!ctrl.tunnelHandle.value))
+const tunnelToneClass = computed(() => {
+  switch (tunnelView.value?.tone) {
+    case 'ok':
+      return 'chip-emerald'
+    case 'warn':
+      return 'chip-amber'
+    case 'error':
+      return 'chip-red'
+    default:
+      return 'chip-slate'
+  }
+})
+const tunnelReasonText = computed(() =>
+  tunnelView.value?.reasonKey ? t(tunnelView.value.reasonKey) : '',
+)
+
 /** 手动连接的默认端口（旧实现读 `mobile-settings.defaultPort`，缺省 8765） */
 const defaultPort = computed(() => {
   const value = Number(ctrl.mobileSettings.value?.defaultPort)
@@ -764,6 +869,8 @@ function onPageActivated(): void {
 onMounted(() => {
   onPageActivated()
   void ctrl.refreshBiometric()
+  // 重启后对账：模式 / 对端记录以宿主 `status` 为准（事件不重放）
+  void ctrl.refreshTunnelStatus()
 })
 
 // 页签容器常驻挂载（AppRoot 首次访问后不卸载面板）：用 active 复刻旧
@@ -1109,6 +1216,14 @@ async function onQrConnect(): Promise<void> {
   qrFlowActive = true
 
   try {
+    // Step 0: QR v2 带 `peer` → 先建隧道，后续一切业务都走 127.0.0.1 回环代理；
+    // 旧版载荷（无 `peer`）保持原 LAN 直连路径不回归
+    const proxy = await ctrl.openTunnel(result)
+    const target: HostDeviceTarget = proxy
+      ? { address: proxy.address, port: proxy.port, name: 'Desktop' }
+      : device
+    pendingDevice.value = target
+
     // Step 1: 建立连接（扫码自带一次性 token：跳过「旧凭据静默换新」）
     await ctrl.connectDevice(device, { silentAuth: false })
 
@@ -1124,7 +1239,8 @@ async function onQrConnect(): Promise<void> {
     connectionError.value = ctrl.deviceError.value || msg
     logger.error(`[host] QR connect failed: ${msg}`)
     toast.showToast(t(connectionErrorKey(msg)), 'error')
-    // 连接失败时确保前后端状态一致：断开后端连接 + 重置前端状态
+    // 连接失败时确保前后端状态一致：先关通道（避免遗留回环监听）再断连接
+    await ctrl.closeTunnel()
     await ctrl.disconnect().catch(() => {})
     await ctrl.loadHistory(true).catch(() => {})
   } finally {
@@ -1202,9 +1318,45 @@ function handleDisconnect(): void {
   showDisconnectConfirm.value = true
 }
 
+/**
+ * 手动「尝试外网」：拿已记录对端的 relay 候选让宿主重拨。
+ *
+ * 用户意图就是判据（宿主归因 `user`）；本组件不自己把 lan-unreachable 改判成外网。
+ * 失败按宿主错误码给文案，不弹模态。
+ */
+async function handleTryWan(): Promise<void> {
+  const nodeId = ctrl.tunnelNodeId.value
+  const target: PeerTarget | undefined =
+    tunnelStatus.value?.targets?.find((item) => item.nodeId === nodeId) ??
+    tunnelStatus.value?.targets?.[0]
+  if (!target) {
+    toast.showToast(t('hub.tunnelErrorPeerOffline'), 'error')
+    return
+  }
+  showConnectLoading.value = true
+  try {
+    const proxy = await ctrl.tryWan(target)
+    // 通道建好后按「新设备」重连（与扫码同一编排：先连传输层，再走认证）
+    await startConnection(
+      { address: proxy.address, port: proxy.port, name: target.deviceName },
+      true,
+    )
+  } catch (e) {
+    const message = errText(e)
+    connectionError.value = t(message)
+    logger.error(`[tunnel] try wan failed: ${message}`)
+    toast.showToast(t(message), 'error')
+    await ctrl.closeTunnel()
+  } finally {
+    showConnectLoading.value = false
+  }
+}
+
 async function confirmDisconnect(): Promise<void> {
   showDisconnectConfirm.value = false
   try {
+    // 先关通道再断 WS：反序会让宿主自动重连去拨已关闭的回环端口（静默重试）
+    await ctrl.closeTunnel()
     await ctrl.disconnect()
   } catch (e) {
     logger.error(`[host] disconnect failed: ${errText(e)}`)
