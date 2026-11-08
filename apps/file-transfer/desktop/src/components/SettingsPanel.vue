@@ -28,7 +28,6 @@ const emit = defineEmits<{
   (e: 'pickDownloadDir'): void
   (e: 'setReceivingPolicy', policy: 'ask' | 'accept' | 'reject'): void
   (e: 'setApprovalTimeoutSec', secs: number): void
-  (e: 'setEncryption', enabled: boolean): void
   (e: 'setConcurrency', n: number): void
   (e: 'close'): void
 }>()
@@ -40,12 +39,6 @@ const POLICY_OPTIONS: Array<{ value: 'ask' | 'accept' | 'reject'; key: string }>
   { value: 'ask', key: 'transfer.settings.receivingPolicyAsk' },
   { value: 'accept', key: 'transfer.settings.receivingPolicyAccept' },
   { value: 'reject', key: 'transfer.settings.receivingPolicyReject' },
-]
-
-/** 加密开关选项（复用分段控件标记结构；布尔二值） */
-const ENCRYPTION_OPTIONS: Array<{ value: boolean; key: string }> = [
-  { value: false, key: 'transfer.settings.encryptionOff' },
-  { value: true, key: 'transfer.settings.encryptionOn' },
 ]
 
 /** 并发上限（1–8，spec §7） */
@@ -205,22 +198,17 @@ function onTimeoutCommit(secs: number): void {
           <p class="ft-settings-helper">{{ t('transfer.settings.concurrencyHint') }}</p>
         </section>
 
-        <!-- 传输加密（默认关；发送侧生效，接收端经 Offer 头自动解密） -->
+        <!-- 传输加密（固定开启，无关闭开关——穿透方案不变量 12） -->
         <section class="ft-settings-section" data-testid="ft-settings-section-encryption">
           <h3 class="ft-settings-section-title">{{ t('transfer.settings.encryption') }}</h3>
-          <div class="ft-segmented" role="tablist">
-            <button
-              v-for="opt in ENCRYPTION_OPTIONS"
-              :key="opt.key"
-              class="ft-segmented-item"
-              :class="{ 'ft-segmented-item--active': settings.encryption === opt.value }"
-              role="tab"
-              :aria-selected="settings.encryption === opt.value"
-              :data-testid="`ft-encryption-${opt.value}`"
-              @click="emit('setEncryption', opt.value)"
+          <div class="ft-segmented">
+            <span
+              class="ft-segmented-item ft-segmented-item--active ft-segmented-item--static"
+              role="status"
+              data-testid="ft-encryption-required"
             >
-              {{ t(opt.key) }}
-            </button>
+              {{ t('transfer.settings.encryptionAlwaysOn') }}
+            </span>
           </div>
           <p class="ft-settings-helper">{{ t('transfer.settings.encryptionHint') }}</p>
         </section>
@@ -243,7 +231,7 @@ function onTimeoutCommit(secs: number): void {
               d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0zM12 9v4M12 17h.01"
             />
           </svg>
-          <span>{{ t('transfer.settings.plainWarning') }}</span>
+          <span>{{ t('transfer.settings.encryptionNotice') }}</span>
         </div>
       </div>
     </div>

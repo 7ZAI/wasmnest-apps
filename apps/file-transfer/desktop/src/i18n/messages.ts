@@ -150,7 +150,7 @@ export type MessageSchema = {
   'transfer.settings.chooseDir': string
   'transfer.settings.concurrency': string
   'transfer.settings.concurrencyHint': string
-  'transfer.settings.plainWarning': string
+  'transfer.settings.encryptionNotice': string
   'transfer.settings.concurrencyMinus': string
   'transfer.settings.concurrencyPlus': string
   'transfer.settings.receivingPolicy': string
@@ -160,8 +160,7 @@ export type MessageSchema = {
   'transfer.settings.receivingPolicyHint': string
   'transfer.settings.approvalTimeout': string
   'transfer.settings.encryption': string
-  'transfer.settings.encryptionOn': string
-  'transfer.settings.encryptionOff': string
+  'transfer.settings.encryptionAlwaysOn': string
   'transfer.settings.encryptionHint': string
 
   // ==================== 错误（spec §10 + v2 拒绝原因） ====================

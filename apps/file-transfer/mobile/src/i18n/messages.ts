@@ -235,8 +235,7 @@ export type MessageSchema = {
   'transfer.settings.receivingPolicyReject': string
   'transfer.settings.receivingPolicyHint': string
   'transfer.settings.encryption': string
-  'transfer.settings.encryptionOn': string
-  'transfer.settings.encryptionOff': string
+  'transfer.settings.encryptionAlwaysOn': string
   'transfer.settings.encryptionHint': string
   'transfer.settings.approvalTimeout': string
 

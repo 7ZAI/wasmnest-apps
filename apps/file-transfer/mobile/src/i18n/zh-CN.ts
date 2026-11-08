@@ -230,9 +230,9 @@ export default {
   'transfer.settings.receivingPolicyReject': '直接拒绝',
   'transfer.settings.receivingPolicyHint': '对端发送文件前是否需要你同意',
   'transfer.settings.encryption': '传输加密',
-  'transfer.settings.encryptionOn': '开',
-  'transfer.settings.encryptionOff': '关',
-  'transfer.settings.encryptionHint': '开启后，传输内容将自动加密保护，防止被第三方截取',
+  'transfer.settings.encryptionAlwaysOn': '始终加密',
+  'transfer.settings.encryptionHint':
+    '所有发送（内网直连 / 外网中继）都强制加密，无关闭开关；对端需为支持加密的新版本',
   'transfer.settings.approvalTimeout': '同意超时（秒）',
 
   // ==================== 首连确认（全局对话框，spec 决策 7） ====================

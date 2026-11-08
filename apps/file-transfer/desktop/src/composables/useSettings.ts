@@ -22,7 +22,7 @@ export function useSettings(context: PluginContext) {
     concurrency: 3,
     receivingPolicy: 'ask',
     approvalTimeoutSec: 60,
-    encryption: false,
+    encryption: true,
   }) as Ref<Settings>
   /** roots 带条目 id（宿主 DTO），与 Settings.roots（展示名列表）并行维护 */
   const rootItems = ref<RootItem[]>([]) as Ref<RootItem[]>
@@ -55,8 +55,8 @@ export function useSettings(context: PluginContext) {
             typeof r.ask_timeout_sec === 'number'
               ? r.ask_timeout_sec
               : (typeof r.askTimeoutSec === 'number' ? r.askTimeoutSec : 60),
-          // encryption_enabled 为旧版后端兼容 fallback（当前只返 encryption）
-          encryption: r.encryption ?? r.encryption_enabled ?? false,
+          // 加密固定开启（穿透方案不变量 12）：旧后端若返 false 也不采信，UI 不提供关闭
+          encryption: true,
           concurrency:
             typeof r.concurrency === 'number' ? Math.min(8, Math.max(1, Math.round(r.concurrency))) : 3,
         }
@@ -87,12 +87,6 @@ export function useSettings(context: PluginContext) {
       approvalTimeoutSec: clamped,
     })
     settings.value = { ...settings.value, approvalTimeoutSec: clamped }
-  }
-
-  /** 设置发送加密开关（即时保存） */
-  async function setEncryption(enabled: boolean): Promise<void> {
-    await context.commands.execute('file-transfer.set-settings', { encryption: enabled })
-    settings.value = { ...settings.value, encryption: enabled }
   }
 
   /** 设置发送方向并发上限（1–8 钳制；随下次发送载荷脉冲推送宿主闸门） */
@@ -159,7 +153,6 @@ export function useSettings(context: PluginContext) {
     pickDownloadDir,
     setReceivingPolicy,
     setApprovalTimeoutSec,
-    setEncryption,
     setConcurrency,
   }
 }

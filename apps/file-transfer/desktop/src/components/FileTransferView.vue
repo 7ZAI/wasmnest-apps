@@ -74,7 +74,6 @@ const {
   pickDownloadDir,
   setReceivingPolicy,
   setApprovalTimeoutSec,
-  setEncryption,
   setConcurrency,
 } = useSettings(context)
 /** 插件自身对等连接：存在任一已建立的对等连接（≠ 宿主主连接） */
@@ -624,7 +623,6 @@ function handleClearHistoryConfirm(): void {
         @pick-download-dir="pickDownloadDir"
         @set-receiving-policy="setReceivingPolicy"
         @set-approval-timeout-sec="setApprovalTimeoutSec"
-        @set-encryption="setEncryption"
         @set-concurrency="setConcurrency"
         @close="showSettings = false"
       />

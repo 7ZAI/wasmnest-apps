@@ -1387,6 +1387,7 @@ pub(crate) fn get_settings(h: &WasmHost) -> Result<serde_json::Value> {
 
 /// 设置写入：未指定的键沿用现值；storage 真源 + 宿主配置原语推送。
 /// `downloadDir` 仅桌面形态生效（移动固定落点，静默忽略——与退役前逐字一致）。
+/// `encryption` 固定开启（穿透方案不变量 12）：传 `false` 显性报错，不静默改写。
 pub(crate) fn set_settings(h: &WasmHost, args: &serde_json::Value) -> Result<serde_json::Value> {
     let mut s = settings_store::load_or_migrate(h)?;
     if let Some(policy) = args.get("receivingPolicy").and_then(|v| v.as_str()) {
@@ -1400,8 +1401,8 @@ pub(crate) fn set_settings(h: &WasmHost, args: &serde_json::Value) -> Result<ser
             s.download_dir = if dir.is_empty() { None } else { Some(dir.to_string()) };
         }
     }
-    if let Some(enabled) = args.get("encryption").and_then(|v| v.as_bool()) {
-        s.encryption = enabled;
+    if args.get("encryption").is_some() {
+        settings_store::validate_encryption_patch(args.get("encryption"))?;
     }
     if let Some(n) = args.get("concurrency").and_then(|v| v.as_u64()) {
         s.concurrency = settings_store::clamp_concurrency(n as u8);

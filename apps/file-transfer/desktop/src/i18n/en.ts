@@ -151,8 +151,8 @@ const en: MessageSchema = {
     'Number of simultaneous transfers; increasing it may use more bandwidth',
   'transfer.settings.concurrencyMinus': 'Decrease concurrency',
   'transfer.settings.concurrencyPlus': 'Increase concurrency',
-  'transfer.settings.plainWarning':
-    'Files are transferred unencrypted on your local network. Only use this on trusted WiFi.',
+  'transfer.settings.encryptionNotice':
+    'Transfers are always end-to-end encrypted (AES-256-GCM). Older peers without encryption support fail visibly instead of falling back to plaintext.',
   'transfer.settings.receivingPolicy': 'Receiving policy',
   'transfer.settings.receivingPolicyAsk': 'Ask every time',
   'transfer.settings.receivingPolicyAccept': 'Accept automatically',
@@ -160,10 +160,9 @@ const en: MessageSchema = {
   'transfer.settings.receivingPolicyHint': 'Whether to ask before receiving files from peers',
   'transfer.settings.approvalTimeout': 'Approval timeout (s)',
   'transfer.settings.encryption': 'Transfer encryption',
-  'transfer.settings.encryptionOn': 'On',
-  'transfer.settings.encryptionOff': 'Off',
+  'transfer.settings.encryptionAlwaysOn': 'Always encrypted',
   'transfer.settings.encryptionHint':
-    'When enabled, sent files are end-to-end encrypted with AES-256-GCM; the peer must also run a recent WasmNest version to decrypt them automatically',
+    'Every transfer (LAN or relay) is encrypted and cannot be turned off; the peer must support encryption',
 
   // ==================== Errors (spec §10 + v2 reject reasons) ====================
   'transfer.error.duplicateName':

@@ -144,7 +144,8 @@ const zhCN: MessageSchema = {
   'transfer.settings.chooseDir': '选择目录',
   'transfer.settings.concurrency': '并发数',
   'transfer.settings.concurrencyHint': '同时传输的任务数量，增大可能占用更多带宽',
-  'transfer.settings.plainWarning': '文件在本局域网内明文传输，请仅在受信任的 WiFi 网络中使用',
+  'transfer.settings.encryptionNotice':
+    '传输始终启用端到端加密（AES-256-GCM）；不支持加密的旧版本对端会显性失败，不会降级为明文',
   'transfer.settings.concurrencyMinus': '减少并发数',
   'transfer.settings.concurrencyPlus': '增加并发数',
   'transfer.settings.receivingPolicy': '接收策略',
@@ -154,10 +155,9 @@ const zhCN: MessageSchema = {
   'transfer.settings.receivingPolicyHint': '对端发送文件前是否需要你同意',
   'transfer.settings.approvalTimeout': '同意超时（秒）',
   'transfer.settings.encryption': '传输加密',
-  'transfer.settings.encryptionOn': '开启',
-  'transfer.settings.encryptionOff': '关闭',
+  'transfer.settings.encryptionAlwaysOn': '始终加密',
   'transfer.settings.encryptionHint':
-    '开启后发送文件经 AES-256-GCM 端到端加密；需对端同为 WasmNest 新版本方可自动解密',
+    '所有发送（内网直连 / 外网中继）都强制加密，无关闭开关；对端需为支持加密的新版本',
 
   // ==================== 错误（spec §10 + v2 拒绝原因） ====================
   'transfer.error.duplicateName': '无法上传：目标目录已存在同名文件',

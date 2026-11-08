@@ -232,9 +232,9 @@ export default {
   'transfer.settings.receivingPolicyReject': 'Reject automatically',
   'transfer.settings.receivingPolicyHint': 'Whether to ask before receiving files from peers',
   'transfer.settings.encryption': 'Transfer encryption',
-  'transfer.settings.encryptionOn': 'On',
-  'transfer.settings.encryptionOff': 'Off',
-  'transfer.settings.encryptionHint': 'When enabled, transfers are automatically encrypted in transit to protect them from interception.',
+  'transfer.settings.encryptionAlwaysOn': 'Always encrypted',
+  'transfer.settings.encryptionHint':
+    'Every transfer (LAN or relay) is encrypted and cannot be turned off; the peer must support encryption',
   'transfer.settings.approvalTimeout': 'Approval timeout (s)',
 
   // ==================== 首连确认（全局对话框，spec 决策 7） ====================

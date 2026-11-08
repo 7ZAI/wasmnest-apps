@@ -97,21 +97,7 @@ async function handleSetPolicy(policy: ReceivingPolicy): Promise<void> {
   }
 }
 
-// ==================== 发送加密 ====================
-
-/** 加密开关选项（自绘 segmented，禁原生 checkbox；默认关） */
-const ENCRYPTION_OPTIONS: { value: boolean; labelKey: string }[] = [
-  { value: false, labelKey: 'transfer.settings.encryptionOff' },
-  { value: true, labelKey: 'transfer.settings.encryptionOn' },
-]
-
-/** 切换传输加密（仅影响本端主动发送；接收端按对端加密头自动解密） */
-async function handleSetEncryption(enabled: boolean): Promise<void> {
-  const ok = await props.settingsApi.setEncryption(enabled)
-  if (ok && context) {
-    context.dialogs.showToast(t('transfer.settings.saved'), 'success')
-  }
-}
+// ==================== 发送加密（固定开启，无关闭开关） ====================
 
 /** 并发上限（1–8，spec §7）；步进钳制后即时保存 */
 async function stepConcurrency(delta: number): Promise<void> {
@@ -294,19 +280,15 @@ watch(() => props.settingsApi.settings.value.approvalTimeoutSec, syncTimeoutInpu
             <div class="settings-label">{{ t('transfer.settings.encryption') }}</div>
             <div class="settings-desc">{{ t('transfer.settings.encryptionHint') }}</div>
           </div>
-          <!-- 自绘分段控件：关/开 两档（默认关），与策略分段同构 -->
-          <div class="ft-segmented flex-shrink-0" role="radiogroup">
-            <button
-              v-for="opt in ENCRYPTION_OPTIONS"
-              :key="String(opt.value)"
-              role="radio"
-              :aria-checked="(settingsApi?.settings.value.encryption ?? false) === opt.value"
-              class="ft-segmented-item"
-              :class="{ 'ft-segmented-item--active': (settingsApi?.settings.value.encryption ?? false) === opt.value }"
-              @click="handleSetEncryption(opt.value)"
+          <!-- 只读档位：加密固定开启（穿透方案不变量 12），无关闭开关 -->
+          <div class="ft-segmented flex-shrink-0">
+            <span
+              class="ft-segmented-item ft-segmented-item--active ft-segmented-item--static"
+              role="status"
+              data-testid="ft-encryption-required"
             >
-              {{ t(opt.labelKey) }}
-            </button>
+              {{ t('transfer.settings.encryptionAlwaysOn') }}
+            </span>
           </div>
         </div>
       </div>
@@ -502,6 +484,11 @@ watch(() => props.settingsApi.settings.value.approvalTimeoutSec, syncTimeoutInpu
 .ft-segmented-item--active {
   background: var(--ft-bg-elevated);
   color: var(--ft-accent-text);
+}
+
+/* 只读档位（固定加密）：外观同选中项，但不可点 */
+.ft-segmented-item--static {
+  cursor: default;
 }
 
 /* 同意超时数字输入：完全自绘外观（token 边框/圆角/字号，无系统控件观感）。

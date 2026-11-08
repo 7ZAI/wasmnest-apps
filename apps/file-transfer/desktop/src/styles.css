@@ -1553,6 +1553,15 @@
   box-shadow: var(--shadow-card);
 }
 
+/* 只读档位（如固定加密）：外观同选中项，但不可点 */
+.ft-segmented-item--static {
+  cursor: default;
+}
+
+.ft-segmented-item--static:hover {
+  color: var(--text-primary);
+}
+
 .ft-settings-timeout {
   margin-top: 8px;
 }
