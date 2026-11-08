@@ -18,6 +18,10 @@
  * - C5b 已有活跃 QR：进入页面恢复展示（不重新生成 token）
  * - C5c Tab 切走再切回：canvas 元素重建后按现有载荷重绘（不重绘 → 空白，2026-09-26 修复）
  * - C5d 路由 KeepAlive 切回（重新激活）时重绘二维码
+ * - C5e 宿主提供 peer：QR 载荷升 v2（v/nodeId/addrs/ticket）
+ * - C5f peer 残缺：不生成二维码、不启动倒计时、显性错误文案（不静默退回 v1）
+ * - C5h 复制连接串：剪贴板收到与 QR 同载荷的 `wasmnest://pair/…` 链接
+ * - C5i 剪贴板不可用：显性失败提示，不假装已复制
  * - C6 在线判定：`device:connected` 事件把设备移入在线区
  * - C7 离线判定：`device:disconnected` 事件把设备移回离线区
  * - C8 设备接入即清除已使用配对码（后端事件驱动状态流转）
@@ -88,6 +92,9 @@ async function defaultExecute(command: string, args?: unknown): Promise<unknown>
       return { rotated: true, kid: 'g2', previousKid: 'g1' }
     case 'session.auth.center-status':
       return { registered: true, centerId: 'authc-1234' }
+    case 'session.tunnel.prepare':
+    case 'session.tunnel.status':
+      return seed.tunnel
     default:
       throw new Error(`unexpected command: ${command} (args=${JSON.stringify(args)})`)
   }
@@ -313,6 +320,135 @@ describe('DeviceCenterView（设备与配对页面）', () => {
 
     expect(wrapper.find('canvas').exists()).toBe(true)
     expect((QRCode.toCanvas as any).mock.calls.length).toBeGreaterThan(before)
+  })
+
+  it('C5e 宿主提供 peer：QR 载荷升 v2 并保留三要素', async () => {
+    const peer = {
+      nodeId: '12D3KooWTarget',
+      addrs: [
+        '/ip4/192.168.1.5/tcp/47613/p2p/12D3KooWTarget',
+        '/ip4/203.0.113.10/tcp/4001/p2p/12D3KooWRelay/p2p-circuit/p2p/12D3KooWTarget',
+      ],
+      ticket: 'ticket-once',
+    }
+    execute.mockImplementation(async (command: string) => {
+      if (command === 'session.qr.generate') return { ...seed.qr, peer }
+      return defaultExecute(command)
+    })
+    const wrapper = mountView()
+    await flushPromises()
+
+    await findButton(wrapper, 'pairing.qr.generate')!.trigger('click')
+    await flushPromises()
+
+    const QRCode = (await import('qrcode')).default
+    const payload = JSON.parse((QRCode.toCanvas as any).mock.calls.at(-1)[1])
+    expect(payload).toEqual({
+      v: 2,
+      host: seed.qr.host,
+      port: seed.qr.port,
+      token: seed.qr.token,
+      peer,
+    })
+  })
+
+  it('C5f peer 残缺：不生成二维码，显示显性错误（禁止静默退回 v1）', async () => {
+    execute.mockImplementation(async (command: string) => {
+      if (command === 'session.qr.generate') {
+        return { ...seed.qr, peer: { nodeId: 'n', addrs: [], ticket: 't' } }
+      }
+      return defaultExecute(command)
+    })
+    const wrapper = mountView()
+    await flushPromises()
+
+    await findButton(wrapper, 'pairing.qr.generate')!.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('canvas').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="pairing-qr-error"]').text()).toBe(
+      'pairing.qr.errorPeerIncomplete',
+    )
+    const QRCode = (await import('qrcode')).default
+    expect(QRCode.toCanvas).not.toHaveBeenCalled()
+  })
+
+  it('C5g 恢复路径的 peer 残缺同样显性失败', async () => {
+    execute.mockImplementation(async (command: string) => {
+      if (command === 'session.qr.info') {
+        return { ...seed.qr, peer: { nodeId: 'n', addrs: ['/ip4/0.0.0.0/tcp/1/p2p/x'], ticket: 't' } }
+      }
+      return defaultExecute(command)
+    })
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.find('canvas').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="pairing-qr-error"]').text()).toBe(
+      'pairing.qr.errorPeerAddressInvalid',
+    )
+  })
+
+  it('C5h 复制连接串：剪贴板收到与 QR 同载荷的 wasmnest://pair 链接', async () => {
+    const peer = {
+      nodeId: '12D3KooWTarget',
+      addrs: ['/ip4/192.168.1.5/tcp/47613/p2p/12D3KooWTarget'],
+      ticket: 'ticket-once',
+    }
+    execute.mockImplementation(async (command: string) => {
+      if (command === 'session.qr.generate') return { ...seed.qr, peer }
+      return defaultExecute(command)
+    })
+    const writeText = vi.fn(async () => {})
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    })
+    const { toast } = await import('vue-sonner')
+
+    const wrapper = mountView()
+    await flushPromises()
+    await findButton(wrapper, 'pairing.qr.generate')!.trigger('click')
+    await flushPromises()
+
+    await wrapper.find('[data-testid="pairing-qr-copy-link"]').trigger('click')
+    await flushPromises()
+
+    expect(writeText).toHaveBeenCalledTimes(1)
+    const uri = writeText.mock.calls[0][0] as string
+    expect(uri.startsWith('wasmnest://pair/')).toBe(true)
+
+    // 解回 JSON：连接串与 QR 同载荷（不额外夹带长期密钥）
+    const base64 = uri.slice('wasmnest://pair/'.length).replace(/-/g, '+').replace(/_/g, '/')
+    const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4)
+    const binary = atob(padded)
+    const decoded = JSON.parse(
+      new TextDecoder().decode(Uint8Array.from(binary, (ch) => ch.charCodeAt(0))),
+    )
+    expect(decoded).toEqual({
+      v: 2,
+      host: seed.qr.host,
+      port: seed.qr.port,
+      token: seed.qr.token,
+      peer,
+    })
+    expect(toast.success).toHaveBeenCalledWith('pairing.qr.copyLinkDone')
+  })
+
+  it('C5i 剪贴板不可用：显性失败提示，不假装已复制', async () => {
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: undefined })
+    const { toast } = await import('vue-sonner')
+
+    const wrapper = mountView()
+    await flushPromises()
+    await findButton(wrapper, 'pairing.qr.generate')!.trigger('click')
+    await flushPromises()
+
+    await wrapper.find('[data-testid="pairing-qr-copy-link"]').trigger('click')
+    await flushPromises()
+
+    expect(toast.error).toHaveBeenCalledWith('pairing.qr.copyLinkFailed')
+    expect(toast.success).not.toHaveBeenCalled()
   })
 
   it('C6/C7 在线与离线判定由后端事件驱动（同一台设备在两个分区之间迁移）', async () => {
@@ -717,5 +853,56 @@ describe('DeviceCenterView（设备与配对页面）', () => {
     expect(wrapper.text()).not.toContain(`${seed.network.addresses[0]}:${seed.network.port}`)
     // 二维码载荷随新地址重组（token 不变）
     expect(commandsTo('session.qr.info').at(-1)![1]).toEqual({ host: '10.9.9.9' })
+  })
+
+  it('C27 隧道状态栏：宿主快照 → 传输模式文案 + 「已加密」常量徽标', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+
+    // prepare 只在进入页面时调一次（幂等写配置 + 暴露）
+    expect(commandsTo('session.tunnel.prepare')).toHaveLength(1)
+    expect(wrapper.find('[data-testid="pairing-tunnel-status"]').text()).toBe(
+      'pairing.tunnel.ready',
+    )
+    // 加密不可关闭：徽标是常量事实，不是开关
+    const badge = wrapper.find('[data-testid="pairing-tunnel-encryption"]')
+    expect(badge.text()).toBe('pairing.tunnel.encryption')
+    expect(badge.attributes('title')).toBe('pairing.tunnel.encryptionHint')
+  })
+
+  it('C28 隧道不可用：命令失败 → 显性「隧道不可用」，不退化成「就绪」', async () => {
+    execute.mockImplementation(async (command: string, args?: unknown) => {
+      if (command === 'session.tunnel.prepare' || command === 'session.tunnel.status') {
+        throw new Error('tunnel unavailable outside wasm runtime')
+      }
+      return defaultExecute(command, args)
+    })
+    const wrapper = mountView()
+    await flushPromises()
+
+    const strip = wrapper.find('[data-testid="pairing-tunnel-status"]')
+    expect(strip.text()).toBe('pairing.tunnel.unavailable')
+    expect(strip.attributes('title')).toBe('tunnel unavailable outside wasm runtime')
+  })
+
+  it('C29 peer 未产出：QR 退回 v1 并显示「仅内网」原因（不静默）', async () => {
+    execute.mockImplementation(async (command: string, args?: unknown) => {
+      if (command === 'session.qr.generate') {
+        // 后端不产出残缺 peer：只有 peerError
+        return { ...seed.qr, peerError: 'tunnel node addrs unavailable' }
+      }
+      return defaultExecute(command, args)
+    })
+    const wrapper = mountView()
+    await flushPromises()
+
+    await findButton(wrapper, 'pairing.qr.generate')!.trigger('click')
+    await flushPromises()
+
+    const hint = wrapper.find('[data-testid="pairing-qr-peer-error"]')
+    expect(hint.exists()).toBe(true)
+    expect(hint.text()).toBe('pairing.tunnel.onlyLan')
+    // 载荷仍是可用的 v1（能扫，只是仅内网）
+    expect(wrapper.find('[data-testid="pairing-qr-copy-link"]').exists()).toBe(true)
   })
 })

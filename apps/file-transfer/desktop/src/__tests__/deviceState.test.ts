@@ -12,7 +12,12 @@
 import { describe, it, expect } from 'vitest'
 import devMock, { NODE_PIXEL, NODE_XIAOMI } from '../devMock'
 import type { PeerDevMock } from '../devMockTypes'
-import { parseFoundPayload } from '../composables/deviceState'
+import {
+  DEVICE_TTL_MS,
+  deriveDeviceRows,
+  parseFoundPayload,
+  sweepStaleDevices,
+} from '../composables/deviceState'
 
 const peer = devMock.peer as PeerDevMock
 const seeds = peer.deviceSeeds
@@ -75,5 +80,74 @@ describe('devMock 种子与 parseFoundPayload 的契约', () => {
     const homeNas = seeds.find((s) => s.found.txtRecords.cap === '0')
     expect(homeNas, '种子需保留一台 cap=0 的设备以覆盖该分支').toBeDefined()
     expect(parseFoundPayload(homeNas!.found)!.fileTransfer).toBe(false)
+  })
+})
+
+
+// ==================== T12：传输形态 / 远程设备 ====================
+
+const RELAY_ADDR =
+  '/ip4/203.0.113.9/tcp/4001/p2p/12D3KooWRelay/p2p-circuit/p2p/12D3KooWTarget'
+const LAN_ADDR = '/ip4/192.168.1.5/tcp/47613'
+const NODE_REMOTE = 'f'.repeat(64)
+
+function derive(overrides: Partial<Parameters<typeof deriveDeviceRows>[0]> = {}) {
+  return deriveDeviceRows({
+    devices: [],
+    connectingIds: new Set(),
+    connectedIds: new Set(),
+    dialErrors: {},
+    activePeerId: '',
+    ...overrides,
+  })
+}
+
+describe('deriveDeviceRows · 传输形态与远程设备', () => {
+  it('已连接时带出宿主 transport；断开后不残留', () => {
+    const device = { nodeId: NODE_REMOTE, deviceName: 'Remote', addr: '', port: 0 }
+    const rows = derive({
+      devices: [device],
+      connectedIds: new Set([NODE_REMOTE]),
+      transports: { [NODE_REMOTE]: 'wan-relay' },
+    })
+    expect(rows[0].transport).toBe('wan-relay')
+    const offline = derive({ devices: [device] })
+    expect(offline[0].transport).toBeNull()
+  })
+
+  it('有 relay 候选才给「尝试外网」入口（LAN-only 设备没有手动入口）', () => {
+    const paired = derive({
+      devices: [
+        { nodeId: NODE_REMOTE, deviceName: 'Remote', addr: '', port: 0, addrs: [LAN_ADDR, RELAY_ADDR], paired: true },
+      ],
+    })
+    expect(paired[0].paired).toBe(true)
+    expect(paired[0].wanAvailable).toBe(true)
+
+    const lanOnly = derive({
+      devices: [{ nodeId: NODE_XIAOMI, deviceName: 'Phone', addr: '192.168.1.108', port: 47821 }],
+    })
+    expect(lanOnly[0].wanAvailable).toBe(false)
+  })
+
+  it('已建立 relay 连接时即使候选表为空也保留「可尝试外网」事实', () => {
+    const rows = derive({
+      devices: [{ nodeId: NODE_REMOTE, deviceName: 'Remote' }],
+      connectedIds: new Set([NODE_REMOTE]),
+      transports: { [NODE_REMOTE]: 'wan-relay' },
+    })
+    expect(rows[0].wanAvailable).toBe(true)
+  })
+})
+
+describe('sweepStaleDevices · 配对设备不被 TTL 清扫', () => {
+  it('过期远程设备保留，过期发现设备移除', () => {
+    const now = Date.now()
+    const list = [
+      { nodeId: NODE_REMOTE, addr: '', port: 0, addrs: [RELAY_ADDR], paired: true, lastSeenMs: now - DEVICE_TTL_MS * 10 },
+      { nodeId: NODE_PIXEL, addr: '192.168.1.132', port: 51044, lastSeenMs: now - DEVICE_TTL_MS * 10 },
+    ]
+    const kept = sweepStaleDevices(list, now, new Set())
+    expect(kept.map((d) => d.nodeId)).toEqual([NODE_REMOTE])
   })
 })

@@ -15,6 +15,7 @@
 //! reveal-in-dir、认证中心互调）只在桌面分支触达；移动分支误触即 fail-visible。
 
 use crate::device_bridge::{self, DialEndpoint};
+use wasmnest_file_transfer_core::dial as core_dial;
 use crate::platform::{self, Platform};
 use crate::roots_registry::{self, SharedRoot};
 use crate::settings_store::{self, TransferSettings};
@@ -665,7 +666,7 @@ fn resolve_node(
 
 /// 连接保障：已有活跃会话直接用句柄；endpoint 可知则静默重拨铸新句柄；
 /// 都不行退回 node-id 直呼（过渡期兜底）。返回传给数据面原语的首参。
-fn ensure_target<H: HostPeer + ?Sized>(
+fn ensure_target<H: HostPeer + HostStorage + ?Sized>(
     h: &H,
     node_id: &str,
     endpoint: Option<DialEndpoint>,
@@ -675,21 +676,62 @@ fn ensure_target<H: HostPeer + ?Sized>(
     }
     let ep = device_bridge::resolve_endpoint(endpoint, node_id)
         .ok_or_else(|| anyhow::anyhow!("no endpoint known for peer {node_id}"))?;
-    let handle = h.peer_dial(&serde_json::to_value(&ep)?)?;
-    device_bridge::remember_session(&ep, handle);
+    let (handle, plan) = dial_with_plan(h, &ep, false)?;
+    // 重连沿用上次路径：成功纳入过 relay 的会话断线后必须还能按同一候选表重拨
+    let mut memo = ep;
+    memo.wan = memo.wan || plan.relay_included;
+    device_bridge::remember_session(&memo, handle);
     Ok(device_bridge::session_of(node_id).unwrap_or_else(|| node_id.to_string()))
+}
+
+/// 拨号计划 + 真实拨号（双入口共用：用户手动拨号 / 数据面静默重拨）。
+///
+/// 单地址 LAN 端点仍走旧 `dial-peer` 原语（与退役前逐字一致）；只有真的存在
+/// 多候选或 relay 候选时才用 `dial-peer-addrs`——多地址路径的候选顺序完全由
+/// [`core_dial::dial_plan`] 决定，本层不重排。
+fn dial_with_plan<H: HostPeer + HostStorage + ?Sized>(
+    h: &H,
+    ep: &DialEndpoint,
+    manual_wan: bool,
+) -> Result<(String, core_dial::DialPlan)> {
+    let settings = settings_store::load(h)?;
+    let plan = core_dial::dial_plan(ep, settings.allow_wan, manual_wan)
+        .map_err(|e| anyhow::anyhow!("dial {}: {e}", ep.node_id))?;
+    let handle = if plan.candidates.len() == 1 && ep.addrs.is_empty() && !plan.relay_included {
+        // 旧原语只认单地址三元组：候选表里的 `addrs` / `wan` 不外泄给宿主
+        h.peer_dial(&serde_json::json!({
+            "nodeId": ep.node_id,
+            "addr": ep.addr,
+            "port": ep.port,
+        }))?
+    } else {
+        h.peer_dial_addrs(&serde_json::json!({
+            "nodeId": ep.node_id,
+            "addrs": plan.candidates,
+        }))?
+    };
+    Ok((handle, plan))
 }
 
 // ==================== 连接命令 ====================
 
-pub(crate) fn dial_peer(h: &WasmHost, args: &serde_json::Value) -> Result<serde_json::Value> {
+pub(crate) fn dial_peer<H: HostPeer + HostStorage + ?Sized>(
+    h: &H,
+    args: &serde_json::Value,
+) -> Result<serde_json::Value> {
     // 允许两种传参形状：{ endpoint: {...} } 或直接顶层 { nodeId, addr, port }
     let endpoint_value = args.get("endpoint").cloned().unwrap_or_else(|| args.clone());
     let endpoint: DialEndpoint = serde_json::from_value(endpoint_value)
         .map_err(|e| anyhow::anyhow!("invalid endpoint: {e}"))?;
-    let handle = h.peer_dial(&serde_json::to_value(&endpoint)?)?;
-    device_bridge::remember_session(&endpoint, handle);
-    Ok(serde_json::json!({ "status": "connected" }))
+    // `wan: true` = 用户显式点「尝试外网」（§4.9 不自动烧中继，手动入口才纳入）
+    let manual_wan = args.get("wan").and_then(|v| v.as_bool()).unwrap_or(false);
+    let (handle, plan) = dial_with_plan(h, &endpoint, manual_wan)?;
+    let mut memo = endpoint;
+    memo.wan = memo.wan || plan.relay_included;
+    device_bridge::remember_session(&memo, handle);
+    // 真实传输形态（lan-direct / wan-relay）由宿主 `peer:connection` 事件给出，
+    // 命令面不猜：这里只代表「拨号成功」。
+    Ok(serde_json::json!({ "status": "connected", "relayIncluded": plan.relay_included }))
 }
 
 pub(crate) fn disconnect_peer(h: &WasmHost, args: &serde_json::Value) -> Result<serde_json::Value> {
@@ -717,6 +759,22 @@ fn send_payload(settings: &TransferSettings, paths: &[String]) -> Vec<serde_json
         .iter()
         .map(|p| serde_json::json!({ "path": p, "encrypt": settings.encryption }))
         .collect()
+}
+
+/// 发送源清单（宿主 `collect-outgoing` 的 `[{ path, size }]`）→ 总字节数。
+///
+/// 只认 `size` 为无符号整数的条目；缺失/异常条目按 0 计（体积预览是「提示阈值」
+/// 输入，不是安全判据——不因单个条目元数据异常拒绝整批发送）。
+pub(crate) fn outgoing_total_bytes(collected: &serde_json::Value) -> u64 {
+    collected
+        .as_array()
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| item.get("size").and_then(|v| v.as_u64()))
+                .sum()
+        })
+        .unwrap_or(0)
 }
 
 /// 发送批发起（闸门放行后的公共路径）：解析目标 → send-files → 入店占位
@@ -1354,6 +1412,8 @@ pub(crate) fn get_settings(h: &WasmHost) -> Result<serde_json::Value> {
             "download_dir": s.download_dir.unwrap_or_default(),
             "encryption": s.encryption,
             "concurrency": s.concurrency,
+            "allow_wan": s.allow_wan,
+            "relay_max_bytes_per_task": s.relay_max_bytes_per_task,
         })),
         Platform::Mobile => {
             // 平台默认下载目录（app 私有下载目录）：引擎侧为平台缝注册的普通
@@ -1380,6 +1440,8 @@ pub(crate) fn get_settings(h: &WasmHost) -> Result<serde_json::Value> {
                 "download_dir": "MediaStore/Downloads",
                 "encryption": s.encryption,
                 "concurrency": s.concurrency,
+                "allow_wan": s.allow_wan,
+                "relay_max_bytes_per_task": s.relay_max_bytes_per_task,
             }))
         }
     }
@@ -1387,6 +1449,7 @@ pub(crate) fn get_settings(h: &WasmHost) -> Result<serde_json::Value> {
 
 /// 设置写入：未指定的键沿用现值；storage 真源 + 宿主配置原语推送。
 /// `downloadDir` 仅桌面形态生效（移动固定落点，静默忽略——与退役前逐字一致）。
+/// `encryption` 固定开启（穿透方案不变量 12）：传 `false` 显性报错，不静默改写。
 pub(crate) fn set_settings(h: &WasmHost, args: &serde_json::Value) -> Result<serde_json::Value> {
     let mut s = settings_store::load_or_migrate(h)?;
     if let Some(policy) = args.get("receivingPolicy").and_then(|v| v.as_str()) {
@@ -1400,11 +1463,23 @@ pub(crate) fn set_settings(h: &WasmHost, args: &serde_json::Value) -> Result<ser
             s.download_dir = if dir.is_empty() { None } else { Some(dir.to_string()) };
         }
     }
-    if let Some(enabled) = args.get("encryption").and_then(|v| v.as_bool()) {
-        s.encryption = enabled;
+    if args.get("encryption").is_some() {
+        settings_store::validate_encryption_patch(args.get("encryption"))?;
     }
     if let Some(n) = args.get("concurrency").and_then(|v| v.as_u64()) {
         s.concurrency = settings_store::clamp_concurrency(n as u8);
+    }
+    // T12：中继开关与提示阈值。非布尔/非数字显性报错（静默忽略 = 设置页显示与
+    // 实际策略分裂）；`allowWan=false` 只影响拨号候选，不碰加密（不变量 12）
+    if let Some(v) = args.get("allowWan") {
+        s.allow_wan = v
+            .as_bool()
+            .ok_or_else(|| anyhow::anyhow!("allowWan must be a boolean"))?;
+    }
+    if let Some(v) = args.get("relayMaxBytesPerTask") {
+        s.relay_max_bytes_per_task = v
+            .as_u64()
+            .ok_or_else(|| anyhow::anyhow!("relayMaxBytesPerTask must be a non-negative integer"))?;
     }
     settings_store::save_and_push(h, &s)?;
     h.log_info("set-settings: policy/download-dir applied (plugin-sourced)");
@@ -1673,6 +1748,10 @@ mod tests {
         fail_batch: Cell<bool>,
         /// peer_send_files 调用记录（每批首 path；dispatch FIFO 顺序断言用）
         send_calls: RefCell<Vec<String>>,
+        /// peer_dial 调用记录（单地址拨号入参）
+        dial_calls: RefCell<Vec<serde_json::Value>>,
+        /// peer_dial_addrs 调用记录（多地址拨号入参）
+        dial_addrs_calls: RefCell<Vec<serde_json::Value>>,
         /// peer_send_files 前 N 次注入失败（dispatch 失败路径断言用）
         send_failures: Cell<usize>,
         logs: RefCell<Vec<String>>,
@@ -1689,6 +1768,8 @@ mod tests {
                 fail_params: Cell::new(false),
                 fail_batch: Cell::new(false),
                 send_calls: RefCell::new(vec![]),
+                dial_calls: RefCell::new(vec![]),
+                dial_addrs_calls: RefCell::new(vec![]),
                 send_failures: Cell::new(0),
                 logs: RefCell::new(vec![]),
             }
@@ -1807,8 +1888,13 @@ mod tests {
     }
 
     impl HostPeer for MockHost {
-        fn peer_dial(&self, _endpoint: &serde_json::Value) -> Result<String, HostError> {
-            unimplemented!()
+        fn peer_dial(&self, endpoint: &serde_json::Value) -> Result<String, HostError> {
+            self.dial_calls.borrow_mut().push(endpoint.clone());
+            Ok(format!("dial-handle-{}", self.dial_calls.borrow().len()))
+        }
+        fn peer_dial_addrs(&self, endpoint: &serde_json::Value) -> Result<String, HostError> {
+            self.dial_addrs_calls.borrow_mut().push(endpoint.clone());
+            Ok(format!("addrs-handle-{}", self.dial_addrs_calls.borrow().len()))
         }
         fn peer_close(&self, _handle: &str) -> Result<bool, HostError> {
             unimplemented!()
@@ -1820,6 +1906,13 @@ mod tests {
             unimplemented!()
         }
         fn peer_revoke_trusted(&self, _node_id: &str) -> Result<bool, HostError> {
+            unimplemented!()
+        }
+        fn peer_trust_node(
+            &self,
+            _node_id: &str,
+            _display_name: Option<&str>,
+        ) -> Result<bool, HostError> {
             unimplemented!()
         }
         fn peer_send_files(&self, _session: &str, paths: &[serde_json::Value]) -> Result<String, HostError> {
@@ -2337,6 +2430,7 @@ mod tests {
             node_id: node.to_string(),
             addr: "127.0.0.1".to_string(),
             port: 1,
+            ..Default::default()
         };
         super::device_bridge::remember_session(&ep("node-a"), "handle-a".to_string());
         super::device_bridge::remember_session(&ep("node-b"), "handle-b".to_string());
@@ -2392,6 +2486,7 @@ mod tests {
             node_id: "node-a".to_string(),
             addr: "127.0.0.1".to_string(),
             port: 1,
+            ..Default::default()
         };
         super::device_bridge::remember_session(&ep, "handle-a".to_string());
         let mut queue = super::pending_sends().lock().expect("pending sends lock");
@@ -2548,6 +2643,7 @@ mod tests {
             node_id: "node-x".to_string(),
             addr: "127.0.0.1".to_string(),
             port: 1,
+            ..Default::default()
         };
         super::device_bridge::remember_session(&ep, "handle-x".to_string());
         {
@@ -2571,6 +2667,178 @@ mod tests {
         assert!(
             !super::pending_sends().lock().expect("pending sends lock").is_empty(),
             "剩余批次留给下一次事件"
+        );
+        super::device_bridge::drain_sessions();
+    }
+
+    // ==================== T12：多地址 / 中继拨号 ====================
+
+    /// 体积预览只做元数据求和：缺 size / 非整数条目按 0，不因单条异常拒绝整批
+    #[test]
+    fn outgoing_total_bytes_sums_sizes_and_tolerates_missing_metadata() {
+        assert_eq!(
+            super::outgoing_total_bytes(&serde_json::json!([
+                { "path": "a", "size": 1024 },
+                { "path": "b", "size": 2048 },
+            ])),
+            3072
+        );
+        assert_eq!(
+            super::outgoing_total_bytes(&serde_json::json!([
+                { "path": "a" },
+                { "path": "b", "size": "big" },
+                { "path": "c", "size": 5 },
+            ])),
+            5
+        );
+        // 空表 / 非数组：0（预览失败不阻断发送）
+        assert_eq!(super::outgoing_total_bytes(&serde_json::json!([])), 0);
+        assert_eq!(super::outgoing_total_bytes(&serde_json::json!(null)), 0);
+    }
+
+    /// 配对串里的多地址（LAN 在前、relay 在后）：有 LAN 候选时默认只拨 LAN
+    /// （不自动烧中继），用户显式「尝试外网」才把 relay 追加进候选表。
+    #[test]
+    fn dial_peer_uses_multi_address_primitive_and_maps_transport_candidates() {
+        let _g = platform::test_lock().lock().unwrap();
+        platform::set_for_test(Platform::Desktop);
+        super::device_bridge::drain_sessions();
+        let h = MockHost::new();
+        let lan = "/ip4/192.168.1.5/tcp/47613";
+        let relay =
+            "/ip4/203.0.113.9/tcp/4001/p2p/12D3KooWRelay/p2p-circuit/p2p/12D3KooWTarget";
+        let node = "t12-lan-first";
+
+        // 默认（无手动 WAN）：LAN 候选单独成表
+        super::dial_peer(
+            &h,
+            &serde_json::json!({
+                "endpoint": { "nodeId": node, "addrs": [lan, relay] }
+            }),
+        )
+        .unwrap();
+        assert!(h.dial_calls.borrow().is_empty(), "多地址端点不得走单地址原语");
+        assert_eq!(
+            h.dial_addrs_calls.borrow()[0],
+            serde_json::json!({ "nodeId": node, "addrs": [lan] }),
+            "默认只拨 LAN（§4.9 不自动切 WAN）"
+        );
+        let memo = super::device_bridge::resolve_endpoint(None, node).expect("memo");
+        assert!(!memo.wan, "未纳入 relay 时不得把会话标记为 WAN");
+
+        // 显式「尝试外网」：LAN 仍排最前，relay 追加在后
+        super::dial_peer(
+            &h,
+            &serde_json::json!({
+                "endpoint": { "nodeId": node, "addrs": [lan, relay] },
+                "wan": true
+            }),
+        )
+        .unwrap();
+        assert_eq!(
+            h.dial_addrs_calls.borrow()[1],
+            serde_json::json!({ "nodeId": node, "addrs": [lan, relay] })
+        );
+        assert!(
+            super::device_bridge::resolve_endpoint(None, node).unwrap().wan,
+            "纳入过 relay 的会话要能按同一路径重连"
+        );
+        super::device_bridge::drain_sessions();
+    }
+
+    /// 无 LAN 候选（远程设备只给了 relay 地址）⇒ 等价「明确不在内网」，直接拨 relay
+    #[test]
+    fn dial_peer_dials_relay_only_endpoint_when_no_lan_candidate_exists() {
+        let _g = platform::test_lock().lock().unwrap();
+        platform::set_for_test(Platform::Desktop);
+        super::device_bridge::drain_sessions();
+        let h = MockHost::new();
+        let relay =
+            "/ip4/203.0.113.9/tcp/4001/p2p/12D3KooWRelay/p2p-circuit/p2p/12D3KooWTarget";
+        super::dial_peer(
+            &h,
+            &serde_json::json!({
+                "endpoint": { "nodeId": "t12-relay-only", "addrs": [relay] }
+            }),
+        )
+        .unwrap();
+        assert_eq!(
+            h.dial_addrs_calls.borrow()[0],
+            serde_json::json!({ "nodeId": "t12-relay-only", "addrs": [relay] })
+        );
+        super::device_bridge::drain_sessions();
+    }
+
+    /// allowWan=false：手动入口也不得纳入 relay；只剩 relay 候选时显性失败（不静默降级）
+    #[test]
+    fn dial_peer_respects_allow_wan_gate_and_keeps_encryption_untouched() {
+        let _g = platform::test_lock().lock().unwrap();
+        platform::set_for_test(Platform::Desktop);
+        super::device_bridge::drain_sessions();
+        let h = MockHost::new();
+        h.storage_set(
+            crate::settings_store::SETTINGS_KEY,
+            &serde_json::json!({
+                "receivingPolicy": "ask", "approvalTimeoutSec": 60,
+                "encryption": true, "allowWan": false
+            }),
+        )
+        .unwrap();
+
+        let lan = "/ip4/192.168.1.5/tcp/47613";
+        let relay =
+            "/ip4/203.0.113.9/tcp/4001/p2p/12D3KooWRelay/p2p-circuit/p2p/12D3KooWTarget";
+        super::dial_peer(
+            &h,
+            &serde_json::json!({
+                "endpoint": { "nodeId": "t12-gate", "addrs": [lan, relay] },
+                "wan": true
+            }),
+        )
+        .unwrap();
+        assert_eq!(
+            h.dial_addrs_calls.borrow()[0],
+            serde_json::json!({ "nodeId": "t12-gate", "addrs": [lan] }),
+            "allowWan=false 时手动入口也不得纳入 relay"
+        );
+
+        let err = super::dial_peer(
+            &h,
+            &serde_json::json!({
+                "endpoint": { "nodeId": "t12-gate", "addrs": [relay] },
+                "wan": true
+            }),
+        )
+        .unwrap_err();
+        assert!(
+            err.to_string().contains("allow-wan=false"),
+            "只剩 relay 候选时必须显性报错，实得 {err}"
+        );
+        assert_eq!(h.dial_addrs_calls.borrow().len(), 1, "被拒拨号不得触达宿主");
+        // 中继开关与加密正交：设置读面仍恒为 true
+        assert!(crate::settings_store::load(&h).unwrap().encryption);
+        super::device_bridge::drain_sessions();
+    }
+
+    /// mDNS 单地址端点仍走旧 `peer-dial` 原语（与退役前逐字一致，不外泄内部字段）
+    #[test]
+    fn dial_peer_keeps_legacy_single_address_primitive_for_mdns_endpoint() {
+        let _g = platform::test_lock().lock().unwrap();
+        platform::set_for_test(Platform::Desktop);
+        super::device_bridge::drain_sessions();
+        let h = MockHost::new();
+        super::dial_peer(
+            &h,
+            &serde_json::json!({
+                "endpoint": { "nodeId": "t12-legacy", "addr": "192.168.1.7", "port": 47613 }
+            }),
+        )
+        .unwrap();
+        assert!(h.dial_addrs_calls.borrow().is_empty());
+        assert_eq!(
+            h.dial_calls.borrow()[0],
+            serde_json::json!({ "nodeId": "t12-legacy", "addr": "192.168.1.7", "port": 47613 }),
+            "旧原语入参不得夹带 addrs / wan 内部字段"
         );
         super::device_bridge::drain_sessions();
     }

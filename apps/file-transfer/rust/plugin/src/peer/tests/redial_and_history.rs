@@ -139,6 +139,7 @@ fn node_stop_drops_stale_handles_but_keeps_endpoint_for_redial() {
         node_id: node.to_string(),
         addr: "192.168.1.42".to_string(),
         port: 47821,
+        ..Default::default()
     };
     device_bridge::remember_session(&ep, "sess-redial".to_string());
     assert_eq!(

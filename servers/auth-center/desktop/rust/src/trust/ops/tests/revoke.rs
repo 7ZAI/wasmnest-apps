@@ -94,3 +94,74 @@ fn list_surfaces_record_source_failure() {
     let err = revoke(&BrokenRecords, &MockPeer::new(vec![]), "p-1").unwrap_err();
     assert!(err.contains("permission denied"), "got: {err}");
 }
+
+/// T07 级联：撤销带已验证 nodeId 的配对记录时同步撤销传输层信任
+/// （隧道准入 matched = 信任表命中；只软删配对会让隧道继续放行）
+#[test]
+fn revoke_pairing_with_peer_node_id_cascades_trust_revoke() {
+    let node_id = "a".repeat(64);
+    let mut record = MockRecords::record("p-1", "Phone", "fp-1", "2026-09-19T00:00:00Z");
+    record.peer_node_id = Some(node_id.clone());
+    let records = MockRecords::new(vec![record]);
+    let peer = MockPeer::new(vec![sample_peer(&node_id, "Pixel 9")]);
+
+    let r = revoke(&records, &peer, "p-1").expect("revoke pairing");
+    assert_eq!(r["removed"], true);
+    assert_eq!(r["kind"], "pairing");
+    assert_eq!(r["peerRevoked"], true, "必须级联撤销传输层信任");
+    assert!(
+        peer.trusted.lock().unwrap().is_empty(),
+        "隧道信任表不得残留被撤销设备"
+    );
+}
+
+/// LAN 直连配对（无已验证 nodeId）不碰 peer 信任表：`peerRevoked=false`，
+/// 其它 peer 条目原样保留（不得按配对 id 猜 node id）
+#[test]
+fn revoke_pairing_without_peer_node_id_skips_trust_cascade() {
+    let records = MockRecords::new(vec![MockRecords::record(
+        "p-1",
+        "Phone",
+        "fp-1",
+        "2026-09-19T00:00:00Z",
+    )]);
+    let peer = MockPeer::new(vec![sample_peer("unrelated-node", "别的设备")]);
+
+    let r = revoke(&records, &peer, "p-1").expect("revoke pairing");
+    assert_eq!(r["peerRevoked"], false);
+    assert_eq!(peer.trusted.lock().unwrap().len(), 1, "无 nodeId 不得误撤其它条目");
+}
+
+/// 中断重试：配对已软删但级联未完成（信任仍在）时，再次撤销必须重放级联
+/// ——否则 UI 幂等成功、隧道却仍匹配（安全洞）
+#[test]
+fn revoke_inactive_pairing_replays_trust_cascade_idempotently() {
+    let node_id = "b".repeat(64);
+    let mut record = MockRecords::record("p-1", "Phone", "fp-1", "2026-09-19T00:00:00Z");
+    record.is_active = false;
+    record.peer_node_id = Some(node_id.clone());
+    let records = MockRecords::new(vec![record]);
+    let peer = MockPeer::new(vec![sample_peer(&node_id, "Pixel 9")]);
+
+    let r = revoke(&records, &peer, "p-1").expect("revoke inactive pairing");
+    assert_eq!(r["removed"], false, "软删已发生：幂等语义");
+    assert_eq!(r["kind"], "pairing");
+    assert_eq!(r["peerRevoked"], true, "重试必须补齐隧道信任撤销");
+    assert!(peer.trusted.lock().unwrap().is_empty());
+}
+
+/// 级联失败显性上抛（不把「配对已撤、隧道仍匹配」包装成成功）
+#[test]
+fn revoke_pairing_surfaces_trust_cascade_failure() {
+    let node_id = "c".repeat(64);
+    let mut record = MockRecords::record("p-1", "Phone", "fp-1", "2026-09-19T00:00:00Z");
+    record.peer_node_id = Some(node_id.clone());
+    let records = MockRecords::new(vec![record]);
+    let peer = MockPeer::failing(vec![sample_peer(&node_id, "Pixel 9")]);
+
+    let err = revoke(&records, &peer, "p-1").expect_err("级联失败必须显性报错");
+    assert!(
+        err.contains("peer trust revoke failed"),
+        "错误文案要点名级联失败: {err}"
+    );
+}

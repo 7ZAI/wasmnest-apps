@@ -25,6 +25,18 @@ import { computed, inject, ref } from 'vue'
 import type { Disposable, PluginContext } from '@binblink/wasmnest-plugin-sdk-mobile'
 import { getMobileApi } from '@binblink/wasmnest-plugin-sdk-mobile'
 import { connectionErrorKey, ensureCommandOk, type CommandResult } from './errors'
+import type { QrPayload } from './qr'
+import {
+  TUNNEL_EVENT,
+  applyModeEvent,
+  parseConnectResult,
+  parseModeEvent,
+  tunnelConnectArgs,
+  tunnelErrorKey,
+  type PeerTarget,
+  type TunnelProxyTarget,
+  type TunnelStatus,
+} from './tunnel'
 
 /** 插件命令 id 前缀（manifest contributes.commands） */
 const CMD = 'bedcode.'
@@ -54,6 +66,122 @@ export function useHostPage(provided?: PluginContext) {
   const logger = ctx.logger
 
   // ── 连接引擎态（SDK 类型透传） ──
+  // ── 内网穿透（T09）：通道状态 / 拨号 / 生命周期 ──
+  /**
+   * 当前隧道状态快照（宿主 `host-tunnel.status` 投影）。
+   *
+   * 模式一律以宿主为准：本域不推断「是不是内网」，只把事实映射成文案;
+   * 事件（`peer:mode` 等）到达时并入快照，重启后用 `status` 对账。
+   */
+  const tunnelStatus = ref<TunnelStatus | null>(null)
+  /** 当前隧道句柄（null = 当前连接不经隧道，如旧版 LAN 直连） */
+  const tunnelHandle = ref<string | null>(null)
+  /** 当前隧道对端 nodeId（状态查询 / 事件归约用） */
+  const tunnelNodeId = ref<string | null>(null)
+
+  /** 刷新隧道状态（只读；失败只记日志，不阻断连接流程） */
+  async function refreshTunnelStatus(): Promise<void> {
+    try {
+      const status = (await ctx.commands.execute(`${CMD}tunnel-status`, {
+        nodeId: tunnelNodeId.value ?? undefined,
+      })) as TunnelStatus
+      if (status && typeof status === 'object') tunnelStatus.value = status
+    } catch (e) {
+      // 宿主无隧道面 / 插件权限缺失：状态不可得（界面显示「未知」，不伪造）
+      logger.warn(`[tunnel] status unavailable: ${errText(e)}`)
+    }
+  }
+
+  /**
+   * 建隧道（QR v2 / 连接串带 `peer` 时）：宿主拨号 → 本地回环代理地址。
+   *
+   * 返回 `null` = 载荷没有 `peer`（旧版 LAN 直连路径，行为不回归）。
+   * 失败按宿主错误码映射文案上抛——「内网不可达」必须可区分于「配对失败」。
+   */
+  async function openTunnel(payload: QrPayload): Promise<TunnelProxyTarget | null> {
+    const args = tunnelConnectArgs(payload, Date.now())
+    if (!args) return null
+    return connectTunnel(args)
+  }
+
+  /**
+   * 手动「尝试外网」：用已记录的 relay 地址重建拨号（LAN 候选故意不带）。
+   *
+   * 用户动作即判据（宿主侧 `user` 归因）——本域不自己把「内网不可达」改判成外网，
+   * 只把用户意图 + 已知 relay 候选交给宿主重试。
+   */
+  async function tryWan(target: PeerTarget): Promise<TunnelProxyTarget> {
+    if (!target.relayAddrs || target.relayAddrs.length === 0) {
+      throw new Error('hub.tunnelErrorRelayUnavailable')
+    }
+    if (!target.port) throw new Error('hub.tunnelErrorPortNotExposed')
+    return connectTunnel({
+      nodeId: target.nodeId,
+      port: target.port,
+      kind: 'http',
+      addrs: target.relayAddrs.slice(),
+      nowMs: Date.now(),
+    })
+  }
+
+  /** 拨号公共路径：先关旧句柄（句柄不叠加），再建新通道 → 回环代理地址 */
+  async function connectTunnel(args: {
+    nodeId: string
+    port: number
+    kind: 'http'
+    addrs: string[]
+    pairingTicket?: string
+    nowMs: number
+  }): Promise<TunnelProxyTarget> {
+    tunnelNodeId.value = args.nodeId
+    await closeTunnel()
+    try {
+      const result = await ctx.commands.execute(`${CMD}tunnel-connect`, args)
+      const proxy = parseConnectResult(result)
+      tunnelHandle.value = proxy.handle
+      await refreshTunnelStatus()
+      return proxy
+    } catch (e) {
+      const message = errText(e)
+      // 状态仍要刷新：失败模式（如 lan-unreachable）是界面给手动入口的判据
+      await refreshTunnelStatus()
+      throw new Error(tunnelErrorKey(message) ?? message)
+    }
+  }
+
+  /**
+   * 关隧道（显式断开 / 卸载时）：先关通道再断 WS。
+   *
+   * 顺序反了会让宿主自动重连去拨一个已关闭的 127.0.0.1 端口（静默重试，
+   * 表现为「一直重连」而无任何可操作提示）。
+   */
+  async function closeTunnel(): Promise<void> {
+    const handle = tunnelHandle.value
+    tunnelHandle.value = null
+    if (!handle) return
+    try {
+      await ctx.commands.execute(`${CMD}tunnel-close`, { handle })
+    } catch (e) {
+      logger.warn(`[tunnel] close ${handle} failed: ${errText(e)}`)
+    }
+  }
+
+  /** 写 `allowWan`（关闭只关外网通道；加密与内网入口不受影响） */
+  async function setAllowWan(allowWan: boolean): Promise<void> {
+    await ctx.commands.execute(`${CMD}set-allow-wan`, { allowWan })
+    await refreshTunnelStatus()
+  }
+
+  /** 忘记对端（解配 / 撤销后清理本地记录；宿主信任表由配对域处理） */
+  async function forgetPeer(nodeId: string): Promise<void> {
+    try {
+      await ctx.commands.execute(`${CMD}forget-peer`, { nodeId })
+    } catch (e) {
+      logger.warn(`[tunnel] forget ${nodeId} failed: ${errText(e)}`)
+    }
+    await refreshTunnelStatus()
+  }
+
   const connectionStatus = api.connectionStatus
   const currentDevice = api.currentDevice
   const isConnecting = api.isConnecting
@@ -352,6 +480,29 @@ export function useHostPage(provided?: PluginContext) {
       }),
     )
 
+    // 隧道 / 传输事件（T09）：模式变更并入快照；错误进状态槽（不弹模态）
+    disposables.push(
+      ctx.events.on(TUNNEL_EVENT, (envelope: any) => {
+        const topic = envelope?.topic
+        const payload = envelope?.payload
+        if (topic === 'peer:mode') {
+          const event = parseModeEvent(payload)
+          if (event)
+            tunnelStatus.value = applyModeEvent(tunnelStatus.value, tunnelNodeId.value, event)
+          return
+        }
+        if (topic === 'tunnel:error') {
+          const detail = payload?.detail || payload?.message || ''
+          const key = tunnelErrorKey(detail)
+          if (key) deviceError.value = key
+          logger.warn(`[tunnel] host error: ${detail}`)
+          return
+        }
+        // tunnel:state / peer:transport：状态快照对账（字段以宿主为准）
+        void refreshTunnelStatus()
+      }),
+    )
+
     return disposables
   }
 
@@ -382,10 +533,20 @@ export function useHostPage(provided?: PluginContext) {
     pairingError,
     pairingCode,
     biometric,
+    // tunnel（T09）
+    tunnelStatus,
+    tunnelHandle,
+    tunnelNodeId,
     // actions
     connectDevice,
     cancelConnect,
     disconnect,
+    refreshTunnelStatus,
+    openTunnel,
+    tryWan,
+    closeTunnel,
+    setAllowWan,
+    forgetPeer,
     startScan,
     stopScan,
     loadHistory,

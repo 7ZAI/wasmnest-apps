@@ -383,7 +383,7 @@ docker compose up -d
 
 **为什么每条 TCP 连接一条流**：Yamux 已经多路复用；每条流独立首帧，便于服务端按端口/票据/ACL 逐条裁决；避免在流内再实现一套多路复用。
 
-**WIT 提案**（命名与包版本待评审；可放 `wasmnest:peer` 包的新 interface，也可新开 `wasmnest:tunnel` 包）：
+**WIT 提案**（包归属**已裁定**：新开 `wasmnest:tunnel` 独立包独立演进，见 §9.2#8；T05 按下方形状落 `wasmnest:tunnel@0.0.1`）：
 
 ```wit
 interface host-tunnel {
@@ -426,7 +426,7 @@ interface host-tunnel {
 
 - 宿主在 `127.0.0.1:<ephemeral>` 起第二个 Actix listener，复用同一套路由表与鉴权中间件，但把该 listener 上的所有请求标记为 `HttpCaller::Peer`（新变体，线协议 `caller:"peer"`）。
 - **关键实现细节**：peer face 的连接虽然来自 loopback，但分类**不得**再用 `req.peer_addr().is_loopback()`；由 listener 注入 `peer_face=true`，`classify` 在该标记下对未验签请求返回 `Peer`，而不是 `Localhost`。
-- **环回豁免必须同步改判据（安全关键）**：桌面 link-crypto 现行豁免按**源 IP 环回**判定（`link_crypto.rs:968-981`），移动 WS 域对**环回目标**直接跳过链加密（`plugin/host_domains/ws.rs:210-239`）。本方案让全部隧道流量走 127.0.0.1，若不改判据，两端都会把隧道流量豁免/跳过，「固定 `required`」被静默绕过——正是 §4.10 禁止的降级。要求：豁免/跳过判据一律改为**面标记**（与 `peer_face=true` 同一注入机制；移动以本地代理句柄上下文区分隧道流量与真本机流量），peer face / 本地代理流量不享受环回豁免，`required` 下缺链路身份即拒绝（不变量 15）。
+- **环回豁免必须同步改判据（安全关键）**：桌面 link-crypto 现行豁免按**源 IP 环回**判定（`link_crypto.rs:968-981`），移动 WS 域对**环回目标**直接跳过链加密（`plugin/host_domains/ws.rs:210-239`）。本方案让全部隧道流量走 127.0.0.1，若不改判据，两端都会把隧道流量豁免/跳过，「固定 `required`」被静默绕过——正是 §4.10 禁止的降级。要求：豁免/跳过判据一律改为**面标记**（与 `peer_face=true` 同一注入机制；移动以本地代理句柄上下文区分隧道流量与真本机流量），peer face / 本地代理流量不享受环回豁免，`required` 下缺链路身份即拒绝（不变量 15；实施核查 2026-11-08 见附录 C）。
 - 隧道服务端只连这个 peer face，不再连 8765。
 - **caller 门禁的覆盖面（评审裁定 §0.4）**：`run::bridge::caller_allowed` 只接受 `localhost`，run-* 四条桥接路由对 `peer` 一律 403，不需要改 bedcode 桥接逻辑；但 `task-status` / `session-mode` / `terminal-bg` 三条免凭证路由**没有 caller 检查**，caller 标记保护不了它们——裁定为对已匹配远端保持可达（移动端真实依赖 `session-mode`），访问控制由隧道匹配校验承担；不得把「peer 一律 403」表述为覆盖全部 auth:none 路由。
 - JWT 路由不受影响：移动端带 JWT 时，认证网关仍注入 `device`；`peer` 面只是不把未验签的隧道流量伪装成本机。
@@ -592,7 +592,7 @@ wan-unavailable / offline
 **现状差距**（需改）：
 
 - file-transfer `TransferSettings::default().encryption = false`（`apps/file-transfer/rust/core/src/settings.rs:35,51`）→ **固定 `true`，移除关闭项**；WAN/LAN 都强制。
-- bedcode 未注册应用的 link-crypto 策略默认 `Off`（`../wasmnest-lib/wasmnest-server-core/src/link_crypto.rs:166`），UI 默认也是 `off`（`apps/bedcode/desktop/src/composables/useLinkCrypto.ts`）→ **固定 `required`，移除 off/preferred 选择**；移动宿主已支持 HTTP link-crypto（`../wasmnest/wasmnest-mobile/src-tauri/src/commands/http_proxy.rs:342-487`、`state.rs:151`）与 WS 域链加密（`plugin/host_domains/ws.rs`）；**两端的环回豁免/跳过判据必须按 §4.5 改为面标记**，否则隧道流量被静默豁免。
+- 能力仓链加密配置是布尔组合 `LinkCryptoConfig { enabled, allow_plaintext_fallback, ... }`，默认 `enabled=false`；`required` 语义 = `enabled=true && allow_plaintext_fallback=false`（**非** `off/preferred/required` 三态枚举，实施核查 2026-11-08 见附录 C）。bedcode UI 默认 `off`（`apps/bedcode/desktop/src/composables/useLinkCrypto.ts`）→ **固定 `required`，移除关闭项**；移动宿主已支持 HTTP link-crypto（`../wasmnest/wasmnest-mobile/src-tauri/src/commands/http_proxy.rs:342-487`、`state.rs:151`）与 WS 域链加密（`plugin/host_domains/ws.rs`）；**两端的环回豁免/跳过判据必须按 §4.5 改为面标记**，否则隧道流量被静默豁免。
 - 平台保留 `off / preferred / required` 词表供其他应用；bedcode 与 file-transfer 不使用 `off`/`preferred`，配置层拒绝关闭。
 - 当前宿主 WS 升级期协商已接线（移动 WS link-crypto 在 `../wasmnest/wasmnest-mobile/src/plugin/host_domains/ws.rs:210-239`，注意其环回跳过逻辑需按 §4.5 改判据）；旧宿主不支持时 `required` 不可选，界面必须显性说明，不能把 WS 明文说成已加密。
 - 宿主启动必须完成 link-crypto 身份初始化（桌面 `init_link_crypto_at_startup`；移动 `set_link_crypto_context`）；身份缺失时 `required` 拒绝并提示修复，不降级。
@@ -606,7 +606,7 @@ wan-unavailable / offline
 | 变更 | 仓 | 说明 |
 | --- | --- | --- |
 | `peer-node-config` 增加 `relay-addrs: option<list<string>>`、`enable-relay: bool` | 能力仓 | 也可不改 WIT，由宿主设置驱动；推荐显式传入，便于 per-app 策略 |
-| 新 interface `host-tunnel`（expose/connect/close/issue-pairing-ticket/status） | 能力仓 | 放 `wasmnest:peer` 包或新包；需 compose + 版本 bump |
+| 新 interface `host-tunnel`（expose/unexpose/connect/close/issue-pairing-ticket/status） | 能力仓 | **已裁定**落新 `wasmnest:tunnel` 包（独立版本轴）；需 compose v2 + 版本 bump（基线漂移见附录 C） |
 | 新流协议 `/wasmnest/tunnel/1` | 能力仓 | 追加，不改旧协议名 |
 | 新权限 `tunnel:serve` / `tunnel:connect` | 平台仓 | 权限词汇真源 `permission.rs`；manifest 校验同步 |
 | `HttpCaller::Peer` + 对等面 listener | 能力仓/平台仓 | 线协议 `caller:"peer"`；插件侧按字符串分派，新增档位需文档化；**双端链加密豁免/跳过判据同步改面标记**（§4.5/不变量 15） |
@@ -771,7 +771,7 @@ wan-unavailable / offline
 5. **6 位码远程配对**：是否必须支持？若必须，接受 PAKE 的额外工期，还是限定 QR/连接串？
 6. **bedcode 桌面是否也要作为客户端**访问另一台桌面（desktop↔desktop），还是只做「桌面服务端 + 移动客户端」？
 7. **移动端后台接收**：file-transfer 是否要求应用退到后台仍可接收？这决定是否要前台服务常驻。
-8. **WIT 归属**：`host-tunnel` 放 `wasmnest:peer` 包，还是新开 `wasmnest:tunnel` 包独立演进？
+8. **WIT 归属**：**已裁定（2026-11-07）**：新开 `wasmnest:tunnel` 包独立演进（不与 `wasmnest:peer` 共用版本轴）；T05 的 `host-tunnel` interface 落在该包。
 
 ---
 
@@ -793,7 +793,7 @@ wan-unavailable / offline
 | 移动 HTTP / WS URL 拼接 | `apps/bedcode/mobile/rust/src/session.rs:102`、`link.rs:162` |
 | QR 载荷 `{host,port,token}` | `apps/bedcode/mobile/src/host/qr.ts:13-17,38-60` |
 | 桌面 HTTP/WS 监听 0.0.0.0:8765 | `../wasmnest-lib/wasmnest-server-base/src/constants.rs:362,407` |
-| caller 分类（loopback → localhost） | `../wasmnest-lib/wasmnest-server-http/src/controllers/plugin_controller.rs:118-134` |
+| caller 分类（T03 后：面标记优先，新增 `Peer` 档） | `../wasmnest-lib/wasmnest-server-http/src/controllers/plugin_controller.rs::caller_identity` / `HttpCaller::classify` |
 | bedcode 桥接路由仅接受 localhost | `apps/bedcode/desktop/rust/src/run/bridge/mod.rs:44-54` |
 | 三条免凭证路由无 caller 门禁（§0.4 裁定对象） | `apps/bedcode/desktop/rust/src/http_routes.rs:115,121,316`、`task/mod.rs:1116-1122`（分派签名不含 caller） |
 | 移动端依赖 session-mode（§0.4 裁定依据） | `apps/bedcode/mobile/src/task/api.ts:160` |
@@ -804,12 +804,30 @@ wan-unavailable / offline
 | 具名流协议 | `../wasmnest-lib/wasmnest-p2p-engine/src/stream_proto.rs` |
 | file-transfer host-peer 调用 | `apps/file-transfer/rust/plugin/src/lib.rs:71-73`、`peer.rs` |
 | host-http 允许 loopback 直连 | `../wasmnest-lib/wasmnest-server-http/src/plugin_binding/egress.rs:75-81` |
-| link_crypto 环回豁免（按源 IP，需改面标记） | `../wasmnest-lib/wasmnest-server-core/src/link_crypto.rs:968-981` |
-| link-crypto 策略与默认 off | `../wasmnest-lib/wasmnest-server-core/src/link_crypto.rs:100-124,166` |
+| link_crypto 环回豁免（T04 已改面标记） | `../wasmnest-lib/wasmnest-server-core/src/link_crypto.rs::is_exempt` |
+| link-crypto 配置（布尔组合，默认 `enabled=false`） | `../wasmnest-lib/wasmnest-server-core/src/link_crypto.rs::LinkCryptoConfig` |
 | bedcode link-crypto 默认 off | `apps/bedcode/desktop/src/composables/useLinkCrypto.ts` |
 | file-transfer 应用层加密默认 false | `apps/file-transfer/rust/core/src/settings.rs:35,51` |
 | 移动宿主 link-crypto 支持（HTTP） | `../wasmnest/wasmnest-mobile/src-tauri/src/commands/http_proxy.rs:342-487`、`state.rs:151` |
-| 移动 WS 域链加密（环回目标跳过，需改面标记） | `../wasmnest/wasmnest-mobile/src/plugin/host_domains/ws.rs:210-239` |
+| 移动 WS 域（5 条原语薄转发，**无**环回跳过） | `../wasmnest/wasmnest-mobile/src-tauri/src/plugin/host_domains/ws.rs`；HTTP 加密判据在同端 `src-tauri/src/commands/http_proxy.rs::should_encrypt` |
 | file-transfer 声明默认端口 47613 | `apps/file-transfer/rust/plugin/src/lib.rs:129`（生产租约装配用宿主全局端口，见 CHANGELOG） |
 | `net.peer-node` 服务租约 | `../wasmnest-lib/wasmnest-server-peer-net/src/service.rs` |
 | `backgroundTransport` 运行期租约 | `../wasmnest/wasmnest-desktop/src-tauri/src/plugin/services.rs:9-20` |
+
+## 附录 C：实施核查（2026-11-08）证据漂移与口径修正
+
+> 本文写于 2026-11-07 评审修订；以下证据按 2026-11-08 能力仓 `feat/nat-traversal` 与平台仓 `feat/file-transfer-refactor` 工作树逐条核实。裁定（§0.4、不变量 15、永久强制加密）**不变**，但落地形态按代码真源修正；附录 B 的指针已同步更新。
+
+| 设计表述 | 核查结果 | 后续 ticket 口径 |
+| --- | --- | --- |
+| `link_crypto.rs:968-981` 按源 IP 环回豁免 | 判据在 `wasmnest-server-core/src/link_crypto.rs::is_exempt`（约 757-766 行），输入是 `FilterContext.peer`，由 `wasmnest-server-http/src/middleware/http_filter.rs` 从 `req.peer_addr()` 注入；968-981 是注册 / 启动装配 | T04 已按面标记改判据并补桌面侧测试锁 |
+| 链加密策略是 `off/preferred/required` 三态枚举 | 实际为 `LinkCryptoConfig { enabled, encrypt_http, encrypt_ws_terminal, encrypt_ws_event, allow_plaintext_fallback }` 布尔组合；`required` = `enabled=true && allow_plaintext_fallback=false` | T07 固定 `required` 按布尔组合落，配置层拒绝关闭 |
+| 移动 `ws.rs:210-239` 对环回目标跳过链加密 | 实际路径多 `src-tauri/`；该段是 5 条 WS 原语薄转发，全文无 crypto / 环回；`http_proxy.rs::should_encrypt` 只看开关 / pin / 路径；`TrafficChannel::WsPlugin` 帧恒不进链路加密 | 移动侧**没有可改的既有跳过判据**；T09 实现本地代理时不得引入按目标环回的跳过，并补该侧测试锁（T04 验收条件已改写） |
+| `plugin_controller.rs:118-134` 的 loopback → localhost 分类 | 分类函数仍在该文件，但 T03 已新增第四档 `Peer` 并按 `RequestFace` 面标记优先判定，线协议 `caller:"peer"` | T05 / T07 按新线协议分派；§0.4 三条路由的可达性见下 |
+| `wasmnest:tunnel` 独立包可按现有 compose 拼装 | nat 基线（`feat/file-transfer-refactor`）仍是单包 `wasmnest:plugin@0.0.2` + 平台 compose v1；各仓 `dev` 已是多包（`wasmnest:peer@0.0.1` / `wasmnest:plugin@0.1.0`）+ compose v2 | T05 分片先落能力仓真源；T06 前完成基线对齐 / compose 升级，否则契约不进端生成物 |
+| tunnel 流按业务流 `require_admitted` 注册即可 | `start_with_protocols` 对所有非 `TRUST_STATUS` 协议强制 `Admitted`，未匹配 peer 的配对票据根本送不到服务端 | T06 接线须显式 `require_admitted=false`，匹配校验由 `TunnelPolicy` 逐条裁决（不变量 8/16） |
+| 配对连接注册表「accept 时消费」 | T03 的 `PeerFaceResolver` 在 `app.rs` 每请求调用（`wrap_fn` 按 `req.peer_addr()` 解析），按请求消费会让 keep-alive 后续请求丢 face | 注册表默认非消费 `resolve`；`consume` / `clear` 由宿主按连接生命周期（配对成功 / 票据失效 / 连接关闭）调用 |
+
+**T05 实施口径增补（2026-11-08）**：设计 §7.1 错误词表不是封闭集，通道层新增 `invalid-frame`（畸形首帧 / 响应）、`proxy-bind-failed`（回环代理绑定 / 接受失败）、`tunnel-idle`（短连接 HTTP 流空闲回收）；三者只回原因类别，不回显票据或请求内容。能力仓侧已落 40 条测试锁覆盖不变量 1/2/3/4/8/16 与 WS 保活 / 字节配额，服务端首帧裁决、客户端响应校验、pipe 限额均已落地；但 WIT provider 绑定、流接收器接线、引擎拨号与平台 compose 尚未落地，验收项不得提前勾选。face 登记安排在「首个请求字节写入后端之前」，与 §4.1「dial 对等面前登记」安全语义等价（本端连接四元组需 dial 后可得）。
+
+**跨任务冲突（2026-11-08 已消解）**：原记录的风险是 T17 在途代码把 `task-status` 收紧为只认 `localhost`、`session-mode` 认 `localhost` + `device`，会拒绝 `caller=peer` 的已匹配隧道流量。核查当前代码（`apps/bedcode/desktop/rust/src/task/mod.rs::caller_allowed_for_none_auth` 及其测试锁）两条端点均显式放行 `CALLER_PEER`，T17 实施记录与 spec §5 进度一致，§0.4 裁定不再被门禁破坏。剩余联动在 T10 E2E 用真机跨网用例复核「已匹配 peer 可达 + run-\* 仍 403」，无需再裁定 §0.4。

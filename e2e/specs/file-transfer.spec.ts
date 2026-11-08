@@ -120,7 +120,10 @@ describe('File Transfer（桌面端 · 宿主内挂载）', () => {
     for (const key of ['roots', 'download-dir', 'policy', 'concurrency', 'encryption', 'trusted']) {
       await waitFor(`ft-settings-section-${key}`)
     }
-    expectEqual(await visible('ft-settings-warning'), true, '明文传输警告可见')
+    expectEqual(await visible('ft-settings-warning'), true, '加密强制提示可见')
+    expectEqual(await visible('ft-encryption-required'), true, '固定加密只读档位可见')
+    expectEqual(await exists('ft-encryption-true'), false, '不得提供开启按钮（始终加密，无开关）')
+    expectEqual(await exists('ft-encryption-false'), false, '不得提供关闭加密选项')
 
     const selectedCount = (
       await Promise.all(

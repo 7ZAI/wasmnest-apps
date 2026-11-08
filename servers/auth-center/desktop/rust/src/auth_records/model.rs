@@ -20,6 +20,13 @@ pub struct PairingRecord {
     /// 设备唯一 ID（ANDROID_ID 等）哈希：跨指纹合并配对记录的锚点
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub uid_hash: Option<String>,
+    /// 对等网络节点 id（T08：peer face 注入的已验证 `peerNodeId`）
+    ///
+    /// **只在经对等面（隧道）配对时才有值**；旧 LAN 直连 HTTP 配对没有可验证的
+    /// 节点身份，保持 `None`——不得从请求体/client 自报字段填值（不变量：不信任
+    /// 客户端自报值）。撤销设备时按它级联 `host-peer.revoke-trusted`（T07）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub peer_node_id: Option<String>,
     /// 配对时刻（RFC3339，UTC）
     pub paired_at: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -47,6 +47,30 @@ pub fn network_info_via_host() -> Result<serde_json::Value, String> {
     Err("network info unavailable outside wasm runtime".to_string())
 }
 
+/// 宿主实际运行端口（隧道暴露规则的端口 = 本应用 HTTP 面端口）
+///
+/// 端口缺失 / 非法 / 越界一律显性失败：`0` 会产出一条无意义的暴露规则，
+/// 让「已暴露」的界面说法与事实不符。
+#[cfg(target_arch = "wasm32")]
+pub fn network_port_via_host() -> Result<u16, String> {
+    let port = config_seconds(ConfigKey::NetworkPort, 0)?;
+    u16::try_from(port)
+        .map_err(|_| format!("network port out of range: {port}"))
+        .and_then(|p| {
+            if p == 0 {
+                Err("network port unavailable (config missing/invalid)".to_string())
+            } else {
+                Ok(p)
+            }
+        })
+}
+
+/// 宿主运行端口（native 无宿主环境）
+#[cfg(not(target_arch = "wasm32"))]
+pub fn network_port_via_host() -> Result<u16, String> {
+    Err("network info unavailable outside wasm runtime".to_string())
+}
+
 // ==================== 有效期设置（设置分组） ====================
 
 /// 读两项有效期：`{pairingCodeTtl, qrTokenTtl}`（秒）
@@ -194,6 +218,11 @@ pub fn qr_clear_via_host() -> Result<(), String> {
 }
 
 /// 组装 QR 连接信息（host 缺省回退本机首个可用 IPv4；端口取宿主运行端口）
+///
+/// T08：载荷在 `{host, port, token, remainingSecs}` 之上追加
+/// `peer: {nodeId, addrs, ticket}`（QR v2 的隧道入口）。`peer` 只在宿主能给出
+/// **完整且可拨**信息时才出现——半份 `peer` 会让对端拨不通，属于禁止的静默降级；
+/// 生产失败时改为在回执里带 `peerError`（前端显性提示「仅内网」，载荷保持 v1）。
 #[cfg(target_arch = "wasm32")]
 fn qr_connection_info(
     host: Option<&str>,
@@ -223,12 +252,27 @@ fn qr_connection_info(
         .get("remaining")
         .and_then(|v| v.as_u64())
         .unwrap_or(0);
-    Ok(serde_json::json!({
+
+    let mut payload = serde_json::json!({
         "host": resolved_host,
         "port": port,
         "token": token,
         "remainingSecs": remaining,
-    }))
+    });
+    // host-config 读回的是 u64：隧道契约端口是 u16，越界必须显性失败
+    // （截断会签出一张「绑定到另一个端口」的票据，配对窗口对不上）
+    let tunnel_port =
+        u16::try_from(port).map_err(|_| format!("network port out of range: {port}"))?;
+    match crate::tunnel::pairing_peer_via_host(tunnel_port) {
+        Ok(peer) => {
+            payload["peer"] = peer;
+        }
+        Err(reason) => {
+            // 不产出残缺 peer：退回 v1 载荷，但原因必须可见（前端据此提示仅内网）
+            payload["peerError"] = serde_json::Value::String(reason);
+        }
+    }
+    Ok(payload)
 }
 
 // ==================== 已配对设备（活跃记录） ====================
@@ -419,6 +463,7 @@ mod tests {
     fn command_faces_fail_loudly_on_native() {
         for (name, result) in [
             ("network.info", network_info_via_host().map(|_| ())),
+            ("network.port", network_port_via_host().map(|_| ())),
             ("ttl.get", ttl_get_via_host().map(|_| ())),
             ("ttl.set", ttl_set_via_host("qrTokenTtl", 600).map(|_| ())),
             ("paired-list", paired_list_via_host().map(|_| ())),

@@ -104,6 +104,13 @@ mod tests {
         ) -> Result<String, wasmnest_plugin_api::host::HostError> {
             unimplemented!()
         }
+        /// T11 `dial-peer-addrs`：本组用例不测多地址拨号
+        fn peer_dial_addrs(
+            &self,
+            _endpoint: &serde_json::Value,
+        ) -> Result<String, wasmnest_plugin_api::host::HostError> {
+            unimplemented!()
+        }
         fn peer_close(&self, _handle: &str) -> Result<bool, wasmnest_plugin_api::host::HostError> {
             unimplemented!()
         }
@@ -122,6 +129,13 @@ mod tests {
         fn peer_revoke_trusted(
             &self,
             _node_id: &str,
+        ) -> Result<bool, wasmnest_plugin_api::host::HostError> {
+            unimplemented!()
+        }
+        fn peer_trust_node(
+            &self,
+            _node_id: &str,
+            _display_name: Option<&str>,
         ) -> Result<bool, wasmnest_plugin_api::host::HostError> {
             unimplemented!()
         }
@@ -225,6 +239,7 @@ mod tests {
             download_dir: Some("D:/dl".into()),
             encryption: true,
             concurrency: 5,
+            ..Default::default()
         }
     }
 
@@ -307,6 +322,7 @@ mod tests {
                 download_dir: Some("D:/dl".into()),
                 encryption: true,
                 concurrency: 3,
+                ..Default::default()
             })
             .unwrap(),
         )

@@ -8,7 +8,14 @@
  * 头部提供「探索发现」重扫，尾部统一给出信任提示。
  * 纯展示：行状态由 usePeerDevices 派生的 rows 传入，操作以事件上抛。
  */
+import { ref } from 'vue'
 import type { DeviceRow } from '../composables/deviceState'
+import {
+  parseRemotePeerLink,
+  type RemotePeerLink,
+  type RemotePeerLinkError,
+} from '../utils/pairingLink'
+import ScanPanel from './ScanPanel.vue'
 
 type Translate = (key: string, params?: Record<string, any>) => string
 
@@ -21,10 +28,63 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'connect', nodeId: string): void
+  /** 手动「尝试外网」：只在有 relay 候选且用户显式点击时纳入 relay（§4.9） */
+  (e: 'retry-wan', nodeId: string): void
   (e: 'disconnect', nodeId: string): void
   (e: 'set-active', nodeId: string): void
+  /** 连接串解析成功 → 父级落设备缓存（T12） */
+  (e: 'add-remote', link: RemotePeerLink): void
+  /** 移除手动添加的远程设备（T12） */
+  (e: 'remove-remote', nodeId: string): void
   (e: 'scan'): void
 }>()
+
+// ==================== 添加远程设备（T12：无摄像头场景粘贴连接串） ====================
+
+const addOpen = ref(false)
+const addText = ref('')
+const addError = ref<RemotePeerLinkError | null>(null)
+/** 扫码面板（相机路径；与粘贴共用同一解析） */
+const scanOpen = ref(false)
+
+const ADD_ERROR_KEYS: Record<RemotePeerLinkError, string> = {
+  malformed: 'transfer.remote.errorMalformed',
+  incomplete: 'transfer.remote.errorIncomplete',
+  'address-invalid': 'transfer.remote.errorAddressInvalid',
+}
+
+function submitRemote(): void {
+  const parsed = parseRemotePeerLink(addText.value)
+  if (!parsed.ok) {
+    addError.value = parsed.reason
+    return
+  }
+  addError.value = null
+  addText.value = ''
+  addOpen.value = false
+  emit('add-remote', parsed.link)
+}
+
+function openAddRemote(): void {
+  addError.value = null
+  addOpen.value = true
+}
+
+/** 扫码成功：与粘贴同一落点（父级设备缓存），关闭两个面板 */
+function onScanned(link: RemotePeerLink): void {
+  scanOpen.value = false
+  addOpen.value = false
+  addText.value = ''
+  addError.value = null
+  emit('add-remote', link)
+}
+
+/** 传输形态文案（宿主 transport 词表；未知形态不渲染） */
+function transportLabel(row: DeviceRow): string {
+  if (row.transport === 'lan-direct') return t('transfer.devices.transportLan')
+  if (row.transport === 'wan-relay') return t('transfer.devices.transportWan')
+  return ''
+}
 
 const t = props.t
 
@@ -71,12 +131,21 @@ function metaText(row: DeviceRow): string {
 
 <template>
   <div class="flex-1 min-h-0 flex flex-col">
+    <!-- 扫码添加远程设备（相机路径；fixed 全屏覆盖） -->
+    <ScanPanel v-if="scanOpen" :t="t" @link="onScanned" @close="scanOpen = false" />
     <!-- 标题行：标题 + 副标题 + 行尾探索发现（空态时隐藏，避免与空态内标题/CTA 重复） -->
     <div v-if="rows.length > 0" class="fv2-section-head flex-shrink-0">
       <div class="flex-1 min-w-0">
         <h2 class="fv2-section-title">{{ t('transfer.devices.title') }}</h2>
         <p class="fv2-section-sub truncate">{{ t('transfer.v2.devices.subtitle') }}</p>
       </div>
+      <button
+        class="fv2-btn-text fv2-btn-text--accent flex-shrink-0"
+        data-testid="mobile-remote-add"
+        @click="openAddRemote()"
+      >
+        + {{ t('transfer.devices.addRemote') }}
+      </button>
       <button
         class="fv2-btn-text fv2-btn-text--accent flex-shrink-0"
         :disabled="scanning"
@@ -116,6 +185,41 @@ function metaText(row: DeviceRow): string {
       </button>
     </div>
 
+    <!-- 添加远程设备：粘贴连接串（T12；解析失败按原因给可操作文案） -->
+    <div v-if="addOpen" class="fv2-remote-panel" data-testid="mobile-remote-panel">
+      <textarea
+        v-model="addText"
+        class="fv2-remote-input"
+        rows="3"
+        :placeholder="t('transfer.remote.placeholder')"
+        data-testid="mobile-remote-input"
+        @input="addError = null"
+      ></textarea>
+      <p v-if="addError" class="fv2-device-error" data-testid="mobile-remote-error">
+        {{ t(ADD_ERROR_KEYS[addError]) }}
+      </p>
+      <div class="flex items-center justify-end gap-2 pt-1">
+        <button
+          class="fv2-btn-text"
+          data-testid="mobile-remote-scan-open"
+          @click="scanOpen = true"
+        >
+          {{ t('transfer.remote.scan') }}
+        </button>
+        <button class="fv2-btn-text" @click="addOpen = false">
+          {{ t('transfer.remote.cancel') }}
+        </button>
+        <button
+          class="fv2-btn-text fv2-btn-text--accent"
+          :disabled="addText.trim() === ''"
+          data-testid="mobile-remote-confirm"
+          @click="submitRemote()"
+        >
+          {{ t('transfer.remote.confirm') }}
+        </button>
+      </div>
+    </div>
+
     <!-- 列表滚动区 -->
     <div class="flex-1 min-h-0 overflow-y-auto overscroll-behavior-none px-4 pb-2">
       <!-- 空态：发现缓存无节点 -->
@@ -133,7 +237,10 @@ function metaText(row: DeviceRow): string {
           </div>
           <p class="fv2-empty-title">{{ t('transfer.devices.title') }}</p>
           <p class="fv2-empty-hint">{{ t('transfer.devices.empty') }}</p>
-          <button class="fv2-empty-action fv2-btn-primary" @click="emit('scan')">
+          <button class="fv2-empty-action fv2-btn-primary" data-testid="mobile-remote-add" @click="openAddRemote()">
+            + {{ t('transfer.devices.addRemote') }}
+          </button>
+          <button class="fv2-empty-action" @click="emit('scan')">
             <svg
               class="w-4 h-4 flex-shrink-0"
               aria-hidden="true"
@@ -167,11 +274,22 @@ function metaText(row: DeviceRow): string {
               <div class="fv2-device-line">
                 <span class="fv2-device-name truncate">{{ row.deviceName }}</span>
                 <span class="fv2-device-fp">{{ shortFingerprint(row.nodeId) }}</span>
+                <span v-if="row.paired" class="fv2-device-tag" data-testid="mobile-remote-tag">
+                  {{ t('transfer.devices.remote') }}
+                </span>
                 <span v-if="row.isActive" class="fv2-device-tag">
                   {{ t('transfer.devices.activeCurrent') }}
                 </span>
               </div>
-              <p class="fv2-device-meta truncate">{{ metaText(row) }}</p>
+              <p class="fv2-device-meta truncate">
+                {{ metaText(row) }}
+                <span
+                  v-if="transportLabel(row)"
+                  class="fv2-device-transport"
+                  :class="{ 'fv2-device-transport--wan': row.transport === 'wan-relay' }"
+                  data-testid="mobile-dev-transport"
+                >{{ transportLabel(row) }}</span>
+              </p>
               <!-- 拨号终态反馈：拒绝 / 不可达 -->
               <p v-if="row.dialError" class="fv2-device-error">
                 {{
@@ -193,6 +311,13 @@ function metaText(row: DeviceRow): string {
                   {{ t('transfer.devices.setActive') }}
                 </button>
                 <button
+                  v-if="row.paired"
+                  class="fv2-btn-text fv2-btn-text--danger"
+                  @click="emit('remove-remote', row.nodeId)"
+                >
+                  {{ t('transfer.devices.removeRemote') }}
+                </button>
+                <button
                   class="fv2-btn-text fv2-btn-text--danger"
                   @click="emit('disconnect', row.nodeId)"
                 >
@@ -202,14 +327,26 @@ function metaText(row: DeviceRow): string {
               <span v-else-if="row.status === 'connecting'" class="fv2-device-meta">
                 {{ t('transfer.devices.connecting') }}
               </span>
-              <button
-                v-else
-                class="fv2-btn-text fv2-btn-text--accent"
-                :disabled="!row.fileTransfer"
-                @click="emit('connect', row.nodeId)"
-              >
-                {{ t('transfer.devices.connect') }}
-              </button>
+              <template v-else>
+                <!-- 手动「尝试外网」：仅存在 relay 候选时给入口；不自动切换（§4.9） -->
+                <button
+                  v-if="row.wanAvailable"
+                  class="fv2-btn-text"
+                  :disabled="!row.fileTransfer"
+                  :title="t('transfer.devices.tryWanHint')"
+                  data-testid="mobile-dev-try-wan"
+                  @click="emit('retry-wan', row.nodeId)"
+                >
+                  {{ t('transfer.devices.tryWan') }}
+                </button>
+                <button
+                  class="fv2-btn-text fv2-btn-text--accent"
+                  :disabled="!row.fileTransfer"
+                  @click="emit('connect', row.nodeId)"
+                >
+                  {{ t('transfer.devices.connect') }}
+                </button>
+              </template>
             </div>
           </div>
         </div>

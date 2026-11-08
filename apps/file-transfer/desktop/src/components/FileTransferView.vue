@@ -15,6 +15,7 @@ import SettingsPanel from './SettingsPanel.vue'
 import PeerDevicesPanel from './PeerDevicesPanel.vue'
 import BatchRequestDialog from './BatchRequestDialog.vue'
 import ConfirmDialog from './ConfirmDialog.vue'
+import AddRemoteDeviceDialog from './AddRemoteDeviceDialog.vue'
 import { useTasks } from '../composables/useTasks'
 import { useReceiving } from '../composables/useReceiving'
 import { useRemoteFs } from '../composables/useRemoteFs'
@@ -32,6 +33,8 @@ const {
   peer,
   connectedIds,
   connect: connectDevice,
+  addRemotePeer,
+  removeRemotePeer,
   disconnect: disconnectDevice,
   switchPeer,
   refresh: refreshDevices,
@@ -42,7 +45,8 @@ const {
   tasks,
   totalSpeed,
   refresh: refreshTasks,
-  sendPickedFiles,
+  pickFiles,
+  sendPaths,
   cancel,
   retry,
   pause,
@@ -74,8 +78,9 @@ const {
   pickDownloadDir,
   setReceivingPolicy,
   setApprovalTimeoutSec,
-  setEncryption,
   setConcurrency,
+  setAllowWan,
+  setRelayMaxBytes,
 } = useSettings(context)
 /** 插件自身对等连接：存在任一已建立的对等连接（≠ 宿主主连接） */
 const peerConnected = computed(() => connectedIds.value.size > 0)
@@ -160,6 +165,67 @@ async function handleDownload(): Promise<void> {
   }
 }
 
+/** 添加远程设备（T12）：连接串 → 设备缓存（配对条目跨重启保留） */
+const showAddRemote = ref(false)
+
+function handleAddRemote(link: Parameters<typeof addRemotePeer>[0]): void {
+  const added = addRemotePeer(link)
+  showAddRemote.value = false
+  if (added) toast.success(t('transfer.remote.added'))
+}
+
+function handleRemoveRemote(nodeId: string): void {
+  removeRemotePeer(nodeId)
+}
+
+function handleRetryWan(nodeId: string): void {
+  void connectDevice(nodeId, { wan: true })
+}
+
+/**
+ * 经中继发送提示（T12 / §9.2#4）：**只提示一次、可取消**，不改变模式判定。
+ * 阈值 0 = 每次经中继发送都提示；阈值 > 0 时仅当本批总量达到阈值才提示。
+ * 体积预览失败不阻断发送（按「无阈值口径」提示）。
+ */
+const relayHintOpen = ref(false)
+const relayHintPaths = ref<string[]>([])
+
+async function relayHintNeeded(paths: string[]): Promise<boolean> {
+  const active = deviceRows.value.find((r) => r.nodeId === peer.value.id)
+  if (active?.transport !== 'wan-relay') return false
+  const threshold = settings.value.relayMaxBytesPerTask
+  if (threshold <= 0) return true
+  try {
+    const preview = await context.commands.execute('file-transfer.preview-outgoing', { paths })
+    const total = typeof preview?.totalBytes === 'number' ? preview.totalBytes : 0
+    return total >= threshold
+  } catch (e) {
+    console.error('[File Transfer] preview-outgoing failed:', e)
+    return true
+  }
+}
+
+async function dispatchSend(paths: string[]): Promise<void> {
+  const r = await sendPaths(paths)
+  if (r.error) {
+    toast.error(r.error)
+    return
+  }
+  if (r.sent > 0) queueVisible.value = true
+}
+
+async function confirmRelaySend(): Promise<void> {
+  const paths = relayHintPaths.value
+  relayHintOpen.value = false
+  relayHintPaths.value = []
+  await dispatchSend(paths)
+}
+
+function cancelRelaySend(): void {
+  relayHintOpen.value = false
+  relayHintPaths.value = []
+}
+
 /** 顶栏刷新：任务 + 当前目录层级 + 设备缓存清扫 */
 async function handleRefresh(): Promise<void> {
   await Promise.all([refreshTasks(), fs.refresh(), refreshDevices()])
@@ -168,12 +234,21 @@ async function handleRefresh(): Promise<void> {
 /** 发送到手机：系统多文件选择器直发活跃对端（失败 → 友好 toast，原文只进日志） */
 async function handleUpload(): Promise<void> {
   if (!peer.value.online) return
-  const r = await sendPickedFiles()
-  if (r.error) {
-    toast.error(r.error)
+  let paths: string[]
+  try {
+    paths = await pickFiles()
+  } catch (e) {
+    console.error('[File Transfer] pick-files failed:', e)
+    toast.error(t('transfer.error.sendFailed'))
     return
   }
-  if (r.sent > 0) queueVisible.value = true
+  if (paths.length === 0) return
+  if (await relayHintNeeded(paths)) {
+    relayHintPaths.value = paths
+    relayHintOpen.value = true
+    return
+  }
+  await dispatchSend(paths)
 }
 
 /** 下载完成 → 打开本地所在目录（插件自有命令 → 宿主原语 host-platform.reveal-in-dir） */
@@ -343,8 +418,11 @@ function handleClearHistoryConfirm(): void {
             :scanning="deviceScanning"
             data-testid="ft-peer-panel"
             @connect="handleConnectDevice"
+            @retry-wan="handleRetryWan"
             @disconnect="handleDisconnectDevice"
             @set-active="handleSetActiveDevice"
+            @add-remote="showAddRemote = true"
+            @remove-remote="handleRemoveRemote"
             @scan="handleScanDevices"
           />
         </Transition>
@@ -565,6 +643,24 @@ function handleClearHistoryConfirm(): void {
       @timeout="prompt.markTimeout()"
     />
 
+    <!-- 添加远程设备（T12）：粘贴连接串 → 设备缓存（配对条目跨重启保留） -->
+    <AddRemoteDeviceDialog
+      v-if="showAddRemote"
+      @add="handleAddRemote"
+      @close="showAddRemote = false"
+    />
+
+    <!-- 经中继发送提示（§9.2#4：无阈值口径下一次提示，可取消；不改变模式判定） -->
+    <ConfirmDialog
+      v-if="relayHintOpen"
+      :title="t('transfer.relayHint.title')"
+      :message="t('transfer.relayHint.body')"
+      :confirm-label="t('transfer.relayHint.confirm')"
+      :cancel-label="t('transfer.relayHint.cancel')"
+      @confirm="confirmRelaySend"
+      @cancel="cancelRelaySend"
+    />
+
     <!-- 清空历史确认（破坏性操作） -->
     <ConfirmDialog
       v-if="showClearHistoryConfirm"
@@ -624,8 +720,9 @@ function handleClearHistoryConfirm(): void {
         @pick-download-dir="pickDownloadDir"
         @set-receiving-policy="setReceivingPolicy"
         @set-approval-timeout-sec="setApprovalTimeoutSec"
-        @set-encryption="setEncryption"
         @set-concurrency="setConcurrency"
+        @set-allow-wan="setAllowWan"
+        @set-relay-max-bytes="setRelayMaxBytes"
         @close="showSettings = false"
       />
     </Transition>

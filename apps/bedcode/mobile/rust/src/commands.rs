@@ -9,6 +9,7 @@ use crate::auth;
 use crate::link::LinkManager;
 use crate::project;
 use crate::session;
+use crate::tunnel;
 
 fn host() -> WasmHost {
     WasmHost
@@ -106,6 +107,39 @@ pub(crate) fn dispatch(name: &str, args: &serde_json::Value) -> anyhow::Result<s
         "bedcode.stop-session" => session::stop_session(args),
         "bedcode.remove-session" => session::remove_session(args),
         "bedcode.send-http-input" => session::send_http_input(args),
+        // ==================== 穿透通道域（T09） ====================
+        // 机制（LAN 优先 / §4.9 判定 / 回环代理 / 票据）全在宿主 `host-tunnel`；
+        // 本域只写配置、发起拨号、投影状态（字段与循环计数全是宿主事实）
+        "bedcode.tunnel-connect" => {
+            let out = tunnel::connect_from_host(args).map_err(|e| anyhow::anyhow!(e))?;
+            Ok(out)
+        }
+        "bedcode.tunnel-close" => {
+            let handle = require_str(args, "handle")?;
+            Ok(
+                serde_json::json!({ "closed": tunnel::close_from_host(&handle).map_err(|e| anyhow::anyhow!(e))? }),
+            )
+        }
+        "bedcode.tunnel-status" => {
+            let node_id = args.get("nodeId").and_then(|v| v.as_str());
+            tunnel::status_from_host(node_id).map_err(|e| anyhow::anyhow!(e))
+        }
+        "bedcode.peer-targets" => tunnel::targets_from_host().map_err(|e| anyhow::anyhow!(e)),
+        "bedcode.forget-peer" => {
+            let node_id = require_str(args, "nodeId")?;
+            Ok(
+                serde_json::json!({ "forgotten": tunnel::forget_from_host(&node_id).map_err(|e| anyhow::anyhow!(e))? }),
+            )
+        }
+        "bedcode.set-allow-wan" => {
+            let allow_wan = args
+                .get("allowWan")
+                .and_then(|v| v.as_bool())
+                .ok_or_else(|| anyhow::anyhow!("missing allowWan"))?;
+            Ok(
+                serde_json::json!({ "allowWan": tunnel::set_allow_wan_from_host(allow_wan).map_err(|e| anyhow::anyhow!(e))? }),
+            )
+        }
         // ==================== 项目 / 运行 / Agent（ADR 0003 移动消费面） ====================
         // 项目写面（建 / 改名 / 删除 / 选目录）需要桌面目录选择与用户确认，不开放；
         // 本端只有项目列表、项目内运行、启动运行与 agent 清单四条消费命令。

@@ -32,6 +32,7 @@ pub const SCHEMA: &[&str] = &[
      device_fingerprint TEXT NOT NULL UNIQUE, \
      address TEXT, \
      uid_hash TEXT, \
+     peer_node_id TEXT, \
      paired_at TEXT NOT NULL, \
      last_seen TEXT, \
      connect_count INTEGER NOT NULL DEFAULT 1, \
@@ -102,7 +103,7 @@ pub trait AuthRecordsStore {
 #[cfg(target_arch = "wasm32")]
 mod wasm_impl {
     use super::*;
-    use wasmnest_plugin_api::host::HostPluginDatabase;
+    use wasmnest_plugin_api::host::{HostLog, HostPluginDatabase};
     use wasmnest_plugin_api::sql_params;
     use wasmnest_plugin_api::wasm_host::WasmHost;
 
@@ -124,6 +125,10 @@ mod wasm_impl {
                 .map(str::to_string),
             uid_hash: row
                 .get("uid_hash")
+                .and_then(|v| v.as_str())
+                .map(str::to_string),
+            peer_node_id: row
+                .get("peer_node_id")
                 .and_then(|v| v.as_str())
                 .map(str::to_string),
             paired_at: required("paired_at")?,
@@ -182,6 +187,34 @@ mod wasm_impl {
                 self.plugin_db_execute(stmt)
                     .map_err(|e| format!("plugin db execute failed: {}", e.message))?;
             }
+            // 老库补列：`CREATE TABLE IF NOT EXISTS` 对既有表不生效，缺列会让
+            // `pairing_put` 在 prepare 期直接失败（新装能用、升级后写不进配对记录）。
+            let rows = self
+                .plugin_db_query("PRAGMA table_info(auth_pairings)")
+                .map_err(|e| format!("plugin db query failed: {}", e.message))?
+                .unwrap_or_else(|| serde_json::json!([]));
+            let columns: Vec<String> = rows
+                .as_array()
+                .map(|array| {
+                    array
+                        .iter()
+                        .filter_map(|row| row.get("name").and_then(|value| value.as_str()).map(str::to_string))
+                        .collect()
+                })
+                .unwrap_or_default();
+            for (column, ddl) in [(
+                "peer_node_id",
+                "ALTER TABLE auth_pairings ADD COLUMN peer_node_id TEXT",
+            )] {
+                if columns.iter().any(|existing| existing == column) {
+                    continue;
+                }
+                self.plugin_db_execute(ddl)
+                    .map_err(|e| format!("auth_pairings {column} add failed: {}", e.message))?;
+                self.log_warn(&format!(
+                    "auth_pairings: added {column} column (legacy records db)"
+                ));
+            }
             Ok(())
         }
 
@@ -212,13 +245,14 @@ mod wasm_impl {
             // 按 id upsert 让「同 id 换指纹」与「同指纹同 id 更新」两条归并都命中。
             self.plugin_db_execute_params(
                 "INSERT INTO auth_pairings \
-                 (id, device_name, device_fingerprint, address, uid_hash, paired_at, last_seen, connect_count, is_active) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9) \
+                 (id, device_name, device_fingerprint, address, uid_hash, peer_node_id, paired_at, last_seen, connect_count, is_active) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10) \
                  ON CONFLICT(id) DO UPDATE SET \
                    device_name = excluded.device_name, \
                    device_fingerprint = excluded.device_fingerprint, \
                    address = excluded.address, \
                    uid_hash = COALESCE(excluded.uid_hash, auth_pairings.uid_hash), \
+                   peer_node_id = COALESCE(excluded.peer_node_id, auth_pairings.peer_node_id), \
                    last_seen = excluded.last_seen, \
                    connect_count = excluded.connect_count, \
                    is_active = excluded.is_active",
@@ -228,6 +262,7 @@ mod wasm_impl {
                     record.device_fingerprint,
                     record.address,
                     record.uid_hash,
+                    record.peer_node_id,
                     record.paired_at,
                     record.last_seen,
                     record.connect_count,
@@ -502,6 +537,7 @@ pub(crate) mod tests {
             device_fingerprint: "fp-1".into(),
             address: None,
             uid_hash: None,
+            peer_node_id: None,
             paired_at: "2026-09-19T00:00:00Z".into(),
             last_seen: None,
             connect_count: 1,

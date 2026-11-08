@@ -21,6 +21,7 @@ import type {
   PairingCodeInfo,
   QrConnectionInfo,
 } from './composables/useDeviceCenter'
+import type { TunnelStatusSnapshot } from './utils/tunnelStatus'
 
 /** 会话域种子 */
 export interface SessionDevSeed {
@@ -52,6 +53,8 @@ export interface PairingDevSeed {
   history: ConnectionHistoryEntry[]
   /** 有效期设置（`session.settings.ttl.get` 回执形状） */
   ttls: { pairingCodeTtl: number; qrTokenTtl: number }
+  /** 隧道状态（`session.tunnel.prepare` / `session.tunnel.status` 回执形状，T07） */
+  tunnel: TunnelStatusSnapshot
 }
 
 const devMock: { session: SessionDevSeed; pairing: PairingDevSeed } = {
@@ -141,6 +144,22 @@ const devMock: { session: SessionDevSeed; pairing: PairingDevSeed } = {
       port: 9000,
       token: 'mockqrtoken00000000000000000000',
       remainingSecs: 300,
+    },
+    // 演示态：隧道已就绪（宿主快照形状；真值来自 `host-tunnel.status`）
+    tunnel: {
+      nodeId: '12D3KooWD3eckifWpRn9wQpMG9R9hX3sD158z7EqHWmweQAJU5SA',
+      started: true,
+      addrs: ['/ip4/192.168.1.10/tcp/47613/p2p/12D3KooWD3eckifWpRn9wQpMG9R9hX3sD158z7EqHWmweQAJU5SA'],
+      peerFace: '127.0.0.1:39001',
+      allowWan: true,
+      relayAddrsConfigured: 1,
+      reservation: true,
+      relayState: 'relay-active',
+      relayAddr: '/ip4/203.0.113.9/tcp/4001',
+      relayDetail: '',
+      exposeRules: 1,
+      connects: 0,
+      modes: [],
     },
     history: [
       {

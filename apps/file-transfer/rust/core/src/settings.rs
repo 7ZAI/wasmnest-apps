@@ -30,16 +30,42 @@ pub struct TransferSettings {
     pub approval_timeout_sec: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub download_dir: Option<String>,
-    /// 发送加密默认值（send 批参数携带；同时推送引擎全局开关兜底）
-    #[serde(default)]
+    /// 发送加密固定值（穿透方案不变量 12）：**恒为 `true`，无关闭开关**。
+    ///
+    /// 旧版本存过 `false` 的库在读取时收紧（见 [`load`]），任何写入口也只落 `true`
+    /// （见 [`save_and_push`]）；`set-settings` 传入 `false` 显性报错
+    /// （见 [`validate_encryption_patch`]）。
+    #[serde(default = "default_encryption")]
     pub encryption: bool,
     /// 发送方向并发上限（1–8）
     #[serde(default = "default_concurrency")]
     pub concurrency: u8,
+    /// 是否允许经中继（WAN）传输（T12，缺省开）。
+    ///
+    /// 关闭只影响**拨号候选**（relay circuit 不进候选表，见 [`crate::dial::dial_plan`]），
+    /// **不影响加密**：加密固定开（不变量 12），本字段没有也不得有「关明文」语义。
+    #[serde(default = "default_allow_wan")]
+    pub allow_wan: bool,
+    /// 经中继单任务的「可能较慢」提示阈值（字节，0 = 每次都提示）。
+    ///
+    /// 只是提示阈值，不是硬限额、不入加密/授权判定：§9.2#4 默认无阈值；用户可调高
+    /// 到指定大小以上才提示。真正的中继配额在 relay 服务端（单 circuit 字节 / 时长）。
+    #[serde(default)]
+    pub relay_max_bytes_per_task: u64,
 }
 
 fn default_concurrency() -> u8 {
     DEFAULT_CONCURRENCY
+}
+
+/// 中继缺省值（开；关闭 = 只走内网，不涉及加密）
+fn default_allow_wan() -> bool {
+    true
+}
+
+/// 加密缺省值（固定开；`serde(default)` 与 [`Default`] 共用同一常量）
+fn default_encryption() -> bool {
+    true
 }
 
 impl Default for TransferSettings {
@@ -48,8 +74,10 @@ impl Default for TransferSettings {
             receiving_policy: "ask".to_string(),
             approval_timeout_sec: 60,
             download_dir: None,
-            encryption: false,
+            encryption: default_encryption(),
             concurrency: default_concurrency(),
+            allow_wan: default_allow_wan(),
+            relay_max_bytes_per_task: 0,
         }
     }
 }
@@ -86,10 +114,18 @@ pub fn auto_answer(s: &TransferSettings) -> Option<bool> {
 // ==================== 存取编排 ====================
 
 /// 读取设置；存储为空返回默认值（纯读语义，不回填）
+///
+/// 旧版本可能存过 `encryption: false`：读取时一律收紧为 `true`——发送路径
+/// 只消费本函数的返回值，收紧发生在这里就能保证「无明文回退」不依赖调用点自觉。
 pub fn load<H: KvStore>(h: &H) -> PortResult<TransferSettings> {
     match h.storage_get(SETTINGS_KEY)? {
-        Some(v) => serde_json::from_value(v)
-            .map_err(|e| crate::ports::PortError::new(format!("transfer_settings corrupt: {e}"))),
+        Some(v) => {
+            let mut settings: TransferSettings = serde_json::from_value(v).map_err(|e| {
+                crate::ports::PortError::new(format!("transfer_settings corrupt: {e}"))
+            })?;
+            settings.encryption = true;
+            Ok(settings)
+        }
         None => Ok(TransferSettings::default()),
     }
 }
@@ -100,15 +136,37 @@ pub fn load_or_migrate<H: KvStore>(h: &H) -> PortResult<TransferSettings> {
     load(h)
 }
 
+/// 校验 `set-settings` 的加密补丁：禁止关闭（不变量 12），非布尔值也显性报错。
+///
+/// 这里刻意不「静默改成 true」：旧客户端仍带 `encryption:false` 时，静默改写会让
+/// 调用方以为关闭生效、实际仍在加密，行为不可解释；报错让旧入口暴露出来。
+pub fn validate_encryption_patch(requested: Option<&serde_json::Value>) -> PortResult<()> {
+    match requested {
+        None | Some(serde_json::Value::Bool(true)) => Ok(()),
+        Some(serde_json::Value::Bool(false)) => Err(crate::ports::PortError::new(
+            "encryption cannot be disabled (required)",
+        )),
+        Some(_) => Err(crate::ports::PortError::new("encryption must be a boolean")),
+    }
+}
+
 /// 保存设置并推送宿主配置原语（闸门 + 落点）。
 ///
 /// 任一宿主推送失败如实上抛：存储已写入，下次 set 重推即可收敛（不做回滚——策略闸门
 /// 宁可是旧值也不能是「存储说 A、闸门收 B」的分裂态）。
+///
+/// 加密列**强制落 `true`**：即使调用方传了 `false`（旧调用点 / 直写），存储也不会
+/// 留下可被后续读取利用的明文开关。
 pub fn save_and_push<H: KvStore + PeerPort + PluginProfile>(
     h: &H,
     s: &TransferSettings,
 ) -> PortResult<()> {
-    h.storage_set(SETTINGS_KEY, &serde_json::to_value(s).map_err(serde_err)?)?;
+    let mut persisted = s.clone();
+    persisted.encryption = true;
+    h.storage_set(
+        SETTINGS_KEY,
+        &serde_json::to_value(&persisted).map_err(serde_err)?,
+    )?;
     h.peer_set_receive_policy(
         policy_to_host(&s.receiving_policy),
         clamp_timeout(s.approval_timeout_sec),
@@ -242,6 +300,8 @@ mod tests {
             download_dir: Some("D:/dl".into()),
             encryption: true,
             concurrency: 5,
+            allow_wan: false,
+            relay_max_bytes_per_task: 1_073_741_824,
         };
         save_and_push(&h, &s).unwrap();
         assert_eq!(
@@ -336,6 +396,105 @@ mod tests {
         )
         .unwrap();
         assert_eq!(load_or_migrate(&h).unwrap().receiving_policy, "reject");
+    }
+
+    // ==================== 不变量 12：加密固定开启 ====================
+
+    #[test]
+    fn encryption_defaults_to_true() {
+        assert!(TransferSettings::default().encryption, "缺省必须加密");
+    }
+
+    #[test]
+    fn stored_disabled_encryption_is_tightened_on_load() {
+        // 旧版本存过 false：读取即使明明存量里的值不是 true 也收紧（不依赖调用点自觉）
+        let h = MockPorts::default();
+        h.storage_set(
+            SETTINGS_KEY,
+            &serde_json::json!({"receivingPolicy": "ask", "approvalTimeoutSec": 60, "encryption": false}),
+        )
+        .unwrap();
+        assert!(load(&h).unwrap().encryption, "存量 false 必须在读面收紧");
+    }
+
+    #[test]
+    fn save_and_push_never_persists_disabled_encryption() {
+        let h = MockPorts::default();
+        let s = TransferSettings {
+            encryption: false,
+            ..Default::default()
+        };
+        save_and_push(&h, &s).unwrap();
+        let raw = h.storage_get(SETTINGS_KEY).unwrap().expect("已写入");
+        assert_eq!(
+            raw.get("encryption").and_then(|v| v.as_bool()),
+            Some(true),
+            "写入面不得落明文开关，实际 {raw}"
+        );
+        assert!(load(&h).unwrap().encryption);
+    }
+
+    #[test]
+    fn validate_encryption_patch_rejects_disable_and_non_bool() {
+        assert!(
+            validate_encryption_patch(None).is_ok(),
+            "未指定加密时不应报错"
+        );
+        assert!(validate_encryption_patch(Some(&serde_json::json!(true))).is_ok());
+
+        let disabled = validate_encryption_patch(Some(&serde_json::json!(false))).unwrap_err();
+        assert!(
+            disabled.message().contains("cannot be disabled"),
+            "实得 {disabled}"
+        );
+
+        let wrong_type = validate_encryption_patch(Some(&serde_json::json!("false"))).unwrap_err();
+        assert!(
+            wrong_type.message().contains("must be a boolean"),
+            "实得 {wrong_type}"
+        );
+    }
+
+    // ==================== T12：中继设置 ====================
+
+    #[test]
+    fn wan_defaults_to_enabled_without_touching_encryption() {
+        let s = TransferSettings::default();
+        assert!(s.allow_wan, "中继缺省开（用户可关，但关的不是加密）");
+        assert_eq!(s.relay_max_bytes_per_task, 0, "§9.2#4：默认无阈值");
+        assert!(s.encryption, "中继开关与加密正交（不变量 12）");
+    }
+
+    #[test]
+    fn relay_settings_roundtrip_and_legacy_storage_defaults_them() {
+        let h = MockPorts::default();
+        // 旧库存没有两个新字段：读取不得报错（否则升级即丢设置）
+        h.storage_set(
+            SETTINGS_KEY,
+            &serde_json::json!({"receivingPolicy": "ask", "approvalTimeoutSec": 60, "encryption": true}),
+        )
+        .unwrap();
+        let l = load(&h).unwrap();
+        assert!(l.allow_wan);
+        assert_eq!(l.relay_max_bytes_per_task, 0);
+
+        let s = TransferSettings {
+            allow_wan: false,
+            relay_max_bytes_per_task: 5_000_000_000,
+            ..Default::default()
+        };
+        save_and_push(&h, &s).unwrap();
+        let back = load(&h).unwrap();
+        assert!(!back.allow_wan);
+        assert_eq!(back.relay_max_bytes_per_task, 5_000_000_000);
+        assert!(back.encryption, "关闭中继不得把加密也关掉");
+        // 存储面同样保留两个字段（前端读回真源）
+        let raw = h.storage_get(SETTINGS_KEY).unwrap().expect("已写入");
+        assert_eq!(raw["allowWan"], serde_json::json!(false));
+        assert_eq!(
+            raw["relayMaxBytesPerTask"],
+            serde_json::json!(5_000_000_000u64)
+        );
     }
 
     #[test]

@@ -190,6 +190,25 @@ export type MessageSchema = {
   'pairing.qr.hint': string
   'pairing.qr.singleUse': string
   'pairing.qr.placeholder': string
+  'pairing.qr.errorPeerIncomplete': string
+  'pairing.qr.errorPeerAddressInvalid': string
+  'pairing.qr.copyLink': string
+  'pairing.qr.copyLinkDone': string
+  'pairing.qr.copyLinkFailed': string
+
+  // ==================== 隧道状态栏（T07） ====================
+  'pairing.tunnel.title': string
+  'pairing.tunnel.direct': string
+  'pairing.tunnel.relay': string
+  'pairing.tunnel.ready': string
+  'pairing.tunnel.lanUnreachable': string
+  'pairing.tunnel.relayUnavailable': string
+  'pairing.tunnel.wanOff': string
+  'pairing.tunnel.offline': string
+  'pairing.tunnel.unavailable': string
+  'pairing.tunnel.encryption': string
+  'pairing.tunnel.encryptionHint': string
+  'pairing.tunnel.onlyLan': string
 
   // ==================== 设备列表 ====================
   'pairing.device.sectionOnline': string
@@ -498,22 +517,96 @@ export type MessageSchema = {
   'server.toggleOn': string
   'server.toggleOff': string
 
-  // ==================== 链路加密策略（应用自有，2026-11-04） ====================
+  // ==================== 链路加密（应用自有；T07 固定 required，不可关闭） ====================
   'linkCrypto.title': string
   'linkCrypto.policy': string
   'linkCrypto.policyDesc': string
-  'linkCrypto.policyOff': string
-  'linkCrypto.policyPreferred': string
-  'linkCrypto.policyRequired': string
-  'linkCrypto.offHint': string
-  'linkCrypto.preferredHint': string
+  'linkCrypto.forced': string
+  'linkCrypto.forcedPending': string
+  'linkCrypto.currentOff': string
+  'linkCrypto.currentPreferred': string
   'linkCrypto.requiredHint': string
+  'linkCrypto.repairNeeded': string
+  'linkCrypto.enforce': string
+  'linkCrypto.enforced': string
+  'linkCrypto.enforceFailed': string
+  'linkCrypto.blockedIdentityMissing': string
+  'linkCrypto.blockedWsUnsupported': string
   'linkCrypto.fingerprint': string
   'linkCrypto.fingerprintDesc': string
-  'linkCrypto.saved': string
-  'linkCrypto.saveFailed': string
-  'linkCrypto.wsNotEncrypted': string
   'linkCrypto.capabilityMissing': string
+
+  // ==================== 中转服务器（T14：部署文本 / 地址导入 / 连通性） ====================
+  'relay.title': string
+  'relay.desc': string
+  'relay.state.configured': string
+  'relay.state.empty': string
+  'relay.deploy.title': string
+  'relay.deploy.desc': string
+  'relay.deploy.advertise': string
+  'relay.deploy.advertisePlaceholder': string
+  'relay.deploy.port': string
+  'relay.deploy.version': string
+  'relay.deploy.mode.compose': string
+  'relay.deploy.mode.docker': string
+  'relay.deploy.mode.systemd': string
+  'relay.deploy.emptyHint': string
+  'relay.deploy.copy': string
+  'relay.deploy.copied': string
+  'relay.deploy.copyFailed': string
+  'relay.deploy.download': string
+  'relay.deploy.downloadFailed': string
+  'relay.deploy.imageHint': string
+  'relay.deploy.noCreds': string
+  'relay.deploy.invalidAdvertise': string
+  'relay.deploy.invalidPort': string
+  'relay.deploy.invalidTag': string
+  'relay.import.title': string
+  'relay.import.desc': string
+  'relay.import.placeholder': string
+  'relay.import.submit': string
+  'relay.import.success': string
+  'relay.import.saveFailed': string
+  'relay.import.clear': string
+  'relay.import.cleared': string
+  'relay.import.clearFailed': string
+  'relay.import.loadFailed': string
+  'relay.current.title': string
+  'relay.current.addrs': string
+  'relay.current.peerId': string
+  'relay.current.fingerprint': string
+  'relay.current.verified': string
+  'relay.current.access': string
+  'relay.current.accessOpen': string
+  'relay.current.accessAllowlist': string
+  'relay.current.accessUnknown': string
+  'relay.current.quota': string
+  'relay.current.quotaValue': string
+  'relay.current.quotaUnknown': string
+  'relay.current.version': string
+  'relay.probe.title': string
+  'relay.probe.desc': string
+  'relay.probe.action': string
+  'relay.probe.empty': string
+  'relay.probe.unsupported': string
+  'relay.probe.publicHint': string
+  'relay.error.empty': string
+  'relay.error.json': string
+  'relay.error.version': string
+  'relay.error.kind': string
+  'relay.error.peerId': string
+  'relay.error.fingerprintMissing': string
+  'relay.error.fingerprintMismatch': string
+  'relay.error.controlProtocol': string
+  'relay.error.addrs': string
+  'relay.error.addrShape': string
+  'relay.error.addrPeer': string
+  'relay.error.multiPeer': string
+  'relay.error.metadata': string
+  'relay.error.access': string
+  'relay.error.quota': string
+  'relay.error.line': string
+  'relay.error.crypto': string
 
   // ==================== 应用级兜底（2026-10-27 自宿主 `desktop.notFound.*` / `desktop.runtimeUnexpected` 迁入） ====================
   'notFound.title': string
@@ -1520,7 +1613,6 @@ export type MessageSchema = {
   'orchestration.action.skip-node': string
   'orchestration.action.replan': string
   'orchestration.action.edit-plan': string
-
 
   // ==================== Agent 池 / 编排 v2 ====================
   'orchestration.pool.title': string

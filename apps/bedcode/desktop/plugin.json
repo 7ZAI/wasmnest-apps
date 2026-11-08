@@ -30,6 +30,7 @@
     "task:run",
     "terminal:input",
     "timer:schedule",
+    "tunnel:serve",
     "ui:input",
     "ui:settings",
     "ui:sidebar",

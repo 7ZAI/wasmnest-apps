@@ -3,7 +3,7 @@
   <div
     class="bg-[var(--bg-card)] border border-[var(--border)] rounded-[10px] divide-y divide-[var(--border)]"
   >
-    <!-- 策略三档：off / preferred / required（覆盖本应用全部 HTTP / WS 端点） -->
+    <!-- 策略档位：固定 required（不可关闭）。本应用不提供 off / preferred 选择 -->
     <div class="px-5 py-3.5 flex items-start justify-between gap-6">
       <div class="min-w-0">
         <span class="text-[calc(13px*var(--ui-scale))] text-[var(--text-primary)]">{{
@@ -13,34 +13,19 @@
           {{ t('linkCrypto.policyDesc') }}
         </p>
       </div>
-      <div
+      <span
         data-testid="link-crypto-policy"
-        class="flex items-center gap-1 rounded-[8px] border border-[var(--border-strong)] p-0.5 flex-shrink-0"
-        role="group"
-        :aria-label="t('linkCrypto.policy')"
+        :data-policy="policy"
+        :data-enforced="enforced ? 'true' : 'false'"
+        class="wb-mono text-[calc(11px*var(--ui-scale))] inline-flex items-center gap-1.5 px-2 h-5 rounded-[6px] flex-shrink-0"
+        :class="badgeClass"
       >
-        <button
-          v-for="opt in options"
-          :key="opt.value"
-          :data-testid="`link-crypto-policy-${opt.value}`"
-          class="px-2.5 py-1 rounded-[6px] text-[calc(12px*var(--ui-scale))] transition-colors disabled:cursor-not-allowed disabled:opacity-50"
-          :class="
-            policy === opt.value
-              ? opt.value === 'off'
-                ? 'bg-[var(--color-warning-light)] text-[var(--color-warning-ink)]'
-                : 'bg-[var(--color-primary-light)] text-[var(--color-primary)]'
-              : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'
-          "
-          :aria-pressed="supported && policy === opt.value"
-          :disabled="isDisabled(opt.value)"
-          @click="select(opt.value)"
-        >
-          {{ opt.label }}
-        </button>
-      </div>
+        <span class="w-1.5 h-1.5 rounded-full" :class="dotClass"></span>
+        {{ badgeText }}
+      </span>
     </div>
 
-    <!-- 能力缺失（旧宿主）/ 当前策略语义 -->
+    <!-- 旧宿主：无按应用策略面（不假装已加密） -->
     <p
       v-if="loadDone && !supported"
       data-testid="link-crypto-unavailable"
@@ -48,23 +33,52 @@
     >
       {{ t('linkCrypto.capabilityMissing') }}
     </p>
-    <p
-      v-else-if="supported"
-      data-testid="link-crypto-hint"
-      class="px-5 py-3.5 text-xs leading-relaxed"
-      :class="policy === 'off' ? 'text-[var(--color-danger-ink)]' : 'text-[var(--text-tertiary)]'"
-    >
-      {{ hint }}
-    </p>
 
-    <!-- 旧宿主不支持 WS 帧级加密：策略只对 HTTP 生效（绝不把 WS 明文说成已加密） -->
-    <p
-      v-if="supported && !wsSession"
-      data-testid="link-crypto-ws-gap"
-      class="px-5 py-3.5 text-xs leading-relaxed text-[var(--text-tertiary)]"
-    >
-      {{ t('linkCrypto.wsNotEncrypted') }}
-    </p>
+    <template v-else-if="supported">
+      <!-- 强制加密无法真正生效：不写库、不宣称已加密（fail-visible） -->
+      <p
+        v-if="blockReason"
+        data-testid="link-crypto-blocked"
+        class="px-5 py-3.5 text-xs leading-relaxed text-[var(--color-danger-ink)]"
+      >
+        {{ blockedText }}
+      </p>
+
+      <!-- 可强制但宿主旧值未收紧（自动收紧失败）：显性修复入口 -->
+      <div
+        v-else-if="!enforced"
+        data-testid="link-crypto-repair"
+        class="px-5 py-3.5 flex items-start justify-between gap-4"
+      >
+        <div class="min-w-0 text-xs leading-relaxed text-[var(--color-danger-ink)]">
+          <p>{{ t('linkCrypto.repairNeeded', { state: currentStateLabel }) }}</p>
+          <p
+            v-if="lastError"
+            data-testid="link-crypto-error"
+            class="wb-mono mt-1 text-[var(--text-tertiary)] break-all"
+          >
+            {{ t('linkCrypto.enforceFailed') }}: {{ lastError }}
+          </p>
+        </div>
+        <button
+          data-testid="link-crypto-enforce"
+          class="wb-btn-primary !h-7 !px-2.5 text-[calc(12px*var(--ui-scale))] flex-shrink-0"
+          :disabled="busy"
+          @click="onEnforce"
+        >
+          {{ t('linkCrypto.enforce') }}
+        </button>
+      </div>
+
+      <!-- 已生效 -->
+      <p
+        v-else
+        data-testid="link-crypto-enforced"
+        class="px-5 py-3.5 text-xs leading-relaxed text-[var(--text-tertiary)]"
+      >
+        {{ t('linkCrypto.requiredHint') }}
+      </p>
+    </template>
 
     <!-- 本机指纹：供双端人工核对（移动端 pin 展示比对） -->
     <div class="px-5 py-3.5 flex items-center justify-between gap-4">
@@ -89,70 +103,80 @@
 /**
  * LinkCryptoSettingsSection — 设置页「链路加密」分组正文（应用自有策略）
  *
- * 归属（2026-11-04 用户裁决，修正 2026-11-03 的宿主只读）：链路加密策略**属于应用**。
- * 本页决定 off / preferred / required，覆盖 bedcode 全部 HTTP / WS 端点；写入经
- * AppMountEnv.appLinkCryptoSet（app 通道令牌绑定本应用，宿主只执行）。宿主不设
- * 整机下限，也没有宿主设置页开关——bedcode 的设置就是 bedcode 的策略。
+ * 归属：链路加密策略属于应用（2026-11-04 用户裁决）。**T07 起固定 `required`**：
+ * bedcode 不提供 off / preferred 选择（spec 不变量 12·14「无关闭开关」），本页只
+ * 呈现当前状态并在宿主记录仍旧值时自动收紧（`useLinkCryptoStatus.load`）。
  *
- * 旧宿主（不注入 appLinkCryptoGet/Set / 能力缺 appScopedPolicy）显性提示不可用，
- * 不假装已加密；保存失败保持原值并提示，不显示「已生效」假象。
+ * 三种显性状态，绝不把「没生效」显示成已加密：
+ * - 旧宿主无按应用策略面（`supported=false`）→ 提示升级宿主；
+ * - 强制档无法真正生效（身份未初始化 / WS 帧加密未接线）→ 说明原因，不写库；
+ * - 能生效但宿主旧值未收紧 → 给「立即启用强制加密」修复入口与失败原因。
  */
 import { computed, inject, onMounted, ref } from 'vue'
 import { useAppI18n } from '@/composables/useAppI18n'
 import { useToast } from '@/composables/useToast'
 import type { AppMountEnv } from '@/entry'
-import { useLinkCryptoStatus, type EncryptionPolicy } from '@/composables/useLinkCrypto'
+import { useLinkCryptoStatus } from '@/composables/useLinkCrypto'
 
 const env = inject<AppMountEnv | null>('appEnv', null)
 const t = useAppI18n()
 const toast = useToast()
-const { capabilities, policy, supported, load, save } = useLinkCryptoStatus(env?.invoke.bind(env), {
-  getPolicy: env?.appLinkCryptoGet?.bind(env),
-  setPolicy: env?.appLinkCryptoSet?.bind(env),
-})
+const { capabilities, policy, supported, enforced, blockReason, lastError, load, enforce } =
+  useLinkCryptoStatus(env?.invoke.bind(env), {
+    getPolicy: env?.appLinkCryptoGet?.bind(env),
+    setPolicy: env?.appLinkCryptoSet?.bind(env),
+  })
 
 /** 加载完成标记：区分「加载中」与「旧宿主缺能力」，避免首帧误报 */
 const loadDone = ref(false)
 const busy = ref(false)
 
-const options = computed<Array<{ value: EncryptionPolicy; label: string }>>(() => [
-  { value: 'off', label: t('linkCrypto.policyOff') },
-  { value: 'preferred', label: t('linkCrypto.policyPreferred') },
-  { value: 'required', label: t('linkCrypto.policyRequired') },
-])
+const badgeText = computed(() =>
+  enforced.value ? t('linkCrypto.forced') : t('linkCrypto.forcedPending'),
+)
+const badgeClass = computed(() =>
+  enforced.value
+    ? 'bg-[var(--color-success-light)] text-[var(--color-success)]'
+    : 'bg-[var(--color-danger-light)] text-[var(--color-danger-ink)]',
+)
+const dotClass = computed(() =>
+  enforced.value ? 'bg-[var(--color-success)]' : 'bg-[var(--color-danger)]',
+)
 
-const hint = computed(() => {
+const blockedText = computed(() => {
+  switch (blockReason.value) {
+    case 'identity-missing':
+      return t('linkCrypto.blockedIdentityMissing')
+    case 'ws-unsupported':
+      return t('linkCrypto.blockedWsUnsupported')
+    default:
+      return ''
+  }
+})
+
+/** 宿主当前记录的状态（修复提示里点名，避免只说「未开启」） */
+const currentStateLabel = computed(() => {
   switch (policy.value) {
     case 'required':
-      return t('linkCrypto.requiredHint')
+      return t('linkCrypto.forced')
     case 'preferred':
-      return t('linkCrypto.preferredHint')
+      return t('linkCrypto.currentPreferred')
     default:
-      return t('linkCrypto.offHint')
+      return t('linkCrypto.currentOff')
   }
 })
 
 const fingerprint = computed(() => capabilities.value?.identityFingerprint ?? null)
-const wsSession = computed(() => capabilities.value?.wsSession === true)
 
-/**
- * `required` 仅在宿主能力 `wsSession=false`（旧宿主，WS 升级期协商未接线）时禁用：
- * 旧宿主的有 WS 端点应用选它会让所有 WS 客户端在升级前被拒。
- */
-function isDisabled(value: EncryptionPolicy): boolean {
-  if (!supported.value || busy.value) return true
-  return value === 'required' && !wsSession.value
-}
-
-async function select(next: EncryptionPolicy): Promise<void> {
-  if (!supported.value || busy.value || next === policy.value) return
+async function onEnforce(): Promise<void> {
+  if (busy.value) return
   busy.value = true
   try {
-    await save(next)
-    toast.success(t('linkCrypto.saved'))
+    await enforce()
+    toast.success(t('linkCrypto.enforced'))
   } catch {
-    // 失败不改本地值：界面不显示「已生效」的假象
-    toast.error(t('linkCrypto.saveFailed'))
+    // 失败不改本地值：界面继续显示「未生效」与原因，不显示已生效假象
+    toast.error(t('linkCrypto.enforceFailed'))
   } finally {
     busy.value = false
   }

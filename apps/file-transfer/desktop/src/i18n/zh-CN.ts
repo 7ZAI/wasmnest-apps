@@ -36,6 +36,14 @@ const zhCN: MessageSchema = {
   'transfer.devices.trustHint': '首次连接需对方确认；信任管理见 设置 → 可信对端',
   'transfer.devices.scan': '探索发现',
   'transfer.devices.scanning': '探索中…',
+  // T12: 中继 / 远程设备（连接串导入、传输形态、手动尝试外网）
+  'transfer.devices.addRemote': '添加远程设备',
+  'transfer.devices.remote': '远程',
+  'transfer.devices.removeRemote': '移除',
+  'transfer.devices.tryWan': '尝试外网',
+  'transfer.devices.tryWanHint': '只有你显式点击才尝试中继；同网段不可达不会自动切换',
+  'transfer.devices.transportLan': '内网直连',
+  'transfer.devices.transportWan': '外网中继',
 
   // ==================== 顶栏 ====================
   'transfer.topbar.sendToPhone': '发送到手机…',
@@ -144,7 +152,8 @@ const zhCN: MessageSchema = {
   'transfer.settings.chooseDir': '选择目录',
   'transfer.settings.concurrency': '并发数',
   'transfer.settings.concurrencyHint': '同时传输的任务数量，增大可能占用更多带宽',
-  'transfer.settings.plainWarning': '文件在本局域网内明文传输，请仅在受信任的 WiFi 网络中使用',
+  'transfer.settings.encryptionNotice':
+    '传输始终启用端到端加密（AES-256-GCM）；不支持加密的旧版本对端会显性失败，不会降级为明文',
   'transfer.settings.concurrencyMinus': '减少并发数',
   'transfer.settings.concurrencyPlus': '增加并发数',
   'transfer.settings.receivingPolicy': '接收策略',
@@ -154,10 +163,36 @@ const zhCN: MessageSchema = {
   'transfer.settings.receivingPolicyHint': '对端发送文件前是否需要你同意',
   'transfer.settings.approvalTimeout': '同意超时（秒）',
   'transfer.settings.encryption': '传输加密',
-  'transfer.settings.encryptionOn': '开启',
-  'transfer.settings.encryptionOff': '关闭',
+  'transfer.settings.encryptionAlwaysOn': '始终加密',
   'transfer.settings.encryptionHint':
-    '开启后发送文件经 AES-256-GCM 端到端加密；需对端同为 WasmNest 新版本方可自动解密',
+    '所有发送（内网直连 / 外网中继）都强制加密，无关闭开关；对端需为支持加密的新版本',
+  // T12: 中继开关与提示阈值（关的是中继，不是加密）
+  'transfer.settings.relay': '中继（外网）',
+  'transfer.settings.relayOn': '允许',
+  'transfer.settings.relayOff': '仅内网',
+  'transfer.settings.relayHint': '允许中继只是把 relay 候选加入拨号；两种状态下加密都保持开启',
+  'transfer.settings.relayThreshold': '中继提示阈值（MB）',
+  'transfer.settings.relayThresholdHint':
+    '经中继发送且本批不小于该大小时提示一次；0 = 每次经中继都提示',
+
+  // ==================== 中继发送提示 ====================
+  'transfer.relayHint.title': '正在经中继发送',
+  'transfer.relayHint.body':
+    '当前连接经中继转发，大文件可能较慢；加密保持开启。是否继续本次发送？',
+  'transfer.relayHint.confirm': '继续发送',
+  'transfer.relayHint.cancel': '取消',
+
+  // ==================== 添加远程设备 ====================
+  'transfer.remote.title': '添加远程设备',
+  'transfer.remote.hint':
+    '粘贴对方设备生成的配对连接串（wasmnest://pair/…）或原始 JSON 载荷。载荷只含一次性票据，不含长期密钥。',
+  'transfer.remote.placeholder': 'wasmnest://pair/… 或 {"nodeId":"…","addrs":["…"]}',
+  'transfer.remote.cancel': '取消',
+  'transfer.remote.confirm': '添加',
+  'transfer.remote.added': '已添加远程设备',
+  'transfer.remote.errorMalformed': '连接串或 JSON 无效',
+  'transfer.remote.errorIncomplete': '配对信息不完整（需要 nodeId 与至少一个地址）',
+  'transfer.remote.errorAddressInvalid': '地址不可拨号（需为 /multiaddr 形态）',
 
   // ==================== 错误（spec §10 + v2 拒绝原因） ====================
   'transfer.error.duplicateName': '无法上传：目标目录已存在同名文件',

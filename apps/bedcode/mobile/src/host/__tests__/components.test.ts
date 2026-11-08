@@ -14,6 +14,7 @@
  * | C-C3 | 已认证设备卡 | isPaired | 名称 + 地址 + 断开 + 会话入口在场 |
  * | C-C7 | 已连未认证 | status=connected、paired=false | 自动进入认证流程（请求配对命令 + 配对弹窗） |
  * | C-C8 | 手动连接 | 点手动连接 → 弹层提交 | connectDevice 收到默认端口补齐的目标 |
+ * | C-C9 | 手动粘贴连接串 | 输入 `wasmnest://pair/…` | 与扫码同解析同路径（结果卡 + token 认证）；坏串显性报错 |
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { nextTick } from 'vue'
@@ -94,6 +95,26 @@ function mountSection(component: unknown) {
 async function settle(): Promise<void> {
   for (let i = 0; i < 4; i++) await Promise.resolve()
   await nextTick()
+}
+
+/** 连接串编码（与桌面「复制连接串」同形：wasmnest://pair/<base64url(json)>） */
+function encodePairUri(json: string): string {
+  const base64 = btoa(String.fromCharCode(...new TextEncoder().encode(json)))
+  return `wasmnest://pair/${base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')}`
+}
+
+/** 在手动连接弹层里填入文本并确认（Teleport 到 body，只能走 document 查询） */
+async function submitManualInput(value: string): Promise<void> {
+  const input = document.querySelector('input[placeholder="hub.addressPlaceholder"]') as HTMLInputElement
+  expect(input, '未找到手动地址输入框').toBeTruthy()
+  input.value = value
+  input.dispatchEvent(new Event('input'))
+  await nextTick()
+  const confirmBtn = Array.from(document.querySelectorAll('button')).find((b) =>
+    b.textContent?.includes('hub.actionConfirm'),
+  ) as HTMLButtonElement
+  confirmBtn.click()
+  await settle()
 }
 
 beforeEach(() => {
@@ -239,6 +260,59 @@ describe('C-C1/C-C2/C-C3/C-C7/C-C8 连接页形态与流程契约', () => {
     expect(connectDevice).toHaveBeenCalledWith({ address: '10.0.0.5', port: 9000, name: '10.0.0.5' })
     // 手动连接必须走认证流程（不允许静默用存量凭据）
     expect(ctx.commands.execute).toHaveBeenCalledWith('bedcode.request-pairing')
+    wrapper.unmount()
+  })
+})
+
+describe('C-C9 手动粘贴连接串（与扫码共用一套解析）', () => {
+  it('should_openScanResultCardAndUseQrAuth_when_manualInputIsPairLink', async () => {
+    // 桌面「复制连接串」→ 移动手动粘贴：解析走 parseQrText，连接后的认证路径与扫码一致
+    api.connectDevice = async () => {
+      api.isConnected.value = true
+      api.connectionStatus.value = 'connected'
+    }
+    ctx.commands.execute = vi.fn(async (id: string) =>
+      id === 'bedcode.authenticate-with-qr' ? { accepted: true } : {},
+    )
+    const link = encodePairUri(
+      JSON.stringify({ host: '10.0.0.9', port: 8765, token: 'one-shot' }),
+    )
+
+    const wrapper = mountSection(DevicesSection)
+    const manualBtn = wrapper.findAll('button').find((b) => b.text().includes('hub.manualConnect'))
+    expect(manualBtn, '未找到手动连接按钮').toBeTruthy()
+    await manualBtn!.trigger('click')
+    await nextTick()
+
+    await submitManualInput(link)
+
+    // 与扫码同款结果卡（没有为连接串另开一条直连旁路）
+    const resultCard = wrapper.findAll('button').find((b) => b.text().includes('10.0.0.9:8765'))
+    expect(resultCard, '未找到连接串解析出的结果卡').toBeTruthy()
+    await resultCard!.trigger('click')
+    await settle()
+
+    expect(ctx.commands.execute).toHaveBeenCalledWith('bedcode.authenticate-with-qr', {
+      token: 'one-shot',
+    })
+    expect(ctx.commands.execute).not.toHaveBeenCalledWith('bedcode.request-pairing')
+    wrapper.unmount()
+  })
+
+  it('should_rejectWithVisibleError_when_pairLinkMalformed', async () => {
+    const connectDevice = vi.fn(async () => {})
+    api.connectDevice = connectDevice
+
+    const wrapper = mountSection(DevicesSection)
+    const manualBtn = wrapper.findAll('button').find((b) => b.text().includes('hub.manualConnect'))
+    await manualBtn!.trigger('click')
+    await nextTick()
+
+    await submitManualInput('wasmnest://pair/@@not-base64@@')
+
+    const dialogs = ctx.dialogs as unknown as { showToast: ReturnType<typeof vi.fn> }
+    expect(dialogs.showToast).toHaveBeenCalledWith('hub.pairLinkInvalid', 'error')
+    expect(connectDevice).not.toHaveBeenCalled()
     wrapper.unmount()
   })
 })

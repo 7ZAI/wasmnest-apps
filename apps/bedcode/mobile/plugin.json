@@ -17,6 +17,7 @@
     "session:read",
     "storage",
     "terminal:output",
+    "tunnel:connect",
     "ui:back",
     "ui:route",
     "ws:client"
@@ -106,6 +107,30 @@
       {
         "id": "bedcode.list-agents",
         "title": "List Agents"
+      },
+      {
+        "id": "bedcode.tunnel-connect",
+        "title": "Open Tunnel To Desktop"
+      },
+      {
+        "id": "bedcode.tunnel-close",
+        "title": "Close Tunnel Handle"
+      },
+      {
+        "id": "bedcode.tunnel-status",
+        "title": "Read Tunnel Status"
+      },
+      {
+        "id": "bedcode.peer-targets",
+        "title": "List Remembered Peers"
+      },
+      {
+        "id": "bedcode.forget-peer",
+        "title": "Forget Remembered Peer"
+      },
+      {
+        "id": "bedcode.set-allow-wan",
+        "title": "Set Allow WAN Relay"
       }
     ],
     "routes": [

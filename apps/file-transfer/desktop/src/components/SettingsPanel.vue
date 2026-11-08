@@ -28,10 +28,22 @@ const emit = defineEmits<{
   (e: 'pickDownloadDir'): void
   (e: 'setReceivingPolicy', policy: 'ask' | 'accept' | 'reject'): void
   (e: 'setApprovalTimeoutSec', secs: number): void
-  (e: 'setEncryption', enabled: boolean): void
   (e: 'setConcurrency', n: number): void
+  (e: 'setAllowWan', allow: boolean): void
+  /** 中继提示阈值（字节；0 = 每次发送都提示） */
+  (e: 'setRelayMaxBytes', bytes: number): void
   (e: 'close'): void
 }>()
+
+/** 中继提示阈值的 UI 单位：MB（存储面是字节；0 = 不设阈值/每次都提示） */
+const RELAY_THRESHOLD_MAX_MB = 102_400
+function relayThresholdMb(bytes: number): number {
+  return Math.max(0, Math.round((bytes || 0) / (1024 * 1024)))
+}
+function onRelayThresholdCommit(mb: number): void {
+  const clamped = Math.min(RELAY_THRESHOLD_MAX_MB, Math.max(0, Math.round(mb)))
+  emit('setRelayMaxBytes', clamped * 1024 * 1024)
+}
 
 // ==================== v2 接收策略（自绘分段控件，禁原生 select） ====================
 
@@ -40,12 +52,6 @@ const POLICY_OPTIONS: Array<{ value: 'ask' | 'accept' | 'reject'; key: string }>
   { value: 'ask', key: 'transfer.settings.receivingPolicyAsk' },
   { value: 'accept', key: 'transfer.settings.receivingPolicyAccept' },
   { value: 'reject', key: 'transfer.settings.receivingPolicyReject' },
-]
-
-/** 加密开关选项（复用分段控件标记结构；布尔二值） */
-const ENCRYPTION_OPTIONS: Array<{ value: boolean; key: string }> = [
-  { value: false, key: 'transfer.settings.encryptionOff' },
-  { value: true, key: 'transfer.settings.encryptionOn' },
 ]
 
 /** 并发上限（1–8，spec §7） */
@@ -205,22 +211,61 @@ function onTimeoutCommit(secs: number): void {
           <p class="ft-settings-helper">{{ t('transfer.settings.concurrencyHint') }}</p>
         </section>
 
-        <!-- 传输加密（默认关；发送侧生效，接收端经 Offer 头自动解密） -->
-        <section class="ft-settings-section" data-testid="ft-settings-section-encryption">
-          <h3 class="ft-settings-section-title">{{ t('transfer.settings.encryption') }}</h3>
+        <!-- 中继（T12）：关的是「经 relay 拨号」，不是加密；默认开 -->
+        <section class="ft-settings-section" data-testid="ft-settings-section-relay">
+          <h3 class="ft-settings-section-title">{{ t('transfer.settings.relay') }}</h3>
           <div class="ft-segmented" role="tablist">
             <button
-              v-for="opt in ENCRYPTION_OPTIONS"
-              :key="opt.key"
               class="ft-segmented-item"
-              :class="{ 'ft-segmented-item--active': settings.encryption === opt.value }"
+              :class="{ 'ft-segmented-item--active': settings.allowWan }"
               role="tab"
-              :aria-selected="settings.encryption === opt.value"
-              :data-testid="`ft-encryption-${opt.value}`"
-              @click="emit('setEncryption', opt.value)"
+              :aria-selected="settings.allowWan"
+              data-testid="ft-relay-on"
+              @click="emit('setAllowWan', true)"
             >
-              {{ t(opt.key) }}
+              {{ t('transfer.settings.relayOn') }}
             </button>
+            <button
+              class="ft-segmented-item"
+              :class="{ 'ft-segmented-item--active': !settings.allowWan }"
+              role="tab"
+              :aria-selected="!settings.allowWan"
+              data-testid="ft-relay-off"
+              @click="emit('setAllowWan', false)"
+            >
+              {{ t('transfer.settings.relayOff') }}
+            </button>
+          </div>
+          <p class="ft-settings-helper">{{ t('transfer.settings.relayHint') }}</p>
+          <div class="ft-settings-row">
+            <label class="ft-timeout-label" for="ft-relay-threshold">
+              {{ t('transfer.settings.relayThreshold') }}
+            </label>
+            <NumberField
+              input-id="ft-relay-threshold"
+              :model-value="relayThresholdMb(settings.relayMaxBytesPerTask)"
+              :min="0"
+              :max="RELAY_THRESHOLD_MAX_MB"
+              size="md"
+              width="120px"
+              data-testid="ft-relay-threshold-input"
+              @commit="onRelayThresholdCommit"
+            />
+          </div>
+          <p class="ft-settings-helper">{{ t('transfer.settings.relayThresholdHint') }}</p>
+        </section>
+
+        <!-- 传输加密（固定开启，无关闭开关——穿透方案不变量 12） -->
+        <section class="ft-settings-section" data-testid="ft-settings-section-encryption">
+          <h3 class="ft-settings-section-title">{{ t('transfer.settings.encryption') }}</h3>
+          <div class="ft-segmented">
+            <span
+              class="ft-segmented-item ft-segmented-item--active ft-segmented-item--static"
+              role="status"
+              data-testid="ft-encryption-required"
+            >
+              {{ t('transfer.settings.encryptionAlwaysOn') }}
+            </span>
           </div>
           <p class="ft-settings-helper">{{ t('transfer.settings.encryptionHint') }}</p>
         </section>
@@ -243,7 +288,7 @@ function onTimeoutCommit(secs: number): void {
               d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0zM12 9v4M12 17h.01"
             />
           </svg>
-          <span>{{ t('transfer.settings.plainWarning') }}</span>
+          <span>{{ t('transfer.settings.encryptionNotice') }}</span>
         </div>
       </div>
     </div>

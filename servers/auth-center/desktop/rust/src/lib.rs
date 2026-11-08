@@ -441,6 +441,9 @@ fn dispatch_command(name: &str, args: serde_json::Value) -> anyhow::Result<serde
         // 去掉前缀的相对段；`/api/auth/*` 别名经 `http_routes` 登记后同样落到这里
         // （网关只换入口，编排一处）。
         "_http_endpoint" => {
+            // 对等面上下文（T08）：只在宿主判定 `caller=peer` 时采信 peerNodeId /
+            // pairing；客户端请求头/请求体不构成面标记（见 auth_http::PeerFace）
+            let face = auth_http::PeerFace::from_args(&args);
             let a = CommandArgs::new(args);
             let method = a.str_or("method", "");
             let path = a.str_or("path", "");
@@ -449,7 +452,7 @@ fn dispatch_command(name: &str, args: serde_json::Value) -> anyhow::Result<serde
                 .value_owned("query")
                 .unwrap_or_else(|| serde_json::json!({}));
             Ok(auth_http::handle_http_endpoint(
-                &WasmHost, &method, &path, &body, &query,
+                &WasmHost, &method, &path, &body, &query, &face,
             ))
         }
         other => Err(anyhow::anyhow!("Unknown command: {}", other)),

@@ -1,18 +1,22 @@
 /**
- * LinkCryptoSettingsSection 行为契约（2026-11-04 用户裁决：策略属于应用）
+ * LinkCryptoSettingsSection 行为契约（T07：固定强制加密，不可关闭）
  *
  * 契约清单：
- * - C1 回显本应用当前策略（off / preferred / required）与语义提示；
- * - C2 切换调用 `appLinkCryptoSet`（app 通道令牌已绑定本应用），成功后界面更新；
- * - C3 保存失败保持原值并提示，不显示「已生效」假象；
- * - C4 旧宿主缺 own-token 方法 / 能力字段：显性提示不可用，控件禁用；
- * - C5 展示本机指纹（供双端人工核对）。
+ * - C1 策略档位是**只读状态**：不渲染 off / preferred 选择按钮（配置层拒绝关闭）；
+ * - C2 宿主记录旧值（off / preferred）时，加载即自动收紧为 `required`；
+ * - C3 自动收紧失败：显示修复入口与失败原因，重试成功后转为已生效；
+ * - C4 强制加密**无法生效**时不写库、也不宣称已加密：
+ *      · 链路身份未初始化（required 会拒绝全部对端）；
+ *      · 旧宿主 WS 帧级加密未接线（WS 仍明文）；
+ * - C5 旧宿主缺 own-token 方法 / 能力字段：显性提示不可用；
+ * - C6 展示本机指纹（供双端人工核对）。
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import i18n from '@/i18n'
 import type { AppMountEnv } from '@/entry'
+import type { EncryptionPolicy } from '@/composables/useLinkCrypto'
 
 const toastMock = vi.hoisted(() => ({
   success: vi.fn(),
@@ -24,7 +28,8 @@ vi.mock('@/composables/useToast', () => ({ useToast: () => toastMock }))
 
 import LinkCryptoSettingsSection from '@/components/LinkCryptoSettingsSection.vue'
 
-const t = (key: string) => i18n.global.t(`com.wasmnest.bedcode.${key}`)
+const t = (key: string, named?: Record<string, unknown>) =>
+  i18n.global.t(`com.wasmnest.bedcode.${key}`, named ?? {})
 
 /**
  * 能力查询 wire 形状（能力仓 `LinkCryptoCapabilities`，serde camelCase）
@@ -45,13 +50,23 @@ function capabilities(overrides: Record<string, unknown> = {}) {
 }
 
 interface EnvOptions {
-  policy?: 'off' | 'preferred' | 'required'
+  policy?: EncryptionPolicy
   caps?: unknown
-  setError?: Error
+  /** 前 N 次 `appLinkCryptoSet` 抛错（模拟宿主写库失败） */
+  writeFailures?: number
   omitBindings?: boolean
 }
 
-function makeEnv(options: EnvOptions = {}): AppMountEnv {
+interface EnvFixture {
+  env: AppMountEnv
+  /** 宿主侧真实状态：写入成功的值才会更新 */
+  state: { policy: EncryptionPolicy; writes: EncryptionPolicy[] }
+}
+
+function makeEnv(options: EnvOptions = {}): EnvFixture {
+  const state = { policy: options.policy ?? 'off', writes: [] as EncryptionPolicy[] }
+  let remainingFailures = options.writeFailures ?? 0
+
   const env = {
     appId: 'com.wasmnest.bedcode',
     invoke: vi.fn(async (command: string) => {
@@ -68,12 +83,17 @@ function makeEnv(options: EnvOptions = {}): AppMountEnv {
   } as unknown as AppMountEnv
 
   if (!options.omitBindings) {
-    env.appLinkCryptoGet = vi.fn(async () => options.policy ?? 'off')
-    env.appLinkCryptoSet = vi.fn(async () => {
-      if (options.setError) throw options.setError
+    env.appLinkCryptoGet = vi.fn(async () => state.policy)
+    env.appLinkCryptoSet = vi.fn(async (next: EncryptionPolicy) => {
+      if (remainingFailures > 0) {
+        remainingFailures -= 1
+        throw new Error('persist failed')
+      }
+      state.writes.push(next)
+      state.policy = next
     })
   }
-  return env
+  return { env, state }
 }
 
 function mountSection(env: AppMountEnv) {
@@ -82,118 +102,126 @@ function mountSection(env: AppMountEnv) {
   })
 }
 
-function activePolicy(wrapper: ReturnType<typeof mountSection>): string | null {
-  const pressed = wrapper.findAll('[data-testid^="link-crypto-policy-"][aria-pressed="true"]')
-  return pressed.length ? (pressed[0].attributes('data-testid') ?? null) : null
+function badge(wrapper: ReturnType<typeof mountSection>) {
+  const node = wrapper.find('[data-testid="link-crypto-policy"]')
+  return {
+    exists: node.exists(),
+    policy: node.attributes('data-policy'),
+    enforced: node.attributes('data-enforced'),
+    text: node.text(),
+  }
 }
 
 beforeEach(() => {
   vi.clearAllMocks()
 })
 
-describe('LinkCryptoSettingsSection — 应用自有策略', () => {
-  it('回显当前策略与本机指纹（required）', async () => {
-    const env = makeEnv({ policy: 'required' })
+describe('LinkCryptoSettingsSection — 固定强制加密（T07）', () => {
+  it('宿主已 required：显示已生效与指纹，且不重复写库', async () => {
+    const { env, state } = makeEnv({ policy: 'required' })
     const wrapper = mountSection(env)
     await flushPromises()
 
-    expect(env.invoke).toHaveBeenCalledWith('get_link_crypto_capabilities')
     expect(env.appLinkCryptoGet).toHaveBeenCalled()
-    expect(activePolicy(wrapper)).toBe('link-crypto-policy-required')
-    expect(wrapper.find('[data-testid="link-crypto-hint"]').text()).toBe(
+    expect(state.writes).toEqual([])
+    expect(badge(wrapper)).toMatchObject({ policy: 'required', enforced: 'true' })
+    expect(wrapper.find('[data-testid="link-crypto-enforced"]').text()).toBe(
       t('linkCrypto.requiredHint'),
     )
     expect(wrapper.find('[data-testid="link-crypto-fingerprint"]').text()).toBe('abcd1234abcd1234')
+    expect(wrapper.find('[data-testid="link-crypto-repair"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="link-crypto-blocked"]').exists()).toBe(false)
   })
 
-  it('明文策略给风险提示（未设置 = off）', async () => {
-    const env = makeEnv({ policy: 'off' })
+  it('宿主记录 off：加载即收紧为 required，界面不提供关闭/放行档', async () => {
+    const { env, state } = makeEnv({ policy: 'off' })
     const wrapper = mountSection(env)
     await flushPromises()
 
-    expect(activePolicy(wrapper)).toBe('link-crypto-policy-off')
-    expect(wrapper.find('[data-testid="link-crypto-hint"]').text()).toBe(t('linkCrypto.offHint'))
-  })
-
-  it('切换策略调用 appLinkCryptoSet 并更新界面', async () => {
-    const env = makeEnv({ policy: 'off' })
-    const wrapper = mountSection(env)
-    await flushPromises()
-
-    await wrapper.find('[data-testid="link-crypto-policy-preferred"]').trigger('click')
-    await flushPromises()
-
-    expect(env.appLinkCryptoSet).toHaveBeenCalledWith('preferred')
-    expect(activePolicy(wrapper)).toBe('link-crypto-policy-preferred')
-    expect(toastMock.success).toHaveBeenCalledWith(t('linkCrypto.saved'))
-  })
-
-  it('保存失败保持原值并提示，不显示「已生效」假象', async () => {
-    const env = makeEnv({ policy: 'off', setError: new Error('persist failed') })
-    const wrapper = mountSection(env)
-    await flushPromises()
-
-    await wrapper.find('[data-testid="link-crypto-policy-preferred"]').trigger('click')
-    await flushPromises()
-
-    expect(env.appLinkCryptoSet).toHaveBeenCalledWith('preferred')
-    expect(activePolicy(wrapper)).toBe('link-crypto-policy-off')
-    expect(toastMock.success).not.toHaveBeenCalled()
-    expect(toastMock.error).toHaveBeenCalledWith(t('linkCrypto.saveFailed'))
-  })
-
-  it('WS 帧级加密已支持：required 可选并可下发', async () => {
-    const env = makeEnv({ policy: 'off' })
-    const wrapper = mountSection(env)
-    await flushPromises()
-
-    expect(wrapper.find('[data-testid="link-crypto-ws-gap"]').exists()).toBe(false)
-    const requiredBtn = wrapper.find('[data-testid="link-crypto-policy-required"]')
-    expect(requiredBtn.attributes('disabled')).toBeUndefined()
-    await requiredBtn.trigger('click')
-    await flushPromises()
+    expect(state.writes).toEqual(['required'])
+    expect(state.policy).toBe('required')
     expect(env.appLinkCryptoSet).toHaveBeenCalledWith('required')
-    expect(activePolicy(wrapper)).toBe('link-crypto-policy-required')
+    expect(badge(wrapper)).toMatchObject({ policy: 'required', enforced: 'true' })
+
+    // C1 只读档位：三档选择器已退役（没有任何 link-crypto-policy-<档> 按钮）
+    expect(wrapper.findAll('[data-testid^="link-crypto-policy-"]')).toHaveLength(0)
+    expect(wrapper.find('[data-testid="link-crypto-enforce"]').exists()).toBe(false)
   })
 
-  it('旧宿主 wsSession=false：required 不可选并显性说明（不把 WS 明文说成已加密）', async () => {
-    const env = makeEnv({ policy: 'off', caps: capabilities({ wsSession: false }) })
+  it('自动收紧失败：显示修复入口与原因；重试成功后生效', async () => {
+    const { env, state } = makeEnv({ policy: 'preferred', writeFailures: 1 })
     const wrapper = mountSection(env)
     await flushPromises()
 
-    const requiredBtn = wrapper.find('[data-testid="link-crypto-policy-required"]')
-    expect(requiredBtn.attributes('disabled')).toBeDefined()
-    expect(wrapper.find('[data-testid="link-crypto-ws-gap"]').text()).toBe(
-      t('linkCrypto.wsNotEncrypted'),
+    // 首次自动写入失败：保持「未生效」并给出原因，不显示已生效假象
+    expect(state.policy).toBe('preferred')
+    expect(badge(wrapper)).toMatchObject({ policy: 'preferred', enforced: 'false' })
+    expect(wrapper.find('[data-testid="link-crypto-repair"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="link-crypto-repair"]').text()).toContain(
+      t('linkCrypto.repairNeeded', { state: t('linkCrypto.currentPreferred') }),
     )
-    // 明文 / 尽量加密仍可选
-    expect(
-      wrapper.find('[data-testid="link-crypto-policy-off"]').attributes('disabled'),
-    ).toBeUndefined()
-    expect(
-      wrapper.find('[data-testid="link-crypto-policy-preferred"]').attributes('disabled'),
-    ).toBeUndefined()
+    expect(wrapper.find('[data-testid="link-crypto-error"]').text()).toContain('persist failed')
+    expect(toastMock.success).not.toHaveBeenCalled()
+
+    // 手动修复：唯一写入口只写 required
+    await wrapper.find('[data-testid="link-crypto-enforce"]').trigger('click')
+    await flushPromises()
+
+    expect(state.writes).toEqual(['required'])
+    expect(badge(wrapper)).toMatchObject({ policy: 'required', enforced: 'true' })
+    expect(wrapper.find('[data-testid="link-crypto-repair"]').exists()).toBe(false)
+    expect(toastMock.success).toHaveBeenCalledWith(t('linkCrypto.enforced'))
   })
 
-  it('旧宿主不注入 own-token 方法：显性提示不可用，控件禁用', async () => {
-    const env = makeEnv({ omitBindings: true })
+  it('链路身份未初始化：不写库、不宣称已加密（required 会拒绝全部对端）', async () => {
+    const { env, state } = makeEnv({
+      policy: 'off',
+      caps: capabilities({ identityFingerprint: null }),
+    })
+    const wrapper = mountSection(env)
+    await flushPromises()
+
+    expect(state.writes).toEqual([])
+    expect(env.appLinkCryptoSet).not.toHaveBeenCalled()
+    expect(badge(wrapper)).toMatchObject({ enforced: 'false', text: t('linkCrypto.forcedPending') })
+    expect(wrapper.find('[data-testid="link-crypto-blocked"]').text()).toBe(
+      t('linkCrypto.blockedIdentityMissing'),
+    )
+    expect(wrapper.find('[data-testid="link-crypto-enforce"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="link-crypto-enforced"]').exists()).toBe(false)
+  })
+
+  it('旧宿主 wsSession=false：不写库并明说 WS 仍为明文', async () => {
+    const { env, state } = makeEnv({ policy: 'off', caps: capabilities({ wsSession: false }) })
+    const wrapper = mountSection(env)
+    await flushPromises()
+
+    expect(state.writes).toEqual([])
+    expect(badge(wrapper)).toMatchObject({ enforced: 'false' })
+    expect(wrapper.find('[data-testid="link-crypto-blocked"]').text()).toBe(
+      t('linkCrypto.blockedWsUnsupported'),
+    )
+    expect(wrapper.find('[data-testid="link-crypto-enforced"]').exists()).toBe(false)
+  })
+
+  it('旧宿主不注入 own-token 方法：显性提示不可用，且不写库', async () => {
+    const { env, state } = makeEnv({ omitBindings: true })
     const wrapper = mountSection(env)
     await flushPromises()
 
     expect(wrapper.find('[data-testid="link-crypto-unavailable"]').exists()).toBe(true)
     expect(wrapper.text()).toContain(t('linkCrypto.capabilityMissing'))
-    expect(wrapper.find('[data-testid="link-crypto-hint"]').exists()).toBe(false)
-    for (const button of wrapper.findAll('[data-testid^="link-crypto-policy-"]')) {
-      expect(button.attributes('disabled')).toBeDefined()
-    }
+    expect(badge(wrapper).enforced).toBe('false')
+    expect(state.writes).toEqual([])
   })
 
   it('能力缺 appScopedPolicy：按不可用处理，不假装有策略面', async () => {
-    const env = makeEnv({ caps: capabilities({ appScopedPolicy: false }) })
+    const { env, state } = makeEnv({ caps: capabilities({ appScopedPolicy: false }) })
     const wrapper = mountSection(env)
     await flushPromises()
 
     expect(wrapper.find('[data-testid="link-crypto-unavailable"]').exists()).toBe(true)
-    expect(activePolicy(wrapper)).toBeNull()
+    expect(badge(wrapper).enforced).toBe('false')
+    expect(state.writes).toEqual([])
   })
 })

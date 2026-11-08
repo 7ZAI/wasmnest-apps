@@ -126,6 +126,10 @@ mod tests {
         fn peer_dial(&self, _endpoint: &serde_json::Value) -> Result<String, HostError> {
             unimplemented!()
         }
+        /// T11 `dial-peer-addrs`：本组用例不测多地址拨号
+        fn peer_dial_addrs(&self, _endpoint: &serde_json::Value) -> Result<String, HostError> {
+            unimplemented!()
+        }
         fn peer_close(&self, _handle: &str) -> Result<bool, HostError> {
             unimplemented!()
         }
@@ -136,6 +140,13 @@ mod tests {
             unimplemented!()
         }
         fn peer_revoke_trusted(&self, _node_id: &str) -> Result<bool, HostError> {
+            unimplemented!()
+        }
+        fn peer_trust_node(
+            &self,
+            _node_id: &str,
+            _display_name: Option<&str>,
+        ) -> Result<bool, HostError> {
             unimplemented!()
         }
         fn peer_send_files(&self, _session: &str, _paths: &[serde_json::Value]) -> Result<String, HostError> {

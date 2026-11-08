@@ -106,15 +106,30 @@ export function useTasks(context: PluginContext) {
    * 返回 { sent, error? }：sent = 成功入队文件数（0 = 取消/失败）；
    * error = 友好 i18n 文案（guest 业务码优先，原文只进日志；ADR 0030）。
    */
-  async function sendPickedFiles(): Promise<{ sent: number; error?: string }> {
+  /** 系统选择器多选文件（取消返回空数组；选择失败抛给调用方统一提示） */
+  async function pickFiles(): Promise<string[]> {
+    const raw = await context.commands.execute('file-transfer.pick-files', {})
+    return Array.isArray(raw) ? (raw as string[]) : []
+  }
+
+  /** 按已选路径入队发送（T12：中继提示要在选择之后、真正发送之前插入） */
+  async function sendPaths(paths: string[]): Promise<{ sent: number; error?: string }> {
     try {
-      const raw = await context.commands.execute('file-transfer.pick-files', {})
-      const paths: string[] = Array.isArray(raw) ? raw : []
       if (paths.length === 0) return { sent: 0 }
       await context.commands.execute('file-transfer.enqueue', { paths })
       return { sent: paths.length }
     } catch (e) {
       // ADR 0030：详情只进日志；失败原因（guest 业务码优先）交调用方提示
+      console.error('[File Transfer] enqueue failed:', e)
+      return { sent: 0, error: resolvePluginErrorText(context, e, 'transfer.error.sendFailed') }
+    }
+  }
+
+  async function sendPickedFiles(): Promise<{ sent: number; error?: string }> {
+    try {
+      const paths = await pickFiles()
+      return await sendPaths(paths)
+    } catch (e) {
       console.error('[File Transfer] pick/send failed:', e)
       return { sent: 0, error: resolvePluginErrorText(context, e, 'transfer.error.sendFailed') }
     }
@@ -218,6 +233,8 @@ export function useTasks(context: PluginContext) {
     refresh,
     queryPeer,
     sendPickedFiles,
+    pickFiles,
+    sendPaths,
     cancel,
     retry,
     pause,

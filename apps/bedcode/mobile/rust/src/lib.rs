@@ -49,6 +49,7 @@ mod link;
 mod project;
 mod protocol;
 mod session;
+mod tunnel;
 
 pub(crate) use link::LINK_MANAGER;
 
@@ -69,6 +70,18 @@ fn ws_topic(event: &str) -> String {
 fn ws_frame_topic() -> String {
     ws_message_topic(PLUGIN_ID)
 }
+
+/// 宿主隧道/传输事件 topic（T09）：全局词表，插件按 `bus` 权限订阅
+///
+/// 语义归属宿主能力域（`wasmnest-server-peer-net` 的 `bus_topic_for`）：
+/// `peer:mode` 模式变更 / `peer:transport` 传输路径 / `tunnel:state` 通道生命周期 /
+/// `tunnel:error` 通道错误。本插件只转发与持久化，不自行推断模式。
+const TUNNEL_TOPICS: [&str; 4] = [
+    "peer:mode",
+    "peer:transport",
+    "tunnel:state",
+    "tunnel:error",
+];
 
 fn host() -> WasmHost {
     WasmHost
@@ -100,6 +113,11 @@ impl WasmPlugin for TerminalSessionPlugin {
             h.bus_subscribe(topic)?;
         }
         h.bus_subscribe_binary(&ws_frame_topic())?;
+        // 隧道/传输事件（T09）：不订阅就收不到模式变换（宿主不重放，晚订阅静默丢），
+        // 前端重启后能用 `host-tunnel.status` 对账，但事件驱动的「切换轻提示」需要在线
+        for topic in TUNNEL_TOPICS {
+            h.bus_subscribe(topic)?;
+        }
         Ok(())
     }
 
@@ -121,6 +139,15 @@ impl WasmPlugin for TerminalSessionPlugin {
             let _ = h.bus_unsubscribe(topic);
         }
         let _ = h.bus_unsubscribe(&ws_frame_topic());
+        // 隧道句柄必须在插件降级前全关：否则本地回环 listener 会泄漏成孤儿端口，
+        // 宿主自动重连会一直拨一个没人接的本机端口（不变量 1：只绑 127.0.0.1，但不泄漏）
+        let closed = tunnel::close_all_via(&h);
+        if closed > 0 {
+            h.log_info(&format!("deactivate: closed {closed} tunnel handle(s)"));
+        }
+        for topic in TUNNEL_TOPICS {
+            let _ = h.bus_unsubscribe(topic);
+        }
         Ok(())
     }
 
@@ -163,6 +190,10 @@ impl WasmPlugin for TerminalSessionPlugin {
             // 连接错误：留痕即可（断开事实由 close 事件承载，错误不改变状态机）
             let message = payload.get("message").and_then(|v| v.as_str()).unwrap_or("");
             host().log_warn(&format!("ws error on terminal link: {message}"));
+            return Ok(());
+        }
+        if TUNNEL_TOPICS.contains(&msg.topic.as_str()) {
+            tunnel::on_bus_event(&host(), &msg.topic, &payload);
             return Ok(());
         }
         Ok(())

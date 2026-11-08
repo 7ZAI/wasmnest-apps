@@ -38,6 +38,15 @@ const en: MessageSchema = {
     'First-time connections need approval on the other side; manage trust in Settings → Trusted peers',
   'transfer.devices.scan': 'Discover',
   'transfer.devices.scanning': 'Discovering…',
+  // T12: 中继 / 远程设备（连接串导入、传输形态、手动尝试外网）
+  'transfer.devices.addRemote': 'Add remote device',
+  'transfer.devices.remote': 'Remote',
+  'transfer.devices.removeRemote': 'Forget',
+  'transfer.devices.tryWan': 'Try over relay',
+  'transfer.devices.tryWanHint':
+    'Only tries the relay when you ask; same-network failures never switch automatically',
+  'transfer.devices.transportLan': 'LAN direct',
+  'transfer.devices.transportWan': 'Relay',
 
   // ==================== Top bar ====================
   'transfer.topbar.sendToPhone': 'Send to phone…',
@@ -151,8 +160,8 @@ const en: MessageSchema = {
     'Number of simultaneous transfers; increasing it may use more bandwidth',
   'transfer.settings.concurrencyMinus': 'Decrease concurrency',
   'transfer.settings.concurrencyPlus': 'Increase concurrency',
-  'transfer.settings.plainWarning':
-    'Files are transferred unencrypted on your local network. Only use this on trusted WiFi.',
+  'transfer.settings.encryptionNotice':
+    'Transfers are always end-to-end encrypted (AES-256-GCM). Older peers without encryption support fail visibly instead of falling back to plaintext.',
   'transfer.settings.receivingPolicy': 'Receiving policy',
   'transfer.settings.receivingPolicyAsk': 'Ask every time',
   'transfer.settings.receivingPolicyAccept': 'Accept automatically',
@@ -160,10 +169,38 @@ const en: MessageSchema = {
   'transfer.settings.receivingPolicyHint': 'Whether to ask before receiving files from peers',
   'transfer.settings.approvalTimeout': 'Approval timeout (s)',
   'transfer.settings.encryption': 'Transfer encryption',
-  'transfer.settings.encryptionOn': 'On',
-  'transfer.settings.encryptionOff': 'Off',
+  'transfer.settings.encryptionAlwaysOn': 'Always encrypted',
   'transfer.settings.encryptionHint':
-    'When enabled, sent files are end-to-end encrypted with AES-256-GCM; the peer must also run a recent WasmNest version to decrypt them automatically',
+    'Every transfer (LAN or relay) is encrypted and cannot be turned off; the peer must support encryption',
+  // T12: 中继开关与提示阈值（关的是中继，不是加密）
+  'transfer.settings.relay': 'Relay (WAN)',
+  'transfer.settings.relayOn': 'Allow',
+  'transfer.settings.relayOff': 'LAN only',
+  'transfer.settings.relayHint':
+    'Allowing relay only adds relay candidates to dialing; encryption stays on either way',
+  'transfer.settings.relayThreshold': 'Relay prompt threshold (MB)',
+  'transfer.settings.relayThresholdHint':
+    'Warn once before sending over relay when the batch is at least this large; 0 = warn every time',
+
+  // ==================== Relay send hint ====================
+  'transfer.relayHint.title': 'Sending over relay',
+  'transfer.relayHint.body':
+    'This connection goes through a relay, so large files may be slower. Encryption stays on. Continue?',
+  'transfer.relayHint.confirm': 'Continue',
+  'transfer.relayHint.cancel': 'Cancel',
+
+  // ==================== Add remote device ====================
+  'transfer.remote.title': 'Add remote device',
+  'transfer.remote.hint':
+    'Paste the pairing link (wasmnest://pair/…) or the raw JSON payload from the other device. Only a one-time ticket is carried; long-term keys never are.',
+  'transfer.remote.placeholder': 'wasmnest://pair/… or {"nodeId":"…","addrs":["…"]}',
+  'transfer.remote.cancel': 'Cancel',
+  'transfer.remote.confirm': 'Add',
+  'transfer.remote.added': 'Remote device added',
+  'transfer.remote.errorMalformed': 'Invalid pairing link or JSON',
+  'transfer.remote.errorIncomplete':
+    'Pairing data is incomplete (nodeId and at least one address are required)',
+  'transfer.remote.errorAddressInvalid': 'Address is not dialable (expects a /multiaddr)',
 
   // ==================== Errors (spec §10 + v2 reject reasons) ====================
   'transfer.error.duplicateName':

@@ -27,6 +27,10 @@ export interface DiscoveredDevice {
   lastSeenMs?: number
   /** 快照恢复标记：未被实时事件刷新前展示「最近可见」且不参与自动清扫 */
   restored?: boolean
+  /** 配对/历史保留的多地址候选（LAN 直连在前、relay circuit 在后） */
+  addrs?: string[]
+  /** 手动添加的远程设备：无 mDNS 发现，TTL 清扫不得移除（T12） */
+  paired?: boolean
 }
 
 /** 在线缓存 TTL：与引擎 PEER_DISCOVERY_TTL 同值（120s 广播周期口径） */
@@ -111,6 +115,8 @@ export function sweepStaleDevices(
   connectedIds: ReadonlySet<string>,
 ): DiscoveredDevice[] {
   return list.filter((d) => {
+    // 手动添加的远程设备没有 mDNS 心跳：清扫不得让用户配好的设备「自己消失」
+    if (d.paired) return true
     if (connectedIds.has(d.nodeId)) return true
     if (!d.lastSeenMs) return true
     return nowMs - d.lastSeenMs < DEVICE_TTL_MS
@@ -126,6 +132,9 @@ export type DialStatus = 'connected' | DialErrorStatus
 /** 设备行归并三态 */
 export type DeviceRowStatus = 'connected' | 'connecting' | 'idle'
 
+/** 实际传输形态（宿主 `peer:connection` 事件的 `transport` 词表） */
+export type TransportKind = 'lan-direct' | 'wan-relay'
+
 /** 派生后的设备行（面板渲染模型） */
 export interface DeviceRow {
   nodeId: string
@@ -140,6 +149,12 @@ export interface DeviceRow {
   isActive: boolean
   /** 快照恢复且未被实时事件刷新：展示「最近可见」标注（spec 故事 2） */
   recent: boolean
+  /** 手动添加的远程设备（界面标「远程」；不参与 TTL 清扫） */
+  paired: boolean
+  /** 已连接时宿主上报的真实传输形态（未连接 / 入站未知 = null） */
+  transport: TransportKind | null
+  /** 有 relay 候选可手动「尝试外网」（§4.9：不自动切，给手动入口） */
+  wanAvailable: boolean
 }
 
 /** deriveDeviceRows 输入（全部为只读快照） */
@@ -149,6 +164,16 @@ export interface DeviceStateInput {
   connectedIds: ReadonlySet<string>
   dialErrors: Readonly<Record<string, DialErrorStatus>>
   activePeerId: string
+  /** 宿主上报的传输形态（nodeId → lan-direct / wan-relay） */
+  transports?: Readonly<Record<string, TransportKind>>
+}
+
+/** relay 候选标记（与核内 `dial::RELAY_MARKER` / `pairingLink.isRelayCandidate` 同字面） */
+const RELAY_MARKER = '/p2p-circuit'
+
+/** 候选表里是否存在 relay 地址（手动「尝试外网」入口判据） */
+export function hasRelayCandidate(addrs: readonly string[] | undefined): boolean {
+  return (addrs ?? []).some((a) => a.includes(RELAY_MARKER))
 }
 
 /**
@@ -170,6 +195,11 @@ export function deriveDeviceRows(input: DeviceStateInput): DeviceRow[] {
       dialError,
       isActive: connected && d.nodeId === input.activePeerId,
       recent: d.restored === true && !connected,
+      paired: d.paired === true,
+      transport: connected ? (input.transports?.[d.nodeId] ?? null) : null,
+      wanAvailable: connected
+        ? input.transports?.[d.nodeId] === 'wan-relay' || hasRelayCandidate(d.addrs)
+        : hasRelayCandidate(d.addrs),
     }
   })
 }

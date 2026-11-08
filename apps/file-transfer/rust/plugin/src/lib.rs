@@ -353,6 +353,23 @@ impl WasmPlugin for FileTransferPlugin {
 
             // ==================== 发送 ====================
             "file-transfer.pick-files" => Ok(serde_json::to_value(h.platform_pick_files()?)?),
+            // 发送前体积预览（T12）：经 relay 前按阈值给一次「可能较慢」提示。
+            // 只汇总宿主 collect-outgoing 的元数据（不读文件内容、不发起传输）
+            "file-transfer.preview-outgoing" => {
+                let paths: Vec<serde_json::Value> = args
+                    .get("paths")
+                    .and_then(|v| v.as_array())
+                    .cloned()
+                    .unwrap_or_default();
+                if paths.is_empty() {
+                    return Ok(serde_json::json!({ "totalBytes": 0, "files": [] }));
+                }
+                let files = h.peer_collect_outgoing(&paths)?;
+                Ok(serde_json::json!({
+                    "totalBytes": peer::outgoing_total_bytes(&files),
+                    "files": files,
+                }))
+            }
             // 下载完成「打开本地目录」（桌面形态命令）：走 ABI v22 平台原语
             // `host-platform-desktop.reveal-in-dir`（与 pick-files 同域、同口径，
             // 不叠加权限门）。原先经宿主前端 `context.system.revealInDir` +
