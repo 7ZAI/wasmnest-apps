@@ -2,9 +2,9 @@
 
 - **落仓**：`7ZAI/wasmnest-lib`（WIT 真源仓；契约类）
 - **标签**：`kind:contract`、`cross-repo`
-- **阶段**：P1 ｜ **依赖**：T02、T03 ｜ **状态**：待提交 GitHub（gh 未认证）
-- **设计依据**：§4.1、§4.4、§5.1、不变量 1/2/4/8
-- **开工前必须裁定**：§9.2#8（WIT 归属：`wasmnest:peer` 新 interface vs 新 `wasmnest:tunnel` 包）；§9.2#2（匹配粒度/作用域，默认按设备 + 全局信任现状）
+- **阶段**：P1 ｜ **依赖**：T02、T03 ｜ **状态**：待提交 GitHub（gh 未认证）；**能力仓契约真源 + 首帧/准入/票据/面标记/本地代理 + 服务端与客户端流机制已落地（2026-11-08 两轮，未提交），整票未验收**
+- **设计依据**：§4.1、§4.4、§5.1、不变量 1/2/4/8/16
+- **开工前裁定**：§9.2#8 **已裁定**（2026-11-07 用户：新开 `wasmnest:tunnel` 包独立演进，本票按此落地）；§9.2#2 未裁定，按 spec §6 默认口径「按设备 + 宿主全局信任现状」执行（用户可否决，否决则 T05/T07 返工）
 
 ## 需求描述
 
@@ -42,3 +42,39 @@
 - 权限 `tunnel:serve` / `tunnel:connect` 词汇在平台仓 T06 落地；本 ticket 的 manifest 声明先行设计。
 - 错误码词表按设计 §7.1（`not-matched` / `ticket-expired` / `port-not-exposed` / `tunnel-limit` 等）。
 - 不变量 16 的隧道侧匹配校验测试锁与 T07 路由侧锁配对。
+
+## 实施记录（2026-11-08，能力仓 `feat/nat-traversal`，未提交）
+
+**已落地（契约真源 + 机制 + 测试锁）**
+
+- `wasmnest-server-peer-net/wit/tunnel.wit`：按 §9.2#8 已裁定口径新开 `package wasmnest:tunnel@0.0.1;`，`interface host-tunnel` 六原语（`expose` / `unexpose` / `connect` / `close` / `issue-pairing-ticket` / `status`，`connect` 带 `pairing-ticket`）、`record expose-config`、`world cap-tunnel`；独立版本轴，不混进主插件包。
+- `wasmnest-p2p-engine/src/stream_proto.rs`：追加 `TUNNEL = "/wasmnest/tunnel/1"`，并注明**该协议接收器必须 `require_admitted = false`** —— `start_with_protocols` 对非 `TRUST_STATUS` 协议强制已准入，若沿用业务流闸门，未匹配 peer 的配对票据根本送不到服务端。
+- `wasmnest-server-peer-net/src/tunnel/`（新模块，纯机制 / 端口抽象）：
+  - `frame.rs`：首帧 `u32be len | JSON {v,port,kind,ticket?}`、响应 `{ok,caller:"peer",peerNodeId}`、长度上限与畸形帧拒绝（不回显票据明文）；`read_from` / `read_reply` / `write_reply` 异步帧 IO。**修复**：`read_from` 曾把已剥掉长度前缀的 payload 再当完整帧解码（服务端必失败），现有 `read_from_accepts_wire_hello_and_reply` 生产路径锁钉住。
+  - `ticket.rs`：票据一次性消费、TTL ≤ 120s、绑目标端口、`AccessPath` 不参与校验（LAN/relay 双路径可用）、`revoke` / `purge_expired` 立即清窗口。
+  - `policy.rs`：`expose` 规则表（幂等、默认不暴露）、准入顺序（规则 → 配额 → 已匹配/票据 → `allowedPeers` → 后端）；`kind=http` 后端恒为对等面，`kind=tcp` 只连回环且拒绝宿主管理端口（8765 / 节点端口 / peer face / relay 控制，由宿主注入实际端口）；缺隧道层验证过的 `peerNodeId` 的「已匹配」声明一律拒绝。
+  - `registry.rs`：配对连接注册表（连接四元组 → `RequestFace`），实现 T03 的 `PeerFaceResolver`；查不到条目时保持「peer 面但无身份」，绝不回落普通面。
+  - `proxy.rs`：本地 listener 只绑 `127.0.0.1:0`，每条 accept 连接开一条流，`shutdown` 关 listener 与在飞流，开流失败显性关闭本地连接。
+  - `server.rs`（续作）：`TunnelServer::handle_stream` 按「首帧 → 票据消费 → `TunnelPolicy` 准入 → 连后端 → **在任何请求字节写入后端前登记 face** → 回 `caller=peer` 响应 → pipe → 清注册表」逐条裁决；`BackendConnector` 由宿主注入，返回后端流与本端连接四元组；失败一律回点名错误码，不静默连 8765。
+  - `client.rs`（续作）：`open_tunnel_stream` 写首帧、校验 `ok=true` + `caller="peer"` + `peerNodeId` 形状（不变量 3）；未知服务端错误码收敛为 `peer-offline`，不把远端字符串当本地错误类型；`ClientConnector` 把 `TunnelStreamOpener` 接到 proxy 契约，一条 TCP 连接恰好一次握手。
+  - `pipe.rs`（续作）：双向 pipe 的单流字节配额（双向共计数）、短连接 HTTP 空闲回收、按首块 HTTP `Upgrade: websocket` 头取消空闲超时（WS 保活）；指标只含字节数与 WS 标记，不记 payload。
+  - `mod.rs`：错误码词表（§7.1 子集 + 新增 `invalid-frame` / `proxy-bind-failed` / `tunnel-idle`）、WIT 形状锁（独立包 / 六原语 / 单 world）。
+
+**验证（实跑，磁盘清理后）**：`wasmnest-server-peer-net` 隧道模块 40 passed、`cargo test --offline` 全量 177 passed；`wasmnest-p2p-engine` 默认 42 passed、relay 45 passed / 1 ignored；peer-net `cargo check --offline --features common-host` 绿；两 crate `cargo fmt --check` 绿；`cargo clippy --offline --lib` 对 `src/tunnel/` 零 warning；能力仓 `platform_reference_registry_lock` 补跑 1 passed（上轮因磁盘 100% 失败，本轮磁盘 29G 可用）。crate 既有 15 warnings 与 1 个 `never_loop` deny 错误位于 `base/shared.rs`，与本轮无关。
+
+**未跑项与原因（fail-visible）**：平台仓 / 测试仓跨仓锁未跑（平台侧未改、nat 平台工作树不存在）；双端 SDK 侧锁待 T06 建立平台工作树后补跑。
+
+**未落地（验收项仍全部未勾选，禁止按「机制已锁」当整票完成）**
+
+1. `host-tunnel` 的 provider 侧 WIT 绑定（`impl Host` / `HostModule` / `inventory` / 权限门）与 `expose`/`unexpose`/`connect`/`close`/`issue-pairing-ticket`/`status` 的宿主句柄表 —— T06 装配。
+2. tunnel 流接收器接线：`start_with_protocols` 注册 `TUNNEL` 并显式 `require_admitted = false`；宿主用信任表 / 应用配对填 `TunnelStreamContext`，把 `InboundStream.stream.compat()` 交给 `TunnelServer::handle_stream`，并把 `PairingRegistry::resolver()` 接到 `serve_peer_face`。
+3. 引擎侧 `TunnelStreamOpener` 实现（拨号 → `open_stream` → 子流 compat）、`connect`/`close` 句柄表与 `tunnel-closed` 错误语义 —— T06。
+4. `peer:mode` / `tunnel:state` / `tunnel:error` 事件词表与状态栏 —— T06 / T07。
+5. 平台侧 compose 重拼、`witSha256`、SDK / host-runtime lock、按当前 SDK 全量重建产物（T06）。
+6. 真机 LAN + relay 双路径票据一次性验收（T10）。
+
+**接线语义修正（对照本票验收条件）**：T03 的 `PeerFaceResolver` 在 `app.rs` 是**每请求**调用（`wrap_fn` 按 `req.peer_addr()` 解析），不是每 accept 一次；故 registry 默认提供非消费 `resolve`，`consume` / `clear` 由宿主按连接生命周期（配对成功 / 票据失效 / 连接关闭）显式调用。若按请求消费，keep-alive 的第二个请求会丢掉面标记。face 登记发生在**首个请求字节写入后端之前**（等价于设计「dial 对等面前登记」的安全语义，且能在拿到本端连接四元组后执行）。其余「窗口只放行配对端点」判据不变，仍由 `peer_face_guard` 的白名单执行。
+
+**基线漂移（T06 前必须裁定 / 处理）**：三仓 nat 工作树基于 `feat/file-transfer-refactor`，能力仓仍是单包 `wasmnest:plugin@0.0.2`、平台仓 compose v1（caps 是路径字符串，不支持多包）；各仓 `dev` 已升级为多包（`wasmnest:peer@0.0.1` / `wasmnest:plugin@0.1.0`）+ compose v2。本轮新增的独立包分片**未加入 compose.json**，在旧 v1 下无法拼装进端生成物；T06 需先对齐 nat 线到多包基线（或升级 compose），否则契约不进产物。本轮未擅自 rebase T01–T05 在途改动，也未把 `file:`/`path` 写回仓库。
+
+**错误码增补**：设计 §7.1 词表不是封闭集；实现侧新增 `invalid-frame`（畸形首帧 / 响应）、`proxy-bind-failed`（回环代理绑定 / 接受失败）、`tunnel-idle`（短连接 HTTP 流空闲回收），登记在此并已同步设计附录 C。
