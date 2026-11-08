@@ -24,7 +24,9 @@
 //!
 //! 认证档位（票 08 裁决 1 沿革）：未显式 `none` 一律最严档 `jwt`（宿主要求验签）；
 //! 免凭证只有 `task-status` / `session-mode` / `terminal-bg`（环回 hook / CSS
-//! 无法携带凭证）。
+//! 无法携带凭证）。**免凭证 ≠ LAN 公开**：宿主服务绑 `0.0.0.0`，前两条由
+//! `task::caller_allowed_for_none_auth` 按调用方档位收口（T17）：只放行环回
+//! hook / 已验签设备（session-mode）/ 隧道对等面 peer，LAN 匿名调用一律 403。
 
 use crate::WasmHost;
 use wasmnest_plugin_api::host::{HostHttp, HostLog};
@@ -111,6 +113,9 @@ pub const ROUTES: &[HttpRouteDecl] = &[
         auth: JWT,
     },
     // ==================== 任务域内部路径（/api/plugin/<id>/<path> 可达） ====================
+    // task-status / session-mode 免凭证（hook 脚本拿不到 JWT），但**不是 LAN 公开**：
+    // 分派前过 `task::caller_allowed_for_none_auth` 门禁（T17）——前者认环回与隧道
+    // peer，后者另认已验签的 device（移动端经宿主壳代发带 JWT）
     HttpRouteDecl {
         path: "task-status",
         host: None,
@@ -417,7 +422,7 @@ mod tests {
                 "run-commands-ack",
                 "terminal-bg"
             ],
-            "none 档清单漂移必须显式交代（环回 hook / 桥接含 run-attach 身份握手 / CSS 无凭证；认证链已随中心迁出）"
+            "none 档清单漂移必须显式交代（环回 hook / 桥接含 run-attach 身份握手 / CSS 无凭证；认证链已随中心迁出）。\n             免凭证 ≠ 免门禁：task-status / session-mode 另过 task::caller_allowed_for_none_auth（T17）"
         );
     }
 
