@@ -19,7 +19,7 @@
 - [x] `peer.addrs`：LAN 直连地址在前（宿主把通配监听展开为非虚拟网卡 IPv4，**不返回 `0.0.0.0`**，多网卡列多条，端口取实际监听端口）+ relay circuit 地址在后。（能力仓 `status.node.addrs` 投影，见 T07 §5）
 - [x] `ticket` 经 `host-tunnel.issue-pairing-ticket` 签发：绑目标端口、TTL = 120s（不变量 4 上限）、一次性、LAN/relay 均可用；票据不落日志，也不进 `status` 只读视图。
 - [x] 连接串形态 `wasmnest://pair/<base64url(json)>` 与 QR 共用一套解析；不放长期密钥。（2026-11-08 生产端 + 消费端闭环，见实施记录 §5）
-- [ ] 配对记录保存 `peerNodeId`；配对成功事件触发 bedcode 桌面写 peer 信任（T07 消费）。
+- [x] 配对记录保存 `peerNodeId`；配对成功事件触发 bedcode 桌面写 peer 信任（T07 消费）。**（实现口径：auth-center 在 `verify` / `qr-connect` 成功后**直接**调 `host-peer.trust-node` 与写 `peer_node_id`，不依赖桌面 UI 事件——写信任是认证中心的职权，桌面只展示结果；见 §7）**
 - [x] 旧版 QR（无 `peer` 字段）解析不回归；v2 载荷缺字段时 fail-visible。
 - [x] app `test:run` + `cargo test` + 构建绿（桌面：全量前端单测 / 1023 条 rust 单测 / `build:frontend` / `wasm32-wasip3` 构建；移动解析侧见 §3；真机目验归 T10）。
 

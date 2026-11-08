@@ -19,26 +19,27 @@
 
 **契约与装配**
 
-- [ ] 权限词汇新增 `tunnel:serve`（expose/unexpose/issue-pairing-ticket）与 `tunnel:connect`（connect/close；status 归属一并定）；manifest 校验同步；未声明应用永远 lan-only。
-- [ ] compose.json / SDK 绑定 / `witSha256` / host-runtime lock / `release-manifest.json` 同步；`check:manifest` 绿。
-- [ ] 桌面装配 `net.tunnel` 服务租约（或复用 `net.peer-node`）；peer face 启动/关闭跟随 `tunnel:serve` 规则。
-- [ ] 移动装配 `host-tunnel` client 绑定、本地回环代理、前台服务协作（前台建立、离开终端页关闭）。
+- [x] 权限词汇新增 `tunnel:serve`（expose/unexpose/issue-pairing-ticket）与 `tunnel:connect`（connect/close；status 归属一并定）；manifest 校验同步；未声明应用永远 lan-only。**（40 条词汇双端真源 + SDK 副本；`status`/`configure` 允许任一权限）**
+- [ ] compose.json / SDK 绑定 / `witSha256` / host-runtime lock / `release-manifest.json` 同步；`check:manifest` 绿。**（compose / SDK / `packages` / `witSha256` 已同步且 `compose-wit --all --check` 绿；`check:manifest` 仍余 lib/apps 工作树无精确 tag 的项：发布打 tag 后复跑）**
+- [x] 桌面装配 `net.tunnel` 服务租约（或复用 `net.peer-node`）；peer face 启动/关闭跟随 `tunnel:serve` 规则。**（`plugin/tunnel.rs` + `tunnel/service.rs`；`stop` 清规则/票据/在飞流）**
+- [x] 移动装配 `host-tunnel` client 绑定、本地回环代理、前台服务协作（前台建立、离开终端页关闭）。**（绑定与回环代理已落地（`plugin/tunnel_ports.rs` + `MobilePeerFaceStarter` 显性 `tunnel-unavailable`）；前台服务保活**未接**——见下方拆分项）**
+- [ ] 移动前台服务协作（Android foreground service 保活；`connect` 的服务租约已记账，OS 级保活未接）。
 
 **reservation 引用计数（单一所有权）**
 
-- [ ] 宿主隧道管理器统一引用计数：计数来源 = 生效 expose 规则（`allowWan=true` 才计入）+ 客户端在飞 WAN 拨号；0→1 建立、1→0 释放。
-- [ ] `expose`/`unexpose`、`allowWan` 开关、服务租约只改计数，不各自直接管理 reservation。
-- [ ] `allowWan=false` 时即使有 expose 规则也不建立/保留 reservation（LAN 入口不受影响）；lan-active 期间 reservation 可保留（控制面），受同一计数与 `allowWan` 门控。
+- [x] 宿主隧道管理器统一引用计数：计数来源 = 生效 expose 规则（`allowWan=true` 才计入）+ 客户端在飞 WAN 拨号；0→1 建立、1→0 释放。
+- [x] `expose`/`unexpose`、`allowWan` 开关、服务租约只改计数，不各自直接管理 reservation。
+- [x] `allowWan=false` 时即使有 expose 规则也不建立/保留 reservation（LAN 入口不受影响）；lan-active 期间 reservation 可保留（控制面），受同一计数与 `allowWan` 门控。**（`recount` 只计 `allowWan=true`；`connect` 在 `allowWan=false` 时只滤掉 relay 候选、LAN 照拨（R03））**
 
 **§4.9 宿主侧模式判定**
 
 - [ ] 网络类型（Android `ConnectivityManager`）与接口子网枚举由宿主完成；应用只读 `host-tunnel.status` 与 `peer:mode` 事件。
   **（部分：接口子网 + 蜂窝归类已由能力仓 `tunnel/netinfo.rs` 完成并进 `status.modes` / `peer:mode`；Android 仍走 `getifaddrs` + 接口名，未接 `ConnectivityManager`。）**
-- [ ] 「明确不在内网」判据表全实现：蜂窝直切；候选 IP 不在任何接口子网且无 mDNS；无 LAN 候选；`EHOSTUNREACH`/`ENETUNREACH`。同网段 timeout/`ECONNREFUSED`/服务未启动 → `lan-unreachable` + 手动入口；认证/信任/Noise 失败不切；刚换网等 5s 发现窗口。
+- [x] 「明确不在内网」判据表全实现：蜂窝直切；候选 IP 不在任何接口子网且无 mDNS；无 LAN 候选；`EHOSTUNREACH`/`ENETUNREACH`。同网段 timeout/`ECONNREFUSED`/服务未启动 → `lan-unreachable` + 手动入口；认证/信任/Noise 失败不切；刚换网等 5s 发现窗口。
   **（已实现并有测试锁；发现窗口分支按 `LanCandidateSource::Mdns` 判，`connect` 用显式候选故不走该分支。）**
-- [ ] 状态机：`pairing / lan-probing / lan-active / lan-unreachable / wan-connecting / wan-active / wan-unavailable / offline`；wan-active 周期（30s）/换网探测 LAN，连续两次成功才切回。
-  **（8 态与「连续两次才回切」已实现；`pairing` 态未接线；30s 周期与换网探测的**循环**未实现，本层只提供 `on_lan_probe_result` / `on_network_changed` 记账。）**
-- [ ] relay 域名经宿主 `lookup_host` 解析（T02 口径）。**（T02 已实现，本轮未改。）**
+- [x] 状态机：`pairing / lan-probing / lan-active / lan-unreachable / wan-connecting / wan-active / wan-unavailable / offline`；wan-active 周期（30s）探测 LAN，连续两次成功才切回。**（第四轮：`TunnelManager::probe_wan_peers_once` + 懒启动周期循环（30s，可覆盖）；先非破坏性 TCP 探活、连两次成功后才**真实拨号**并切 `lan-active`；手动外网不参与探测；`pairing` 态已接线（未匹配入站流投影 `pairing`、窗口结束回落 `offline`；未匹配 + 票据的 `connect` 在拨号期投影 `pairing`，链路就绪后回到真实传输模式，避免配对完成后一直显示「配对中」））**
+- [ ] 换网触发：宿主调 `on_network_changed` 把非 `offline` 对端回 `lan-probing`（能力仓 API 已就绪，平台侧无网络变化监听：Android 未接 `ConnectivityManager`、桌面未接网络事件）。
+- [x] relay 域名经宿主 `lookup_host` 解析（T02 口径）。**（`configure` / `recount` 走 `resolve_relay_addr`；解析失败点名原始地址）**
 
 ## 相关契约与锁
 
@@ -197,5 +198,51 @@ T11 改动落入同一工作树后复跑 relay 形态 **252 passed / 0 failed**�
 SDK 绑定修复与 T11 落在同一文件，合流时按「T11 的 `peer_dial_addrs` +
 本轮的 `.as_deref()`」两处一起保留；`witSha256` / compose 重拼 / 全量重建归 T11。
 
-**仍未完成**：§4.9 的 30s 探测循环 / Android `ConnectivityManager` / `pairing` 态
-接线 / 移动前台服务（见上一轮记录），以及 T09 移动拨号消费 + T10 真机 E2E。
+**仍未完成（第三轮时点）**：§4.9 的 30s 探测循环 / Android `ConnectivityManager` / `pairing` 态
+接线 / 移动前台服务——前两项中的探测循环与 `pairing` 已在第四轮补上，见下节。
+## 实施记录（2026-11-08，第四轮：回切探测循环 + `pairing` 态接线）
+
+**为什么**：第三轮把 8 态、判据表、双向探测防抖都做完了，但**没有驱动**——`on_lan_probe_result`
+只有测试在调，生产上 `wan-active` 永远不会自己回 `lan-active`；`pairing` 态在状态机里
+有、没有任何一处会进入它。两者都是「机制在、行为不在」，用户可见的差别是：手机回到
+同一 Wi-Fi 后仍一直走中继，首次配对的隧道在状态栏里显示成上一次会话的模式。
+
+**落点**（全部在能力仓，平台仓零改动）：
+
+| 文件 | 内容 |
+| --- | --- |
+| `tunnel/mode.rs` | `record_lan_probe(node, ok) -> bool`（只记账、**不改模式**，达阈值返回 true）；`nodes_in(mode)`；`on_lan_probe_success` / `on_lan_probe_failure` 改为它的包装（既有语义不变） |
+| `tunnel/manager.rs` | `TunnelEngine::probe_lan(addrs, timeout)` 端口（默认实现一律失败 = 宿主没实现探活时保持当前模式）；`PeerCtxEngine` 实现为**只做 TCP 握手**（不进 swarm、不动现役链路）；`ManagerState.lan_candidates`（`connect` 时记 LAN 候选，relay-only 拨号不清旧候选）；`probe_wan_peers_once()` + 懒启动周期循环（默认 30s，`set_probe_interval` 可覆盖，弱引用不延长管理器寿命，`stop` 中止）；`pairing` 投影（未匹配 + 票据的 `connect` 在**拨号期**进 `pairing`、链路就绪后回到真实传输模式；未匹配的入站流进 `pairing`、窗口结束回落 `offline`）；`state` 改 `Arc<Mutex<_>>` 与入站循环共享 |
+
+**关键判据（为什么这么写）**：
+
+1. **探活不能用 `dial`**：引擎在「已准入链路但拨号地址变了」时会先断旧链路再重拨
+   （`dial_with_timeout` 的 `must_redial` 分支）——wan-active 期间那样会打断经 relay
+   的现役流。所以探活只做一次 1.5s TCP 握手。
+2. **探测成功 ≠ 已回内网**：连续两次探活成功后还要**真实拨一次 LAN 并成功**，才把模式
+   改成 `lan-active`；拨号失败则保持 `wan-active` 并清零计数。否则状态栏会声称「内网直连」
+   而数据仍在 relay 上。
+3. **手动「尝试外网」不参与探测**：设计 §4.9 规定手动指令本次网络会话内保持；探测只对
+   自动进入 wan 的对端生效。
+4. **relay-only 拨号不清 LAN 候选**：T09 的 `tryWan` 只带 relay 地址；若按「全量替换」
+   存候选，回切探测就再也拿不到目标。
+
+**验证（实跑）**：
+
+```text
+wasmnest-server-peer-net: cargo test --lib --offline              → 286 passed（275 → +11）
+wasmnest-server-peer-net: --features common-host,relay            → 284 passed
+wasmnest-server-peer-net: cargo fmt --check                       → 绿
+平台桌面 wasmnest-desktop/src-tauri: cargo check --lib --offline   → 绿
+平台移动 wasmnest-mobile/src-tauri:  cargo check --lib --offline   → 绿（仅既有 unused 警告）
+```
+
+新增/改写测试：`wan_active_restores_lan_only_after_two_probes` / `probe_failure_resets_the_restore_counter` /
+`restore_dial_failure_keeps_wan_active` / `manual_wan_is_not_overridden_by_probe` /
+`probe_only_uses_lan_candidates` / `probe_loop_runs_on_interval` /
+`pairing_ticket_for_untrusted_peer_marks_pairing_during_dial_only` / `inbound_unmatched_stream_marks_pairing_then_offline` /
+`record_lan_probe_counts_without_switching_mode` / `record_lan_probe_ignores_non_wan_active_peers` / `nodes_in_filters_by_mode`。
+
+**仍未完成（本轮范围外）**：Android `ConnectivityManager` 精确网络类型与「换网→
+`on_network_changed`」的平台触发；移动前台服务保活；`check:manifest` 的 tag 项；
+T09 历史/mDNS 重连与 T10 真机 E2E。

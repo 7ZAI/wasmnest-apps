@@ -17,12 +17,12 @@ bedcode 桌面作为被访问方接入穿透：经对等面暴露服务（禁止
 
 - [x] `host-tunnel.expose({ port: 8765, kind: "http", ... })`（逻辑端口，后端恒为对等面）；`allowWan` 由应用 KV `network.relay` 是否有中继地址推出，经 `configure` 交给宿主引用计数。（2026-11-08 本轮落地，见实施记录 §6；端口取宿主实际运行端口，不写死 8765）
 - [x] **link-crypto 固定 `required`**：`useLinkCrypto.ts` 移除 off/preferred 选择，设置页改只读「强制加密」；配置层拒绝关闭；缺链路身份拒绝并提示修复（不变量 12/14）。（2026-11-08 落地，见实施记录）
-- [ ] 配对成功且 JWT 签发后，用 peer face 传来的**已验证** `peerNodeId` 写 peer 信任列表（不信任客户端自报值）；auth-center 配对记录保存该 nodeId（供 `allowedPeers` 与撤销）。
-- [ ] 解配对/撤销设备同时 `host-peer.revoke-trusted`（不变量 7）；隧道 ACL 立即生效。
-- [ ] **§0.4 测试锁**：`task-status`/`session-mode`/`terminal-bg` 经 peer face 仅对已匹配 peer 可达（匹配校验在隧道层）；run-* 四条对 `peer` 一律 403（不变量 3/16）。
+- [x] 配对成功且 JWT 签发后，用 peer face 传来的**已验证** `peerNodeId` 写 peer 信任列表（不信任客户端自报值）；auth-center 配对记录保存该 nodeId（供 `allowedPeers` 与撤销）。**（2026-11-08 T08 §7：`host-peer.trust-node` 唯一写入原语；auth-center `_http_endpoint` 只采信宿主注入的 `caller=peer` 上下文，配对记录新增 `peer_node_id` 列；`verify` / `qr-connect` 成功后写信任（记录或信任失败均显性中止））**
+- [x] 解配对/撤销设备同时 `host-peer.revoke-trusted`（不变量 7）；隧道 ACL 立即生效。**（撤销按记录 `peer_node_id` 级联 `revoke-trusted`；已软删记录重复撤销也重放级联（防「UI 幂等成功、隧道仍匹配」））**
+- [x] **§0.4 测试锁**：`task-status`/`session-mode`/`terminal-bg` 经 peer face 仅对已匹配 peer 可达（匹配校验在隧道层）；run-* 四条对 `peer` 一律 403（不变量 3/16）。**（`rust/src/run/bridge/mod.rs::bridge_caller_gate_accepts_only_loopback_tier` 断言 `caller_allowed("peer") == false`；`rust/src/task/mod.rs` 的 `caller_allowed_for_none_auth` 逐条锁 `task-status` / `session-mode` 放行 `CALLER_PEER`、拒 `device` / `anonymous` / 空值；「仅已匹配」由隧道准入（未匹配一律 `not-matched`）承担）**
 - [x] 状态 UI（**本轮范围 = 传输模式 + 加密常量徽标**）：设备页显示 `内网直连 / 外网中继 / 隧道就绪 / 内网不可达 / 外网不可用 / 外网已关闭 / 离线 / 隧道不可用` + 「已加密」（不可关闭）；失败原因进 `title`。（relay 延迟不在宿主 `status` 投影内，未伪造；§7.1 词表的逐字文案归 T10 复核）
 - [x] 旧客户端不支持 link-crypto → 显性 `encryption-unsupported` + 升级提示，无明文回退。（2026-11-08 §8：宿主侧判定落在能力仓 `link_crypto` / `http_filter` / WS 升级门禁，平台移动宿主把码透给应用；移动端**逐字文案**区分归 T09）
-- [ ] app `test:run` + 根 lint + `cargo test` + wasm 目标构建绿；真实宿主目验；交互面改动同步 `data-testid` 锚点。
+- [ ] app `test:run` + 根 lint + `cargo test` + wasm 目标构建绿；真实宿主目验；交互面改动同步 `data-testid` 锚点。**（已验证：前端全量单测 / `cargo test` / `build:frontend` / `wasm32-wasip3` 构建 / 根 lint 0 error；锚点 `pairing-tunnel-status` / `pairing-tunnel-encryption` / `pairing-qr-copy-link` 已同步；**真实宿主目验未跑**：`host-runtime.lock.json` 的 `artifacts` 为空，`e2e.mjs` packed 形态无宿主可装）**
 
 ## 相关契约与锁
 

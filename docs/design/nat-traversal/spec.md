@@ -218,3 +218,20 @@ desktop 10 files/59 passed。**未做项更新（2026-11-08 追加 12）**：旧
 仍为空）、移动端 `encryption-unsupported` 的逐字文案区分（归 T09/T10）。
 文档勾选未提交：同批文档文件另有并发会话（T12）与 T06 第三轮在途记录。详见 [T07](tickets/T07-bedcode-desktop.md) /
 [T08](tickets/T08-auth-center-qr-v2.md) §7。
+
+**实施进度（2026-11-08 追加 13，T06 第四轮：回切探测循环 + `pairing` 态接线 + 勾选复核）**：T06 最后两个「机制在、行为不在」
+的缺口已闭环（详见 [T06](tickets/T06-platform-assembly.md) 第四轮实施记录）——`wan-active` 周期（默认 30s）LAN 回切探测循环
+（`TunnelManager::probe_wan_peers_once` + 懒启动任务；先**非破坏性 TCP 探活**、连续两次成功后才真实拨号并切 `lan-active`，
+拨号失败保持 `wan-active` 并清零；手动「尝试外网」不参与探测；relay-only 拨号不清已记的 LAN 候选），以及 `pairing` 态接线
+（未匹配的入站流投影 `pairing`、窗口结束回落 `offline`；未匹配 + 票据的 `connect` 拨号期投影 `pairing`，链路就绪后回到真实传输模式）。实跑：peer-net 默认 **286 passed**、
+`common-host,relay` **284 passed**、`fmt --check` 绿；平台双端 `cargo check --lib` 绿。
+
+同轮把 T05 / T06 / T07 / T08 / T10 的勾选按代码真源复核回写（此前多张单据的实现记录已写而清单仍旧）：
+T05 验收项全勾（真机双路径验收归 T10）；T06 只剩 4 项未完成——`check:manifest` 的 tag 项、移动前台服务、Android
+`ConnectivityManager`、换网→`on_network_changed` 的平台触发；T07 的信任写入 / 撤销级联 / §0.4 测试锁三项已勾（真宿主目验仍缺）；
+T08 的 `peerNodeId` 落库与信任写入已勾；T10 的安全用例按「已有自动化锁」逐条点名（移动侧链加密锁仍缺），
+`docs/verification/bedcode.md` 新增 **F-16 内网穿透（跨网）S-16-01..11** 与 P-09 前置。
+
+**仍未完成（P1 收口口径不变）**：T10 全部真机 / 双端 E2E（`host-runtime.lock.json` 的 `artifacts` 为空、无真机）；T09 历史 / mDNS
+重连（连接历史缺 `nodeId`，需平台移动 SDK 数据结构变更）与移动侧链加密测试锁；T01 两台不同 NAT 真机与 PoC 报告实测数据；
+T14「检测连通性」（宿主 `status` 尚无 relay RTT 投影）。
