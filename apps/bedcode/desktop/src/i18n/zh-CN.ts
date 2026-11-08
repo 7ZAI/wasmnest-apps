@@ -176,6 +176,11 @@ const zhCN: MessageSchema = {
   'pairing.qr.hint': '使用移动端 BedCode 扫描二维码',
   'pairing.qr.singleUse': '每个二维码只能绑定一个设备',
   'pairing.qr.placeholder': '点击下方按钮生成二维码',
+  'pairing.qr.errorPeerIncomplete': '隧道信息不完整，无法生成二维码，请重新生成或更新桌面端',
+  'pairing.qr.errorPeerAddressInvalid': '隧道地址不可拨号，无法生成二维码，请检查远程访问设置',
+  'pairing.qr.copyLink': '复制连接串',
+  'pairing.qr.copyLinkDone': '连接串已复制',
+  'pairing.qr.copyLinkFailed': '复制失败：剪贴板不可用',
 
   'pairing.device.sectionOnline': '在线',
   'pairing.device.sectionOffline': '离线',

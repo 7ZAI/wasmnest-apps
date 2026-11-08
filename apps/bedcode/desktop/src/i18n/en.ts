@@ -178,6 +178,13 @@ const en: MessageSchema = {
   'pairing.qr.hint': 'Scan the QR code with the BedCode mobile app',
   'pairing.qr.singleUse': 'Each QR code can bind only one device',
   'pairing.qr.placeholder': 'Tap the button below to generate a QR code',
+  'pairing.qr.errorPeerIncomplete':
+    'Tunnel info is incomplete, so no QR code can be generated. Regenerate it or update the desktop app.',
+  'pairing.qr.errorPeerAddressInvalid':
+    'Tunnel address is not dialable, so no QR code can be generated. Check remote access settings.',
+  'pairing.qr.copyLink': 'Copy connection link',
+  'pairing.qr.copyLinkDone': 'Connection link copied',
+  'pairing.qr.copyLinkFailed': 'Copy failed: clipboard unavailable',
 
   'pairing.device.sectionOnline': 'Online',
   'pairing.device.sectionOffline': 'Offline',

@@ -283,6 +283,13 @@
                 <p class="text-[calc(11px*var(--ui-scale))] text-[var(--text-tertiary)] mt-1.5">
                   {{ t('pairing.qr.singleUse') }}
                 </p>
+                <button
+                  data-testid="pairing-qr-copy-link"
+                  class="wb-btn-ghost !h-7 !px-2.5 mt-3 text-[calc(11px*var(--ui-scale))]"
+                  @click="copyPairUri"
+                >
+                  {{ t('pairing.qr.copyLink') }}
+                </button>
               </template>
               <template v-else>
                 <div
@@ -317,6 +324,13 @@
                   class="text-[calc(12px*var(--ui-scale))] text-[var(--text-secondary)] leading-relaxed"
                 >
                   {{ t('pairing.qr.hint') }}
+                </p>
+                <p
+                  v-if="qrErrorText"
+                  data-testid="pairing-qr-error"
+                  class="mt-1.5 text-[calc(11px*var(--ui-scale))] text-[var(--color-danger)] leading-relaxed"
+                >
+                  {{ qrErrorText }}
                 </p>
               </template>
             </div>
@@ -567,10 +581,12 @@ const {
   qrRemainingSeconds,
   isQrLoading,
   hasQr,
+  qrError,
   generateQr,
   restoreQr,
   clearQr,
   qrPayload,
+  qrPairUri,
   onlineDevices,
   offlineDevices,
   loadDevices,
@@ -595,6 +611,23 @@ const deviceTabs: { key: TabKey; label: string }[] = [
 
 /** 工具栏展示的当前对外 IP（未选择时显示占位文案） */
 const displayIp = computed(() => selectedHost.value || t('pairing.network.notSelected'))
+
+/**
+ * QR 载荷组装失败的显性文案（T08：peer 信息残缺不静默降级成 v1）
+ *
+ * 显式映射而不是拼接 key：`plugin-contract` C6 静态检查 `t('...')` 字面量，
+ * 动态 key 会绕过完整性门禁。
+ */
+const qrErrorText = computed(() => {
+  switch (qrError.value) {
+    case 'peer-incomplete':
+      return t('pairing.qr.errorPeerIncomplete')
+    case 'peer-address-invalid':
+      return t('pairing.qr.errorPeerAddressInvalid')
+    default:
+      return ''
+  }
+})
 
 // ==================== 撤销确认 ====================
 const showRemoveDeviceDialog = ref(false)
@@ -671,6 +704,25 @@ onActivated(() => {
   // 不刷新会继续显示旧端口（与 ServerView 的「保存端口 → 立即重启」配套）
   void loadNetwork()
 })
+
+/**
+ * 复制连接串（无摄像头场景：把 `wasmnest://pair/…` 粘贴到移动端）
+ *
+ * 载荷组装失败（peer 残缺）时 `qrPairUri()` 返回 null，页面已有显性错误文案，
+ * 此时不动作——不复制半成品，也不假装成功；剪贴板不可用则显性 toast。
+ */
+async function copyPairUri() {
+  const uri = qrPairUri()
+  if (!uri) return
+  try {
+    if (!navigator.clipboard?.writeText) throw new Error('clipboard unavailable')
+    await navigator.clipboard.writeText(uri)
+    toast.success(t('pairing.qr.copyLinkDone'))
+  } catch (e) {
+    console.error('[Device Center] copy pair link failed:', e)
+    toast.error(t('pairing.qr.copyLinkFailed'))
+  }
+}
 
 // ==================== 交互编排 ====================
 

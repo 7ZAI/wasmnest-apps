@@ -190,6 +190,11 @@ export type MessageSchema = {
   'pairing.qr.hint': string
   'pairing.qr.singleUse': string
   'pairing.qr.placeholder': string
+  'pairing.qr.errorPeerIncomplete': string
+  'pairing.qr.errorPeerAddressInvalid': string
+  'pairing.qr.copyLink': string
+  'pairing.qr.copyLinkDone': string
+  'pairing.qr.copyLinkFailed': string
 
   // ==================== 设备列表 ====================
   'pairing.device.sectionOnline': string

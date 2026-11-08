@@ -23,6 +23,13 @@
  */
 import { computed, ref, type ComputedRef, type Ref } from 'vue'
 import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-desktop'
+import {
+  buildPairUri,
+  buildQrPayload,
+  PairingPayloadError,
+  type PairingPayloadErrorReason,
+  type PairingPeerInfo,
+} from '@/utils/pairingPayload'
 
 /** 配对码信息（插件命令面回执，与宿主 `PairingCodeInfo` 逐字同形） */
 export interface PairingCodeInfo {
@@ -48,12 +55,14 @@ export interface LocalNetworkInfo {
   addresses: string[]
 }
 
-/** QR 连接信息（扫码载荷三要素 + 剩余秒） */
+/** QR 连接信息（扫码载荷三要素 + 剩余秒 + 可选 peer v2 扩展） */
 export interface QrConnectionInfo {
   host: string
   port: number
   token: string
   remainingSecs: number
+  /** T08：宿主隧道状态投影；缺省 = 后端尚未提供，载荷保持 v1 */
+  peer?: PairingPeerInfo | null
 }
 
 /** 插件存储键：用户选择的对外 IP（宿主 `AppConfig.network.qr_host` 的插件侧承接） */
@@ -100,6 +109,8 @@ export function useDeviceCenter(context: PluginContext) {
   const qrData = ref<QrConnectionInfo | null>(null)
   const qrRemainingSeconds = ref(0)
   const isQrLoading = ref(false)
+  /** 载荷组装失败原因（peer 信息残缺 / 地址不可拨号）；null = 无错误 */
+  const qrError = ref<PairingPayloadErrorReason | null>(null)
   const hasQr = computed(() => qrData.value !== null && qrRemainingSeconds.value > 0)
 
   // ==================== 设备列表 ====================
@@ -250,6 +261,32 @@ export function useDeviceCenter(context: PluginContext) {
     }, 1000)
   }
 
+  /**
+   * 接受一份 QR 连接信息：先验证载荷可组装，再落状态。
+   *
+   * `peer` 存在但残缺时**不落状态、不启动倒计时**——界面展示显性错误，
+   * 禁止静默退回 v1（那会把配对降级成明文 LAN 入口，不变量 6/9）。
+   */
+  function applyQrInfo(info: QrConnectionInfo | null): boolean {
+    if (!info) {
+      qrData.value = null
+      qrError.value = null
+      return false
+    }
+    try {
+      buildQrPayload(info)
+    } catch (e) {
+      qrData.value = null
+      qrError.value = e instanceof PairingPayloadError ? e.reason : 'peer-incomplete'
+      return false
+    }
+    qrData.value = info
+    qrError.value = null
+    qrRemainingSeconds.value = info.remainingSecs
+    startQrCountdown()
+    return true
+  }
+
   /** 生成二维码连接信息（token 生成 + host/port 组装，端口取内核运行端口） */
   async function generateQr(host?: string): Promise<void> {
     isQrLoading.value = true
@@ -257,13 +294,7 @@ export function useDeviceCenter(context: PluginContext) {
       const info = (await context.commands.execute('session.qr.generate', {
         host: host ?? selectedHost.value ?? undefined,
       })) as QrConnectionInfo | null
-      if (info) {
-        qrData.value = info
-        qrRemainingSeconds.value = info.remainingSecs
-        startQrCountdown()
-      } else {
-        qrData.value = null
-      }
+      applyQrInfo(info)
     } finally {
       isQrLoading.value = false
     }
@@ -275,11 +306,9 @@ export function useDeviceCenter(context: PluginContext) {
       host: host ?? selectedHost.value ?? undefined,
     })) as QrConnectionInfo | null
     if (info && info.token) {
-      qrData.value = info
-      qrRemainingSeconds.value = info.remainingSecs
-      startQrCountdown()
-      return true
+      return applyQrInfo(info)
     }
+    qrError.value = null
     return false
   }
 
@@ -288,14 +317,36 @@ export function useDeviceCenter(context: PluginContext) {
     stopQrCountdown()
     qrData.value = null
     qrRemainingSeconds.value = 0
+    qrError.value = null
     await context.commands.execute('session.qr.clear', {})
   }
 
-  /** 扫码载荷（与宿主逐字段一致：host / port / token） */
+  /** 扫码载荷（v1 = host/port/token；宿主提供 peer 时自动升 v2） */
   function qrPayload(): string | null {
     const data = qrData.value
     if (!data) return null
-    return JSON.stringify({ host: data.host, port: data.port, token: data.token })
+    try {
+      return buildQrPayload(data)
+    } catch {
+      // generateQr / restoreQr 已置 qrError；这里不再重复报错，避免渲染期抛异常
+      return null
+    }
+  }
+
+  /**
+   * 连接串形态（无摄像头场景；与 QR 同一载荷、同一校验）
+   *
+   * 与 {@link qrPayload} 同口径：组装失败返回 null，不在调用点抛异常
+   * （`qrError` 已由 applyQrInfo 置位，界面走显性错误文案）。
+   */
+  function qrPairUri(): string | null {
+    const data = qrData.value
+    if (!data) return null
+    try {
+      return buildPairUri(data)
+    } catch {
+      return null
+    }
   }
 
   // ==================== 设备列表 ====================
@@ -432,11 +483,13 @@ export function useDeviceCenter(context: PluginContext) {
     qrData: qrData as Ref<QrConnectionInfo | null>,
     qrRemainingSeconds,
     isQrLoading,
+    qrError: qrError as Ref<PairingPayloadErrorReason | null>,
     hasQr: hasQr as ComputedRef<boolean>,
     generateQr,
     restoreQr,
     clearQr,
     qrPayload,
+    qrPairUri,
     // 设备
     devices: devices as Ref<PairedDeviceInfo[]>,
     isLoading,

@@ -630,7 +630,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useHostPage, type HostDeviceTarget } from '../useHostPage'
 import { connectionErrorKey } from '../errors'
 import { formatLastConnected, parseAddressWithDefault } from '../utils'
-import type { QrPayload } from '../qr'
+import { parseQrText, type QrPayload } from '../qr'
 import BottomSheet from './ui/BottomSheet.vue'
 import Button from './ui/Button.vue'
 import LoadingDialog from './ui/LoadingDialog.vue'
@@ -1031,9 +1031,27 @@ async function handleConnectFromHistory(item: { address: string; name?: string }
   await startConnection({ ...parsed, name: item.name || parsed.address }, true)
 }
 
-/** 手动连接（必须走配对流程；未写端口回落默认端口） */
+/**
+ * 手动连接（必须走配对流程；未写端口回落默认端口）
+ *
+ * 同一输入框也接受桌面「复制连接串」产出的 `wasmnest://pair/…`：解析走扫码的
+ * 同一个纯函数 `parseQrText`，成功后的路径与扫码完全一致（结果卡片 → token 认证），
+ * 不为连接串另开一条绕过 token 的明文捷径。
+ */
 async function handleConnectManual(address: string): Promise<void> {
   if (isConnecting.value) return
+  if (address.trim().startsWith('wasmnest://')) {
+    const result = parseQrText(address)
+    if (!result.ok) {
+      // 连接串含 token：只记结论，不落原文
+      logger.warn(`[host] manual pair link rejected: reason=${result.reason}`)
+      toast.showToast(t('hub.pairLinkInvalid'), 'error')
+      return
+    }
+    showManualConnect.value = false
+    handleScanResult(result.payload)
+    return
+  }
   const parsed = parseAddressWithDefault(address, defaultPort.value)
   if (!parsed) {
     // 格式错误是本地校验失败（非引擎错误）：明确告知期望格式，同时落日志便于排障
