@@ -27,7 +27,7 @@
 
 - [x] `init --dir --advertise`：生成身份密钥/配置/导入载荷（multiaddr + PeerId + 指纹 + JSON）；已有密钥/配置拒绝覆盖（需 `--force`）。二维码由导入端渲染（见「实施记录」偏差记录）。
 - [x] `run --config`；`doctor`（身份/配置/端口/时钟/数据目录/token/版本；公网可达如实标 `unknown` 并给外部验证路径）；`print-addrs --json`（带载荷版本与控制协议名）；`token create --label [--max-uses]`。
-- [ ] Linux amd64/arm64 静态二进制；Docker 多架构镜像 `ghcr.io/7zai/wasmnest-relay:<version>` + Compose（`restart: unless-stopped`、healthcheck、数据卷、生产 digest 钉住）；可选 `install.sh` + systemd unit。**现状**：Dockerfile / Compose / install.sh / unit 全部就位且 `docker compose config` 与 `sh -n` 通过；**镜像构建未实证**（本机无法访问 Docker Hub 与 crates.io），故静态 musl 产物与 arm64 依赖树随之待 CI 验证。
+- [ ] Linux amd64/arm64 静态二进制；Docker 多架构镜像 `ghcr.io/7zai/wasmnest-relay:<version>` + Compose（`restart: unless-stopped`、healthcheck、数据卷、生产 digest 钉住）；可选 `install.sh` + systemd unit。**现状**：Dockerfile / Compose / install.sh / unit 全部就位；**amd64 镜像已在本地实构实跑**（2026-11-08，见下节；产物 `static-pie`，14.7 MiB 镜像）；**arm64 交叉构建与 ghcr 推送未验证**（本机 buildx 无法拉 buildkit 镜像、需 CI）。
 - [x] 身份与配置落 `/data`，**重启不换 PeerId**（同一身份重载 PeerId/指纹不变有单测 + 实跑复核）；版本独立轴 `relay-vX.Y.Z`（打 tag 属发布动作，本轮未打）。
 
 **全流程验收**
@@ -77,13 +77,60 @@
   `cargo fmt --check` 绿；`cargo build --release` 产出 8.8 MB 二进制；`init` / `doctor`（8 项通过、
   1 项如实 unknown）/ `print-addrs --json` / `token create` / `run`（`/healthz` 200、404 兜底、
   SIGTERM 优雅退出）实跑通过。
-- **未验证（环境阻塞，非代码判定）**：Docker 镜像构建（本机无法访问 Docker Hub 与 crates.io，
-  构建阶段整体未跑，故「静态 musl 产物」「linux/arm64 依赖树」也未实证）；镜像多架构推送属 CI。
+- **未验证**：linux/arm64 依赖树与多架构推送（本机 buildx 需要拉 buildkit 镜像，Docker Hub
+  对 daemon 不可达；归 CI）；ghcr 上的镜像分发本身未跑。
 - **待人工验收（归 T15）**：全新 Linux VPS 一键起 relay → 应用导入 → 跨 NAT 可用；重启后
   PeerId 不变；relay 侧抓包只有密文。
+- 本地 Docker 验证结论与三个缺陷及修复见下节。
 - **偏差记录**：`init` 输出导入载荷（multiaddr + PeerId + 指纹 + JSON），**不**渲染二维码图片——
   QR 编码属导入端（T14 桌面卡片 / 移动端）职责，中继只产出可编码的载荷，避免为一张图引入
   QR 依赖。
+
+## 本地 Docker 验证（2026-11-08，linux/amd64）
+
+环境：Docker 29.9.2 + Compose v5.6.1；宿主机直连 Docker Hub 被墙（daemon 无代理），
+基础镜像经代理用 `crane pull` → `docker load` 落到本地 canonical tag；构建时用
+`--network host` + Docker 预置代理 build-arg（`HTTPS_PROXY=...`）让 cargo 走出索引，
+**Dockerfile 与 Compose 未做任何改动**。构建耗时：cargo 步 209.5s（16 核）。
+
+| 项 | 结果 |
+| --- | --- |
+| `docker build -f deploy/relay/Dockerfile` | ✅ 14.7 MiB 运行镜像；产物 `ELF 64-bit LSB pie executable, static-pie linked, stripped`（6.4 MiB） |
+| `compose run relay init --dir /data --advertise 127.0.0.1` | ✅ 生成身份/配置，卷首建时 `/data` 归属 10001 |
+| `compose up -d` | ✅ 状态 `Up (healthy)`；容器内 `/healthz` 200、未知路径 404 |
+| `compose exec relay doctor` | ✅ 7 通过 / 2 警告 / 0 失败（警告 = 端口被自身占用、回环 advertise，符合口径） |
+| `print-addrs --json` | ✅ 字段 v/kind/relay_version/peer_id/peer_id_sha256/control_protocol/addrs/access/quota |
+| 重启容器 | ✅ PeerId 不变（`12D3KooWJmdr…A7QD` 前后一致） |
+| 重复 `init` | ✅ 非零退出并点名「配置已存在…请加 `--force`」，身份未被覆盖 |
+| 经容器 relay 的真实转发 | ✅ 外部 libp2p 探针：A 预留 → B 经 `/p2p-circuit` 拨 A → 8 MiB 往返一致（53.3 MiB/s，circuit 建立 4.7ms） |
+| 指标计数 | ✅ 1 次 reservation / 1 次 circuit / 2 条连接；断连后 closed=1（修复前为 2） |
+| allowlist 负路径 | ✅ 未登记 peer 的 reservation 被拒，`rejected{reason="reservation-denied"}=1`，closed=0（修复前为 1） |
+| `token create` | ✅ 明文只打印一次；`/data/tokens.json` 只落 sha256（与明文 sha256 实算一致） |
+| SIGTERM | ✅ 优雅关闭日志 + `ExitCode=0`，非 OOM |
+| `install.sh`（Debian 12 + systemctl 桩） | ✅ 装二进制 / 建用户组 / 0700 配置目录 / 0600 身份 / 重装保留 PeerId / `--uninstall` 只删 unit 留配置；`doctor` 8 通过 0 警告（`/dns4` 通告 → reachability 如实 unknown） |
+
+**发现与修复（2026-11-08，均已落地并重跑验证）**
+
+1. **Compose 注释里的指标端口映射不可用**：`ports: "127.0.0.1:9090:9090"` 指向容器 eth0，
+   而 relay 在容器内绑 `127.0.0.1:9090`，实测宿主 `curl` 被 reset。**修复**：compose / README §6 /
+   `config.example.toml` 统一改成「容器内用 `compose exec … wget /metrics`；要宿主拓取先把
+   `metrics.listen` 改 `0.0.0.0:9090` + `expose_public = true`（容器网卡语义）再把端口发布到
+   宿主回环」，并注明不要再把它理解成公网暴露。
+2. **`reservations_closed_total` / `reservations_active` 计错**：`libp2p-relay` 0.22 在
+   **任何 peer 连接关闭**时都会发 `ReservationClosed`（`on_connection_established` 为每条连接
+   插入 `Reservation::None`，关闭时不判状态），原实现按事件直接累加 closed 并递减 active。
+   实测 allowlist 拒绝路径：`reservations_total=0` 而 `reservations_closed_total=1`；open 模式
+   1 次预留 / 2 次 closed。**修复**：事件泵增 `AcceptedReservations`（按 peer 记已接受的
+   预留数，续期不加、关闭/超时只在计数 > 0 时才消费），并补 3 条锁：纯函数计数、普通连接
+   关闭不计入、拒绝后断连不计入；e2e 用例尾部加 closed==1 / active==0 断言。重跑：
+   `cargo test --lib --offline` 129 passed（+2）；容器重建后 open 模式 total=1 / closed=1，
+   allowlist 拒绝 total=0 / closed=0 / rejected=1。残留限制：事件不带 connection_id，同一 peer
+   的普通连接与带预留连接一起关闭时仍可能多减一次（只用饱和减法兜底），已在代码注释写明。
+3. **`install.sh` 在无 useradd 的降级路径上失败**：`adduser -S` 不建同名组，随后
+   `install -g wasmnest-relay` 报 `unknown group`。**修复**：先显式建组（`groupadd`/`addgroup`）
+   再用 `--gid`/`-G` 建用户，并断言用户/组存在；开头加 `/etc/systemd/system` 存在性检查，
+   非 systemd 发行版显性拒绝并指向 compose（Alpine 实测：立即报「只支持 systemd 发行版」）。
+   Debian 12（systemctl 桩）重跑仍全绿：8 通过 / 0 警告，重装保 PeerId，卸载留配置。
 
 ## 相关契约与锁
 
