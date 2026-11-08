@@ -37,6 +37,8 @@ pub mod biometric;
 use crate::pairing::token as jwt;
 
 #[cfg(target_arch = "wasm32")]
+use wasmnest_plugin_api::host::HostPeer;
+#[cfg(target_arch = "wasm32")]
 use wasmnest_plugin_api::http_response;
 use wasmnest_plugin_api::wasm_host::WasmHost;
 
@@ -85,6 +87,43 @@ mod history_value {
     pub const FAILED: &str = "failed";
 }
 
+// ==================== 对等面上下文（T08） ====================
+
+/// 对等面请求上下文：**只由宿主注入**（`build_plugin_http_args` 在 peer 面追加
+/// `caller:"peer"` + `peerNodeId` + `pairing`）。客户端请求头 / 请求体里的同名
+/// 字段不构成面标记——认证中心不得采信客户端自报的 node id（不变量：不信任自报值）。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PeerFace {
+    /// 隧道层验证过的对端 node id（仅语义上「peer 面」的请求才有值）
+    pub peer_node_id: Option<String>,
+    /// 配对窗口标记（peer 面 + 首帧票据放行的短命连接）
+    pub pairing: bool,
+}
+
+impl PeerFace {
+    /// 从宿主注入的 HTTP 入参解析：`caller != "peer"` 时**一律丢弃**同名字段
+    ///
+    /// 空串 / 非字符串 `peerNodeId` 按缺省处理（不把脏值写进配对记录：
+    /// 撤销级联会拿它去 `revoke-trusted`，脏值等于给撤销留悬空引用）。
+    pub fn from_args(args: &serde_json::Value) -> Self {
+        let is_peer = args.get("caller").and_then(|v| v.as_str()) == Some("peer");
+        if !is_peer {
+            return Self::default();
+        }
+        let peer_node_id = args
+            .get("peerNodeId")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string);
+        let pairing = args.get("pairing").and_then(|v| v.as_bool()) == Some(true);
+        Self {
+            peer_node_id,
+            pairing,
+        }
+    }
+}
+
 // ==================== 响应信封辅助（HTTP 200 + 业务码，宿主同口径） ====================
 
 /// 宿主旧 auth 端点的错误口径是 `HttpResponse::Ok().json(ApiResponse::error(..))`
@@ -113,14 +152,15 @@ pub fn handle_http_endpoint(
     path: &str,
     body: &serde_json::Value,
     _query: &serde_json::Value,
+    face: &PeerFace,
 ) -> serde_json::Value {
     if method != "POST" {
         return http_response::error(405, &format!("Method not allowed: {method}"));
     }
     match path {
         "auth/pairing" => handle_pairing(host, body),
-        "auth/verify" => handle_verify(host, body),
-        "auth/qr-connect" => handle_qr_connect(host, body),
+        "auth/verify" => handle_verify(host, body, face),
+        "auth/qr-connect" => handle_qr_connect(host, body, face),
         "auth/reauth" => handle_reauth(host, body),
         "auth/biometric-challenge" => handle_biometric_challenge(host, body),
         "auth/biometric-verify" => handle_biometric_verify(host, body),
@@ -136,6 +176,7 @@ pub fn handle_http_endpoint(
     _path: &str,
     _body: &serde_json::Value,
     _query: &serde_json::Value,
+    _face: &PeerFace,
 ) -> serde_json::Value {
     error_response(
         CODE_TOKEN_FAILURE,
@@ -184,7 +225,7 @@ fn handle_pairing(host: &WasmHost, body: &serde_json::Value) -> serde_json::Valu
 
 /// 验证配对码 → 签发 JWT（一次性消耗语义与生成同源）
 #[cfg(target_arch = "wasm32")]
-fn handle_verify(host: &WasmHost, body: &serde_json::Value) -> serde_json::Value {
+fn handle_verify(host: &WasmHost, body: &serde_json::Value, face: &PeerFace) -> serde_json::Value {
     let device_id = str_field(body, "deviceId").to_string();
     let device_name = str_field(body, "deviceName").to_string();
     let fingerprint = str_field(body, "fingerprint").to_string();
@@ -235,8 +276,22 @@ fn handle_verify(host: &WasmHost, body: &serde_json::Value) -> serde_json::Value
         None,
         Some(&address),
         uid_hash.as_deref(),
+        face.peer_node_id.as_deref(),
     ) {
         host.log_warn(&format!("auth http: pairing record failed: {e}"));
+        // 有已验证 nodeId 时记录写失败是致命的：撤销级联依赖这条记录，先落信任
+        // 再丢掉记录会让「撤销设备」找不到要撤销的节点（T07/T08）
+        if face.peer_node_id.is_some() {
+            return error_response(CODE_TOKEN_FAILURE, "Failed to record paired device");
+        }
+    }
+    // T07：配对成功落传输层信任——隧道准入的 `matched` 判据就是这张信任表；
+    // 不写它，第二次连隧道仍按「未匹配」拒绝（一次性票据窗口只在配对时有效）
+    if let Some(node_id) = face.peer_node_id.as_deref() {
+        if let Err(e) = host.peer_trust_node(node_id, Some(device_name.as_str())) {
+            host.log_error(&format!("auth http: peer trust write failed: {e}"));
+            return error_response(CODE_TOKEN_FAILURE, "Failed to establish trusted peer link");
+        }
     }
     let _ = connection_history_record(
         host,
@@ -262,7 +317,7 @@ fn handle_verify(host: &WasmHost, body: &serde_json::Value) -> serde_json::Value
 
 /// QR 码认证 → 签发 JWT（拒绝原因分类与宿主 `qr_failure_user_message` 一致）
 #[cfg(target_arch = "wasm32")]
-fn handle_qr_connect(host: &WasmHost, body: &serde_json::Value) -> serde_json::Value {
+fn handle_qr_connect(host: &WasmHost, body: &serde_json::Value, face: &PeerFace) -> serde_json::Value {
     let device_id = str_field(body, "deviceId").to_string();
     let device_name = str_field(body, "deviceName").to_string();
     let fingerprint = str_field(body, "fingerprint").to_string();
@@ -312,8 +367,22 @@ fn handle_qr_connect(host: &WasmHost, body: &serde_json::Value) -> serde_json::V
         None,
         Some(&address),
         uid_hash.as_deref(),
+        face.peer_node_id.as_deref(),
     ) {
         host.log_warn(&format!("auth http: pairing record failed: {e}"));
+        // 有已验证 nodeId 时记录写失败是致命的：撤销级联依赖这条记录，先落信任
+        // 再丢掉记录会让「撤销设备」找不到要撤销的节点（T07/T08）
+        if face.peer_node_id.is_some() {
+            return error_response(CODE_TOKEN_FAILURE, "Failed to record paired device");
+        }
+    }
+    // T07：配对成功落传输层信任——隧道准入的 `matched` 判据就是这张信任表；
+    // 不写它，第二次连隧道仍按「未匹配」拒绝（一次性票据窗口只在配对时有效）
+    if let Some(node_id) = face.peer_node_id.as_deref() {
+        if let Err(e) = host.peer_trust_node(node_id, Some(device_name.as_str())) {
+            host.log_error(&format!("auth http: peer trust write failed: {e}"));
+            return error_response(CODE_TOKEN_FAILURE, "Failed to establish trusted peer link");
+        }
     }
     let _ = connection_history_record(
         host,
@@ -442,7 +511,7 @@ fn handle_biometric_verify(host: &WasmHost, body: &serde_json::Value) -> serde_j
                 }
             };
             if let Err(e) =
-                trusted_device_upsert(host, &record_name, &fingerprint, None, None, None)
+                trusted_device_upsert(host, &record_name, &fingerprint, None, None, None, None)
             {
                 host.log_warn(&format!("auth http: pairing record failed: {e}"));
             }
@@ -566,13 +635,14 @@ fn trusted_device_upsert(
     public_key: Option<&str>,
     address: Option<&str>,
     uid_hash: Option<&str>,
+    peer_node_id: Option<&str>,
 ) -> Result<String, String> {
     // 2026-09-22 认证记录下沉：配对记录真源 = 认证中心私有库。
     // `public_key` 不再写入配对记录（§8 凭据红线：公钥留宿主 plugin_secrets，
     // 生物绑定经 host-auth `biometric-credential-bind` 原语单独处理）——此处
     // 直接忽略该参数（调用方仍传 None，保留签名避免大面积改动）。
     let _ = (host, public_key);
-    crate::auth_records::upsert(device_name, fingerprint, address, uid_hash)
+    crate::auth_records::upsert(device_name, fingerprint, address, uid_hash, peer_node_id)
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -643,4 +713,61 @@ fn token_response(token: &str, expires_in: u64) -> serde_json::Value {
         _ => {}
     }
     data
+}
+
+// ==================== Tests ====================
+
+#[cfg(test)]
+mod peer_face_tests {
+    use super::PeerFace;
+
+    /// 面上下文只认宿主注入：`caller:"peer"` + `peerNodeId` 才采信
+    #[test]
+    fn peer_face_reads_host_injected_context() {
+        let face = PeerFace::from_args(&serde_json::json!({
+            "caller": "peer",
+            "peerNodeId": "aa",
+            "pairing": true,
+        }));
+        assert_eq!(face.peer_node_id.as_deref(), Some("aa"));
+        assert!(face.pairing);
+    }
+
+    /// 非 peer caller：即使载荷里带同名（客户端自报）字段也一律丢弃
+    #[test]
+    fn peer_face_ignores_self_reported_fields_from_non_peer_callers() {
+        for caller in ["localhost", "device", "anonymous"] {
+            let face = PeerFace::from_args(&serde_json::json!({
+                "caller": caller,
+                "peerNodeId": "aa",
+                "pairing": true,
+            }));
+            assert_eq!(
+                face,
+                PeerFace::default(),
+                "caller={caller} 不得采信自报 node id"
+            );
+        }
+        // 缺 caller 同样按无面处理（老宿主 / 直接命令面调用）
+        let face = PeerFace::from_args(&serde_json::json!({ "peerNodeId": "aa" }));
+        assert_eq!(face, PeerFace::default());
+    }
+
+    /// 脏值按缺省：空串 / 非字符串 / 非 true 的 pairing 不产生半真上下文
+    #[test]
+    fn peer_face_normalizes_dirty_values() {
+        let face = PeerFace::from_args(&serde_json::json!({
+            "caller": "peer",
+            "peerNodeId": "   ",
+            "pairing": "yes",
+        }));
+        assert_eq!(face.peer_node_id, None);
+        assert!(!face.pairing);
+
+        let face = PeerFace::from_args(&serde_json::json!({
+            "caller": "peer",
+            "peerNodeId": 42,
+        }));
+        assert_eq!(face.peer_node_id, None);
+    }
 }

@@ -72,6 +72,10 @@ fn list_surfaces_peer_error_without_dropping_pairings() {
         fn peer_dial(&self, _e: &serde_json::Value) -> Result<String, HostError> {
             unimplemented_peer!()
         }
+        /// T11 `dial-peer-addrs`：本用例只测 list 的 peer 段错误透出
+        fn peer_dial_addrs(&self, _e: &serde_json::Value) -> Result<String, HostError> {
+            unimplemented_peer!()
+        }
         fn peer_close(&self, _h: &str) -> Result<bool, HostError> {
             unimplemented_peer!()
         }
@@ -85,6 +89,14 @@ fn list_surfaces_peer_error_without_dropping_pairings() {
             ))
         }
         fn peer_revoke_trusted(&self, _n: &str) -> Result<bool, HostError> {
+            unimplemented_peer!()
+        }
+        /// T07/T08 信任写入：本组用例只消费 list / revoke 两函数
+        fn peer_trust_node(
+            &self,
+            _node_id: &str,
+            _display_name: Option<&str>,
+        ) -> Result<bool, HostError> {
             unimplemented_peer!()
         }
         fn peer_send_files(&self, _s: &str, _p: &[serde_json::Value]) -> Result<String, HostError> {

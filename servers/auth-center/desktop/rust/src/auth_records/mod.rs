@@ -86,11 +86,19 @@ pub fn upsert(
     fingerprint: &str,
     address: Option<&str>,
     uid_hash: Option<&str>,
+    peer_node_id: Option<&str>,
 ) -> Result<String, String> {
     #[cfg(target_arch = "wasm32")]
     {
         use wasmnest_plugin_api::wasm_host::WasmHost;
-        let outcome = ops::upsert_record(&WasmHost, device_name, fingerprint, address, uid_hash)?;
+        let outcome = ops::upsert_record(
+            &WasmHost,
+            device_name,
+            fingerprint,
+            address,
+            uid_hash,
+            peer_node_id,
+        )?;
         let id = match outcome {
             ops::UpsertOutcome::Merged { id }
             | ops::UpsertOutcome::Upserted { id }
@@ -100,7 +108,7 @@ pub fn upsert(
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
-        let _ = (device_name, fingerprint, address, uid_hash);
+        let _ = (device_name, fingerprint, address, uid_hash, peer_node_id);
         Err("auth records upsert unavailable outside wasm runtime".to_string())
     }
 }
@@ -289,6 +297,7 @@ mod tests {
             device_fingerprint: "fp-old".into(),
             address: None,
             uid_hash: Some("uid-1".into()),
+            peer_node_id: None,
             paired_at: "2026-09-01T00:00:00Z".into(),
             last_seen: None,
             connect_count: 3,
@@ -298,7 +307,8 @@ mod tests {
 
         // uid_hash 命中 → 复用原 id
         let outcome =
-            ops::upsert_record(&store, "New Phone", "fp-new", None, Some("uid-1")).expect("merge");
+            ops::upsert_record(&store, "New Phone", "fp-new", None, Some("uid-1"), None)
+                .expect("merge");
         assert!(matches!(outcome, UpsertOutcome::Merged { id } if id == "legacy-id"));
         let all = store.pairings_all().expect("all");
         assert_eq!(all.len(), 1, "归并不新增行");
@@ -315,13 +325,15 @@ mod tests {
             device_fingerprint: "fp-1".into(),
             address: None,
             uid_hash: None,
+            peer_node_id: None,
             paired_at: "2026-09-01T00:00:00Z".into(),
             last_seen: None,
             connect_count: 2,
             is_active: true,
         }]);
-        let outcome = ops::upsert_record(&store, "Pixel 9", "fp-1", Some("192.168.1.5:9000"), None)
-            .expect("upsert");
+        let outcome =
+            ops::upsert_record(&store, "Pixel 9", "fp-1", Some("192.168.1.5:9000"), None, None)
+                .expect("upsert");
         assert!(matches!(outcome, UpsertOutcome::Upserted { id } if id == "p-1"));
         let all = store.pairings_all().expect("all");
         assert_eq!(all.len(), 1);
@@ -356,6 +368,7 @@ mod tests {
             device_fingerprint: "fp-1".into(),
             address: None,
             uid_hash: None,
+            peer_node_id: None,
             paired_at: "2026-09-19T00:00:00Z".into(),
             last_seen: None,
             connect_count: 1,

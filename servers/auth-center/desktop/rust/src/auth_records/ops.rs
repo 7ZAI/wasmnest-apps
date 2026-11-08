@@ -33,6 +33,7 @@ pub fn upsert_record(
     fingerprint: &str,
     address: Option<&str>,
     uid_hash: Option<&str>,
+    peer_node_id: Option<&str>,
 ) -> Result<UpsertOutcome, String> {
     let now = now_rfc3339();
     let all = store.pairings_all()?;
@@ -49,6 +50,11 @@ pub fn upsert_record(
             updated.device_fingerprint = fingerprint.to_string();
             updated.device_name = device_name.to_string();
             updated.address = address.map(str::to_string);
+            // T08：本次请求没带已验证 nodeId（LAN 直连配对）时保留库里的旧值，
+            // 不用 None 覆盖已验证事实（旧记录可能来自隧道配对）
+            if peer_node_id.is_some() {
+                updated.peer_node_id = peer_node_id.map(str::to_string);
+            }
             updated.last_seen = Some(now.clone());
             updated.connect_count = existing.connect_count.saturating_add(1);
             updated.is_active = true;
@@ -64,6 +70,9 @@ pub fn upsert_record(
         let mut updated = existing.clone();
         updated.device_name = device_name.to_string();
         updated.address = address.map(str::to_string);
+        if peer_node_id.is_some() {
+            updated.peer_node_id = peer_node_id.map(str::to_string);
+        }
         updated.last_seen = Some(now.clone());
         updated.connect_count = existing.connect_count.saturating_add(1);
         updated.is_active = true;
@@ -80,6 +89,7 @@ pub fn upsert_record(
         device_fingerprint: fingerprint.to_string(),
         address: address.map(str::to_string),
         uid_hash: uid_hash.map(str::to_string),
+        peer_node_id: peer_node_id.map(str::to_string),
         paired_at: now.clone(),
         last_seen: Some(now),
         connect_count: 1,
@@ -172,6 +182,7 @@ pub fn active_pairings_json(all: &[PairingRecord]) -> serde_json::Value {
                 "deviceName": r.device_name,
                 "deviceFingerprint": r.device_fingerprint,
                 "address": r.address,
+                "peerNodeId": r.peer_node_id,
                 "pairedAt": r.paired_at,
                 "lastSeen": r.last_seen,
                 "connectCount": r.connect_count,
@@ -223,6 +234,7 @@ mod tests {
             device_fingerprint: fp.to_string(),
             address: None,
             uid_hash: None,
+            peer_node_id: None,
             paired_at: "2026-09-19T00:00:00Z".to_string(),
             last_seen: None,
             connect_count: 1,
@@ -277,6 +289,50 @@ mod tests {
         let rows = store.history_by_device("p-1").expect("list");
         assert_eq!(rows.len(), 1);
         assert!(rows[0].disconnected_at.is_some(), "open 行被回填");
+    }
+
+    /// T08：配对记录写入已验证 nodeId；后续不带 nodeId 的写入（LAN 直连路径）
+    /// **不得清掉**已验证事实
+    #[test]
+    fn upsert_persists_peer_node_id_and_never_clears_it_on_plain_reupsert() {
+        let store = MockAuthRecords::new(vec![]);
+        let node_id = "a".repeat(64);
+        upsert_record(&store, "Phone", "fp-1", None, None, Some(&node_id))
+            .expect("insert with peer node id");
+        let all = store.pairings_all().expect("all");
+        assert_eq!(all[0].peer_node_id.as_deref(), Some(node_id.as_str()));
+
+        // LAN 直连重认证（无 nodeId）不得覆盖已验证值
+        upsert_record(&store, "Phone", "fp-1", Some("192.168.1.5:9000"), None, None)
+            .expect("re-upsert without peer node id");
+        let all = store.pairings_all().expect("all");
+        assert_eq!(
+            all[0].peer_node_id.as_deref(),
+            Some(node_id.as_str()),
+            "缺省 nodeId 必须保留旧值（不把已验证事实降级）"
+        );
+        assert_eq!(all[0].address.as_deref(), Some("192.168.1.5:9000"));
+    }
+
+    /// uid_hash 归并路径同样落 nodeId（同一次配对在新指纹下仍可撤销级联）
+    #[test]
+    fn merge_path_carries_peer_node_id() {
+        let mut existing = pairing("legacy-id", "Old", "fp-old", true);
+        existing.uid_hash = Some("uid-1".into());
+        let store = MockAuthRecords::new(vec![existing]);
+        let node_id = "d".repeat(64);
+        let outcome = upsert_record(
+            &store,
+            "New",
+            "fp-new",
+            None,
+            Some("uid-1"),
+            Some(&node_id),
+        )
+        .expect("merge");
+        assert!(matches!(outcome, UpsertOutcome::Merged { id } if id == "legacy-id"));
+        let all = store.pairings_all().expect("all");
+        assert_eq!(all[0].peer_node_id.as_deref(), Some(node_id.as_str()));
     }
 
     /// active_pairings_json：过滤软删 + 按 pairedAt 倒序 + 缺字段宽容

@@ -227,6 +227,7 @@ mod tests {
             device_name: "Pixel 9".to_string(),
             device_fingerprint: fp.to_string(),
             address: None,
+            peer_node_id: None,
             paired_at: "2026-09-19T00:00:00Z".to_string(),
             last_seen: None,
             connect_count: 0,

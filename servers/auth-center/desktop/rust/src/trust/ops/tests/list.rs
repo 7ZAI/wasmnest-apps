@@ -90,6 +90,14 @@ fn list_surfaces_peer_error_without_dropping_pairings() {
         fn peer_revoke_trusted(&self, _n: &str) -> Result<bool, HostError> {
             unimplemented_peer!()
         }
+        /// 信任写入：本组用例只测 list
+        fn peer_trust_node(
+            &self,
+            _node_id: &str,
+            _display_name: Option<&str>,
+        ) -> Result<bool, HostError> {
+            unimplemented_peer!()
+        }
         fn peer_send_files(&self, _s: &str, _p: &[serde_json::Value]) -> Result<String, HostError> {
             unimplemented_peer!()
         }
@@ -130,7 +138,10 @@ fn list_surfaces_peer_error_without_dropping_pairings() {
         fn peer_set_download_dir(&self, _p: &str) -> Result<(), HostError> {
             unimplemented_peer!()
         }
-        fn peer_start_node(&self) -> Result<bool, HostError> {
+        fn peer_start_node(
+            &self,
+            _config: &wasmnest_plugin_api::host::PeerNodeConfig,
+        ) -> Result<bool, HostError> {
             unimplemented_peer!()
         }
         fn peer_stop_node(&self) -> Result<bool, HostError> {

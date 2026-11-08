@@ -84,21 +84,30 @@ pub fn revoke(
     id: &str,
 ) -> Result<serde_json::Value, String> {
     // 三态预判：目标 id 是否在 pairing 记录里（含软删行——撤销检测依赖可见性）
-    let pairing_state = h
-        .records()?
-        .iter()
-        .find(|r| r.id == id)
-        .map(|r| r.is_active);
-    match pairing_state {
-        Some(true) => {
+    let target = h.records()?.into_iter().find(|r| r.id == id);
+    match target {
+        Some(record) if record.is_active => {
             // 活跃 pairing：软删（records 里的 is_active 是该记录的活跃位）
             let removed = h.revoke(id)?;
-            Ok(serde_json::json!({ "removed": removed, "kind": "pairing" }))
+            let peer_revoked = revoke_peer_trust(peer, record.peer_node_id.as_deref())?;
+            Ok(serde_json::json!({
+                "removed": removed,
+                "kind": "pairing",
+                "peerRevoked": peer_revoked,
+            }))
         }
-        Some(false) => {
-            // 已非活跃 pairing：幂等成功（不落 peer 路径——id 属于 pairing 域，
-            // 即使它撞上一个 peer node id 也不能撤销那个无关 peer）
-            Ok(serde_json::json!({ "removed": false, "kind": "pairing" }))
+        Some(record) => {
+            // 已非活跃 pairing：幂等成功（不落「按 id 找 peer」路径——id 属于
+            // pairing 域，即使它撞上一个 peer node id 也不能撤销那个无关 peer）。
+            // 但仍按**记录自己的** peer_node_id 重放级联：上次撤销若在级联前
+            // 中断（信任撤销失败 / 进程退出），重试必须能把隧道信任补齐——
+            // 否则「撤销设备」在 UI 上是幂等成功、隧道却仍匹配（安全洞）。
+            let peer_revoked = revoke_peer_trust(peer, record.peer_node_id.as_deref())?;
+            Ok(serde_json::json!({
+                "removed": false,
+                "kind": "pairing",
+                "peerRevoked": peer_revoked,
+            }))
         }
         None => {
             // 明确不是 pairing → peer 目标（host-peer revoke-trusted，node_id 寻址）
@@ -106,6 +115,19 @@ pub fn revoke(
             Ok(serde_json::json!({ "removed": removed, "kind": "peer" }))
         }
     }
+}
+
+/// T07 级联：撤销配对记录时同步撤销该设备的传输层信任（隧道准入 `matched`
+/// 判据 = 信任表命中，不撤就会「解了配对但隧道仍放行」）。
+///
+/// 只按记录自带的 `peer_node_id` 撤销（LAN 直连配对没有已验证 nodeId → 跳过）；
+/// 失败显性上抛：软删已落库，重试会走 `Some(inactive)` 分支重放本函数（幂等）。
+fn revoke_peer_trust(peer: &impl HostPeer, peer_node_id: Option<&str>) -> Result<bool, String> {
+    let Some(node_id) = peer_node_id.filter(|s| !s.is_empty()) else {
+        return Ok(false);
+    };
+    peer.peer_revoke_trusted(node_id)
+        .map_err(|e| format!("pairing revoked but peer trust revoke failed: {}", e.message))
 }
 
 // ==================== 命令面入口（cfg 分流，native 显性失败） ====================
@@ -156,11 +178,20 @@ mod tests {
     /// JSON 数组，与宿主 list_trusted_peers wire 形状一致）
     struct MockPeer {
         trusted: Mutex<Vec<serde_json::Value>>,
+        /// 模拟 `revoke-trusted` 失败（信任撤销错误必须显性上抛，不假成功）
+        fail_revoke: bool,
     }
     impl MockPeer {
         fn new(trusted: Vec<serde_json::Value>) -> Self {
             Self {
                 trusted: Mutex::new(trusted),
+                fail_revoke: false,
+            }
+        }
+        fn failing(trusted: Vec<serde_json::Value>) -> Self {
+            Self {
+                trusted: Mutex::new(trusted),
+                fail_revoke: true,
             }
         }
     }
@@ -194,10 +225,21 @@ mod tests {
             ))
         }
         fn peer_revoke_trusted(&self, node_id: &str) -> Result<bool, HostError> {
+            if self.fail_revoke {
+                return Err(HostError::custom(-1, "trust store unavailable"));
+            }
             let mut trusted = self.trusted.lock().unwrap();
             let before = trusted.len();
             trusted.retain(|t| t["nodeId"] != node_id);
             Ok(trusted.len() < before)
+        }
+        /// 信任写入：本组用例只走 list / revoke 两函数
+        fn peer_trust_node(
+            &self,
+            _node_id: &str,
+            _display_name: Option<&str>,
+        ) -> Result<bool, HostError> {
+            unimplemented_peer!()
         }
         fn peer_send_files(
             &self,
@@ -247,7 +289,10 @@ mod tests {
         fn peer_set_download_dir(&self, _path: &str) -> Result<(), HostError> {
             unimplemented_peer!()
         }
-        fn peer_start_node(&self) -> Result<bool, HostError> {
+        fn peer_start_node(
+            &self,
+            _config: &wasmnest_plugin_api::host::PeerNodeConfig,
+        ) -> Result<bool, HostError> {
             unimplemented_peer!()
         }
         fn peer_stop_node(&self) -> Result<bool, HostError> {

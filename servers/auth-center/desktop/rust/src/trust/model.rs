@@ -34,6 +34,9 @@ pub struct PairingRecord {
     pub device_fingerprint: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub address: Option<String>,
+    /// 对等网络节点 id（T08：仅经隧道配对时有值；撤销时据此级联撤销传输层信任）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub peer_node_id: Option<String>,
     /// 配对时刻（RFC3339，UTC）
     pub paired_at: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -77,6 +80,10 @@ pub struct TrustedDeviceDto {
     /// 连接次数（仅 pairing 来源）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub connect_count: Option<u32>,
+    /// 对等网络节点 id（仅 pairing 来源、仅经隧道配对时有值；T07/T08：
+    /// 撤销时按它级联 `revoke-trusted`，前端也可据此展示「隧道已匹配」）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub peer_node_id: Option<String>,
     /// 是否仍受信任（列表恒为 true——列表即信任集合；撤销即从列表消失）
     pub active: bool,
 }
@@ -98,6 +105,7 @@ impl TrustedDeviceDto {
             added_at: record.paired_at.clone(),
             last_seen: record.last_seen.clone(),
             connect_count: Some(record.connect_count),
+            peer_node_id: record.peer_node_id.clone(),
             active: true,
         }
     }
@@ -135,6 +143,8 @@ impl TrustedDeviceDto {
             added_at: added_at.to_string(),
             last_seen: None,
             connect_count: None,
+            // 仅 pairing 来源有该字段；peer 来源的寻址 id 本身就是 node id
+            peer_node_id: None,
             active: true,
         })
     }
@@ -190,6 +200,7 @@ mod tests {
             device_name: "Pixel 9".to_string(),
             device_fingerprint: "fp-abc".to_string(),
             address: Some("192.168.1.5:9000".to_string()),
+            peer_node_id: Some("a".repeat(64)),
             paired_at: "2026-09-19T00:00:00Z".to_string(),
             last_seen: Some("2026-09-19T01:00:00Z".to_string()),
             connect_count: 3,
@@ -203,6 +214,11 @@ mod tests {
         assert_eq!(dto.added_at, "2026-09-19T00:00:00Z");
         assert_eq!(dto.last_seen.as_deref(), Some("2026-09-19T01:00:00Z"));
         assert_eq!(dto.connect_count, Some(3));
+        assert_eq!(
+            dto.peer_node_id.as_deref(),
+            Some("a".repeat(64).as_str()),
+            "已验证 nodeId 必须进统一视图（撤销级联与「隧道已匹配」展示的判据）"
+        );
         assert!(dto.fingerprint_short.is_none(), "pairing 不展示短指纹");
     }
 
