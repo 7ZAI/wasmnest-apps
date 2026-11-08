@@ -169,3 +169,33 @@
 探测动作留给消费端：wan 期间重新 `dial` 会按引擎语义断开现役链路，需专门的探活
 方式）；Android `ConnectivityManager` 精确网络类型；`pairing` 态接线（等 T09 配对
 流程消费）；移动前台服务；T07/T08/T09 应用侧消费与真实宿主 E2E。
+
+## 实施记录（2026-11-08，第三轮：`status` 可拨地址投影 + SDK 绑定修复）
+
+**为什么**：T08 的 QR v2 载荷需要「怎么找到本机」——`peer.addrs` 必须是真能拨的
+multiaddr，而 `status.node` 当时只有 `started` / `nodeId`，应用无法凭空推出监听端口
+（更不能把 `/ip4/0.0.0.0` 外发）。同时首次把应用 crate 按 `features = ["wasm"]`
+链接到 T06 SDK 时暴露了一处 guest 绑定类型错配，本轮一并修掉。
+
+| 仓 | 落点 | 内容 |
+| --- | --- | --- |
+| 能力仓 | `tunnel/manager.rs` | `NodeSnapshot` 增 `addrs: Vec<String>`（camelCase 进 `status.node.addrs`）；新增纯函数 `dialable_addrs(listen, local_ipv4, relay_addr, peer_id)`：通配监听展开成本机 IPv4、环回/链路本地/组播/端口 0 丢弃、relay 预留时追加 `<relay>/p2p-circuit/p2p/<self>`，去重保序（LAN 在前）；`PeerCtxEngine::node_snapshot` 接 `RunningNode::listen_addresses()` / `relay_status()` |
+| 能力仓 | `tunnel/netinfo.rs` | `dialable_ipv4_from()`（纯函数，丢环回 / 链路本地 / IPv6 / 虚拟网卡）+ `dialable_ipv4_addrs()`（枚举失败回空，不猜地址） |
+| 平台仓 | 双端 SDK `rust/src/wasm_host.rs` | `host_tunnel::connect` 的 WIT 生成参数 `option<string>` → `Option<&str>`，SDK 却传 `Option<String>`（trait 签名）。改 `pairing_ticket.as_deref()`；桌面/移动同一处 |
+
+**验证**：能力仓 `wasmnest-server-peer-net` 默认形态 **240 passed**、
+`--features common-host,relay` **241 passed**（新增 4 条：通配展开 + relay 追加、
+端口 0 不猜、LAN IPv4 白名单、只有虚拟网卡回空）、`cargo fmt --check` 绿；
+T11 改动落入同一工作树后复跑 relay 形态 **252 passed / 0 failed**、`fmt --check`
+仍绿（增量来自 T11）；双端 SDK `cargo check --features wasm` 通过；
+应用侧 bedcode rust **1023 passed / 1 ignored**、前端全量单测、`build:frontend`、
+`wasm32-wasip3` 构建均绿（详见 [T07](T07-bedcode-desktop.md) §5 /
+[T08](T08-auth-center-qr-v2.md) §6）。
+
+**注意（并行变更）**：本轮验证期间平台仓工作树同时有 T11 在途改动
+（`dial-peer-addrs` 进 `HostPeer` trait + WIT + 双端 `wasm_host.rs`，pi 会话）。
+SDK 绑定修复与 T11 落在同一文件，合流时按「T11 的 `peer_dial_addrs` +
+本轮的 `.as_deref()`」两处一起保留；`witSha256` / compose 重拼 / 全量重建归 T11。
+
+**仍未完成**：§4.9 的 30s 探测循环 / Android `ConnectivityManager` / `pairing` 态
+接线 / 移动前台服务（见上一轮记录），以及 T09 移动拨号消费 + T10 真机 E2E。

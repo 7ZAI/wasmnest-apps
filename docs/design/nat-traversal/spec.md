@@ -112,6 +112,24 @@ native 双 feature 测试全绿、Android `cargo check` 绿且依赖树零 rustl
 
 **实施进度（2026-11-08 追加 7，T06 第二轮：§4.9 模式判定）**：T06 的**传输模式判定与事件出口**已落地，落点裁定在**能力仓**（`wasmnest-server-peer-net/src/tunnel/{mode,netinfo}.rs`），平台仓本轮零改动——判据输入只有接口子网 / 蜂窝 / 拨号成因，与宿主类型无关，写两份必然漂移；能力仓本身就是宿主侧库，符合「判定由宿主完成、不暴露给前端 JS」。内容：判据表全实现（蜂窝直切 / 跨子网 / 无 LAN 候选 / `EHOSTUNREACH` 切 wan；timeout / `ECONNREFUSED` / 服务未启动 / 认证失败保持 LAN 并显性 `lan-unreachable`；事实未知一律先试 LAN）、8 态状态机与每对端视图（wan-active 回切需连续两次 LAN 探测成功）、`connect` 改 LAN-first（LAN 打通不建 reservation，进 wan 才按引用计数建）、失败成因分类（`DialTimeout` / 认证 / 传输层 unreachable / 保守 `Other`）、`status.modes`、`set_manual_wan` / `on_network_changed` / `on_lan_probe_result`，以及 `peer:mode` / `peer:transport` / `tunnel:state` / `tunnel:error` 四事件进宿主事件面 + 插件总线（topic 映射已补）。实跑：peer-net 默认 **236 passed**、`common-host,relay` **237 passed**、`fmt --check` 绿、平台桌面 `check --lib` + `plugin::tunnel` 2 passed 绿、移动 `check --lib` 绿。**未做**：wan-active 周期 / 换网 LAN 探测**循环**（状态与防抖已就绪，探测动作待消费端）、Android `ConnectivityManager` 精确网络类型（当前按接口名归类，认不出按非蜂窝）、`pairing` 态接线、移动前台服务、T07/T08/T09 消费与真实宿主 E2E；**未跑**（磁盘 100%）格式化后复跑与移动 `plugin::tunnel_ports` 2。详见 [T06](tickets/T06-platform-assembly.md)。
 
+**实施进度（2026-11-08 追加 8，T06 第三轮 + T07/T08 宿外面消费）**：T06 补上
+`host-tunnel.status` 的**本机可拨地址投影**（`node.addrs`：通配监听展开成 LAN IPv4、
+不返回 `0.0.0.0`、relay circuit 排后），并修掉双端 SDK `connect` 的 `Option<String>`
+→ `Option<&str>` 绑定类型错配（此前应用 crate 一按 `wasm` feature 编译即 E0308）。
+应用侧 T07 接上 `tunnel:serve` → `configure`（应用 KV `network.relay` 推出 `allowWan`）
++ 幂等 `expose(kind=http)` + 设备页状态栏（8 态 + 常量「已加密」徽标）；T08 接上
+`peer` 生产（`status.nodeId` + `node.addrs` + TTL=120s 一次性票据），`peer` 不可得时
+回执带 `peerError`、载荷退回 v1 且界面显性提示「仅内网」。实跑：能力仓 peer-net
+默认 240 / relay 241 passed + `fmt` 绿；bedcode rust 1023 passed/1 ignored +
+`wasm32-wasip3` 构建绿；桌面前端全量单测 + `build:frontend` 绿；根 lint 0 errors /
+44 warnings（既有基线）。**未做**：T07 配对成功写 peer 信任 / 撤销级联、T08
+配对记录 `peerNodeId`、T09 移动 `tunnel.connect` 拨号消费、T10 真机 E2E；真宿主
+目验受 `host-runtime.lock.json` 的 `artifacts` 为空阻塞。详见
+[T06](tickets/T06-platform-assembly.md) / [T07](tickets/T07-bedcode-desktop.md) /
+[T08](tickets/T08-auth-center-qr-v2.md) 实施记录。T11 由 pi agent 并行在途（双端
+`peer.wit` + `HostPeer.peer_dial_addrs`），本轮已同步 bedcode 两处 native 测试替身；
+compose 重拼 / `witSha256` / 全量重建归 T11。
+
 **实施进度（2026-11-08 追加 10，T09 bedcode 移动）**：T09 的**拨号方应用切片**已落地（只改
 `apps/bedcode/mobile/**`，与同 worktree 的 T06/T07/T08 在途改动零重叠）——新增 `rust/src/tunnel.rs`
 （`TunnelHost` 端口 + 对端记录 `nodeId/relayAddrs/deviceName/逻辑端口/最近模式与原因`，**不存
@@ -186,3 +204,17 @@ Android dev / 真机目验与双端 E2E（`host-runtime.lock.json` 的 `artifact
   - **当前实态（2026-11-08 核查）**：归档单包线的 T01–T05 已提交（`c19938a` / `de87213` / `d8b1532` / `974c813`），native 测试与 `fmt` 全绿。v2 迁移线**未收口且未提交**——缺 `http_filter.rs` 的面标记注入 service 级锁（T04 锁之一），`wasmnest-server-http` / `wasmnest-server-websocket` 的 `cargo fmt --check` 未过。v2 补锁 + fmt + 实跑 + 提交之前，不得当作交付线，也不得据此宣布「已对齐多包基线」。
 - 方案本身**待复审**：本 spec 与 tickets 在复审通过前不实施；复审若推翻 §0.4 或面标记裁定，回改 T03/T04/T05/T07。
 - tickets 提交 GitHub 后，本文 §5 表格与 ticket 头部的本地编号替换为 issue 编号；依赖关系用 GitHub native issue dependencies 维护（不可用时退回 `Blocked by:` 行）。
+**实施进度（2026-11-08 追加 11，T07/T08 收尾：配对信任写入与撤销级联）**：用户裁定选 A（先补契约缺口）。能力仓新增
+`host-peer.trust-node`（唯一信任写入原语，幂等、落盘失败显性上抛；`peer` 权限不增词表）；平台双端 SDK 补 trait 方法
+`peer_trust_node` 并 `compose-wit --all` 重拼；auth-center 的 `_http_endpoint` 只采信宿主注入的 `caller=peer` 上下文
+（`PeerFace`），配对记录新增 `peer_node_id` 列（建表 + 老库补列），`verify`/`qr-connect` 成功后写信任（记录或信任失败均
+显性中止，不发半个 token），撤销时按记录 nodeId 级联 `revoke-trusted`（已软删记录重复撤销会重放级联，避免「UI 幂等成功、
+隧道仍匹配」）。实跑：peer-net 254 / 255（默认 / `common-host,relay`）、auth-center 138 passed + wasm32-wasip3 release 构建绿、
+双端 SDK `check --features wasm` 绿、`compose-wit --all --check` 绿、bedcode 1023 passed/1 ignored、file-transfer rust 98 +
+desktop 10 files/59 passed。**未做项更新（2026-11-08 追加 12）**：旧客户端 `encryption-unsupported` 宿主侧判定**已落地**
+（能力仓 `link-crypto` 新增拒绝码头 `X-WasmNest-Crypto-Error` + 两个码，`server-core` /
+`http_filter` / WS 升级门禁下码，平台移动宿主把码透回应用；判据与实跑见
+[T07](tickets/T07-bedcode-desktop.md) §8），从「未做」移除；仍剩：真宿主 E2E（`artifacts`
+仍为空）、移动端 `encryption-unsupported` 的逐字文案区分（归 T09/T10）。
+文档勾选未提交：同批文档文件另有并发会话（T12）与 T06 第三轮在途记录。详见 [T07](tickets/T07-bedcode-desktop.md) /
+[T08](tickets/T08-auth-center-qr-v2.md) §7。
