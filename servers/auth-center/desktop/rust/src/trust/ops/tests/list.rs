@@ -71,6 +71,10 @@ fn list_surfaces_peer_error_without_dropping_pairings() {
         fn peer_dial(&self, _e: &serde_json::Value) -> Result<String, HostError> {
             unimplemented_peer!()
         }
+        /// T11 `dial-peer-addrs`：PeerDown 不拨号
+        fn peer_dial_addrs(&self, _e: &serde_json::Value) -> Result<String, HostError> {
+            unimplemented_peer!()
+        }
         fn peer_close(&self, _h: &str) -> Result<bool, HostError> {
             unimplemented_peer!()
         }

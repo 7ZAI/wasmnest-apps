@@ -174,6 +174,10 @@ mod tests {
         fn peer_dial(&self, _endpoint: &serde_json::Value) -> Result<String, HostError> {
             unimplemented_peer!()
         }
+        /// T11 `dial-peer-addrs`：本测试只消费 list / revoke 两函数，不拨号
+        fn peer_dial_addrs(&self, _endpoint: &serde_json::Value) -> Result<String, HostError> {
+            unimplemented_peer!()
+        }
         fn peer_close(&self, _handle: &str) -> Result<bool, HostError> {
             unimplemented_peer!()
         }

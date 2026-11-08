@@ -414,6 +414,10 @@ mod tests {
         fn peer_dial(&self, _endpoint: &serde_json::Value) -> Result<String, HostError> {
             unreachable!("ConsentGate 不发起拨号")
         }
+        /// T11 `dial-peer-addrs`：ConsentGate 不发起拨号
+        fn peer_dial_addrs(&self, _endpoint: &serde_json::Value) -> Result<String, HostError> {
+            unreachable!("ConsentGate 不发起拨号")
+        }
         fn peer_close(&self, _handle: &str) -> Result<bool, HostError> {
             unreachable!("ConsentGate 不关闭会话")
         }
