@@ -1471,10 +1471,13 @@ pub(crate) fn set_settings(h: &WasmHost, args: &serde_json::Value) -> Result<ser
     }
     // T12：中继开关与提示阈值。非布尔/非数字显性报错（静默忽略 = 设置页显示与
     // 实际策略分裂）；`allowWan=false` 只影响拨号候选，不碰加密（不变量 12）
+    let mut disable_wan = false;
     if let Some(v) = args.get("allowWan") {
-        s.allow_wan = v
+        let next = v
             .as_bool()
             .ok_or_else(|| anyhow::anyhow!("allowWan must be a boolean"))?;
+        disable_wan = s.allow_wan && !next;
+        s.allow_wan = next;
     }
     if let Some(v) = args.get("relayMaxBytesPerTask") {
         s.relay_max_bytes_per_task = v
@@ -1482,6 +1485,22 @@ pub(crate) fn set_settings(h: &WasmHost, args: &serde_json::Value) -> Result<ser
             .ok_or_else(|| anyhow::anyhow!("relayMaxBytesPerTask must be a non-negative integer"))?;
     }
     settings_store::save_and_push(h, &s)?;
+    if disable_wan {
+        // M7：宿主会话句柄记忆的候选表在铸句柄时已含 relay，仅改设置不会让数据面
+        // 重拨生效。关闭这些 WAN 会话；下次数据面操作按新设置重拨（LAN-only）。
+        let handles = device_bridge::drop_wan_candidates();
+        for handle in &handles {
+            if let Err(e) = h.peer_close(handle) {
+                h.log_warn(&format!("set-settings: close WAN session {handle} failed: {e}"));
+            }
+        }
+        if !handles.is_empty() {
+            h.log_info(&format!(
+                "set-settings: allowWan=false closed {} WAN session(s) for LAN-only redial",
+                handles.len()
+            ));
+        }
+    }
     h.log_info("set-settings: policy/download-dir applied (plugin-sourced)");
     Ok(serde_json::json!({ "ok": true }))
 }

@@ -295,7 +295,10 @@ export function usePeerDevices(context: PluginContext) {
   /** 入站连接的对端寻址登记（fire-and-forget；缓存缺失时跳过，对端不可达由命令错误呈现） */
   function rememberEndpoint(nodeId: string): void {
     const device = devices.value.find((d) => d.nodeId === nodeId)
-    if (!device?.addr || !device.port) return
+    // 手动远程设备（pairing 连接串）只有 `addrs`：不能因为 addr/port 为空就跳过，
+    // 否则入站后不点「连接」直接发文件 / 浏览会走 ensure_target → 无 endpoint memo。
+    if (!device) return
+    if (!device.addr && !device.port && !device.addrs?.length) return
     context.commands
       .execute('file-transfer.remember-peer-endpoint', {
         endpoint: {

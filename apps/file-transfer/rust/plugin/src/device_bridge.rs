@@ -45,6 +45,11 @@ pub(crate) fn forget_session(node_id: &str) {
     with_table(|t| t.forget_session(node_id));
 }
 
+/// `allowWan=false` 时降级候选表并返回需关闭的 WAN 会话句柄（M7）
+pub(crate) fn drop_wan_candidates() -> Vec<String> {
+    with_table(|t| t.drop_wan_candidates())
+}
+
 /// 仅登记 endpoint memo（不铸 session 句柄）
 ///
 /// 入站（被连侧）连接的对端寻址来源：被连侧没有拨号句柄，数据面命令
