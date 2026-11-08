@@ -132,6 +132,8 @@ native 双 feature 测试全绿、Android `cargo check` 绿且依赖树零 rustl
 | [T16](tickets/T16-p3-direct-upgrade.md) | P3 | wasmnest-lib | 直连升级评估（QUIC/DCUtR/TCP 打洞/UPnP） | T15 |
 | [T17](tickets/T17-lan-exposure-authnone.md) | 独立 | wasmnest-apps | 存量 LAN 暴露：三条 auth:none 路由收紧评估 | — |
 
+**实施进度（2026-11-08 追加 9，T11：多地址拨号）**：T11 已收口（能力仓 `8e21f9a` / 平台仓 `816e828b` / 应用仓测试替身 `f0c0ff2a`）——`dial-peer-addrs` 契约（方案 B，旧 `dial-peer` 不动）、逐候选 3s 短超时按调用方顺序拨号、会话句柄记忆全部候选、数据面 send/browse/pull 与 resume 去发现缓存重拨、`transport` 进拨号结果与 `peer-connected` 事件；peer-net 提交面 247/248/248、双端宿主 `cargo check` 与 file-transfer 双端 wasm 构建绿（移动 `--frontend-only` 为 SDK `dist` 环境缺口）。详见 [T11](tickets/T11-dial-peer-addrs.md)。
+
 ## 6. 待裁定项（设计 §9.2）与默认执行口径
 
 | # | 事项 | 默认执行口径（未裁定前） | 影响 ticket |
