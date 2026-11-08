@@ -1223,10 +1223,13 @@ async function onQrConnect(): Promise<void> {
     const target: HostDeviceTarget = proxy
       ? { address: proxy.address, port: proxy.port, name: 'Desktop' }
       : device
-    pendingDevice.value = target
+    // `pendingDevice` 保留**原设备**（连接历史 / 配对展示用原 host:port）；
+    // 只有传输层拨号改走回环代理，不能把 127.0.0.1 写进历史（重连会失效）。
+    pendingDevice.value = device
 
     // Step 1: 建立连接（扫码自带一次性 token：跳过「旧凭据静默换新」）
-    await ctrl.connectDevice(device, { silentAuth: false })
+    // QR v2 必须连隧道代理地址；`proxy === null`（旧载荷）时 target === device。
+    await ctrl.connectDevice(target, { silentAuth: false })
 
     // Step 2: 等待连接建立完成（旧实现 200ms × 最多 10s 轮询，解决竞态）
     await waitForConnected(10000)

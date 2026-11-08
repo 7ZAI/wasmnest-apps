@@ -386,3 +386,106 @@ describe('C-C11 首选认证方式（设置项驱动的弹窗选择）', () => {
     wrapper.unmount()
   })
 })
+
+describe('C-C12 扫码 / 连接串走隧道本地代理（T09 阻断项回归锁）', () => {
+  const PEER_NODE_ID = 'a'.repeat(64)
+  const peer = {
+    nodeId: PEER_NODE_ID,
+    addrs: ['/ip4/10.0.0.9/tcp/47613/p2p/12D3KooWPbYEEfpRvnRKk2YLu43F28fLZgU22wic2M5m6Spkv9ZA'],
+    ticket: 'one-shot-ticket',
+  }
+
+  function stubTunnelCommands() {
+    ctx.commands.execute = vi.fn(async (id: string) => {
+      if (id === 'bedcode.tunnel-connect') {
+        return { handle: 'tunnel-1', address: '127.0.0.1', port: 45001 }
+      }
+      if (id === 'bedcode.authenticate-with-qr') return { accepted: true }
+      return {}
+    })
+  }
+
+  async function connectFromScan(payload: Record<string, unknown>) {
+    const wrapper = mountSection(DevicesSection)
+    const scanBtn = wrapper.findAll('button').find((b) => b.text().includes('hub.qrConnect'))
+    await scanBtn!.trigger('click')
+    await nextTick()
+    const scanPanel = wrapper.findComponent({ name: 'ScanPanel' })
+    scanPanel.vm.$emit('scan-result', payload)
+    await nextTick()
+    const resultCard = wrapper
+      .findAll('button')
+      .find((b) => b.text().includes(`${payload.host}:${payload.port}`))
+    expect(resultCard, '未找到扫描结果卡').toBeTruthy()
+    await resultCard!.trigger('click')
+    await settle()
+    return wrapper
+  }
+
+  it('should_connectThroughTunnelProxy_when_qrV2HasPeer', async () => {
+    const connectDevice = vi.fn(async () => {
+      api.isConnected.value = true
+      api.connectionStatus.value = 'connected'
+    })
+    api.connectDevice = connectDevice
+    const addHistory = vi.fn(async () => {})
+    api.addToConnectionHistory = addHistory
+    ctx.commands.execute = vi.fn(async (id: string) => {
+      if (id === 'bedcode.tunnel-connect') {
+        return { handle: 'tunnel-1', address: '127.0.0.1', port: 45001 }
+      }
+      if (id === 'bedcode.authenticate-with-qr') {
+        // 认证成功后宿主会推 ws_paired：isPaired 翻真触发历史记录 watch
+        api.isPaired.value = true
+        return { accepted: true }
+      }
+      return {}
+    })
+
+    const wrapper = await connectFromScan({
+      host: '10.0.0.9',
+      port: 8765,
+      token: 'one-shot',
+      peer,
+    })
+    await settle()
+
+    expect(ctx.commands.execute).toHaveBeenCalledWith(
+      'bedcode.tunnel-connect',
+      expect.objectContaining({ nodeId: PEER_NODE_ID, port: 8765, kind: 'http' }),
+    )
+    // 阻断项回归：必须连 127.0.0.1:<代理端口>，不能再直连原 host:port
+    expect(connectDevice).toHaveBeenCalledWith({
+      address: '127.0.0.1',
+      port: 45001,
+      name: 'Desktop',
+    })
+    expect(connectDevice).not.toHaveBeenCalledWith({
+      address: '10.0.0.9',
+      port: 8765,
+      name: 'Desktop',
+    })
+    expect(ctx.commands.execute).toHaveBeenCalledWith('bedcode.authenticate-with-qr', {
+      token: 'one-shot',
+    })
+    // 连接历史必须记原设备（重连要用它再建隧道），不能把 127.0.0.1 代理写进去
+    expect(addHistory).toHaveBeenCalledWith('10.0.0.9:8765', 'Desktop')
+    expect(addHistory).not.toHaveBeenCalledWith('127.0.0.1:45001', expect.anything())
+    wrapper.unmount()
+  })
+
+  it('should_keepDirectLanPath_when_qrV1HasNoPeer', async () => {
+    const connectDevice = vi.fn(async () => {
+      api.isConnected.value = true
+      api.connectionStatus.value = 'connected'
+    })
+    api.connectDevice = connectDevice
+    stubTunnelCommands()
+
+    const wrapper = await connectFromScan({ host: '10.0.0.9', port: 8765, token: 'one-shot' })
+
+    expect(ctx.commands.execute).not.toHaveBeenCalledWith('bedcode.tunnel-connect', expect.anything())
+    expect(connectDevice).toHaveBeenCalledWith({ address: '10.0.0.9', port: 8765, name: 'Desktop' })
+    wrapper.unmount()
+  })
+})
