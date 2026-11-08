@@ -211,3 +211,66 @@ describe('快照恢复拨号防线（T12 例外）', () => {
     expect(h.calls.filter((c) => c.id === 'file-transfer.dial-peer')).toHaveLength(1)
   })
 })
+
+
+describe('配对设备重启恢复与连接盖章（T12）', () => {
+  it('配对条目即使 lastSeen 过期也恢复；发现条目仍按 TTL 丢弃', async () => {
+    const h = makeContext()
+    const stale = Date.now() - 9 * 24 * 60 * 60 * 1000
+    h.onCommand('file-transfer.get-device-snapshot', () => ({
+      devices: [
+        {
+          nodeId: NODE_REMOTE,
+          deviceName: '远程 NAS',
+          addr: '',
+          port: 0,
+          addrs: [RELAY],
+          paired: true,
+          lastSeenMs: stale,
+        },
+        {
+          nodeId: NODE_MDNS,
+          deviceName: '旧手机',
+          addr: '192.168.1.9',
+          port: 47821,
+          lastSeenMs: stale,
+        },
+      ],
+    }))
+    h.onCommand('file-transfer.save-device-snapshot', () => ({ ok: true }))
+    h.onCommand('file-transfer.refresh-devices', () => ({ ok: true }))
+    const peers = usePeerDevices(h.context)
+    peers.start()
+    await h.flush()
+
+    expect(peers.devices.value.map((d) => d.nodeId)).toEqual([NODE_REMOTE])
+    expect(peers.devices.value[0]!.paired).toBe(true)
+  })
+
+  it('连接事件刷新最近可见时刻与宿主设备名（远程设备无 mDNS 心跳）', async () => {
+    vi.useFakeTimers()
+    try {
+      const { peers, emit, calls } = setup()
+      peers.start()
+      await vi.advanceTimersByTimeAsync(0)
+      peers.addRemotePeer({ nodeId: NODE_REMOTE, addrs: [LAN], ticket: null, deviceName: '' })
+      const before = peers.devices.value[0]!.lastSeenMs
+      await vi.advanceTimersByTimeAsync(10)
+      emit('plugin:file-transfer:connection-changed', {
+        nodeId: NODE_REMOTE,
+        connected: true,
+        deviceName: '书房 NAS',
+        transport: 'lan-direct',
+      })
+      const device = peers.devices.value[0]!
+      expect(device.deviceName).toBe('书房 NAS')
+      expect(device.lastSeenMs).toBeGreaterThan(before ?? 0)
+      await vi.advanceTimersByTimeAsync(2100)
+      const saved = calls.filter((c) => c.id === 'file-transfer.save-device-snapshot').pop()!
+      expect(saved.args.devices[0].deviceName).toBe('书房 NAS')
+      expect(saved.args.devices[0].lastSeenMs).toBe(device.lastSeenMs)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})

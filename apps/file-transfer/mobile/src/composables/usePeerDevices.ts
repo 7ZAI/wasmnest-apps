@@ -152,6 +152,23 @@ function createPeerDevices(context: PluginContext) {
     dialErrors.value = next
   }
 
+  /**
+   * 连接态盖章：刷新最近可见时刻（远程设备无 mDNS 心跳，只靠连接事件续期），
+   * `deviceName` 非空时更新展示名。
+   */
+  function touchDevice(nodeId: string, deviceName: string): void {
+    const idx = devices.value.findIndex((d) => d.nodeId === nodeId)
+    if (idx < 0) return
+    const next = [...devices.value]
+    next[idx] = {
+      ...next[idx]!,
+      lastSeenMs: Date.now(),
+      ...(deviceName ? { deviceName } : {}),
+    }
+    devices.value = next
+    scheduleSnapshotSave()
+  }
+
   /** 登记已连接并清除历史拨号错误 */
   function markConnected(nodeId: string): void {
     connectedIds.value = withId(connectedIds.value, nodeId)
@@ -256,6 +273,9 @@ function createPeerDevices(context: PluginContext) {
       markConnected(payload.nodeId)
       const transport = normalizeTransport(payload.transport)
       if (transport) transports.value = { ...transports.value, [payload.nodeId]: transport }
+      // 宿主带出的设备名 / 连接时刻回写缓存：远程设备没有 mDNS 心跳，
+      // 不在这里盖章就永远停在配对那一刻（重启后按 TTL 恢复窗口被丢弃）
+      touchDevice(payload.nodeId, typeof payload.deviceName === 'string' ? payload.deviceName : '')
       ensureActiveFallback()
       // 入站（被连侧）连接没有拨号 memo：数据面命令（浏览/拉取/发送）经它
       // 重拨，endpoint 取自自建缓存（mdns-found 维护）
@@ -457,7 +477,10 @@ function createPeerDevices(context: PluginContext) {
               .filter((d) => typeof d?.nodeId === 'string' && d.nodeId !== '')
               // 只恢复「近期可见」条目：陈旧条目（旧网络残留地址 / 旧身份）
               // 不得成为首屏拨号候选（见 isWithinRestoreWindow 注释）
-              .filter((d) => isWithinRestoreWindow(d.lastSeenMs, Date.now()))
+              // paired 无条件恢复：远程设备没有 mDNS 心跳，lastSeenMs 停在配对时刻
+              .filter(
+                (d) => d.paired === true || isWithinRestoreWindow(d.lastSeenMs, Date.now()),
+              )
               .map((d) => {
                 const capHex = d.capabilitiesHex ?? ''
                 return {

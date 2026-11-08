@@ -16,14 +16,14 @@ file-transfer 跨 NAT：远程设备连接串/QR 导入、多地址拨号（内�
 
 ## 验收条件
 
-- [ ] 远程设备连接串 `wasmnest://pair/<base64url(json)>` / 纯 JSON：桌面「添加远程设备」、移动「扫码或粘贴」共用解析；只放 nodeId + addrs + 一次性票据，不放长期密钥。
-- [ ] 拨号策略：mDNS/上次 LAN 地址先试（2-3s 短超时）；只有 §4.9 明确判据才 `dial-peer-addrs` 走 relay；同网段不可达显示「设备离线/服务未启动」，不自动烧中继。
-- [ ] `PeerLink.transport` 记录 lan/wan；状态栏 `内网直连`/`外网中继`/`内网不可达`/`已暂停`。
-- [ ] **加密固定 `true`**：`settings.rs:35,51` 默认改 `true` 并移除关闭项；UI 显示「始终加密」而非可切换项；WAN/LAN 批次都强制；旧对端不支持显性失败（不变量 12）。
-- [ ] `allowWan`（默认开，可关；关闭 ≠ 关闭加密）与 `relayMaxBytesPerTask` 设置项；大文件经 relay 给一次「可能较慢」提示，可取消（不改变模式判定）。
-- [ ] relay 配额断开 circuit → 断点续传重新拨号建新 circuit 继续（预期行为，非错误）。
-- [ ] 已配对设备按 nodeId 持久化 `{deviceName, relayAddrs[], lastSeen}`；地址变化由应用更新。
-- [ ] 双端 `test:run`（移动无 vitest 则按现状说明）+ `cargo test` + 双端构建绿；真实环境目验。
+- [x] 远程设备连接串 `wasmnest://pair/<base64url(json)>` / 纯 JSON：桌面「添加远程设备」、移动「扫码或粘贴」共用解析；只放 nodeId + addrs + 一次性票据，不放长期密钥。（桌面粘贴；移动粘贴 + 相机扫码，同一 `parseRemotePeerLink`；ticket 只回传不落盘）
+- [x] 拨号策略：mDNS/上次 LAN 地址先试（2-3s 短超时）；只有 §4.9 明确判据才 `dial-peer-addrs` 走 relay；同网段不可达显示「设备离线/服务未启动」，不自动烧中继。（应用侧判据：LAN 优先；relay 仅在显式「尝试外网」/无 LAN 候选/上次已走 relay 时纳入；宿主逐候选 3s 超时）
+- [x] `PeerLink.transport` 记录 lan/wan；状态栏 `内网直连`/`外网中继`/`内网不可达`/`已暂停`。（宿主 `peer:connection.transport` → 行内徽标；拨号失败行内「无法连接」；暂停态沿用既有任务卡状态）
+- [x] **加密固定 `true`**：`settings.rs:35,51` 默认改 `true` 并移除关闭项；UI 显示「始终加密」而非可切换项；WAN/LAN 批次都强制；旧对端不支持显性失败（不变量 12）。（前置切片 `670c2cf0`）
+- [x] `allowWan`（默认开，可关；关闭 ≠ 关闭加密）与 `relayMaxBytesPerTask` 设置项；大文件经 relay 给一次「可能较慢」提示，可取消（不改变模式判定）。（阈值按 MB 输入、字节落库；0 = 每次经中继提示；桌面 `ConfirmDialog` / 移动 `showConfirm`）
+- [ ] relay 配额断开 circuit → 断点续传重新拨号建新 circuit 继续（预期行为，非错误）。（应用侧重拨记忆 relay 候选、暂停/恢复走宿主原语；**未实证**：需 relay 服务端与真实 circuit 配额断开）
+- [x] 已配对设备按 nodeId 持久化 `{deviceName, relayAddrs[], lastSeen}`；地址变化由应用更新。（快照 `addrs` + `paired` + `lastSeenMs`；连接事件回写宿主设备名与 lastSeen；重复配对合并去重地址；`paired` 不受 TTL 清扫与重启恢复窗口影响）
+- [ ] 双端 `test:run`（移动无 vitest 则按现状说明）+ `cargo test` + 双端构建绿；真实环境目验。（core 86 / plugin 98 / 桌面 61 绿；wasm 目标 check 绿；桌面 build 绿；移动 frontend-only 受 SDK JS `dist` 缺失阻塞；真实环境未目验）
 
 ## 相关契约与锁
 
@@ -124,3 +124,21 @@ file-transfer 跨 NAT：远程设备连接串/QR 导入、多地址拨号（内�
 - **中继接收端预留**：应用侧只能把 relay circuit 加入拨号候选；对端 peer 节点建立 relay 预留仍需宿主 `peer-node-config` relay 面（T02/T06 未落地）。跨 NAT **双向接收**因此仍受宿主能力限制，应用侧按「拨号失败可见」呈现。
 - 真实跨网验收（真机蜂窝 ↔ 家庭宽带）与 1GB 中继传输归 T15。
 - `allowWan` / `relayMaxBytesPerTask` 的**产品语义**按默认口径实现：`allowWan` 只控制拨号候选（与加密正交）；`relayMaxBytesPerTask` 是「提示阈值」而非硬限额（0 = 每次经中继发送都提示），真正的中继字节/时长配额在 relay 服务端（T13）。
+
+
+### 5. 追加切片：重启恢复与连接盖章（2026-11-08）
+
+**问题（自查）**：`paired` 条目虽然免于 TTL 清扫，但**重启恢复**仍走
+`isWithinRestoreWindow(lastSeenMs)` 过滤；远程设备没有 mDNS 心跳，`lastSeenMs`
+停在配对时刻 ⇒ 超过 120s 后重启即消失，与「手动添加的设备跨重启保留」矛盾。
+同时连接事件里的宿主 `deviceName` 未回写缓存，快照展示名可能长期为空。
+
+**改动（双端同构）**：
+
+- 恢复过滤：`d.paired === true || isWithinRestoreWindow(...)`（paired 无条件恢复）。
+- 新增 `touchDevice(nodeId, deviceName)`：`peer:connection.connected=true` 时刷新
+  `lastSeenMs` 并采用宿主设备名（非空才覆盖），随后 debounce 落盘。
+
+**验证**：桌面 `remoteDevices.test.ts` 新增 2 条（过期 paired 恢复 / 发现条目仍丢弃；
+连接事件盖章 + 落盘名字），桌面全量 **61 passed**；移动 `vue-tsc --noEmit`
+（临时 tsconfig paths 指向 SDK src）干净。

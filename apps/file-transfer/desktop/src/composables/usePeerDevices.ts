@@ -152,6 +152,24 @@ export function usePeerDevices(context: PluginContext) {
     dialErrors.value = next
   }
 
+  /**
+   * 连接态盖章：刷新最近可见时刻（远程设备无 mDNS 心跳，只靠连接事件续期），
+   * `deviceName` 非空时更新展示名（宿主已验证的投影，不覆盖本地更优名？——
+   * 直接采用宿主名：它来自对端自报 / 缓存，比空串有用）。
+   */
+  function touchDevice(nodeId: string, deviceName: string): void {
+    const idx = devices.value.findIndex((d) => d.nodeId === nodeId)
+    if (idx < 0) return
+    const next = [...devices.value]
+    next[idx] = {
+      ...next[idx]!,
+      lastSeenMs: Date.now(),
+      ...(deviceName ? { deviceName } : {}),
+    }
+    devices.value = next
+    scheduleSnapshotSave()
+  }
+
   /** 登记已连接并清除历史拨号错误 */
   function markConnected(nodeId: string): void {
     connectedIds.value = withId(connectedIds.value, nodeId)
@@ -256,6 +274,9 @@ export function usePeerDevices(context: PluginContext) {
       markConnected(payload.nodeId)
       const transport = normalizeTransport(payload.transport)
       if (transport) transports.value = { ...transports.value, [payload.nodeId]: transport }
+      // 宿主带出的设备名 / 连接时刻回写缓存：远程设备没有 mDNS 心跳，
+      // 不在这里盖章就永远停在配对那一刻（重启后按 TTL 恢复窗口被丢弃）
+      touchDevice(payload.nodeId, typeof payload.deviceName === 'string' ? payload.deviceName : '')
       ensureActiveFallback()
       // 入站（被连侧）连接没有拨号 memo：数据面命令（浏览/拉取/发送）经它
       // 重拨，endpoint 取自自建缓存（mdns-found 维护）
@@ -456,8 +477,12 @@ export function usePeerDevices(context: PluginContext) {
           ? (snap.devices as SnapshotEntry[])
               .filter((d) => typeof d?.nodeId === 'string' && d.nodeId !== '')
               // 只恢复「近期可见」条目：陈旧条目（旧网络残留地址 / 旧身份）
-              // 不得成为首屏拨号候选（见 isWithinRestoreWindow 注释）
-              .filter((d) => isWithinRestoreWindow(d.lastSeenMs, Date.now()))
+              // 不得成为首屏拨号候选（见 isWithinRestoreWindow 注释）。
+              // 例外：手动添加的远程设备没有 mDNS 心跳，`lastSeenMs` 停在配对时刻，
+              // 按 TTL 过滤会让它重启一次就消失 ⇒ paired 无条件恢复。
+              .filter(
+                (d) => d.paired === true || isWithinRestoreWindow(d.lastSeenMs, Date.now()),
+              )
               .map((d) => ({
                 nodeId: d.nodeId,
                 deviceName: d.deviceName ?? '',
