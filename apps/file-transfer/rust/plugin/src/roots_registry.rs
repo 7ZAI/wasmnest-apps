@@ -142,6 +142,13 @@ mod tests {
         fn peer_revoke_trusted(&self, _node_id: &str) -> Result<bool, HostError> {
             unimplemented!()
         }
+        fn peer_trust_node(
+            &self,
+            _node_id: &str,
+            _display_name: Option<&str>,
+        ) -> Result<bool, HostError> {
+            unimplemented!()
+        }
         fn peer_send_files(&self, _session: &str, _paths: &[serde_json::Value]) -> Result<String, HostError> {
             unimplemented!()
         }

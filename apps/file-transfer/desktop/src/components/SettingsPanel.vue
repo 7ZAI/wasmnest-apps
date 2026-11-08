@@ -29,8 +29,21 @@ const emit = defineEmits<{
   (e: 'setReceivingPolicy', policy: 'ask' | 'accept' | 'reject'): void
   (e: 'setApprovalTimeoutSec', secs: number): void
   (e: 'setConcurrency', n: number): void
+  (e: 'setAllowWan', allow: boolean): void
+  /** 中继提示阈值（字节；0 = 每次发送都提示） */
+  (e: 'setRelayMaxBytes', bytes: number): void
   (e: 'close'): void
 }>()
+
+/** 中继提示阈值的 UI 单位：MB（存储面是字节；0 = 不设阈值/每次都提示） */
+const RELAY_THRESHOLD_MAX_MB = 102_400
+function relayThresholdMb(bytes: number): number {
+  return Math.max(0, Math.round((bytes || 0) / (1024 * 1024)))
+}
+function onRelayThresholdCommit(mb: number): void {
+  const clamped = Math.min(RELAY_THRESHOLD_MAX_MB, Math.max(0, Math.round(mb)))
+  emit('setRelayMaxBytes', clamped * 1024 * 1024)
+}
 
 // ==================== v2 接收策略（自绘分段控件，禁原生 select） ====================
 
@@ -196,6 +209,50 @@ function onTimeoutCommit(secs: number): void {
             </button>
           </div>
           <p class="ft-settings-helper">{{ t('transfer.settings.concurrencyHint') }}</p>
+        </section>
+
+        <!-- 中继（T12）：关的是「经 relay 拨号」，不是加密；默认开 -->
+        <section class="ft-settings-section" data-testid="ft-settings-section-relay">
+          <h3 class="ft-settings-section-title">{{ t('transfer.settings.relay') }}</h3>
+          <div class="ft-segmented" role="tablist">
+            <button
+              class="ft-segmented-item"
+              :class="{ 'ft-segmented-item--active': settings.allowWan }"
+              role="tab"
+              :aria-selected="settings.allowWan"
+              data-testid="ft-relay-on"
+              @click="emit('setAllowWan', true)"
+            >
+              {{ t('transfer.settings.relayOn') }}
+            </button>
+            <button
+              class="ft-segmented-item"
+              :class="{ 'ft-segmented-item--active': !settings.allowWan }"
+              role="tab"
+              :aria-selected="!settings.allowWan"
+              data-testid="ft-relay-off"
+              @click="emit('setAllowWan', false)"
+            >
+              {{ t('transfer.settings.relayOff') }}
+            </button>
+          </div>
+          <p class="ft-settings-helper">{{ t('transfer.settings.relayHint') }}</p>
+          <div class="ft-settings-row">
+            <label class="ft-timeout-label" for="ft-relay-threshold">
+              {{ t('transfer.settings.relayThreshold') }}
+            </label>
+            <NumberField
+              input-id="ft-relay-threshold"
+              :model-value="relayThresholdMb(settings.relayMaxBytesPerTask)"
+              :min="0"
+              :max="RELAY_THRESHOLD_MAX_MB"
+              size="md"
+              width="120px"
+              data-testid="ft-relay-threshold-input"
+              @commit="onRelayThresholdCommit"
+            />
+          </div>
+          <p class="ft-settings-helper">{{ t('transfer.settings.relayThresholdHint') }}</p>
         </section>
 
         <!-- 传输加密（固定开启，无关闭开关——穿透方案不变量 12） -->

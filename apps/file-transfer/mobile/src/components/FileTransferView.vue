@@ -14,6 +14,7 @@ import { useSwipeTabs } from '@binblink/wasmnest-plugin-sdk-mobile/ui/swipe-tabs
 import { useTasks } from '../composables/useTasks'
 import { isNeedsAllFilesAccess, promptAllFilesAccess } from '../composables/useAllFilesAccess'
 import { usePeerDevices } from '../composables/usePeerDevices'
+import type { RemotePeerLink } from '../utils/pairingLink'
 import { useRemoteFs } from '../composables/useRemoteFs'
 import { useSettings } from '../composables/useSettings'
 import { formatBytes, formatSpeed } from '../utils/format'
@@ -121,6 +122,18 @@ async function handleScanDevices(): Promise<void> {
 function handleDeviceConnect(nodeId: string): void {
   void devices.connect(nodeId)
 }
+/** 手动「尝试外网」：显式请求核内纳入 relay 候选（§4.9 不自动切） */
+function handleDeviceRetryWan(nodeId: string): void {
+  void devices.connect(nodeId, { wan: true })
+}
+/** 添加远程设备（T12）：连接串 → 设备缓存（paired 条目跨重启保留） */
+function handleAddRemote(link: RemotePeerLink): void {
+  devices.addRemotePeer(link)
+  context.dialogs.showToast(t('transfer.remote.added'), 'success')
+}
+function handleRemoveRemote(nodeId: string): void {
+  devices.removeRemotePeer(nodeId)
+}
 function handleDeviceDisconnect(nodeId: string): void {
   void devices.disconnect(nodeId)
 }
@@ -186,6 +199,33 @@ async function uploadFile(): Promise<void> {
     const raw = await context.commands.execute('file-transfer.pick-files', {})
     const paths: string[] = Array.isArray(raw) ? raw : []
     if (paths.length === 0) return
+    // 经中继发送提示（T12 / §9.2#4）：只提示一次、可取消，不改变模式判定。
+    // 阈值 0 = 每次经中继都提示；> 0 时按本批总量判定（预览失败按无阈值口径提示）
+    const activeRow = devices.rows.value.find((r) => r.nodeId === devices.peer.value.id)
+    if (activeRow?.transport === 'wan-relay') {
+      const threshold = settings.settings.value.relayMaxBytesPerTask
+      let total = 0
+      if (threshold > 0) {
+        try {
+          const preview = await context.commands.execute('file-transfer.preview-outgoing', {
+            paths,
+          })
+          total = typeof preview?.totalBytes === 'number' ? preview.totalBytes : 0
+        } catch (e) {
+          console.error('[File Transfer] preview-outgoing failed:', e)
+        }
+      }
+      if (threshold <= 0 || total >= threshold) {
+        const go = await context.dialogs.showConfirm({
+          title: t('transfer.relayHint.title'),
+          message: t('transfer.relayHint.body'),
+          confirmText: t('transfer.relayHint.confirm'),
+          cancelText: t('transfer.relayHint.cancel'),
+          variant: 'warning',
+        })
+        if (!go) return
+      }
+    }
     const ok = await tasks.sendFiles(paths)
     if (ok > 0) {
       context.dialogs.showToast(t('transfer.upload.enqueued'), 'success')
@@ -398,8 +438,11 @@ onUnmounted(() => {
           :scanning="deviceScanning"
           :t="t"
           @connect="handleDeviceConnect"
+          @retry-wan="handleDeviceRetryWan"
           @disconnect="handleDeviceDisconnect"
           @set-active="handleDeviceSetActive"
+          @add-remote="handleAddRemote"
+          @remove-remote="handleRemoveRemote"
           @scan="handleScanDevices"
         />
       </Transition>

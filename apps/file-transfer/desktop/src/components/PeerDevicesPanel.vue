@@ -22,11 +22,24 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   connect: [nodeId: string]
+  /** 手动「尝试外网」：只在有 relay 候选且用户显式点击时纳入 relay（§4.9） */
+  retryWan: [nodeId: string]
   disconnect: [nodeId: string]
   setActive: [nodeId: string]
+  /** 打开「添加远程设备」连接串输入（T12） */
+  addRemote: []
+  /** 移除手动添加的远程设备（T12） */
+  removeRemote: [nodeId: string]
   /** 探索发现：重新扫描同网节点（父组件负责调 query-peer 并维护 scanning 态） */
   scan: []
 }>()
+
+/** 传输形态文案（宿主 transport 词表；未知形态不渲染） */
+function transportLabel(row: DeviceRow): string {
+  if (row.transport === 'lan-direct') return t('transfer.devices.transportLan')
+  if (row.transport === 'wan-relay') return t('transfer.devices.transportWan')
+  return ''
+}
 
 /** 短指纹（前 8 位）展示 */
 function shortFingerprint(nodeId: string): string {
@@ -82,6 +95,15 @@ function dotClass(row: DeviceRow): string {
         </svg>
         {{ props.scanning ? t('transfer.devices.scanning') : t('transfer.devices.scan') }}
       </button>
+      <!-- 添加远程设备：粘贴连接串（无摄像头场景；T12） -->
+      <button
+        class="ft-text-btn ft-dev-scan-btn"
+        :title="t('transfer.devices.addRemote')"
+        data-testid="ft-remote-add"
+        @click="emit('addRemote')"
+      >
+        + {{ t('transfer.devices.addRemote') }}
+      </button>
     </div>
 
     <!-- 空态：发现缓存无节点 -->
@@ -102,6 +124,9 @@ function dotClass(row: DeviceRow): string {
             <span class="ft-dot" :class="dotClass(row)"></span>
             <span class="ft-dev-name">{{ row.deviceName }}</span>
             <span class="ft-dev-fp">{{ shortFingerprint(row.nodeId) }}</span>
+            <span v-if="row.paired" class="ft-dev-tag" data-testid="ft-dev-remote-tag">
+              {{ t('transfer.devices.remote') }}
+            </span>
             <span v-if="row.isActive" class="ft-dev-tag ft-dev-tag--active">
               {{ t('transfer.devices.activeCurrent') }}
             </span>
@@ -113,6 +138,12 @@ function dotClass(row: DeviceRow): string {
             <template v-if="row.status === 'connected'">
               {{ t('transfer.devices.connected')
               }}<template v-if="row.addr"> · {{ row.addr }}</template>
+              <span
+                v-if="transportLabel(row)"
+                class="ft-dev-transport"
+                :class="{ 'ft-dev-transport--wan': row.transport === 'wan-relay' }"
+                data-testid="ft-dev-transport"
+              >{{ transportLabel(row) }}</span>
             </template>
             <template v-else-if="row.status === 'connecting'">
               {{ t('transfer.devices.connecting') }}
@@ -145,6 +176,14 @@ function dotClass(row: DeviceRow): string {
             {{ t('transfer.devices.setActive') }}
           </button>
           <button
+            v-if="row.status === 'connected' && row.paired"
+            class="ft-text-btn ft-text-btn--danger"
+            :data-testid="`ft-dev-forget-${row.nodeId.slice(0, 8)}`"
+            @click="emit('removeRemote', row.nodeId)"
+          >
+            {{ t('transfer.devices.removeRemote') }}
+          </button>
+          <button
             v-if="row.status === 'connected'"
             class="ft-text-btn ft-text-btn--danger"
             @click="emit('disconnect', row.nodeId)"
@@ -154,14 +193,26 @@ function dotClass(row: DeviceRow): string {
           <span v-else-if="row.status === 'connecting'" class="ft-dev-connecting">
             {{ t('transfer.devices.connecting') }}
           </span>
-          <button
-            v-else
-            class="ft-text-btn ft-text-btn--primary"
-            :disabled="!row.fileTransfer"
-            @click="emit('connect', row.nodeId)"
-          >
-            {{ t('transfer.devices.connect') }}
-          </button>
+          <template v-else>
+            <!-- 手动「尝试外网」：仅存在 relay 候选时给入口；不自动切换（§4.9） -->
+            <button
+              v-if="row.wanAvailable"
+              class="ft-text-btn"
+              :disabled="!row.fileTransfer"
+              :title="t('transfer.devices.tryWanHint')"
+              data-testid="ft-dev-try-wan"
+              @click="emit('retryWan', row.nodeId)"
+            >
+              {{ t('transfer.devices.tryWan') }}
+            </button>
+            <button
+              class="ft-text-btn ft-text-btn--primary"
+              :disabled="!row.fileTransfer"
+              @click="emit('connect', row.nodeId)"
+            >
+              {{ t('transfer.devices.connect') }}
+            </button>
+          </template>
         </div>
       </div>
     </div>

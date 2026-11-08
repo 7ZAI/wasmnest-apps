@@ -59,6 +59,10 @@
         "title": "file-transfer.pick-files"
       },
       {
+        "id": "file-transfer.preview-outgoing",
+        "title": "Preview Outgoing Payload"
+      },
+      {
         "id": "file-transfer.reveal-in-dir",
         "title": "file-transfer.reveal-in-dir"
       },

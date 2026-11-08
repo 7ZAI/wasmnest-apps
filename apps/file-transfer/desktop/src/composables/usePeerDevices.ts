@@ -21,7 +21,9 @@ import {
   type DiscoveredDevice,
   type DialErrorStatus,
   type DialStatus,
+  type TransportKind,
 } from './deviceState'
+import type { RemotePeerLink } from '../utils/pairingLink'
 
 /** 快照落盘 debounce 窗口（毫秒） */
 const SNAPSHOT_SAVE_DEBOUNCE_MS = 2000
@@ -48,11 +50,23 @@ interface SnapshotEntry {
   capabilitiesHex?: string
   instanceName?: string
   lastSeenMs?: number
+  /** T12：配对/历史保留的多地址候选 */
+  addrs?: string[]
+  /** T12：手动添加的远程设备 */
+  paired?: boolean
 }
 
 interface ConnectionPayload {
   nodeId?: string
   connected?: boolean
+  /** 宿主上报的真实传输形态（T11/T12）：lan-direct / wan-relay；入站未知时缺省 */
+  transport?: string
+  deviceName?: string
+}
+
+/** 宿主 transport 词表归一（未知值不猜，按「未知」处理） */
+function normalizeTransport(value: unknown): TransportKind | null {
+  return value === 'lan-direct' || value === 'wan-relay' ? value : null
 }
 
 function withId(set: ReadonlySet<string>, id: string): Set<string> {
@@ -76,6 +90,8 @@ export function usePeerDevices(context: PluginContext) {
   const connectedIds = ref<ReadonlySet<string>>(new Set())
   /** 最近一次拨号未成功状态（nodeId → denied/unreachable；成功即清除） */
   const dialErrors = ref<Record<string, DialErrorStatus>>({})
+  /** 宿主上报的传输形态（nodeId → lan-direct / wan-relay；断开即清除） */
+  const transports = ref<Record<string, TransportKind>>({})
   /** 活跃对端 id（'' = 未选择；仅已连接节点可成为活跃对端） */
   const activePeerId = ref('') as Ref<string>
 
@@ -93,6 +109,7 @@ export function usePeerDevices(context: PluginContext) {
       connectedIds: connectedIds.value,
       dialErrors: dialErrors.value,
       activePeerId: activePeerId.value,
+      transports: transports.value,
     }),
   )
 
@@ -199,6 +216,9 @@ export function usePeerDevices(context: PluginContext) {
         capabilitiesHex: d.capabilitiesHex ?? '',
         instanceName: d.instanceName ?? '',
         lastSeenMs: d.lastSeenMs ?? 0,
+        // 配对候选与「手动添加」标记必须跨重启保留（否则远程设备重启即丢）
+        addrs: d.addrs ?? [],
+        paired: d.paired === true,
       }))
       context.commands.execute('file-transfer.save-device-snapshot', { devices: entries }).catch(
         (e: unknown) => {
@@ -234,12 +254,19 @@ export function usePeerDevices(context: PluginContext) {
     if (!payload?.nodeId) return
     if (payload.connected) {
       markConnected(payload.nodeId)
+      const transport = normalizeTransport(payload.transport)
+      if (transport) transports.value = { ...transports.value, [payload.nodeId]: transport }
       ensureActiveFallback()
       // 入站（被连侧）连接没有拨号 memo：数据面命令（浏览/拉取/发送）经它
       // 重拨，endpoint 取自自建缓存（mdns-found 维护）
       rememberEndpoint(payload.nodeId)
     } else {
       connectedIds.value = withoutId(connectedIds.value, payload.nodeId)
+      if (payload.nodeId in transports.value) {
+        const next = { ...transports.value }
+        delete next[payload.nodeId]
+        transports.value = next
+      }
       if (payload.nodeId === activePeerId.value) handleActiveLost()
     }
   }
@@ -250,7 +277,12 @@ export function usePeerDevices(context: PluginContext) {
     if (!device?.addr || !device.port) return
     context.commands
       .execute('file-transfer.remember-peer-endpoint', {
-        endpoint: { nodeId, addr: device.addr, port: device.port },
+        endpoint: {
+          nodeId,
+          addr: device.addr,
+          port: device.port,
+          ...(device.addrs?.length ? { addrs: device.addrs } : {}),
+        },
       })
       .catch((e: unknown) => console.error('[File Transfer] remember-peer-endpoint failed:', e))
   }
@@ -280,19 +312,25 @@ export function usePeerDevices(context: PluginContext) {
    * denied / unreachable 以行内错误呈现。endpoint 三元组取自自建缓存；
    * 返回终态；null 表示本次未实际发起（未发现/无能力/进行中的防御拦截）。
    */
-  async function connect(nodeId: string): Promise<DialStatus | null> {
+  async function connect(
+    nodeId: string,
+    opts?: { wan?: boolean },
+  ): Promise<DialStatus | null> {
     const device = devices.value.find((d) => d.nodeId === nodeId)
     if (!device || !device.fileTransfer) return null
     // 快照恢复条目尚未被本会话实时 mdns-found 刷新：endpoint 未经本次网络
     // 验证，直接拨号只会按陈旧地址撞墙（2026-10-16 实机：快照旧网络地址
     // 拨号 TCP 超时、对端完全无感知）。拒绝并触发宿主即时重查——实时条目
     // 接管（restored 清 false）后即可正常拨号。
-    if (device.restored) {
+    // 例外：**手动添加的远程设备**（paired）地址来自连接串而非发现缓存，
+    // 本就没有 mDNS 实时条目可等，直接按配对候选拨号。
+    if (device.restored && !device.paired) {
       setDialError(nodeId, 'unreachable')
       requestHostRefresh()
       return 'unreachable'
     }
-    if (!device.addr || !device.port) {
+    const addrs = device.addrs ?? []
+    if ((!device.addr || !device.port) && addrs.length === 0) {
       setDialError(nodeId, 'unreachable')
       return 'unreachable'
     }
@@ -302,7 +340,14 @@ export function usePeerDevices(context: PluginContext) {
     clearDialError(nodeId)
     try {
       await context.commands.execute('file-transfer.dial-peer', {
-        endpoint: { nodeId, addr: device.addr, port: device.port },
+        endpoint: {
+          nodeId,
+          addr: device.addr ?? '',
+          port: device.port ?? 0,
+          ...(addrs.length ? { addrs } : {}),
+        },
+        // 手动「尝试外网」：核内只在 allowWan 且显式请求时纳入 relay 候选
+        ...(opts?.wan ? { wan: true } : {}),
       })
       markConnected(nodeId)
       ensureActiveFallback()
@@ -316,6 +361,55 @@ export function usePeerDevices(context: PluginContext) {
     } finally {
       connectingIds.value = withoutId(connectingIds.value, nodeId)
     }
+  }
+
+  /**
+   * 添加远程设备（T12）：配对连接串 → 自建缓存条目。
+   *
+   * 已存在同 nodeId 时合并候选与展示名（保留已连接态）；手动添加的条目标
+   * `paired`，之后 TTL 清扫不会把它清掉。返回是否为新增。
+   */
+  function addRemotePeer(link: RemotePeerLink): boolean {
+    const exists = devices.value.some((d) => d.nodeId === link.nodeId)
+    const idx = devices.value.findIndex((d) => d.nodeId === link.nodeId)
+    const base: DiscoveredDevice =
+      idx >= 0
+        ? { ...devices.value[idx]! }
+        : {
+            nodeId: link.nodeId,
+            deviceName: link.deviceName,
+            addr: '',
+            port: 0,
+            fileTransfer: true,
+            lastSeenMs: Date.now(),
+          }
+    const merged: DiscoveredDevice = {
+      ...base,
+      deviceName: link.deviceName || base.deviceName || '',
+      addrs: [...new Set([...(base.addrs ?? []), ...link.addrs])],
+      paired: true,
+      restored: false,
+    }
+    const next = [...devices.value]
+    if (idx >= 0) next[idx] = merged
+    else next.push(merged)
+    devices.value = next
+    scheduleSnapshotSave()
+    return !exists
+  }
+
+  /** 移除手动添加的远程设备（发现缓存条目只摘候选与标记，不整条删） */
+  function removeRemotePeer(nodeId: string): void {
+    devices.value = devices.value.map((d) =>
+      d.nodeId === nodeId && d.paired && !connectedIds.value.has(nodeId)
+        ? { ...d, paired: false, addrs: [] }
+        : d,
+    )
+    // 从未被 mDNS 发现过的条目（addr/port 皆空）整条移除，避免空行残留
+    devices.value = devices.value.filter(
+      (d) => d.nodeId !== nodeId || d.paired || d.addr !== '' || d.port !== 0,
+    )
+    scheduleSnapshotSave()
   }
 
   /** 断开对等连接：乐观摘除即时反馈；断的是活跃对端则按兜底规则收尾 */
@@ -375,6 +469,8 @@ export function usePeerDevices(context: PluginContext) {
                     ? true
                     : (Number.parseInt(d.capabilitiesHex, 16) & 1) !== 0,
                 ...(d.instanceName ? { instanceName: d.instanceName } : {}),
+                ...(Array.isArray(d.addrs) && d.addrs.length ? { addrs: d.addrs } : {}),
+                ...(d.paired === true ? { paired: true } : {}),
                 lastSeenMs: d.lastSeenMs ?? 0,
                 restored: true,
               }))
@@ -407,7 +503,10 @@ export function usePeerDevices(context: PluginContext) {
     connectingIds,
     connectedIds,
     dialErrors,
+    transports,
     connect,
+    addRemotePeer,
+    removeRemotePeer,
     disconnect,
     switchPeer,
     refresh,

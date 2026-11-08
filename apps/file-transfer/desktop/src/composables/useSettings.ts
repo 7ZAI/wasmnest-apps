@@ -23,6 +23,8 @@ export function useSettings(context: PluginContext) {
     receivingPolicy: 'ask',
     approvalTimeoutSec: 60,
     encryption: true,
+    allowWan: true,
+    relayMaxBytesPerTask: 0,
   }) as Ref<Settings>
   /** roots 带条目 id（宿主 DTO），与 Settings.roots（展示名列表）并行维护 */
   const rootItems = ref<RootItem[]>([]) as Ref<RootItem[]>
@@ -59,6 +61,12 @@ export function useSettings(context: PluginContext) {
           encryption: true,
           concurrency:
             typeof r.concurrency === 'number' ? Math.min(8, Math.max(1, Math.round(r.concurrency))) : 3,
+          // 中继开关缺省开；旧后端不返该字段时按开处理（只关中继，不关加密）
+          allowWan: r.allow_wan !== false && r.allowWan !== false,
+          relayMaxBytesPerTask:
+            typeof r.relay_max_bytes_per_task === 'number'
+              ? Math.max(0, Math.round(r.relay_max_bytes_per_task))
+              : 0,
         }
       }
       loadError.value = false
@@ -95,6 +103,23 @@ export function useSettings(context: PluginContext) {
     if (clamped === settings.value.concurrency) return
     await context.commands.execute('file-transfer.set-settings', { concurrency: clamped })
     settings.value = { ...settings.value, concurrency: clamped }
+  }
+
+  /** 设置是否允许中继（T12：只控制拨号候选，不碰加密——不变量 12） */
+  async function setAllowWan(allow: boolean): Promise<void> {
+    if (allow === settings.value.allowWan) return
+    await context.commands.execute('file-transfer.set-settings', { allowWan: allow })
+    settings.value = { ...settings.value, allowWan: allow }
+  }
+
+  /** 设置中继提示阈值（字节；0 = 每次发送都提示；负值/非数按 0 收敛） */
+  async function setRelayMaxBytes(bytes: number): Promise<void> {
+    const clamped = Math.max(0, Math.round(Number.isFinite(bytes) ? bytes : 0))
+    if (clamped === settings.value.relayMaxBytesPerTask) return
+    await context.commands.execute('file-transfer.set-settings', {
+      relayMaxBytesPerTask: clamped,
+    })
+    settings.value = { ...settings.value, relayMaxBytesPerTask: clamped }
   }
 
   /** 添加共享目录（系统多目录选择器，一次可添加多个 → 注册表 + set-shared-roots；
@@ -154,5 +179,7 @@ export function useSettings(context: PluginContext) {
     setReceivingPolicy,
     setApprovalTimeoutSec,
     setConcurrency,
+    setAllowWan,
+    setRelayMaxBytes,
   }
 }

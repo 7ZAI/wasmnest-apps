@@ -44,6 +44,14 @@ export type MessageSchema = {
   /** 探索发现：重新扫描同网节点（sheet 头部按钮） */
   'transfer.devices.scan': string
   'transfer.devices.scanning': string
+  // T12：中继 / 远程设备（连接串导入、传输形态、手动尝试外网）
+  'transfer.devices.addRemote': string
+  'transfer.devices.remote': string
+  'transfer.devices.removeRemote': string
+  'transfer.devices.tryWan': string
+  'transfer.devices.tryWanHint': string
+  'transfer.devices.transportLan': string
+  'transfer.devices.transportWan': string
 
   // ==================== 顶栏 / 浏览 ====================
   'transfer.topbar.settings': string
@@ -238,6 +246,30 @@ export type MessageSchema = {
   'transfer.settings.encryptionAlwaysOn': string
   'transfer.settings.encryptionHint': string
   'transfer.settings.approvalTimeout': string
+  // T12：中继开关与提示阈值（关的是中继，不是加密）
+  'transfer.settings.relay': string
+  'transfer.settings.relayOn': string
+  'transfer.settings.relayOff': string
+  'transfer.settings.relayHint': string
+  'transfer.settings.relayThreshold': string
+  'transfer.settings.relayThresholdHint': string
+
+  // ==================== 中继发送提示（T12） ====================
+  'transfer.relayHint.title': string
+  'transfer.relayHint.body': string
+  'transfer.relayHint.confirm': string
+  'transfer.relayHint.cancel': string
+
+  // ==================== 添加远程设备（T12） ====================
+  'transfer.remote.title': string
+  'transfer.remote.hint': string
+  'transfer.remote.placeholder': string
+  'transfer.remote.cancel': string
+  'transfer.remote.confirm': string
+  'transfer.remote.added': string
+  'transfer.remote.errorMalformed': string
+  'transfer.remote.errorIncomplete': string
+  'transfer.remote.errorAddressInvalid': string
 
   // ==================== 首连确认（全局对话框，spec 决策 7） ====================
   'transfer.consent.title': string

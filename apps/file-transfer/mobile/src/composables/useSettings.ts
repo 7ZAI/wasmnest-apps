@@ -34,6 +34,12 @@ function mapWireSettings(raw: any): Settings {
     approvalTimeoutSec: raw?.ask_timeout_sec ?? raw?.askTimeoutSec ?? 60,
     // 加密固定开启（穿透方案不变量 12）：旧后端返 false 也不采信，UI 无关闭项
     encryption: true,
+    // 中继缺省开；旧后端不返该字段时按开处理（只关中继，不关加密）
+    allowWan: raw?.allow_wan !== false && raw?.allowWan !== false,
+    relayMaxBytesPerTask:
+      typeof raw?.relay_max_bytes_per_task === 'number'
+        ? Math.max(0, Math.round(raw.relay_max_bytes_per_task))
+        : 0,
   }
 }
 
@@ -45,6 +51,8 @@ export function useSettings(context: PluginContext) {
     receivingPolicy: 'ask',
     approvalTimeoutSec: 60,
     encryption: true,
+    allowWan: true,
+    relayMaxBytesPerTask: 0,
   })
   const loading = ref(false)
 
@@ -124,6 +132,35 @@ export function useSettings(context: PluginContext) {
     }
   }
 
+  /** 设置是否允许中继（T12：只控制拨号候选，不碰加密——不变量 12） */
+  async function setAllowWan(allow: boolean): Promise<boolean> {
+    if (allow === settings.value.allowWan) return true
+    try {
+      await context.commands.execute('file-transfer.set-settings', { allowWan: allow })
+      settings.value = { ...settings.value, allowWan: allow }
+      return true
+    } catch (e) {
+      console.error('[File Transfer] set allowWan failed:', e)
+      return false
+    }
+  }
+
+  /** 设置中继提示阈值（字节；0 = 每次提示；非法值按 0 收敛） */
+  async function setRelayMaxBytes(bytes: number): Promise<boolean> {
+    const clamped = Math.max(0, Math.round(Number.isFinite(bytes) ? bytes : 0))
+    if (clamped === settings.value.relayMaxBytesPerTask) return true
+    try {
+      await context.commands.execute('file-transfer.set-settings', {
+        relayMaxBytesPerTask: clamped,
+      })
+      settings.value = { ...settings.value, relayMaxBytesPerTask: clamped }
+      return true
+    } catch (e) {
+      console.error('[File Transfer] set relay threshold failed:', e)
+      return false
+    }
+  }
+
   /** 设置发送方向并发上限（1–8 钳制；随下次发送载荷脉冲推送宿主闸门） */
   async function setConcurrency(n: number): Promise<boolean> {
     const clamped = Math.min(8, Math.max(1, Math.round(n)))
@@ -147,5 +184,7 @@ export function useSettings(context: PluginContext) {
     setReceivingPolicy,
     setApprovalTimeout,
     setConcurrency,
+    setAllowWan,
+    setRelayMaxBytes,
   }
 }

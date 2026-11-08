@@ -877,6 +877,43 @@ html:not(.dark) .ft-app {
   padding: 0 0.5rem;
 }
 
+.fv2-device-transport {
+  margin-left: 0.375rem;
+  padding: 0 0.3rem;
+  border-radius: 9999px;
+  font-size: 0.625rem;
+  color: var(--ft-accent-text);
+  background: color-mix(in srgb, var(--ft-accent-text) 12%, transparent);
+}
+
+.fv2-device-transport--wan {
+  color: var(--ft-warning-text, #b45309);
+  background: color-mix(in srgb, var(--ft-warning-text, #b45309) 12%, transparent);
+}
+
+/* 添加远程设备：连接串输入（T12，无摄像头场景） */
+.fv2-remote-panel {
+  margin: 0 1rem 0.5rem;
+  padding: 0.75rem;
+  border: 1px solid var(--ft-border);
+  border-radius: 0.75rem;
+  background: var(--ft-bg-card, var(--ft-bg-primary));
+}
+
+.fv2-remote-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.5rem 0.625rem;
+  border: 1px solid var(--ft-border);
+  border-radius: 0.5rem;
+  background: var(--ft-bg-primary);
+  color: var(--ft-text-primary);
+  font-family: ui-monospace, monospace;
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+  resize: vertical;
+}
+
 .fv2-scan-icon {
   animation: fv2-spin 0.8s linear infinite;
 }

@@ -433,6 +433,14 @@ mod tests {
         fn peer_revoke_trusted(&self, _node_id: &str) -> Result<bool, HostError> {
             unreachable!("撤销不经本端口（两端都走宿主原语直通）")
         }
+        /// 信任写入是宿主原语直通（与撤销对称），ConsentGate 不持有信任表
+        fn peer_trust_node(
+            &self,
+            _node_id: &str,
+            _display_name: Option<&str>,
+        ) -> Result<bool, HostError> {
+            unreachable!("信任写入不经本端口")
+        }
         fn peer_send_files(
             &self,
             _session: &str,

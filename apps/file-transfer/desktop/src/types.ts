@@ -64,8 +64,12 @@ export interface Settings {
   receivingPolicy: 'ask' | 'accept' | 'reject'
   /** 同意超时（秒，10–600，仅 ask 生效） */
   approvalTimeoutSec: number
-  /** 发送加密开关（AES-256-GCM；缺省 false） */
+  /** 发送加密开关（AES-256-GCM；**固定 true**，UI 无关闭入口——不变量 12） */
   encryption?: boolean
+  /** 是否允许经中继（WAN）传输（T12；缺省开；关闭 ≠ 关闭加密） */
+  allowWan: boolean
+  /** 经中继传输的提示阈值（字节；0 = 每次发送都提示） */
+  relayMaxBytesPerTask: number
 }
 
 /** 任务状态是否为终态 */

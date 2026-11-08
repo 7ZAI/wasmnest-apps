@@ -132,6 +132,13 @@ mod tests {
         ) -> Result<bool, wasmnest_plugin_api::host::HostError> {
             unimplemented!()
         }
+        fn peer_trust_node(
+            &self,
+            _node_id: &str,
+            _display_name: Option<&str>,
+        ) -> Result<bool, wasmnest_plugin_api::host::HostError> {
+            unimplemented!()
+        }
         fn peer_send_files(
             &self,
             _session: &str,
@@ -232,6 +239,7 @@ mod tests {
             download_dir: Some("D:/dl".into()),
             encryption: true,
             concurrency: 5,
+            ..Default::default()
         }
     }
 
@@ -314,6 +322,7 @@ mod tests {
                 download_dir: Some("D:/dl".into()),
                 encryption: true,
                 concurrency: 3,
+                ..Default::default()
             })
             .unwrap(),
         )

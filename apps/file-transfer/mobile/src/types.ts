@@ -99,8 +99,12 @@ export interface Settings {
   receivingPolicy: 'ask' | 'accept' | 'reject'
   /** v2 同意超时秒（10–600，仅 ask 策略生效） */
   approvalTimeoutSec: number
-  /** 发送加密开关（应用层 AES-256-GCM；默认关，接收端经 Offer 加密头自动解密） */
+  /** 发送加密开关（应用层 AES-256-GCM；**固定 true**，UI 无关闭入口——不变量 12） */
   encryption?: boolean
+  /** 是否允许经中继（WAN）传输（T12；缺省开；关闭 ≠ 关闭加密） */
+  allowWan: boolean
+  /** 经中继传输的提示阈值（字节；0 = 每次发送都提示） */
+  relayMaxBytesPerTask: number
 }
 
 /** 接收策略取值常量（与宿主 policy mode 映射一致） */

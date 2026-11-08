@@ -147,6 +147,7 @@ mod tests {
             node_id: node.into(),
             addr: format!("10.0.0.{port}"),
             port,
+            ..Default::default()
         }
     }
 
@@ -235,6 +236,8 @@ mod tests {
             capabilities_hex: "1".into(),
             instance_name: "inst".into(),
             last_seen_ms: 1234,
+            addrs: vec!["/ip4/10.0.0.1/tcp/47821".into()],
+            paired: true,
         }];
         save_snapshot(&h, &entries).unwrap();
         assert_eq!(load_snapshot(&h).unwrap(), entries);

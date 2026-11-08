@@ -132,6 +132,7 @@ mod tests {
             node_id: "aa".into(),
             addr: "192.168.1.5".into(),
             port: 47821,
+            ..Default::default()
         };
         let v = serde_json::to_value(&ep).unwrap();
         assert_eq!(v["nodeId"], "aa");
@@ -162,6 +163,7 @@ mod tests {
             node_id: node.into(),
             addr: "10.0.0.1".into(),
             port: 1,
+            ..Default::default()
         };
         remember_session(&memo_ep, "sess-x".into());
         assert_eq!(session_of(node).as_deref(), Some("sess-x"));
@@ -170,6 +172,7 @@ mod tests {
             node_id: node.into(),
             addr: "10.0.0.2".into(),
             port: 2,
+            ..Default::default()
         };
         assert_eq!(resolve_endpoint(Some(fresh.clone()), node), Some(fresh));
         // 无显式走 memo
@@ -178,7 +181,8 @@ mod tests {
             Some(DialEndpoint {
                 node_id: node.into(),
                 addr: "10.0.0.2".into(),
-                port: 2
+                port: 2,
+                ..Default::default()
             })
         );
         // 未知节点无解
@@ -203,6 +207,7 @@ mod tests {
             node_id: node.into(),
             addr: "10.0.0.9".into(),
             port: 9,
+            ..Default::default()
         };
         remember_endpoint(&ep).unwrap();
         assert_eq!(resolve_endpoint(None, node), Some(ep));
@@ -223,6 +228,7 @@ mod tests {
             node_id: String::new(),
             addr: "x".into(),
             port: 1,
+            ..Default::default()
         })
         .unwrap_err();
         assert!(err.to_string().contains("empty node_id"), "实得 {err}");
@@ -245,6 +251,7 @@ mod tests {
                 node_id: node_a.into(),
                 addr: "10.0.0.1".into(),
                 port: 1,
+                ..Default::default()
             },
             "sess-a".into(),
         );
@@ -253,6 +260,7 @@ mod tests {
                 node_id: node_b.into(),
                 addr: "10.0.0.2".into(),
                 port: 2,
+                ..Default::default()
             },
             "sess-b".into(),
         );

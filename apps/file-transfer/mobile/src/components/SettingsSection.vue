@@ -136,6 +136,31 @@ async function stepTimeout(delta: number): Promise<void> {
 // 初始即同步当前值：此前仅 focus/commit/step 时同步，首帧数值框空白（评审 P0）
 syncTimeoutInput()
 watch(() => props.settingsApi.settings.value.approvalTimeoutSec, syncTimeoutInput)
+
+// ==================== 中继（T12）：开关 + 提示阈值 ====================
+
+/** 阈值上限（MB）：100 GB（存储面是字节；0 = 每次都提示） */
+const RELAY_THRESHOLD_MAX_MB = 102_400
+
+/** 中继提示阈值输入（UI 单位 MB；存储面字节） */
+const relayThresholdInput = ref('')
+
+function syncRelayThreshold(): void {
+  const bytes = props.settingsApi.settings.value.relayMaxBytesPerTask ?? 0
+  relayThresholdInput.value = String(Math.max(0, Math.round(bytes / (1024 * 1024))))
+}
+
+async function commitRelayThreshold(): Promise<void> {
+  const n = Number(relayThresholdInput.value)
+  if (Number.isFinite(n)) {
+    const mb = Math.min(RELAY_THRESHOLD_MAX_MB, Math.max(0, Math.round(n)))
+    await props.settingsApi.setRelayMaxBytes(mb * 1024 * 1024)
+  }
+  syncRelayThreshold()
+}
+
+syncRelayThreshold()
+watch(() => props.settingsApi.settings.value.relayMaxBytesPerTask, syncRelayThreshold)
 </script>
 
 <template>
@@ -289,6 +314,62 @@ watch(() => props.settingsApi.settings.value.approvalTimeoutSec, syncTimeoutInpu
             >
               {{ t('transfer.settings.encryptionAlwaysOn') }}
             </span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== 中继（T12）：关的是「经 relay 拨号」，不是加密 ==================== -->
+    <section class="space-y-2">
+      <h2 class="settings-section-title">{{ t('transfer.settings.relay') }}</h2>
+      <div class="settings-group">
+        <div class="settings-row ft-policy-row">
+          <div class="min-w-0 flex-1">
+            <div class="settings-label">{{ t('transfer.settings.relay') }}</div>
+            <div class="settings-desc">{{ t('transfer.settings.relayHint') }}</div>
+          </div>
+          <div class="ft-segmented flex-shrink-0">
+            <button
+              class="ft-segmented-item"
+              :class="{ 'ft-segmented-item--active': settingsApi?.settings.value.allowWan !== false }"
+              role="tab"
+              :aria-checked="settingsApi?.settings.value.allowWan !== false"
+              data-testid="ft-relay-on"
+              @click="settingsApi?.setAllowWan(true)"
+            >
+              {{ t('transfer.settings.relayOn') }}
+            </button>
+            <button
+              class="ft-segmented-item"
+              :class="{ 'ft-segmented-item--active': settingsApi?.settings.value.allowWan === false }"
+              role="tab"
+              :aria-checked="settingsApi?.settings.value.allowWan === false"
+              data-testid="ft-relay-off"
+              @click="settingsApi?.setAllowWan(false)"
+            >
+              {{ t('transfer.settings.relayOff') }}
+            </button>
+          </div>
+        </div>
+        <div class="settings-row">
+          <div class="min-w-0 flex-1">
+            <div class="settings-label">{{ t('transfer.settings.relayThreshold') }}</div>
+            <div class="settings-desc">{{ t('transfer.settings.relayThresholdHint') }}</div>
+          </div>
+          <div class="flex items-center gap-2 flex-shrink-0">
+            <input
+              v-model="relayThresholdInput"
+              class="ft-timeout-input"
+              type="number"
+              min="0"
+              :max="RELAY_THRESHOLD_MAX_MB"
+              inputmode="numeric"
+              data-testid="ft-relay-threshold-input"
+              @focus="syncRelayThreshold()"
+              @blur="commitRelayThreshold()"
+              @keyup.enter="($event.target as HTMLInputElement).blur()"
+            />
+            <span class="settings-desc">MB</span>
           </div>
         </div>
       </div>

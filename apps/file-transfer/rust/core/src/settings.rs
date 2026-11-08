@@ -40,10 +40,27 @@ pub struct TransferSettings {
     /// 发送方向并发上限（1–8）
     #[serde(default = "default_concurrency")]
     pub concurrency: u8,
+    /// 是否允许经中继（WAN）传输（T12，缺省开）。
+    ///
+    /// 关闭只影响**拨号候选**（relay circuit 不进候选表，见 [`crate::dial::dial_plan`]），
+    /// **不影响加密**：加密固定开（不变量 12），本字段没有也不得有「关明文」语义。
+    #[serde(default = "default_allow_wan")]
+    pub allow_wan: bool,
+    /// 经中继单任务的「可能较慢」提示阈值（字节，0 = 每次都提示）。
+    ///
+    /// 只是提示阈值，不是硬限额、不入加密/授权判定：§9.2#4 默认无阈值；用户可调高
+    /// 到指定大小以上才提示。真正的中继配额在 relay 服务端（单 circuit 字节 / 时长）。
+    #[serde(default)]
+    pub relay_max_bytes_per_task: u64,
 }
 
 fn default_concurrency() -> u8 {
     DEFAULT_CONCURRENCY
+}
+
+/// 中继缺省值（开；关闭 = 只走内网，不涉及加密）
+fn default_allow_wan() -> bool {
+    true
 }
 
 /// 加密缺省值（固定开；`serde(default)` 与 [`Default`] 共用同一常量）
@@ -59,6 +76,8 @@ impl Default for TransferSettings {
             download_dir: None,
             encryption: default_encryption(),
             concurrency: default_concurrency(),
+            allow_wan: default_allow_wan(),
+            relay_max_bytes_per_task: 0,
         }
     }
 }
@@ -281,6 +300,8 @@ mod tests {
             download_dir: Some("D:/dl".into()),
             encryption: true,
             concurrency: 5,
+            allow_wan: false,
+            relay_max_bytes_per_task: 1_073_741_824,
         };
         save_and_push(&h, &s).unwrap();
         assert_eq!(
@@ -431,6 +452,48 @@ mod tests {
         assert!(
             wrong_type.message().contains("must be a boolean"),
             "实得 {wrong_type}"
+        );
+    }
+
+    // ==================== T12：中继设置 ====================
+
+    #[test]
+    fn wan_defaults_to_enabled_without_touching_encryption() {
+        let s = TransferSettings::default();
+        assert!(s.allow_wan, "中继缺省开（用户可关，但关的不是加密）");
+        assert_eq!(s.relay_max_bytes_per_task, 0, "§9.2#4：默认无阈值");
+        assert!(s.encryption, "中继开关与加密正交（不变量 12）");
+    }
+
+    #[test]
+    fn relay_settings_roundtrip_and_legacy_storage_defaults_them() {
+        let h = MockPorts::default();
+        // 旧库存没有两个新字段：读取不得报错（否则升级即丢设置）
+        h.storage_set(
+            SETTINGS_KEY,
+            &serde_json::json!({"receivingPolicy": "ask", "approvalTimeoutSec": 60, "encryption": true}),
+        )
+        .unwrap();
+        let l = load(&h).unwrap();
+        assert!(l.allow_wan);
+        assert_eq!(l.relay_max_bytes_per_task, 0);
+
+        let s = TransferSettings {
+            allow_wan: false,
+            relay_max_bytes_per_task: 5_000_000_000,
+            ..Default::default()
+        };
+        save_and_push(&h, &s).unwrap();
+        let back = load(&h).unwrap();
+        assert!(!back.allow_wan);
+        assert_eq!(back.relay_max_bytes_per_task, 5_000_000_000);
+        assert!(back.encryption, "关闭中继不得把加密也关掉");
+        // 存储面同样保留两个字段（前端读回真源）
+        let raw = h.storage_get(SETTINGS_KEY).unwrap().expect("已写入");
+        assert_eq!(raw["allowWan"], serde_json::json!(false));
+        assert_eq!(
+            raw["relayMaxBytesPerTask"],
+            serde_json::json!(5_000_000_000u64)
         );
     }
 
