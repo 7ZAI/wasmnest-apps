@@ -498,21 +498,23 @@ export type MessageSchema = {
   'server.toggleOn': string
   'server.toggleOff': string
 
-  // ==================== 链路加密策略（应用自有，2026-11-04） ====================
+  // ==================== 链路加密（应用自有；T07 固定 required，不可关闭） ====================
   'linkCrypto.title': string
   'linkCrypto.policy': string
   'linkCrypto.policyDesc': string
-  'linkCrypto.policyOff': string
-  'linkCrypto.policyPreferred': string
-  'linkCrypto.policyRequired': string
-  'linkCrypto.offHint': string
-  'linkCrypto.preferredHint': string
+  'linkCrypto.forced': string
+  'linkCrypto.forcedPending': string
+  'linkCrypto.currentOff': string
+  'linkCrypto.currentPreferred': string
   'linkCrypto.requiredHint': string
+  'linkCrypto.repairNeeded': string
+  'linkCrypto.enforce': string
+  'linkCrypto.enforced': string
+  'linkCrypto.enforceFailed': string
+  'linkCrypto.blockedIdentityMissing': string
+  'linkCrypto.blockedWsUnsupported': string
   'linkCrypto.fingerprint': string
   'linkCrypto.fingerprintDesc': string
-  'linkCrypto.saved': string
-  'linkCrypto.saveFailed': string
-  'linkCrypto.wsNotEncrypted': string
   'linkCrypto.capabilityMissing': string
 
   // ==================== 中转服务器（T14：部署文本 / 地址导入 / 连通性） ====================

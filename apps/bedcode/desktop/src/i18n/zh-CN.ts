@@ -477,20 +477,24 @@ const zhCN: MessageSchema = {
   // ==================== 链路加密策略（应用自有，2026-11-04） ====================
   'linkCrypto.title': '链路加密',
   'linkCrypto.policy': '加密策略',
-  'linkCrypto.policyDesc': '对本应用全部 HTTP / WS 端点生效；未设置 = 不要求加密（默认明文）',
-  'linkCrypto.policyOff': '不要求',
-  'linkCrypto.policyPreferred': '尽量加密',
-  'linkCrypto.policyRequired': '强制加密',
-  'linkCrypto.offHint':
-    '不要求加密：接受明文；已配对客户端开启链路加密时 HTTP 仍会加密（WS 保持明文）。',
-  'linkCrypto.preferredHint': '对端支持就加密，不支持则放行明文；未配对的老客户端仍可连接。',
-  'linkCrypto.requiredHint': '非本机对端必须完成加密协商，否则拒绝连接（不降级成明文）。',
+  'linkCrypto.policyDesc': '本应用固定强制链路加密，不提供关闭开关；覆盖全部 HTTP / WS 端点',
+  'linkCrypto.forced': '强制加密',
+  'linkCrypto.forcedPending': '强制加密（未生效）',
+  'linkCrypto.currentOff': '不要求加密',
+  'linkCrypto.currentPreferred': '尽量加密',
+  'linkCrypto.requiredHint':
+    '强制加密已生效：非本机对端必须完成链路加密协商，否则拒绝连接（不降级成明文）。',
+  'linkCrypto.repairNeeded':
+    '宿主仍记录为「{state}」。本应用不允许关闭链路加密，请立即收紧为强制加密。',
+  'linkCrypto.enforce': '立即启用强制加密',
+  'linkCrypto.enforced': '已启用强制加密',
+  'linkCrypto.enforceFailed': '强制加密未能生效',
+  'linkCrypto.blockedIdentityMissing':
+    '链路身份未初始化：强制加密会拒绝全部非本机对端，故未写入。请先在宿主完成链路身份初始化后重新打开本页。',
+  'linkCrypto.blockedWsUnsupported':
+    '当前宿主不支持 WS 帧级链路加密：强制档覆盖不到 WS 端点（WS 仍为明文），故未写入、也不会显示成已加密。请升级宿主。',
   'linkCrypto.fingerprint': '本机指纹',
   'linkCrypto.fingerprintDesc': '本机身份密钥指纹（SHA-256 前 16 位），请与移动端展示值人工比对',
-  'linkCrypto.saved': '链路加密策略已更新',
-  'linkCrypto.saveFailed': '链路加密策略保存失败',
-  'linkCrypto.wsNotEncrypted':
-    '当前宿主版本不支持 WS 端点的帧级链路加密；策略只对 HTTP 生效，WS 流量仍为明文。升级宿主后 WS 帧才会加密。',
   'linkCrypto.capabilityMissing':
     '当前宿主不支持按应用的链路加密设置（旧版本）；请升级宿主后再依赖加密。',
 

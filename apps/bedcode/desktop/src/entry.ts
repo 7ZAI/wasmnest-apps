@@ -59,8 +59,9 @@ export interface AppMountEnv {
   /**
    * 本应用链路加密策略（可选：旧宿主不注入 = 无此能力，界面必须显性提示）
    *
-   * 策略属于应用：本应用在自己的设置页决定 off / preferred / required，覆盖
-   * 全部 HTTP / WS 端点；宿主不设整机下限、只执行与只读审计。
+   * 策略属于应用：本应用**固定 `required`（不可关闭，T07）**，覆盖全部 HTTP /
+   * WS 端点；宿主不设整机下限、只执行与只读审计。`set` 仍接受三值（宿主 wire
+   * 形状），但应用侧唯一写入口只写 `required`（见 `composables/useLinkCrypto`）。
    */
   appLinkCryptoGet?: () => Promise<'off' | 'preferred' | 'required'>
   appLinkCryptoSet?: (policy: 'off' | 'preferred' | 'required') => Promise<void>

@@ -507,6 +507,19 @@ describe('BedCode（桌面端 · 宿主内挂载）', () => {
     }
   })
 
+  it('链路加密：固定强制档，不提供关闭/放行选择（T07）', async () => {
+    await click('nav-settings')
+    await waitFor('settings-view')
+    await waitFor('link-crypto-policy')
+    // 档位是只读状态徽标，不是三档选择器（配置层拒绝关闭）：三档按钮一律不存在
+    expectEqual(await exists('link-crypto-policy-off'), false, '不提供「不要求加密」档')
+    expectEqual(await exists('link-crypto-policy-preferred'), false, '不提供「尽量加密」档')
+    expectEqual(await exists('link-crypto-policy-required'), false, '档位不是可选按钮')
+    // 生效与否取决于宿主能力（旧宿主缺 WS 帧加密 / 身份），两种都是显性状态
+    const enforced = await attr('link-crypto-policy', 'data-enforced')
+    expectEqual(enforced === 'true' || enforced === 'false', true, '徽标带显性生效标记')
+  })
+
   it('中转服务器卡片：生成部署文本 / 非法导入显性报错 / 探测未装配不可伪装', async () => {
     await click('nav-settings')
     await waitFor('settings-view')
@@ -515,7 +528,11 @@ describe('BedCode（桌面端 · 宿主内挂载）', () => {
     expectEqual(await visible('relay-probe-unsupported'), true, '未装配原因可见')
 
     // 填写对外域名 → 生成 T13 交付物的 Compose 文本（不依赖机器状态）
-    expectEqual(await typeInto('relay-deploy-advertise', 'relay.example.com'), true, '对外域名可输入')
+    expectEqual(
+      await typeInto('relay-deploy-advertise', 'relay.example.com'),
+      true,
+      '对外域名可输入',
+    )
     await waitForText('relay-deploy-output', 'relay.example.com')
     await waitForText('relay-deploy-output', 'ghcr.io/7zai/wasmnest-relay')
     await waitForText('relay-deploy-output', '4001')

@@ -485,23 +485,25 @@ const en: MessageSchema = {
   'linkCrypto.title': 'Link Encryption',
   'linkCrypto.policy': 'Encryption policy',
   'linkCrypto.policyDesc':
-    'Applies to all of this app’s HTTP / WS endpoints; unset means “not required” (plaintext by default)',
-  'linkCrypto.policyOff': 'Not required',
-  'linkCrypto.policyPreferred': 'Prefer encrypted',
-  'linkCrypto.policyRequired': 'Require encrypted',
-  'linkCrypto.offHint':
-    'Encryption is not required. Plaintext is accepted; a paired client that enables link encryption still gets its HTTP encrypted (WS stays plaintext).',
-  'linkCrypto.preferredHint':
-    'Encrypt when the peer supports it, otherwise allow plaintext; unpaired legacy clients can still connect.',
+    'This app always requires link encryption and offers no off switch; applies to every HTTP / WS endpoint',
+  'linkCrypto.forced': 'Encryption required',
+  'linkCrypto.forcedPending': 'Required (not in effect)',
+  'linkCrypto.currentOff': 'Not required',
+  'linkCrypto.currentPreferred': 'Prefer encrypted',
   'linkCrypto.requiredHint':
-    'Non-loopback peers must complete encryption negotiation or be rejected (no plaintext fallback).',
+    'Encryption is enforced: non-loopback peers must complete encryption negotiation or be rejected (no plaintext fallback).',
+  'linkCrypto.repairNeeded':
+    'The host still records “{state}”. This app does not allow disabling link encryption — tighten it to required now.',
+  'linkCrypto.enforce': 'Require encryption now',
+  'linkCrypto.enforced': 'Link encryption enforced',
+  'linkCrypto.enforceFailed': 'Link encryption could not be enforced',
+  'linkCrypto.blockedIdentityMissing':
+    'Local link identity is not initialized: requiring encryption would reject every non-loopback peer, so nothing was written. Initialize the host link identity and reopen this page.',
+  'linkCrypto.blockedWsUnsupported':
+    'This host does not support frame-level link encryption for WS: the required policy cannot cover WS endpoints (WS stays plaintext), so nothing was written and nothing is shown as encrypted. Upgrade the host.',
   'linkCrypto.fingerprint': 'Local Fingerprint',
   'linkCrypto.fingerprintDesc':
     'Local identity key fingerprint (first 16 hex of SHA-256); compare manually with the mobile end',
-  'linkCrypto.saved': 'Link encryption policy updated',
-  'linkCrypto.saveFailed': 'Failed to save link encryption policy',
-  'linkCrypto.wsNotEncrypted':
-    'This host does not support frame-level link encryption for WS endpoints (older build); the policy applies to HTTP only, and WS traffic stays plaintext. Upgrade the host to encrypt WS frames.',
   'linkCrypto.capabilityMissing':
     'This host does not support app-scoped link encryption settings (older version); upgrade the host before relying on encryption.',
 
