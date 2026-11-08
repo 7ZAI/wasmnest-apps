@@ -2,7 +2,7 @@
 
 - **落仓**：`7ZAI/wasmnest-lib`（WIT 真源仓；契约类）
 - **标签**：`kind:contract`
-- **阶段**：P2 ｜ **依赖**：T02 ｜ **状态**：实现已提交（能力仓 `8e21f9a` / 平台仓 `816e828b`）；GitHub issue 待提交（gh 未认证）
+- **阶段**：P2 ｜ **依赖**：T02 ｜ **状态**：实现已提交（能力仓 `8e21f9a` / 平台仓 `816e828b` / 应用仓 `f0c0ff2a`；文档 `c05cf69c`/`baee1bdd`）；GitHub issue 待提交（gh 未认证）
 - **设计依据**：§4.6（方案 B）、§5.1
 
 ## 需求描述
@@ -53,6 +53,8 @@
 - 能力仓提交面（干净检出 `8e21f9a`）：peer-net `cargo test --lib` **247 passed**；`--features common-host` **248**；`--features common-host,relay` **248**；`cargo fmt --check` 绿。p2p-engine `cargo test --lib` **42**、`--features relay` **45 + 1 ignored**、`fmt --check` 绿。
 - 新增锁：候选表顺序/空表/非法项点名（3）、`peer-connected` 事件 transport 携带/未知省略（2）、句柄多候选顺序记忆（1）、双节点「首候选不可达 → 次候选连通 + `lan-direct`」真实拨号（1）、绑定层权限/JSON/空表/非法候选/顺序保留（5）、resume 句柄候选表断言。
 - 双端 app：file-transfer 桌面 `pnpm run build` 全量绿（wasmHash `2518753d…d79f`）；移动共享 rust + 组件化 + 复制进资源目录绿（同一 wasm 产物）。移动 `--frontend-only` 因 app 内 `@binblink/wasmnest-plugin-sdk-mobile/dist` 未构建而失败（`vite-plugin.js` 缺失，环境缺口）；WIT/ABI 判据以共享 wasm 构建为准，桌面 full build 已覆盖前端链。
+- 测试替身同步（应用仓 `f0c0ff2a`）：双端 SDK `HostPeer` 新增方法后，file-transfer 4 处与 auth-center 2 处 native mock 补 `peer_dial_addrs` 占位；file-transfer `cargo test` **93 passed**（native）。bedcode 两处 mock 由并行 T06 会话同步。auth-center 的 native 测试**本就编译不过**（mock 的 `peer_start_node` 仍是无参旧签名、缺 `peer_collect_outgoing`，与 T11 无关），本票只补新方法，不代修旧漂移。
+- 双端宿主装配：平台桌面 `cargo check --lib` 与移动 `cargo check --lib` 均绿（移动 1 条既有 warning）——证明 compose 重拼后的 WIT 与宿主装配一致。
 - 组件导入面：`dial-peer-addrs` 未被 file-transfer 调用，组件化后按 Component Model import 子集被裁剪（旧产物可继续实例化）；T12 接入后自动进入 import 面，须按当时 SDK 重建。
 
 **未做 / 风险**
