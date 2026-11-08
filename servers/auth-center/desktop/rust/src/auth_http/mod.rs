@@ -267,6 +267,17 @@ fn handle_verify(host: &WasmHost, body: &serde_json::Value, face: &PeerFace) -> 
             }
         };
 
+    // T07：配对成功先落传输层信任——隧道准入的 `matched` 判据就是这张信任表；
+    // 不写它，第二次连隧道仍按「未匹配」拒绝（一次性票据窗口只在配对时有效）。
+    // 顺序刻意在记录之前：记录写成功而信任写失败会留下「幽灵记录」（用户在设备
+    // 列表看到已配对、隧道却永远不放行，只能手动撤销）；反过来信任先落，即使记录
+    // 失败也可经 peer 信任列表撤销，不会产生不可管理的四分裂终态（M2）。
+    if let Some(node_id) = face.peer_node_id.as_deref() {
+        if let Err(e) = host.peer_trust_node(node_id, Some(device_name.as_str())) {
+            host.log_error(&format!("auth http: peer trust write failed: {e}"));
+            return error_response(CODE_TOKEN_FAILURE, "Failed to establish trusted peer link");
+        }
+    }
     // 记录/更新配对设备（publicKey 缺省 = 保留既有值；展示名与宿主同构）
     let display_name = format_device_display_name(&device_name, &address);
     if let Err(e) = trusted_device_upsert(
@@ -279,18 +290,10 @@ fn handle_verify(host: &WasmHost, body: &serde_json::Value, face: &PeerFace) -> 
         face.peer_node_id.as_deref(),
     ) {
         host.log_warn(&format!("auth http: pairing record failed: {e}"));
-        // 有已验证 nodeId 时记录写失败是致命的：撤销级联依赖这条记录，先落信任
-        // 再丢掉记录会让「撤销设备」找不到要撤销的节点（T07/T08）
+        // 有已验证 nodeId 时记录写失败是致命的：撤销级联依赖这条记录；信任已落，
+        // 用户仍可在 trust 列表撤销该节点（失败可见，不静默）
         if face.peer_node_id.is_some() {
             return error_response(CODE_TOKEN_FAILURE, "Failed to record paired device");
-        }
-    }
-    // T07：配对成功落传输层信任——隧道准入的 `matched` 判据就是这张信任表；
-    // 不写它，第二次连隧道仍按「未匹配」拒绝（一次性票据窗口只在配对时有效）
-    if let Some(node_id) = face.peer_node_id.as_deref() {
-        if let Err(e) = host.peer_trust_node(node_id, Some(device_name.as_str())) {
-            host.log_error(&format!("auth http: peer trust write failed: {e}"));
-            return error_response(CODE_TOKEN_FAILURE, "Failed to establish trusted peer link");
         }
     }
     let _ = connection_history_record(
@@ -360,6 +363,13 @@ fn handle_qr_connect(host: &WasmHost, body: &serde_json::Value, face: &PeerFace)
         };
 
     let display_name = format_device_display_name(&device_name, &address);
+    // T07：信任先于记录写（M2：避免「记录已落、信任未写」的幽灵设备）。
+    if let Some(node_id) = face.peer_node_id.as_deref() {
+        if let Err(e) = host.peer_trust_node(node_id, Some(device_name.as_str())) {
+            host.log_error(&format!("auth http: peer trust write failed: {e}"));
+            return error_response(CODE_TOKEN_FAILURE, "Failed to establish trusted peer link");
+        }
+    }
     if let Err(e) = trusted_device_upsert(
         host,
         &display_name,
@@ -370,18 +380,9 @@ fn handle_qr_connect(host: &WasmHost, body: &serde_json::Value, face: &PeerFace)
         face.peer_node_id.as_deref(),
     ) {
         host.log_warn(&format!("auth http: pairing record failed: {e}"));
-        // 有已验证 nodeId 时记录写失败是致命的：撤销级联依赖这条记录，先落信任
-        // 再丢掉记录会让「撤销设备」找不到要撤销的节点（T07/T08）
+        // 信任已落：记录失败时用户仍可在 trust 列表撤销（不让失败静默）
         if face.peer_node_id.is_some() {
             return error_response(CODE_TOKEN_FAILURE, "Failed to record paired device");
-        }
-    }
-    // T07：配对成功落传输层信任——隧道准入的 `matched` 判据就是这张信任表；
-    // 不写它，第二次连隧道仍按「未匹配」拒绝（一次性票据窗口只在配对时有效）
-    if let Some(node_id) = face.peer_node_id.as_deref() {
-        if let Err(e) = host.peer_trust_node(node_id, Some(device_name.as_str())) {
-            host.log_error(&format!("auth http: peer trust write failed: {e}"));
-            return error_response(CODE_TOKEN_FAILURE, "Failed to establish trusted peer link");
         }
     }
     let _ = connection_history_record(
