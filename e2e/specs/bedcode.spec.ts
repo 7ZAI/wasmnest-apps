@@ -498,13 +498,33 @@ describe('BedCode（桌面端 · 宿主内挂载）', () => {
     expectEqual((spacing?.gap ?? -1) >= 4, true, '图标与文字间隔 ≥4px')
   })
 
-  it('设置：四个业务分组全部渲染', async () => {
+  it('设置：六个业务分组全部渲染', async () => {
     await click('nav-settings')
     await waitFor('settings-view')
-    for (const key of ['appearance', 'pairing', 'linkCrypto', 'session']) {
+    for (const key of ['appearance', 'pairing', 'relay', 'linkCrypto', 'session']) {
       await waitFor(`settings-section-${key}`)
       expectEqual(await visible(`settings-section-${key}`), true, `设置分组 ${key} 可见`)
     }
+  })
+
+  it('中转服务器卡片：生成部署文本 / 非法导入显性报错 / 探测未装配不可伪装', async () => {
+    await click('nav-settings')
+    await waitFor('settings-view')
+    await waitFor('relay-settings-section')
+    expectEqual(await isDisabled('relay-probe-button'), true, '探测能力未装配时按钮禁用')
+    expectEqual(await visible('relay-probe-unsupported'), true, '未装配原因可见')
+
+    // 填写对外域名 → 生成 T13 交付物的 Compose 文本（不依赖机器状态）
+    expectEqual(await typeInto('relay-deploy-advertise', 'relay.example.com'), true, '对外域名可输入')
+    await waitForText('relay-deploy-output', 'relay.example.com')
+    await waitForText('relay-deploy-output', 'ghcr.io/7zai/wasmnest-relay')
+    await waitForText('relay-deploy-output', '4001')
+
+    // 非法载荷 → 显性报错，不写配置
+    expectEqual(await typeInto('relay-import-input', 'hello world'), true, '导入输入框可用')
+    await click('relay-import-submit')
+    await waitFor('relay-import-error')
+    expectEqual(await exists('relay-current'), false, '非法载荷不写入配置')
   })
 
   it('服务器诊断页：分区、端口和高级配置折叠可用（不写端口）', async () => {

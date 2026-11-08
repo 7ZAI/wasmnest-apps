@@ -594,25 +594,28 @@ describe('C5 静态侧边栏菜单表与设置分组表（D3/D4）', () => {
     expect(sidebarMenuItems[6].labelKey).toBe('sidebar.settings')
   })
 
-  it('设置分组 = 静态表：业务五分组、order 升序、带标题 key（平台分组归宿主系统页）', () => {
+  it('设置分组 = 静态表：业务六分组、order 升序、带标题 key（平台分组归宿主系统页）', () => {
     const sorted = [...settingsSections].sort((a, b) => a.order - b.order)
     expect(sorted.map((s) => s.key)).toEqual([
       'appearance',
       'pairing',
+      'relay',
       'linkCrypto',
       'session',
       'appUpdate',
     ])
-    expect(sorted.map((s) => s.order)).toEqual([100, 200, 300, 400, 500])
+    expect(sorted.map((s) => s.order)).toEqual([100, 200, 250, 300, 400, 500])
     // 业务分组携带标题 key（仅正文组件，外壳由设置页统一渲染）
     expect(sorted[0].titleKey).toBe('appearance.settings.title')
     expect(sorted[1].titleKey).toBe('pairing.settings.title')
-    expect(sorted[2].titleKey).toBe('linkCrypto.title')
-    expect(sorted[3].titleKey).toBe('session.settings.title')
-    expect(sorted[4].titleKey).toBe('settings.appUpdate.title')
+    expect(sorted[2].titleKey).toBe('relay.title')
+    expect(sorted[3].titleKey).toBe('linkCrypto.title')
+    expect(sorted[4].titleKey).toBe('session.settings.title')
+    expect(sorted[5].titleKey).toBe('settings.appUpdate.title')
     expect(SECTION_ORDERS).toEqual({
       appearance: 100,
       pairing: 200,
+      relay: 250,
       linkCrypto: 300,
       session: 400,
       appUpdate: 500,

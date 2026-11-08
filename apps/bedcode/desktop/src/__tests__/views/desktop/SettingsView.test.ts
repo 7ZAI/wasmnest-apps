@@ -27,10 +27,11 @@ vi.mock('@tauri-apps/api/event', () => ({
   listen: vi.fn(async () => () => {}),
 }))
 
-/** 业务分组的标题序列（顺序与静态表一一对应：外观 100 → 配对 200 → 链路加密 300 → 会话 400 → 版本更新 500） */
+/** 业务分组的标题序列（顺序与静态表一一对应：外观 100 → 配对 200 → 中转服务器 250 → 链路加密 300 → 会话 400 → 版本更新 500） */
 const SECTION_TITLES = [
   i18n.global.t('com.wasmnest.bedcode.appearance.settings.title'),
   i18n.global.t('com.wasmnest.bedcode.pairing.settings.title'),
+  i18n.global.t('com.wasmnest.bedcode.relay.title'),
   i18n.global.t('com.wasmnest.bedcode.linkCrypto.title'),
   i18n.global.t('com.wasmnest.bedcode.session.settings.title'),
   i18n.global.t('com.wasmnest.bedcode.settings.appUpdate.title'),
@@ -90,7 +91,7 @@ afterEach(() => {
 })
 
 describe('SettingsView 业务分组渲染', () => {
-  it('渲染五个应用分组，标题序列 = order 升序（外观 → 配对 → 链路加密 → 会话 → 版本更新）', async () => {
+  it('渲染六个应用分组，标题序列 = order 升序（外观 → 配对 → 中转服务器 → 链路加密 → 会话 → 版本更新）', async () => {
     const wrapper = await mountView()
     expect(titles(wrapper)).toEqual(SECTION_TITLES)
   })

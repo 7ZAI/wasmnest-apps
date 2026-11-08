@@ -44,6 +44,8 @@ describe('插件 i18n 键集', () => {
       'server.',
       'sidebar.',
       'linkCrypto.',
+      // 中转服务器（T14）：部署文本 / 地址导入 / 连通性
+      'relay.',
       'notFound.',
       'settings.',
     ]

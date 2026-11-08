@@ -18,12 +18,14 @@ import AppearanceSettingsSection from '@/components/AppearanceSettingsSection.vu
 import AppUpdateSettingsSection from '@/components/AppUpdateSettingsSection.vue'
 import LinkCryptoSettingsSection from '@/components/LinkCryptoSettingsSection.vue'
 import PairingSettingsSection from '@/components/PairingSettingsSection.vue'
+import RelaySettingsSection from '@/components/RelaySettingsSection.vue'
 import SessionSettingsSection from '@/components/SessionSettingsSection.vue'
 
-/** 业务分组排序槽位（沿用旧贡献面槽位：外观 100 / 配对 200 / 链路加密 300 / 会话 400） */
+/** 业务分组排序槽位（沿用旧贡献面槽位：外观 100 / 配对 200 / 中转服务器 250 / 链路加密 300 / 会话 400） */
 export const SECTION_ORDERS = {
   appearance: 100,
   pairing: 200,
+  relay: 250,
   linkCrypto: 300,
   session: 400,
   appUpdate: 500,
@@ -51,6 +53,12 @@ export const settingsSections: Omit<SettingsSectionEntry, 'props'>[] = [
     order: SECTION_ORDERS.pairing,
     component: PairingSettingsSection,
     titleKey: 'pairing.settings.title',
+  },
+  {
+    key: 'relay',
+    order: SECTION_ORDERS.relay,
+    component: RelaySettingsSection,
+    titleKey: 'relay.title',
   },
   {
     key: 'linkCrypto',
