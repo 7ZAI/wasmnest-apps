@@ -41,7 +41,7 @@
 
 | 变更 | 真源仓 | Ticket |
 | --- | --- | --- |
-| `host-tunnel` WIT interface（expose/unexpose/connect/close/issue-pairing-ticket/status；connect 带 `pairing-ticket: option<string>`） | 能力仓（包归属待裁定 §9.2#8） | T05 |
+| `host-tunnel` WIT interface（expose/unexpose/connect/close/issue-pairing-ticket/status；connect 带 `pairing-ticket: option<string>`） | 能力仓（**已裁定**落新 `wasmnest:tunnel@0.0.1` 独立包，§9.2#8） | T05 |
 | `/wasmnest/tunnel/1` 流协议（首帧 `u32be len \| JSON {v,port,kind,ticket?}`） | 能力仓 | T05 |
 | `peer-node-config` 增 `relay-addrs` / `enable-relay`（或宿主设置驱动） | 能力仓 | T02/T05 |
 | `dial-peer-addrs(endpoint-json)`（方案 B，旧 `dial-peer` 不动） | 能力仓 | T11 |
@@ -87,13 +87,26 @@ P2: T11(dial-peer-addrs) ─▶ T12(file-transfer) ─┐
 T17(存量 LAN 暴露)：独立，随时可开，不阻塞也不被阻塞
 ```
 
+**实施进度（2026-11-07）**：T01/T02 已在能力仓分支 `feat/nat-traversal` 落实现——`relay` feature（默认关闭）、
+reservation 建立/释放/退避重连、多地址拨号、`transport` / `relay` 事件词汇、relay 域名解析与 PeerId 钉住；
+native 双 feature 测试全绿、Android `cargo check` 绿且依赖树零 rustls/aws-lc/openssl-sys/quinn。T01 的
+「两台不同 NAT 真机」验收待补。T03 起当时未开始。详见 [T01](tickets/T01-p0-relay-poc.md) / [T02](tickets/T02-engine-relay-client.md) 的「实施记录」。
+
+**实施进度（2026-11-08 追加）**：T03 + T04 的**能力仓部分**已落地（未提交）——`RequestFace` 面标记（server-base）、`serve_peer_face` 只绑 loopback、`HttpCaller::Peer` / 线协议 `caller:"peer"`、`peerNodeId` / `pairing` 上下文、配对窗口路径白名单、链加密豁免判据改面标记（不变量 15 桌面侧 3 条测试锁）；四个 crate `cargo test` 全绿（39/48/90/49）、`common-host` 两形态 check 绿、应用仓桥接门禁锁绿。T03 的宿主生命周期接线在 T06，T04 的移动侧代理判据 + 测试锁在 T09（事实核查：移动宿主当前无「环回跳过」逻辑）。详见 [T03](tickets/T03-peer-http-face.md) / [T04](tickets/T04-crypto-exemption-face-flag.md) 实施记录。
+
+**实施进度（2026-11-08 追加 2，T05 两轮）**：T05 的**能力仓契约真源 + 流机制**已落地（未提交）——独立包 `wasmnest:tunnel@0.0.1` WIT 分片（六原语）、`/wasmnest/tunnel/1` 首帧/响应线协议、暴露规则与准入（不变量 2/8/16）、一次性配对票据（不变量 4，LAN/relay 双路径）、配对连接注册表（接 T03 `PeerFaceResolver`）、只绑 loopback 的本地代理（不变量 1）；续作补服务端 `TunnelServer::handle_stream`（首帧裁决 → 后端连接 → face 登记 → 响应 → pipe → 清窗口）、客户端 `open_tunnel_stream` / `ClientConnector`（响应只认 `caller=peer`）、pipe 的字节配额 / 空闲回收 / WS Upgrade 保活，并修复 `read_from` 重复解帧缺陷。隧道模块 40 条单测全绿、`wasmnest-server-peer-net` 全量 177 绿、`wasmnest-p2p-engine` 双形态 45/42 绿、`common-host` check 绿、双 crate `cargo fmt --check` 绿、零平台引用锁补跑 1 passed（磁盘清理后）。**未落地**：WIT provider 绑定、tunnel 流接收器与引擎拨号接线、`connect`/`close` 句柄表、事件词表、平台 compose 重拼与产物重建，归 T06；[T05](tickets/T05-host-tunnel-contract.md) 的验收项仍全部未勾选，禁止把「机制已锁」当作整票完成。
+
+**实施进度（2026-11-08 追加 2）**：T17（存量 LAN 暴露，独立于穿透）已实施——`task-status` / `session-mode` 两条免凭证端点加调用方门禁（`localhost`；`session-mode` 另认已验签 `device`），两条都放行隧道对等面 `peer`（授权在隧道 ACL，§0.4）；`terminal-bg` 不收紧并留残余风险记录（宿主静态路由，壁纸无敏感信息）。`cargo test --lib` 1012 passed、wasm release 构建绿。详见 [T17](tickets/T17-lan-exposure-authnone.md) 实施记录。
+
+**实施进度（2026-11-08 追加 3）**：T13（`wasmnest-relay` 一键包）代码与交付物已落地（能力仓分支 `feat/relay-oneclick`）——libp2p Circuit Relay v2 服务端（HOP 显式开启）+ 配额（默认单 circuit 1 GiB / 1 小时，对齐 1GB 验收）+ 只绑回环的指标端点 + `open`/`allowlist` 准入 + 一次性 enrollment token（只落 sha256）+ `/wasmnest/relay-control/1` 控制协议 + `init`/`run`/`doctor`/`print-addrs`/`token create`；部署侧 `deploy/relay/`（Dockerfile / Compose / install.sh + systemd unit / 示例配置 / 运维手册）。127 条单测绿（含经 relay 建 circuit 并转发字节的端到端用例、白名单拒绝、端口/指标占用失败清场），`cargo build --release` + `run` 实跑通过。**未验证**：镜像/静态 musl 构建（本机无法访问 registry 与 crates.io）与真机跨网（归 T15）。平台仓已登记 `SCANNED_CRATES`（未提交）。详见 [T13](tickets/T13-relay-oneclick.md)。
+
 | Ticket | 阶段 | 落仓（issue 真源仓） | 主题 | 依赖 |
 | --- | --- | --- | --- | --- |
 | [T01](tickets/T01-p0-relay-poc.md) | P0 | wasmnest-lib | relay PoC + Android 依赖树验证 | — |
 | [T02](tickets/T02-engine-relay-client.md) | P1 | wasmnest-lib | p2p-engine relay client / reservation / 多地址 / 事件 | T01 |
 | [T03](tickets/T03-peer-http-face.md) | P1 | wasmnest-lib | `HttpCaller::Peer` + 对等面 listener（安全测试先行） | — |
 | [T04](tickets/T04-crypto-exemption-face-flag.md) | P1 | wasmnest-lib（平台联动） | 双端链加密豁免判据改面标记（不变量 15） | T03 |
-| [T05](tickets/T05-host-tunnel-contract.md) | P1 | wasmnest-lib | `host-tunnel` WIT + tunnel 流 + ACL/票据/配对窗口 | T02、T03；**开工前需裁定 §9.2#8/#2** |
+| [T05](tickets/T05-host-tunnel-contract.md) | P1 | wasmnest-lib | `host-tunnel` WIT + tunnel 流 + ACL/票据/配对窗口 | T02、T03；§9.2#8 已裁定，§9.2#2 按 §6 默认口径 |
 | [T06](tickets/T06-platform-assembly.md) | P1 | wasmnest | 权限/compose/SDK/双端装配/租约引用计数/模式判定 | T05 |
 | [T07](tickets/T07-bedcode-desktop.md) | P1 | wasmnest-apps | bedcode 桌面 expose + 固定 required + 信任/撤销 | T06、T08（接口对齐） |
 | [T08](tickets/T08-auth-center-qr-v2.md) | P1 | wasmnest-apps | auth-center QR v2 + 票据透传 + peerNodeId | T06 |
@@ -118,7 +131,7 @@ T17(存量 LAN 暴露)：独立，随时可开，不阻塞也不被阻塞
 | 5 | 6 位码远程配对 | v1 不做（仅 LAN）；坚持则单独 PAKE 评估 ticket | 范围外 |
 | 6 | desktop↔desktop | 不做（桌面服务端 + 移动客户端） | 范围外 |
 | 7 | 移动后台接收 | 不做（前台接收 + 前台服务保活） | T12 |
-| 8 | `host-tunnel` WIT 归属 | **无默认，开工前必须裁定**：`wasmnest:peer` 新 interface vs 新 `wasmnest:tunnel` 包 | T05 **阻塞** |
+| 8 | `host-tunnel` WIT 归属 | **已裁定（2026-11-07，用户）**：新开 `wasmnest:tunnel` 包独立演进（与 `wasmnest:peer` 解耦）；T05 按此落地 | T05 解阻 |
 
 另：T14 落点 app（候选 bedcode desktop 设置页）开工前确认；§0.4 裁定用户可否决（否决则 T05/T07 返工）。
 
@@ -138,5 +151,8 @@ T17(存量 LAN 暴露)：独立，随时可开，不阻塞也不被阻塞
 ## 8. 风险与跟踪
 
 - 风险全文见设计 §9.1（12 项）；最高优先：#6 对等面平台改动 + 面标记判据（T03/T04）、#7 契约面扩散（T05/T06 版本纪律）、#9 强制加密破旧客户端（T07/T09 升级提示）。
+- **跨任务冲突（2026-11-08 已消解）**：原记录风险为 T17 在途代码收紧 `task-status` / `session-mode` 门禁后会拒绝 `caller=peer`。核查当前实现：T17 已实施，`caller_allowed_for_none_auth` 两条端点均显式放行 `CALLER_PEER`（测试锁覆盖），与 §0.4 一致；详见 §5 T17 进度与 [T17](tickets/T17-lan-exposure-authnone.md)。剩余工作为 T10 E2E 用真机跨网复核「已匹配 peer 可达 + run-\* 仍 403」，无需再裁定 §0.4。
+- **证据漂移（2026-11-08）**：设计附录 B 若干行号 / 路径与当前代码不符（环回豁免位置、移动 `ws.rs` 路径与行为、链加密策略非三态枚举）；已登记于设计文档附录 C，后续 ticket 按代码真源实施。
+- **基线漂移（2026-11-08，T06 前必须裁定）**：三仓 nat 工作树基于 `feat/file-transfer-refactor`（能力仓单包 `wasmnest:plugin@0.0.2` + 平台 compose v1），而各仓 `dev` 已升级多包（`wasmnest:peer@0.0.1` / `wasmnest:plugin@0.1.0` + compose v2）。已裁定的 `wasmnest:tunnel` 独立包分片在旧 compose v1 下无法拼装进端生成物，T05 本轮只落能力仓真源与机制；T06 必须先对齐基线 / 升级 compose，否则契约半落地。本轮不擅自 rebase T01–T05 在途改动。
 - 方案本身**待复审**：本 spec 与 tickets 在复审通过前不实施；复审若推翻 §0.4 或面标记裁定，回改 T03/T04/T05/T07。
 - tickets 提交 GitHub 后，本文 §5 表格与 ticket 头部的本地编号替换为 issue 编号；依赖关系用 GitHub native issue dependencies 维护（不可用时退回 `Blocked by:` 行）。
