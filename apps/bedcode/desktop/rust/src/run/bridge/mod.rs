@@ -576,6 +576,10 @@ mod tests {
         assert!(caller_allowed("localhost"), "本机扩展（环回档）必须放行");
         assert!(!caller_allowed("device"), "已验签远端设备不是桥接消费方");
         assert!(!caller_allowed("anonymous"), "局域网匿名调用必须拒绝（H3）");
+        assert!(
+            !caller_allowed("peer"),
+            "对等 HTTP/WS 面的隧道流量即便是 127.0.0.1 也一律拒绝（不变量 3）"
+        );
         assert!(!caller_allowed(""), "宿主未传档 = fail-closed");
         assert!(!caller_allowed("localhost "), "档位逐字匹配，不容空白");
     }
