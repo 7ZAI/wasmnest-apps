@@ -4,6 +4,8 @@
 - **标签**：`kind:feature`、`cross-repo`
 - **阶段**：P1 ｜ **依赖**：T05（WIT 定稿）｜ **状态**：待提交 GitHub（gh 未认证）
 - **设计依据**：§4.2（地址解析）、§4.8、§4.9、§5.1/§5.2、§8 P1 顺序 4
+- **开工前阻断（2026-11-08 登记）**：nat 基线仍是单包 `wasmnest:plugin@0.0.2` + 平台 compose v1，而 T05 已落 `wasmnest:tunnel@0.0.1` 独立包分片，旧 compose 无法拼装。须先对齐 nat 线到多包基线（或升级 compose v2）并新建平台 `feat/nat-traversal` 工作树，才可做权限词汇 / 重拼 / `witSha256` / 全量重建。详见 [T05](T05-host-tunnel-contract.md) 实施记录与 spec §8。
+- **装配已具备的机制面（2026-11-08）**：T05 已提供 `TunnelServer::handle_stream` / `TunnelPolicy` / `TicketIssuer` / `PairingRegistry::resolver()` / `ClientConnector` / `BackendConnector` / `TunnelStreamOpener` / `PipeLimits`，宿主只需注入实际端口与信任表、注册 `TUNNEL`（`require_admitted=false`）、实现引擎拨号与句柄表，不重复实现安全判定。
 
 ## 需求描述
 
