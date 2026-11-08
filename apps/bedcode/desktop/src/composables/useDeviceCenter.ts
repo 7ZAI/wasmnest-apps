@@ -63,6 +63,12 @@ export interface QrConnectionInfo {
   remainingSecs: number
   /** T08：宿主隧道状态投影；缺省 = 后端尚未提供，载荷保持 v1 */
   peer?: PairingPeerInfo | null
+  /**
+   * T08：`peer` 生产失败的显性原因（后端不产出残缺 `peer` 时给出）
+   *
+   * 非空 = 载荷退回 v1（仅内网可配对），界面必须展示原因，不得静默当作「正常」。
+   */
+  peerError?: string | null
 }
 
 /** 插件存储键：用户选择的对外 IP（宿主 `AppConfig.network.qr_host` 的插件侧承接） */
@@ -111,6 +117,13 @@ export function useDeviceCenter(context: PluginContext) {
   const isQrLoading = ref(false)
   /** 载荷组装失败原因（peer 信息残缺 / 地址不可拨号）；null = 无错误 */
   const qrError = ref<PairingPayloadErrorReason | null>(null)
+  /**
+   * 隧道 `peer` 生产失败原因（T08）
+   *
+   * 与 `qrError` 分开：`qrError` = 载荷残缺导致**不能出码**（阻断）；
+   * `qrPeerError` = 隧道不可用导致**退回 v1**（可继续扫，只是仅内网可达）。
+   */
+  const qrPeerError = computed(() => qrData.value?.peerError ?? null)
   const hasQr = computed(() => qrData.value !== null && qrRemainingSeconds.value > 0)
 
   // ==================== 设备列表 ====================
@@ -484,6 +497,7 @@ export function useDeviceCenter(context: PluginContext) {
     qrRemainingSeconds,
     isQrLoading,
     qrError: qrError as Ref<PairingPayloadErrorReason | null>,
+    qrPeerError,
     hasQr: hasQr as ComputedRef<boolean>,
     generateQr,
     restoreQr,

@@ -196,6 +196,20 @@ export type MessageSchema = {
   'pairing.qr.copyLinkDone': string
   'pairing.qr.copyLinkFailed': string
 
+  // ==================== 隧道状态栏（T07） ====================
+  'pairing.tunnel.title': string
+  'pairing.tunnel.direct': string
+  'pairing.tunnel.relay': string
+  'pairing.tunnel.ready': string
+  'pairing.tunnel.lanUnreachable': string
+  'pairing.tunnel.relayUnavailable': string
+  'pairing.tunnel.wanOff': string
+  'pairing.tunnel.offline': string
+  'pairing.tunnel.unavailable': string
+  'pairing.tunnel.encryption': string
+  'pairing.tunnel.encryptionHint': string
+  'pairing.tunnel.onlyLan': string
+
   // ==================== 设备列表 ====================
   'pairing.device.sectionOnline': string
   'pairing.device.sectionOffline': string

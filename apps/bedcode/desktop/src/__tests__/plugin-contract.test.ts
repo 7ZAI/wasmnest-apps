@@ -125,6 +125,9 @@ describe('C1 工程身份五处一致', () => {
       'task:run',
       'terminal:input',
       'timer:schedule',
+      // T06/T07：host-tunnel 服务端原语（expose / unexpose / issue-pairing-ticket）。
+      // 桌面是被访问方，不声明 tunnel:connect（声明即越权）。
+      'tunnel:serve',
       'ui:input',
       'ui:settings',
       'ui:sidebar',

@@ -138,6 +138,25 @@
             <span class="wb-mono text-[calc(12px*var(--ui-scale))] text-[var(--text-primary)]">{{
               port
             }}</span>
+            <span class="text-[var(--border)]">·</span>
+            <!-- T07：传输模式（内网直连 / 外网中继 / 不可达 / 离线），只读投影 -->
+            <span
+              data-testid="pairing-tunnel-status"
+              class="inline-flex items-center gap-1.5 text-[calc(12px*var(--ui-scale))]"
+              :class="tunnelToneClass"
+              :title="tunnel.summary.value.detail || t('pairing.tunnel.title')"
+            >
+              <span class="w-1.5 h-1.5 rounded-full" :class="tunnelDotClass"></span>
+              {{ tunnelLabel }}
+            </span>
+            <!-- 加密是常量事实（不变量 12/14）：没有关闭入口，故只显示徽标 -->
+            <span
+              data-testid="pairing-tunnel-encryption"
+              class="inline-flex items-center px-1.5 h-5 rounded-[6px] bg-[var(--color-success-light)] text-[var(--color-success)] text-[calc(11px*var(--ui-scale))]"
+              :title="t('pairing.tunnel.encryptionHint')"
+            >
+              {{ t('pairing.tunnel.encryption') }}
+            </span>
             <span
               v-if="addresses.length === 0"
               class="text-[calc(12px*var(--ui-scale))] text-[var(--text-tertiary)] ml-auto"
@@ -290,6 +309,15 @@
                 >
                   {{ t('pairing.qr.copyLink') }}
                 </button>
+                <!-- T08：隧道 peer 未产出 → 载荷为 v1（仅内网），原因必须可见 -->
+                <p
+                  v-if="qrPeerError"
+                  data-testid="pairing-qr-peer-error"
+                  class="mt-2 text-[calc(11px*var(--ui-scale))] text-[var(--color-warning)] leading-relaxed"
+                  :title="qrPeerError"
+                >
+                  {{ t('pairing.tunnel.onlyLan') }}
+                </p>
               </template>
               <template v-else>
                 <div
@@ -565,6 +593,7 @@ import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-desktop'
 import { sharedRouter } from '../utils/route'
 import PluginModal from './PluginModal.vue'
 import { useDeviceCenter } from '../composables/useDeviceCenter'
+import { useTunnelStatus } from '../composables/useTunnelStatus'
 
 const context = inject<PluginContext>('pluginContext')!
 const { t } = context.i18n
@@ -582,6 +611,7 @@ const {
   isQrLoading,
   hasQr,
   qrError,
+  qrPeerError,
   generateQr,
   restoreQr,
   clearQr,
@@ -626,6 +656,63 @@ const qrErrorText = computed(() => {
       return t('pairing.qr.errorPeerAddressInvalid')
     default:
       return ''
+  }
+})
+
+// ==================== 隧道状态（T07） ====================
+//
+// 状态真源 = 宿主 `host-tunnel.status`（§4.9 判定全在宿主，本端只读）。
+// `prepare` 会幂等地写通道配置 + 暴露本机 HTTP 面，页面进入时调一次即可。
+const tunnel = useTunnelStatus(context)
+
+/**
+ * 状态文案（显式映射，不拼 key：`plugin-contract` C6 静态检查字面量 key）
+ */
+const tunnelLabel = computed(() => {
+  switch (tunnel.summary.value.key) {
+    case 'direct':
+      return t('pairing.tunnel.direct')
+    case 'relay':
+      return t('pairing.tunnel.relay')
+    case 'ready':
+      return t('pairing.tunnel.ready')
+    case 'lanUnreachable':
+      return t('pairing.tunnel.lanUnreachable')
+    case 'relayUnavailable':
+      return t('pairing.tunnel.relayUnavailable')
+    case 'wanOff':
+      return t('pairing.tunnel.wanOff')
+    case 'offline':
+      return t('pairing.tunnel.offline')
+    default:
+      return t('pairing.tunnel.unavailable')
+  }
+})
+
+/** 状态点 / 文字配色（语气 → token；warning 用文字色混合保证对比度） */
+const tunnelToneClass = computed(() => {
+  switch (tunnel.summary.value.tone) {
+    case 'success':
+      return 'text-[var(--color-success)]'
+    case 'warning':
+      return 'text-[var(--color-warning)]'
+    case 'danger':
+      return 'text-[var(--color-danger)]'
+    default:
+      return 'text-[var(--text-tertiary)]'
+  }
+})
+
+const tunnelDotClass = computed(() => {
+  switch (tunnel.summary.value.tone) {
+    case 'success':
+      return 'bg-[var(--color-success)]'
+    case 'warning':
+      return 'bg-[var(--color-warning)]'
+    case 'danger':
+      return 'bg-[var(--color-danger)]'
+    default:
+      return 'bg-[var(--text-tertiary)]'
   }
 })
 
@@ -703,6 +790,8 @@ onActivated(() => {
   // KeepAlive 切回页面时刷新网络信息（端口）：服务器可能已在期间重启换端口，
   // 不刷新会继续显示旧端口（与 ServerView 的「保存端口 → 立即重启」配套）
   void loadNetwork()
+  // 隧道状态同样会过时（对端断开 / relay 掉线 / 换网）：切回时按只读面刷新
+  void tunnel.refresh()
 })
 
 /**
@@ -851,6 +940,8 @@ onMounted(async () => {
   }
   // 认证中心就位横幅（独立于数据加载：它自己处理失败，不弹 toast 扰动用户）
   await refreshCenterStatus()
+  // 隧道准备（写通道配置 + 暴露 HTTP 面，幂等）→ 状态栏；失败由 composable 收口
+  await tunnel.prepare()
   // 恢复既有 QR / 配对码（不重新生成，与宿主原页一致）
   await restoreQr(selectedHost.value || undefined)
   await restoreCode()

@@ -92,6 +92,9 @@ async function defaultExecute(command: string, args?: unknown): Promise<unknown>
       return { rotated: true, kid: 'g2', previousKid: 'g1' }
     case 'session.auth.center-status':
       return { registered: true, centerId: 'authc-1234' }
+    case 'session.tunnel.prepare':
+    case 'session.tunnel.status':
+      return seed.tunnel
     default:
       throw new Error(`unexpected command: ${command} (args=${JSON.stringify(args)})`)
   }
@@ -850,5 +853,56 @@ describe('DeviceCenterView（设备与配对页面）', () => {
     expect(wrapper.text()).not.toContain(`${seed.network.addresses[0]}:${seed.network.port}`)
     // 二维码载荷随新地址重组（token 不变）
     expect(commandsTo('session.qr.info').at(-1)![1]).toEqual({ host: '10.9.9.9' })
+  })
+
+  it('C27 隧道状态栏：宿主快照 → 传输模式文案 + 「已加密」常量徽标', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+
+    // prepare 只在进入页面时调一次（幂等写配置 + 暴露）
+    expect(commandsTo('session.tunnel.prepare')).toHaveLength(1)
+    expect(wrapper.find('[data-testid="pairing-tunnel-status"]').text()).toBe(
+      'pairing.tunnel.ready',
+    )
+    // 加密不可关闭：徽标是常量事实，不是开关
+    const badge = wrapper.find('[data-testid="pairing-tunnel-encryption"]')
+    expect(badge.text()).toBe('pairing.tunnel.encryption')
+    expect(badge.attributes('title')).toBe('pairing.tunnel.encryptionHint')
+  })
+
+  it('C28 隧道不可用：命令失败 → 显性「隧道不可用」，不退化成「就绪」', async () => {
+    execute.mockImplementation(async (command: string, args?: unknown) => {
+      if (command === 'session.tunnel.prepare' || command === 'session.tunnel.status') {
+        throw new Error('tunnel unavailable outside wasm runtime')
+      }
+      return defaultExecute(command, args)
+    })
+    const wrapper = mountView()
+    await flushPromises()
+
+    const strip = wrapper.find('[data-testid="pairing-tunnel-status"]')
+    expect(strip.text()).toBe('pairing.tunnel.unavailable')
+    expect(strip.attributes('title')).toBe('tunnel unavailable outside wasm runtime')
+  })
+
+  it('C29 peer 未产出：QR 退回 v1 并显示「仅内网」原因（不静默）', async () => {
+    execute.mockImplementation(async (command: string, args?: unknown) => {
+      if (command === 'session.qr.generate') {
+        // 后端不产出残缺 peer：只有 peerError
+        return { ...seed.qr, peerError: 'tunnel node addrs unavailable' }
+      }
+      return defaultExecute(command, args)
+    })
+    const wrapper = mountView()
+    await flushPromises()
+
+    await findButton(wrapper, 'pairing.qr.generate')!.trigger('click')
+    await flushPromises()
+
+    const hint = wrapper.find('[data-testid="pairing-qr-peer-error"]')
+    expect(hint.exists()).toBe(true)
+    expect(hint.text()).toBe('pairing.tunnel.onlyLan')
+    // 载荷仍是可用的 v1（能扫，只是仅内网）
+    expect(wrapper.find('[data-testid="pairing-qr-copy-link"]').exists()).toBe(true)
   })
 })

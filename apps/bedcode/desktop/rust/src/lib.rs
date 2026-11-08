@@ -99,6 +99,8 @@ pub mod sessions_http;
 /// 任务域（票 15-16）：Agent 集成与会话状态 + 队列/定时后端（见模块文档）
 pub mod task;
 mod trust;
+/// 内网穿透域（T07 / T08）：通道配置、HTTP 面对等暴露、配对 `peer` 生产
+mod tunnel;
 /// WS 会话控制域（票 09b/09c）：动作词表分派 + 声明端点帧协议
 mod ws_control;
 /// WS 业务事件广播出口（移动端适配专项票 02）：`session-control` 端点广播的
@@ -1541,6 +1543,25 @@ impl WasmPlugin for SessionPlugin {
                 Ok(serde_json::json!({ "cleared": true }))
             }
 
+            // ==================== 内网穿透（T07 / T08） ====================
+            // 通道配置 / 暴露规则 / 配对票据全部在宿主隧道管理器；这里只经
+            // `host-tunnel` 原语做应用侧编排（不新增产品语义到宿主）。
+
+            // 准备隧道（写通道配置 + 暴露本机 HTTP 面）→ 只读状态视图
+            "session.tunnel.prepare" => {
+                let port = device_face::network_port_via_host().map_err(anyhow::Error::msg)?;
+                tunnel::prepare_via_host(port).map_err(anyhow::Error::msg)
+            }
+
+            // 隧道只读状态（设备页状态栏；不做配置 / 暴露）
+            "session.tunnel.status" => tunnel::status_via_host().map_err(anyhow::Error::msg),
+
+            // 撤销暴露规则（幂等：未准备过 = {removed: false}）
+            "session.tunnel.unexpose" => {
+                let removed = tunnel::unexpose_via_host().map_err(anyhow::Error::msg)?;
+                Ok(serde_json::json!({ "removed": removed }))
+            }
+
             // 网络信息（端口 + 本机 IPv4）→ {port, addresses}
             "session.network.info" => {
                 device_face::network_info_via_host().map_err(anyhow::Error::msg)
@@ -2662,6 +2683,10 @@ mod tests {
                 "task:run".to_string(),
                 "terminal:input".to_string(),
                 "timer:schedule".to_string(),
+                // T06/T07（内网穿透）：`tunnel:serve` = host-tunnel 的
+                // expose / unexpose / issue-pairing-ticket（本端是服务端）；
+                // `tunnel:connect` 不声明——桌面不拨号，声明即越权。
+                "tunnel:serve".to_string(),
                 // 票 17：任务队列弹窗的终端工具栏入口（`ui.registerTerminalToolbarItem`
                 // 与 `ui.registerInputExtension` 同权限门），纯前端贡献面
                 // 会话引擎下沉 P1-b：`pty:spawn`/`pty:io` 按词汇表 apiMap 归位
