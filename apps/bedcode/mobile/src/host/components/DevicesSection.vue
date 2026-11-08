@@ -1227,14 +1227,13 @@ async function onQrConnect(): Promise<void> {
     // 只有传输层拨号改走回环代理，不能把 127.0.0.1 写进历史（重连会失效）。
     pendingDevice.value = device
 
-    // Step 1: 建立连接（扫码自带一次性 token：跳过「旧凭据静默换新」）
-    // QR v2 必须连隧道代理地址；`proxy === null`（旧载荷）时 target === device。
-    await ctrl.connectDevice(target, { silentAuth: false })
+    // Step 1: 配对窗口只放行 `/api/auth/*`——先只设目标（不探测、不建通道）。
+    // 否则 `/api/health` 会先消费隧道的一次性票据，真正的认证请求反而被
+    // `ticket-expired` 拒绝（C1）。认证成功（桌面写 trust）后宿主 supervisor
+    // 自动建立事件 WS，不需要再 `connectDevice` 一次。
+    await ctrl.connectDevice(target, { pairingOnly: true, silentAuth: false })
 
-    // Step 2: 等待连接建立完成（旧实现 200ms × 最多 10s 轮询，解决竞态）
-    await waitForConnected(10000)
-
-    // Step 3: 用 QR token 认证
+    // Step 2: 用 QR token 认证（HTTP `/api/auth/qr-connect`）
     const ok = await ctrl.authenticateWithQr(result.token)
     if (!ok) throw new Error(t('hub.scanQrExpired'))
     scanResult.value = null
@@ -1250,15 +1249,6 @@ async function onQrConnect(): Promise<void> {
   } finally {
     qrFlowActive = false
     showConnectLoading.value = false
-  }
-}
-
-/** 等传输层连上（旧 QR 路径轮询口径：200ms 一次，超时抛错） */
-async function waitForConnected(timeoutMs: number): Promise<void> {
-  const start = Date.now()
-  while (!ctrl.api.isConnected.value && !isAuthenticated.value) {
-    if (Date.now() - start > timeoutMs) throw new Error(t('hub.scanTimeout'))
-    await new Promise((resolve) => setTimeout(resolve, 200))
   }
 }
 

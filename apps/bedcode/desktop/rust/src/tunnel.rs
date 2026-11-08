@@ -328,16 +328,20 @@ pub fn pairing_peer_via_host(port: u16) -> Result<serde_json::Value, String> {
 }
 
 /// 撤销本应用的暴露规则（未准备过 = 幂等空操作，不凭空建一条再删）
+///
+/// 只在宿主确认撤销后清空 id：失败时保留，调用方（deactivate / 显式命令）
+/// 可以重试；提前 `take` 会把唯一句柄丢掉，规则随后永久泄漏。
 #[cfg(target_arch = "wasm32")]
 pub fn unexpose_via_host() -> Result<bool, String> {
-    let rule_id = EXPOSED_RULE
+    let mut guard = EXPOSED_RULE
         .lock()
-        .map_err(|e| format!("tunnel expose rule lock: {e}"))?
-        .take();
-    match rule_id {
-        Some(rule_id) => WasmHost.unexpose_rule(&rule_id),
-        None => Ok(false),
-    }
+        .map_err(|e| format!("tunnel expose rule lock: {e}"))?;
+    let Some(rule_id) = guard.as_ref() else {
+        return Ok(false);
+    };
+    let removed = WasmHost.unexpose_rule(rule_id)?;
+    *guard = None;
+    Ok(removed)
 }
 
 /// 准备隧道（native 无宿主环境）

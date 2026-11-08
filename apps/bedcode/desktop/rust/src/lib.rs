@@ -1177,6 +1177,14 @@ impl WasmPlugin for SessionPlugin {
     fn deactivate() -> anyhow::Result<()> {
         let host = WasmHost;
         host.log_info("WasmNest plugin deactivated");
+        // 隧道暴露面属于本插件：停用即撤规则，否则宿主侧租约 / relay 预留 /
+        // 对等面 listener 会一直挂到进程退出（H1）。失败只留痕（实例即将销毁，
+        // 不把停用流程打红）；成功时 `tunnel_unexpose` 会释放 net.tunnel 租约。
+        match tunnel::unexpose_via_host() {
+            Ok(true) => host.log_info("Tunnel expose rule revoked on deactivate"),
+            Ok(false) => {}
+            Err(e) => host.log_error(&format!("Tunnel expose cleanup on deactivate failed: {e}")),
+        }
         // ABI v29：路由回收依赖宿主停用 purge（同 host-websocket 先例）；
         // 此处留痕 + 状态自清（双保险）
         http_routes::unregister_all(&host);
@@ -2633,6 +2641,23 @@ mod tests {
         assert!(
             activate_body.contains("http_routes::register_all(&host);"),
             "activate 必须保留自身 HTTP 路由注册（本插件仍是业务 HTTP 面的属主）"
+        );
+    }
+
+    /// H1：deactivate 必须撤销隧道暴露规则（否则租约 / relay 预留 / 对等面泄漏）
+    #[test]
+    fn deactivate_revokes_tunnel_expose() {
+        let src = include_str!("lib.rs");
+        let start = src
+            .find("    fn deactivate() -> anyhow::Result<()> {")
+            .expect("deactivate fn found");
+        let end = src[start..]
+            .find("    /// 认证策略导出")
+            .map(|i| start + i)
+            .expect("deactivate 后的 verify_device_token_policy 文档锚点");
+        assert!(
+            src[start..end].contains("tunnel::unexpose_via_host()"),
+            "deactivate 必须撤销本插件的 expose 规则（H1）"
         );
     }
 

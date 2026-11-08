@@ -454,17 +454,24 @@ describe('C-C12 扫码 / 连接串走隧道本地代理（T09 阻断项回归锁
       'bedcode.tunnel-connect',
       expect.objectContaining({ nodeId: PEER_NODE_ID, port: 8765, kind: 'http' }),
     )
-    // 阻断项回归：必须连 127.0.0.1:<代理端口>，不能再直连原 host:port
-    expect(connectDevice).toHaveBeenCalledWith({
-      address: '127.0.0.1',
-      port: 45001,
-      name: 'Desktop',
-    })
-    expect(connectDevice).not.toHaveBeenCalledWith({
-      address: '10.0.0.9',
-      port: 8765,
-      name: 'Desktop',
-    })
+    // 阻断项回归：必须连 127.0.0.1:<代理端口>，不能再直连原 host:port；
+    // 配对模式只设目标，不探测（隧道配对窗口只放行 /api/auth/*）
+    expect(connectDevice).toHaveBeenCalledWith(
+      {
+        address: '127.0.0.1',
+        port: 45001,
+        name: 'Desktop',
+      },
+      { pairingOnly: true },
+    )
+    expect(connectDevice).not.toHaveBeenCalledWith(
+      {
+        address: '10.0.0.9',
+        port: 8765,
+        name: 'Desktop',
+      },
+      expect.anything(),
+    )
     expect(ctx.commands.execute).toHaveBeenCalledWith('bedcode.authenticate-with-qr', {
       token: 'one-shot',
     })
@@ -485,7 +492,10 @@ describe('C-C12 扫码 / 连接串走隧道本地代理（T09 阻断项回归锁
     const wrapper = await connectFromScan({ host: '10.0.0.9', port: 8765, token: 'one-shot' })
 
     expect(ctx.commands.execute).not.toHaveBeenCalledWith('bedcode.tunnel-connect', expect.anything())
-    expect(connectDevice).toHaveBeenCalledWith({ address: '10.0.0.9', port: 8765, name: 'Desktop' })
+    expect(connectDevice).toHaveBeenCalledWith(
+      { address: '10.0.0.9', port: 8765, name: 'Desktop' },
+      { pairingOnly: true },
+    )
     wrapper.unmount()
   })
 })

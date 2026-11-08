@@ -215,11 +215,18 @@ export function useHostPage(provided?: PluginContext) {
    */
   async function connectDevice(
     device: HostDeviceTarget,
-    options: { silentAuth?: boolean } = {},
+    options: { silentAuth?: boolean; pairingOnly?: boolean } = {},
   ): Promise<{ authenticated: boolean }> {
     deviceError.value = ''
     connectingName.value = device.name || device.address
     try {
+      // pairingOnly 由宿主壳实现：只写目标 + HTTP base，不探测（隧道配对窗口只
+      // 放行 /api/auth/*，探测会先消费一次性票据）。认证成功后事件 WS 由宿主
+      // supervisor 自动建立，不需要再连接一次。
+      if (options.pairingOnly) {
+        await api.connectDevice(device, { pairingOnly: true })
+        return { authenticated: false }
+      }
       await api.connectDevice(device)
       let authenticated = api.isPaired.value
       if (options.silentAuth !== false && !authenticated) {

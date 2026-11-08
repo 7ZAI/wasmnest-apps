@@ -266,6 +266,10 @@ fn qr_connection_info(
     match crate::tunnel::pairing_peer_via_host(tunnel_port) {
         Ok(peer) => {
             payload["peer"] = peer;
+            // 二维码倒计时必须反映真实的**最短**有效期：QR token（默认 300s）
+            // 与隧道票据（120s）不同寿，只按 token 展示会让用户在第 120s 后
+            // 扫到一张已失效的票据（M6）。peer 在生产失败时不出现，保持 v1 口径。
+            payload["remainingSecs"] = serde_json::Value::from(qr_remaining_secs(remaining, true));
         }
         Err(reason) => {
             // 不产出残缺 peer：退回 v1 载荷，但原因必须可见（前端据此提示仅内网）
@@ -273,6 +277,16 @@ fn qr_connection_info(
         }
     }
     Ok(payload)
+}
+
+/// QR 展示倒计时：存在隧道 `peer` 时不得超过票据 TTL（否则界面显示「仍有效」
+/// 而票据已过期）。纯函数，便于 native 单测锁定。
+pub fn qr_remaining_secs(token_remaining: u64, tunnel_peer: bool) -> u64 {
+    if tunnel_peer {
+        token_remaining.min(crate::tunnel::PAIRING_TICKET_TTL_SECS as u64)
+    } else {
+        token_remaining
+    }
 }
 
 // ==================== 已配对设备（活跃记录） ====================
@@ -495,6 +509,19 @@ mod tests {
             auth_setting_key("pairing_code_ttl"),
             None,
             "宿主键字面量不是前端键（映射是唯一转换点）"
+        );
+    }
+
+    /// M6：有隧道 `peer` 时倒计时取 token 与票据 TTL 的较小值
+    #[test]
+    fn qr_countdown_never_exceeds_pairing_ticket_ttl() {
+        let ticket_ttl = crate::tunnel::PAIRING_TICKET_TTL_SECS as u64;
+        assert_eq!(qr_remaining_secs(300, true), ticket_ttl);
+        assert_eq!(qr_remaining_secs(ticket_ttl - 1, true), ticket_ttl - 1);
+        assert_eq!(
+            qr_remaining_secs(300, false),
+            300,
+            "v1 载荷不受票据 TTL 限制"
         );
     }
 }
