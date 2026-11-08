@@ -2,7 +2,7 @@
 
 - **落仓**：`7ZAI/wasmnest-lib`（WIT 真源仓；契约类）
 - **标签**：`kind:contract`、`cross-repo`
-- **阶段**：P1 ｜ **依赖**：T02、T03 ｜ **状态**：待提交 GitHub（gh 未认证）；**能力仓契约真源 + 首帧/准入/票据/面标记/本地代理 + 服务端与客户端流机制已落地（2026-11-08 两轮，未提交），整票未验收**
+- **阶段**：P1 ｜ **依赖**：T02、T03 ｜ **状态**：待提交 GitHub（gh 未认证）；**能力仓契约真源 + 首帧/准入/票据/面标记/本地代理 + 服务端与客户端流机制已落地（2026-11-08 两轮，**已提交 `974c813`**），整票未验收**
 - **设计依据**：§4.1、§4.4、§5.1、不变量 1/2/4/8/16
 - **开工前裁定**：§9.2#8 **已裁定**（2026-11-07 用户：新开 `wasmnest:tunnel` 包独立演进，本票按此落地）；§9.2#2 未裁定，按 spec §6 默认口径「按设备 + 宿主全局信任现状」执行（用户可否决，否决则 T05/T07 返工）
 
@@ -43,7 +43,7 @@
 - 错误码词表按设计 §7.1（`not-matched` / `ticket-expired` / `port-not-exposed` / `tunnel-limit` 等）。
 - 不变量 16 的隧道侧匹配校验测试锁与 T07 路由侧锁配对。
 
-## 实施记录（2026-11-08，能力仓 `feat/nat-traversal`，未提交）
+## 实施记录（2026-11-08，能力仓 `feat/nat-traversal`，已提交 `974c813`）
 
 **已落地（契约真源 + 机制 + 测试锁）**
 
@@ -75,6 +75,8 @@
 
 **接线语义修正（对照本票验收条件）**：T03 的 `PeerFaceResolver` 在 `app.rs` 是**每请求**调用（`wrap_fn` 按 `req.peer_addr()` 解析），不是每 accept 一次；故 registry 默认提供非消费 `resolve`，`consume` / `clear` 由宿主按连接生命周期（配对成功 / 票据失效 / 连接关闭）显式调用。若按请求消费，keep-alive 的第二个请求会丢掉面标记。face 登记发生在**首个请求字节写入后端之前**（等价于设计「dial 对等面前登记」的安全语义，且能在拿到本端连接四元组后执行）。其余「窗口只放行配对端点」判据不变，仍由 `peer_face_guard` 的白名单执行。
 
-**基线漂移（T06 前必须裁定 / 处理）**：三仓 nat 工作树基于 `feat/file-transfer-refactor`，能力仓仍是单包 `wasmnest:plugin@0.0.2`、平台仓 compose v1（caps 是路径字符串，不支持多包）；各仓 `dev` 已升级为多包（`wasmnest:peer@0.0.1` / `wasmnest:plugin@0.1.0`）+ compose v2。本轮新增的独立包分片**未加入 compose.json**，在旧 v1 下无法拼装进端生成物；T06 需先对齐 nat 线到多包基线（或升级 compose），否则契约不进产物。本轮未擅自 rebase T01–T05 在途改动，也未把 `file:`/`path` 写回仓库。
+**基线对齐（2026-11-08 用户裁定：对齐多包基线）**：三仓 nat 工作树原基于 `feat/file-transfer-refactor`，能力仓单包 `wasmnest:plugin@0.0.2`、平台仓 compose v1；各仓 `dev` 已是多包（`wasmnest:peer@0.0.1` / `wasmnest:plugin@0.1.0` + compose v2）。执行方式 = 不 rebase / 不重置旧在途工作树，新建基于 dev 的对齐工作树：能力仓 `.worktrees/wasmnest-lib/nat-traversal-v2`（`feat/nat-traversal-v2`）、平台仓 `.worktrees/wasmnest/nat-traversal`（`feat/nat-traversal`）。T01–T05 改动以补丁 + 新文件迁到 v2，4 个与 dev 冲突的文件按 dev 语义重落。旧单包工作树保留归档；后续实施以 v2 为准。平台 caps.tunnel 登记与 compose 重拼归 T06。
+
+**迁移线状态（2026-11-08 核查，勿按「已迁移」理解）**：归档单包线 `feat/nat-traversal` 的 T01–T05 已提交（`c19938a` / `de87213` / `d8b1532` / `974c813`，native 测试与 `fmt` 全绿）；v2 工作树虽已含同一批改动，但**未收口**——`wasmnest-server-http/src/middleware/http_filter.rs` 缺 T04 的面标记注入 service 级锁，`wasmnest-server-http` / `wasmnest-server-websocket` 两 crate `cargo fmt --check` 未过，且全部改动未提交。收口（补锁 + fmt + 实跑 + 提交）前不得把 v2 当交付线。
 
 **错误码增补**：设计 §7.1 词表不是封闭集；实现侧新增 `invalid-frame`（畸形首帧 / 响应）、`proxy-bind-failed`（回环代理绑定 / 接受失败）、`tunnel-idle`（短连接 HTTP 流空闲回收），登记在此并已同步设计附录 C。

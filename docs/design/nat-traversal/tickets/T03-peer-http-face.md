@@ -26,7 +26,7 @@
 
 ## 实施记录（2026-11-08）
 
-落点：`wasmnest-lib` 分支 `feat/nat-traversal`（工作树 `.worktrees/wasmnest-lib/nat-traversal`），**未提交**。
+落点：`wasmnest-lib` 分支 `feat/nat-traversal`（工作树 `.worktrees/wasmnest-lib/nat-traversal`），**已提交 `de87213`（2026-11-08）**；多包基线迁移线 `feat/nat-traversal-v2` 仍在途、未提交（状态见 spec §5「基线对齐」）。
 
 **代码**
 

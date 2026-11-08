@@ -40,7 +40,7 @@
 
 ## 实施记录（2026-11-08）
 
-落点：`wasmnest-lib` 分支 `feat/nat-traversal`（**未提交**）。
+落点：`wasmnest-lib` 分支 `feat/nat-traversal`，**已提交 `d8b1532`（2026-11-08）**；下方 `FilterContext.face` 字段与注入链随 T03 的 `de87213` 一并提交（否则 T03 不可编译），T04 提交只含豁免判据。
 
 **代码**
 
