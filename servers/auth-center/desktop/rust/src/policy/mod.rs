@@ -26,8 +26,9 @@
 //!    → 否则拒绝（**不信任调用方传入的中间结果**，claims 一律自己解）
 //! 3. **claims 策略**：`iss == JWT_ISSUER`、`sub` 非空 → 否则拒绝
 //! 4. **时效策略**：`exp` 未过 → 过期拒绝
-//! 5. **信任策略**：`fingerprint` 有值 → 查内核 `pairings` 原始记录（host-auth
-//!    `trusted-devices-list`，票 05 起为真源，插件不再自持镜像）：记录存在且
+//! 5. **信任策略**：`fingerprint` 有值 → 查认证中心私有库 `auth_pairings`
+//!    （[`crate::auth_records`]，2026-09-22 下沉起为真源；内核 `pairings` 表与
+//!    host-auth `trusted-devices-list` 原语已退役）：记录存在且
 //!    `isActive = false`（已撤销）→ 拒绝；记录活跃 / 不存在 → 放行（不存在 =
 //!    无信任锚点，仅凭验签——**刻意保持搬迁前语义**，收紧为「未配对即拒绝」是
 //!    新协议决策，不在本批次）；记录面读取失败 → 放行（log_warn：撤销是唯一
@@ -51,8 +52,8 @@ use crate::trust::source::TrustRecords;
 ///   仍然合法（ADR 0033 D4）
 /// - `trust_records`：当前 `pairings` 原始记录快照
 ///
-/// 信任语义：撤销是唯一显式拒绝信号（`active=false`）；镜像未命中（迁移期
-/// 未同步）从宽放行。调用方（wasm 包装）负责注入密钥与信任快照。
+/// 信任语义：撤销是唯一显式拒绝信号（`active=false`）；记录未命中（无信任
+/// 锚点）从宽放行。调用方（wasm 包装）负责注入密钥与信任快照。
 ///
 /// cfg：wasm 运行时（`verify_device_token` 真实裁决）与 native 单测（注入
 /// 快照直接覆盖）两个消费面；纯 native 非测试构建无消费方，不外露 API。

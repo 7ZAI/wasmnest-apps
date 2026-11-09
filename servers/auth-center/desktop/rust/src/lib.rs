@@ -30,7 +30,7 @@
 //!   需重新配对。
 //! - [`auth_http`] + [`http_routes`]：`/api/auth/*` 七端点的插件侧编排与动态路由注册。
 //!
-//! **互调 api 面已声明**（[`AuthCenterApi`] + `plugin.json.api`，20 条）：配对码 /
+//! **互调 api 面已声明**（[`AuthCenterApi`] + `plugin.json.api`，19 条）：配对码 /
 //! QR / 信任 / 首连确认 / 认证记录 / 就位状态 / 密钥轮换 / `auth-grant`（宿主
 //! `auth-method-invoke` 的零解析窄转发目标）。声明名从
 //! `com.wasmnest.bedcode.*` 变为 `com.wasmnest.auth-center.*`——
@@ -165,9 +165,7 @@ fn status_payload(
 }
 
 /// 注册结果 → 就位载荷（纯函数：三个分支由单测钉死）
-fn status_from_outcome(
-    outcome: Option<std::result::Result<String, String>>,
-) -> serde_json::Value {
+fn status_from_outcome(outcome: Option<std::result::Result<String, String>>) -> serde_json::Value {
     match outcome {
         Some(Ok(center_id)) => status_payload(
             CenterState::Registered,
@@ -176,12 +174,7 @@ fn status_from_outcome(
             Some(&center_id),
         ),
         Some(Err(reason)) => status_payload(CenterState::NotReady, Some(&reason), None, None),
-        None => status_payload(
-            CenterState::Unknown,
-            Some(REASON_NOT_ACTIVATED),
-            None,
-            None,
-        ),
+        None => status_payload(CenterState::Unknown, Some(REASON_NOT_ACTIVATED), None, None),
     }
 }
 
@@ -255,7 +248,7 @@ fn qr_manager() -> &'static QrTokenManager {
 /// 生成配对码（宿主 `PairingCode` serde 形状：code / created_at / expires_in 剩余秒）
 fn pair_code_generate(ttl: u64) -> Result<serde_json::Value, String> {
     let now = pairing::jwt::now_secs();
-    let code = PairingCode::generate_with_ttl_at(ttl, now);
+    let code = PairingCode::generate_with_ttl_at(ttl, now)?;
     *CURRENT_CODE
         .lock()
         .map_err(|e| format!("pairing code lock: {e}"))? = Some(code.clone());
@@ -308,7 +301,7 @@ fn pair_code_clear() -> Result<(), String> {
 /// 生成 QR token → `{token, ttl, remaining}`
 fn qr_generate(ttl: u64) -> Result<serde_json::Value, String> {
     let manager = qr_manager();
-    let token = manager.generate(ttl);
+    let token = manager.generate(ttl)?;
     // 刚生成的 token 必须活跃：若管理器实现异常（生成即不可见），显性报错而不
     // abort 整个插件（非测试路径 expect 会把 WASM 插件 trap）
     let (_, ttl, remaining) = manager
@@ -887,7 +880,11 @@ mod tests {
         assert_eq!(payload["centerId"], serde_json::Value::Null);
 
         let methods = payload["methods"].as_array().expect("methods array");
-        assert_eq!(methods.len(), SUPPORTED_METHODS.len(), "声明的方式必须全部列出");
+        assert_eq!(
+            methods.len(),
+            SUPPORTED_METHODS.len(),
+            "声明的方式必须全部列出"
+        );
         for method in methods {
             assert_eq!(
                 method["available"],
@@ -915,7 +912,9 @@ mod tests {
         assert_eq!(payload["owner"], serde_json::json!(PLUGIN_ID));
         assert_eq!(payload["centerId"], serde_json::json!("authc-1234"));
         let methods = payload["methods"].as_array().expect("methods array");
-        assert!(methods.iter().all(|m| m["available"] == serde_json::json!(true)));
+        assert!(methods
+            .iter()
+            .all(|m| m["available"] == serde_json::json!(true)));
     }
 
     /// 读不到：仍是 `unknown` + 原因，不因为「没有数据」被降级成 not_ready
@@ -1050,7 +1049,8 @@ mod tests {
     /// 变成「一律拒绝」——用文案区分即可在单测里抓到（不必等真实宿主）。
     #[test]
     fn auth_policy_export_is_wired_to_the_policy_domain() {
-        let err = AuthCenterPlugin::verify_device_token_policy("a.b.c").expect_err("native 验签失败");
+        let err =
+            AuthCenterPlugin::verify_device_token_policy("a.b.c").expect_err("native 验签失败");
         assert!(
             err.contains("unavailable outside wasm runtime"),
             "策略导出必须接到 policy 域（SDK 默认文案是 'not provided by this plugin'）: {err}"
@@ -1077,7 +1077,10 @@ mod tests {
         let remaining = generated["expires_in"].as_u64().expect("expires_in");
         assert!((118..=120).contains(&remaining), "got {remaining}");
         assert!(
-            generated["created_at"].as_str().expect("created_at").ends_with('Z'),
+            generated["created_at"]
+                .as_str()
+                .expect("created_at")
+                .ends_with('Z'),
             "created_at 必须是 RFC3339 UTC"
         );
 
@@ -1332,7 +1335,10 @@ mod tests {
         for name in ["auth-center.history.list", "auth-center.history.clear"] {
             for args in [serde_json::json!({}), serde_json::json!({ "deviceId": "" })] {
                 let err = dispatch_command(name, args).expect_err("缺参数必须报错");
-                assert!(err.to_string().contains("deviceId required"), "{name}: {err}");
+                assert!(
+                    err.to_string().contains("deviceId required"),
+                    "{name}: {err}"
+                );
             }
         }
     }

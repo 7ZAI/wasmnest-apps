@@ -39,6 +39,26 @@ fn list_pairings_only_active_sorted_by_paired_at_desc() {
     assert_eq!(devices[0]["addedAt"], "2026-09-19T00:00:00Z");
     assert_eq!(devices[0]["active"], true);
 }
+/// 混合时区偏移的 paired_at 按归一 unix 秒排序（T-F04 同口径）：
+/// `01:00+02:00` = 前一日 `23:00Z`，字典序更大但时间更旧，不得排在前
+#[test]
+fn list_pairings_sort_normalizes_mixed_offsets() {
+    let records = MockRecords::new(vec![
+        MockRecords::record(
+            "lexically-larger",
+            "偏移串",
+            "fp-a",
+            "2026-09-19T01:00:00+02:00",
+        ),
+        MockRecords::record("utc-newer", "UTC 串", "fp-b", "2026-09-19T00:00:00Z"),
+    ]);
+    let peer = MockPeer::new(vec![]);
+    let r = list(&records, &peer).expect("list");
+    let devices = r["devices"].as_array().unwrap();
+    assert_eq!(devices[0]["id"], "utc-newer", "时间序优先于字典序");
+    assert_eq!(devices[1]["id"], "lexically-larger");
+}
+
 /// peer 段：透传宿主 list-trusted 条目（kind=peer，条目序保留），
 /// 与 pairing 段合并统一数组
 #[test]

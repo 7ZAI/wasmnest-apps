@@ -7,11 +7,12 @@ authors = ["WasmNest"]
 edition = "2021"
 
 [features]
-# 默认走 wasm（应用产物）；`native` 只给本 crate 的单测用（纯函数 + 命令分发），
-# 与 bedcode 同口径：native 测试不展开 `#[plugin_api]` 宏、不产 wasm 产物。
+# `wasm` 只是构建脚本的显式旗标（build.js / package.json 传
+# `--no-default-features --features wasm`）；源码的实际门控是
+# `cfg(target_arch = "wasm32")`，cargo test 走 default。native 测试不展开
+# `#[plugin_api]` 宏、不产 wasm 产物——那是目标分流，不是 feature 分流。
 default = ["wasm"]
 wasm = []
-native = []
 
 [lib]
 crate-type = ["cdylib"]

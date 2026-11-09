@@ -1,10 +1,10 @@
-//! trust 数据模型 —— 统一视图 DTO 与内核原始记录（票 05 搬迁）
+//! trust 数据模型 —— 统一视图 DTO 与认证记录原始行（票 05 搬迁）
 //!
-//! 数据真源自票 05 起是**内核表**（`pairings`，经 host-auth `trusted-devices-list`
-//! 原语读取；spec D3「不动」表），插件不再自持镜像——消除「宿主与插件各记一账」
-//! 的口径漂移（Problem Statement 5）。
+//! 数据真源 = 认证中心**私有库** `auth_pairings`（2026-09-22 认证记录下沉起；
+//! 内核 `pairings` 表与 host-auth `trusted-devices-list` 原语已退役，见
+//! [`super::source`]）——消除「宿主与插件各记一账」的口径漂移（Problem Statement 5）。
 //!
-//! - [`PairingRecord`] 字段与宿主原语返回的**原始记录**逐字段对齐（camelCase）；
+//! - [`PairingRecord`] 字段与认证记录域原始行逐字段对齐（camelCase）；
 //!   含软删行（`isActive = false`）——撤销检测依赖「已撤销记录仍可见」
 //! - [`TrustedDeviceDto`] 为统一视图 wire 形状（消费方按 `kind` 判别两条来源）
 
@@ -14,15 +14,15 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum TrustKind {
-    /// 已配对设备（内核 `pairings` 表语义）
+    /// 已配对设备（认证中心私有库 `auth_pairings` 语义）
     Pairing,
     /// 可信对端（宿主 peer trust_store 语义）
     Peer,
 }
 
-/// 已配对设备原始记录（host-auth `trusted-devices-list` 元素）
+/// 已配对设备原始记录（认证记录域 `auth_pairings` 行的视图投影）
 ///
-/// 字段与宿主原语返回的记录 JSON 逐字段对齐（camelCase）。**不做任何解读**：
+/// 字段与认证记录域原始行逐字段对齐（camelCase）。**不做任何解读**：
 /// `is_active = false` 是软删行（撤销），过滤与排序归本模块。
 /// 凭据列（session token / public key）不在记录面内（宿主 §8 红线）。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

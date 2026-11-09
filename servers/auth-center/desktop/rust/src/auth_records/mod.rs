@@ -29,8 +29,8 @@ use model::PairingRecord;
 pub fn ensure_schema_via_host() -> Result<(), String> {
     #[cfg(target_arch = "wasm32")]
     {
-        use wasmnest_plugin_api::wasm_host::WasmHost;
         use store::AuthRecordsStore;
+        use wasmnest_plugin_api::wasm_host::WasmHost;
         WasmHost.ensure_schema()
     }
     #[cfg(not(target_arch = "wasm32"))]
@@ -44,8 +44,8 @@ pub fn ensure_schema_via_host() -> Result<(), String> {
 pub fn records() -> Result<Vec<PairingRecord>, String> {
     #[cfg(target_arch = "wasm32")]
     {
-        use wasmnest_plugin_api::wasm_host::WasmHost;
         use store::AuthRecordsStore;
+        use wasmnest_plugin_api::wasm_host::WasmHost;
         WasmHost.pairings_all()
     }
     #[cfg(not(target_arch = "wasm32"))]
@@ -61,8 +61,8 @@ pub fn records() -> Result<Vec<PairingRecord>, String> {
 pub fn revoke(id: &str) -> Result<bool, String> {
     #[cfg(target_arch = "wasm32")]
     {
-        use wasmnest_plugin_api::wasm_host::WasmHost;
         use store::AuthRecordsStore;
+        use wasmnest_plugin_api::wasm_host::WasmHost;
         let removed = WasmHost.pairing_revoke(id)?;
         if removed {
             let _ = WasmHost.history_clear(id)?;
@@ -167,8 +167,8 @@ pub fn close_open_connection(fingerprint: &str) -> Result<(), String> {
 pub fn paired_list() -> Result<serde_json::Value, String> {
     #[cfg(target_arch = "wasm32")]
     {
-        use wasmnest_plugin_api::wasm_host::WasmHost;
         use store::AuthRecordsStore;
+        use wasmnest_plugin_api::wasm_host::WasmHost;
         let all = WasmHost.pairings_all()?;
         Ok(ops::active_pairings_json(&all))
     }
@@ -182,8 +182,8 @@ pub fn paired_list() -> Result<serde_json::Value, String> {
 pub fn history_list(device_id: &str) -> Result<serde_json::Value, String> {
     #[cfg(target_arch = "wasm32")]
     {
-        use wasmnest_plugin_api::wasm_host::WasmHost;
         use store::AuthRecordsStore;
+        use wasmnest_plugin_api::wasm_host::WasmHost;
         let rows = WasmHost.history_by_device(device_id)?;
         serde_json::to_value(rows).map_err(|e| format!("auth history serialize: {e}"))
     }
@@ -200,8 +200,8 @@ pub fn history_list(device_id: &str) -> Result<serde_json::Value, String> {
 pub fn history_clear(device_id: &str) -> Result<serde_json::Value, String> {
     #[cfg(target_arch = "wasm32")]
     {
-        use wasmnest_plugin_api::wasm_host::WasmHost;
         use store::AuthRecordsStore;
+        use wasmnest_plugin_api::wasm_host::WasmHost;
         let cleared = WasmHost.history_clear(device_id)?;
         Ok(serde_json::json!({ "cleared": cleared }))
     }
@@ -213,12 +213,12 @@ pub fn history_clear(device_id: &str) -> Result<serde_json::Value, String> {
 }
 
 /// 生物凭证「已配对且绑定公钥」判定所需的两条事实之一：配对记录存在且活跃
-/// （公钥绑定事实在宿主 plugin_secrets，见 host-auth `biometric-credential-bound`）
+/// （公钥绑定事实 = 本库 `auth_biometric_keys`，见 [`biometric_key_get`]）
 pub fn pairing_active(fingerprint: &str) -> Result<bool, String> {
     #[cfg(target_arch = "wasm32")]
     {
-        use wasmnest_plugin_api::wasm_host::WasmHost;
         use store::AuthRecordsStore;
+        use wasmnest_plugin_api::wasm_host::WasmHost;
         Ok(WasmHost
             .pairing_by_fingerprint(fingerprint)?
             .map(|p| p.is_active)
@@ -238,8 +238,8 @@ pub fn pairing_active(fingerprint: &str) -> Result<bool, String> {
 pub fn biometric_key_get(fingerprint: &str) -> Result<Option<String>, String> {
     #[cfg(target_arch = "wasm32")]
     {
-        use wasmnest_plugin_api::wasm_host::WasmHost;
         use store::AuthRecordsStore;
+        use wasmnest_plugin_api::wasm_host::WasmHost;
         WasmHost.biometric_key_get(fingerprint)
     }
     #[cfg(not(target_arch = "wasm32"))]
@@ -253,8 +253,8 @@ pub fn biometric_key_get(fingerprint: &str) -> Result<Option<String>, String> {
 pub fn biometric_key_set(fingerprint: &str, public_key: &str) -> Result<(), String> {
     #[cfg(target_arch = "wasm32")]
     {
-        use wasmnest_plugin_api::wasm_host::WasmHost;
         use store::AuthRecordsStore;
+        use wasmnest_plugin_api::wasm_host::WasmHost;
         WasmHost.biometric_key_set(fingerprint, public_key)
     }
     #[cfg(not(target_arch = "wasm32"))]
@@ -268,8 +268,8 @@ pub fn biometric_key_set(fingerprint: &str, public_key: &str) -> Result<(), Stri
 pub fn biometric_key_delete(fingerprint: &str) -> Result<(), String> {
     #[cfg(target_arch = "wasm32")]
     {
-        use wasmnest_plugin_api::wasm_host::WasmHost;
         use store::AuthRecordsStore;
+        use wasmnest_plugin_api::wasm_host::WasmHost;
         WasmHost.biometric_key_delete(fingerprint)
     }
     #[cfg(not(target_arch = "wasm32"))]
@@ -306,9 +306,8 @@ mod tests {
         let store = MockAuthRecords::new(vec![existing]);
 
         // uid_hash 命中 → 复用原 id
-        let outcome =
-            ops::upsert_record(&store, "New Phone", "fp-new", None, Some("uid-1"), None)
-                .expect("merge");
+        let outcome = ops::upsert_record(&store, "New Phone", "fp-new", None, Some("uid-1"), None)
+            .expect("merge");
         assert!(matches!(outcome, UpsertOutcome::Merged { id } if id == "legacy-id"));
         let all = store.pairings_all().expect("all");
         assert_eq!(all.len(), 1, "归并不新增行");
@@ -331,9 +330,15 @@ mod tests {
             connect_count: 2,
             is_active: true,
         }]);
-        let outcome =
-            ops::upsert_record(&store, "Pixel 9", "fp-1", Some("192.168.1.5:9000"), None, None)
-                .expect("upsert");
+        let outcome = ops::upsert_record(
+            &store,
+            "Pixel 9",
+            "fp-1",
+            Some("192.168.1.5:9000"),
+            None,
+            None,
+        )
+        .expect("upsert");
         assert!(matches!(outcome, UpsertOutcome::Upserted { id } if id == "p-1"));
         let all = store.pairings_all().expect("all");
         assert_eq!(all.len(), 1);

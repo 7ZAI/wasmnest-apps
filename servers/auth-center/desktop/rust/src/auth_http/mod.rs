@@ -236,6 +236,16 @@ fn handle_verify(host: &WasmHost, body: &serde_json::Value, face: &PeerFace) -> 
     let pairing_code = str_field(body, "pairingCode").to_string();
     let address = str_field(body, "address").to_string();
 
+    // 空身份字段拒签（fail-closed）：无指纹 claim 的 token 在 policy 撤销检查里
+    // 缺失即跳过——签出去就是一张撤销域无法拒绝的凭证。放在验码之前：畸形请求
+    // 不得消耗有效配对码
+    if device_id.is_empty() || fingerprint.is_empty() {
+        return error_response(
+            CODE_PAIRING_INVALID,
+            "deviceId and fingerprint are required",
+        );
+    }
+
     // 验证（一次性：成功即消耗；经认证中心桥接的同一状态机）
     let is_valid = matches!(crate::pair_code_verify(&pairing_code), Ok(true));
 
@@ -320,7 +330,11 @@ fn handle_verify(host: &WasmHost, body: &serde_json::Value, face: &PeerFace) -> 
 
 /// QR 码认证 → 签发 JWT（拒绝原因分类与宿主 `qr_failure_user_message` 一致）
 #[cfg(target_arch = "wasm32")]
-fn handle_qr_connect(host: &WasmHost, body: &serde_json::Value, face: &PeerFace) -> serde_json::Value {
+fn handle_qr_connect(
+    host: &WasmHost,
+    body: &serde_json::Value,
+    face: &PeerFace,
+) -> serde_json::Value {
     let device_id = str_field(body, "deviceId").to_string();
     let device_name = str_field(body, "deviceName").to_string();
     let fingerprint = str_field(body, "fingerprint").to_string();
@@ -330,6 +344,11 @@ fn handle_qr_connect(host: &WasmHost, body: &serde_json::Value, face: &PeerFace)
         .map(str::to_string);
     let qr_token = str_field(body, "qrToken").to_string();
     let address = str_field(body, "address").to_string();
+
+    // 空身份字段拒签（同 handle_verify）：放在验 token 之前，畸形请求不消耗 token
+    if device_id.is_empty() || fingerprint.is_empty() {
+        return error_response(CODE_QR_INVALID, "deviceId and fingerprint are required");
+    }
 
     // 验证（一次性；reason 分类与桥接层同构）
     let verify = match crate::qr_verify(&qr_token) {
@@ -433,6 +452,27 @@ fn handle_reauth(host: &WasmHost, body: &serde_json::Value) -> serde_json::Value
     let sub = claims["sub"].as_str().unwrap_or(&device_id).to_string();
     let device_name = claims["device_name"].as_str().map(str::to_string);
     let token_fingerprint = claims["fingerprint"].as_str().map(str::to_string);
+
+    // 撤销检查（与 policy 信任策略同口径）：已撤销设备不得经续期无限拿新 token。
+    // 记录不存在 = 无信任锚点放行（LAN 配对记录写失败只 warn 的路径会签出这种
+    // token）；读失败从宽 + 留痕（撤销是唯一显式拒绝信号，不误杀全部续期）
+    if let Some(fp) = token_fingerprint.as_deref().filter(|s| !s.is_empty()) {
+        match crate::auth_records::records() {
+            Ok(records) => {
+                if records
+                    .iter()
+                    .find(|r| r.device_fingerprint == fp)
+                    .is_some_and(|r| !r.is_active)
+                {
+                    host.log_warn("auth http: reauth denied (device revoked from trust list)");
+                    return error_response(CODE_TOKEN_FAILURE, "device revoked from trust list");
+                }
+            }
+            Err(e) => host.log_warn(&format!(
+                "auth http: reauth trust records read failed (allow by policy): {e}"
+            )),
+        }
+    }
 
     let (token, expires_in) =
         match jwt::issue_device_token(&sub, device_name.as_deref(), token_fingerprint.as_deref()) {
@@ -665,8 +705,15 @@ fn trusted_device_touch(_host: &WasmHost, fingerprint: &str) -> Result<(), Strin
 
 /// 绑定/解绑生物凭证（B-downsink：真源 = 本插件私有库 `auth_biometric_keys`，
 /// 不再经宿主 host-auth 原语——公钥托管与验签执行点均在插件内）
+///
+/// 闸门 = 配对记录存在且活跃：未配对/已撤销 → `Ok(false)`（调用方映射 1010
+/// "Device not paired"）。撤销设备的写面必须关闭——持未过期 token 也不得
+/// 覆盖/解绑公钥；读失败 → `Err`（fail-closed，不从宽）
 #[cfg(target_arch = "wasm32")]
 fn biometric_credential_bind(fingerprint: &str, public_key: &str) -> Result<bool, String> {
+    if !crate::auth_records::pairing_active(fingerprint)? {
+        return Ok(false);
+    }
     if public_key.is_empty() {
         crate::auth_records::biometric_key_delete(fingerprint)?;
     } else {

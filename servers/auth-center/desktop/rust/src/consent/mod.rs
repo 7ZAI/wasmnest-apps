@@ -19,8 +19,7 @@
 //!   供宿主闭环测试 / 调试直调与本 app 页面使用）。
 //! - 互调 api `com.wasmnest.auth-center.consent-decide` 已声明——消费方是 file-transfer
 //!   （搬迁前的契约是 `com.wasmnest.bedcode.consent-decide`）。
-//!   **声明 ≠ 已切换**：消费方仍按旧名调 bedcode，改指必须与注册切换同一次发布，
-//!   否则中间任一时刻都会出现「调用方按旧名、提供方按新名」的静默断链。
+//!   消费方已与注册切换（K4）同批改指本插件，不存在「按旧名调 bedcode」的中间态。
 //!
 //! 行为等价约束（对照锚点）：判定基准 = 宿主 peer trust_store（`peer-list-trusted`
 //! node_id 集合）——与宿主 peer-net 的 consent 闸门（只拦未信任首连）同源。

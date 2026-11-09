@@ -345,6 +345,10 @@ pub fn verify_with_keys(keys: &[&[u8]], token: &str, now_secs: u64) -> Result<Jw
 }
 
 /// 当前 unix 秒（wasip3 下经 wasi:clocks；native 测试走 std）
+///
+/// 留档（review #9）：系统时间早于 UNIX_EPOCH 时 `unwrap_or(0)` 是 fail-open
+/// ——now=0 让 `exp < now - leeway` 恒假、token 不过期。wasi clocks 实际不失败，
+/// 保持与宿主同构的 u64 签名；改 Result 是全链路签名变更，不在本批次
 pub(crate) fn now_secs() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)

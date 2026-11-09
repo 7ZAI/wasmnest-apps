@@ -25,10 +25,16 @@ use wasmnest_plugin_api::wasm_host::WasmHost;
 /// peer 侧不可用（无头上下文 / peer-net 未启动）时：pairing 段照常返回，
 /// `peerError` 透出宿主错误（不静默降级为空列表——避免「看似成功实则缺失」）。
 pub fn list(h: &impl TrustRecords, peer: &impl HostPeer) -> Result<serde_json::Value, String> {
-    // pairing 段：活跃过滤 + paired_at DESC（宿主 get_pairings 语义）
+    // pairing 段：活跃过滤 + paired_at DESC（宿主 get_pairings 语义）。
+    // 与 active_pairings_json 同口径（T-F04）：混合 offset 的 RFC3339 字典序
+    // ≠ 时间序，先归一 unix 秒再比；解析失败按 0 靠后（宽容）
     let mut records = h.records()?;
     records.retain(|r| r.is_active);
-    records.sort_by(|a, b| b.paired_at.cmp(&a.paired_at));
+    records.sort_by(|a, b| {
+        let left = crate::pairing::code::parse_rfc3339_utc(&a.paired_at).unwrap_or(0);
+        let right = crate::pairing::code::parse_rfc3339_utc(&b.paired_at).unwrap_or(0);
+        right.cmp(&left)
+    });
 
     // peer 段：透传宿主 list-trusted（TrustedPeerDto JSON 数组，条目序保留）。
     // T-G02：非数组 Ok 当 Err 处理（宿主契约破坏伪装成空列表会破坏信任身份）；
@@ -65,9 +71,9 @@ pub fn list(h: &impl TrustRecords, peer: &impl HostPeer) -> Result<serde_json::V
     }))
 }
 
-/// 撤销统一条目：pairing 目标软删（内核 `remove_pairing` 语义，经 host-auth
-/// 记录面）；peer 目标经 host-peer `revoke-trusted`（返回是否删除）。
-/// 返回 `{ removed, kind }`。
+/// 撤销统一条目：pairing 目标软删（私有库 `auth_pairings` 置 `is_active = 0`
+/// 并连带删连接历史，语义对齐宿主旧 `remove_pairing`）；peer 目标经 host-peer
+/// `revoke-trusted`（返回是否删除）。返回 `{ removed, kind }`。
 ///
 /// 未命中：pairing 幂等 `removed=false` 不报错（宿主 UPDATE 影响 0 行）；
 /// peer 目标无权限/引擎不可用时上抛错误（不做「看似成功」的假撤销）。
@@ -126,8 +132,12 @@ fn revoke_peer_trust(peer: &impl HostPeer, peer_node_id: Option<&str>) -> Result
     let Some(node_id) = peer_node_id.filter(|s| !s.is_empty()) else {
         return Ok(false);
     };
-    peer.peer_revoke_trusted(node_id)
-        .map_err(|e| format!("pairing revoked but peer trust revoke failed: {}", e.message))
+    peer.peer_revoke_trusted(node_id).map_err(|e| {
+        format!(
+            "pairing revoked but peer trust revoke failed: {}",
+            e.message
+        )
+    })
 }
 
 // ==================== 命令面入口（cfg 分流，native 显性失败） ====================
@@ -170,8 +180,8 @@ pub fn revoke_via_host(_id: &str) -> Result<serde_json::Value, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wasmnest_plugin_api::host::HostError;
     use std::sync::Mutex;
+    use wasmnest_plugin_api::host::HostError;
     // 跨分组共享的测试脚手架（子模块经 `use super::*` 可见）
 
     /// mock host-peer（native 单测；peer_list_trusted 返回 TrustedPeerDto

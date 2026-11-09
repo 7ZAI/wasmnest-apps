@@ -129,7 +129,11 @@ fn revoke_pairing_without_peer_node_id_skips_trust_cascade() {
 
     let r = revoke(&records, &peer, "p-1").expect("revoke pairing");
     assert_eq!(r["peerRevoked"], false);
-    assert_eq!(peer.trusted.lock().unwrap().len(), 1, "无 nodeId 不得误撤其它条目");
+    assert_eq!(
+        peer.trusted.lock().unwrap().len(),
+        1,
+        "无 nodeId 不得误撤其它条目"
+    );
 }
 
 /// 中断重试：配对已软删但级联未完成（信任仍在）时，再次撤销必须重放级联

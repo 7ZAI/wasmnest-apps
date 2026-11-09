@@ -69,9 +69,10 @@ pub trait AuthRecordsStore {
     fn pairings_all(&self) -> Result<Vec<PairingRecord>, String>;
     /// 按指纹查配对记录（含软删；供撤销检测 / 生物凭证判定）
     fn pairing_by_fingerprint(&self, fingerprint: &str) -> Result<Option<PairingRecord>, String>;
-    /// 写入/归并配对记录（按 id upsert：id 已存在 → 整行更新（含指纹变更），
-    /// 否则按指纹冲突更新 / 全新插入；uid_hash 归并由调用方编排——归并路径的
-    /// id 由调用方算出（见 [`super::ops::upsert_record`]））
+    /// 写入/归并配对记录（按 id upsert：id 已存在 → 整行更新（含指纹变更；
+    /// `uid_hash` / `peer_node_id` 为 None 时 COALESCE 保留旧值）；id 不存在但
+    /// 指纹已被占 → UNIQUE 冲突报错；否则插入。uid_hash 归并由调用方编排——
+    /// 归并路径的 id 由调用方算出（见 [`super::ops::upsert_record`]））
     fn pairing_put(&self, record: &PairingRecord) -> Result<(), String>;
     /// 软删配对（`is_active = 0`）；返回是否命中了活跃记录
     fn pairing_revoke(&self, id: &str) -> Result<bool, String>;
@@ -94,6 +95,9 @@ pub trait AuthRecordsStore {
     fn history_append(&self, record: &ConnectionEventRecord) -> Result<(), String>;
     /// 回填断开时间（最近一条未关闭的连接）
     fn history_close_open(&self, device_id: &str, disconnected_at: &str) -> Result<bool, String>;
+    /// 裁剪某设备的连接历史：只保留最新 `keep` 条（`connected_at` 序，同刻按 id），
+    /// 删除最旧的超出部分；不足 `keep` 条不动（区别于 [`Self::history_clear`] 的全删）
+    fn history_trim(&self, device_id: &str, keep: usize) -> Result<(), String>;
     /// 清空某设备的连接历史；返回是否命中至少一条
     fn history_clear(&self, device_id: &str) -> Result<bool, String>;
 }
@@ -198,7 +202,11 @@ mod wasm_impl {
                 .map(|array| {
                     array
                         .iter()
-                        .filter_map(|row| row.get("name").and_then(|value| value.as_str()).map(str::to_string))
+                        .filter_map(|row| {
+                            row.get("name")
+                                .and_then(|value| value.as_str())
+                                .map(str::to_string)
+                        })
                         .collect()
                 })
                 .unwrap_or_default();
@@ -363,6 +371,20 @@ mod wasm_impl {
             Ok(changed > 0)
         }
 
+        fn history_trim(&self, device_id: &str, keep: usize) -> Result<(), String> {
+            // 保留最新 keep 条、删其余：NOT IN 子查询取「要保留的」，不足 keep 条时
+            // 子查询覆盖全部行 → 零删除（若改写「LIMIT count-keep 删最旧」，负数 LIMIT
+            // 在 SQLite 里是无上限 = 全删，正是本方法要避免的事故）
+            self.plugin_db_execute_params(
+                "DELETE FROM auth_connection_history WHERE device_id = ?1 AND id NOT IN ( \
+                   SELECT id FROM auth_connection_history WHERE device_id = ?1 \
+                   ORDER BY connected_at DESC, id DESC LIMIT ?2)",
+                &sql_params![device_id, keep as i64],
+            )
+            .map_err(|e| format!("plugin db write failed: {}", e.message))?;
+            Ok(())
+        }
+
         fn history_clear(&self, device_id: &str) -> Result<bool, String> {
             let changed = self
                 .plugin_db_execute_params(
@@ -424,29 +446,29 @@ pub(crate) mod tests {
 
         fn pairing_put(&self, record: &PairingRecord) -> Result<(), String> {
             let mut pairings = self.pairings.lock().unwrap();
-            // 归并语义与真 SQL 对齐（ON CONFLICT(id)，见 wasm_impl）：id 已存在
-            // → 整行覆盖（含指纹变更，uid_hash 归并路径）；否则指纹相同 → 更新；
-            // uid_hash 命中锚行（调用方算好 id 前兜底）→ 复用该行 id；全新 → 追加
-            if let Some(existing) = pairings.iter_mut().find(|r| r.id == record.id) {
-                *existing = record.clone();
-            } else if let Some(existing) = pairings
-                .iter_mut()
-                .find(|r| r.device_fingerprint == record.device_fingerprint)
+            // 与真 SQL 逐条对齐（ON CONFLICT(id) + device_fingerprint UNIQUE）：
+            // 指纹被**其他**行持有 → UNIQUE 冲突报错（INSERT 与按 id UPDATE 两面
+            // 都撞）；id 已存在 → 整行更新（uid_hash / peer_node_id 为 None 时
+            // COALESCE 保留旧值）；否则插入。SQL 里没有 uid_hash 锚点兜底归并——
+            // 归并 id 由 ops 层算出，mock 不得替它补一条 SQL 会失败的路径
+            if pairings
+                .iter()
+                .any(|r| r.device_fingerprint == record.device_fingerprint && r.id != record.id)
             {
-                *existing = record.clone();
-            } else if let Some(hash) = record.uid_hash.as_deref() {
-                if let Some(anchor) = pairings
-                    .iter_mut()
-                    .find(|r| r.uid_hash.as_deref() == Some(hash))
-                {
-                    let mut merged = record.clone();
-                    merged.id = anchor.id.clone();
-                    *anchor = merged;
-                } else {
-                    pairings.push(record.clone());
+                return Err(
+                    "UNIQUE constraint failed: auth_pairings.device_fingerprint".to_string()
+                );
+            }
+            match pairings.iter().position(|r| r.id == record.id) {
+                Some(idx) => {
+                    let mut updated = record.clone();
+                    updated.uid_hash = updated.uid_hash.or_else(|| pairings[idx].uid_hash.clone());
+                    updated.peer_node_id = updated
+                        .peer_node_id
+                        .or_else(|| pairings[idx].peer_node_id.clone());
+                    pairings[idx] = updated;
                 }
-            } else {
-                pairings.push(record.clone());
+                None => pairings.push(record.clone()),
             }
             Ok(())
         }
@@ -499,7 +521,12 @@ pub(crate) mod tests {
         }
 
         fn history_append(&self, record: &ConnectionEventRecord) -> Result<(), String> {
-            self.history.lock().unwrap().push(record.clone());
+            let mut history = self.history.lock().unwrap();
+            let mut row = record.clone();
+            // 对齐 SQLite AUTOINCREMENT：id 由存储分配，单调递增不复用
+            //（调用方传 0；同秒事件的裁剪次序靠 id tie-break）
+            row.id = history.iter().map(|r| r.id).max().unwrap_or(0) + 1;
+            history.push(row);
             Ok(())
         }
 
@@ -520,12 +547,99 @@ pub(crate) mod tests {
             Ok(true)
         }
 
+        fn history_trim(&self, device_id: &str, keep: usize) -> Result<(), String> {
+            let mut history = self.history.lock().unwrap();
+            // 与 wasm SQL 同语义：保留最新 keep 条（connected_at DESC, id DESC），
+            // 删最旧的超出部分；其他设备的行不动
+            let mut device_rows: Vec<(String, i64)> = history
+                .iter()
+                .filter(|r| r.device_id == device_id)
+                .map(|r| (r.connected_at.clone(), r.id))
+                .collect();
+            device_rows.sort_by(|a, b| b.0.cmp(&a.0).then(b.1.cmp(&a.1)));
+            device_rows.truncate(keep);
+            let keep_ids: std::collections::HashSet<i64> =
+                device_rows.into_iter().map(|(_, id)| id).collect();
+            history.retain(|r| r.device_id != device_id || keep_ids.contains(&r.id));
+            Ok(())
+        }
+
         fn history_clear(&self, device_id: &str) -> Result<bool, String> {
             let mut history = self.history.lock().unwrap();
             let before = history.len();
             history.retain(|r| r.device_id != device_id);
             Ok(history.len() < before)
         }
+    }
+
+    fn put_record(id: &str, fp: &str, uid: Option<&str>) -> PairingRecord {
+        PairingRecord {
+            id: id.into(),
+            device_name: "Phone".into(),
+            device_fingerprint: fp.into(),
+            address: None,
+            uid_hash: uid.map(str::to_string),
+            peer_node_id: None,
+            paired_at: "2026-09-19T00:00:00Z".into(),
+            last_seen: None,
+            connect_count: 1,
+            is_active: true,
+        }
+    }
+
+    /// mock 与真 SQL 同语义：id 冲突整行更新；uid_hash / peer_node_id 为 None
+    /// 时 COALESCE 保留旧值（不覆盖成 None）
+    #[test]
+    fn mock_put_id_conflict_updates_row_with_coalesce() {
+        let mut existing = put_record("p-1", "fp-1", Some("uid-1"));
+        existing.peer_node_id = Some("node-1".into());
+        let store = MockAuthRecords::new(vec![existing]);
+        let mut update = put_record("p-1", "fp-2", None);
+        update.connect_count = 5;
+        store.pairing_put(&update).expect("id conflict update");
+        let all = store.pairings_all().expect("all");
+        assert_eq!(all.len(), 1, "按 id 更新不新增行");
+        assert_eq!(all[0].device_fingerprint, "fp-2", "同 id 换指纹允许");
+        assert_eq!(all[0].connect_count, 5);
+        assert_eq!(all[0].uid_hash.as_deref(), Some("uid-1"), "None 不覆盖旧值");
+        assert_eq!(all[0].peer_node_id.as_deref(), Some("node-1"));
+    }
+
+    /// mock 与真 SQL 同语义：指纹被其他行持有 → UNIQUE 报错（按 id UPDATE 换
+    /// 指纹与全新 INSERT 两面都撞）；policy 撤销检查的「同指纹至多一行」不变量
+    /// 由本约束保证
+    #[test]
+    fn mock_put_fingerprint_unique_conflict_errors() {
+        let store = MockAuthRecords::new(vec![
+            put_record("p-1", "fp-1", None),
+            put_record("p-2", "fp-2", None),
+        ]);
+        // UPDATE 面：p-1 改成 p-2 的指纹
+        let err = store
+            .pairing_put(&put_record("p-1", "fp-2", None))
+            .expect_err("UNIQUE on update");
+        assert!(err.contains("UNIQUE"), "got: {err}");
+        // INSERT 面：新 id 撞既有指纹
+        let err = store
+            .pairing_put(&put_record("p-3", "fp-1", None))
+            .expect_err("UNIQUE on insert");
+        assert!(err.contains("UNIQUE"), "got: {err}");
+        let all = store.pairings_all().expect("all");
+        assert_eq!(all.len(), 2, "冲突写入不落行");
+        assert_eq!(all[0].device_fingerprint, "fp-1");
+    }
+
+    /// SQL 里没有 uid_hash 锚点兜底归并：同 uid、不同 id、不同指纹 → 插入新行
+    ///（归并 id 是 ops 层编排职责，mock 不得补一条 SQL 会失败/不存在的路径）
+    #[test]
+    fn mock_put_does_not_merge_by_uid_hash() {
+        let store = MockAuthRecords::new(vec![put_record("p-1", "fp-1", Some("uid-1"))]);
+        store
+            .pairing_put(&put_record("p-2", "fp-2", Some("uid-1")))
+            .expect("insert");
+        let all = store.pairings_all().expect("all");
+        assert_eq!(all.len(), 2, "同 uid 不触发存储层归并");
+        assert_eq!(all[1].id, "p-2");
     }
 
     /// mock 撤销：软删保留行（撤销检测依赖软删可见）
@@ -550,6 +664,56 @@ pub(crate) mod tests {
         let all = store.pairings_all().expect("all");
         assert_eq!(all.len(), 1, "软删保留行");
         assert!(!all[0].is_active);
+    }
+
+    /// mock 裁剪：保留最新 keep 条、不足不动、其他设备不受影响（与 wasm SQL 同语义）
+    #[test]
+    fn mock_history_trim_keeps_newest_and_spares_other_devices() {
+        let store = MockAuthRecords::default();
+        for i in 0..5 {
+            store
+                .history_append(&ConnectionEventRecord {
+                    id: 0,
+                    device_id: "d-1".into(),
+                    auth_method: "qr".into(),
+                    result: "success".into(),
+                    address: None,
+                    connected_at: crate::pairing::code::format_rfc3339_utc(1_700_000_000 + i),
+                    disconnected_at: None,
+                })
+                .expect("append d-1");
+        }
+        store
+            .history_append(&ConnectionEventRecord {
+                id: 0,
+                device_id: "d-2".into(),
+                auth_method: "jwt".into(),
+                result: "success".into(),
+                address: None,
+                connected_at: "2026-09-19T00:00:00Z".into(),
+                disconnected_at: None,
+            })
+            .expect("append d-2");
+        store.history_trim("d-1", 3).expect("trim");
+        let rows = store.history_by_device("d-1").expect("list d-1");
+        assert_eq!(rows.len(), 3);
+        assert_eq!(
+            rows[0].connected_at,
+            crate::pairing::code::format_rfc3339_utc(1_700_000_004),
+            "最新在前且保留"
+        );
+        assert_eq!(
+            rows[2].connected_at,
+            crate::pairing::code::format_rfc3339_utc(1_700_000_002),
+            "最旧两条被裁"
+        );
+        assert_eq!(store.history_by_device("d-2").expect("list d-2").len(), 1);
+        store.history_trim("d-1", 10).expect("trim under limit");
+        assert_eq!(
+            store.history_by_device("d-1").expect("list").len(),
+            3,
+            "不足 keep 不动"
+        );
     }
 
     /// mock 历史：倒序由端口保证（ORDER BY connected_at DESC 语义）

@@ -24,7 +24,8 @@ pub enum UpsertOutcome {
 /// 信任记录写入（归并语义，对齐宿主 `add_pairing`）
 ///
 /// - `uid_hash` 命中存量**活跃**设备且指纹不同 → 复用原 id，更新指纹/名称/
-///   地址/last_seen，`connect_count + 1`（连接历史与生物凭证不分裂）
+///   地址/last_seen，`connect_count + 1`（连接历史与生物凭证不分裂）；目标指纹
+///   已被另一行持有 → 显式报错（UNIQUE 冲突，不并掉他行）
 /// - 指纹冲突（已存在同指纹行）→ UPSERT 更新，`connect_count + 1`
 /// - 全新 → 新建（`connect_count = 1`）
 pub fn upsert_record(
@@ -46,6 +47,18 @@ pub fn upsert_record(
                 && r.is_active
                 && r.device_fingerprint != fingerprint
         }) {
+            // 目标指纹已被另一行持有（同一设备先经无 uidHash 的路径配过）：
+            // 真 SQL 的 UNIQUE(device_fingerprint) 会让整条写入失败——显式报错
+            // （fail-visible），不静默覆盖/并掉他行（那会丢历史锚点与撤销寻址）
+            if let Some(holder) = all
+                .iter()
+                .find(|r| r.device_fingerprint == fingerprint && r.id != existing.id)
+            {
+                return Err(format!(
+                    "pairing merge conflict: fingerprint already held by record '{}'; revoke it before re-pairing",
+                    holder.id
+                ));
+            }
             let mut updated = existing.clone();
             updated.device_fingerprint = fingerprint.to_string();
             updated.device_name = device_name.to_string();
@@ -84,7 +97,7 @@ pub fn upsert_record(
 
     // 3. 全新插入
     let record = PairingRecord {
-        id: new_id(),
+        id: new_id()?,
         device_name: device_name.to_string(),
         device_fingerprint: fingerprint.to_string(),
         address: address.map(str::to_string),
@@ -152,20 +165,10 @@ pub fn close_open(store: &impl AuthRecordsStore, fingerprint: &str) -> Result<()
     Ok(())
 }
 
-/// 每设备最多保留 [`HISTORY_MAX_PER_DEVICE`] 条，超限删除最旧的
+/// 每设备最多保留 [`HISTORY_MAX_PER_DEVICE`] 条，超限删除最旧的超出部分
+/// （裁剪在存储侧一次完成；`history_clear` 是全删，不能用于裁剪）
 fn prune_history(store: &impl AuthRecordsStore, device_id: &str) -> Result<(), String> {
-    let rows = store.history_by_device(device_id)?;
-    if rows.len() <= HISTORY_MAX_PER_DEVICE {
-        return Ok(());
-    }
-    // 超限时删除超出部分：端口无批量删接口，按最旧的一条逐次清空即可——
-    // 清理目标是「回到上限内」，逐条删到满足为止
-    let mut rows = rows;
-    while rows.len() > HISTORY_MAX_PER_DEVICE {
-        let _ = store.history_clear(device_id)?;
-        rows = store.history_by_device(device_id)?;
-    }
-    Ok(())
+    store.history_trim(device_id, HISTORY_MAX_PER_DEVICE)
 }
 
 /// 活跃配对记录 → 前端 `PairedDeviceInfo[]` 形状（pairedAt 倒序）
@@ -176,8 +179,8 @@ pub fn active_pairings_json(all: &[PairingRecord]) -> serde_json::Value {
     let mut rows: Vec<serde_json::Value> = all
         .iter()
         .filter(|r| r.is_active)
-        .filter_map(|r| {
-            Some(serde_json::json!({
+        .map(|r| {
+            serde_json::json!({
                 "id": r.id,
                 "deviceName": r.device_name,
                 "deviceFingerprint": r.device_fingerprint,
@@ -186,7 +189,7 @@ pub fn active_pairings_json(all: &[PairingRecord]) -> serde_json::Value {
                 "pairedAt": r.paired_at,
                 "lastSeen": r.last_seen,
                 "connectCount": r.connect_count,
-            }))
+            })
         })
         .collect();
     // 按 pairedAt 时间序倒序（最新配对在前）：字典序在混合 offset 的 RFC3339
@@ -214,12 +217,13 @@ fn now_rfc3339() -> String {
     crate::pairing::code::format_rfc3339_utc(crate::pairing::jwt::now_secs())
 }
 
-fn new_id() -> String {
+/// 熵不可用 → `Err` 上抛（生产路径禁止 panic：expect 会把 WASM 插件 trap）
+fn new_id() -> Result<String, String> {
     let mut buf = [0u8; 16];
-    getrandom::fill(&mut buf).expect("getrandom: entropy unavailable");
+    getrandom::fill(&mut buf).map_err(|e| format!("pairing record id entropy unavailable: {e}"))?;
     // 与宿主 Uuid::new_v4() 同形状（标准 hex 格式）
     // wasip3 无 uuid crate 可用时降级 hex 编码（形状差异由消费方容忍）
-    buf.iter().map(|b| format!("{:02x}", b)).collect()
+    Ok(buf.iter().map(|b| format!("{:02x}", b)).collect())
 }
 
 #[cfg(test)]
@@ -303,8 +307,15 @@ mod tests {
         assert_eq!(all[0].peer_node_id.as_deref(), Some(node_id.as_str()));
 
         // LAN 直连重认证（无 nodeId）不得覆盖已验证值
-        upsert_record(&store, "Phone", "fp-1", Some("192.168.1.5:9000"), None, None)
-            .expect("re-upsert without peer node id");
+        upsert_record(
+            &store,
+            "Phone",
+            "fp-1",
+            Some("192.168.1.5:9000"),
+            None,
+            None,
+        )
+        .expect("re-upsert without peer node id");
         let all = store.pairings_all().expect("all");
         assert_eq!(
             all[0].peer_node_id.as_deref(),
@@ -321,18 +332,60 @@ mod tests {
         existing.uid_hash = Some("uid-1".into());
         let store = MockAuthRecords::new(vec![existing]);
         let node_id = "d".repeat(64);
-        let outcome = upsert_record(
-            &store,
-            "New",
-            "fp-new",
-            None,
-            Some("uid-1"),
-            Some(&node_id),
-        )
-        .expect("merge");
+        let outcome = upsert_record(&store, "New", "fp-new", None, Some("uid-1"), Some(&node_id))
+            .expect("merge");
         assert!(matches!(outcome, UpsertOutcome::Merged { id } if id == "legacy-id"));
         let all = store.pairings_all().expect("all");
         assert_eq!(all[0].peer_node_id.as_deref(), Some(node_id.as_str()));
+    }
+
+    /// 超限裁剪回归（review #1）：第 201 条落库后只删最旧一条，保留最新 200 条
+    /// ——旧实现循环调 history_clear（全删），201 条触发后整台设备历史被清空
+    #[test]
+    fn record_event_prunes_oldest_beyond_limit() {
+        let store = MockAuthRecords::new(vec![pairing("p-1", "Phone", "fp-1", true)]);
+        for i in 0..HISTORY_MAX_PER_DEVICE {
+            store
+                .history_append(&ConnectionEventRecord {
+                    id: 0,
+                    device_id: "p-1".into(),
+                    auth_method: "qr".into(),
+                    result: "success".into(),
+                    address: None,
+                    connected_at: crate::pairing::code::format_rfc3339_utc(
+                        1_700_000_000 + i as u64,
+                    ),
+                    disconnected_at: None,
+                })
+                .expect("append");
+        }
+        record_event(&store, "fp-1", "jwt", "success", None).expect("201st event");
+        let rows = store.history_by_device("p-1").expect("list");
+        assert_eq!(rows.len(), HISTORY_MAX_PER_DEVICE, "超限只裁最旧超出部分");
+        assert_eq!(rows[0].auth_method, "jwt", "最新一条必须保留");
+        assert!(
+            rows.iter()
+                .all(|r| r.connected_at > crate::pairing::code::format_rfc3339_utc(1_700_000_000)),
+            "最旧的一条被裁"
+        );
+    }
+
+    /// uid_hash 归并撞上「目标指纹已被另一行持有」→ 显式报错（真 SQL 撞
+    /// UNIQUE 整条失败），两行保持原样——不静默覆盖/并掉他行
+    #[test]
+    fn merge_into_occupied_fingerprint_errors_explicitly() {
+        let mut anchor = pairing("legacy-id", "Old", "fp-old", true);
+        anchor.uid_hash = Some("uid-1".into());
+        let holder = pairing("other-id", "Other", "fp-new", true);
+        let store = MockAuthRecords::new(vec![anchor, holder]);
+        let err = upsert_record(&store, "New", "fp-new", None, Some("uid-1"), None)
+            .expect_err("目标指纹被占必须显式失败");
+        assert!(err.contains("merge conflict"), "got: {err}");
+        assert!(err.contains("other-id"), "报错要点名占用行: {err}");
+        let all = store.pairings_all().expect("all");
+        assert_eq!(all.len(), 2);
+        assert_eq!(all[0].device_fingerprint, "fp-old", "锚行不被改写");
+        assert_eq!(all[1].device_fingerprint, "fp-new", "占用行不被并掉");
     }
 
     /// active_pairings_json：过滤软删 + 按 pairedAt 倒序 + 缺字段宽容

@@ -3,8 +3,8 @@
 //! 真源 = 本插件私有库（`auth_records::store`）。字段与宿主旧 `pairings` /
 //! `connection_history` 表的**公开列**对齐（camelCase wire 形状供前端与互调面），
 //! 凭据列（`public_key` / `session_token`）**不在此模型**——§8 凭据红线：
-//! 公钥留宿主 `plugin_secrets`（验签执行点在宿主），session_token 是宿主旧表
-//! 死列（零生产消费）直接丢弃，凭据零复制。
+//! 公钥自 B-downsink 起真源 = 本库 `auth_biometric_keys` 独立表（验签执行点也在
+//! 插件内），session_token 是宿主旧表死列（零生产消费）直接丢弃，凭据零复制。
 
 use serde::{Deserialize, Serialize};
 
