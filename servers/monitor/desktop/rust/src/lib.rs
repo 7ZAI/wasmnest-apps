@@ -52,8 +52,9 @@ impl WasmPlugin for MonitorPlugin {
                 .metrics_snapshot()
                 .map_err(|e| anyhow::anyhow!("metrics:read unavailable: {}", e)),
             "monitor.notify" => {
-                let request: NotifyRequest = serde_json::from_value(args)
-                    .map_err(|e| anyhow::anyhow!("monitor.notify expects {{title, body}}: {}", e))?;
+                let request: NotifyRequest = serde_json::from_value(args).map_err(|e| {
+                    anyhow::anyhow!("monitor.notify expects {{title, body}}: {}", e)
+                })?;
                 let title = request.title.trim();
                 let body = request.body.trim();
                 if title.is_empty() || body.is_empty() {
@@ -72,3 +73,34 @@ impl WasmPlugin for MonitorPlugin {
 }
 
 wasmnest_plugin_api::wasm_entry!(MonitorPlugin);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 空文案 / 缺字段在宿主调用之前显式报错（校验先于 notify 原语，native 可测）
+    #[test]
+    fn notify_rejects_empty_or_missing_text_before_host_call() {
+        for (args, expect) in [
+            (serde_json::json!({ "title": "", "body": "x" }), "non-empty"),
+            (
+                serde_json::json!({ "title": "  ", "body": "x" }),
+                "non-empty",
+            ),
+            (serde_json::json!({ "title": "x", "body": "" }), "non-empty"),
+            (serde_json::json!({ "title": "x" }), "expects"),
+        ] {
+            let err = MonitorPlugin::invoke_command("monitor.notify", args)
+                .expect_err("空文案/缺字段必须报错");
+            assert!(err.to_string().contains(expect), "got: {err}");
+        }
+    }
+
+    /// 未知命令显性报错（不静默返回空对象冒充成功）
+    #[test]
+    fn unknown_command_is_rejected() {
+        let err = MonitorPlugin::invoke_command("monitor.nope", serde_json::json!({}))
+            .expect_err("未知命令必须报错");
+        assert!(err.to_string().contains("Unknown command"), "got: {err}");
+    }
+}
