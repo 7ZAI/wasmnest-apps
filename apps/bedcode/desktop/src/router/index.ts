@@ -7,7 +7,7 @@
  *
  * 应用路由（业务面单一事实源）：
  * - 菜单项（进侧边栏，order 即视觉顺序）：/pairing 100 / /projects 190 /
- *   /agents 205（Agent 管理域，原 agent-hub 并入）/ /orchestrations 207 /
+ *   /agents 205（Agent 管理域，原 agent-hub 并入）/ /orchestrations 207（已停用）/
  *   /tasks 210；
  * - 设置（业务分组：配对 / 会话；平台分组在宿主系统页 /sys/settings）：
  *   /settings、/settings/authorization（遗留深链 → 宿主 /sys/perms，此处兜底）；
@@ -19,6 +19,10 @@
  * 终端会话中心（原 /sessions 路由）已于 2026-11-06 停用（用户裁定）：项目运行是
  * 唯一的一级容器，终端会话面不再作为入口——后端 `session.list` 同步只返回无项目
  * 归属的行，项目运行的会话不再从该面透出。路由整条注释保留，便于回滚。
+ *
+ * Agent 编排（/orchestrations、/orchestrations/:id）已于 2026-11-09 停用（用户裁定，
+ * 先注释不删除）：菜单项（useSidebarMenu.ts）与后端接线（lib.rs）同步注释，页面组件
+ * 未删除。深链落 not-found（fail-visible），回滚时取消注释即可。
  */
 import { createRouter, createMemoryHistory } from 'vue-router'
 
@@ -60,17 +64,20 @@ const router = createRouter({
       name: 'agents',
       component: () => import('@/agents/components/AgentHubView.vue'),
     },
-    {
-      // Agent 编排（v1）：计划 / 执行 / 证据三平面；列表 + 详情
-      path: '/orchestrations',
-      name: 'orchestrations',
-      component: () => import('@/views/orchestration/OrchestrationListView.vue'),
-    },
-    {
-      path: '/orchestrations/:id',
-      name: 'orchestration-detail',
-      component: () => import('@/views/orchestration/OrchestrationDetailView.vue'),
-    },
+    // Agent 编排（v1）：2026-11-09 停用（用户裁定，先注释不删除）。列表 + 详情两条
+    // 路由整块注释保留以便回滚（与 useSidebarMenu.ts 的注释菜单项、lib.rs 的编排
+    // 接线注释配对）；页面组件仍在 `views/orchestration/` 下。
+    // {
+    //   // Agent 编排（v1）：计划 / 执行 / 证据三平面；列表 + 详情
+    //   path: '/orchestrations',
+    //   name: 'orchestrations',
+    //   component: () => import('@/views/orchestration/OrchestrationListView.vue'),
+    // },
+    // {
+    //   path: '/orchestrations/:id',
+    //   name: 'orchestration-detail',
+    //   component: () => import('@/views/orchestration/OrchestrationDetailView.vue'),
+    // },
     {
       path: '/tasks',
       name: 'tasks',

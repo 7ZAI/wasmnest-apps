@@ -1024,18 +1024,22 @@ impl WasmPlugin for SessionPlugin {
         // 编排域建表（幂等，四张表：orchestrations / orchestration_nodes /
         // orchestration_events / orchestration_evidence）。失败只降级编排域（D7），
         // 不阻断会话核心；tick 定时器仍在下方注册，缺表会以命令错误显性暴露。
-        match orchestration::ensure_schema() {
-            Ok(()) => host.log_info(
-                "orchestration schema ready (orchestrations / orchestration_nodes / \
-                 orchestration_events / orchestration_evidence)",
-            ),
-            Err(e) => host.log_warn(&format!(
-                "orchestration schema init failed at activate (orchestration degraded): {}",
-                e
-            )),
-        }
+        //
+        // 2026-11-09 停用（用户裁定，先注释不删除）：编排入口（侧边栏菜单 + 路由）
+        // 摘除后激活期不再建表 / 恢复对账，避免后台空转。模块本体仍在
+        // （`agent_pool` 的 `AgentSnapshot` 引用其 model），回滚时取消注释。
+        // match orchestration::ensure_schema() {
+        //     Ok(()) => host.log_info(
+        //         "orchestration schema ready (orchestrations / orchestration_nodes / \
+        //          orchestration_events / orchestration_evidence)",
+        //     ),
+        //     Err(e) => host.log_warn(&format!(
+        //         "orchestration schema init failed at activate (orchestration degraded): {}",
+        //         e
+        //     )),
+        // }
         // 编排恢复对账：只标失败 / 暂停，不重发 prompt（设计不变量 10）。
-        orchestration::recover_on_activate();
+        // orchestration::recover_on_activate();
         // 任务域启动恢复（与下方定时域 recover_creating_jobs 互补）：上一进程遗留的
         // 运行中任务行（in_progress / asking / retrying）与未终结队列项（pending /
         // waiting / executing）所属会话已随进程销毁（会话表刚被清空、agent 进程已死），
@@ -1154,7 +1158,10 @@ impl WasmPlugin for SessionPlugin {
 
         // 编排域定时器：驱动 ready set、桥接等待、证据结算与超时 / 预算。
         // 单域失败只降级编排调度（D7），不影响任务队列的 tick。
-        orchestration::register_timer();
+        //
+        // 2026-11-09 停用（用户裁定，先注释不删除）：入口摘除后不再注册 tick，
+        // 避免后台每秒空转；回滚时取消注释（与上方建表 / 恢复一并恢复）。
+        // orchestration::register_timer();
 
         // ABI v29（HTTP 路由代码注册下沉）：activate 期注册自身全部 HTTP 路由
         // （业务别名 + 任务域内部路径 + sessions REST + terminal-bg）。
@@ -2280,11 +2287,15 @@ impl WasmPlugin for SessionPlugin {
             // 发送消息 {runId, text} → {commandId}（经桥接命令队列；镜像模式显性拒绝）
             "run.send" => run::bridge::send_via_host(&args).map_err(anyhow::Error::msg),
 
-            // ==================== Agent 编排域 ====================
+            // ==================== Agent 编排域（2026-11-09 停用） ====================
             // `orchestration.*` 命令面 + 宿主定时器回调；未知命令由编排域显性报错。
-            name if name.starts_with("orchestration.") || name == orchestration::TICK_COMMAND => {
-                orchestration::invoke_command(name, args).map_err(anyhow::Error::msg)
-            }
+            //
+            // 用户裁定先注释不删除：前端菜单 / 路由与后端接线同步摘除，调用 `orchestration.*`
+            // 一律落到末尾 `other => Unknown command`（fail-visible，不静默返回空）。
+            // 模块本体保留（`agent_pool` 引用其 model），回滚时取消注释。
+            // name if name.starts_with("orchestration.") || name == orchestration::TICK_COMMAND => {
+            //     orchestration::invoke_command(name, args).map_err(anyhow::Error::msg)
+            // }
 
             // agent 控制面（唯一入口）：{runId} → 当前模型/思考等级 + 可选清单 + 能力
             "run.agent.options" => {

@@ -197,6 +197,7 @@ describe('C1 工程身份五处一致', () => {
       'session.task.get-status',
       'session.task.history-list',
       'session.task.history-stats',
+      'session.task.log-session',
       'session.task.running-sessions',
       'session.task.set-platform',
       'session.task.set-auto-mode',
@@ -467,9 +468,10 @@ describe('C3 入口契约（挂载包形态：mountApp + 直连上下文 + 内�
     expect(byName.get('sessions')).toBeUndefined()
     // Agent 管理域（原 agent-hub 并入）
     expect(byName.get('agents')?.path).toBe('/agents')
-    // Agent 编排（v1）：列表 + 详情
-    expect(byName.get('orchestrations')?.path).toBe('/orchestrations')
-    expect(byName.get('orchestration-detail')?.path).toBe('/orchestrations/:id')
+    // Agent 编排（v1）已于 2026-11-09 停用（用户裁定，先注释不删除）：菜单、路由与
+    // 后端接线同时注释，深链落 not-found（fail-visible）
+    expect(byName.get('orchestrations')).toBeUndefined()
+    expect(byName.get('orchestration-detail')).toBeUndefined()
     expect(byName.get('tasks')?.path).toBe('/tasks')
     expect(byName.get('settings')?.path).toBe('/settings')
     // 诊断页（URL 直达不进导航）
@@ -555,22 +557,21 @@ describe('C4 退役锁（D8 fail-visible：插件运行时回接零命中）', (
 })
 
 describe('C5 静态侧边栏菜单表与设置分组表（D3/D4）', () => {
-  it('侧边栏 = 静态表：六项（终端会话已停用）、顺序槽位、路由与路由表一一对应', () => {
+  it('侧边栏 = 静态表：五项（终端会话 / Agent 编排已停用）、顺序槽位、路由与路由表一一对应', () => {
     expect(sidebarMenuItems.map((i) => i.id)).toEqual([
       'pairing',
       'projects',
       'agents',
-      'orchestrations',
       'tasks',
       'settings',
     ])
-    // sessions 槽位（200）保留在常量里但表中无项：2026-11-06 停用终端会话面
-    expect(sidebarMenuItems.map((i) => i.order)).toEqual([100, 190, 205, 207, 210, 9999])
+    // sessions（200）/ orchestrations（207）槽位保留在常量里但表中无项：
+    // 2026-11-06 停用终端会话面，2026-11-09 停用 Agent 编排面
+    expect(sidebarMenuItems.map((i) => i.order)).toEqual([100, 190, 205, 210, 9999])
     expect(sidebarMenuItems.map((i) => i.path)).toEqual([
       '/pairing',
       '/projects',
       '/agents',
-      '/orchestrations',
       '/tasks',
       '/settings',
     ])
@@ -595,8 +596,7 @@ describe('C5 静态侧边栏菜单表与设置分组表（D3/D4）', () => {
     expect(sidebarMenuItems[1].labelKey).toBe('project.sidebar.title')
     // Agent 管理域（原 agent-hub 并入）：hub.* 键随 i18n 三件套并入
     expect(sidebarMenuItems[2].labelKey).toBe('hub.sidebar.title')
-    expect(sidebarMenuItems[3].labelKey).toBe('orchestration.sidebar.title')
-    expect(sidebarMenuItems[5].labelKey).toBe('sidebar.settings')
+    expect(sidebarMenuItems[4].labelKey).toBe('sidebar.settings')
   })
 
   it('设置分组 = 静态表：业务六分组、order 升序、带标题 key（平台分组归宿主系统页）', () => {
