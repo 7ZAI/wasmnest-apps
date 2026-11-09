@@ -79,14 +79,22 @@ pub(crate) enum InputFrame {
 ///
 /// 特殊键**先校验后投递**：不支持的键名返回 Err 且一帧都不发，避免「文本已
 /// 写进 PTY、回车没发」的半截输入（PTY 侧不可回滚）。
-pub(crate) fn plan_input_frames(data: &str, special_key: Option<&str>) -> Result<Vec<InputFrame>, String> {
+pub(crate) fn plan_input_frames(
+    data: &str,
+    special_key: Option<&str>,
+) -> Result<Vec<InputFrame>, String> {
     let key_bytes = match special_key.filter(|k| !k.is_empty()) {
-        Some(key) => Some(special_key_to_pty_bytes(key).ok_or_else(|| format!("unsupported special key: {key}"))?),
+        Some(key) => Some(
+            special_key_to_pty_bytes(key)
+                .ok_or_else(|| format!("unsupported special key: {key}"))?,
+        ),
         None => None,
     };
     let mut frames = Vec::with_capacity(2);
     if !data.is_empty() {
-        frames.push(InputFrame::Text { data: data.to_string() });
+        frames.push(InputFrame::Text {
+            data: data.to_string(),
+        });
     }
     if let Some(bytes) = key_bytes {
         frames.push(InputFrame::Binary { bytes });
@@ -123,14 +131,20 @@ pub(crate) enum ServerErrorClass {
     Other,
 }
 
-/// 服务端 error 帧分类（纯函数）：`会话不存在`（启动竞态）→ SessionMissing；
-/// 其余（含插件内错误/宿主错误）→ Other。
-/// 文案事实源 = 桌面插件 `ws_terminal.rs` 的错误文案（`会话不存在：{id}`）
-pub(crate) fn classify_server_error(message: &str) -> ServerErrorClass {
-    if message.contains("会话不存在") {
-        ServerErrorClass::SessionMissing
-    } else {
-        ServerErrorClass::Other
+/// 服务端 error 帧分类（纯函数）：优先读 `code`（跨端机器可读码），仅在字段
+/// 缺失时回落文案匹配（兼容未升级的桌面端）。
+///
+/// 为什么不能只靠文案：桌面端改一个字符（英文 / i18n / 标点）就会把
+/// `SessionMissing` 判成 `Other` → strikes 永远到不了上限 → 前端 3s 重试循环
+/// 无限打，终端永久「重连中」。
+pub(crate) fn classify_server_error(code: Option<&str>, message: &str) -> ServerErrorClass {
+    match code {
+        // 桌面端 `ws_terminal::ERR_CODE_SESSION_MISSING`（wire 契约）
+        Some("session_missing") => ServerErrorClass::SessionMissing,
+        // 有 code 但值未知：这是新端的新错误类别，不得当成会话缺失
+        Some(_) => ServerErrorClass::Other,
+        None if message.contains("会话不存在") => ServerErrorClass::SessionMissing,
+        None => ServerErrorClass::Other,
     }
 }
 
@@ -182,7 +196,10 @@ mod tests {
             .map(|f| match f {
                 InputFrame::Text { data } => format!("text:{data}"),
                 InputFrame::Binary { bytes } => {
-                    format!("bytes:{}", bytes.iter().map(|b| format!("{b:02x}")).collect::<String>())
+                    format!(
+                        "bytes:{}",
+                        bytes.iter().map(|b| format!("{b:02x}")).collect::<String>()
+                    )
                 }
             })
             .collect())
@@ -192,7 +209,10 @@ mod tests {
     fn plan_input_frames_keeps_text_before_special_key() {
         // 「命令 + Enter」唯一生产路径：文本在前、回车键字节（0x0d）在后
         let shape = plan_shape("cargo build", Some("enter")).expect("plan ok");
-        assert_eq!(shape, vec!["text:cargo build".to_string(), "bytes:0d".to_string()]);
+        assert_eq!(
+            shape,
+            vec!["text:cargo build".to_string(), "bytes:0d".to_string()]
+        );
     }
 
     #[test]
@@ -202,7 +222,10 @@ mod tests {
 
     #[test]
     fn plan_input_frames_special_key_only() {
-        assert_eq!(plan_shape("", Some("ctrl+c")).unwrap(), vec!["bytes:03".to_string()]);
+        assert_eq!(
+            plan_shape("", Some("ctrl+c")).unwrap(),
+            vec!["bytes:03".to_string()]
+        );
     }
 
     #[test]
@@ -247,12 +270,18 @@ mod tests {
         // 正例：恰达阈值 / 超过阈值 → 发
         assert!(should_send_ack(ACK_BYTES_THRESHOLD, 0), "恰达阈值回发");
         assert!(should_send_ack(ACK_BYTES_THRESHOLD + 1, 0));
-        assert!(should_send_ack(4 * ACK_BYTES_THRESHOLD, 3 * ACK_BYTES_THRESHOLD));
+        assert!(should_send_ack(
+            4 * ACK_BYTES_THRESHOLD,
+            3 * ACK_BYTES_THRESHOLD
+        ));
         // 反例：未推进 / 未达阈值 / 回退（旧世代回调晚到）→ 不发
         assert!(!should_send_ack(0, 0), "零推进不发");
         assert!(!should_send_ack(1, 1), "重复上报不发");
         assert!(!should_send_ack(ACK_BYTES_THRESHOLD, ACK_BYTES_THRESHOLD));
-        assert!(!should_send_ack(ACK_BYTES_THRESHOLD - 1, 1), "差 1 字节不发");
+        assert!(
+            !should_send_ack(ACK_BYTES_THRESHOLD - 1, 1),
+            "差 1 字节不发"
+        );
         assert!(!should_send_ack(1, ACK_BYTES_THRESHOLD), "回退不发（饱和）");
         // 边界：每段推进恰为一个阈值 → 每段各发一次（不会跳段漏发）
         let mut last = 0u64;
@@ -271,8 +300,25 @@ mod tests {
 
     #[test]
     fn server_error_classification() {
-        assert_eq!(classify_server_error("会话不存在：s-1"), ServerErrorClass::SessionMissing);
-        assert_eq!(classify_server_error("subscribe: missing sessionId"), ServerErrorClass::Other);
-        assert_eq!(classify_server_error(""), ServerErrorClass::Other);
+        // 首选机器可读 code（文案随便改都不影响）
+        assert_eq!(
+            classify_server_error(Some("session_missing"), "whatever"),
+            ServerErrorClass::SessionMissing
+        );
+        assert_eq!(
+            classify_server_error(Some("other"), "会话不存在：s-1"),
+            ServerErrorClass::Other,
+            "有 code 时不得再靠文案猜"
+        );
+        // 未升级桌面的兼容回落
+        assert_eq!(
+            classify_server_error(None, "会话不存在：s-1"),
+            ServerErrorClass::SessionMissing
+        );
+        assert_eq!(
+            classify_server_error(None, "subscribe: missing sessionId"),
+            ServerErrorClass::Other
+        );
+        assert_eq!(classify_server_error(None, ""), ServerErrorClass::Other);
     }
 }

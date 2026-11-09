@@ -104,9 +104,11 @@ pub fn decide_pull_gate(
 /// 单会话水位快照（诊断面 `session.output.watermarks`；对齐迁移前 `SubscriberStats`
 /// 的 `park_count` / `truncated_count` 观测面）。
 ///
-/// **有意不镜像旧实现的 `parked_ms`**：wasm 插件无系统时钟（`SystemTime::now()` 在
-/// wasm32 触发 unreachable trap，见 `task::queue` 同款注释），插件侧只持有无时钟的
-/// 字节水位与计数；驻留时长由前端计时（它有 `Date.now`）打进日志。
+/// **有意不镜像旧实现的 `parked_ms`**：`SystemTime::now()` 在 wasip3 **可用**
+/// （见 `pairing::jwt::now_secs`），但它是墙钟、会在 NTP 校时时跳变，而驻留时长是
+/// 诊断用的单调量。插件侧只持有无时钟的字节水位与计数，时长由前端计时（单调来源）
+/// 打进日志。（旧注释称「wasm 插件无系统时钟、`SystemTime::now()` 会 trap」，那是
+/// `wasm32-unknown-unknown` 时代的措辞，勿据此改实现。）
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PumpSnapshot {
     pub session_id: String,

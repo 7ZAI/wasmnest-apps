@@ -149,9 +149,9 @@ pub(crate) fn parse_claude_session(content: &str) -> ParsedSession {
             "user" => {
                 let msg = v.get("message").cloned().unwrap_or(Value::Null);
                 let is_meta = v.get("isMeta").and_then(|m| m.as_bool()).unwrap_or(false);
-                if msg.get("content").map(|c| c.is_array()).unwrap_or(false) {
+                if let Some(blocks) = msg.get("content").and_then(|c| c.as_array()) {
                     // tool_result 数组块：归一为工具事件（is_error / 配对 / 非 text 占位）
-                    for block in msg["content"].as_array().unwrap() {
+                    for block in blocks {
                         if block.get("type").and_then(|t| t.as_str()) == Some("tool_result") {
                             let text =
                                 tool_result_text(block.get("content").unwrap_or(&Value::Null));

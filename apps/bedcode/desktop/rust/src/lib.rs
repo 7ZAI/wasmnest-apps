@@ -72,6 +72,8 @@ mod hub;
 mod keys;
 /// 会话创建编排（票 09）：命名唯一化 / config→launch spec 映射 / 两阶段启动决策
 mod launch;
+/// 互斥锁中毒的统一口径（`lock_or_recover`）
+mod lock;
 /// Agent 编排内核（v1）：计划 / 执行 / 证据三平面；命令面经 `orchestration.*` 接入
 mod orchestration;
 /// 终端输出拉取域（票 04）：经 host-session output-ring-fetch 原语拉取会话输出字节
@@ -155,8 +157,9 @@ pub trait SessionApi {
     fn qr_code_status() -> Result<Option<serde_json::Value>, String>;
 
     /// 验证 QR token（一次性）→ `{valid, reason?}`；reason = 宿主错误分类同构
-    /// 文本（`QR token expired` / `QR token already used` / `No active QR token`），
-    /// 宿主 `auth_controller::qr_connect` 按子串匹配分类用户提示
+    /// 文本（`QR token expired` / `No active QR token` / `Invalid QR token`；
+    /// 消费即清除，重复使用落到「无活跃 token」），宿主 `auth_controller::
+    /// qr_connect` 按子串匹配分类用户提示
     #[api("qr-code-verify")]
     fn qr_code_verify(token: String) -> Result<serde_json::Value, String>;
 
@@ -738,7 +741,7 @@ fn pair_code_verify(input: &str) -> Result<bool, String> {
 /// 生成 QR token → `{token, ttl, remaining}`
 fn qr_generate(ttl: u64) -> Result<serde_json::Value, String> {
     let manager = qr_manager();
-    let token = manager.generate(ttl);
+    let token = manager.generate(ttl)?;
     // 刚生成的 token 必须活跃：若管理器实现异常（生成即不可见），显性报错而不
     // abort 整个插件（非测试路径 expect 会把 WASM 插件 trap）
     let (_, ttl, remaining) = manager

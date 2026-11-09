@@ -53,6 +53,16 @@ mod tunnel;
 
 pub(crate) use link::LINK_MANAGER;
 
+/// 取静态互斥锁；中毒时恢复内部值（与桌面插件 `lock_or_recover` 同口径）。
+///
+/// 中毒只可能来自「持锁期间 panic」，而 wasm 里 panic 已经 trap 掉整个插件实例：
+/// `.expect("link manager lock")` 不会让调用方拿到可处理的错误，只会把一次回调
+/// 失败升级成同一结局。链路表每条目（session → LinkState）互相独立，恢复后继续
+/// 用不产生跨条目不变量。
+pub(crate) fn lock_or_recover<T>(mutex: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 /// 插件 id（D6 选项 A：与桌面 `com.wasmnest.bedcode` 同名——两端同
 /// id 职责不同，本端是远程终端控制端，契约独立不因同名互相约束，C8）
 pub(crate) const PLUGIN_ID: &str = "com.wasmnest.bedcode";
@@ -125,9 +135,11 @@ impl WasmPlugin for TerminalSessionPlugin {
         let h = host();
         h.log_info("WasmNest plugin deactivating (closing all terminal links)");
         // 关闭全部终端连接（显式 close = 宿主取消自动重连，purge 兜底不泄漏）
-        for handle in LINK_MANAGER.lock().expect("link manager lock").drain_handles() {
+        for handle in lock_or_recover(&LINK_MANAGER).drain_handles() {
             if let Err(e) = h.ws_close(&handle, "{}") {
-                h.log_info(&format!("deactivate: ws_close {handle} failed (non-fatal): {e}"));
+                h.log_info(&format!(
+                    "deactivate: ws_close {handle} failed (non-fatal): {e}"
+                ));
             }
         }
         for topic in [
@@ -181,14 +193,20 @@ impl WasmPlugin for TerminalSessionPlugin {
             // 宿主退避排期 → 透传前端倒计时（载荷形状与退役前
             // terminal_link 的 reconnect_scheduled detail 一致）
             if let Some(handle) = payload.get("handle").and_then(|v| v.as_str()) {
-                let retry_in_ms = payload.get("retryInMs").and_then(|v| v.as_u64()).unwrap_or(0);
+                let retry_in_ms = payload
+                    .get("retryInMs")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0);
                 link::LinkManager::on_reconnect_scheduled(&host(), handle, retry_in_ms);
             }
             return Ok(());
         }
         if msg.topic == ws_topic(WS_ERROR) {
             // 连接错误：留痕即可（断开事实由 close 事件承载，错误不改变状态机）
-            let message = payload.get("message").and_then(|v| v.as_str()).unwrap_or("");
+            let message = payload
+                .get("message")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             host().log_warn(&format!("ws error on terminal link: {message}"));
             return Ok(());
         }
@@ -231,19 +249,76 @@ pub(crate) struct PrimaryTarget {
     pub(crate) port: u16,
 }
 
-/// 读主连接目标（引擎事实，票 13 复用同一原语）；未配置 → 显性错误
+/// 解析主连接目标（纯函数，native 可测）
+///
+/// 字段缺失 / 空串 / 端口越界都不得静默降级成默认值：早期实现用
+/// `unwrap_or_default()` + `as u16` 拼出 `ws://:0/ws/plugin/...`（或 70000 →
+/// 4464），把错误推到下游 `ws_connect`，报出来的东西与真正原因无关。
+pub(crate) fn parse_primary_target(v: &serde_json::Value) -> anyhow::Result<PrimaryTarget> {
+    let address = v
+        .get("address")
+        .and_then(|a| a.as_str())
+        .map(str::trim)
+        .filter(|a| !a.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("primary-target: missing address"))?;
+    let port = v
+        .get("port")
+        .and_then(|p| p.as_u64())
+        .and_then(|p| u16::try_from(p).ok())
+        .filter(|p| *p != 0)
+        .ok_or_else(|| anyhow::anyhow!("primary-target: invalid port"))?;
+    Ok(PrimaryTarget {
+        address: address.to_string(),
+        port,
+    })
+}
+
+/// 读主连接目标（引擎事实，票 13 复用同一原语）；未配置 / 形状非法 → 显性错误
 pub(crate) fn read_primary_target() -> anyhow::Result<PrimaryTarget> {
     let json = host().connection_primary_target()?;
     let v: serde_json::Value = serde_json::from_str(&json)
         .map_err(|e| anyhow::anyhow!("primary-target: invalid json: {e}"))?;
-    Ok(PrimaryTarget {
-        address: v
-            .get("address")
-            .and_then(|a| a.as_str())
-            .unwrap_or_default()
-            .to_string(),
-        port: v.get("port").and_then(|p| p.as_u64()).unwrap_or(0) as u16,
-    })
+    parse_primary_target(&v)
 }
 
 wasmnest_plugin_api_mobile::wasm_entry!(TerminalSessionPlugin);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 主连接目标是「拼端点 URL 的输入」：缺字段 / 越界端口必须显性失败
+    ///
+    /// 降级后果（S2）：`ws://:0/ws/plugin/...` 或 70000 → 4464，错误在下游
+    /// `ws_connect` 才爆，与真正原因无关。
+    #[test]
+    fn primary_target_parsing_is_fail_visible() {
+        let ok = parse_primary_target(&serde_json::json!({
+            "address": " 192.168.1.9 ", "port": 8765
+        }))
+        .expect("合法形状");
+        assert_eq!(ok.address, "192.168.1.9", "地址去首尾空白");
+        assert_eq!(ok.port, 8765);
+        assert_eq!(
+            parse_primary_target(&serde_json::json!({"address": "h", "port": 65535}))
+                .expect("上界合法")
+                .port,
+            65535
+        );
+
+        for bad in [
+            serde_json::json!({ "port": 8765 }),
+            serde_json::json!({ "address": "   ", "port": 8765 }),
+            serde_json::json!({ "address": "h" }),
+            serde_json::json!({ "address": "h", "port": 0 }),
+            serde_json::json!({ "address": "h", "port": 65_536 }),
+            // 70000 曾 `as u16` 静默截成 4464
+            serde_json::json!({ "address": "h", "port": 70_000 }),
+        ] {
+            assert!(
+                parse_primary_target(&bad).is_err(),
+                "非法主连接目标必须显性失败: {bad}"
+            );
+        }
+    }
+}

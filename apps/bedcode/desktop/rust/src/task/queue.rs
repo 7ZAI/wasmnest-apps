@@ -208,8 +208,10 @@ pub fn add_task_with_source(
                 .and_then(|v| v.as_str().map(|s| s.to_string()))
         })
         .unwrap_or_else(|| {
-            // wasm32-unknown-unknown 无系统时钟，SystemTime::now() 会 panic（unreachable trap）；
-            // 回退用会话+位置组合，天然唯一且无时间依赖
+            // id 刻意**不依赖时钟**：同一 (session, position) 必须得到同一 id，
+            // 而时钟值每次都不同。（wasip3 有 wasi clocks——`SystemTime::now()`
+            // 可用，见 `pairing::jwt::now_secs`；旧注释的「wasm32 会 trap」是
+            // `wasm32-unknown-unknown` 时代的措辞。）
             format!("fallback-{}-{}", session_id, position)
         });
 

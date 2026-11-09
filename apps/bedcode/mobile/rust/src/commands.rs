@@ -151,9 +151,15 @@ pub(crate) fn dispatch(name: &str, args: &serde_json::Value) -> anyhow::Result<s
     }
 }
 
+/// 必填非空字符串（去首尾空白后为空即拒绝）
+///
+/// 与 `project::require_non_empty` 同一口径：`"   "` 是「没填」而不是合法 id
+/// （同一命令面两种判据会让前端拿到的错误取决于字段来源）。
 fn require_str(args: &serde_json::Value, key: &str) -> anyhow::Result<String> {
     args.get(key)
         .and_then(|v| v.as_str())
-        .map(|s| s.to_string())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
         .ok_or_else(|| anyhow::anyhow!("missing {key}"))
 }

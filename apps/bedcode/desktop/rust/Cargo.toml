@@ -61,7 +61,10 @@ rand = "0.8"
 # dev 线（同机联调口径）：能力仓 crate 走**本地 path**，不写版本——具体版本只在
 # uat / 发布线（`=0.0.1`，与平台仓 release-manifest 的 `repos.lib.tag` 同轴）写。
 # 需求前提：`../wasmnest-lib` 与本仓同层（R1 兄弟布局）；fresh clone 的 dev 构建需要它。
-wasmnest-server-base = { path = "../../../../../wasmnest-lib/wasmnest-server-base" }
+# `mdns` feature 必须显式开：`MdnsPort` / `MdnsTypeSubscription`（d10 契约测试的
+# `PilotMdns` 实现面）自 2026-11-08 起随该 feature 门控（能力仓 `default = []`）。
+# 少这一项 = 整个 lib test 目标 E0432，一条单测都跑不了。
+wasmnest-server-base = { path = "../../../../../wasmnest-lib/wasmnest-server-base", features = ["mdns"] }
 wasmnest-server-core = { path = "../../../../../wasmnest-lib/wasmnest-server-core" }
 wasmnest-server-http = { path = "../../../../../wasmnest-lib/wasmnest-server-http" }
 wasmnest-server-websocket = { path = "../../../../../wasmnest-lib/wasmnest-server-websocket" }

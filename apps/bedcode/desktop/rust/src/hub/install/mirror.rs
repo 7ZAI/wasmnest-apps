@@ -6,9 +6,9 @@
 
 use super::state::{all_sources, custom_sources, emit_and_return, now_ms, read_state, write_state};
 use super::HOME;
+use serde_json::{json, Value};
 use wasmnest_plugin_api::host::{HostFs, HostLog};
 use wasmnest_plugin_api::wasm_host::WasmHost;
-use serde_json::{json, Value};
 
 /// 自定义源 URL 校验：http(s):// 协议白名单 + 无中间空白/换行/`=`（防 npmrc 注入），
 /// 返回去除首尾空白后的 URL。注意先 trim 再查控制字符：trim 会移除首尾
@@ -26,7 +26,6 @@ pub(crate) fn validate_custom_source_url(url: &str) -> Result<String, String> {
     }
     Ok(trimmed.to_string())
 }
-// ==================== npmrc 持久换源 ====================
 // ==================== npmrc 持久换源 ====================
 
 fn npmrc_path() -> anyhow::Result<String> {

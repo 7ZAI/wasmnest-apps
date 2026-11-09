@@ -594,6 +594,10 @@ fn biometric_credential_bind(fingerprint: &str, public_key: &str) -> Result<bool
 }
 
 /// QR 拒绝原因 → 用户提示（宿主 `auth_center::qr_failure_user_message` 逐字复刻）
+///
+/// `already used` 那一档在本端**不可达**：QR 验证是「消费即清除」（`pairing::qr`），
+/// 重复使用只会得到 `No active QR token`。保留该档是为了与宿主文案表逐字对齐
+/// （宿主侧仍有 used 标记的兼容路径），不表示本端会产出这句。
 fn qr_failure_user_message(reason: &str) -> &str {
     if reason.contains("expired") {
         "二维码已过期，请重新生成"

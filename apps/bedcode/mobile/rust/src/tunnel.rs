@@ -146,8 +146,12 @@ pub fn parse_targets(value: Option<&serde_json::Value>) -> Result<Vec<PeerTarget
 }
 
 /// 序列化对端记录（写 KV）
-pub fn targets_value(targets: &[PeerTarget]) -> serde_json::Value {
-    serde_json::to_value(targets).unwrap_or_else(|_| serde_json::Value::Array(Vec::new()))
+///
+/// **失败必须上抛**：调用方会把这个值直接写库，吞成空数组 = 用一张合法的空表
+/// 覆盖整份对端记录（静默、不可恢复的数据丢失），与「存储损坏显性报错」的
+/// 同文件口径相反。
+pub fn targets_value(targets: &[PeerTarget]) -> Result<serde_json::Value, String> {
+    serde_json::to_value(targets).map_err(|e| format!("peer targets serialize failed: {e}"))
 }
 
 /// 新增 / 更新一条记录（按 nodeId 去重；最新使用置顶；超上限淘汰尾部）
@@ -276,10 +280,12 @@ pub fn validate_connect_args(
         .filter(|v| !v.is_empty())
         .ok_or_else(|| "missing nodeId".to_string())?
         .to_string();
+    // `u16::try_from`：`as u16` 会把 70000 静默截成 4464（拨错端口，错误出现在
+    // 「连不上」而不是「端口非法」），`filter != 0` 只挡得住 65536 这一种越界
     let port = args
         .get("port")
         .and_then(|v| v.as_u64())
-        .map(|v| v as u16)
+        .and_then(|v| u16::try_from(v).ok())
         .filter(|port| *port != 0)
         .ok_or_else(|| "target port unavailable".to_string())?;
     let kind = args
@@ -360,7 +366,7 @@ pub fn read_targets(host: &impl TunnelHost) -> Result<Vec<PeerTarget>, String> {
 }
 
 fn write_targets(host: &impl TunnelHost, targets: &[PeerTarget]) -> Result<(), String> {
-    host.write_storage(TARGETS_STORAGE_KEY, &targets_value(targets))
+    host.write_storage(TARGETS_STORAGE_KEY, &targets_value(targets)?)
 }
 
 /// 写通道配置：`allowWan` 设置 + 记录里的 relay 地址
@@ -414,7 +420,17 @@ pub fn connect_via(
         }
     }
     upsert_target(&mut targets, target);
-    write_targets(host, &targets)?;
+    if let Err(e) = write_targets(host, &targets) {
+        // 记录写失败不得留下无人持有的回环代理：`connect_from_host` 的
+        // `remember_handle` 只在成功返回后执行，这个句柄也不在 `ACTIVE_HANDLES`
+        // 里（`deactivate` 兜不到）。先关句柄止损，再把错误显性上抛。
+        if let Ok(entry) = &entry {
+            if let Some(handle) = entry.get("handle").and_then(|v| v.as_str()) {
+                let _ = host.close_handle(handle);
+            }
+        }
+        return Err(e);
+    }
 
     let entry = entry?;
     let mut out = entry;
@@ -442,17 +458,14 @@ pub fn status_via(
     let targets = read_targets(host)?;
     let mut view = status_view(&status, node_id);
     if let Some(object) = view.as_object_mut() {
-        object.insert(
-            "targets".into(),
-            serde_json::to_value(&targets).unwrap_or_else(|_| serde_json::json!([])),
-        );
+        object.insert("targets".into(), targets_value(&targets)?);
     }
     Ok(view)
 }
 
 /// 对端记录列表
 pub fn targets_via(host: &impl TunnelHost) -> Result<serde_json::Value, String> {
-    Ok(targets_value(&read_targets(host)?))
+    targets_value(&read_targets(host)?)
 }
 
 /// 忘记对端（解配 / 撤销后清理；不触碰宿主信任表——那是配对域的事）
@@ -669,6 +682,7 @@ mod tests {
         status: RefCell<serde_json::Value>,
         storage: RefCell<std::collections::HashMap<String, serde_json::Value>>,
         dial_error: RefCell<Option<String>>,
+        storage_write_error: RefCell<Option<String>>,
         emitted: RefCell<Vec<(String, serde_json::Value)>>,
     }
 
@@ -723,6 +737,9 @@ mod tests {
             Ok(self.storage.borrow().get(key).cloned())
         }
         fn write_storage(&self, key: &str, value: &serde_json::Value) -> Result<(), String> {
+            if let Some(err) = self.storage_write_error.borrow().as_ref() {
+                return Err(err.clone());
+            }
             self.storage
                 .borrow_mut()
                 .insert(key.to_string(), value.clone());
@@ -854,6 +871,24 @@ mod tests {
             "nodeId": "n", "addrs": [lan_addr()]
         }))
         .is_err());
+        // 端口越界不得静默截断：70000 曾 `as u16` 变成 4464（拨错端口，
+        // 错误表现为「连不上」而不是「端口非法」）
+        assert!(validate_connect_args(&serde_json::json!({
+            "nodeId": "n", "port": 70_000, "addrs": [lan_addr()]
+        }))
+        .is_err());
+        assert!(validate_connect_args(&serde_json::json!({
+            "nodeId": "n", "port": 65_536, "addrs": [lan_addr()]
+        }))
+        .is_err());
+        assert_eq!(
+            validate_connect_args(&serde_json::json!({
+                "nodeId": "n", "port": 65_535, "addrs": [lan_addr()]
+            }))
+            .expect("端口上界合法")
+            .1,
+            65_535
+        );
         // 地址全部不可拨 = 没有可拨地址（不静默拉长到宿主再报错）
         assert!(validate_connect_args(&serde_json::json!({
             "nodeId": "n", "port": 8765, "addrs": ["garbage"]
@@ -985,6 +1020,36 @@ mod tests {
         let targets = read_targets(&host).unwrap();
         assert_eq!(targets[0].last_mode.as_deref(), Some("lan-unreachable"));
         assert_eq!(targets[0].last_reason.as_deref(), Some("host-unreachable"));
+    }
+
+    /// S1 回归：拨号成功但记录写库失败 → **先关句柄再上抛**
+    ///
+    /// 否则这个句柄既没返回给前端（`remember_handle` 只在成功返回后执行），
+    /// 也不在 `ACTIVE_HANDLES` 里（`deactivate` 的 `close_all_via` 兜不到）——
+    /// 一个无人持有也关不掉的本地回环代理活到插件实例销毁。
+    #[test]
+    fn failed_record_write_closes_fresh_handle() {
+        let host = FakeHost::with_status(status_with_mode("peer-1", "lan-active", None));
+        *host.storage_write_error.borrow_mut() = Some("kv down".to_string());
+
+        let err = connect_via(
+            &host,
+            &serde_json::json!({
+                "nodeId": "peer-1", "port": 8765, "addrs": [lan_addr()],
+            }),
+        )
+        .expect_err("记录写失败必须上抛");
+        assert!(err.contains("kv down"), "{err}");
+        assert_eq!(
+            *host.closed.borrow(),
+            vec!["tunnel-1".to_string()],
+            "必须关掉刚 dial 出来的句柄（否则隧道句柄泄漏）"
+        );
+        assert_eq!(
+            host.dials.borrow().len(),
+            1,
+            "前置条件：拨号确实发生在写库之前"
+        );
     }
 
     #[test]

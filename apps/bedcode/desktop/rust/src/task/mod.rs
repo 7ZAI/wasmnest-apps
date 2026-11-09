@@ -331,6 +331,10 @@ pub fn tick_via_host(host: &WasmHost, now_utc: &str) -> serde_json::Value {
 /// `has_active_task` 恒真堵死），定时域的 `creating` 任务（否则 Created 事件永不到达）。
 /// 任缺一条都不会编译报错、不会让测试变红，只在真实重启后留下悬挂项——故以结构锁
 /// 钉住 activate 的调用面（native 无法跑 activate：无宿主 import）。
+/// 结构锁（不是行为锁，理由必须写清）：`activate()` 是 WIT 入口、直接调宿主，
+/// native 构建里整段被 cfg 掉，没有可注入的端口 ⇒ 只能钉「调用存在且有序」。
+/// 锁住的是两条启动恢复的**顺序不变量**（建表 < 恢复；会话清空 < 任务恢复），
+/// 不是实现写法——函数搬家 / 重命名调用仍成立。
 #[test]
 fn activate_runs_both_restart_recoveries() {
     let src = include_str!("../lib.rs");

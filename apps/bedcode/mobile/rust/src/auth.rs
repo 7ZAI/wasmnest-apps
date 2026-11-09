@@ -20,7 +20,8 @@ const PAIRING_VERIFY_FAILED_REASON: &str = "Pairing verification failed";
 
 /// 请求配对：桌面端生成一次性配对码并展示 → 广播 `ws_pairing_request`
 pub(crate) fn request_pairing(h: &WasmHost) -> anyhow::Result<()> {
-    h.auth_request_pairing().map_err(|e| anyhow::anyhow!(e.message))?;
+    h.auth_request_pairing()
+        .map_err(|e| anyhow::anyhow!(e.message))?;
     h.emit_event("ws_pairing_request", &serde_json::Value::Null);
     Ok(())
 }
@@ -81,6 +82,9 @@ fn emit_outcome(h: &WasmHost, accepted: bool, reject_reason: &str) {
     if accepted {
         emit_success(h);
     } else {
-        h.emit_event("ws_auth_failed", &serde_json::json!({ "reason": reject_reason }));
+        h.emit_event(
+            "ws_auth_failed",
+            &serde_json::json!({ "reason": reject_reason }),
+        );
     }
 }
