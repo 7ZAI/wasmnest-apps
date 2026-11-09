@@ -88,6 +88,8 @@ pub mod project;
 mod projects_http;
 /// 快捷指令域（票 02 第 4 域）：私有库持久化 + HTTP 查询面 + 迁移导入
 pub mod quick_actions;
+/// 网络配置中心消费域（T18）：relay 地址取中心（本地 KV 降级为缓存）+ 首启迁移
+pub mod relay_center;
 /// 运行域（ADR 0003）：从项目里启动一条运行（`run.start`）——项目给出执行环境
 /// 与目录，agent 选择是一次运行的决定；启动仍走 `launch` 的唯一那条链
 pub mod run;
@@ -1178,6 +1180,28 @@ impl WasmPlugin for SessionPlugin {
             ));
         }
 
+        // T18：把本地 relay 配置迁移到网络配置中心（中心已有值则不覆盖）。
+        // **失败不阻断激活**：迁移只是补空，失败时本地键仍是可用的缓存；结果写入
+        // `network.relay.migration`，设置页据此显性提示「需重新导入」。
+        match relay_center::migrate_on_activate() {
+            Ok(status) => {
+                let state = status
+                    .get("state")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown");
+                if state == "failed" {
+                    host.log_warn(&format!(
+                        "relay config migration to net-config failed (local cache retained): {status}"
+                    ));
+                } else if state != "none" {
+                    host.log_info(&format!("relay config migration to net-config: {state}"));
+                }
+            }
+            Err(e) => host.log_warn(&format!(
+                "relay config migration skipped (net-config centre unavailable): {e}"
+            )),
+        }
+
         host.log_info(
             "WasmNest plugin activated (auth center role moved to com.wasmnest.auth-center)",
         );
@@ -1575,7 +1599,67 @@ impl WasmPlugin for SessionPlugin {
             // 准备隧道（写通道配置 + 暴露本机 HTTP 面）→ 只读状态视图
             "session.tunnel.prepare" => {
                 let port = device_face::network_port_via_host().map_err(anyhow::Error::msg)?;
-                tunnel::prepare_via_host(port).map_err(anyhow::Error::msg)
+                // T18：地址由前端显式传入（它从 `session.relay.config` 取中心值）；
+                // 未传时后端取中心（缓存兜底），两者都拿不到则按「仅 LAN」继续并
+                // 把原因带回（LAN 入口不因中心故障失效，但界面必须能看见）。
+                let (mut relay_addrs, mut relay_error) = match args.get("relayAddrs") {
+                    Some(value) => {
+                        let list = value
+                            .as_array()
+                            .ok_or_else(|| anyhow::anyhow!("relayAddrs must be an array"))?;
+                        let mut addrs = Vec::with_capacity(list.len());
+                        for item in list {
+                            addrs.push(
+                                item.as_str()
+                                    .ok_or_else(|| {
+                                        anyhow::anyhow!("relayAddrs must contain strings")
+                                    })?
+                                    .to_string(),
+                            );
+                        }
+                        (
+                            tunnel::validate_relay_addrs(&addrs).map_err(anyhow::Error::msg)?,
+                            None,
+                        )
+                    }
+                    None => match relay_center::resolve_relay_addrs_via_host() {
+                        Ok(resolved) => (resolved.addrs, resolved.center_error),
+                        Err(e) => (Vec::new(), Some(e)),
+                    },
+                };
+                // T18：业务 WAN 注册表逐应用裁决（默认 true；显式 false = 仅 LAN）。
+                // 注册表读不到时保持默认并带出原因，不静默关掉用户已配置的外网。
+                let (allow_wan, wan_error) = relay_center::allow_wan_via_host();
+                if let Some(reason) = wan_error {
+                    relay_error = Some(match relay_error {
+                        Some(existing) => format!("{existing}; {reason}"),
+                        None => reason,
+                    });
+                }
+                if !allow_wan {
+                    relay_addrs.clear();
+                }
+                let mut view = tunnel::prepare_via_host(port, &relay_addrs)
+                    .map_err(anyhow::Error::msg)?;
+                if let Some(reason) = relay_error {
+                    view["relayError"] = serde_json::Value::String(reason);
+                }
+                if !allow_wan {
+                    view["wanDisabledByPolicy"] = serde_json::Value::Bool(true);
+                }
+                Ok(view)
+            }
+
+            // ==================== 网络配置中心（T18） ====================
+            // 设置页「中转服务器」已退役为只读入口：地址真源在中心，本命令是
+            // 读取投影（`source` = center / cache，`centerError` 说明降级原因）。
+            "session.relay.config" => {
+                relay_center::relay_config_view_via_host().map_err(anyhow::Error::msg)
+            }
+
+            // 首启迁移结果（`{state: none|adopted|skipped|failed, ...}`）
+            "session.relay.migration" => {
+                relay_center::migration_status_via_host().map_err(anyhow::Error::msg)
             }
 
             // 隧道只读状态（设备页状态栏；不做配置 / 暴露）

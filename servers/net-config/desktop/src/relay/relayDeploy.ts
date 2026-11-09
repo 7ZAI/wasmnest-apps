@@ -1,5 +1,7 @@
 /**
- * 自建 relay 部署文本生成（T14）——只产出**文本**，不执行远端命令、不碰凭据
+ * 自建 relay 部署文本生成——只产出**文本**，不执行远端命令、不碰凭据
+ *
+ * 归属：T18 起由网络配置中心承载（原 T14 的 BedCode 卡片实现随逻辑迁入）。
  *
  * 产出方真源 = 能力仓 `wasmnest-relay`（T13）：
  * - `deploy/relay/docker-compose.yml`（Compose 形态）
@@ -108,7 +110,7 @@ export function buildComposeText(input: RelayDeployInput): RelayDeployResult {
   if (error) return { ok: false, errorKey: error }
   const { advertise, port, version } = normalized
   const text = `# ==================== wasmnest-relay（Docker Compose） ====================
-# 由 WasmNest 桌面「中转服务器」卡片按 T13 交付物生成；不含任何凭据。
+# 由 WasmNest 网络配置中心按 T13 交付物生成；不含任何凭据。
 #
 # 首次生成身份与配置（身份丢了 = PeerId 变 = 所有客户端要重新导入）：
 #   docker compose run --rm relay init --dir /data --advertise ${advertise}
@@ -163,7 +165,7 @@ export function buildDockerText(input: RelayDeployInput): RelayDeployResult {
   const { advertise, port, version } = normalized
   const image = `${RELAY_IMAGE_REPO}:${version}`
   const text = `# ==================== wasmnest-relay（Docker 单命令） ====================
-# 由 WasmNest 桌面「中转服务器」卡片按 T13 交付物生成；不含任何凭据。
+# 由 WasmNest 网络配置中心按 T13 交付物生成；不含任何凭据。
 
 # 1) 首次生成身份与配置（身份丢了 = PeerId 变 = 所有客户端要重新导入）
 docker run --rm -v ${RELAY_VOLUME_NAME}:/data ${image} \\
@@ -194,7 +196,7 @@ export function buildSystemdText(input: RelayDeployInput): RelayDeployResult {
         `# 需同步编辑 /etc/wasmnest-relay/config.toml 的 listen/addrs 与 advertise/addrs（tcp/${port}），\n` +
         `# 并在防火墙放行 TCP ${port} 后 systemctl restart wasmnest-relay。\n`
   const text = `# ==================== wasmnest-relay（systemd 单文件二进制） ====================
-# 由 WasmNest 桌面「中转服务器」卡片按 T13 交付物生成；不含任何凭据。
+# 由 WasmNest 网络配置中心按 T13 交付物生成；不含任何凭据。
 # 在能力仓 deploy/relay 目录执行（同目录含 install.sh 与 wasmnest-relay.service）。
 ${portHint}
 # 1) 一键安装（装二进制 / 建用户 / 生成身份与配置 / 装 unit / 启动）

@@ -18,7 +18,7 @@ import AppearanceSettingsSection from '@/components/AppearanceSettingsSection.vu
 import AppUpdateSettingsSection from '@/components/AppUpdateSettingsSection.vue'
 import LinkCryptoSettingsSection from '@/components/LinkCryptoSettingsSection.vue'
 import PairingSettingsSection from '@/components/PairingSettingsSection.vue'
-import RelaySettingsSection from '@/components/RelaySettingsSection.vue'
+import RelayMovedSection from '@/components/RelayMovedSection.vue'
 import SessionSettingsSection from '@/components/SessionSettingsSection.vue'
 
 /** 业务分组排序槽位（沿用旧贡献面槽位：外观 100 / 配对 200 / 中转服务器 250 / 链路加密 300 / 会话 400） */
@@ -55,9 +55,10 @@ export const settingsSections: Omit<SettingsSectionEntry, 'props'>[] = [
     titleKey: 'pairing.settings.title',
   },
   {
+    // T18：可编辑卡片已迁入网络配置中心；本分组保留只读入口（不复制编辑器）
     key: 'relay',
     order: SECTION_ORDERS.relay,
-    component: RelaySettingsSection,
+    component: RelayMovedSection,
     titleKey: 'relay.title',
   },
   {

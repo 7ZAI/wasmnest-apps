@@ -1,0 +1,53 @@
+{
+  "id": "com.wasmnest.net-config",
+  "name": "Network Config",
+  "version": "0.0.1",
+  "platform": "desktop",
+  "description": "网络配置中心（T18）：穿透配置的跨应用唯一真源。一处导入自建 relay 地址（print-addrs JSON / 文本 / multiaddr），按插件 id 维护「是否允许外网」注册表，并承载部署文本生成与地址校验页面。\n边界：本中心只统一**配置来源**，不代任何业务拨号 / 暴露 / 签发配对票据；业务仍按自己的 tunnel:serve / tunnel:connect 权限与时机调宿主隧道原语。\n装配角色为 L2（internal-business），只为借用「先于业务应用就绪」的装配顺序，不注册任何网关裁决。",
+  "author": "WasmNest",
+  "main": "index.js",
+  "pluginType": "full",
+  "rustLibrary": "wasmnest_plugin_net_config",
+  "icon": "icon.svg",
+  "type": "internal-business",
+  "permissions": [
+    "storage"
+  ],
+  "api": [
+    "com.wasmnest.net-config.relay-config",
+    "com.wasmnest.net-config.wan-policy",
+    "com.wasmnest.net-config.relay-adopt"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "id": "net-config.status",
+        "title": "Network Config: Center Status"
+      },
+      {
+        "id": "net-config.relay.get",
+        "title": "Network Config: Get Relay Config"
+      },
+      {
+        "id": "net-config.relay.save",
+        "title": "Network Config: Save Relay Config"
+      },
+      {
+        "id": "net-config.relay.clear",
+        "title": "Network Config: Remove Relay Config"
+      },
+      {
+        "id": "net-config.relay.adopt",
+        "title": "Network Config: Adopt Relay Config"
+      },
+      {
+        "id": "net-config.wan-policy.get",
+        "title": "Network Config: Get WAN Policy"
+      },
+      {
+        "id": "net-config.wan-policy.set",
+        "title": "Network Config: Set WAN Policy"
+      }
+    ]
+  }
+}

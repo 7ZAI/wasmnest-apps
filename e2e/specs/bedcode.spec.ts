@@ -520,28 +520,24 @@ describe('BedCode（桌面端 · 宿主内挂载）', () => {
     expectEqual(enforced === 'true' || enforced === 'false', true, '徽标带显性生效标记')
   })
 
-  it('中转服务器卡片：生成部署文本 / 非法导入显性报错 / 探测未装配不可伪装', async () => {
+  it('中转服务器：只读入口（配置已迁统一网络设置，T18）', async () => {
     await click('nav-settings')
     await waitFor('settings-view')
-    await waitFor('relay-settings-section')
-    expectEqual(await isDisabled('relay-probe-button'), true, '探测能力未装配时按钮禁用')
-    expectEqual(await visible('relay-probe-unsupported'), true, '未装配原因可见')
+    await waitFor('relay-moved-section')
 
-    // 填写对外域名 → 生成 T13 交付物的 Compose 文本（不依赖机器状态）
+    // 只读入口：状态可判读（已配置 / 未配置 / 显性错误）+ 跳转按钮
     expectEqual(
-      await typeInto('relay-deploy-advertise', 'relay.example.com'),
+      (await exists('relay-moved-state')) ||
+        (await exists('relay-moved-load-error')) ||
+        (await exists('relay-moved-loading')),
       true,
-      '对外域名可输入',
+      '只读入口必须给出可判读状态',
     )
-    await waitForText('relay-deploy-output', 'relay.example.com')
-    await waitForText('relay-deploy-output', 'ghcr.io/7zai/wasmnest-relay')
-    await waitForText('relay-deploy-output', '4001')
-
-    // 非法载荷 → 显性报错，不写配置
-    expectEqual(await typeInto('relay-import-input', 'hello world'), true, '导入输入框可用')
-    await click('relay-import-submit')
-    await waitFor('relay-import-error')
-    expectEqual(await exists('relay-current'), false, '非法载荷不写入配置')
+    expectEqual(await exists('relay-moved-open'), true, '提供打开统一网络设置的入口')
+    // 不再保留第二份编辑器（地址真源只有中心一处）
+    expectEqual(await exists('relay-import-input'), false, '不保留导入输入框')
+    expectEqual(await exists('relay-deploy-advertise'), false, '不保留部署文本编辑器')
+    expectEqual(await exists('relay-probe-button'), false, '不保留探测按钮')
   })
 
   it('服务器诊断页：分区、端口和高级配置折叠可用（不写端口）', async () => {

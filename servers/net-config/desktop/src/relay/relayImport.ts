@@ -1,5 +1,8 @@
 /**
- * 中继地址导入载荷（T14）——`wasmnest-relay print-addrs` 的消费方契约
+ * 中继地址导入载荷——`wasmnest-relay print-addrs` 的消费方契约
+ *
+ * 归属：T18 起由网络配置中心承载（原 T14 落在 BedCode 设置卡片，本文件随逻辑
+ * 整体迁入；BedCode 不再保留副本，避免两处校验口径漂移）。
  *
  * 产出方真源（能力仓 `wasmnest-relay/src/addrs.rs`）：
  * - `print-addrs --json`：`{ v, kind, relay_version, peer_id, peer_id_sha256,
@@ -17,8 +20,8 @@
  * - 二维码在本卡片里按**文本形态**处理：其内容就是这份 JSON（桌面无摄像头，
  *   扫码结果粘贴进来即可）。
  *
- * 导入成功后的落点见 `useRelaySettings`（插件 KV `network.relay`，字段
- * `relayAddrs`），供 T07/T12 的 WAN 拨号与模式判定读取。
+ * 导入成功后的落点 = 本中心插件 KV `network.relay`（字段 `relayAddrs`），由
+ * `net-config.relay.save` 写入；消费方经只读 api `relay-config` 取用。
  */
 
 /** 产出方载荷版本（`IMPORT_PAYLOAD_VERSION`） */

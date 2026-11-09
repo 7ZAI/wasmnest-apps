@@ -1,11 +1,13 @@
-//! 内网穿透通道的应用侧编排（T07 / T08）
+//! 内网穿透通道的应用侧编排（T07 / T08 / T18）
 //!
 //! 机制（首帧 / 票据 / ACL / 本地代理 / 引用计数 / 模式判定）全在宿主隧道管理器
 //! （`host-tunnel`，T06）。本模块只做**应用自己的三件事**：
 //!
-//! 1. **通道配置**：把应用级网络配置（插件 KV `network.relay`，T14 导入的中继地址）
-//!    写成宿主 `tunnel-configure`。`allowWan` 由「是否配置了中继地址」推出——
-//!    没有中继地址却宣称允许外网，只会让每次 `expose` 都拿到 `wan-disabled`；
+//! 1. **通道配置**：把中继地址写成宿主 `tunnel-configure`。T18 起地址来源是
+//!    **网络配置中心**（`com.wasmnest.net-config`），由调用方显式传入；本模块只做
+//!    地址校验与写入，**不再自己从插件 KV 决策**（本地 `network.relay` 仅作中心
+//!    不可用时的缓存，见 `relay_center`）。`allowWan` 由「是否给了可用中继地址」
+//!    推出——没有中继地址却宣称允许外网，只会让每次 `expose` 都拿到 `wan-disabled`；
 //! 2. **暴露本机 HTTP 面**：登记 `kind=http` 的暴露规则（端口 = 宿主实际运行端口），
 //!    让已匹配 peer 能经隧道访问本应用的 `/api/*`（T07 的 expose + reservation）；
 //! 3. **生产配对 `peer`**：`{nodeId, addrs, ticket}`——QR v2 / 连接串 `peer` 字段的
@@ -15,8 +17,8 @@
 //! **加密不可关闭**：本域没有「关闭加密」的原语；`allowWan=false` 只关外网通道，
 //! 链路加密永久强制（不变量 12/14）。
 //!
-//! **失败语义（fail-visible）**：隧道面缺失 / 配置损坏 → 显性错误；配对载荷生产失败
-//! 时**不产出残缺 `peer`**（半份 `peer` 会让对端拨不通，且违反 `pairingPayload`
+//! **失败语义（fail-visible）**：隧道面缺失 / 地址非法 → 显性错误；配对载荷生产
+//! 失败时**不产出残缺 `peer`**（半份 `peer` 会让对端拨不通，且违反 `pairingPayload`
 //! 的显性失败判据）——调用方据此退回 v1 载荷，并把失败原因随回执带给界面。
 
 #[cfg(target_arch = "wasm32")]
@@ -24,8 +26,10 @@ use wasmnest_plugin_api::host::{HostStorage, HostTunnel, TunnelConfig, TunnelExp
 #[cfg(target_arch = "wasm32")]
 use wasmnest_plugin_api::wasm_host::WasmHost;
 
-/// 应用级网络配置键（真源 = 前端 `useRelaySettings` 的 `RELAY_SETTINGS_STORAGE_KEY`）
+/// 应用级 relay 配置键：T18 起降级为**本地缓存**（真源 = 网络配置中心）
 pub const RELAY_SETTINGS_STORAGE_KEY: &str = "network.relay";
+/// 单次通道配置的地址上限（与网络配置中心 `MAX_RELAY_ADDRS` 同值）
+pub const MAX_RELAY_ADDRS: usize = 16;
 
 /// 一次性配对票据 TTL（秒）：不变量 4 上限 120s，取上限（窗口越短越安全，
 /// 但过短会让「扫码 → 对端拨号」擦边失败）
@@ -51,10 +55,67 @@ fn is_dialable_addr(addr: &str) -> bool {
     !(addr.contains("/ip4/0.0.0.0") || addr.contains("/ip6/::"))
 }
 
+/// 显式中继地址入参 → 可写宿主的中继地址列表（T18 的边界校验）
+///
+/// 地址来自网络配置中心（或调用方显式传入），**不能假设可信**：只接受
+/// `/ip4|ip6|dns|dns4|dns6/<host>/tcp/<port>/p2p/<peerId>` 的 relay 基础地址；
+/// 带 `/p2p-circuit` 的是拨号目标，不是中继地址。
+pub fn validate_relay_addrs(addrs: &[String]) -> Result<Vec<String>, String> {
+    if addrs.is_empty() {
+        return Err("relay address list is empty".to_string());
+    }
+    if addrs.len() > MAX_RELAY_ADDRS {
+        return Err(format!(
+            "relay address list too long (max {MAX_RELAY_ADDRS})"
+        ));
+    }
+    let mut out: Vec<String> = Vec::with_capacity(addrs.len());
+    for raw in addrs {
+        let addr = raw.trim();
+        if addr.is_empty() || addr != raw.as_str() {
+            return Err("relay address has surrounding whitespace".to_string());
+        }
+        if !addr.starts_with('/') || addr.ends_with('/') || addr.contains(char::is_whitespace) {
+            return Err(format!("relay address shape invalid: {addr}"));
+        }
+        if addr.contains("/p2p-circuit") {
+            return Err("relay address must not be a /p2p-circuit dial target".to_string());
+        }
+        let parts: Vec<&str> = addr.split('/').skip(1).collect();
+        if parts.len() != 6 {
+            return Err(format!("relay address shape invalid: {addr}"));
+        }
+        let (host_proto, host, tcp_proto, port, p2p_proto, peer_id) =
+            (parts[0], parts[1], parts[2], parts[3], parts[4], parts[5]);
+        if !matches!(host_proto, "ip4" | "ip6" | "dns" | "dns4" | "dns6") {
+            return Err(format!("relay address host protocol unsupported: {host_proto}"));
+        }
+        if host.is_empty() {
+            return Err(format!("relay address has an empty host: {addr}"));
+        }
+        if tcp_proto != "tcp" || p2p_proto != "p2p" {
+            return Err(format!("relay address must be tcp + p2p: {addr}"));
+        }
+        let port: u32 = port
+            .parse()
+            .map_err(|_| format!("relay address has an invalid port: {addr}"))?;
+        if port == 0 || port > 65535 {
+            return Err(format!("relay address port out of range: {addr}"));
+        }
+        if peer_id.is_empty() || peer_id.len() > 128 {
+            return Err(format!("relay address has an invalid peer id: {addr}"));
+        }
+        if !out.iter().any(|existing| existing == addr) {
+            out.push(addr.to_string());
+        }
+    }
+    Ok(out)
+}
+
 /// 插件 KV `network.relay` → 中继地址列表
 ///
-/// 存储内容不可信（旧版本 / 手工改坏），但**不静默丢弃**：解析不出来就显性报错，
-/// 由调用方决定提示；静默当成「没配置」会让用户以为已启用却永远走不到外网。
+/// T18 起该键是**本地缓存**（中心不可用时兜底）；内容仍不可信（旧版本 / 手工
+/// 改坏），但**不静默丢弃**：解析不出来就显性报错，由调用方决定提示。
 ///
 /// 只取 `relayAddrs`（应用自己的字段）；`version` 不是 1 视为未知版本 → 报错。
 pub fn relay_addrs_from_settings(value: &serde_json::Value) -> Result<Vec<String>, String> {
@@ -243,17 +304,20 @@ impl TunnelHost for WasmHost {
     }
 }
 
-/// 应用配置 → 宿主通道配置（幂等；每次 `expose` 前都可安全重放）
+/// 显式地址 → 宿主通道配置（幂等；每次 `expose` 前都可安全重放）
 ///
-/// `allowWan` 由「配置里有中继地址」推出：`allowWan=true` 且没有中继地址会被宿主
-/// 直接拒绝（`wan-disabled`），那是配置错误而不是安全默认值。
-pub fn sync_channel_config(host: &impl TunnelHost) -> Result<bool, String> {
-    let relay_addrs = match host.read_storage(RELAY_SETTINGS_STORAGE_KEY)? {
-        None => Vec::new(),
-        Some(value) => relay_addrs_from_settings(&value)?,
-    };
-    let allow_wan = !relay_addrs.is_empty();
-    host.apply_config(allow_wan, &relay_addrs)
+/// `allowWan` 由「是否给了中继地址」推出：`allowWan=true` 且没有中继地址会被宿主
+/// 直接拒绝（`wan-disabled`），那是配置错误而不是安全默认值。空列表 = 仅 LAN
+/// （`allowWan=false`），不是错误——用户可能主动清空了中心配置。
+pub fn sync_channel_config(host: &impl TunnelHost, relay_addrs: &[String]) -> Result<bool, String> {
+    let addrs = validate_relay_addrs(relay_addrs)?;
+    host.apply_config(true, &addrs)
+}
+
+/// 无中继地址时的通道配置（仅 LAN；与 [`sync_channel_config`] 的「空列表」分支同义，
+/// 显式保留给「中心未配置」路径，避免调用方自己拼 allowWan 布尔）
+pub fn sync_lan_channel_config(host: &impl TunnelHost) -> Result<bool, String> {
+    host.apply_config(false, &[])
 }
 
 /// 确保本机 HTTP 面已暴露 → 规则 id（端口非法即显性失败，不发「0 号端口」规则）
@@ -268,11 +332,19 @@ pub fn ensure_http_exposed(host: &impl TunnelHost, port: u16) -> Result<String, 
 ///
 /// 幂等：宿主按 port + kind 返回同一规则 id，重复调用不会产生多条规则。
 /// 放在配对 / 状态页入口调用一次，保证「配对成功后业务面立刻可达」。
-pub fn prepare_channel(host: &impl TunnelHost, port: u16) -> Result<String, String> {
+pub fn prepare_channel(
+    host: &impl TunnelHost,
+    port: u16,
+    relay_addrs: &[String],
+) -> Result<String, String> {
     if port == 0 {
         return Err("network port unavailable (config missing/invalid)".to_string());
     }
-    sync_channel_config(host)?;
+    if relay_addrs.is_empty() {
+        sync_lan_channel_config(host)?;
+    } else {
+        sync_channel_config(host, relay_addrs)?;
+    }
     ensure_http_exposed(host, port)
 }
 
@@ -304,10 +376,13 @@ fn remember_rule(rule_id: String) {
 }
 
 /// 准备隧道（配置 + 暴露）→ 只读状态视图
+///
+/// `relay_addrs` 由调用方显式传入（来自网络配置中心或本地缓存）；本函数只校验
+/// 与写入，不在内部做跨应用调用。
 #[cfg(target_arch = "wasm32")]
-pub fn prepare_via_host(port: u16) -> Result<serde_json::Value, String> {
+pub fn prepare_via_host(port: u16, relay_addrs: &[String]) -> Result<serde_json::Value, String> {
     let host = WasmHost;
-    let rule = prepare_channel(&host, port)?;
+    let rule = prepare_channel(&host, port, relay_addrs)?;
     remember_rule(rule);
     Ok(status_view(&host.read_status()?))
 }
@@ -320,9 +395,12 @@ pub fn status_via_host() -> Result<serde_json::Value, String> {
 
 /// 生产配对 `peer`（QR v2 / 连接串的 `peer` 字段；内部先准备通道）
 #[cfg(target_arch = "wasm32")]
-pub fn pairing_peer_via_host(port: u16) -> Result<serde_json::Value, String> {
+pub fn pairing_peer_via_host(
+    port: u16,
+    relay_addrs: &[String],
+) -> Result<serde_json::Value, String> {
     let host = WasmHost;
-    let rule = prepare_channel(&host, port)?;
+    let rule = prepare_channel(&host, port, relay_addrs)?;
     remember_rule(rule);
     pairing_peer(&host, port)
 }
@@ -346,7 +424,7 @@ pub fn unexpose_via_host() -> Result<bool, String> {
 
 /// 准备隧道（native 无宿主环境）
 #[cfg(not(target_arch = "wasm32"))]
-pub fn prepare_via_host(_port: u16) -> Result<serde_json::Value, String> {
+pub fn prepare_via_host(_port: u16, _relay_addrs: &[String]) -> Result<serde_json::Value, String> {
     Err("tunnel unavailable outside wasm runtime".to_string())
 }
 
@@ -358,7 +436,10 @@ pub fn status_via_host() -> Result<serde_json::Value, String> {
 
 /// 生产配对 `peer`（native 无宿主环境）
 #[cfg(not(target_arch = "wasm32"))]
-pub fn pairing_peer_via_host(_port: u16) -> Result<serde_json::Value, String> {
+pub fn pairing_peer_via_host(
+    _port: u16,
+    _relay_addrs: &[String],
+) -> Result<serde_json::Value, String> {
     Err("tunnel unavailable outside wasm runtime".to_string())
 }
 
@@ -576,51 +657,49 @@ mod tests {
         }
     }
 
-    /// 通道配置由应用 KV 推出：有中继地址才 allowWan；未配置 = lan-only
+    /// 通道配置用**显式入参**：有地址才 allowWan；空列表 = 仅 LAN
     #[test]
-    fn channel_config_follows_relay_settings() {
-        let status = status_with(serde_json::json!([
-            "/ip4/10.0.0.5/tcp/39000/p2p/x".to_string()
-        ]));
+    fn channel_config_uses_explicit_addrs() {
+        let fake = FakeTunnel::new(
+            status_with(serde_json::json!([
+                "/ip4/10.0.0.5/tcp/39000/p2p/x".to_string()
+            ])),
+            None,
+        );
 
-        let none = FakeTunnel::new(status.clone(), None);
-        assert!(sync_channel_config(&none).expect("configure"));
+        assert!(sync_lan_channel_config(&fake).expect("configure"));
         assert_eq!(
-            none.calls(),
-            vec![
-                format!("storage {RELAY_SETTINGS_STORAGE_KEY}"),
-                "configure allowWan=false addrs=0".to_string(),
-            ],
+            fake.calls(),
+            vec!["configure allowWan=false addrs=0".to_string()],
             "未配置中继 → allowWan=false（LAN 入口不受影响）"
         );
 
-        let configured = FakeTunnel::new(
-            status,
-            Some(serde_json::json!({
-                "version": 1,
-                "relayAddrs": ["/ip4/203.0.113.9/tcp/4001/p2p/12D3KooWPbYEEfpRvnRKk2YLu43F28fLZgU22wic2M5m6Spkv9ZA"],
-            })),
-        );
-        assert!(sync_channel_config(&configured).expect("configure"));
+        let addr = "/ip4/203.0.113.9/tcp/4001/p2p/12D3KooWPbYEEfpRvnRKk2YLu43F28fLZgU22wic2M5m6Spkv9ZA";
+        assert!(sync_channel_config(&fake, &[addr.to_string()]).expect("configure"));
         assert_eq!(
-            configured.calls().last().unwrap(),
+            fake.calls().last().unwrap(),
             "configure allowWan=true addrs=1",
             "有中继地址才宣称允许外网"
         );
     }
 
-    /// 存储损坏 → 显性报错，且**不**退回「allowWan=false 继续跑」
+    /// 显式入参不可信：非法地址显性报错，且**不**写宿主配置
     #[test]
-    fn channel_config_fails_visible_on_corrupted_settings() {
-        let fake = FakeTunnel::new(
-            status_with(serde_json::json!([])),
-            Some(serde_json::json!({ "version": 7 })),
-        );
-        let err = sync_channel_config(&fake).expect_err("损坏配置必须报错");
-        assert!(err.contains("version"), "错误信息必须点名原因: {err}");
+    fn channel_config_rejects_invalid_addrs() {
+        let fake = FakeTunnel::new(status_with(serde_json::json!([])), None);
+        for bad in [
+            String::new(),
+            "/ip4/1.2.3.4/tcp/4001".to_string(),
+            "/ip4/1.2.3.4/tcp/4001/p2p/12D3KooWPbYEEfpRvnRKk2YLu43F28fLZgU22wic2M5m6Spkv9ZA/p2p-circuit/p2p/12D3KooWPbYEEfpRvnRKk2YLu43F28fLZgU22wic2M5m6Spkv9ZA".to_string(),
+            " /ip4/1.2.3.4/tcp/4001/p2p/12D3KooWPbYEEfpRvnRKk2YLu43F28fLZgU22wic2M5m6Spkv9ZA".to_string(),
+        ] {
+            let err = sync_channel_config(&fake, &[bad.clone()]).expect_err("必须拒绝");
+            assert!(!err.is_empty(), "{bad:?} 必须给出原因");
+        }
+        assert!(sync_channel_config(&fake, &[]).is_err(), "空列表不是 sync 的输入");
         assert!(
             !fake.calls().iter().any(|c| c.starts_with("configure")),
-            "配置不可信时不得写入宿主（避免把用户的中继配置静默清空）"
+            "地址不可信时不得写入宿主"
         );
     }
 
@@ -634,16 +713,20 @@ mod tests {
         assert!(fake.calls().is_empty(), "非法端口不得触达宿主");
     }
 
-    /// 通道准备顺序：读应用配置 → 写宿主配置 → 登记暴露规则
+    /// 通道准备顺序：写宿主配置 → 登记暴露规则
     #[test]
-    fn prepare_channel_orders_storage_configure_expose() {
+    fn prepare_channel_orders_configure_then_expose() {
         let fake = FakeTunnel::new(
             status_with(serde_json::json!([
                 "/ip4/10.0.0.5/tcp/39000/p2p/x".to_string()
             ])),
             None,
         );
-        assert_eq!(prepare_channel(&fake, 8765).expect("prepare"), "rule-1");
+        let addr = "/ip4/203.0.113.9/tcp/4001/p2p/12D3KooWPbYEEfpRvnRKk2YLu43F28fLZgU22wic2M5m6Spkv9ZA";
+        assert_eq!(
+            prepare_channel(&fake, 8765, &[addr.to_string()]).expect("prepare"),
+            "rule-1"
+        );
         let calls = fake.calls();
         let position = |prefix: &str| {
             calls
@@ -652,10 +735,6 @@ mod tests {
                 .unwrap_or_else(|| panic!("缺调用 {prefix}: {calls:?}"))
         };
         assert!(
-            position("storage") < position("configure"),
-            "先读应用配置再写宿主配置"
-        );
-        assert!(
             position("configure") < position("expose"),
             "配置必须先于暴露（allowWan 门控 reservation）"
         );
@@ -663,6 +742,16 @@ mod tests {
             calls.contains(&format!("expose 8765 {EXPOSE_KIND_HTTP} {EXPOSE_LABEL}")),
             "暴露 kind/端口/标签必须与契约一致: {calls:?}"
         );
+    }
+
+    /// 显式地址的规范化：重复地址去重、顺序保持；空列表由 LAN 分支处理
+    #[test]
+    fn explicit_addrs_are_deduped_and_ordered() {
+        let a = "/ip4/203.0.113.9/tcp/4001/p2p/12D3KooWPbYEEfpRvnRKk2YLu43F28fLZgU22wic2M5m6Spkv9ZA";
+        let b = "/dns4/relay.example.com/tcp/4001/p2p/12D3KooWPbYEEfpRvnRKk2YLu43F28fLZgU22wic2M5m6Spkv9ZA";
+        let addrs = validate_relay_addrs(&[a.to_string(), b.to_string(), a.to_string()])
+            .expect("validate");
+        assert_eq!(addrs, vec![a.to_string(), b.to_string()]);
     }
 
     /// 配对顺序：票据先于状态（票据路径确保节点 / 对等面在场）
@@ -701,9 +790,12 @@ mod tests {
     #[test]
     fn command_faces_fail_loudly_on_native() {
         for (name, result) in [
-            ("tunnel.prepare", prepare_via_host(8765).map(|_| ())),
+            ("tunnel.prepare", prepare_via_host(8765, &[]).map(|_| ())),
             ("tunnel.status", status_via_host().map(|_| ())),
-            ("tunnel.peer", pairing_peer_via_host(8765).map(|_| ())),
+            (
+                "tunnel.peer",
+                pairing_peer_via_host(8765, &[]).map(|_| ()),
+            ),
             ("tunnel.unexpose", unexpose_via_host().map(|_| ())),
         ] {
             let err = result.expect_err("native 必须显性失败");

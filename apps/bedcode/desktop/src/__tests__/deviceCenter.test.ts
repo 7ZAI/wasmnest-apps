@@ -59,6 +59,10 @@ vi.mock('@/router', () => ({
 
 const seed = devMock.pairing
 
+/** T18：中心下发的 relay 地址（`session.relay.config` 回执） */
+const RELAY_ADDR =
+  '/dns4/relay.example.com/tcp/4001/p2p/12D3KooWEgB32or8rjD4jBv6KdABzehxstZ4oFVJV934U9GU387H'
+
 /** 命令面路由：按命令 id 返演示数据，并记录调用（断言入参） */
 /**
  * 命令面路由：按命令 id 返演示数据，并记录调用（断言入参）
@@ -92,6 +96,14 @@ async function defaultExecute(command: string, args?: unknown): Promise<unknown>
       return { rotated: true, kid: 'g2', previousKid: 'g1' }
     case 'session.auth.center-status':
       return { registered: true, centerId: 'authc-1234' }
+    // T18：relay 地址真源 = 网络配置中心（本用例给中心值）
+    case 'session.relay.config':
+      return {
+        configured: true,
+        relayAddrs: [RELAY_ADDR],
+        source: 'center',
+        centerError: null,
+      }
     case 'session.tunnel.prepare':
     case 'session.tunnel.status':
       return seed.tunnel
@@ -868,6 +880,41 @@ describe('DeviceCenterView（设备与配对页面）', () => {
     const badge = wrapper.find('[data-testid="pairing-tunnel-encryption"]')
     expect(badge.text()).toBe('pairing.tunnel.encryption')
     expect(badge.attributes('title')).toBe('pairing.tunnel.encryptionHint')
+  })
+
+  it('C27b 隧道 prepare 显式携带中心下发的 relay 地址（T18）', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+
+    const prepare = commandsTo('session.tunnel.prepare')
+    expect(prepare).toHaveLength(1)
+    expect(prepare[0][1]).toEqual({ relayAddrs: [RELAY_ADDR] })
+    expect(wrapper.find('[data-testid="pairing-tunnel-relay-source"]').exists()).toBe(false)
+  })
+
+  it('C27c 中心不可用、正在用缓存时显性提示（T18）', async () => {
+    execute.mockImplementation(async (command: string, args?: unknown) => {
+      if (command === 'session.relay.config') {
+        return {
+          configured: true,
+          relayAddrs: [RELAY_ADDR],
+          source: 'cache',
+          centerError: 'api call host error: timeout',
+        }
+      }
+      return defaultExecute(command, args)
+    })
+    const wrapper = mountView()
+    await flushPromises()
+
+    const badge = wrapper.find('[data-testid="pairing-tunnel-relay-source"]')
+    expect(badge.exists()).toBe(true)
+    expect(badge.text()).toBe('pairing.tunnel.relayCache')
+    expect(badge.attributes('title')).toBe('api call host error: timeout')
+    // 缓存地址仍要传给后端，否则「缓存兜底」只停在界面上
+    expect(commandsTo('session.tunnel.prepare').at(-1)![1]).toEqual({
+      relayAddrs: [RELAY_ADDR],
+    })
   })
 
   it('C28 隧道不可用：命令失败 → 显性「隧道不可用」，不退化成「就绪」', async () => {

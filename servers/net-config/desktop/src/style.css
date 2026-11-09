@@ -1,0 +1,455 @@
+/* 网络配置中心基础样式（独立挂载包）
+ *
+ * Tailwind 工具类由本工程自编译；设计 token（var(--bg-page) 等）由宿主文档根
+ * 提供（app 只在宿主窗口内运行）；暗色模式跟随宿主 <html class="dark">。
+ *
+ * 本文件不写 :root token 兜底：挂载包 CSS 由 JS 在宿主 style.css 之后注入，
+ * 同特异性的 :root 会覆盖宿主的浅色 --bg-page。
+ */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ==================== 页面基底 ==================== */
+
+.nc-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  background: var(--bg-page);
+  color: var(--text-primary);
+  font-size: calc(14px * var(--ui-scale));
+  line-height: 1.5;
+  overscroll-behavior: contain;
+}
+
+.nc-page :focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 3px;
+}
+
+.nc-wrap {
+  width: 100%;
+  max-width: 1080px;
+  margin: 0 auto;
+  padding-left: 32px;
+  padding-right: 32px;
+}
+
+/* ==================== 页头 ==================== */
+
+.nc-topbar {
+  padding: 26px 0 18px;
+  border-bottom: 1px solid var(--bg-hover);
+}
+
+.nc-topbar-inner {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.nc-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  flex: none;
+  margin-top: 2px;
+  border-radius: var(--radius-button);
+  background: var(--bg-card);
+  color: var(--color-primary);
+}
+
+.nc-heading {
+  min-width: 0;
+  flex: 1;
+}
+
+.nc-title {
+  margin: 0;
+  font-size: calc(21px * var(--ui-scale));
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.nc-sub {
+  margin: 4px 0 0;
+  color: var(--text-secondary);
+  font-size: calc(13px * var(--ui-scale));
+}
+
+.nc-refresh {
+  margin-top: 4px;
+}
+
+/* ==================== 主体 ==================== */
+
+.nc-main {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding-top: 20px;
+  padding-bottom: 40px;
+}
+
+.nc-card {
+  padding: 18px 20px 20px;
+  border-radius: var(--radius-card);
+  background: var(--bg-card);
+}
+
+.nc-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.nc-h2 {
+  margin: 0 0 4px;
+  font-size: calc(15px * var(--ui-scale));
+  font-weight: 600;
+}
+
+.nc-hint {
+  margin: 6px 0 0;
+  color: var(--text-secondary);
+  font-size: calc(12px * var(--ui-scale));
+  line-height: 1.6;
+}
+
+/* ==================== 状态 / 提示 ==================== */
+
+.nc-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--bg-hover);
+  font-size: calc(12px * var(--ui-scale));
+  font-weight: 600;
+}
+
+.nc-state.is-ok {
+  color: var(--color-primary);
+}
+
+.nc-state.is-muted {
+  color: var(--text-tertiary);
+  font-weight: 400;
+}
+
+.nc-error {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-button);
+  background: var(--bg-hover);
+  color: var(--color-danger-ink);
+  font-size: calc(12.5px * var(--ui-scale));
+  line-height: 1.6;
+}
+
+.nc-error-inline {
+  color: var(--color-danger-ink);
+  font-size: calc(12px * var(--ui-scale));
+}
+
+.nc-warn {
+  margin: 10px 0 0;
+  color: var(--color-warning-ink);
+  font-size: calc(12px * var(--ui-scale));
+  line-height: 1.6;
+}
+
+.nc-ok {
+  color: var(--color-primary);
+  font-size: calc(12px * var(--ui-scale));
+}
+
+.nc-note {
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: var(--radius-button);
+  background: var(--bg-card);
+  color: var(--color-warning-ink);
+  font-size: calc(12.5px * var(--ui-scale));
+}
+
+/* ==================== 配置摘要 ==================== */
+
+.nc-meta {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px 28px;
+  margin: 16px 0 0;
+}
+
+.nc-meta-wide {
+  grid-column: 1 / -1;
+}
+
+.nc-dt {
+  display: block;
+  color: var(--text-tertiary);
+  font-size: calc(12px * var(--ui-scale));
+}
+
+.nc-dd {
+  display: block;
+  margin-top: 2px;
+  color: var(--text-secondary);
+  font-size: calc(12.5px * var(--ui-scale));
+  word-break: break-all;
+}
+
+.nc-verified {
+  margin-left: 8px;
+  color: var(--color-primary);
+  font-size: calc(12px * var(--ui-scale));
+}
+
+/* ==================== 业务注册表 ==================== */
+
+.nc-rows {
+  list-style: none;
+  margin: 14px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.nc-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 14px;
+  border-radius: var(--radius-button);
+  background: var(--bg-hover);
+}
+
+.nc-row-main {
+  min-width: 0;
+}
+
+.nc-row-name {
+  font-weight: 600;
+  font-size: calc(13px * var(--ui-scale));
+}
+
+.nc-row-id {
+  margin: 2px 0 0;
+  color: var(--text-tertiary);
+  font-size: calc(11.5px * var(--ui-scale));
+  word-break: break-all;
+}
+
+.nc-row-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: none;
+}
+
+.nc-row-updated {
+  color: var(--text-tertiary);
+  font-size: calc(11.5px * var(--ui-scale));
+  font-variant-numeric: tabular-nums;
+}
+
+.nc-tag {
+  padding: 2px 8px;
+  border-radius: var(--radius-tag);
+  background: var(--bg-card);
+  color: var(--text-tertiary);
+  font-size: calc(11.5px * var(--ui-scale));
+}
+
+.nc-tag.is-ok {
+  color: var(--color-primary);
+}
+
+.nc-tag.is-muted {
+  color: var(--text-tertiary);
+}
+
+.nc-tag-muted {
+  margin-left: 6px;
+}
+
+/* ==================== 表单 ==================== */
+
+.nc-grid {
+  display: grid;
+  grid-template-columns: 1fr 8rem 7rem;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+@media (max-width: 720px) {
+  .nc-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.nc-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.nc-input {
+  width: 100%;
+  padding: 6px 10px;
+  border: 1px solid var(--border, var(--bg-hover));
+  border-radius: var(--radius-button);
+  background: var(--bg-input, var(--bg-page));
+  color: var(--text-primary);
+  font-size: calc(12.5px * var(--ui-scale));
+}
+
+.nc-textarea {
+  margin-top: 12px;
+  resize: vertical;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+}
+
+.nc-modes {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-top: 12px;
+  padding: 2px;
+  border: 1px solid var(--border-strong, var(--bg-hover));
+  border-radius: 8px;
+}
+
+.nc-mode {
+  padding: 4px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: calc(12px * var(--ui-scale));
+  cursor: pointer;
+}
+
+.nc-mode:hover {
+  background: var(--bg-hover);
+}
+
+.nc-mode.is-active {
+  background: var(--color-primary-light, var(--bg-hover));
+  color: var(--color-primary);
+}
+
+/* ==================== 按钮 ==================== */
+
+.nc-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.nc-btn {
+  flex: none;
+  padding: 5px 12px;
+  border: 1px solid var(--bg-hover);
+  border-radius: var(--radius-button);
+  background: transparent;
+  color: var(--text-primary);
+  font-size: calc(12px * var(--ui-scale));
+  cursor: pointer;
+}
+
+.nc-btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.nc-btn:disabled {
+  color: var(--text-tertiary);
+  cursor: default;
+}
+
+.nc-btn-primary {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+.nc-btn-danger {
+  color: var(--color-danger-ink);
+}
+
+/* ==================== 代码块 ==================== */
+
+.nc-pre {
+  margin: 12px 0 0;
+  padding: 12px;
+  max-height: 320px;
+  overflow: auto;
+  border: 1px solid var(--bg-hover);
+  border-radius: 8px;
+  background: var(--bg-input, var(--bg-page));
+  color: var(--text-secondary);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: calc(11.5px * var(--ui-scale));
+  line-height: 1.65;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.nc-mono {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+}
+
+.nc-break {
+  word-break: break-all;
+}
+
+.nc-block {
+  display: block;
+}
+
+/* ==================== 卡片预览面 ==================== */
+
+.nc-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  height: 100%;
+  padding: 16px;
+  background: var(--bg-card);
+  color: var(--text-primary);
+}
+
+.nc-preview-title {
+  margin: 0;
+  font-size: calc(13px * var(--ui-scale));
+  font-weight: 600;
+}
+
+.nc-preview-state {
+  margin: 0;
+  font-size: calc(12px * var(--ui-scale));
+  color: var(--text-tertiary);
+}
+
+.nc-preview-state.is-ok {
+  color: var(--color-primary);
+}
+
+.nc-preview-state.is-bad {
+  color: var(--color-danger-ink);
+}
+

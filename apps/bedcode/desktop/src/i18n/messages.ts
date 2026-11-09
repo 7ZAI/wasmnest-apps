@@ -209,6 +209,8 @@ export type MessageSchema = {
   'pairing.tunnel.encryption': string
   'pairing.tunnel.encryptionHint': string
   'pairing.tunnel.onlyLan': string
+  'pairing.tunnel.relayCache': string
+  'pairing.tunnel.relayCenterUnavailable': string
 
   // ==================== 设备列表 ====================
   'pairing.device.sectionOnline': string
@@ -538,75 +540,18 @@ export type MessageSchema = {
 
   // ==================== 中转服务器（T14：部署文本 / 地址导入 / 连通性） ====================
   'relay.title': string
-  'relay.desc': string
-  'relay.state.configured': string
-  'relay.state.empty': string
-  'relay.deploy.title': string
-  'relay.deploy.desc': string
-  'relay.deploy.advertise': string
-  'relay.deploy.advertisePlaceholder': string
-  'relay.deploy.port': string
-  'relay.deploy.version': string
-  'relay.deploy.mode.compose': string
-  'relay.deploy.mode.docker': string
-  'relay.deploy.mode.systemd': string
-  'relay.deploy.emptyHint': string
-  'relay.deploy.copy': string
-  'relay.deploy.copied': string
-  'relay.deploy.copyFailed': string
-  'relay.deploy.download': string
-  'relay.deploy.downloadFailed': string
-  'relay.deploy.imageHint': string
-  'relay.deploy.noCreds': string
-  'relay.deploy.invalidAdvertise': string
-  'relay.deploy.invalidPort': string
-  'relay.deploy.invalidTag': string
-  'relay.import.title': string
-  'relay.import.desc': string
-  'relay.import.placeholder': string
-  'relay.import.submit': string
-  'relay.import.success': string
-  'relay.import.saveFailed': string
-  'relay.import.clear': string
-  'relay.import.cleared': string
-  'relay.import.clearFailed': string
-  'relay.import.loadFailed': string
-  'relay.current.title': string
-  'relay.current.addrs': string
-  'relay.current.peerId': string
-  'relay.current.fingerprint': string
-  'relay.current.verified': string
-  'relay.current.access': string
-  'relay.current.accessOpen': string
-  'relay.current.accessAllowlist': string
-  'relay.current.accessUnknown': string
-  'relay.current.quota': string
-  'relay.current.quotaValue': string
-  'relay.current.quotaUnknown': string
-  'relay.current.version': string
-  'relay.probe.title': string
-  'relay.probe.desc': string
-  'relay.probe.action': string
-  'relay.probe.empty': string
-  'relay.probe.unsupported': string
-  'relay.probe.publicHint': string
-  'relay.error.empty': string
-  'relay.error.json': string
-  'relay.error.version': string
-  'relay.error.kind': string
-  'relay.error.peerId': string
-  'relay.error.fingerprintMissing': string
-  'relay.error.fingerprintMismatch': string
-  'relay.error.controlProtocol': string
-  'relay.error.addrs': string
-  'relay.error.addrShape': string
-  'relay.error.addrPeer': string
-  'relay.error.multiPeer': string
-  'relay.error.metadata': string
-  'relay.error.access': string
-  'relay.error.quota': string
-  'relay.error.line': string
-  'relay.error.crypto': string
+  'relay.moved.desc': string
+  'relay.moved.loading': string
+  'relay.moved.loadFailed': string
+  'relay.moved.configured': string
+  'relay.moved.empty': string
+  'relay.moved.sourceCenter': string
+  'relay.moved.sourceCache': string
+  'relay.moved.centerError': string
+  'relay.moved.migrationFailed': string
+  'relay.moved.open': string
+  'relay.moved.openUnavailable': string
+  'relay.moved.wanDisabled': string
 
   // ==================== 应用级兜底（2026-10-27 自宿主 `desktop.notFound.*` / `desktop.runtimeUnexpected` 迁入） ====================
   'notFound.title': string

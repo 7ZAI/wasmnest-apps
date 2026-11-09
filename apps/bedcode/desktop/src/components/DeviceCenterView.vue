@@ -149,6 +149,19 @@
               <span class="w-1.5 h-1.5 rounded-full" :class="tunnelDotClass"></span>
               {{ tunnelLabel }}
             </span>
+            <!-- T18：中心不可用的显性提示（正在用缓存 / 完全取不到），不把降级藏起来 -->
+            <span
+              v-if="tunnel.relayError.value"
+              data-testid="pairing-tunnel-relay-source"
+              class="inline-flex items-center px-1.5 h-5 rounded-[6px] bg-[var(--color-warning-light)] text-[var(--color-warning)] text-[calc(11px*var(--ui-scale))]"
+              :title="tunnel.relayError.value"
+            >
+              {{
+                tunnel.relay.value?.source === 'cache'
+                  ? t('pairing.tunnel.relayCache')
+                  : t('pairing.tunnel.relayCenterUnavailable')
+              }}
+            </span>
             <!-- 加密是常量事实（不变量 12/14）：没有关闭入口，故只显示徽标 -->
             <span
               data-testid="pairing-tunnel-encryption"
