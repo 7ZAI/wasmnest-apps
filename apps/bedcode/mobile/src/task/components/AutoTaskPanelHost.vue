@@ -263,6 +263,7 @@
 import { ref, computed, watch, nextTick, inject, onMounted, onUnmounted } from 'vue'
 import { getMobileApi } from '@binblink/wasmnest-plugin-sdk-mobile'
 import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-mobile'
+import { getDirectorySessions } from '../../host/sessionDirectory'
 import { getAutoTaskApi } from '../api'
 import { usePresetTasks } from '../presetApi'
 import { autoTaskPanelVisible } from '../state'
@@ -320,10 +321,14 @@ const errorMessage = ref('')
 // 当前活动会话（宿主共享 ref，进入终端会话时由宿主更新）
 const activeSessionId = computed(() => mobileApi.activeSessionId.value ?? '')
 
-/** 活动会话是否仍在运行：stopped/error 的会话不能入队，对账也不适用 */
+/** 活动会话是否仍在运行：stopped/error 的会话不能入队，对账也不适用
+ *
+ * 经会话目录合并视图（宿主 activeSessions + 项目运行）：桌面 /api/sessions
+ * 只列无项目终端会话，只读 activeSessions 会把项目运行判成「未运行」。
+ */
 const activeSessionRunning = computed(() =>
-  (mobileApi.activeSessions.value || []).some(
-    (s: any) =>
+  getDirectorySessions().some(
+    (s) =>
       s.id === activeSessionId.value && (s.status === 'running' || s.status === 'waitingInput'),
   ),
 )

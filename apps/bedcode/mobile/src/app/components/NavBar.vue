@@ -13,6 +13,8 @@
         :class="tab.id === active ? 'text-[var(--mobile-nav-active)]' : ''"
         :style="tab.id === active ? {} : { color: 'var(--mobile-nav-inactive)' }"
         :aria-current="tab.id === active ? 'page' : undefined"
+        :data-testid="`mobile-nav-${tab.id}`"
+        :data-active="tab.id === active ? 'true' : 'false'"
         @click="emit('select', tab.id)"
       >
         <!-- 激活态顶部指示条：与图标严格等宽同轴（left/right 锚定 + margin auto，不依赖 transform 精度） -->

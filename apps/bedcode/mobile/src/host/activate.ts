@@ -17,16 +17,20 @@
  */
 import { watch } from 'vue'
 import type { Disposable, PluginContext } from '@binblink/wasmnest-plugin-sdk-mobile'
-import { getMobileApi } from '@binblink/wasmnest-plugin-sdk-mobile'
 import SlotCard from './SlotCard.vue'
 import { messagesEn, messagesZhCN } from './i18n'
+import { getDirectorySessions } from './sessionDirectory'
 import { isSessionActive } from './utils'
 
-/** 存活会话数（running / waitingInput）；stopped 只是历史记录，不算「有会话」 */
+/**
+ * 存活会话数（running / waitingInput）；stopped 只是历史记录，不算「有会话」
+ *
+ * 经会话目录合并视图（宿主 `activeSessions` + `bedcode.list-runs`）计数：
+ * 桌面 `/api/sessions` 只列无项目终端会话，项目运行必须由运行侧补齐，
+ * 否则「桌面先起运行」时壳首页卡片不会出现。
+ */
 function liveSessionCount(): number {
-  const sessions = getMobileApi().activeSessions.value ?? []
-  return sessions.filter((session: { status?: string }) => isSessionActive(session.status ?? ''))
-    .length
+  return getDirectorySessions().filter((session) => isSessionActive(session.status ?? '')).length
 }
 
 export function activateHostPageDomain(context: PluginContext): Disposable {

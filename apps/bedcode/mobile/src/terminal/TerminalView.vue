@@ -2,6 +2,9 @@
   <div
     ref="terminalViewRef"
     class="terminal-view"
+    data-testid="mobile-terminal"
+    :data-session-active="isSessionActive ? 'true' : 'false'"
+    :data-phase="terminalPhase"
     :style="terminalViewStyle"
   >
     <!-- Loading Overlay -->
@@ -236,6 +239,8 @@ import { getMobileApi, getRouter } from '@binblink/wasmnest-plugin-sdk-mobile'
 import { usePresetTasks } from '../task/presetApi'
 import { isAutoTaskSupported } from '../task/activate'
 import { logger, t, toast } from './host'
+import { getDirectorySessions, refreshSessionDirectory } from '../host/sessionDirectory'
+import { isSessionActive as isLiveStatus } from '../host/utils'
 // xterm.css / terminal.css 由域 activate 统一注入（?inline 运行时挂载）
 import { isMockSession, useMockTerminal } from './composables/useMockTerminal'
 import { useTerminalBuffer } from './composables/useTerminalBuffer'
@@ -313,6 +318,8 @@ const mountedSessionId = sessionId.value
 // 而不是每秒重读同一个毫秒数（2026-10-04 OCR M-02——读静态值导致显示秒数
 // 恒定不递减）。
 const reconnecting = computed(() => bufferStore.getBuffer(mountedSessionId)?.reconnecting ?? false)
+/** 订阅阶段（E2E 状态位：idle / connecting / auth / live；与 bufferStore 同源，不另建状态） */
+const terminalPhase = computed(() => bufferStore.getBuffer(mountedSessionId)?.phase ?? 'idle')
 const reconnectSeconds = ref<number | null>(null)
 let reconnectTicker: ReturnType<typeof setInterval> | null = null
 
@@ -405,7 +412,9 @@ const session = computed(() => {
   if (isMockSession(sessionId.value)) {
     return { id: sessionId.value, name: t('session.mockName'), status: 'running', is_active: true }
   }
-  return connection.activeSessions.value.find(s => s.id === sessionId.value)
+  // 会话目录 = 宿主 activeSessions（无项目终端会话）+ 项目运行（bedcode.list-runs）：
+  // 桌面 /api/sessions 带 scope:"session"，项目运行只经运行侧可见
+  return getDirectorySessions().find((s) => s.id === sessionId.value)
 })
 
 // 会话的 config_id：WS 事件推送的会话对象为 camelCase（configId），
@@ -423,7 +432,16 @@ const sessionAgentType = computed(() => {
 
 const sessionName = computed(() => session.value?.name || sessionId.value || t('terminal.titleDesktop'))
 
-const isSessionActive = computed(() => isMockSession(sessionId.value) || (session.value?.status || 'stopped') === 'running')
+/**
+ * 会话可交互（订阅 / 输入 / 预设下发的前提）
+ *
+ * 判据与 `host/utils.isSessionActive` 同一口径：running 与 waitingInput 都算存活
+ * ——waitingInput 正是 agent 等用户回复的时刻，只认 running 会把输入栏锁死。
+ * 项目运行的 status 来自运行视图（wire 字符串，见 projects/types.normalizeRunStatus）。
+ */
+const isSessionActive = computed(
+  () => isMockSession(sessionId.value) || isLiveStatus(String(session.value?.status ?? '')),
+)
 
 const inputPlaceholder = computed(() => {
   // mock 会话与标题（mockName）不再重复：直接使用通用命令占位文案
@@ -695,14 +713,15 @@ onMounted(async () => {
 
   // 兜底加载会话配置：DevicesView 之外的进入路径（通知跳转/路由恢复）从未调用过
   // loadSessionConfigs，预设识别需要其中的启动命令；加载完成后由上方 watch 触发识别。
-  // 会话列表（activeSessions）不在此兜底——由 applyAgentPreset 按 sessionId 按需反查。
+  // 会话目录不在此兜底——由 applyAgentPreset 按 sessionId 按需反查。
   if (!connection.hasLoadedConfigs.value && !connection.isLoadingConfigs.value) {
     connection.loadSessionConfigs().catch(() => {})
   }
-  // 会话列表兜底：直接进入终端页（通知跳转/路由恢复）时 activeSessions 可能为空，
-  // 会使 isSessionActive=false → 输入条禁用、输入被丢弃。主动拉一次会话列表。
-  if (!connection.activeSessions.value.some(s => s.id === sessionId.value)) {
-    connection.loadActiveSessions().catch(() => {})
+  // 会话目录兜底：直接进入终端页（通知跳转/路由恢复 / 桌面先起运行）时目录可能
+  // 尚未含该运行，会使 isSessionActive=false → 不订阅、输入被丢弃。
+  // 主动拉一次运行侧（含项目运行）；到位后 isSessionActive watch 会自动补订阅。
+  if (!getDirectorySessions().some((s) => s.id === sessionId.value)) {
+    refreshSessionDirectory().catch(() => {})
   }
 
   await nextTick()

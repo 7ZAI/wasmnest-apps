@@ -1,5 +1,5 @@
 <template>
-  <div class="terminal-input-bar z-10" :style="inputBarStyle">
+  <div class="terminal-input-bar z-10" :style="inputBarStyle" data-testid="mobile-terminal-input-bar">
     <!-- 快捷键面板（覆盖层 + 轮播 + 页码点）：高度经 height 事件同步给终端偏移 -->
     <ShortcutsPanel
       :visible="showShortcutsPanel"
@@ -64,6 +64,7 @@
           ref="inputRef"
           v-model="inputText"
           class="input-field"
+          data-testid="mobile-terminal-input"
           :placeholder="placeholder"
           :disabled="disabled"
           rows="1"
@@ -94,6 +95,7 @@
             class="inline-btn execute-btn"
             :class="{ 'mode-send': sendMode, 'is-disabled': !canSubmit }"
             :aria-disabled="!canSubmit"
+            data-testid="mobile-terminal-send"
             :aria-label="sendMode ? t('input.sendHint') : t('input.executeHint')"
             @pointerdown="onExecutePointerDown"
             @pointermove="onExecutePointerMove"

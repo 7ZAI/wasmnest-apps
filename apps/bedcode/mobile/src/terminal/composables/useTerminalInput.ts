@@ -15,6 +15,7 @@
 import { ref } from 'vue'
 import { getMobileApi } from '@binblink/wasmnest-plugin-sdk-mobile'
 import { usePresetTasks } from '../../task/presetApi'
+import { getDirectorySessions, refreshSessionDirectory } from '../../host/sessionDirectory'
 import { logger, t, toast } from '../host'
 import { useInputAssistantStore } from '../inputAssistant'
 import { isMockSession } from './useMockTerminal'
@@ -114,10 +115,10 @@ export function useTerminalInput(ctx: TerminalKernelContext, deps: TerminalInput
 
   // ==================== 命令面板预设识别 ====================
   //
-  // 预设需要两条数据：会话的 config_id（activeSessions）与配置的启动命令
+  // 预设需要两条数据：会话的 config_id（会话目录）与配置的启动命令
   // （sessionConfigs）。通知跳转 / 路由恢复等「直接进入终端页」的路径上两者都
-  // 可能未就绪（loadActiveSessions 仅 DevicesView/SessionsView 调用），故识别时
-  // 按需补齐：会话缺失按 id 拉列表反查，配置缺失现场拉取。
+  // 可能未就绪，故识别时按需补齐：会话缺失按 id 拉目录反查（目录合并了项目运行），
+  // 配置缺失现场拉取。
   // 识别为 generic（未识别）时面板仅保留用户自定义命令——这是可接受的降级；
   // 「已发起」标记保证并发触发（watch immediate + 数据到位）只拉一次。
 
@@ -135,20 +136,20 @@ export function useTerminalInput(ctx: TerminalKernelContext, deps: TerminalInput
     }
     if (!deps.getConfigId() && !sessionsFetchStarted) {
       sessionsFetchStarted = true
-      await connection.loadActiveSessions()
+      await refreshSessionDirectory()
     }
     const configId = deps.getConfigId()
     if (!configId) {
-      const found = connection.activeSessions.value.find((s) => s.id === sessionId)
+      const found = getDirectorySessions().find((s) => s.id === sessionId)
       logger.warn(
         '[TerminalView] applyAgentPreset: 会话未就绪（无 config_id）',
         JSON.stringify({
           sessionId,
-          activeSessionsCount: connection.activeSessions.value.length,
+          directoryCount: getDirectorySessions().length,
           foundSession: found,
         }),
       )
-      return // 列表拉取失败或会话确实无配置，保留用户自定义命令
+      return // 目录拉取失败或会话确实无配置，保留用户自定义命令
     }
     let config = connection.sessionConfigs.value.find((c) => c.id === configId)
     if (!config && !configsFetchStarted) {

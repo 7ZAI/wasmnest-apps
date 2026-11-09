@@ -8,6 +8,7 @@
 import { ref, computed } from 'vue'
 import { getMobileApi } from '@binblink/wasmnest-plugin-sdk-mobile'
 import { usePresetTasks } from '../../task/presetApi'
+import { getDirectorySessions } from '../../host/sessionDirectory'
 import type { PresetTask } from '../model'
 import { t } from '../host'
 import TaskEditDialog from './TaskEditDialog.vue'
@@ -38,7 +39,9 @@ const editingTask = ref<PresetTask | null>(null)
 
 const isConnected = computed(() => connection.isConnected.value)
 const activeSessionId = computed(() => connection.activeSessionId.value || '')
-const activeSessions = computed(() => connection.activeSessions.value || [])
+// 会话目录（宿主 activeSessions + 项目运行）：项目运行不在 /api/sessions 投影里，
+// 任务选择器必须经合并视图才能对上当前运行的 config_id / 工作目录
+const activeSessions = computed(() => getDirectorySessions())
 const projectDirs = computed(() => {
   const configs = connection.sessionConfigs.value || []
   const dirs = configs

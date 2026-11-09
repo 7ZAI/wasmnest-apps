@@ -65,7 +65,7 @@
                     :key="dir"
                     class="dropdown-item w-full text-left px-3 py-2 text-xs transition-colors flex items-center gap-2"
                     :class="dir === selectedDir ? 'text-[var(--mobile-accent)]' : 'text-[var(--mobile-text-secondary)]'"
-                    @click="selectedDir = dir; showDirDropdown = false"
+                    @click="chooseDir(dir)"
                   >
                     <svg class="w-3 h-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path
@@ -270,6 +270,7 @@
 import { ref, computed, onMounted, nextTick } from 'vue'
 import { getMobileApi } from '@binblink/wasmnest-plugin-sdk-mobile'
 import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-mobile'
+import { getDirectorySessions } from '../../host/sessionDirectory'
 import { usePresetTasks } from '../presetApi'
 import type { PresetTask } from '../../terminal/model'
 import PresetTaskCard from './PresetTaskCard.vue'
@@ -299,17 +300,16 @@ const { tasks, load, addTask, updateTask, deleteTask, executeTask, reconcileWith
 const isConnected = computed(() => connection.isConnected.value === true)
 const activeSessionId = computed(() => connection.activeSessionId.value || '')
 /**
- * 可执行目标会话：只含运行中的会话（`activeSessions` 同时保存已停止会话，
+ * 可执行目标会话：只含运行中的会话（会话目录同时保存已停止会话，
  * 对它们下发输入必吃「会话不存在 / 无 PTY 句柄」→ 用户看到「发送失败」）。
  * waitingInput 也算运行中（会话在等 Agent 输入，PTY 仍可写），与宿主
  * runningSessionCount 同一判据。
  */
 const runningSessions = computed<any[]>(() =>
-  (connection.activeSessions.value || []).filter(
-    (s: any) => s.status === 'running' || s.status === 'waitingInput',
-  ),
+  getDirectorySessions().filter((s) => s.status === 'running' || s.status === 'waitingInput'),
 )
-const activeSessions = computed<any[]>(() => connection.activeSessions.value || [])
+// 会话目录（宿主 activeSessions + 项目运行）：项目运行只经运行侧可见
+const activeSessions = computed<any[]>(() => getDirectorySessions())
 const sessionConfigs = computed<any[]>(() => connection.sessionConfigs.value || [])
 
 /** 可选工程目录（去重后的会话配置工作目录，供编辑表单的目录选择器使用） */
@@ -402,6 +402,12 @@ function openEditTask(task: PresetTask): void {
 const showDirDropdown = ref(false)
 const selectedDir = ref<string | null>(null)
 const showFileExplorer = ref(false)
+
+/** 选择工程目录（下拉单选后收起） */
+function chooseDir(dir: string): void {
+  selectedDir.value = dir
+  showDirDropdown.value = false
+}
 
 /** 是否有任何可用目录（决定是否显示目录区域） */
 const effectiveProjectDir = computed(() => projectDirs.value.length > 0)
