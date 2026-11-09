@@ -95,10 +95,6 @@
         "title": "file-transfer.resume-all"
       },
       {
-        "id": "file-transfer.remove-task",
-        "title": "Remove Task"
-      },
-      {
         "id": "file-transfer.list-batches",
         "title": "List Pending Transfer Batches"
       },

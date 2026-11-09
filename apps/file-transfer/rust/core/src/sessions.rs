@@ -230,7 +230,11 @@ mod tests {
             memo.addrs.iter().all(|a| !crate::dial::is_relay_addr(a)),
             "relay 候选必须移除: {memo:?}"
         );
-        assert_eq!(t.session_of("lan-node").as_deref(), Some("sess-lan"), "LAN 会话保留");
+        assert_eq!(
+            t.session_of("lan-node").as_deref(),
+            Some("sess-lan"),
+            "LAN 会话保留"
+        );
     }
 
     #[test]

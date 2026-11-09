@@ -89,7 +89,11 @@ pub(crate) fn detect(h: &impl HostPlatform) -> anyhow::Result<Platform> {
 /// 取值与判定分离：`expect` 不在持锁状态下执行——持锁 panic 会污染
 /// `DETECTED`，把一次编程错误放大成整个测试进程的级联失败。
 pub(crate) fn current() -> Platform {
-    let value = DETECTED.lock().expect("platform slot lock").as_ref().copied();
+    let value = DETECTED
+        .lock()
+        .expect("platform slot lock")
+        .as_ref()
+        .copied();
     value.expect("platform::current() before platform::detect() — activate must probe first")
 }
 
@@ -113,8 +117,8 @@ pub(crate) fn test_lock() -> &'static std::sync::Mutex<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wasmnest_plugin_api::host::{HostError, HostPlatform};
     use std::cell::Cell;
+    use wasmnest_plugin_api::host::{HostError, HostPlatform};
 
     /// 探测桩：返回预设 wire 字面量（记录调用次数供幂等断言）
     struct ProbeHost {
@@ -158,7 +162,10 @@ mod tests {
         let _g = test_lock().lock().unwrap();
         // 清驻留（本用例独占锁）：未知值必须拒绝且不写驻留位
         *DETECTED.lock().unwrap() = None;
-        let host = ProbeHost { value: "tablet", calls: Cell::new(0) };
+        let host = ProbeHost {
+            value: "tablet",
+            calls: Cell::new(0),
+        };
         let err = detect(&host).unwrap_err();
         assert!(
             err.to_string().contains("unsupported value"),
@@ -175,7 +182,10 @@ mod tests {
     fn detect_is_idempotent_after_first_success() {
         let _g = test_lock().lock().unwrap();
         *DETECTED.lock().unwrap() = None;
-        let host = ProbeHost { value: "mobile", calls: Cell::new(0) };
+        let host = ProbeHost {
+            value: "mobile",
+            calls: Cell::new(0),
+        };
         let first = detect(&host).unwrap();
         let second = detect(&host).unwrap();
         assert_eq!(first, Platform::Mobile);

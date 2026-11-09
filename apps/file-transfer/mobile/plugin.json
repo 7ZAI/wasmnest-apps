@@ -95,10 +95,6 @@
         "title": "file-transfer.resume-all"
       },
       {
-        "id": "file-transfer.remove-task",
-        "title": "Remove Task"
-      },
-      {
         "id": "file-transfer.list-batches",
         "title": "List Pending Transfer Batches"
       },
@@ -153,10 +149,6 @@
       {
         "id": "file-transfer.set-settings",
         "title": "Set Settings"
-      },
-      {
-        "id": "file-transfer.pick-download-dir",
-        "title": "Pick Download Directory"
       },
       {
         "id": "file-transfer.mount-local",

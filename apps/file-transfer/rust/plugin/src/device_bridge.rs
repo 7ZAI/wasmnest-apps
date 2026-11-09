@@ -14,10 +14,10 @@
 use crate::adapters::DesktopPorts;
 use crate::adapters_mobile::MobilePorts;
 use crate::platform::{self, Platform};
-use wasmnest_file_transfer_core::sessions::SessionTable;
-use wasmnest_plugin_api::host::HostStorage;
 use std::sync::Mutex;
 use std::sync::OnceLock;
+use wasmnest_file_transfer_core::sessions::SessionTable;
+use wasmnest_plugin_api::host::HostStorage;
 
 pub(crate) use wasmnest_file_transfer_core::domain::{DeviceSnapshotEntry, DialEndpoint};
 pub(crate) use wasmnest_file_transfer_core::sessions as core_sessions;

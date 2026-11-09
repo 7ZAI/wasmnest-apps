@@ -74,7 +74,19 @@ where
             "set-shared-roots rejected: {push_err}"
         )));
     }
-    h.save_roots(&next)?;
+    // 推送已生效、落盘失败：引擎侧是新表而注册表还是旧表（重启后引擎又回旧表），
+    // 两边长期分叉且无补偿。这里尽力把引擎推回旧快照，并把「已尝试回滚」写进
+    // 错误文案——失败不静默，也不留半成品（S7）。
+    if let Err(save_err) = h.save_roots(&next) {
+        return match h.peer_set_shared_roots(&h.roots_to_push_payload(&snapshot)) {
+            Ok(()) => Err(PortError::new(format!(
+                "shared roots save failed: {save_err}; engine rolled back to previous roots"
+            ))),
+            Err(rollback_err) => Err(PortError::new(format!(
+                "shared roots save failed: {save_err}; engine rollback also failed: {rollback_err}"
+            ))),
+        };
+    }
     Ok(next)
 }
 
@@ -273,6 +285,38 @@ mod tests {
             err.message().contains("rollback also failed"),
             "回滚失败必须如实上报：{err}"
         );
+    }
+
+    #[test]
+    fn save_failure_compensates_engine_with_previous_snapshot() {
+        // 推送成功但落盘失败：若不补偿，引擎侧是新表、存储里是旧表，重启后
+        // 又回到旧表（长期分叉）。补偿推送必须把引擎退回旧快照，并如实报告。
+        let h = MockBackend {
+            fail_rollback: true,
+            ..Default::default()
+        };
+        h.stored.borrow_mut().push(root("C:/keep", "Keep"));
+        let err = apply_and_push(&h, |list| {
+            upsert(list, root("C:/docs", "Docs"));
+        })
+        .unwrap_err();
+        assert!(
+            err.message().contains("shared roots save failed"),
+            "实得 {err}"
+        );
+        assert!(err.message().contains("engine rolled back"), "实得 {err}");
+        let pushes = h.pushed.borrow().clone();
+        assert_eq!(pushes.len(), 2, "首次推送 + 落盘失败后的补偿回推");
+        assert_eq!(
+            pushes[1],
+            vec![serde_json::json!({
+                "id": root_id("C:/keep"),
+                "name": "Keep",
+                "path": "C:/keep"
+            })],
+            "补偿推送的内容必须是旧快照"
+        );
+        assert_eq!(h.stored.borrow().len(), 1, "落盘失败不得改动存储");
     }
 
     #[test]

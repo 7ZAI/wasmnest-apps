@@ -455,7 +455,10 @@ fn apply_retry_replays_terminal_entry() {
     let mut store = [old, act];
     assert!(apply_retry(&mut store, "old", "new", 99));
     assert_eq!(store[0].batch_id, "new");
-    assert_eq!(store[0].status, "pending", "重试后重新等对端确认，非直接 running");
+    assert_eq!(
+        store[0].status, "pending",
+        "重试后重新等对端确认，非直接 running"
+    );
     assert_eq!(store[0].updated_at_ms, 99);
     // 进行中条目不可重试
     assert!(!apply_retry(&mut store, "act", "new2", 100));
@@ -684,7 +687,10 @@ fn terminal_settles_paused_entries_on_peer_cancel_only() {
         &terminal("b", json!({ "type": "cancelled", "byPeer": false }), 3),
         ""
     ));
-    assert_eq!(self_cancelled[0].status, "paused", "暂停兜底中断确认不落终态");
+    assert_eq!(
+        self_cancelled[0].status, "paused",
+        "暂停兜底中断确认不落终态"
+    );
 }
 
 /// 对端取消判据：只认 `terminal` + `cancelled` + `byPeer=true`，其余一律不命中
@@ -692,11 +698,17 @@ fn terminal_settles_paused_entries_on_peer_cancel_only() {
 fn peer_cancelled_batch_id_only_matches_peer_terminal_cancel() {
     let ev = |kind: &str, state: Value| json!({ "kind": kind, "batchId": "b-1", "state": state });
     assert_eq!(
-        peer_cancelled_batch_id(&ev("terminal", json!({ "type": "cancelled", "byPeer": true }))),
+        peer_cancelled_batch_id(&ev(
+            "terminal",
+            json!({ "type": "cancelled", "byPeer": true })
+        )),
         Some("b-1")
     );
     assert_eq!(
-        peer_cancelled_batch_id(&ev("terminal", json!({ "type": "cancelled", "byPeer": false }))),
+        peer_cancelled_batch_id(&ev(
+            "terminal",
+            json!({ "type": "cancelled", "byPeer": false })
+        )),
         None,
         "本端取消不是对端取消"
     );
@@ -705,7 +717,10 @@ fn peer_cancelled_batch_id_only_matches_peer_terminal_cancel() {
         None
     );
     assert_eq!(
-        peer_cancelled_batch_id(&ev("paused", json!({ "type": "cancelled", "byPeer": true }))),
+        peer_cancelled_batch_id(&ev(
+            "paused",
+            json!({ "type": "cancelled", "byPeer": true })
+        )),
         None,
         "非 terminal 事件不命中"
     );

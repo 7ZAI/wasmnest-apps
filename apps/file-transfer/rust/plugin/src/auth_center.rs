@@ -23,7 +23,14 @@
 //!   直测（对照场景：同一对端同一决策）；wire 映射 / 登记表纯函数直测。
 //! - 端到端互调闭环（真实产物 + 总线 wire 捕获）在宿主测试
 //!   `test_filetransfer_consumes_auth_center_closed_loop` 覆盖。
+//!
+//! native 构建只有编排层单测在用（client / 入口是 wasm-only），故 dead_code
+//! 仅在 native 放宽；wasm 侧的真正死代码仍会被 clippy 报出来（C3）。
+#![cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
 
+use serde::{Deserialize, Serialize};
+use std::collections::VecDeque;
+use std::sync::{Mutex, OnceLock};
 #[cfg(target_arch = "wasm32")]
 use wasmnest_plugin_api::host::HostBus;
 #[cfg(target_arch = "wasm32")]
@@ -31,9 +38,6 @@ use wasmnest_plugin_api::host::{HostLog, HostPeer};
 #[cfg(target_arch = "wasm32")]
 use wasmnest_plugin_api::plugin_api;
 use wasmnest_plugin_api::wasm_host::WasmHost;
-use serde::{Deserialize, Serialize};
-use std::collections::VecDeque;
-use std::sync::{Mutex, OnceLock};
 
 /// 认证中心插件 ID（互调目标；仅 wasm 运行时使用）
 ///
@@ -236,6 +240,31 @@ fn take_pending(request_id: &str) -> Option<ConsentRequest> {
     take_in(&mut q, request_id)
 }
 
+/// 停用清空待确认登记表（旧会话的 nodeId / deviceName 不得带进下一次激活）
+pub(crate) fn reset_pending() -> usize {
+    let mut q = pending().lock().expect("pending consent registry lock");
+    let n = q.len();
+    q.clear();
+    n
+}
+
+/// 测试观察面：某请求是否仍在待确认登记表（按 requestId 判定，避开与其他
+/// 用例共享静态登记表时的长度竞态）
+#[cfg(test)]
+pub(crate) fn pending_contains_for_test(request_id: &str) -> bool {
+    pending()
+        .lock()
+        .expect("pending consent registry lock")
+        .iter()
+        .any(|r| r.request_id == request_id)
+}
+
+/// 测试入口：登记一条待确认请求（全局登记表的写入面）
+#[cfg(test)]
+pub(crate) fn remember_for_test(request: ConsentRequest) {
+    remember(request);
+}
+
 // ==================== 纯函数（native 直测） ====================
 
 /// 解析宿主 `peer:consent` 事件载荷 → 决策请求
@@ -305,7 +334,14 @@ pub(crate) fn map_trusted_list(view: &serde_json::Value) -> Result<serde_json::V
                     .and_then(|v| v.as_str())
                     .map(String::from)
                     .or_else(|| {
-                        (!id.is_empty()).then(|| id[..id.len().min(8)].to_string())
+                        // 按字符边界截断：id 来自跨插件 JSON（不受本插件控制），
+                        // `id[..len.min(8)]` 在多字节字符中间切会 panic → wasm trap
+                        let end = id
+                            .char_indices()
+                            .nth(8)
+                            .map(|(i, _)| i)
+                            .unwrap_or(id.len());
+                        (end > 0).then(|| id[..end].to_string())
                     }),
                 "addedAt": e.get("addedAt").and_then(|v| v.as_str()).unwrap_or_default(),
             })
@@ -666,6 +702,44 @@ mod tests {
     fn map_trusted_list_malformed_view_errors() {
         // 畸形视图（缺 devices 数组）显性失败
         assert!(map_trusted_list(&serde_json::json!({ "peerError": null })).is_err());
+    }
+
+    #[test]
+    fn map_trusted_list_truncates_multibyte_id_on_char_boundary() {
+        // id 来自跨插件 JSON：按字节切 UTF-8 会在第 8 字节落在字符中间时 panic。
+        // “0123456中abcd” = 7 ASCII + 1 CJK（共 10 字节）→ 截到 8 个字符。
+        let view = serde_json::json!({
+            "devices": [{ "kind": "peer", "id": "0123456中abcd" }],
+            "peerError": null,
+        });
+        let mapped = map_trusted_list(&view).expect("多字节 id 不得 panic");
+        assert_eq!(mapped[0]["fingerprintShort"], "0123456中");
+        // 短 id 保留全串（与旧行为一致，不因不足 8 字节变 null）
+        let short = serde_json::json!({
+            "devices": [{ "kind": "peer", "id": "短id" }],
+            "peerError": null,
+        });
+        assert_eq!(
+            map_trusted_list(&short).unwrap()[0]["fingerprintShort"],
+            "短id"
+        );
+    }
+
+    #[test]
+    fn reset_pending_clears_registry_across_deactivate() {
+        remember_for_test(ConsentRequest {
+            request_id: "req-reset-unique".to_string(),
+            node_id: NODE_A.to_string(),
+            fingerprint_short: None,
+            device_name: None,
+            user_decision: None,
+        });
+        assert!(pending_contains_for_test("req-reset-unique"));
+        reset_pending();
+        assert!(
+            !pending_contains_for_test("req-reset-unique"),
+            "停用后不得留上一会话的待确认项"
+        );
     }
 
     // ==================== 待确认登记表 ====================

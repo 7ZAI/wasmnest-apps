@@ -25,15 +25,19 @@ pub fn is_relay_addr(addr: &str) -> bool {
 
 /// 单地址 → LAN 直连 multiaddr（`/ip4|ip6/<addr>/tcp/<port>`）。
 ///
-/// 已是 multiaddr（以 `/` 开头）时原样返回（配对串里的多地址不需要重拼）；
-/// 空地址 / 端口 0 / 未指定的 `0.0.0.0` / 含空白 → `None`（不可拨号，不猜）。
+/// 已是 multiaddr 时原样返回（配对串里的多地址不需要重拼），但**只认合法首段
+/// 协议**：任何 `/` 开头的字符串都当 multiaddr 会让 `/some/path` 之类的垃圾
+/// 进候选表、被引擎逐个拨（C7——不可拨号就不猜，返回 None）。
+/// 空地址 / 端口 0 / 未指定的 `0.0.0.0` / 含空白 → `None`。
 pub fn direct_multiaddr(addr: &str, port: u16) -> Option<String> {
     let addr = addr.trim();
     if addr.is_empty() || addr.contains(char::is_whitespace) {
         return None;
     }
     if addr.starts_with('/') {
-        return Some(addr.to_string());
+        let proto = addr.trim_start_matches('/').split('/').next().unwrap_or("");
+        let dialable = matches!(proto, "ip4" | "ip6" | "dns" | "dns4" | "dns6" | "p2p");
+        return dialable.then(|| addr.to_string());
     }
     if port == 0 || addr == "0.0.0.0" || addr == "::" {
         return None;
@@ -61,11 +65,7 @@ fn dedup_push(out: &mut Vec<String>, addr: String) {
 ///
 /// `manual_wan` = 用户显式「尝试外网」；`ep.wan` = 上次拨号已走 relay（重连沿用）。
 /// 两个意图取并集，再受 `allow_wan` 闸门约束。
-pub fn dial_plan(
-    ep: &DialEndpoint,
-    allow_wan: bool,
-    manual_wan: bool,
-) -> Result<DialPlan, String> {
+pub fn dial_plan(ep: &DialEndpoint, allow_wan: bool, manual_wan: bool) -> Result<DialPlan, String> {
     let mut lan = Vec::new();
     let mut relay = Vec::new();
     if let Some(direct) = direct_multiaddr(&ep.addr, ep.port) {
@@ -99,9 +99,7 @@ pub fn dial_plan(
     if candidates.is_empty() {
         if relay_known {
             // 有地址但被策略挡下：点名是哪个闸门，避免用户以为「设备没地址」
-            return Err(
-                "no LAN address known and relay is disabled (allow-wan=false)".to_string(),
-            );
+            return Err("no LAN address known and relay is disabled (allow-wan=false)".to_string());
         }
         return Err("no dialable address for peer (addr/port and addrs are all empty)".to_string());
     }
@@ -149,12 +147,23 @@ mod tests {
             assert_eq!(direct_multiaddr(bad, 4001), None, "不可拨号地址：{bad}");
         }
         assert_eq!(direct_multiaddr("10.0.0.1", 0), None, "端口 0 不可拨号");
+        // 只有合法 multiaddr 首段协议才透传；其余 `/` 开头字符串不是地址（C7）
+        assert_eq!(direct_multiaddr("/some/path", 0), None);
+        assert_eq!(direct_multiaddr("//host/a", 0), None);
+        assert_eq!(
+            direct_multiaddr("/dns/example.com/tcp/4001", 0).as_deref(),
+            Some("/dns/example.com/tcp/4001")
+        );
     }
 
     #[test]
     fn lan_address_is_used_alone_and_relay_stays_out_by_default() {
-        let plan = dial_plan(&ep("192.168.1.5", 47613, &[LAN_MULTIADDR, RELAY_CIRCUIT]), true, false)
-            .unwrap();
+        let plan = dial_plan(
+            &ep("192.168.1.5", 47613, &[LAN_MULTIADDR, RELAY_CIRCUIT]),
+            true,
+            false,
+        )
+        .unwrap();
         assert_eq!(plan.candidates, vec![LAN_MULTIADDR.to_string()]);
         assert!(!plan.relay_included, "有 LAN 候选时不得自动烧中继（§4.9）");
     }
@@ -218,6 +227,6 @@ mod tests {
         let err = dial_plan(&ep("", 0, &[]), true, false).unwrap_err();
         assert!(err.contains("no dialable address"), "实得 {err}");
         // 空白项跳过而不是当成地址
-        assert_eq!(dial_plan(&ep(" ", 0, &["  "]), true, false).is_err(), true);
+        assert!(dial_plan(&ep(" ", 0, &["  "]), true, false).is_err());
     }
 }

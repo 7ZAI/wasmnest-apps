@@ -33,6 +33,41 @@ pub const HISTORY_CAP: usize = 200;
 /// 只能事后凭 `node_id + rel_path` 匹配挂回 `retry_meta`。
 pub const PULL_INTENT_CAP: usize = 8;
 
+// ==================== 状态词表 ====================
+// `status` 是直接对外的 wire 形状（serde 即契约，前端原样展示），所以这里只
+// 收敛**判据集合**、不改字符串。新增状态先在下面登记，再改集合（C1）。
+pub const STATUS_PENDING: &str = "pending";
+pub const STATUS_RUNNING: &str = "running";
+pub const STATUS_PAUSED: &str = "paused";
+pub const STATUS_COMPLETED: &str = "completed";
+pub const STATUS_FAILED: &str = "failed";
+pub const STATUS_REJECTED: &str = "rejected";
+pub const STATUS_CANCELLED: &str = "cancelled";
+pub const STATUS_INTERRUPTED: &str = "interrupted";
+
+/// 进行中（含接收待应答与用户暂停）
+pub const ACTIVE_STATUSES: &[&str] = &[STATUS_RUNNING, STATUS_PENDING, STATUS_PAUSED];
+
+/// 引擎真实终态（`interrupted` 是本插件本地标注，不算引擎终态）
+pub const TERMINAL_ENGINE: &[&str] = &[
+    STATUS_COMPLETED,
+    STATUS_FAILED,
+    STATUS_REJECTED,
+    STATUS_CANCELLED,
+];
+
+/// 全部终态（含本地 `interrupted`）
+pub const TERMINAL_ANY: &[&str] = &[
+    STATUS_COMPLETED,
+    STATUS_FAILED,
+    STATUS_REJECTED,
+    STATUS_CANCELLED,
+    STATUS_INTERRUPTED,
+];
+
+/// 接收队列保留的活跃态（`pending` 归待应答视图，不在此列）
+pub const RECEIVE_ACTIVE: &[&str] = &[STATUS_RUNNING, STATUS_PAUSED];
+
 /// 重试元数据（仅发起方条目携带）：send 记源路径清单；pull 记共享根 + 文件清单
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", tag = "kind")]
@@ -159,15 +194,12 @@ impl TransferEntry {
 
     /// 是否终态（`interrupted` 视作可重试的终态变体）
     pub fn is_terminal(&self) -> bool {
-        matches!(
-            self.status.as_str(),
-            "completed" | "failed" | "rejected" | "cancelled" | "interrupted"
-        )
+        TERMINAL_ANY.contains(&self.status.as_str())
     }
 
     /// 是否进行中（含接收待应答与用户暂停）
     pub fn is_active(&self) -> bool {
-        matches!(self.status.as_str(), "running" | "pending" | "paused")
+        ACTIVE_STATUSES.contains(&self.status.as_str())
     }
 }
 
@@ -197,10 +229,7 @@ pub fn merge_snapshot(store: &mut Vec<TransferEntry>, snapshot: &[Value]) -> boo
             continue;
         };
         if let Some(existing) = store.iter_mut().find(|e| e.batch_id == incoming.batch_id) {
-            let engine_terminal = matches!(
-                existing.status.as_str(),
-                "completed" | "failed" | "rejected" | "cancelled"
-            );
+            let engine_terminal = TERMINAL_ENGINE.contains(&existing.status.as_str());
             if engine_terminal && incoming.is_active() {
                 continue;
             }
@@ -211,7 +240,10 @@ pub fn merge_snapshot(store: &mut Vec<TransferEntry>, snapshot: &[Value]) -> boo
             cmp.retry_meta = None;
             // 本地凭证优先；引擎先建的无凭证行 / 旧占位行要保留 DTO 带来的
             // 凭证，否则并发闸门漏计、历史重试失效（L14）。
-            let merged_meta = existing.retry_meta.clone().or_else(|| incoming.retry_meta.clone());
+            let merged_meta = existing
+                .retry_meta
+                .clone()
+                .or_else(|| incoming.retry_meta.clone());
             if current == cmp {
                 // 内容无变化：只在补齐凭证时落库，高频进度重放不重复持久化。
                 if existing.retry_meta != merged_meta {
@@ -363,7 +395,10 @@ fn terminal_status_of(direction: &str, state: &Value) -> (String, Option<String>
 /// 引擎终态 `state` 是否为对端显式取消（`type=cancelled` + `byPeer=true`）。
 fn is_peer_cancel(state: &Value) -> bool {
     state.get("type").and_then(|v| v.as_str()) == Some("cancelled")
-        && state.get("byPeer").and_then(|v| v.as_bool()).unwrap_or(false)
+        && state
+            .get("byPeer")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
 }
 
 /// 对端取消事件判据（`terminal` + [`is_peer_cancel`]）：命中返回 batchId。
@@ -557,11 +592,12 @@ pub fn insert_active_projections(
         if store.iter().any(|e| e.batch_id == batch_id) {
             continue;
         }
-        // 终态批不入店（历史由持久层承接）
-        let terminal = matches!(
-            row.get("status").and_then(|v| v.as_str()),
-            Some("completed") | Some("failed") | Some("rejected") | Some("cancelled") | None
-        );
+        // 终态批不入店（历史由持久层承接）；缺 status 按不可入店处理，
+        // `interrupted` 在此不计终态——保留旧语义
+        let terminal = match row.get("status").and_then(|v| v.as_str()) {
+            Some(status) => TERMINAL_ENGINE.contains(&status),
+            None => true,
+        };
         if terminal {
             continue;
         }
@@ -614,8 +650,8 @@ pub fn insert_active_projections(
 pub fn mark_active_interrupted(entries: &mut [TransferEntry]) -> usize {
     let mut marked = 0;
     for e in entries.iter_mut() {
-        if e.status == "running" || e.status == "pending" || e.status == "paused" {
-            e.status = "interrupted".to_string();
+        if e.is_active() {
+            e.status = STATUS_INTERRUPTED.to_string();
             e.rate_bps = 0.0;
             marked += 1;
         }
@@ -673,7 +709,7 @@ pub fn active_send_entries(entries: &[TransferEntry]) -> Vec<&TransferEntry> {
 pub fn active_receive_entries(entries: &[TransferEntry]) -> Vec<&TransferEntry> {
     entries
         .iter()
-        .filter(|e| e.direction == "receive" && matches!(e.status.as_str(), "running" | "paused"))
+        .filter(|e| e.direction == "receive" && RECEIVE_ACTIVE.contains(&e.status.as_str()))
         .collect()
 }
 

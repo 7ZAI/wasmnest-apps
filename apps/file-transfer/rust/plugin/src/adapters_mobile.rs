@@ -345,8 +345,7 @@ mod tests {
     #[test]
     fn corrupt_stored_roots_degrade_to_empty() {
         let h = FakeHost::default();
-        h.kv
-            .borrow_mut()
+        h.kv.borrow_mut()
             .insert("shared_roots".into(), serde_json::json!("broken"));
         assert!(MobilePorts(&h).load_roots().unwrap().is_empty());
     }
@@ -382,7 +381,10 @@ mod tests {
     fn profile_bits_are_mobile_shaped() {
         let h = FakeHost::default();
         let p = MobilePorts(&h);
-        assert!(!p.supports_custom_download_dir(), "移动固定 MediaStore.Downloads");
+        assert!(
+            !p.supports_custom_download_dir(),
+            "移动固定 MediaStore.Downloads"
+        );
         assert!(!p.uses_legacy_snapshot(), "移动旧快照通路已退役");
     }
 
@@ -421,7 +423,11 @@ mod tests {
         fn peer_close(&self, _handle: &str) -> Result<bool, HostError> {
             unreachable!("ConsentGate 不关闭会话")
         }
-        fn peer_respond_consent(&self, request_id: &str, accepted: bool) -> Result<bool, HostError> {
+        fn peer_respond_consent(
+            &self,
+            request_id: &str,
+            accepted: bool,
+        ) -> Result<bool, HostError> {
             self.hit(request_id, accepted)
         }
         fn peer_list_trusted(&self) -> Result<serde_json::Value, HostError> {
@@ -448,14 +454,14 @@ mod tests {
         ) -> Result<String, HostError> {
             unreachable!()
         }
-        fn peer_respond_transfer(
-            &self,
-            _batch_id: &str,
-            _accept: bool,
-        ) -> Result<(), HostError> {
+        fn peer_respond_transfer(&self, _batch_id: &str, _accept: bool) -> Result<(), HostError> {
             unreachable!()
         }
-        fn peer_set_receive_policy(&self, _mode: &str, _timeout_secs: u64) -> Result<(), HostError> {
+        fn peer_set_receive_policy(
+            &self,
+            _mode: &str,
+            _timeout_secs: u64,
+        ) -> Result<(), HostError> {
             unreachable!()
         }
         fn peer_pause_transfer(&self, _batch_id: &str) -> Result<(), HostError> {

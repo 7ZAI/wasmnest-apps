@@ -62,9 +62,9 @@ pub(crate) fn apply_and_push<H: HostStorage + HostPluginDatabase + HostPeer + ?S
 mod tests {
     use super::*;
     use crate::platform;
-    use wasmnest_plugin_api::host::{HostError, HostPeer};
     use std::cell::RefCell;
     use std::collections::HashMap;
+    use wasmnest_plugin_api::host::{HostError, HostPeer};
 
     /// 双平台共用的内存 mock（桌面 SDK trait；移动分支的 KV 落点可断言）
     #[derive(Default)]
@@ -105,7 +105,11 @@ mod tests {
             }
             Ok(None)
         }
-        fn plugin_db_execute_params(&self, sql: &str, params: &[serde_json::Value]) -> Result<i32, HostError> {
+        fn plugin_db_execute_params(
+            &self,
+            sql: &str,
+            params: &[serde_json::Value],
+        ) -> Result<i32, HostError> {
             if sql.contains("INSERT INTO shared_roots") {
                 self.rows.borrow_mut().push(serde_json::json!({
                     "id": params[0], "name": params[1], "path": params[2],
@@ -114,10 +118,15 @@ mod tests {
             }
             Ok(0)
         }
-        fn plugin_db_query_params(&self, _sql: &str, _params: &[serde_json::Value]) -> Result<Option<serde_json::Value>, HostError> {
+        fn plugin_db_query_params(
+            &self,
+            _sql: &str,
+            _params: &[serde_json::Value],
+        ) -> Result<Option<serde_json::Value>, HostError> {
             Ok(None)
         }
-        fn plugin_db_execute_batch(&self, _sqls: &[String]) -> Result<i32, HostError> {
+        fn plugin_db_execute_batch(&self, sqls: &[String]) -> Result<i32, HostError> {
+            crate::adapters::apply_shared_roots_batch(&mut self.rows.borrow_mut(), sqls);
             Ok(0)
         }
     }
@@ -133,7 +142,11 @@ mod tests {
         fn peer_close(&self, _handle: &str) -> Result<bool, HostError> {
             unimplemented!()
         }
-        fn peer_respond_consent(&self, _request_id: &str, _accepted: bool) -> Result<bool, HostError> {
+        fn peer_respond_consent(
+            &self,
+            _request_id: &str,
+            _accepted: bool,
+        ) -> Result<bool, HostError> {
             unimplemented!()
         }
         fn peer_list_trusted(&self) -> Result<serde_json::Value, HostError> {
@@ -149,7 +162,11 @@ mod tests {
         ) -> Result<bool, HostError> {
             unimplemented!()
         }
-        fn peer_send_files(&self, _session: &str, _paths: &[serde_json::Value]) -> Result<String, HostError> {
+        fn peer_send_files(
+            &self,
+            _session: &str,
+            _paths: &[serde_json::Value],
+        ) -> Result<String, HostError> {
             unimplemented!()
         }
         fn peer_respond_transfer(&self, _batch_id: &str, _accept: bool) -> Result<(), HostError> {
@@ -161,7 +178,11 @@ mod tests {
         fn peer_resume_transfer(&self, _batch_id: &str) -> Result<(), HostError> {
             unimplemented!()
         }
-        fn peer_set_receive_policy(&self, _mode: &str, _timeout_secs: u64) -> Result<(), HostError> {
+        fn peer_set_receive_policy(
+            &self,
+            _mode: &str,
+            _timeout_secs: u64,
+        ) -> Result<(), HostError> {
             unimplemented!()
         }
         fn peer_set_shared_roots(&self, dirs: &[serde_json::Value]) -> Result<(), HostError> {
@@ -172,10 +193,20 @@ mod tests {
         fn peer_list_shared_roots(&self, _session: &str) -> Result<serde_json::Value, HostError> {
             unimplemented!()
         }
-        fn peer_browse_directory(&self, _session: &str, _dir_id: &str, _rel_path: &str) -> Result<serde_json::Value, HostError> {
+        fn peer_browse_directory(
+            &self,
+            _session: &str,
+            _dir_id: &str,
+            _rel_path: &str,
+        ) -> Result<serde_json::Value, HostError> {
             unimplemented!()
         }
-        fn peer_pull_files(&self, _session: &str, _dir_id: &str, _files: &[serde_json::Value]) -> Result<u32, HostError> {
+        fn peer_pull_files(
+            &self,
+            _session: &str,
+            _dir_id: &str,
+            _files: &[serde_json::Value],
+        ) -> Result<u32, HostError> {
             unimplemented!()
         }
         fn peer_set_download_dir(&self, _path: &str) -> Result<(), HostError> {
@@ -193,7 +224,10 @@ mod tests {
         fn peer_active_transfers(&self) -> Result<serde_json::Value, HostError> {
             unimplemented!()
         }
-        fn peer_collect_outgoing(&self, _paths: &[serde_json::Value]) -> Result<serde_json::Value, HostError> {
+        fn peer_collect_outgoing(
+            &self,
+            _paths: &[serde_json::Value],
+        ) -> Result<serde_json::Value, HostError> {
             unimplemented!()
         }
     }
@@ -217,7 +251,10 @@ mod tests {
         assert_eq!(load_all(&h).unwrap(), sample(), "加入顺序必须保序");
         // 桌面落点是 plugin-db 行（不是 storage 键）
         assert_eq!(h.rows.borrow().len(), 1);
-        assert!(!h.kv.borrow().contains_key("shared_roots"), "桌面不得落 KV 键");
+        assert!(
+            !h.kv.borrow().contains_key("shared_roots"),
+            "桌面不得落 KV 键"
+        );
         // 推送 wire 用 path 字段（差异面③）
         assert_eq!(h.pushed_roots.borrow()[0]["path"], "E:/Docs");
     }

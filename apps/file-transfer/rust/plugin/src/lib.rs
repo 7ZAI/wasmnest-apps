@@ -400,9 +400,6 @@ impl WasmPlugin for FileTransferPlugin {
             "file-transfer.pause" => peer::pause_task(&h, &args),
             "file-transfer.resume" => peer::resume_task(&h, &args),
             "file-transfer.resume-all" => peer::resume_all_tasks(&h),
-            "file-transfer.remove-task" => Err(anyhow::anyhow!(
-                "unsupported: task removal is not part of the transfer lifecycle"
-            )),
 
             // ==================== 接收端 ====================
             "file-transfer.list-batches" => peer::list_batches(&h),

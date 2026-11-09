@@ -138,23 +138,65 @@ impl<H: HostPluginDatabase + ?Sized> RootsStore for DesktopPorts<'_, H> {
 
     fn save_roots(&self, roots: &[SharedRoot]) -> PortResult<()> {
         self.ensure_roots_table()?;
-        self.0
-            .plugin_db_execute("DELETE FROM shared_roots")
-            .map_err(|e| PortError::new(format!("shared_roots clear failed: {e}")))?;
-        for (i, r) in roots.iter().enumerate() {
-            self.0
-                .plugin_db_execute_params(
-                    "INSERT INTO shared_roots (id, name, path, created_at) VALUES (?1, ?2, ?3, ?4)",
-                    &[
-                        serde_json::Value::String(r.id.clone()),
-                        serde_json::Value::String(r.name.clone()),
-                        serde_json::Value::String(r.path.clone()),
-                        serde_json::json!(i as u64),
-                    ],
-                )
-                .map_err(|e| PortError::new(format!("shared_roots insert {} failed: {e}", r.id)))?;
+        // DELETE + 单条多值 INSERT 放进同一个事务批：中途失败整体回滚，不留
+        // 「表里只有前半截」的半写状态（与 transfer_entries 同款已验形态）。
+        let mut sqls = vec!["DELETE FROM shared_roots".to_string()];
+        if !roots.is_empty() {
+            let values: Vec<String> = roots
+                .iter()
+                .enumerate()
+                .map(|(i, r)| {
+                    format!(
+                        "({}, {}, {}, {i})",
+                        crate::peer::sql_string_literal(&r.id),
+                        crate::peer::sql_string_literal(&r.name),
+                        crate::peer::sql_string_literal(&r.path),
+                    )
+                })
+                .collect();
+            sqls.push(format!(
+                "INSERT INTO shared_roots (id, name, path, created_at) VALUES {}",
+                values.join(", ")
+            ));
         }
-        Ok(())
+        self.0
+            .plugin_db_execute_batch(&sqls)
+            .map(|_| ())
+            .map_err(|e| PortError::new(format!("shared_roots save failed: {e}")))
+    }
+}
+
+/// 测试夹具共用：应用 `save_roots` 的事务批（只认 `shared_roots` 的整删 +
+/// 单条多值插入）。语句形状一变就 panic——表结构/语句形状变动即被测红。
+#[cfg(test)]
+pub(crate) fn apply_shared_roots_batch(rows: &mut Vec<serde_json::Value>, sqls: &[String]) {
+    let mut next: Option<Vec<serde_json::Value>> = None;
+    for sql in sqls {
+        if sql.trim() == "DELETE FROM shared_roots" {
+            next = Some(Vec::new());
+            continue;
+        }
+        let Some((head, values)) = sql.split_once(" VALUES ") else {
+            continue;
+        };
+        if !head.contains("INSERT INTO shared_roots") {
+            continue;
+        }
+        let list = next
+            .as_mut()
+            .expect("shared_roots 事务批必须先 DELETE 再 INSERT");
+        for tuple in values.split("), (") {
+            let tuple = tuple.trim().trim_start_matches('(').trim_end_matches(')');
+            let mut fields = tuple.split(", ");
+            list.push(serde_json::json!({
+                "id": fields.next().unwrap_or("").trim_matches('\''),
+                "name": fields.next().unwrap_or("").trim_matches('\''),
+                "path": fields.next().unwrap_or("").trim_matches('\''),
+            }));
+        }
+    }
+    if let Some(list) = next {
+        *rows = list;
     }
 }
 
@@ -310,8 +352,7 @@ pub(crate) struct DesktopConsentGate<'a>(pub(crate) &'a WasmHost);
 
 impl ConsentGate for DesktopConsentGate<'_> {
     fn decide_consent(&self, request_id: &str, accepted: bool) -> PortResult<bool> {
-        auth_center::decide_and_respond(self.0, request_id, accepted)
-            .map_err(|e| PortError::new(e))
+        auth_center::decide_and_respond(self.0, request_id, accepted).map_err(PortError::new)
     }
 
     /// 阶段 1 信任预检：已信任则免确认自动放行并应答宿主。
@@ -326,7 +367,7 @@ impl ConsentGate for DesktopConsentGate<'_> {
     /// 信任设备列表：经认证中心统一视图；中心不可用时双轨降级直查宿主
     /// （降级逻辑在 `auth_center::run_list_trusted` 内，端口层只转类型）
     fn list_trusted(&self) -> PortResult<serde_json::Value> {
-        auth_center::list_trusted(self.0).map_err(|e| PortError::new(e))
+        auth_center::list_trusted(self.0).map_err(PortError::new)
     }
 }
 
@@ -359,6 +400,8 @@ mod tests {
         rows: RefCell<Vec<SharedRoot>>,
         /// 记录执行过的非查询语句，供断言幂等建表
         statements: RefCell<Vec<String>>,
+        /// 事务批故障注入（断言半写不落盘）
+        fail_batch: std::cell::Cell<bool>,
     }
 
     impl HostPluginDatabase for FakeDb {
@@ -388,17 +431,8 @@ mod tests {
             Ok(Some(Value::Array(rows)))
         }
 
-        fn plugin_db_execute_params(&self, sql: &str, params: &[Value]) -> Result<i32, HostError> {
-            assert!(
-                sql.contains("INSERT INTO shared_roots"),
-                "语句形状须稳定：{sql}"
-            );
-            self.rows.borrow_mut().push(SharedRoot {
-                id: params[0].as_str().unwrap_or_default().to_string(),
-                name: params[1].as_str().unwrap_or_default().to_string(),
-                path: params[2].as_str().unwrap_or_default().to_string(),
-            });
-            Ok(1)
+        fn plugin_db_execute_params(&self, sql: &str, _params: &[Value]) -> Result<i32, HostError> {
+            unreachable!("注册表写入已收口到 execute-batch，不该再有参数化写：{sql}")
         }
 
         fn plugin_db_query_params(
@@ -409,8 +443,50 @@ mod tests {
             unreachable!("适配器不使用参数化查询")
         }
 
-        fn plugin_db_execute_batch(&self, _sqls: &[String]) -> Result<i32, HostError> {
-            unreachable!("适配器不使用 execute-batch")
+        /// 夹具专用的事务批：先整体解析、成功后才替换行集（模拟宿主的全提交 /
+        /// 全回滚）。解析器故意写得“蠢”：只认适配器实际发出的
+        /// `DELETE FROM shared_roots` + 单条多值 INSERT（字段不含 `', '`）。
+        /// 语句形状一变就立刻失败——这正是这道夹具的判据。
+        fn plugin_db_execute_batch(&self, sqls: &[String]) -> Result<i32, HostError> {
+            for sql in sqls {
+                self.statements.borrow_mut().push(sql.clone());
+            }
+            if self.fail_batch.get() {
+                return Err(HostError::custom(-1, "injected batch failure"));
+            }
+            let mut next: Option<Vec<SharedRoot>> = None;
+            for sql in sqls {
+                if sql.trim() == "DELETE FROM shared_roots" {
+                    next = Some(Vec::new());
+                    continue;
+                }
+                let Some((_, values)) = sql.split_once(" VALUES ") else {
+                    return Err(HostError::custom(
+                        -1,
+                        format!("unexpected batch statement: {sql}"),
+                    ));
+                };
+                let Some(list) = next.as_mut() else {
+                    return Err(HostError::custom(
+                        -1,
+                        format!("INSERT before DELETE: {sql}"),
+                    ));
+                };
+                for tuple in values.split("), (") {
+                    let tuple = tuple.trim().trim_start_matches('(').trim_end_matches(')');
+                    let mut fields = tuple.split(", ");
+                    let id = fields.next().unwrap_or("").trim_matches('\'');
+                    let name = fields.next().unwrap_or("").trim_matches('\'');
+                    let path = fields.next().unwrap_or("").trim_matches('\'');
+                    list.push(SharedRoot {
+                        id: id.to_string(),
+                        name: name.to_string(),
+                        path: path.to_string(),
+                    });
+                }
+            }
+            *self.rows.borrow_mut() = next.unwrap_or_default();
+            Ok(0)
         }
     }
 
@@ -439,6 +515,25 @@ mod tests {
         // 覆盖式写入（整删整插）：写短表后不得残留旧行
         ports.save_roots(&roots()[..1]).unwrap();
         assert_eq!(ports.load_roots().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn save_roots_batch_failure_leaves_previous_rows_untouched() {
+        // DELETE 与 INSERT 在同一事务批：宿主报错即整体回滚，不得只剩半张表
+        let db = FakeDb::default();
+        let ports = DesktopPorts(&db);
+        ports.save_roots(&roots()).unwrap();
+        db.fail_batch.set(true);
+        let err = ports.save_roots(&roots()[..1]).unwrap_err();
+        assert!(
+            err.message().contains("shared_roots save failed"),
+            "实得 {err}"
+        );
+        assert_eq!(
+            db.rows.borrow().clone(),
+            roots(),
+            "失败不得改动已有行（无半写状态）"
+        );
     }
 
     #[test]

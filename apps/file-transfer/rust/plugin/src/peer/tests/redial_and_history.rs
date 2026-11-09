@@ -15,11 +15,11 @@
 
 use super::MockHost;
 use crate::device_bridge;
-use crate::platform::{self, Platform};
 use crate::peer::{
     history_view, load_entries, next_local_failure_id, occupied_send_slots, persist_entries,
     restore_entries, send_row, TransferEntry,
 };
+use crate::platform::{self, Platform};
 use crate::settings_store;
 use crate::transfer_store::{self, RetryMeta};
 
