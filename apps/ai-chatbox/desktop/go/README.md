@@ -17,7 +17,12 @@ Rust 版 `../rust/` 的对等移植（issue #21 Solution 5 试点：前端零改
 
 ```bash
 # 产物构建（清单副本同步 + TinyGo 组件化，由应用 build.js 驱动）：
-#   cd .. && node scripts/build.js --go-only
+#   全量构建默认同时编 Rust + Go，**宿主默认安装 Rust 产物**（Go 仅作为变体包分发）：
+#     cd .. && node scripts/build.js --backend both          # 两个都编，装 rust
+#   只编 Go / 只装 Go（例如对比实验）：
+#     cd .. && node scripts/build.js --go-only               # 只编 Go（工具链缺失即硬失败）
+#     cd .. && node scripts/build.js --backend both --install go
+# 产物：.build/go/<rustLibrary>.wasm（本目录 ../.build/go）；安装副本在 build.js 的 --out 产物目录。
 # 组件目标文件用 wasip2 后缀而非 _wasm（GOARCH 隐式约束，见 SDK go/README.md）。
 
 # 原生单测（清单副本缺失时 embed 编译失败——先跑一次上面的构建）

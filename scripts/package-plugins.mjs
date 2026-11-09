@@ -11,6 +11,9 @@
  *      各打一个 zip：
  *      - <out>/<target>/<id>.zip（zip 根 = 插件文件，与移动端 SDK package 分发格式一致），
  *        一个插件一个包，发布后按需单独安装/更新。
+ *      - 多后端插件（桌面同时有 rust/ 与 go/ 后端）额外各打一份：
+ *        <out>/desktop/<id>-<backend>.zip。默认包（<id>.zip）= 宿主默认加载的后端（rust）；
+ *        变体包由各 app build.js `--variants <dir>` 物化，本脚本经 `--variants-dir` 读取。
  *
  * 三仓拆分（spec §5-E6）后本脚本随应用仓走：插件源码在 `<group>/<slug>/{desktop,mobile}`
  * （group ∈ apps / servers，枚举经 `scripts/lib/projects.mjs`），插件清单由目录扫描得出
@@ -29,6 +32,8 @@
  *                                  不叠加 config 中其余插件）
  *   --exclude <name|id>            从打包列表中排除，可重复
  *   --out <dir>                    输出目录（默认 dist/plugin-packages，相对仓库根）
+ *   --variants-dir <dir>           多后端变体目录（默认 <out>/variants；由 build.js --variants 写入）
+ *                                  布局 = <dir>/<backend>/<id>/，每个目录各打一份变体 zip
  *   --version <ver>                zip 文件名版本号（默认读应用仓 package.json 的 version）
  *   --no-zip                       只构建收集产物，不打包 zip
  *   --skip-build                   跳过构建，直接打包平台仓宿主 resources/plugins 已有产物
@@ -80,6 +85,7 @@ function parseArgs(argv) {
     exclude: [],
     out: 'dist/plugin-packages',
     pluginsDir: null,
+    variantsDir: null,
     version: null,
     noZip: false,
     skipBuild: false,
@@ -127,6 +133,10 @@ function parseArgs(argv) {
       case 'plugins-dir':
         // 桌面产物来源目录（build.js `--out` 的那一层）；缺省 = <out>/plugins
         args.pluginsDir = String(val)
+        break
+      case 'variants-dir':
+        // 多后端变体目录（build.js `--variants` 的那一层）；缺省 = <out>/variants
+        args.variantsDir = String(val)
         break
       case 'version':
         args.version = String(val)
@@ -321,6 +331,7 @@ if (args.list) {
 const outDir = resolve(ROOT, args.out)
 const stageDir = join(outDir, 'stage')
 const desktopPluginsDir = resolve(ROOT, args.pluginsDir || join(args.out, 'plugins'))
+const variantsDir = resolve(ROOT, args.variantsDir || join(args.out, 'variants'))
 const version = args.version || readJson(join(ROOT, 'package.json'), 'package.json').version
 
 function buildDesktopPlugin({ group, dir, id }) {
@@ -337,10 +348,15 @@ function buildDesktopPlugin({ group, dir, id }) {
   }
   // 插件构建 = vite build + cargo wasm（+ file-transfer 组件化）→ 写 --out 指定目录
   rmSync(join(desktopPluginsDir, id), { recursive: true, force: true })
-  run([process.execPath, 'scripts/build.js', '--out', desktopPluginsDir], {
-    cwd: pluginDir,
-    label: `构建桌面端插件 ${id}`,
-  })
+  // `--variants` 只有多后端 app 会用到（其余 build.js 忽略未识别参数）：
+  // 未安装的后端物化成 <variantsDir>/<backend>/<id>/，供本脚本各打一份 zip。
+  run(
+    [process.execPath, 'scripts/build.js', '--out', desktopPluginsDir, '--variants', variantsDir],
+    {
+      cwd: pluginDir,
+      label: `构建桌面端插件 ${id}`,
+    },
+  )
 }
 
 function buildMobilePlugin({ group, dir, id }) {
@@ -387,6 +403,47 @@ function collectArtifacts() {
     mkdirSync(dst, { recursive: true })
     cpSync(src, dst, { recursive: true })
   }
+  collectVariantArtifacts()
+}
+
+/**
+ * 汇总多后端变体（`<variantsDir>/<backend>/<id>/`）到 stage：`<stage>/desktop-variants/<backend>/<id>`。
+ *
+ * 目录缺失 = 没有多后端插件（或走了 `--skip-build` 且构建时没传 `--variants`）：只提示，不报错。
+ */
+function collectVariantArtifacts() {
+  const desktopIds = new Set(plugins.filter((p) => p.target === 'desktop').map((p) => p.id))
+  if (!existsSync(variantsDir)) {
+    console.log(`[package-plugins] 无多后端变体目录（${variantsDir}），跳过变体打包`)
+    return
+  }
+  for (const backend of readdirSync(variantsDir, { withFileTypes: true })) {
+    if (!backend.isDirectory()) continue
+    for (const entry of readdirSync(join(variantsDir, backend.name), { withFileTypes: true })) {
+      if (!entry.isDirectory() || !desktopIds.has(entry.name)) continue
+      const src = join(variantsDir, backend.name, entry.name)
+      const dst = join(stageDir, 'desktop-variants', backend.name, entry.name)
+      rmSync(dst, { recursive: true, force: true })
+      mkdirSync(dst, { recursive: true })
+      cpSync(src, dst, { recursive: true })
+      console.log(`  [variant] ${entry.name} @ ${backend.name}`)
+    }
+  }
+}
+
+/** stage 下的变体目录清单：[{ backend, id, dir }] */
+function stagedVariants() {
+  const root = join(stageDir, 'desktop-variants')
+  if (!existsSync(root)) return []
+  const out = []
+  for (const backend of readdirSync(root, { withFileTypes: true })) {
+    if (!backend.isDirectory()) continue
+    for (const entry of readdirSync(join(root, backend.name), { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue
+      out.push({ backend: backend.name, id: entry.name, dir: join(root, backend.name, entry.name) })
+    }
+  }
+  return out
 }
 
 // ==================== 产物摘要复核（审计票 14）====================
@@ -408,6 +465,15 @@ function verifyDesktopArtifacts() {
       process.exit(1)
     }
     if (res.hash) console.log(`  [desktop/${p.id}] wasmHash ${res.hash}`)
+  }
+  // 变体包同样逐条复核：否则变体 zip 里的 wasmHash 与自身 wasm 对不上，宿主拒装
+  for (const v of stagedVariants()) {
+    const res = verifyWasmHash(v.dir)
+    if (!res.ok) {
+      console.error(`[package-plugins] 桌面变体产物 ${v.id}@${v.backend} 摘要复核失败: ${res.error}`)
+      process.exit(1)
+    }
+    if (res.hash) console.log(`  [desktop/${v.id}@${v.backend}] wasmHash ${res.hash}`)
   }
 }
 
@@ -540,13 +606,17 @@ function toPosix(p) {
   return p.split(sep).join('/')
 }
 
-/** 读取 stage 下某插件目录，生成 zip 条目（name 以给定 prefix 打头） */
-function pluginEntries(target, id, prefix = '') {
-  const dir = join(stageDir, target, id)
+/** 读取某目录，生成 zip 条目（name 相对该目录，`prefix` 可加前缀） */
+function entriesFromDir(dir, prefix = '') {
   return walk(dir).map((f) => ({
     name: `${prefix}${toPosix(relative(dir, f))}`,
     data: readFileSync(f),
   }))
+}
+
+/** 读取 stage 下某插件目录，生成 zip 条目（name 以给定 prefix 打头） */
+function pluginEntries(target, id, prefix = '') {
+  return entriesFromDir(join(stageDir, target, id), prefix)
 }
 
 function makeZip(entries, outFile, label) {
@@ -563,6 +633,14 @@ function zipPlugins() {
       pluginEntries(p.target, p.id),
       join(outDir, p.target, `${p.id}.zip`),
       `[${p.target}/${p.id}]`,
+    )
+  }
+  // 多后端变体：<out>/desktop/<id>-<backend>.zip（默认包 = 宿主默认后端，变体包同名换后端）
+  for (const v of stagedVariants()) {
+    makeZip(
+      entriesFromDir(v.dir),
+      join(outDir, 'desktop', `${v.id}-${v.backend}.zip`),
+      `[desktop/${v.id}@${v.backend}]`,
     )
   }
 }
@@ -584,3 +662,4 @@ if (!args.keepStage) {
 
 console.log(`\n[package-plugins] 完成。产物目录: ${outDir}`)
 console.log('  - 插件包: <target>/<plugin-id>.zip（一个插件一个 zip）')
+console.log('  - 多后端变体包: desktop/<plugin-id>-<backend>.zip（默认包 = 宿主默认后端，当前为 rust）')

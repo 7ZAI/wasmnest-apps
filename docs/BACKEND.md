@@ -158,7 +158,9 @@ pnpm run test:rust                                        # 仅 bedcode/desktop 
 
 - 工程形态：`apps/<slug>/desktop/go/`（Go 模块）。可移植逻辑（无 build tag）与组件目标（`//go:build wasip2`，文件名后缀用 `wasip2` **不用** `_wasm`——GOARCH 隐式约束）分文件，原生 `go test ./...` 只测可移植面。
 - 依赖形态：`go.mod` `replace` 把 SDK 壳指回平台仓源码（首期不发布；R1 兄弟布局上溯深度与 npm `file:` 依赖同深度减一，Go 模块住在 `go/` 下多一级）。平台仓 feature 分支未合流时，本地经 gitignored `go.work` + `WASMNEST_SDK_GO_DIR` 指向 worktree（见试点工程 README）。
-- 构建链：`pnpm run build:go`（= `build.js --go-only`）→ 清单嵌入副本同步（`go:embed` 不能上溯目录，`plugin.json` 由 build.js 复制进 `go/`）→ SDK 侧 `tools/assemble-wit.mjs` 组装 wit → `tinygo build -target=wasip2 -wit-world go-plugin`。产物名沿用清单 `rustLibrary` 键位（键名中性化另裁，issue #21），wasmHash 注入 / 产物目录 / dev:host / E2E / 打包链与 Rust 版零适配。
+- 构建链（双后端并存，2026-11-09）：一次全量构建 `--backend both`（缺省）**同时编 Rust（wasip3）与 Go（TinyGo wasip2）**，但宿主按 `plugin.json.rustLibrary` 只能装一份 ⇒ **默认安装 Rust 产物**（`--install <go|rust>` / env `WASMNEST_AI_CHATBOX_BACKEND` 可改）。Go 链：清单嵌入副本同步（`go:embed` 不能上溯目录，`plugin.json` 由 build.js 复制进 `go/`）→ SDK 侧 `tools/assemble-wit.mjs` 组装 wit → `tinygo build -target=wasip2 -wit-world go-plugin`。产物名沿用清单 `rustLibrary` 键位（键名中性化另裁，issue #21），wasmHash 注入 / 产物目录 / dev:host / E2E / 打包链与 Rust 版零适配。
+- 打包链（双 zip）：`package-plugins.mjs` 出默认包 `desktop/<id>.zip`（Rust）+ 变体包 `desktop/<id>-<backend>.zip`（其他后端，由各 app `build.js --variants <dir>` 物化、`--variants-dir` 读取）；CI `scripts/ci/build-app.mjs` 把变体包落 `dist/release/<slug>-<end>-<backend>-v<ver>.zip` 并在元数据 `variants` 数组登记（`artifact` 仍是默认 Rust 包，`vendor-apps` 只读 `artifact`，不受影响）。
+- 工具链缺失口径：显式点名缺的后端（`--go-only` / `--backend go` / `--install go`）**硬失败**；缺省 both 下 Go 缺失 → 告警后只装 Rust，**不再沿用旧 wasm**（旧行为会刷新产物 mtime，把平台仓 `plugin-precheck` 的陈旧判据永久打掉）。
 - 测试边界：**与 Rust 同口径——原生 `go test` 不覆盖组件路径**；涉及绑定 / 组件面的改动必须跑一次 TinyGo 构建产出组件（`wasm-tools validate`）才算验证。CI 面：`ci.yml` go-test job（native）+ app-build 按 `go/` 目录自动装工具链。
 
 **与 Rust 版的纪律差异**（选型前必读）：

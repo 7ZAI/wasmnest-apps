@@ -199,6 +199,7 @@ jobs:
           name: ${{ steps.build.outputs.artifact_name }}
           path: |
             wasmnest-apps/dist/release/${{ steps.build.outputs.artifact_name }}
+            wasmnest-apps/dist/release/${{ inputs.app }}-${{ matrix.end }}-*-v${{ steps.build.outputs.version }}.zip
             wasmnest-apps/dist/release/${{ inputs.app }}-${{ matrix.end }}-v${{ steps.build.outputs.version }}.json
           if-no-files-found: error
           retention-days: 30

@@ -129,6 +129,7 @@
 | `pnpm run dev:host`（桌面各 app 工程内） | **应用工程内起真实桌面宿主**：宿主来源统一走 `scripts/host-runtime.mjs`（显式 `--host`/`WASMNEST_HOST_BIN` → 本机 `host:pack` 产物 → 下载缓存），启动前按 lock 比对 `sdkVersion` / `witVersion` / `mountContract`（不匹配即退出，不再只是 warning）；本 app 产物写 `--plugins-dir`（默认 `.dev-host/plugins`），经 `WASMNEST_PLUGINS_DIR` 递给宿主 → 宿主 watcher 触发前端热重载，**不依赖平台仓源码** | **bedcode 例外**：前端不参与 watch（既有口径），dev:host 只预构建 + 起宿主，改前端需重跑 |
 | `node scripts/build.js` | **默认产物写本仓 `apps/<slug>/desktop/.build/plugins/<appId>/`**（G2：不再写平台宿主 resources；刻意不落 `dist/`——vite `emptyOutDir` 会把它清空） | 桌面各 app |
 | `node scripts/build.js --out <dir>` | 产物目录改到 `<dir>/<appId>/`（也可用 env `WASMNEST_PLUGINS_DIR`）；写平台宿主 resources 必须走这条显式路径 | 桌面各 app 均支持 |
+| `node scripts/build.js --backend go\|rust\|both` / `--install <go\|rust>` | 多后端 app（ai-chatbox）：编哪些后端（默认 both）/ 装哪一份（默认 rust）；`--variants <dir>` 额外物化未安装后端供打包链各打一份 zip；其他 app 忽略这些参数 | 仅 `apps/ai-chatbox/desktop`（Go 工具链缺失时缺省 both 告警降级为 rust，显式点名 go 则硬失败） |
 | `cargo test --manifest-path <crate>/Cargo.toml` | 该 crate 的 Rust 单测（native） | `bedcode/desktop` 另有 `pnpm run test:rust` |
 
 > 桌面 app 的 `build` 直接把产物写平台宿主 resources；移动 app 的 `build` 默认只产出自身 `dist/`，**写进宿主 resources 以平台仓移动构建为准**。

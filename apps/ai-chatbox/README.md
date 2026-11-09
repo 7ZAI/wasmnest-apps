@@ -105,8 +105,9 @@ apps/ai-chatbox/
 | `pnpm install` | 安装本工程依赖（每个端工程各自独立 workspace） |
 | `pnpm run dev` | `build.js --watch`：改前端自动重建产物 |
 | `pnpm run dev:host` | 起真实桌面宿主：宿主按 `host-runtime.lock.json` 解析并校验契约版本，产物写 `.dev-host/plugins` 供宿主 watcher 热重载 |
-| `pnpm run build` | 全量构建：vite → cargo → 产物落 `apps/ai-chatbox/desktop/.build/plugins/com.wasmnest.ai-chatbox/` → 注入 wasmHash |
-| `pnpm run build:frontend` / `build:rust` | 分段构建（只重建前端 / 只重建 wasm） |
+| `pnpm run build` | 全量构建：vite → **双后端**（Rust wasip3 + Go TinyGo）→ 宿主默认安装 Rust 产物到 `apps/ai-chatbox/desktop/.build/plugins/com.wasmnest.ai-chatbox/` → 注入 wasmHash |
+| `pnpm run build:rust` / `build:go` / `build:both` | 分段构建：只重建 Rust / 只重建 Go / 重建两个后端（均跳过 vite） |
+| `--backend <go\|rust\|both>` / `--install <go\|rust>` | build.js 参数：构建哪些后端（默认 both）、安装哪一份（默认 rust；Go 工具链缺失时显式点名 Go 会硬失败） |
 | `pnpm run test:run` | vitest 单测 |
 | `cargo test --manifest-path rust/Cargo.toml` | 后端 native 单测（store / client） |
 

@@ -4,7 +4,9 @@
  *
  * 产物：`dist/release/<slug>-<end>-v<version>.zip` + 同名 `.json` 元数据
  * （插件 id / wasm 摘要 / 源提交 / 平台与能力仓 ref / 宿主兼容声明 compat），
- * 一个 app 一端一个包。
+ * 一个 app 一端一个包。多后端桌面 app（ai-chatbox：rust + go）另出
+ * `dist/release/<slug>-<end>-<backend>-v<version>.zip` 变体包：默认包 = 宿主默认
+ * 加载的后端（rust），变体包同前端 / 同清单、只换 wasm，元数据 `variants` 数组登记。
  *
  * 构建链**复用各 app 自己的脚本**（不在 CI 里另写一套编译命令）：
  *  - desktop：`apps/<slug>/desktop` 的 `pnpm run build`
@@ -32,6 +34,7 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  readdirSync,
   rmSync,
   statSync,
   writeFileSync,
@@ -49,6 +52,8 @@ import {
 } from '../platform-paths.mjs'
 
 const PACKAGE_STAGE = join(APPS_ROOT, 'dist', 'ci-packages')
+/** 多后端变体物化目录（build.js `--variants` 写入，package-plugins `--variants-dir` 读） */
+const VARIANT_STAGE = join(APPS_ROOT, 'dist', 'ci-variants')
 
 function log(msg) {
   console.log(`[build-app] ${msg}`)
@@ -173,7 +178,14 @@ async function main() {
     // 直接跑构建脚本并指定产物目录：绕开各 app `build` 脚本的默认落点，
     // 也让「产物缺失」指向明确目录（而不是平台仓宿主 resources 这类隐式位置）。
     rmSync(join(desktopStageRoot, target.id), { recursive: true, force: true })
-    run(process.execPath, ['scripts/build.js', '--out', desktopStageRoot], appDir)
+    rmSync(VARIANT_STAGE, { recursive: true, force: true })
+    run(process.execPath, [
+      'scripts/build.js',
+      '--out',
+      desktopStageRoot,
+      '--variants',
+      VARIANT_STAGE,
+    ], appDir)
   } else {
     // 平台移动构建：自有 rust 走 SDK CLI、file-transfer 共享 crate；统一写宿主 resources。
     // 不用 app 自己的 `build`：ai-chatbox / bedcode 的 `wasmnest-plugin build` 只产自身 dist/，
@@ -217,6 +229,7 @@ async function main() {
       'dist/ci-packages',
       '--version',
       version,
+      ...(args.end === 'desktop' ? ['--variants-dir', VARIANT_STAGE] : []),
     ],
     APPS_ROOT,
   )
@@ -230,6 +243,23 @@ async function main() {
   const artifactPath = join(outDir, `${base}.zip`)
   const metadataPath = join(outDir, `${base}.json`)
   cpSync(stagedZip, artifactPath)
+
+  // 多后端变体包：<out>/<slug>-<end>-<backend>-v<ver>.zip（默认包 = 宿主默认后端）
+  const variants = []
+  if (args.end === 'desktop' && existsSync(VARIANT_STAGE)) {
+    for (const backend of readdirSync(VARIANT_STAGE, { withFileTypes: true })) {
+      if (!backend.isDirectory()) continue
+      const src = join(PACKAGE_STAGE, 'desktop', `${target.id}-${backend.name}.zip`)
+      if (!existsSync(src)) {
+        fail(`变体 ${backend.name} 的插件包缺失（应有 ${src}）`)
+      }
+      const zinfo = fileInfo(src, `变体包 ${backend.name}`)
+      const name = `${info.slug}-${args.end}-${backend.name}-v${version}.zip`
+      cpSync(src, join(outDir, name))
+      variants.push({ backend: backend.name, file: name, bytes: zinfo.bytes, sha256: zinfo.sha256 })
+      log(`变体包: ${name}（${zinfo.bytes} B, ${backend.name} 后端）`)
+    }
+  }
 
   // wasm 摘要（桌面另带构建期注入的 wasmHash；移动端该字段无生产者，见 package-plugins 头注）
   const wasmPath = join(resourcesRoot, target.id, `${target.rustLibrary}.wasm`)
@@ -261,6 +291,7 @@ async function main() {
     },
     compat,
     artifact: { file: `${base}.zip`, bytes: zipInfo.bytes, sha256: zipInfo.sha256 },
+    ...(variants.length ? { variants } : {}),
     wasm: {
       file: `${target.rustLibrary}.wasm`,
       bytes: wasmInfo.bytes,
@@ -305,6 +336,7 @@ async function main() {
       '| --- | --- |',
       `| 插件 id | \`${target.id}\` |`,
       `| 产物 | \`${base}.zip\` (${zipInfo.bytes} B) |`,
+      ...variants.map((v) => `| 变体（${v.backend}） | \`${v.file}\` (${v.bytes} B) |`),
       `| zip sha256 | \`${zipInfo.sha256}\` |`,
       `| wasm sha256 | \`${wasmInfo.sha256}\` |`,
       `| 平台仓 | \`${metadata.source.platformRef ?? '?'}\` @ \`${(metadata.source.platformCommit ?? '?').slice(0, 12)}\` |`,
@@ -316,7 +348,10 @@ async function main() {
 
   // 中间产物清理（zip 与元数据已落到发布目录）
   rmSync(PACKAGE_STAGE, { recursive: true, force: true })
-  if (args.end === 'desktop') rmSync(desktopStageRoot, { recursive: true, force: true })
+  if (args.end === 'desktop') {
+    rmSync(desktopStageRoot, { recursive: true, force: true })
+    rmSync(VARIANT_STAGE, { recursive: true, force: true })
+  }
 }
 
 function gitHead() {

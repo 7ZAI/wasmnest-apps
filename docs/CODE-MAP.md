@@ -42,7 +42,7 @@ wasmnest-apps/
 │   ├─ src/index.ts                dev-shell 兼容出口（仅导出 devMock；主宿主不加载）
 │   ├─ src/components|composables|utils|i18n|__tests__/
 │   ├─ rust/                       WASM 后端（file-transfer 例外：无本端 rust；Go 路线 app 另有 go/，见 BACKEND.md §9）
-│   ├─ scripts/build.js            vite → cargo/tinygo → 复制产物到 .build/plugins/<id> → injectWasmHash
+│   ├─ scripts/build.js            vite → cargo/tinygo（双后端：--backend go|rust|both，默认 both 且装 rust）→ 复制产物 → injectWasmHash
 │   ├─ vite.config.ts / vitest.config.ts / tailwind.config.js / postcss.config.js
 │   ├─ package.json + pnpm-lock.yaml + pnpm-workspace.yaml    ← 独立 workspace
 │   └─ icon.svg
@@ -194,6 +194,8 @@ apps/<slug>/<end>/ 源码
 
 **发布产物（CI）**：`scripts/ci/build-app.mjs` 在上述构建链之后经 `package-plugins.mjs --skip-build` 打包为
 `dist/release/<slug>-<end>-v<version>.zip` + 同名元数据 JSON（详见 `docs/CI.md` §5）。
+多后端桌面 app（ai-chatbox：rust + go）另出变体包 `dist/release/<slug>-<end>-<backend>-v<version>.zip`
+（默认包 = 宿主默认后端 rust；元数据 `variants` 数组登记）。
 
 共享 Cargo target 目录 = `<appsRoot>/target/wasm-apps`（`.cargo/config.toml` 的 `build.target-dir` + 各 `build.js` 显式 `--target-dir`，两处注释互相指认）。
 
