@@ -204,6 +204,7 @@ describe('C1 工程身份五处一致', () => {
       'session.task.session-settings',
       'session.task.supported-agents',
       'session.task.session-configs',
+      'session.task.targets',
       'session.task.preset-list',
       'session.task.preset-create',
       'session.task.preset-delete',

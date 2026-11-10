@@ -43,7 +43,9 @@ export interface TaskHistoryItem {
 export interface ScheduledJob {
   id: string
   name: string | null
-  config_id: string
+  project_id: string | null
+  agent_id: string | null
+  config_id: string | null
   trigger_at: string
   prompts: string
   status: string
@@ -223,7 +225,8 @@ export function httpScheduledJobsList(): Promise<MobileHttpResult<{
 /** 创建定时任务 */
 export function httpScheduledJobCreate(body: {
   name?: string
-  config_id: string
+  project_id: string
+  agent_id: string
   trigger_at: string
   prompts: string[]
 }): Promise<MobileHttpResult<{ job_id: string }>> {

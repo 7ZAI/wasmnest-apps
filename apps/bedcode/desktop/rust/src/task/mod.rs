@@ -41,6 +41,8 @@ pub mod state;
 use wasmnest_plugin_api::host::{ConfigKey, HostConfig, HostLog, HostPluginDatabase};
 use wasmnest_plugin_api::wasm_host::WasmHost;
 use serde::Serialize;
+use serde_json::Value;
+use wasmnest_plugin_api::sql_params;
 
 /// 长循环让出护栏（WASI 0.3 async 语义）
 ///
@@ -129,7 +131,9 @@ pub const SCHEDULED_JOBS_SCHEMA: &[&str] = &[
 CREATE TABLE IF NOT EXISTS task_scheduled (
     id          TEXT PRIMARY KEY,
     name        TEXT,
-    config_id   TEXT NOT NULL,
+    project_id  TEXT,
+    agent_id    TEXT,
+    config_id   TEXT,
     trigger_at  TEXT NOT NULL,
     prompts     TEXT NOT NULL,
     status      TEXT NOT NULL DEFAULT 'pending',
@@ -192,6 +196,151 @@ pub fn ensure_schema_via_host(host: &WasmHost) -> Result<(), String> {
             host.plugin_db_execute(stmt)
                 .map_err(|e| format!("task schema init failed on {}: {}", name, e))?;
         }
+    }
+
+    // 老库补绑定键列（新库建表已带；`ALTER TABLE ADD COLUMN` 非幂等，逐列查
+    // `PRAGMA table_info` 后再补）。必须在上面的建表循环之后——新库表刚建出来。
+    for (table, column, ddl) in [
+        (
+            "task_queue",
+            "project_id",
+            "ALTER TABLE task_queue ADD COLUMN project_id TEXT",
+        ),
+        (
+            "task_queue",
+            "agent_id",
+            "ALTER TABLE task_queue ADD COLUMN agent_id TEXT",
+        ),
+        (
+            "task_preset",
+            "project_id",
+            "ALTER TABLE task_preset ADD COLUMN project_id TEXT",
+        ),
+        (
+            "task_preset",
+            "agent_id",
+            "ALTER TABLE task_preset ADD COLUMN agent_id TEXT",
+        ),
+        (
+            "task_scheduled",
+            "project_id",
+            "ALTER TABLE task_scheduled ADD COLUMN project_id TEXT",
+        ),
+        (
+            "task_scheduled",
+            "agent_id",
+            "ALTER TABLE task_scheduled ADD COLUMN agent_id TEXT",
+        ),
+        (
+            "task_config_queues",
+            "project_id",
+            "ALTER TABLE task_config_queues ADD COLUMN project_id TEXT",
+        ),
+        (
+            "task_config_queues",
+            "agent_id",
+            "ALTER TABLE task_config_queues ADD COLUMN agent_id TEXT",
+        ),
+    ] {
+        ensure_column_if_missing(host, table, column, ddl)?;
+    }
+
+    // 升级兼容：旧定时任务只有 `config_id`，按配置的目录 + 命令回填项目 + agent。
+    // 失败只记日志（不阻断建表）：列表里会显示「未绑定」，用户仍可删除/重置。
+    if let Err(e) = backfill_scheduled_targets(host) {
+        host.log_warn(&format!(
+            "task schema: scheduled target backfill failed: {e}"
+        ));
+    }
+    Ok(())
+}
+
+/// 列是否已存在（`PRAGMA table_info`；表不存在返回空集合）
+fn table_columns(
+    host: &WasmHost,
+    table: &str,
+) -> Result<std::collections::HashSet<String>, String> {
+    let rows = host
+        .plugin_db_query(&format!("PRAGMA table_info({table})"))
+        .map_err(|e| format!("pragma table_info({table}) failed: {}", e.message))?;
+    Ok(rows
+        .and_then(|v| v.as_array().cloned())
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|row| row.get("name").and_then(|v| v.as_str()).map(str::to_string))
+        .collect())
+}
+
+/// 缺列时补列（幂等）
+fn ensure_column_if_missing(
+    host: &WasmHost,
+    table: &str,
+    column: &str,
+    ddl: &str,
+) -> Result<(), String> {
+    if table_columns(host, table)?.contains(column) {
+        return Ok(());
+    }
+    host.plugin_db_execute(ddl).map_err(|e| {
+        format!(
+            "task schema add column {table}.{column} failed: {}",
+            e.message
+        )
+    })?;
+    Ok(())
+}
+
+/// 旧定时任务按 `config_id` 回填 `(project_id, agent_id)`（幂等，只补空行）
+fn backfill_scheduled_targets(host: &WasmHost) -> Result<(), String> {
+    let configs = match crate::config::list_via_host() {
+        Ok(value) => value.as_array().cloned().unwrap_or_default(),
+        Err(_) => return Ok(()), // native / 配置面不可用：没有可回填的依据
+    };
+    if configs.is_empty() {
+        return Ok(());
+    }
+    let projects = crate::project::list_via_host()
+        .ok()
+        .and_then(|v| v.get("projects").and_then(|p| p.as_array()).cloned())
+        .unwrap_or_default();
+    let project_for = |environment: &str, working_dir: &str| -> Option<String> {
+        let key = crate::project::ops::project_key(environment, working_dir);
+        projects.iter().find_map(|project| {
+            let env = project.get("environment")?.as_str()?;
+            let dir = project.get("workingDir")?.as_str()?;
+            (crate::project::ops::project_key(env, dir) == key)
+                .then(|| project.get("id")?.as_str().map(str::to_string))
+                .flatten()
+        })
+    };
+    let mut targets: std::collections::HashMap<String, (String, Option<String>)> =
+        std::collections::HashMap::new();
+    for config in &configs {
+        let Some(id) = config.get("id").and_then(|v| v.as_str()) else {
+            continue;
+        };
+        let environment = config
+            .get("environment")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let working_dir = config
+            .get("workingDir")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let command = config.get("command").and_then(|v| v.as_str()).unwrap_or("");
+        let Some(project_id) = project_for(environment, working_dir) else {
+            continue;
+        };
+        let agent = agent::detect_agent(command);
+        let agent_id = (agent != "unknown").then(|| agent.to_string());
+        targets.insert(id.to_string(), (project_id, agent_id));
+    }
+    for (config_id, (project_id, agent_id)) in targets {
+        let _ = host.plugin_db_execute_params(
+            "UPDATE task_scheduled SET project_id = ?1, agent_id = ?2 \
+             WHERE config_id = ?3 AND (project_id IS NULL OR project_id = '')",
+            &sql_params![project_id, agent_id, config_id],
+        );
     }
     Ok(())
 }
@@ -456,6 +605,29 @@ mod tests {
                 assert!(
                     !src.contains(forbidden),
                     "任务域不得跨域引用 {forbidden}（{file}）：D7 禁止跨域持锁"
+                );
+            }
+        }
+    }
+
+    /// 任务域四张表的新库建表必须自带绑定键列
+    ///
+    /// 老库走 `ALTER TABLE ADD COLUMN`（`ensure_schema_via_host` 的补列循环），
+    /// 新库走 `CREATE TABLE`——两条路径必须落下同一组列，否则「新装能用、升级后
+    /// 少列」的缺陷要等线上才炸。
+    #[test]
+    fn binding_columns_are_in_fresh_schemas() {
+        for (table, schema) in [
+            ("task_queue", queue::TASK_QUEUE_SCHEMA),
+            ("task_config_queues", config_queue::CONFIG_QUEUE_SCHEMA),
+            ("task_preset", preset::PRESET_TASKS_SCHEMA),
+            ("task_scheduled", SCHEDULED_JOBS_SCHEMA),
+        ] {
+            let ddl = schema.join("\n");
+            for column in ["project_id", "agent_id"] {
+                assert!(
+                    ddl.contains(&format!("{column} ")),
+                    "{table} 新库建表缺绑定键列 {column}"
                 );
             }
         }
@@ -1270,16 +1442,191 @@ pub fn list_configs_with_support_via_host() -> Result<Vec<serde_json::Value>, St
         .as_array()
         .cloned()
         .ok_or_else(|| format!("config list did not return an array: {configs}"))?;
+    let projects = project_views()?;
     let mut counter = 0u64;
     Ok(configs
         .into_iter()
         .map(|mut c| {
             if let Some(cmd) = c.get("command").and_then(|v| v.as_str()) {
                 let agent = agent::detect_agent(cmd);
+                c["agent"] = serde_json::Value::String(agent.to_string());
                 c["is_supported"] = serde_json::Value::Bool(agent::is_supported(agent));
+            }
+            if let (Some(env), Some(dir)) = (
+                c.get("environment").and_then(|v| v.as_str()),
+                c.get("workingDir").and_then(|v| v.as_str()),
+            ) {
+                if let Some(project) = find_project(&projects, env, dir) {
+                    c["project_id"] = project.get("id").cloned().unwrap_or(Value::Null);
+                    c["project_name"] = project.get("name").cloned().unwrap_or(Value::Null);
+                }
             }
             yield_guard(&host, &mut counter);
             c
         })
         .collect())
+}
+
+/// 项目视图数组（读失败 → 空；任务目标列表是辅助面，不阻断任务域本身）
+fn project_views() -> Result<Vec<Value>, String> {
+    let value = crate::project::list_via_host()?;
+    Ok(value
+        .get("projects")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default())
+}
+
+/// 按执行环境 + 目录（归一化）找项目视图
+fn find_project<'a>(
+    projects: &'a [Value],
+    environment: &str,
+    working_dir: &str,
+) -> Option<&'a Value> {
+    let key = crate::project::ops::project_key(environment, working_dir);
+    projects.iter().find(|project| {
+        let env = project.get("environment").and_then(|v| v.as_str());
+        let dir = project.get("workingDir").and_then(|v| v.as_str());
+        matches!((env, dir), (Some(env), Some(dir)) if crate::project::ops::project_key(env, dir) == key)
+    })
+}
+
+/// 任务目标清单（项目 × 受支持 agent）——桌面 / 移动任务面的唯一选择源
+///
+/// 目标来自两条线：
+/// 1. `session_configs`（项目 × agent 的启动参数，`run.start` 取或建）；
+/// 2. `runs` 里已有归属的运行（防止配置被删后活跃运行从选择器消失）。
+///
+/// 每个目标带 `active_session_id`（有活跃运行时直接投递）与 `pending_count`
+/// （无活跃运行时挂起的任务数，界面显性提示「等待运行」）。只列任务域支持的
+/// agent（claude / codex / opencode / pi），未适配的 agent 不伪装成可选目标。
+pub fn list_targets_via_host() -> Result<Vec<Value>, String> {
+    let configs = crate::config::list_via_host()?;
+    let configs = configs
+        .as_array()
+        .cloned()
+        .ok_or_else(|| format!("config list did not return an array: {configs}"))?;
+    let projects = project_views()?;
+    let mut targets: std::collections::BTreeMap<(String, String), Value> =
+        std::collections::BTreeMap::new();
+
+    let mut push_target = |project: &Value, agent_id: &str, config_id: Option<&str>| {
+        let project_id = project
+            .get("id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        if project_id.is_empty() || !agent::is_supported(agent_id) {
+            return;
+        }
+        targets
+            .entry((project_id.clone(), agent_id.to_string()))
+            .or_insert_with(|| {
+                serde_json::json!({
+                    "project_id": project_id,
+                    "project_name": project.get("name").cloned().unwrap_or(Value::Null),
+                    "environment": project.get("environment").cloned().unwrap_or(Value::Null),
+                    "working_dir": project.get("workingDir").cloned().unwrap_or(Value::Null),
+                    "agent_id": agent_id,
+                    "agent_name": crate::hub::display_name_for(agent_id),
+                    "supported": true,
+                    "config_id": config_id,
+                })
+            });
+    };
+
+    for config in &configs {
+        let Some(environment) = config.get("environment").and_then(|v| v.as_str()) else {
+            continue;
+        };
+        let Some(working_dir) = config.get("workingDir").and_then(|v| v.as_str()) else {
+            continue;
+        };
+        let Some(command) = config.get("command").and_then(|v| v.as_str()) else {
+            continue;
+        };
+        let agent_id = agent::detect_agent(command);
+        let Some(project) = find_project(&projects, environment, working_dir) else {
+            continue;
+        };
+        let config_id = config.get("id").and_then(|v| v.as_str());
+        push_target(project, agent_id, config_id);
+    }
+
+    // 项目 × 全部受支持 agent：即使该项目还没建过配置 / 没跑过运行，也允许
+    // 提前建任务（触发时 `run.start` 会按需取或建配置）。配置目标已入表时
+    // `or_insert_with` 保留 config_id。
+    for project in &projects {
+        for agent_id in agent::list_supported() {
+            push_target(project, agent_id, None);
+        }
+    }
+
+    // 活跃运行兜底：配置被删 / 历史运行仍活着时目标不能从选择器消失
+    if let Ok(rows) = WasmHost.plugin_db_query(
+        // `runs.status` 是 `SessionStatus` 的 JSON 文本（带引号）
+        "SELECT DISTINCT project_id, agent_id FROM runs \
+         WHERE project_id IS NOT NULL AND project_id <> '' \
+           AND agent_id IS NOT NULL AND agent_id <> '' \
+           AND status IN ('\"starting\"', '\"running\"', '\"waitingInput\"')",
+    ) {
+        for row in rows.and_then(|v| v.as_array().cloned()).unwrap_or_default() {
+            let project_id = row.get("project_id").and_then(|v| v.as_str());
+            let agent_id = row.get("agent_id").and_then(|v| v.as_str());
+            let Some(project) = project_id.and_then(|id| {
+                projects
+                    .iter()
+                    .find(|p| p.get("id").and_then(|v| v.as_str()) == Some(id))
+            }) else {
+                continue;
+            };
+            if let Some(agent_id) = agent_id {
+                push_target(project, agent_id, None);
+            }
+        }
+    }
+
+    let mut result: Vec<Value> = targets
+        .into_values()
+        .map(|mut target| {
+            let project_id = target
+                .get("project_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let agent_id = target
+                .get("agent_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let active = queue::find_active_run(&WasmHost, &project_id, &agent_id);
+            target["active_session_id"] = active.clone().map(Value::String).unwrap_or(Value::Null);
+            target["active_status"] = active
+                .as_deref()
+                .and_then(|id| crate::session::view_via_host(id).ok().flatten())
+                .and_then(|view| view.get("status").cloned())
+                .unwrap_or(Value::Null);
+            let pending_session_id = queue::pending_key(&project_id, &agent_id);
+            target["pending_count"] = Value::from(queue::pending_count_for_target(
+                &WasmHost,
+                &project_id,
+                &agent_id,
+            ));
+            target["pending_session_id"] = Value::String(pending_session_id.clone());
+            target["pending_tasks"] =
+                Value::Array(queue::list_queue(&WasmHost, &pending_session_id));
+            target
+        })
+        .collect();
+    result.sort_by(|a, b| {
+        let key = |v: &Value| {
+            format!(
+                "{}|{}",
+                v.get("project_name").and_then(|x| x.as_str()).unwrap_or(""),
+                v.get("agent_name").and_then(|x| x.as_str()).unwrap_or("")
+            )
+        };
+        key(a).cmp(&key(b))
+    });
+    Ok(result)
 }

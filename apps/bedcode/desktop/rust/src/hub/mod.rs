@@ -93,6 +93,13 @@ pub(crate) fn binary_for(agent_id: &str) -> Option<&'static str> {
     agents::get(agent_id.trim()).map(|agent| agent.binary())
 }
 
+/// agent id → 展示名（任务目标选择器用；未注册 id 原样返回，不伪造品牌名）
+pub(crate) fn display_name_for(agent_id: &str) -> String {
+    agents::get(agent_id.trim())
+        .map(|agent| agent.display_name().to_string())
+        .unwrap_or_else(|| agent_id.to_string())
+}
+
 /// 批量授权目录清单（注册表适配器声明 + 共享目录，全部为家目录绝对路径前缀）。
 ///
 /// 宿主侧第一方清单已免审 `~/.agents`、`~/.claude/skills`、`~/.pi/agent/skills`

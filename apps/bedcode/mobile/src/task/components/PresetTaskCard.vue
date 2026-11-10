@@ -19,6 +19,7 @@
       <div class="group-row-title truncate">{{ task.content }}</div>
       <div class="group-row-sub mt-0.5 flex items-center gap-2 min-w-0">
         <span class="flex-shrink-0">{{ formattedDate }}</span>
+        <span class="truncate" data-testid="preset-target">{{ target }}</span>
         <span class="preset-status-badge" :style="statusStyle">{{ statusText }}</span>
       </div>
     </div>
@@ -45,7 +46,11 @@
           />
         </svg>
       </button>
-      <button class="action-btn action-red" :title="t('preset.delete')" @click="emit('delete', task.id)">
+      <button
+        class="action-btn action-red"
+        :title="t('preset.delete')"
+        @click="emit('delete', task.id)"
+      >
         <svg class="action-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path
             stroke-linecap="round"
@@ -78,7 +83,7 @@ import { computed, inject } from 'vue'
 import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-mobile'
 import type { PresetTask } from '../../terminal/model'
 
-const props = defineProps<{ task: PresetTask }>()
+const props = defineProps<{ task: PresetTask; target?: string }>()
 
 const emit = defineEmits<{
   /** 点击卡片正文（= 执行，与执行键同义） */
@@ -125,7 +130,9 @@ const formattedDate = computed(() => {
   justify-content: center;
   padding: clamp(0.3125rem, 0.375rem + (100cqw - 360px) / 800, 0.4375rem);
   border-radius: 0.625rem;
-  transition: background-color 0.2s ease, color 0.2s ease;
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease;
   cursor: pointer;
   border: none;
   background: transparent;

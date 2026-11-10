@@ -38,13 +38,13 @@
 //!
 //! SQL 一律使用参数绑定（`*_params` + `?N` 占位符），无手写转义。
 
+use serde_json::Value;
 use wasmnest_plugin_api::constants::EVENT_SESSION_MODE_CHANGED;
 use wasmnest_plugin_api::constants::EVENT_TASK_SCHEDULED_CHANGED;
 use wasmnest_plugin_api::host::{HostBus, HostEvents, HostLog, HostPluginDatabase};
 use wasmnest_plugin_api::http_response;
 use wasmnest_plugin_api::sql_params;
 use wasmnest_plugin_api::wasm_host::WasmHost;
-use serde_json::Value;
 
 /// 到期宽限（秒）：到期后超过该时长仍未执行视为错过（应用当时未运行），
 /// 标 missed 不补跑。取值远大于轮询间隔（1s），覆盖应用关闭/重启期间的
@@ -110,15 +110,25 @@ fn is_valid_trigger_at(s: &str) -> bool {
         && (0..=59).contains(&se)
 }
 
+/// 创建定时任务
+///
+/// 目标以 `(project_id, agent_id)` 为准；`config_id` 只保留给升级前的旧行 /
+/// 旧调用方（新任务传空串）。两者必须至少有一组：既没有项目 + agent，也没有
+/// 配置，触发时不知道往哪启动。
 pub fn create_job(
     host: &WasmHost,
     name: &str,
+    project_id: &str,
+    agent_id: &str,
     config_id: &str,
     trigger_at: &str,
     prompts: &[String],
 ) -> Option<String> {
-    if config_id.is_empty() || trigger_at.is_empty() || prompts.is_empty() {
-        host.log_warn("create_job: missing config_id/trigger_at/prompts");
+    if !has_valid_target(project_id, agent_id, config_id)
+        || trigger_at.is_empty()
+        || prompts.is_empty()
+    {
+        host.log_warn("create_job: missing target (project+agent or config_id)/trigger_at/prompts");
         return None;
     }
 
@@ -157,15 +167,33 @@ pub fn create_job(
         Value::String(name.to_string())
     };
 
+    let project_param = (!project_id.is_empty()).then_some(project_id);
+    let agent_param = (!agent_id.is_empty()).then_some(agent_id);
+    // 旧库 `config_id` 是 NOT NULL：新任务没有配置时写空串而不是 NULL
+    // （空串在调度里等价于「无旧配置」，不会误走 legacy 分支）。
     match host.plugin_db_execute_params(
-        "INSERT INTO task_scheduled (id, name, config_id, trigger_at, prompts, status, created_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5, 'pending', datetime('now'))",
-        &sql_params![id, name_param, config_id, trigger_at, prompts_json],
+        "INSERT INTO task_scheduled \
+         (id, name, project_id, agent_id, config_id, trigger_at, prompts, status, created_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'pending', datetime('now'))",
+        &sql_params![
+            id,
+            name_param,
+            project_param,
+            agent_param,
+            config_id,
+            trigger_at,
+            prompts_json
+        ],
     ) {
         Ok(_) => {
             host.log_info(&format!(
-                "Scheduled job created: id={} config_id={} trigger_at={} prompts={}",
-                id, config_id, trigger_at, prompts.len()
+                "Scheduled job created: id={} project_id={} agent_id={} config_id={} trigger_at={} prompts={}",
+                id,
+                project_id,
+                agent_id,
+                config_id,
+                trigger_at,
+                prompts.len()
             ));
             Some(id)
         }
@@ -176,10 +204,16 @@ pub fn create_job(
     }
 }
 
+/// 目标校验（纯函数，native 可测）：项目 + agent 成对，或旧 config_id 单用
+fn has_valid_target(project_id: &str, agent_id: &str, config_id: &str) -> bool {
+    (!project_id.is_empty() && !agent_id.is_empty()) || !config_id.is_empty()
+}
+
 /// 列出全部定时任务（按触发时间升序）
 pub fn list_jobs(host: &WasmHost) -> Vec<Value> {
     host.plugin_db_query(
-        "SELECT id, name, config_id, trigger_at, prompts, status, session_id, created_at, executed_at, error \
+        "SELECT id, name, project_id, agent_id, config_id, trigger_at, prompts, status, \
+         session_id, created_at, executed_at, error \
          FROM task_scheduled ORDER BY trigger_at ASC",
     )
     .ok()
@@ -239,11 +273,15 @@ pub fn reset_job(host: &WasmHost, job_id: &str, trigger_at: Option<&str>) -> boo
 pub fn create_job_with_broadcast(
     host: &WasmHost,
     name: &str,
+    project_id: &str,
+    agent_id: &str,
     config_id: &str,
     trigger_at: &str,
     prompts: &[String],
 ) -> Option<String> {
-    let job_id = create_job(host, name, config_id, trigger_at, prompts)?;
+    let job_id = create_job(
+        host, name, project_id, agent_id, config_id, trigger_at, prompts,
+    )?;
     broadcast_scheduled_changed(host, &job_id, "pending", "create");
     Some(job_id)
 }
@@ -381,7 +419,7 @@ pub fn handle_scheduler_tick(host: &WasmHost, now_utc: &str) -> Result<(), Strin
 
     // 2. 到期且仍在宽限期内：触发执行
     let due_jobs = match host.plugin_db_query_params(
-        "SELECT id, config_id, prompts FROM task_scheduled \
+        "SELECT id, project_id, agent_id, config_id, prompts FROM task_scheduled \
          WHERE status = 'pending' AND trigger_at <= ?1 \
          AND trigger_at > datetime(?1, ?2)",
         &sql_params![now_utc, format!("-{} seconds", MISSED_GRACE_SECONDS)],
@@ -404,32 +442,98 @@ pub fn handle_scheduler_tick(host: &WasmHost, now_utc: &str) -> Result<(), Strin
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string();
-        if job_id.is_empty() || config_id.is_empty() {
+        let project_id = job
+            .get("project_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let agent_id = job
+            .get("agent_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        if job_id.is_empty() {
+            continue;
+        }
+        let has_target = !project_id.is_empty() && !agent_id.is_empty();
+        if !has_target && config_id.is_empty() {
             continue;
         }
 
         host.log_info(&format!(
-            "scheduler-tick: triggering job_id={} config_id={}",
-            job_id, config_id
+            "scheduler-tick: triggering job_id={} project_id={} agent_id={} config_id={}",
+            job_id, project_id, agent_id, config_id
         ));
 
-        // 创建会话：走插件自身编排入口（与互调 api `session-create` 同源）——
-        // 读配置真源（插件私有库）→ 命名唯一化 → config→launch spec → 宿主
-        // `create-with-spec` 执行。P1-b 起创建在插件内**同步完成**（spawn_session
-        // 内部已调用 handle_session_created），不会再等异步 Created 事件。
-        let created = crate::launch::create_via_host(&serde_json::json!({
-            "configId": config_id,
-            "start": true,
-        }))
-        .and_then(|reply| {
-            reply
-                .get("sessionId")
-                .and_then(|s| s.as_str())
-                .map(str::to_string)
-                .ok_or_else(|| format!("session-create reply missing sessionId: {reply}"))
-        });
+        // 目标优先（项目 + agent）：先找该目标的活跃运行，没有就自动拉起一条
+        // （用户 2026-11 裁定：定时任务到点无人值守，必须自动启动运行）。
+        // 旧行没有目标时退回按配置创建会话（升级兼容路径）。
+        // 活跃运行已存在 → 直接投递（运行已就绪，入队后可立即调度）；
+        // 不存在 → 自动拉起一条（新会话等 idle 推送再下发，见 handle_session_created）。
+        let active_run = if has_target {
+            crate::task::queue::find_active_run(host, &project_id, &agent_id)
+        } else {
+            None
+        };
+        let reused_active_run = active_run.is_some();
+        let created: Result<(String, String), String> = if has_target {
+            match active_run {
+                Some(session_id) => {
+                    // 活跃运行已存在：直接用，不再新建（避免同一 agent 并发两条）
+                    let config_id = crate::session::view_via_host(&session_id)
+                        .ok()
+                        .flatten()
+                        .and_then(|view| {
+                            view.get("configId")
+                                .and_then(|v| v.as_str())
+                                .map(str::to_string)
+                        })
+                        .unwrap_or_default();
+                    Ok((session_id, config_id))
+                }
+                None => crate::run::start_via_host(&serde_json::json!({
+                    "projectId": project_id,
+                    "agentId": agent_id,
+                }))
+                .and_then(|reply| {
+                    let session_id = reply
+                        .get("runId")
+                        .and_then(|s| s.as_str())
+                        .map(str::to_string)
+                        .ok_or_else(|| format!("run.start reply missing runId: {reply}"))?;
+                    let config_id = reply
+                        .get("configId")
+                        .and_then(|s| s.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    Ok((session_id, config_id))
+                }),
+            }
+        } else {
+            // 创建会话：走插件自身编排入口（与互调 api `session-create` 同源）——
+            // 读配置真源（插件私有库）→ 命名唯一化 → config→launch spec → 宿主
+            // `create-with-spec` 执行。P1-b 起创建在插件内**同步完成**（spawn_session
+            // 内部已调用 handle_session_created），不会再等异步 Created 事件。
+            crate::launch::create_via_host(&serde_json::json!({
+                "configId": config_id,
+                "start": true,
+            }))
+            .and_then(|reply| {
+                let session_id = reply
+                    .get("sessionId")
+                    .and_then(|s| s.as_str())
+                    .map(str::to_string)
+                    .ok_or_else(|| format!("session-create reply missing sessionId: {reply}"))?;
+                Ok((session_id, config_id.clone()))
+            })
+        };
         match created {
-            Ok(session_id) => {
+            Ok((session_id, created_config_id)) => {
+                let config_id = if created_config_id.is_empty() {
+                    config_id
+                } else {
+                    created_config_id
+                };
                 // 置 creating 并记录 session_id（事件匹配键 / creating 看门狗键）。
                 // spawn_session 内部的 handle_session_created 在本次 UPDATE 之前
                 // 已执行过：那时行仍是 pending、无 session_id，匹配不上，只会空跑
@@ -437,8 +541,9 @@ pub fn handle_scheduler_tick(host: &WasmHost, now_utc: &str) -> Result<(), Strin
                 // 永不入队，job 会在 120s 后被 creating 看门狗标成
                 // 「Session creation timed out」——定时任务整条链静默失败。
                 let marked = host.plugin_db_execute_params(
-                    "UPDATE task_scheduled SET status = 'creating', session_id = ?1 WHERE id = ?2",
-                    &sql_params![session_id, job_id],
+                    "UPDATE task_scheduled SET status = 'creating', session_id = ?1, \
+                     config_id = COALESCE(NULLIF(?3, ''), config_id) WHERE id = ?2",
+                    &sql_params![session_id, job_id, config_id],
                 );
                 match marked {
                     Ok(n) if n > 0 => {
@@ -449,6 +554,11 @@ pub fn handle_scheduler_tick(host: &WasmHost, now_utc: &str) -> Result<(), Strin
                         // 先播 creating（过渡态），再执行入队（内部会播 executed/failed）
                         broadcast_scheduled_changed(host, &job_id, "creating", "trigger");
                         handle_session_created(host, &session_id, &config_id);
+                        // 复用已有活跃运行：它的 idle 推送早已过去，入队后必须主动
+                        // 调度一次；新建运行仍等 SessionStart idle（避免输入早于 CLI 就绪）。
+                        if reused_active_run {
+                            crate::task::queue::try_dispatch_next(host, &session_id);
+                        }
                     }
                     other => {
                         // job 行已被并发删除（或 DB 写失败）：新建的会话失去了
@@ -773,10 +883,16 @@ pub fn handle_scheduled_http(
 
 /// POST scheduled-jobs/create
 ///
-/// body: { name?, config_id, trigger_at, prompts: [string] }
+/// body: { name?, project_id, agent_id, config_id?, trigger_at, prompts: [string] }
+/// 目标以 `project_id + agent_id` 为准；`config_id` 仅保留给旧客户端。
 /// trigger_at 必须是 UTC "YYYY-MM-DD HH:MM:SS" 格式（前端转换）
 fn handle_create(host: &WasmHost, body: &Value) -> Value {
     let name = body.get("name").and_then(|v| v.as_str()).unwrap_or("");
+    let project_id = body
+        .get("project_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let agent_id = body.get("agent_id").and_then(|v| v.as_str()).unwrap_or("");
     let config_id = body.get("config_id").and_then(|v| v.as_str()).unwrap_or("");
     let trigger_at = body
         .get("trigger_at")
@@ -793,8 +909,8 @@ fn handle_create(host: &WasmHost, body: &Value) -> Value {
         })
         .unwrap_or_default();
 
-    if config_id.is_empty() {
-        return http_response::error(400, "Missing config_id");
+    if (project_id.is_empty() || agent_id.is_empty()) && config_id.is_empty() {
+        return http_response::error(400, "Missing project_id/agent_id (or legacy config_id)");
     }
     if trigger_at.is_empty() {
         return http_response::error(400, "Missing trigger_at");
@@ -803,7 +919,9 @@ fn handle_create(host: &WasmHost, body: &Value) -> Value {
         return http_response::error(400, "Missing prompts");
     }
 
-    match create_job_with_broadcast(host, name, config_id, trigger_at, &prompts) {
+    match create_job_with_broadcast(
+        host, name, project_id, agent_id, config_id, trigger_at, &prompts,
+    ) {
         Some(job_id) => http_response::ok_with_data(serde_json::json!({ "job_id": job_id })),
         None => http_response::error(500, "Failed to create scheduled job"),
     }
@@ -900,6 +1018,16 @@ mod tests {
             "handle_session_created 必须在 creating 行落库之后调用：\
              spawn_session 内部的早调用匹配不到 pending 行，prompts 将永不入队"
         );
+    }
+
+    /// 目标必填：既没有项目 + agent，也没有旧 config_id → 拒绝创建
+    #[test]
+    fn target_requires_project_agent_or_legacy_config() {
+        assert!(!has_valid_target("", "", ""));
+        assert!(!has_valid_target("p1", "", ""));
+        assert!(!has_valid_target("", "claude", ""));
+        assert!(has_valid_target("p1", "claude", ""));
+        assert!(has_valid_target("", "", "cfg-1"));
     }
 
     /// trigger_at 格式校验：良构 UTC 串通过；畸形（缺段/非法范围/错分隔符）拒绝

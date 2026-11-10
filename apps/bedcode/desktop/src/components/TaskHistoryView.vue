@@ -53,7 +53,9 @@ interface QueueItem {
 interface ScheduledJob {
   id: string
   name: string | null
-  config_id: string
+  project_id: string | null
+  agent_id: string | null
+  config_id: string | null
   trigger_at: string
   prompts: string[]
   status: string
@@ -61,15 +63,6 @@ interface ScheduledJob {
   created_at: string
   executed_at: string | null
   error: string | null
-}
-
-interface SessionConfig {
-  id: string
-  name: string
-  workingDir: string
-  command: string
-  /** 任务域适配标记（后端 AGENT_PROFILES 判定；未适配的配置不进任务域选项） */
-  is_supported?: boolean
 }
 
 interface HistoryStats {
@@ -86,6 +79,8 @@ interface RunningSession {
   session_id: string
   name: string
   config_id: string
+  project_id?: string
+  project_name?: string
   working_dir: string
   status: string
   task_status: string
@@ -111,11 +106,30 @@ interface ConfigQueue {
   created_at: string
 }
 
-/** 预设任务（无会话/未选会话时创建，一次性消耗） */
+/** 预设任务（一次性消耗；可携带项目 + agent 目标） */
 interface PresetItem {
   id: string
+  project_id: string | null
+  agent_id: string | null
   prompt: string
   created_at: string
+}
+
+/** 任务目标（项目 × 受支持 agent；后端 `session.task.targets` 的唯一选择源） */
+interface TaskTarget {
+  project_id: string
+  project_name: string | null
+  environment: string | null
+  working_dir: string | null
+  agent_id: string
+  agent_name: string | null
+  supported: boolean
+  config_id: string | null
+  active_session_id: string | null
+  active_status: string | null
+  pending_count: number
+  pending_session_id: string
+  pending_tasks: QueueItem[]
 }
 
 // ==================== State ====================
@@ -126,10 +140,14 @@ const activeTab = ref<TabKey>('current')
 // Tab1 当前任务
 const runningSessions = ref<RunningSession[]>([])
 const currentLoading = ref(false)
-// 会话选择：'' = 预存模式（保存为预存任务）
-const createSessionId = ref('')
-// 初始默认选择是否已定：仅首次加载时自动选中优先会话，之后一律保留用户选择
-let defaultSessionSelected = false
+// 任务目标（项目 × agent）：取代「选择执行会话」；无目标 = 保存为预设
+const targets = ref<TaskTarget[]>([])
+const createProjectId = ref('')
+const createAgentId = ref('')
+// 目标已有活跃运行时仍可强制保存为预设（预设可重复投递到同一目标）
+const createAsPreset = ref(false)
+// 初始默认选择是否已定：仅首次加载时自动选中优先目标，之后一律保留用户选择
+let defaultTargetSelected = false
 const createPrompt = ref('')
 // 创建任务输入框元素引用：提交清空后重置高度为单行
 const createPromptEl = ref<HTMLTextAreaElement | null>(null)
@@ -138,10 +156,12 @@ const createError = ref('')
 // Tab1 预设任务（无会话/未选会话时创建，加入队列后自动移除）
 const presets = ref<PresetItem[]>([])
 const presetError = ref('')
-// Tab1 任务队列（按配置分组的未绑定会话批次）+ 预设「目标任务队列」选择
+// Tab1 任务队列（按配置分组的未绑定会话批次）
 const configQueues = ref<ConfigQueue[]>([])
 const configQueueError = ref('')
-const presetQueueId = ref('')
+// 预设入队目标（预设未绑定项目/agent 时的回退选择）
+const presetProjectId = ref('')
+const presetAgentId = ref('')
 // 启动中的队列 id（按钮 loading + 防重复点击）
 const startingQueueId = ref('')
 // 任务行内编辑（任务队列 / 执行任务区共用；scope = 队列 id 或会话 id，占位键同语义）
@@ -175,11 +195,11 @@ interface RenderedJobItem {
   group: 'active' | 'finished'
   job?: ScheduledJob
 }
-const configs = ref<SessionConfig[]>([])
 const showForm = ref(false)
 const creatingJob = ref(false)
 const formName = ref('')
-const formConfigId = ref('')
+const formProjectId = ref('')
+const formAgentId = ref('')
 const formTriggerAt = ref<Date | null>(null)
 // 任务内容：任务卡片列表（一条任务一个卡片，支持逐条添加/删除，与队列弹窗一致）
 const formPrompts = ref<string[]>([])
@@ -358,33 +378,89 @@ const activeTasks = computed(() =>
 // 有待执行队列的会话（执行任务区段）
 const executingSessions = computed(() => runningSessions.value.filter((s) => s.queue.length > 0))
 
-// 会话标签：名称/工作目录基名/会话短 ID 兜底，附 agent
+// 运行标签：项目名 · agent（会话名只在无项目归属时兜底）
 function sessionLabel(s: RunningSession): string {
-  const dir = baseName(s.working_dir)
-  const base = s.name || dir || (s.session_id ? s.session_id.slice(0, 8) : '')
+  const project = s.project_name || baseName(s.working_dir)
+  const base = project || s.name || (s.session_id ? s.session_id.slice(0, 8) : '')
   return s.agent && s.agent !== 'unknown' ? `${base} · ${s.agent}` : base
 }
 
-// 「创建新的 {配置} 会话」选项值前缀：该值不是真实 session_id，创建任务时按配置新建会话
-const NEW_SESSION_CONFIG_PREFIX = 'new:'
+// 任务目标：项目 × agent（取代「选择执行会话」）
+function targetLabel(target: TaskTarget): string {
+  const project = target.project_name || baseName(target.working_dir || '') || target.project_id
+  const agent = target.agent_name || target.agent_id
+  return `${project} · ${agent}`
+}
 
-// 会话下拉选项：预存选项永远存在且为默认（''），其后为运行中的会话（仅适配 agent），
-// 最后为「创建新的 {配置} 会话」（每个适配配置一项，选中后提交时新建会话并入队）
-const adaptedRunningSessions = computed(() => runningSessions.value.filter((s) => s.is_supported))
+const projectOptions = computed(() => {
+  const seen = new Map<string, string>()
+  for (const target of targets.value) {
+    const project = target.project_name || baseName(target.working_dir || '') || target.project_id
+    seen.set(target.project_id, project)
+  }
+  return [
+    { value: '', label: t('task.projectPlaceholder') },
+    ...[...seen.entries()].map(([value, label]) => ({ value, label })),
+  ]
+})
 
-const sessionOptions = computed(() => [
-  { value: '', label: t('task.saveAsPresetOption') },
-  ...adaptedRunningSessions.value.map((s) => ({ value: s.session_id, label: sessionLabel(s) })),
-  ...configs.value.map((c) => ({
-    value: `${NEW_SESSION_CONFIG_PREFIX}${c.id}`,
-    label: t('task.createNewSessionOption', { name: configLabel(c) }),
-  })),
-])
+function agentOptionsFor(projectId: string) {
+  const list = targets.value.filter((target) => target.project_id === projectId)
+  return [
+    { value: '', label: t('task.agentPlaceholder') },
+    ...list.map((target) => ({
+      value: target.agent_id,
+      label: target.agent_name || target.agent_id,
+    })),
+  ]
+}
 
-// 当前选择是否「创建新的 {配置} 会话」（尚未落真实 session_id，提交时才建会话）
-const creatingNewSession = computed(() =>
-  createSessionId.value.startsWith(NEW_SESSION_CONFIG_PREFIX),
+const createAgentOptions = computed(() => agentOptionsFor(createProjectId.value))
+const presetAgentOptions = computed(() => agentOptionsFor(presetProjectId.value))
+const formAgentOptions = computed(() => agentOptionsFor(formProjectId.value))
+
+/** 当前选中的目标（项目 + agent 都选中才命中） */
+function findTarget(projectId: string, agentId: string): TaskTarget | undefined {
+  if (!projectId || !agentId) return undefined
+  return targets.value.find(
+    (target) => target.project_id === projectId && target.agent_id === agentId,
+  )
+}
+
+const createTarget = computed(() => findTarget(createProjectId.value, createAgentId.value))
+/** 目标无活跃运行时挂起的任务（界面显性提示「等待运行」） */
+const pendingTargets = computed(() =>
+  targets.value.filter((target) => (target.pending_count ?? 0) > 0),
 )
+const pendingError = ref('')
+
+/** 删除「等待运行」里的任务（占位键作为队列作用域，与真实会话同一套命令） */
+async function removePendingTask(target: TaskTarget, item: QueueItem) {
+  pendingError.value = ''
+  try {
+    await context.commands.execute('session.task.queue-remove', {
+      session_id: target.pending_session_id,
+      task_id: item.id,
+    })
+    await Promise.all([loadTargets(), loadRunningSessions()])
+  } catch (e) {
+    console.error('[Session Center/task] Failed to remove pending task:', e)
+    pendingError.value = t('task.removeFailed')
+  }
+}
+const presetTarget = computed(() => findTarget(presetProjectId.value, presetAgentId.value))
+const formTarget = computed(() => findTarget(formProjectId.value, formAgentId.value))
+
+/** 预设自己的目标（预设行上的项目 + agent 优先） */
+function presetTargetOf(preset: PresetItem): TaskTarget | undefined {
+  return findTarget(preset.project_id ?? '', preset.agent_id ?? '')
+}
+
+/** 预设行目标文案：绑定目标 / 未绑定 */
+function presetTargetLabel(preset: PresetItem): string {
+  const target = presetTargetOf(preset)
+  return target ? targetLabel(target) : t('task.targetUnbound')
+}
 
 // 任务队列标签：配置名（空则工作目录基名，再兜底配置 id）
 function queueLabel(q: ConfigQueue): string {
@@ -392,13 +468,51 @@ function queueLabel(q: ConfigQueue): string {
   return q.name || base || q.config_id
 }
 
-// 预设「目标任务队列」选项（ready 队列，按创建顺序）
-const presetQueueOptions = computed(() =>
-  configQueues.value.map((q) => ({
-    value: q.id,
-    label: t('task.createNewSessionOption', { name: queueLabel(q) }),
-  })),
-)
+async function loadTargets(opts: { silent?: boolean } = {}) {
+  try {
+    const result: any = await context.commands.execute('session.task.targets')
+    targets.value = (result?.targets as TaskTarget[]) ?? []
+    // 失效选择回退：项目/agent 任一不在清单里就清空 agent（保留项目让用户重选）
+    if (
+      createProjectId.value &&
+      !targets.value.some(
+        (target) =>
+          target.project_id === createProjectId.value && target.agent_id === createAgentId.value,
+      )
+    ) {
+      createAgentId.value = ''
+    }
+    if (
+      presetProjectId.value &&
+      !targets.value.some(
+        (target) =>
+          target.project_id === presetProjectId.value && target.agent_id === presetAgentId.value,
+      )
+    ) {
+      presetAgentId.value = ''
+    }
+    if (
+      formProjectId.value &&
+      !targets.value.some(
+        (target) =>
+          target.project_id === formProjectId.value && target.agent_id === formAgentId.value,
+      )
+    ) {
+      formAgentId.value = ''
+    }
+    if (!defaultTargetSelected && targets.value.length > 0) {
+      defaultTargetSelected = true
+      const preferred =
+        targets.value.find((target) => target.active_session_id || target.pending_count > 0) ||
+        targets.value[0]
+      createProjectId.value = preferred.project_id
+      createAgentId.value = preferred.agent_id
+    }
+  } catch (e) {
+    console.error('[Session Center/task] Failed to load task targets:', e)
+    if (!opts.silent) createError.value = t('task.loadFailed')
+  }
+}
 
 async function loadRunningSessions(opts: { silent?: boolean } = {}) {
   // silent：点击下拉触发的刷新不置 loading —— 置 loading 会禁用 select，
@@ -433,22 +547,23 @@ async function loadRunningSessions(opts: { silent?: boolean } = {}) {
     )
     runningSessions.value = sessions
 
-    // 首次加载：有运行中会话时默认选中优先会话（活动任务/队列优先），无会话则预存；
-    // 之后仅修正失效选择（所选会话消失 → 退回预存），不覆盖用户选择
-    if (!defaultSessionSelected) {
-      defaultSessionSelected = true
-      const adapted = sessions.filter((s) => s.is_supported)
+    // 首次加载：有目标时默认选中优先目标（活跃运行/等待任务优先）；
+    // 之后仅修正失效选择（目标消失 → 清空 agent），不覆盖用户选择
+    if (!defaultTargetSelected && targets.value.length > 0) {
+      defaultTargetSelected = true
       const preferred =
-        adapted.find(
-          (s) => s.queue_count > 0 || ['in_progress', 'asking', 'retrying'].includes(s.task_status),
-        ) || adapted[0]
-      createSessionId.value = preferred?.session_id ?? ''
+        targets.value.find((target) => target.active_session_id || target.pending_count > 0) ||
+        targets.value[0]
+      createProjectId.value = preferred.project_id
+      createAgentId.value = preferred.agent_id
     } else if (
-      createSessionId.value &&
-      !creatingNewSession.value &&
-      !sessions.some((s) => s.session_id === createSessionId.value)
+      createProjectId.value &&
+      !targets.value.some(
+        (target) =>
+          target.project_id === createProjectId.value && target.agent_id === createAgentId.value,
+      )
     ) {
-      createSessionId.value = ''
+      createAgentId.value = ''
     }
   } catch (e) {
     console.error('[Session Center/task] Failed to load running sessions:', e)
@@ -457,55 +572,43 @@ async function loadRunningSessions(opts: { silent?: boolean } = {}) {
   }
 }
 
-// 点击下拉：静默刷新会话列表（后台更新选项，不打断原生下拉展开）
-function onSessionSelectFocus() {
-  loadRunningSessions({ silent: true })
+// 点击下拉：静默刷新目标与运行列表（后台更新选项，不打断原生下拉展开）
+function onTargetSelectFocus() {
+  void Promise.all([loadTargets({ silent: true }), loadRunningSessions({ silent: true })])
 }
 
-// 创建新任务：选了运行中的会话 → 加入该会话队列（空闲时立即执行）；
-// 未选会话/无运行会话 → 保存为预设任务（终端弹窗或选择会话后可加入队列）
+// 创建新任务：选了项目 + agent → 加入该目标队列（有活跃运行直接投递，
+// 没有则等待运行）；未选目标或勾选「保存为预设」→ 保存为预设任务。
 async function createTask() {
   const prompt = createPrompt.value.trim()
   if (!prompt) return
+  const target = createTarget.value
   creatingTask.value = true
   createError.value = ''
   try {
-    if (createSessionId.value) {
-      if (creatingNewSession.value) {
-        // 「创建新的 {配置} 会话」：按所选配置新建会话并把任务加入其队列，
-        // 首轮执行由新会话就绪的 idle 推送驱动（后端 create-and-enqueue）
-        const configId = createSessionId.value.slice(NEW_SESSION_CONFIG_PREFIX.length)
-        await context.commands.execute('session.task.create-and-enqueue', {
-          config_id: configId,
-          prompt,
-        })
-      } else {
-        // 兜底：检查所选会话的 agent 是否适配（过滤列表理论上已排除，防止竞态/旧选择残留）
-        const session = runningSessions.value.find((s) => s.session_id === createSessionId.value)
-        if (session && !session.is_supported) {
-          createError.value = t('task.agentNotAdapted')
-          return
-        }
-        await context.commands.execute('session.task.queue-add', {
-          session_id: createSessionId.value,
-          prompt,
-        })
-      }
+    if (!target || createAsPreset.value) {
+      await context.commands.execute('session.task.preset-create', {
+        prompt,
+        project_id: target?.project_id ?? '',
+        agent_id: target?.agent_id ?? '',
+      })
     } else {
-      await context.commands.execute('session.task.preset-create', { prompt })
+      await context.commands.execute('session.task.queue-add', {
+        project_id: target.project_id,
+        agent_id: target.agent_id,
+        prompt,
+      })
     }
     createPrompt.value = ''
+    createAsPreset.value = false
     // 清空后把输入框高度重置回单行
     await nextTick()
     autosizeTextarea(createPromptEl.value)
     // 立即刷新展示（事件广播会兜底刷新，这里先给用户即时反馈）
-    await Promise.all([loadRunningSessions(), loadConfigQueues()])
-    if (!createSessionId.value) await loadPresets()
+    await Promise.all([loadTargets(), loadRunningSessions(), loadConfigQueues(), loadPresets()])
   } catch (e) {
     console.error('[Session Center/task] Failed to create task:', e)
-    createError.value = createSessionId.value
-      ? t('task.createTaskFailed')
-      : t('task.createPresetFailed')
+    createError.value = target ? t('task.createTaskFailed') : t('task.createPresetFailed')
   } finally {
     creatingTask.value = false
   }
@@ -523,17 +626,27 @@ async function loadPresets() {
   }
 }
 
-// 把预设任务加入所选任务队列（一次性消耗，加入后预设自动移除）
+// 把预设任务加入目标队列（一次性消耗，加入后预设自动移除）
+//
+// 预设自带项目 + agent 时优先用自带目标；未绑定的预设用上方回退选择。
+// 目标没有活跃运行时后端挂到占位队列（等待运行），不会丢任务。
 async function addPresetToQueue(presetId: string) {
-  if (!presetQueueId.value) return
+  const preset = presets.value.find((item) => item.id === presetId)
+  const own = preset ? presetTargetOf(preset) : undefined
+  const target = own ?? presetTarget.value
+  if (!target) {
+    presetError.value = t('task.presetTargetHint')
+    return
+  }
   presetError.value = ''
   try {
-    await context.commands.execute('session.task.preset-enqueue-queue', {
-      queue_id: presetQueueId.value,
+    await context.commands.execute('session.task.preset-enqueue', {
       preset_id: presetId,
+      project_id: target.project_id,
+      agent_id: target.agent_id,
     })
-    // 事件广播（config-queue/preset-changed）兜底，此处直接刷新即时反馈
-    await Promise.all([loadPresets(), loadConfigQueues(), loadRunningSessions()])
+    // 事件广播（preset/queue-changed）兜底，此处直接刷新即时反馈
+    await Promise.all([loadPresets(), loadTargets(), loadConfigQueues(), loadRunningSessions()])
   } catch (e) {
     console.error('[Session Center/task] Failed to add preset to queue:', e)
     presetError.value = t('task.addPresetFailed')
@@ -546,12 +659,6 @@ async function loadConfigQueues() {
   try {
     const result: any = await context.commands.execute('session.task.config-queues-list')
     configQueues.value = (result?.queues as ConfigQueue[]) ?? []
-    // 预设目标任务队列选择：失效 → 回退第一个；空 → 保持空（按钮禁用）
-    if (presetQueueId.value && !configQueues.value.some((q) => q.id === presetQueueId.value)) {
-      presetQueueId.value = configQueues.value[0]?.id ?? ''
-    } else if (!presetQueueId.value) {
-      presetQueueId.value = configQueues.value[0]?.id ?? ''
-    }
   } catch (e) {
     console.error('[Session Center/task] Failed to load config queues:', e)
     configQueueError.value = t('task.loadFailed')
@@ -648,11 +755,16 @@ async function deletePreset(presetId: string) {
 
 const editingPresetId = ref<string | null>(null)
 const editingPresetText = ref('')
+const editingPresetProjectId = ref('')
+const editingPresetAgentId = ref('')
+const editingPresetAgentOptions = computed(() => agentOptionsFor(editingPresetProjectId.value))
 
-// 进入编辑态：预填当前内容，回车保存 / Esc 取消
+// 进入编辑态：预填当前内容与目标，回车保存 / Esc 取消
 function startEditPreset(p: PresetItem) {
   editingPresetId.value = p.id
   editingPresetText.value = p.prompt
+  editingPresetProjectId.value = p.project_id ?? ''
+  editingPresetAgentId.value = p.agent_id ?? ''
 }
 
 async function saveEditPreset() {
@@ -666,6 +778,8 @@ async function saveEditPreset() {
     await context.commands.execute('session.task.preset-update', {
       preset_id: editingPresetId.value,
       prompt,
+      project_id: editingPresetProjectId.value,
+      agent_id: editingPresetAgentId.value,
     })
     editingPresetId.value = null
     // 事件广播（preset-changed）兜底，此处直接刷新即时反馈
@@ -679,6 +793,8 @@ async function saveEditPreset() {
 function cancelEditPreset() {
   editingPresetId.value = null
   editingPresetText.value = ''
+  editingPresetProjectId.value = ''
+  editingPresetAgentId.value = ''
 }
 
 // ==================== 筛选选项与统计（Tab2/Tab4） ====================
@@ -845,17 +961,6 @@ async function loadJobs() {
   }
 }
 
-async function loadConfigs() {
-  try {
-    const result = await context.commands.execute('session.task.session-configs')
-    const allConfigs: SessionConfig[] = result?.configs ?? []
-    // 过滤掉任务域未适配的 agent 的会话配置
-    configs.value = allConfigs.filter((c: SessionConfig) => c.is_supported)
-  } catch (e) {
-    console.error('[Session Center/task] Failed to load session configs:', e)
-  }
-}
-
 function parsePrompts(raw: string | null): string[] {
   if (!raw) return []
   try {
@@ -873,15 +978,12 @@ function baseName(p: string): string {
   return parts[parts.length - 1] || p
 }
 
-function configLabel(c: SessionConfig): string {
-  const base = baseName(c.workingDir)
-  return c.name ? `${c.name} (${base})` : base
+function jobTargetLabel(job: ScheduledJob): string {
+  const target = findTarget(job.project_id ?? '', job.agent_id ?? '')
+  if (target) return targetLabel(target)
+  const parts = [job.project_id, job.agent_id].filter(Boolean)
+  return parts.length ? parts.join(' · ') : job.config_id || t('task.targetUnbound')
 }
-
-// 会话配置下拉选项（Tab3 定时任务表单）
-const configOptions = computed(() =>
-  configs.value.map((c) => ({ value: c.id, label: configLabel(c) })),
-)
 
 const utcPreview = computed(() => (formTriggerAt.value ? dateToUtc(formTriggerAt.value) : '-'))
 
@@ -909,7 +1011,8 @@ function removePrompt(index: number) {
 async function submitJob() {
   // 任务内容为卡片列表，创建后按卡片顺序依次执行
   const prompts = formPrompts.value.map((p) => p.trim()).filter(Boolean)
-  if (!formConfigId.value || !formTriggerAt.value || prompts.length === 0) {
+  const target = formTarget.value
+  if (!target || !formTriggerAt.value || prompts.length === 0) {
     errorMessage.value = t('task.scheduledFormInvalid')
     return
   }
@@ -918,14 +1021,16 @@ async function submitJob() {
   try {
     const result = await context.commands.execute('session.task.scheduled-create', {
       name: formName.value.trim() || undefined,
-      config_id: formConfigId.value,
+      project_id: target.project_id,
+      agent_id: target.agent_id,
       trigger_at: dateToUtc(formTriggerAt.value),
       prompts,
     })
     if (result?.job_id) {
       // 成功：收起表单并清空，列表刷新即为反馈
       formName.value = ''
-      formConfigId.value = ''
+      formProjectId.value = ''
+      formAgentId.value = ''
       formTriggerAt.value = null
       formPrompts.value = []
       newPrompt.value = ''
@@ -1060,7 +1165,7 @@ onMounted(async () => {
   await Promise.all([
     refreshRecords(),
     loadJobs(),
-    loadConfigs(),
+    loadTargets(),
     loadRunningSessions(),
     loadConfigQueues(),
     loadPresets(),
@@ -1078,7 +1183,10 @@ onMounted(async () => {
   queueDisposable = context.events.on('task:queue-changed', onLiveChanged)
   configQueueDisposable = context.events.on('task:config-queue-changed', onConfigQueueLiveChanged)
   scheduledDisposable = context.events.on('task:scheduled-changed', () => loadJobs())
-  presetDisposable = context.events.on('task:preset-changed', () => loadPresets())
+  presetDisposable = context.events.on('task:preset-changed', () => {
+    loadPresets()
+    loadTargets()
+  })
   modeDisposable = context.events.on('session:mode-changed', onModeChanged)
 })
 
@@ -1107,7 +1215,8 @@ onUnmounted(() => {
 function onLiveChanged() {
   refreshRecords()
   loadRunningSessions()
-  // 队列尺寸/内容可能随 queue 键广播变化（含队列 id 占位键的更新/取消）
+  loadTargets()
+  // 队列尺寸/内容可能随 queue 键广播变化（含队列 id / 目标占位键的更新/取消）
   loadConfigQueues()
 }
 
@@ -1115,6 +1224,7 @@ function onLiveChanged() {
 function onConfigQueueLiveChanged() {
   loadConfigQueues()
   loadRunningSessions()
+  loadTargets()
 }
 </script>
 
@@ -1160,17 +1270,33 @@ function onConfigQueueLiveChanged() {
               <h3 class="text-xs font-semibold text-[var(--text-primary)]">
                 {{ t('task.createTaskTitle') }}
               </h3>
-              <div>
-                <label class="block text-xs text-[var(--text-secondary)] mb-1">{{
-                  t('task.createTaskSession')
-                }}</label>
-                <!-- 预存选项永远存在且为默认：即使有运行中的会话，也可不加入队列直接预存 -->
-                <Select
-                  v-model="createSessionId"
-                  :options="sessionOptions"
-                  size="sm"
-                  @open="onSessionSelectFocus"
-                />
+              <div class="grid grid-cols-2 gap-2">
+                <div>
+                  <label class="block text-xs text-[var(--text-secondary)] mb-1">{{
+                    t('task.createTaskProject')
+                  }}</label>
+                  <Select
+                    v-model="createProjectId"
+                    :options="projectOptions"
+                    size="sm"
+                    data-testid="task-create-project"
+                    @open="onTargetSelectFocus"
+                    @update:model-value="createAgentId = ''"
+                  />
+                </div>
+                <div>
+                  <label class="block text-xs text-[var(--text-secondary)] mb-1">{{
+                    t('task.createTaskAgent')
+                  }}</label>
+                  <Select
+                    v-model="createAgentId"
+                    :options="createAgentOptions"
+                    size="sm"
+                    :disabled="!createProjectId"
+                    data-testid="task-create-agent"
+                    @open="onTargetSelectFocus"
+                  />
+                </div>
               </div>
               <div class="flex items-end gap-1.5">
                 <textarea
@@ -1187,18 +1313,101 @@ function onConfigQueueLiveChanged() {
                   :disabled="creatingTask || !createPrompt.trim()"
                   @click="createTask"
                 >
-                  {{ createSessionId ? t('task.createTaskSubmit') : t('task.saveAsPreset') }}
+                  {{
+                    createTarget && !createAsPreset
+                      ? t('task.createTaskSubmit')
+                      : t('task.saveAsPreset')
+                  }}
                 </button>
               </div>
-              <!-- 未选会话（预存模式）时的去向提示 -->
+              <!-- 目标模式：可直接投递（无活跃运行则等待）或保存为预设 -->
+              <label
+                v-if="createTarget"
+                class="inline-flex items-center gap-1.5 text-[calc(11px*var(--ui-scale))] text-[var(--text-secondary)] cursor-pointer"
+              >
+                <input
+                  v-model="createAsPreset"
+                  type="checkbox"
+                  class="accent-[var(--color-primary)]"
+                />
+                {{ t('task.saveAsPresetTarget') }}
+              </label>
               <p
-                v-if="!createSessionId"
+                v-if="createTarget && !createAsPreset && !createTarget.active_session_id"
+                class="text-[calc(11px*var(--ui-scale))] text-[var(--color-warning-ink)]"
+              >
+                {{ t('task.waitingRunHint') }}
+              </p>
+              <p
+                v-else-if="!createTarget"
                 class="text-[calc(11px*var(--ui-scale))] text-[var(--text-tertiary)]"
               >
                 {{ t('task.createTaskPresetHint') }}
               </p>
               <p v-if="createError" class="text-xs text-[var(--color-danger-ink)] break-words">
                 {{ createError }}
+              </p>
+            </div>
+
+            <!-- 等待运行的任务：目标（项目 × agent）暂无活跃运行，任务已落库不会丢 -->
+            <div
+              v-if="pendingTargets.length > 0"
+              class="rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-3 space-y-2"
+            >
+              <h3 class="text-xs font-semibold text-[var(--text-primary)]">
+                {{ t('task.pendingTargetsTitle') }}
+              </h3>
+              <div
+                v-for="target in pendingTargets"
+                :key="`${target.project_id}:${target.agent_id}`"
+                class="rounded-lg border border-[var(--border)] bg-[var(--bg-hover)] p-2.5 space-y-1"
+              >
+                <div class="flex items-center gap-2">
+                  <span
+                    class="text-xs font-medium text-[var(--text-primary)] truncate flex-1 min-w-0"
+                  >
+                    {{ targetLabel(target) }}
+                  </span>
+                  <span class="text-xs text-[var(--color-warning-ink)] flex-shrink-0">
+                    {{ t('task.waitingRun') }}
+                  </span>
+                  <span class="text-xs text-[var(--text-secondary)] flex-shrink-0">
+                    {{ t('task.queueCount', { count: target.pending_count }) }}
+                  </span>
+                </div>
+                <div
+                  v-for="item in target.pending_tasks ?? []"
+                  :key="item.id"
+                  class="flex items-center gap-2 px-2 py-1 rounded-md bg-[var(--bg-card)]"
+                >
+                  <span class="text-xs text-[var(--text-tertiary)] w-5 text-right flex-shrink-0">
+                    #{{ item.position }}
+                  </span>
+                  <span class="text-sm text-[var(--text-primary)] truncate flex-1">
+                    {{ item.prompt }}
+                  </span>
+                  <button
+                    class="flex-shrink-0 w-6 h-6 rounded-[6px] flex items-center justify-center text-[var(--text-tertiary)] hover:text-[var(--color-danger-ink)] hover:bg-[var(--color-danger-light)] transition-colors duration-200"
+                    :title="t('task.delete')"
+                    data-testid="pending-task-remove"
+                    @click="removePendingTask(target, item)"
+                  >
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d="M6 18L18 6M6 6l12 12"
+                      />
+                    </svg>
+                  </button>
+                </div>
+                <p class="text-[calc(11px*var(--ui-scale))] text-[var(--text-tertiary)]">
+                  {{ t('task.waitingRunHint') }}
+                </p>
+              </div>
+              <p v-if="pendingError" class="text-xs text-[var(--color-danger-ink)] break-words">
+                {{ pendingError }}
               </p>
             </div>
 
@@ -1388,17 +1597,34 @@ function onConfigQueueLiveChanged() {
               <h3 class="text-xs font-semibold text-[var(--text-primary)]">
                 {{ t('task.presetTitle') }} ({{ presets.length }})
               </h3>
-              <!-- 目标任务队列：预设加入哪个任务队列由用户选定（一次性消耗） -->
-              <div>
-                <label class="block text-xs text-[var(--text-secondary)] mb-1">{{
-                  t('task.presetQueueLabel')
-                }}</label>
-                <Select
-                  v-model="presetQueueId"
-                  :options="presetQueueOptions"
-                  size="sm"
-                  :placeholder="t('task.presetQueueEmpty')"
-                />
+              <!-- 预设目标：预设自带项目 + agent 时优先用自带目标；未绑定的用这里回退 -->
+              <div class="grid grid-cols-2 gap-2">
+                <div>
+                  <label class="block text-xs text-[var(--text-secondary)] mb-1">{{
+                    t('task.presetTargetProject')
+                  }}</label>
+                  <Select
+                    v-model="presetProjectId"
+                    :options="projectOptions"
+                    size="sm"
+                    data-testid="task-preset-project"
+                    @open="onTargetSelectFocus"
+                    @update:model-value="presetAgentId = ''"
+                  />
+                </div>
+                <div>
+                  <label class="block text-xs text-[var(--text-secondary)] mb-1">{{
+                    t('task.presetTargetAgent')
+                  }}</label>
+                  <Select
+                    v-model="presetAgentId"
+                    :options="presetAgentOptions"
+                    size="sm"
+                    :disabled="!presetProjectId"
+                    data-testid="task-preset-agent"
+                    @open="onTargetSelectFocus"
+                  />
+                </div>
               </div>
               <div class="space-y-1">
                 <div
@@ -1408,16 +1634,32 @@ function onConfigQueueLiveChanged() {
                 >
                   <!-- 编辑模式：自动增高输入框 + 保存/取消（回车保存，Shift+回车换行，Esc 取消） -->
                   <template v-if="editingPresetId === p.id">
-                    <textarea
-                      :ref="(el) => autosizeTextarea(el)"
-                      v-model="editingPresetText"
-                      rows="1"
-                      :class="textareaCls"
-                      :placeholder="p.prompt"
-                      @input="autosizeTextarea($event.target)"
-                      @keydown="submitOnEnter(saveEditPreset)($event)"
-                      @keydown.esc="cancelEditPreset"
-                    />
+                    <div class="flex-1 min-w-0 space-y-1.5">
+                      <div class="grid grid-cols-2 gap-1.5">
+                        <Select
+                          v-model="editingPresetProjectId"
+                          :options="projectOptions"
+                          size="sm"
+                          @update:model-value="editingPresetAgentId = ''"
+                        />
+                        <Select
+                          v-model="editingPresetAgentId"
+                          :options="editingPresetAgentOptions"
+                          size="sm"
+                          :disabled="!editingPresetProjectId"
+                        />
+                      </div>
+                      <textarea
+                        :ref="(el) => autosizeTextarea(el)"
+                        v-model="editingPresetText"
+                        rows="1"
+                        :class="textareaCls"
+                        :placeholder="p.prompt"
+                        @input="autosizeTextarea($event.target)"
+                        @keydown="submitOnEnter(saveEditPreset)($event)"
+                        @keydown.esc="cancelEditPreset"
+                      />
+                    </div>
                     <button
                       class="flex-shrink-0 w-7 h-7 rounded-[6px] flex items-center justify-center text-[var(--color-primary)] hover:bg-[var(--color-primary)]/10 transition-colors duration-200"
                       :title="t('task.save')"
@@ -1449,18 +1691,29 @@ function onConfigQueueLiveChanged() {
                   </template>
                   <!-- 常规模式：内容 + 加入队列 / 编辑 / 删除 -->
                   <template v-else>
-                    <span class="text-sm text-[var(--text-primary)] truncate flex-1 min-w-0">{{
-                      p.prompt
-                    }}</span>
+                    <div class="flex-1 min-w-0">
+                      <span class="block text-sm text-[var(--text-primary)] truncate">{{
+                        p.prompt
+                      }}</span>
+                      <span
+                        class="block text-[calc(11px*var(--ui-scale))] text-[var(--text-tertiary)] truncate"
+                      >
+                        {{ presetTargetLabel(p) }}
+                      </span>
+                    </div>
                     <button
                       class="inline-flex items-center gap-1 flex-shrink-0 h-7 px-2.5 rounded-[6px] text-xs font-medium transition-opacity duration-200 disabled:opacity-40 disabled:cursor-not-allowed"
                       :class="
-                        presetQueueId
+                        presetTargetOf(p) || presetTarget
                           ? 'bg-[var(--color-primary)] text-[var(--color-primary-contrast)] hover:opacity-90'
                           : 'bg-[var(--border)] text-[var(--text-tertiary)]'
                       "
-                      :disabled="!presetQueueId"
-                      :title="presetQueueId ? t('task.addToQueue') : t('task.presetQueueHint')"
+                      :disabled="!(presetTargetOf(p) || presetTarget)"
+                      :title="
+                        presetTargetOf(p) || presetTarget
+                          ? t('task.addToQueue')
+                          : t('task.presetTargetHint')
+                      "
                       @click="addPresetToQueue(p.id)"
                     >
                       {{ t('task.addToQueue') }}
@@ -1502,8 +1755,11 @@ function onConfigQueueLiveChanged() {
                   </template>
                 </div>
               </div>
-              <p v-if="!presetQueueId" class="text-xs text-[var(--color-danger-ink)] break-words">
-                {{ t('task.presetQueueHint') }}
+              <p
+                v-if="!presetTarget && presets.some((p) => !presetTargetOf(p))"
+                class="text-xs text-[var(--color-danger-ink)] break-words"
+              >
+                {{ t('task.presetTargetHint') }}
               </p>
               <p v-if="presetError" class="text-xs text-[var(--color-danger-ink)] break-words">
                 {{ presetError }}
@@ -2035,17 +2291,40 @@ function onConfigQueueLiveChanged() {
               }}</label>
               <input v-model="formName" type="text" :class="controlCls" />
             </div>
-            <div>
-              <label class="block text-xs text-[var(--text-secondary)] mb-1">{{
-                t('task.scheduledConfig')
-              }}</label>
-              <Select
-                v-model="formConfigId"
-                :options="configOptions"
-                size="sm"
-                :placeholder="t('task.scheduledConfigPlaceholder')"
-              />
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <label class="block text-xs text-[var(--text-secondary)] mb-1">{{
+                  t('task.scheduledProject')
+                }}</label>
+                <Select
+                  v-model="formProjectId"
+                  :options="projectOptions"
+                  size="sm"
+                  data-testid="task-scheduled-project"
+                  @open="onTargetSelectFocus"
+                  @update:model-value="formAgentId = ''"
+                />
+              </div>
+              <div>
+                <label class="block text-xs text-[var(--text-secondary)] mb-1">{{
+                  t('task.scheduledAgent')
+                }}</label>
+                <Select
+                  v-model="formAgentId"
+                  :options="formAgentOptions"
+                  size="sm"
+                  :disabled="!formProjectId"
+                  data-testid="task-scheduled-agent"
+                  @open="onTargetSelectFocus"
+                />
+              </div>
             </div>
+            <p
+              v-if="formTarget && !formTarget.active_session_id"
+              class="text-[calc(11px*var(--ui-scale))] text-[var(--color-warning-ink)]"
+            >
+              {{ t('task.scheduledAutoStartHint') }}
+            </p>
             <div>
               <label class="block text-xs text-[var(--text-secondary)] mb-1">{{
                 t('task.scheduledTriggerAt')
@@ -2229,7 +2508,8 @@ function onConfigQueueLiveChanged() {
                       {{ formatTime(item.job?.trigger_at ?? null) }}
                     </p>
                     <p class="text-xs text-[var(--text-secondary)] mt-0.5">
-                      {{ t('task.scheduledConfig') }}: {{ item.job?.config_id }}
+                      {{ t('task.scheduledTarget') }}:
+                      {{ item.job ? jobTargetLabel(item.job) : '-' }}
                     </p>
                   </div>
                   <span class="flex-shrink-0" :class="scheduledStatusBadge(item.job?.status ?? '')">

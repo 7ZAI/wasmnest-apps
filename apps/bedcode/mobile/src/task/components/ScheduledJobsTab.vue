@@ -2,9 +2,14 @@
   <div class="att-tab-body">
     <div ref="scrollEl" class="att-scroll" :style="scrollStyle">
       <!-- 创建入口 -->
-      <button v-if="!formOpen" class="att-create-btn" @click="props.scheduled.openForm()">
+      <button v-if="!formOpen" class="att-create-btn" @click="openCreateForm()">
         <svg class="att-create-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="2"
+            d="M12 4v16m8-8H4"
+          />
         </svg>
         {{ t('scheduled.create.title') }}
       </button>
@@ -15,7 +20,12 @@
           <h4 class="att-form-title">{{ t('scheduled.create.title') }}</h4>
           <button class="att-form-close" @click="props.scheduled.closeForm()">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M6 18L18 6M6 6l12 12"
+              />
             </svg>
           </button>
         </div>
@@ -29,12 +39,39 @@
           :placeholder="t('scheduled.create.namePlaceholder')"
         />
 
-        <!-- 会话配置（自绘选择：点击展开配置列表弹层，禁原生 select） -->
-        <label class="att-field-label">{{ t('scheduled.create.config') }}</label>
-        <button class="att-picker-btn" :class="{ 'att-picker-empty': !selectedConfigName }" @click="showConfigPicker = true">
-          <span>{{ selectedConfigName || t('scheduled.create.configPlaceholder') }}</span>
+        <!-- 目标：项目 + agent（自绘选择：点击展开列表弹层，禁原生 select） -->
+        <label class="att-field-label">{{ t('scheduled.create.project') }}</label>
+        <button
+          class="att-picker-btn"
+          :class="{ 'att-picker-empty': !selectedProjectName }"
+          @click="openPicker('project')"
+        >
+          <span>{{ selectedProjectName || t('scheduled.create.projectPlaceholder') }}</span>
           <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M19 9l-7 7-7-7"
+            />
+          </svg>
+        </button>
+
+        <label class="att-field-label">{{ t('scheduled.create.agent') }}</label>
+        <button
+          class="att-picker-btn"
+          :class="{ 'att-picker-empty': !selectedAgentName }"
+          :disabled="!props.scheduled.formProjectId.value"
+          @click="openPicker('agent')"
+        >
+          <span>{{ selectedAgentName || t('scheduled.create.agentPlaceholder') }}</span>
+          <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M19 9l-7 7-7-7"
+            />
           </svg>
         </button>
 
@@ -55,35 +92,63 @@
           :teleport="'body'"
           :placeholder="t('scheduled.create.triggerAtPlaceholder')"
         />
-        <p class="att-utc-hint">{{ t('scheduled.create.utcHint', { time: props.scheduled.utcPreview.value }) }}</p>
+        <p class="att-utc-hint">
+          {{ t('scheduled.create.utcHint', { time: props.scheduled.utcPreview.value }) }}
+        </p>
 
         <!-- 指令列表（每行一条，可增删） -->
         <label class="att-field-label">{{ t('scheduled.create.prompts') }}</label>
-        <div v-for="(_, index) in props.scheduled.formPrompts.value" :key="index" class="att-prompt-row">
+        <div
+          v-for="(_, index) in props.scheduled.formPrompts.value"
+          :key="index"
+          class="att-prompt-row"
+        >
           <input
             v-model="props.scheduled.formPrompts.value[index]"
             type="text"
             class="att-input att-prompt-input"
             :placeholder="t('scheduled.create.promptPlaceholder')"
           />
-          <button class="att-prompt-remove" :title="t('scheduled.create.removePrompt')" @click="props.scheduled.removePrompt(index)">
+          <button
+            class="att-prompt-remove"
+            :title="t('scheduled.create.removePrompt')"
+            @click="props.scheduled.removePrompt(index)"
+          >
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M6 18L18 6M6 6l12 12"
+              />
             </svg>
           </button>
         </div>
         <button class="att-add-prompt" @click="props.scheduled.addPrompt()">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M12 4v16m8-8H4"
+            />
           </svg>
           {{ t('scheduled.create.addPrompt') }}
         </button>
 
         <div class="att-form-actions">
-          <button class="att-form-cancel" :disabled="props.scheduled.submitting.value" @click="props.scheduled.closeForm()">
+          <button
+            class="att-form-cancel"
+            :disabled="props.scheduled.submitting.value"
+            @click="props.scheduled.closeForm()"
+          >
             {{ t('scheduled.create.cancel') }}
           </button>
-          <button class="att-form-submit" :disabled="props.scheduled.submitting.value" @click="props.scheduled.submit()">
+          <button
+            class="att-form-submit"
+            :disabled="props.scheduled.submitting.value"
+            @click="props.scheduled.submit()"
+          >
             {{ t('scheduled.create.submit') }}
           </button>
         </div>
@@ -92,7 +157,12 @@
       <!-- 未连接空态 -->
       <div v-if="!formOpen && offline && jobs.length === 0" class="att-state">
         <svg class="att-state-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M18.364 5.636a9 9 0 010 12.728m-12.728 0a9 9 0 010-12.728m9.9 2.828a5 5 0 010 7.072m-7.072 0a5 5 0 010-7.072M12 12h.01" />
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="1.5"
+            d="M18.364 5.636a9 9 0 010 12.728m-12.728 0a9 9 0 010-12.728m9.9 2.828a5 5 0 010 7.072m-7.072 0a5 5 0 010-7.072M12 12h.01"
+          />
         </svg>
         <p>{{ t('scheduled.offline') }}</p>
       </div>
@@ -105,7 +175,12 @@
       <!-- 空态 -->
       <div v-else-if="!formOpen && jobs.length === 0" class="att-state">
         <svg class="att-state-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="1.5"
+            d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+          />
         </svg>
         <p>{{ t('scheduled.empty') }}</p>
       </div>
@@ -115,14 +190,25 @@
         <div v-for="job in jobs" :key="job.id" class="att-row">
           <div class="att-row-head">
             <p class="att-row-title">{{ job.name || t('scheduled.defaultName') }}</p>
-            <span class="att-badge" :style="badgeStyle(job.status)">{{ statusLabel(job.status) }}</span>
+            <span class="att-badge" :style="badgeStyle(job.status)">{{
+              statusLabel(job.status)
+            }}</span>
           </div>
           <div class="att-row-meta">
-            <span class="att-meta-item">{{ t('scheduled.field.triggerAt') }}: {{ utcToLocalDisplay(job.trigger_at) }}</span>
-            <span v-if="job.executed_at" class="att-meta-item">{{ t('scheduled.field.executedAt') }}: {{ utcToLocalDisplay(job.executed_at) }}</span>
+            <span class="att-meta-item"
+              >{{ t('scheduled.field.target') }}: {{ targetLabel(job) }}</span
+            >
+            <span class="att-meta-item"
+              >{{ t('scheduled.field.triggerAt') }}: {{ utcToLocalDisplay(job.trigger_at) }}</span
+            >
+            <span v-if="job.executed_at" class="att-meta-item"
+              >{{ t('scheduled.field.executedAt') }}: {{ utcToLocalDisplay(job.executed_at) }}</span
+            >
           </div>
           <div v-if="promptPreview(job).length > 0" class="att-row-prompts">
-            <span v-for="(p, i) in promptPreview(job)" :key="i" class="att-prompt-chip">{{ p }}</span>
+            <span v-for="(p, i) in promptPreview(job)" :key="i" class="att-prompt-chip">{{
+              p
+            }}</span>
           </div>
           <p v-if="job.status === 'failed' && job.error" class="att-row-error">
             {{ t('scheduled.field.error') }}: {{ job.error }}
@@ -131,24 +217,62 @@
       </div>
     </div>
 
-    <!-- 会话配置选择弹层（自绘 bottom-sheet，禁原生 select） -->
+    <!-- 目标选择弹层（项目 / agent 共用；自绘 bottom-sheet，禁原生 select） -->
     <Teleport to="body">
       <Transition name="bottom-sheet">
-        <div v-if="showConfigPicker" class="att-picker-overlay mobile-ui" data-bedcode-surface @click.self="showConfigPicker = false">
+        <div
+          v-if="picker"
+          class="att-picker-overlay mobile-ui"
+          data-bedcode-surface
+          @click.self="picker = null"
+        >
           <div class="att-picker-sheet modal-panel">
-            <h4 class="att-picker-title">{{ t('scheduled.create.config') }}</h4>
-            <div v-if="configs.length === 0" class="att-picker-empty-state">{{ t('scheduled.create.configEmpty') }}</div>
+            <h4 class="att-picker-title">
+              {{
+                picker === 'project' ? t('scheduled.create.project') : t('scheduled.create.agent')
+              }}
+            </h4>
+            <div
+              v-if="picker === 'project' && projects.length === 0"
+              class="att-picker-empty-state"
+            >
+              {{ t('scheduled.create.projectEmpty') }}
+            </div>
+            <div
+              v-else-if="picker === 'agent' && agentOptions.length === 0"
+              class="att-picker-empty-state"
+            >
+              {{ t('scheduled.create.agentEmpty') }}
+            </div>
             <div v-else class="att-picker-list">
-              <button
-                v-for="config in configs"
-                :key="config.id"
-                class="att-picker-item"
-                :class="{ 'att-picker-item-active': config.id === props.scheduled.formConfigId.value }"
-                @click="selectConfig(config)"
-              >
-                <span class="att-picker-item-name">{{ config.name }}</span>
-                <span class="att-picker-item-sub">{{ config.command }}</span>
-              </button>
+              <template v-if="picker === 'project'">
+                <button
+                  v-for="project in projects"
+                  :key="project.id"
+                  class="att-picker-item"
+                  :class="{
+                    'att-picker-item-active': project.id === props.scheduled.formProjectId.value,
+                  }"
+                  @click="selectProject(project)"
+                >
+                  <span class="att-picker-item-name">{{ project.name || project.workingDir }}</span>
+                  <span class="att-picker-item-sub">{{ project.workingDir }}</span>
+                </button>
+              </template>
+              <template v-else>
+                <button
+                  v-for="agent in agentOptions"
+                  :key="agent.id"
+                  class="att-picker-item"
+                  :class="{
+                    'att-picker-item-active': agent.id === props.scheduled.formAgentId.value,
+                  }"
+                  @click="selectAgent(agent)"
+                >
+                  <span class="att-picker-item-name">{{ agent.displayName }}</span>
+                  <span class="att-picker-item-sub">{{ agent.binary }}</span>
+                </button>
+              </template>
             </div>
           </div>
         </div>
@@ -167,10 +291,13 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import Datepicker from '@vuepic/vue-datepicker'
 import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-mobile'
-import { getMobileApi, getI18n } from '@binblink/wasmnest-plugin-sdk-mobile'
+import { getI18n } from '@binblink/wasmnest-plugin-sdk-mobile'
 import type { ScheduledJobsComposable, ScheduledJob } from '../composables/useScheduledJobs'
 import { parsePrompts } from '../composables/useScheduledJobs'
 import { utcToLocalDisplay } from '../composables/useTaskHistory'
+import { fetchAgents, fetchProjects } from '../../projects/api'
+import type { AgentEntry, ProjectView } from '../../projects/types'
+import { getAutoTaskApi } from '../api'
 
 const props = defineProps<{
   context: PluginContext
@@ -184,22 +311,88 @@ const t = (key: string, params?: Record<string, any>): string => props.context.i
 // 依赖此绑定，缺失会导致点击「创建定时任务」无反应（undefined 恒为假）
 const { jobs, loading, offline, formOpen } = props.scheduled
 
-// ==================== 会话配置选择 ====================
+// ==================== 目标选择（项目 × agent） ====================
 
-const showConfigPicker = ref(false)
-/** 宿主会话配置列表（shared-runtime mobileApi 暴露） */
-const configs = computed(() => getMobileApi().sessionConfigs?.value || [])
+const picker = ref<'project' | 'agent' | null>(null)
+const projects = ref<ProjectView[]>([])
+const agents = ref<AgentEntry[]>([])
+/** 任务域支持的 agent（后端 supported-agents 白名单） */
+const supportedAgentIds = ref<Set<string>>(new Set())
 
-/** 当前选中配置的展示名（未选择时 placeholder） */
-const selectedConfigName = computed(() => {
-  const id = props.scheduled.formConfigId.value
+const projectsById = computed(() => new Map(projects.value.map((project) => [project.id, project])))
+const agentsById = computed(() => new Map(agents.value.map((agent) => [agent.id, agent])))
+
+const selectedProjectName = computed(() => {
+  const id = props.scheduled.formProjectId.value
   if (!id) return ''
-  return configs.value.find((c: any) => c.id === id)?.name || id
+  const project = projectsById.value.get(id)
+  return project?.name || project?.workingDir || id
 })
 
-function selectConfig(config: any): void {
-  props.scheduled.formConfigId.value = config.id
-  showConfigPicker.value = false
+const agentOptions = computed(() =>
+  agents.value.filter((agent) => supportedAgentIds.value.has(agent.id)),
+)
+
+const selectedAgentName = computed(() => {
+  const id = props.scheduled.formAgentId.value
+  if (!id) return ''
+  return agentsById.value.get(id)?.displayName || id
+})
+
+function openPicker(kind: 'project' | 'agent'): void {
+  picker.value = kind
+  // 每次打开都刷新清单：配对 / 新项目 / 新装 agent 后无需重进页面
+  void loadTargets()
+}
+
+function openCreateForm(): void {
+  props.scheduled.openForm()
+  // 每次打开都刷新清单：配对 / 新项目 / 新装 agent 后无需重进页面
+  void loadTargets()
+}
+
+function selectProject(project: ProjectView): void {
+  props.scheduled.formProjectId.value = project.id
+  // 项目变了，agent 必须重选（不同项目的可用 agent 可能不同）
+  props.scheduled.formAgentId.value = ''
+  picker.value = null
+}
+
+function selectAgent(agent: AgentEntry): void {
+  props.scheduled.formAgentId.value = agent.id
+  picker.value = null
+}
+
+/** 定时任务行目标文案：项目 · agent（历史行可能只有 config_id） */
+function targetLabel(job: ScheduledJob): string {
+  const project = job.project_id ? projectsById.value.get(job.project_id) : undefined
+  const agent = job.agent_id ? agentsById.value.get(job.agent_id) : undefined
+  const projectName = project?.name || project?.workingDir || job.project_id || ''
+  const agentName = agent?.displayName || job.agent_id || ''
+  if (projectName || agentName) return [projectName, agentName].filter(Boolean).join(' · ')
+  return job.config_id || t('scheduled.field.targetUnbound')
+}
+
+/** 拉目标清单：项目走 bedcode.list-projects，agent 取注册表 ∩ 任务域支持清单 */
+async function loadTargets(): Promise<void> {
+  const [projectResult, agentResult, supportedResult] = await Promise.allSettled([
+    fetchProjects(props.context),
+    fetchAgents(props.context),
+    getAutoTaskApi().httpListSupportedAgents(),
+  ])
+  projects.value = projectResult.status === 'fulfilled' ? projectResult.value : []
+  agents.value = agentResult.status === 'fulfilled' ? agentResult.value : []
+  const supported = supportedResult.status === 'fulfilled' ? supportedResult.value : null
+  supportedAgentIds.value = new Set(supported?.code === 0 ? (supported.data?.agents ?? []) : [])
+  for (const result of [projectResult, agentResult, supportedResult]) {
+    if (result.status === 'rejected') {
+      props.context.logger.warn(
+        `[task] scheduled targets load failed: ${
+          result.reason instanceof Error ? result.reason.message : String(result.reason)
+        }`,
+      )
+    }
+  }
 }
 
 // ==================== 日期选择器（@vuepic/vue-datepicker） ====================
@@ -356,6 +549,7 @@ const scrollEl = ref<HTMLElement | null>(null)
 // ==================== 生命周期 ====================
 
 onMounted(() => {
+  void loadTargets()
   // 通道 1: visualViewport
   if (window.visualViewport) {
     window.visualViewport.addEventListener('resize', handleVisualViewportChange)

@@ -1028,6 +1028,12 @@ pub fn spawn_session(
     // 4. Created 逻辑（与宿主旧生命周期回调逐字一致：重启补发 + 定时任务就绪）
     crate::actions::flush_pending_restart(&WasmHost, session_id);
     crate::task::scheduled::handle_session_created(&WasmHost, session_id, config_id);
+    // 4.1 等待运行的任务：目标 (项目, agent) 的占位队列迁到这条真实会话。
+    // 放在 handle_session_created 之后：定时任务先开启 auto_execute，迁移后的
+    // 预设/队列任务才能被 try_dispatch_next 正确调度。
+    if let (Some(project_id), Some(agent_id)) = (project_id, agent_id) {
+        crate::task::queue::bind_pending_tasks(&WasmHost, project_id, agent_id, session_id);
+    }
 
     // 5. 发布 SessionCreated（概要自本域视图；载荷自足——取不到概要就跳过并
     //    留痕，不伪造半成品通知）。websocket 业务下沉票 05：会话生命周期事件

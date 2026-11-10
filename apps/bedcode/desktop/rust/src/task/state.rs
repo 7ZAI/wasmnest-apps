@@ -1770,6 +1770,23 @@ pub fn task_history_stats(host: &WasmHost, filter: &TaskHistoryFilter) -> anyhow
 /// 已停止 / 停止中 / 错误 / 空闲会话不参与（无法向其投递任务）。
 /// 结果按活跃度排序：有活动任务 > 有待执行队列 > 其余，同档按名称排序。
 pub fn list_running_sessions(host: &WasmHost) -> Vec<Value> {
+    // project_id → 项目名（任务面按「项目 · agent」展示运行，不再用会话名当主标签）
+    let project_names: HashMap<String, String> = crate::project::list_via_host()
+        .ok()
+        .and_then(|v| v.get("projects").and_then(|p| p.as_array()).cloned())
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|p| {
+            let id = p.get("id")?.as_str()?.to_string();
+            let name = p
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            Some((id, name))
+        })
+        .collect();
+
     // config_id → working_dir 映射（会话配置列表含路径信息，供前端展示会话标签）
     let config_working_dirs: HashMap<String, String> = crate::config::list_via_host()
         .ok()
@@ -1823,6 +1840,17 @@ pub fn list_running_sessions(host: &WasmHost) -> Vec<Value> {
                 .get(&config_id)
                 .cloned()
                 .unwrap_or_default();
+            let project_id = s
+                .get("projectId")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let project_name = project_names.get(&project_id).cloned().unwrap_or_default();
+            let agent_id = s
+                .get("agentId")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
 
             // 最新任务摘要（无记录时视为 idle）
             let task = find_task_by_session(host, &session_id);
@@ -1846,19 +1874,27 @@ pub fn list_running_sessions(host: &WasmHost) -> Vec<Value> {
             let queue_count = crate::task::queue::pending_count(host, &session_id);
             // 会话开关随列表返回（前端队列卡片上的启动/自动应答开关状态）
             let (auto_execute, auto_answer) = session_flags(host, &session_id);
-            let agent = session_agent(host, &session_id);
+            let detected_agent = session_agent(host, &session_id);
+            let agent = if !agent_id.is_empty() {
+                agent_id
+            } else {
+                detected_agent.to_string()
+            };
 
             Some(serde_json::json!({
                 "session_id": session_id,
                 "name": name,
                 "config_id": config_id,
+                "project_id": project_id,
+                "project_name": project_name,
                 "working_dir": working_dir,
                 "status": status,
                 "task_status": task_status,
                 "description": description,
                 "started_at": started_at,
                 "agent": agent,
-                "is_supported": crate::task::agent::is_supported(agent),
+                "agent_id": agent,
+                "is_supported": crate::task::agent::is_supported(&agent),
                 "queue_count": queue_count,
                 "auto_execute": auto_execute,
                 "auto_answer": auto_answer,

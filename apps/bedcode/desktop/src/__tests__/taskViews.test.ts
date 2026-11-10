@@ -54,6 +54,22 @@ vi.mock('@/router', () => ({
 
 const SESSION_ID = 'sess-1'
 
+const TARGET = {
+  project_id: 'p1',
+  project_name: '项目一',
+  environment: 'linux',
+  working_dir: '/work',
+  agent_id: 'claude',
+  agent_name: 'Claude Code',
+  supported: true,
+  config_id: 'c1',
+  active_session_id: SESSION_ID,
+  active_status: 'running',
+  pending_count: 0,
+  pending_session_id: 'pending:p1:claude',
+  pending_tasks: [],
+}
+
 /** 命令面路由：按新命令 id 返回最小可渲染载荷，并记录调用 */
 async function defaultExecute(command: string, args?: unknown) {
   switch (command) {
@@ -63,12 +79,35 @@ async function defaultExecute(command: string, args?: unknown) {
       return { tasks: [], total: 0 }
     case 'session.task.history-stats':
       return { total: 0, completed: 0, success_rate: 0 }
+    case 'session.task.targets':
+      return { targets: [TARGET] }
     case 'session.task.preset-list':
-      return { presets: [{ id: 'p1', prompt: '预设内容', created_at: '' }] }
+      return {
+        presets: [
+          {
+            id: 'p1',
+            project_id: 'p1',
+            agent_id: 'claude',
+            prompt: '预设内容',
+            created_at: '',
+          },
+        ],
+      }
     case 'session.task.session-settings':
       return { auto_execute: false, auto_answer: false }
     case 'session.task.running-sessions':
-      return { sessions: [{ session_id: SESSION_ID, is_supported: true, task_status: 'idle' }] }
+      return {
+        sessions: [
+          {
+            session_id: SESSION_ID,
+            project_id: 'p1',
+            project_name: '项目一',
+            agent: 'claude',
+            is_supported: true,
+            task_status: 'idle',
+          },
+        ],
+      }
     case 'session.task.session-configs':
       return { configs: [{ id: 'c1', name: 'claude-dev', is_supported: true }] }
     case 'session.task.scheduled-list':
@@ -95,8 +134,10 @@ async function defaultExecute(command: string, args?: unknown) {
       return { session_id: 'new-sess-1' }
     case 'session.task.config-queue-set-auto':
       return { auto_mode: true }
-    case 'session.task.preset-enqueue-queue':
+    case 'session.task.preset-enqueue':
       return { task_id: 't3', position: 0 }
+    case 'session.task.queue-remove':
+      return { removed: true }
     case 'session.task.queue-update':
       return { updated: true }
     case 'session.task.preset-create':
@@ -269,7 +310,7 @@ describe('TaskHistoryView（侧边栏任务历史）', () => {
       'session.task.history-list',
       'session.task.history-stats',
       'session.task.scheduled-list',
-      'session.task.session-configs',
+      'session.task.targets',
       'session.task.running-sessions',
       'session.task.config-queues-list',
       'session.task.preset-list',
@@ -289,27 +330,25 @@ describe('TaskHistoryView（侧边栏任务历史）', () => {
     wrapper.unmount()
   })
 
-  it('H3 未选会话时创建落预设、不写任何队列；选了适配会话才入队', async () => {
+  it('H3 未选目标时创建落预设、不写任何队列；选了项目 + agent 才入队', async () => {
     const inputs = () => wrapper.findAll('textarea')
     const createBox = () => inputs()[inputs().length - 1]
 
-    // 无运行中会话：会话选择框回退「预存」，创建只落预设
-    execute.mockImplementation(async (command: string, args?: unknown) => {
-      if (command === 'session.task.running-sessions') return { sessions: [] }
-      return defaultExecute(command, args)
-    })
+    // 清空默认目标：创建只落预设（带空目标）
     let wrapper = mountComponent(TaskHistoryView)
+    await flushPromises()
+    wrapper.findComponent({ name: 'Select' }).vm.$emit('update:modelValue', '')
     await flushPromises()
     await createBox().setValue('夜间跑一轮回归')
     await createBox().trigger('keydown', { key: 'Enter', shiftKey: false, isComposing: false })
     await flushPromises()
     expect(commandsTo('session.task.preset-create')).toEqual([
-      ['session.task.preset-create', { prompt: '夜间跑一轮回归' }],
+      ['session.task.preset-create', { prompt: '夜间跑一轮回归', project_id: '', agent_id: '' }],
     ])
     expect(commandsTo('session.task.queue-add')).toEqual([])
     wrapper.unmount()
 
-    // 有适配会话：创建直接入该会话队列
+    // 默认目标已选中：创建直接按项目 + agent 入队
     vi.clearAllMocks()
     execute.mockImplementation(defaultExecute)
     wrapper = mountComponent(TaskHistoryView)
@@ -318,35 +357,25 @@ describe('TaskHistoryView（侧边栏任务历史）', () => {
     await createBox().trigger('keydown', { key: 'Enter', shiftKey: false, isComposing: false })
     await flushPromises()
     expect(commandsTo('session.task.queue-add')).toEqual([
-      ['session.task.queue-add', { session_id: SESSION_ID, prompt: '白天跑冒烟' }],
+      ['session.task.queue-add', { project_id: 'p1', agent_id: 'claude', prompt: '白天跑冒烟' }],
     ])
     expect(commandsTo('session.task.preset-create')).toEqual([])
     wrapper.unmount()
   })
 
-  it('H4 选择「创建新的 {配置} 会话」时任务写入任务队列（create-and-enqueue）', async () => {
-    const inputs = () => wrapper.findAll('textarea')
-    const createBox = () => inputs()[inputs().length - 1]
-
+  it('H4 预设加入队列：按预设自带项目 + agent 投递（preset-enqueue）', async () => {
     const wrapper = mountComponent(TaskHistoryView)
     await flushPromises()
 
-    // 首个 Select = 创建任务区的会话选择框（模板序：创建区 → 任务队列区 → 预设区）
-    const select = wrapper.findComponent({ name: 'Select' })
-    expect(select.exists()).toBe(true)
-    select.vm.$emit('update:modelValue', 'new:c1')
+    const addBtn = wrapper.findAll('button').find((b) => b.text() === 'task.addToQueue')
+    expect(addBtn?.attributes('disabled')).toBeUndefined()
+    await addBtn?.trigger('click')
     await flushPromises()
 
-    await createBox().setValue('在全新会话里跑一次')
-    await createBox().trigger('keydown', { key: 'Enter', shiftKey: false, isComposing: false })
-    await flushPromises()
-
-    // 入任务队列（不立即建会话）：create-and-enqueue 收 config_id + prompt
-    expect(commandsTo('session.task.create-and-enqueue')).toEqual([
-      ['session.task.create-and-enqueue', { config_id: 'c1', prompt: '在全新会话里跑一次' }],
+    expect(commandsTo('session.task.preset-enqueue')).toEqual([
+      ['session.task.preset-enqueue', { preset_id: 'p1', project_id: 'p1', agent_id: 'claude' }],
     ])
-    expect(commandsTo('session.task.queue-add')).toEqual([])
-    expect(commandsTo('session.task.preset-create')).toEqual([])
+    expect(commandsTo('session.task.preset-enqueue-queue')).toEqual([])
     wrapper.unmount()
   })
 

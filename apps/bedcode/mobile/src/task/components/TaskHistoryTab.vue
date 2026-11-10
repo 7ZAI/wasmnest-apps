@@ -69,6 +69,7 @@
             </div>
             <div class="att-row-meta">
               <span v-if="task.agent" class="att-meta-item">{{ t('history.field.agent') }}: {{ task.agent }}</span>
+              <span v-if="task.working_dir" class="att-meta-item">{{ t('history.field.project') }}: {{ task.working_dir }}</span>
               <span class="att-meta-item">{{ t('history.field.source') }}: {{ sourceLabel(task.source) }}</span>
               <span class="att-meta-item">{{ t('history.field.time') }}: {{ utcToLocalDisplay(task.created_at) }}</span>
               <span v-if="task.started_at && task.completed_at" class="att-meta-item">

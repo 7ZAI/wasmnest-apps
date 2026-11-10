@@ -1858,17 +1858,30 @@ impl WasmPlugin for SessionPlugin {
                 Ok(serde_json::json!({ "configs": configs }))
             }
 
+            // 任务目标清单（项目 × 受支持 agent）→ {targets[]}
+            // 桌面 / 移动任务面的唯一选择源：有 active_session_id 直接投递，
+            // 没有则 pending_count 提示「等待运行」。
+            "session.task.targets" => {
+                let targets = task::list_targets_via_host()
+                    .map_err(|e| anyhow::anyhow!("task targets read failed: {e}"))?;
+                Ok(serde_json::json!({ "targets": targets }))
+            }
+
             // ==================== 预设任务 ====================
             "session.task.preset-list" => {
                 let presets = task::preset::list_presets(&WasmHost);
                 Ok(serde_json::json!({ "presets": presets }))
             }
             "session.task.preset-create" => {
-                let prompt = CommandArgs::new(args).str_or("prompt", "");
+                let a = CommandArgs::new(args);
+                let prompt = a.str_or("prompt", "");
+                let project_id = a.str_or("project_id", "");
+                let agent_id = a.str_or("agent_id", "");
                 if prompt.is_empty() {
                     return Err(anyhow::anyhow!("create-preset-task: missing prompt"));
                 }
-                let preset_id = task::preset::create_preset(&WasmHost, &prompt);
+                let preset_id =
+                    task::preset::create_preset(&WasmHost, &prompt, &project_id, &agent_id);
                 task::preset::broadcast_preset_changed(&WasmHost, &preset_id, "create");
                 Ok(serde_json::json!({ "preset_id": preset_id }))
             }
@@ -1895,7 +1908,15 @@ impl WasmPlugin for SessionPlugin {
                         "update-preset-task: missing preset_id or prompt"
                     ));
                 }
-                if !task::preset::update_preset(&WasmHost, &preset_id, &prompt) {
+                let project_id = a.str_or("project_id", "");
+                let agent_id = a.str_or("agent_id", "");
+                if !task::preset::update_preset(
+                    &WasmHost,
+                    &preset_id,
+                    &prompt,
+                    &project_id,
+                    &agent_id,
+                ) {
                     return Err(anyhow::anyhow!(
                         "update-preset-task: preset not found: {}",
                         preset_id
@@ -1909,18 +1930,30 @@ impl WasmPlugin for SessionPlugin {
                 let a = CommandArgs::new(args);
                 let session_id = a.str_or("session_id", "");
                 let preset_id = a.str_or("preset_id", "");
-                if session_id.is_empty() {
-                    return Err(anyhow::anyhow!("add-preset-to-queue: missing session_id"));
-                }
+                let project_id = a.str_or("project_id", "");
+                let agent_id = a.str_or("agent_id", "");
                 if preset_id.is_empty() {
                     return Err(anyhow::anyhow!("add-preset-to-queue: missing preset_id"));
                 }
-                let (task_id, position) =
-                    task::preset::add_preset_to_queue(&WasmHost, &session_id, &preset_id)
-                        .map_err(anyhow::Error::msg)?;
-                dispatch_if_eligible_and_broadcast(&session_id, "add", None, None);
+                let session_param = (!session_id.is_empty()).then_some(session_id.as_str());
+                let (task_id, position, bound_session) = task::preset::add_preset_to_queue(
+                    &WasmHost,
+                    &preset_id,
+                    &project_id,
+                    &agent_id,
+                    session_param,
+                )
+                .map_err(anyhow::Error::msg)?;
+                if !task::queue::is_pending_key(&bound_session) {
+                    dispatch_if_eligible_and_broadcast(&bound_session, "add", None, None);
+                }
                 task::preset::broadcast_preset_changed(&WasmHost, &preset_id, "enqueue");
-                Ok(serde_json::json!({ "task_id": task_id, "position": position }))
+                Ok(serde_json::json!({
+                    "task_id": task_id,
+                    "position": position,
+                    "session_id": bound_session,
+                    "pending": task::queue::is_pending_key(&bound_session),
+                }))
             }
 
             // ==================== 任务队列 ====================
@@ -1936,27 +1969,58 @@ impl WasmPlugin for SessionPlugin {
                     "session_id": session_id,
                 }))
             }
-            // 入队 {session_id, prompt} → {task_id, position}
+            // 入队 {session_id | project_id + agent_id, prompt} →
+            // {task_id, position, session_id}（无活跃运行时 session_id 为占位键）
             "session.task.queue-add" => {
                 let a = CommandArgs::new(args);
                 let session_id = a.str_or("session_id", "");
+                let project_id = a.str_or("project_id", "");
+                let agent_id = a.str_or("agent_id", "");
                 let prompt = a.str_or("prompt", "");
-                if session_id.is_empty() {
-                    return Err(anyhow::anyhow!("add-task: missing session_id"));
-                }
                 if prompt.is_empty() {
                     return Err(anyhow::anyhow!("add-task: missing prompt"));
                 }
-                let (task_id, position) = task::queue::add_task(&WasmHost, &session_id, &prompt)
+                if session_id.is_empty() && (project_id.is_empty() || agent_id.is_empty()) {
+                    return Err(anyhow::anyhow!(
+                        "add-task: missing session_id or project_id + agent_id"
+                    ));
+                }
+                let (task_id, position, bound_session) = if session_id.is_empty() {
+                    task::queue::add_task_for_target(
+                        &WasmHost,
+                        &project_id,
+                        &agent_id,
+                        &prompt,
+                        "queue",
+                    )
                     .map_err(|e| {
                         anyhow::anyhow!(
-                            "add-task enqueue failed (session_id={}): {}",
-                            session_id,
+                            "add-task enqueue failed (project_id={}, agent_id={}): {}",
+                            project_id,
+                            agent_id,
                             e
                         )
-                    })?;
-                dispatch_if_eligible_and_broadcast(&session_id, "add", None, None);
-                Ok(serde_json::json!({ "task_id": task_id, "position": position }))
+                    })?
+                } else {
+                    let (task_id, position) =
+                        task::queue::add_task(&WasmHost, &session_id, &prompt).map_err(|e| {
+                            anyhow::anyhow!(
+                                "add-task enqueue failed (session_id={}): {}",
+                                session_id,
+                                e
+                            )
+                        })?;
+                    (task_id, position, session_id.clone())
+                };
+                if !task::queue::is_pending_key(&bound_session) {
+                    dispatch_if_eligible_and_broadcast(&bound_session, "add", None, None);
+                }
+                Ok(serde_json::json!({
+                    "task_id": task_id,
+                    "position": position,
+                    "session_id": bound_session,
+                    "pending": task::queue::is_pending_key(&bound_session),
+                }))
             }
             // 新建任务任务队列（「创建新的 {配置} 会话」选项）：进按配置分组的
             // 队列，**不立即建会话**（启动/自动模式时才建）；队列存在则并入
@@ -2133,10 +2197,12 @@ impl WasmPlugin for SessionPlugin {
                 let jobs = task::scheduled::list_jobs(&WasmHost);
                 Ok(serde_json::json!({ "jobs": jobs }))
             }
-            // 创建 {name?, config_id, trigger_at, prompts[]} → {job_id}
+            // 创建 {name?, project_id, agent_id, config_id?, trigger_at, prompts[]} → {job_id}
             "session.task.scheduled-create" => {
                 let a = CommandArgs::new(args);
                 let name = a.str_or("name", "");
+                let project_id = a.str_or("project_id", "");
+                let agent_id = a.str_or("agent_id", "");
                 let config_id = a.str_or("config_id", "");
                 let trigger_at = a.str_or("trigger_at", "");
                 let prompts: Vec<String> = a
@@ -2149,8 +2215,10 @@ impl WasmPlugin for SessionPlugin {
                             .collect()
                     })
                     .unwrap_or_default();
-                if config_id.is_empty() {
-                    return Err(anyhow::anyhow!("create-scheduled-job: missing config_id"));
+                if (project_id.is_empty() || agent_id.is_empty()) && config_id.is_empty() {
+                    return Err(anyhow::anyhow!(
+                        "create-scheduled-job: missing project_id/agent_id (or legacy config_id)"
+                    ));
                 }
                 if trigger_at.is_empty() {
                     return Err(anyhow::anyhow!("create-scheduled-job: missing trigger_at"));
@@ -2161,14 +2229,17 @@ impl WasmPlugin for SessionPlugin {
                 match task::scheduled::create_job_with_broadcast(
                     &WasmHost,
                     &name,
+                    &project_id,
+                    &agent_id,
                     &config_id,
                     &trigger_at,
                     &prompts,
                 ) {
                     Some(job_id) => Ok(serde_json::json!({ "job_id": job_id })),
                     None => Err(anyhow::anyhow!(
-                        "create-scheduled-job: failed to create job for config {}",
-                        config_id
+                        "create-scheduled-job: failed to create job for project {} / agent {}",
+                        project_id,
+                        agent_id
                     )),
                 }
             }

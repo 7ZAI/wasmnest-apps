@@ -127,6 +127,10 @@
         "title": "List session configs with agent support"
       },
       {
+        "id": "session.task.targets",
+        "title": "List task targets (project × agent)"
+      },
+      {
         "id": "session.task.preset-list",
         "title": "List preset tasks"
       },

@@ -149,6 +149,8 @@ pub const TASK_QUEUE_SCHEMA: &[&str] = &[
 CREATE TABLE IF NOT EXISTS task_queue (
     id                TEXT PRIMARY KEY,
     session_id        TEXT NOT NULL,
+    project_id        TEXT,
+    agent_id          TEXT,
     prompt            TEXT NOT NULL,
     position          INTEGER NOT NULL,
     status            TEXT NOT NULL DEFAULT 'pending',
@@ -159,7 +161,69 @@ CREATE TABLE IF NOT EXISTS task_queue (
     updated_at        TEXT NOT NULL
 )"#,
     "CREATE INDEX IF NOT EXISTS idx_task_queue_session ON task_queue(session_id, status, position)",
+    "CREATE INDEX IF NOT EXISTS idx_task_queue_target ON task_queue(project_id, agent_id, status)",
 ];
+
+/// 未绑定活跃运行时的队列占位键（`task_queue.session_id` 是调度状态机的键）
+///
+/// 任务绑定键是 `(project_id, agent_id)`；真正的 `session_id` 只在有活跃运行时
+/// 才有值。没有活跃运行时任务不能丢，先用稳定占位键挂在同一套队列状态机上，
+/// 等目标运行启动后由 [`bind_pending_tasks`] 整体迁移到真实会话 id。
+/// 占位键带 `pending:` 前缀，与 UUID 形态的会话 id 不会冲突。
+pub fn pending_key(project_id: &str, agent_id: &str) -> String {
+    format!("pending:{project_id}:{agent_id}")
+}
+
+/// 该占位键是否表示「等待运行」而非真实会话
+pub fn is_pending_key(session_id: &str) -> bool {
+    session_id.starts_with("pending:")
+}
+
+/// 按 `(project_id, agent_id)` 找当前活跃运行（最近创建的一条）
+///
+/// 任务投递只认活跃运行：终态运行不再接受输入。native 测试环境无宿主库，
+/// 查询失败按「无活跃运行」处理（由调用方走占位队列）。
+pub fn find_active_run(host: &WasmHost, project_id: &str, agent_id: &str) -> Option<String> {
+    if project_id.is_empty() || agent_id.is_empty() {
+        return None;
+    }
+    // `runs.status` 存的是 `SessionStatus` 的 JSON 文本（带引号，如 `"running"`），
+    // 不是裸字符串——查询必须按 JSON 形态比较，否则永远找不到活跃运行。
+    host.plugin_db_query_params(
+        "SELECT id FROM runs WHERE project_id = ?1 AND agent_id = ?2 \
+         AND status IN ('\"starting\"', '\"running\"', '\"waitingInput\"') \
+         ORDER BY created_at DESC LIMIT 1",
+        &sql_params![project_id, agent_id],
+    )
+    .ok()
+    .flatten()
+    .and_then(|v| v.as_array().and_then(|a| a.first().cloned()))
+    .and_then(|row| row.get("id").and_then(|v| v.as_str()).map(str::to_string))
+}
+
+/// 从运行表读取某个会话的 `(project_id, agent_id)`（旧调用方补绑定键用）
+fn target_for_session(host: &WasmHost, session_id: &str) -> (Option<String>, Option<String>) {
+    if session_id.is_empty() || is_pending_key(session_id) {
+        return (None, None);
+    }
+    host.plugin_db_query_params(
+        "SELECT project_id, agent_id FROM runs WHERE id = ?1 LIMIT 1",
+        &sql_params![session_id],
+    )
+    .ok()
+    .flatten()
+    .and_then(|v| v.as_array().and_then(|a| a.first().cloned()))
+    .map(|row| {
+        let text = |key: &str| {
+            row.get(key)
+                .and_then(|v| v.as_str())
+                .filter(|v| !v.is_empty())
+                .map(str::to_string)
+        };
+        (text("project_id"), text("agent_id"))
+    })
+    .unwrap_or((None, None))
+}
 
 // ==================== Queue Operations ====================
 
@@ -178,6 +242,29 @@ pub fn add_task(host: &WasmHost, session_id: &str, prompt: &str) -> Result<(Stri
 pub fn add_task_with_source(
     host: &WasmHost,
     session_id: &str,
+    prompt: &str,
+    source: &str,
+) -> Result<(String, i64), String> {
+    let (project_id, agent_id) = target_for_session(host, session_id);
+    add_task_with_source_target(
+        host,
+        session_id,
+        project_id.as_deref(),
+        agent_id.as_deref(),
+        prompt,
+        source,
+    )
+}
+
+/// 添加任务到队列末尾（显式携带项目 + agent 绑定键）
+///
+/// 绑定键与 `session_id` 同时落库：`session_id` 是调度状态机的运行键，
+/// `project_id + agent_id` 是任务的目标（任务不再因运行关闭而失效）。
+pub fn add_task_with_source_target(
+    host: &WasmHost,
+    session_id: &str,
+    project_id: Option<&str>,
+    agent_id: Option<&str>,
     prompt: &str,
     source: &str,
 ) -> Result<(String, i64), String> {
@@ -215,10 +302,13 @@ pub fn add_task_with_source(
             format!("fallback-{}-{}", session_id, position)
         });
 
+    let project_param = project_id.filter(|v| !v.is_empty());
+    let agent_param = agent_id.filter(|v| !v.is_empty());
     match host.plugin_db_execute_params(
-        "INSERT INTO task_queue (id, session_id, prompt, position, status, source, created_at, updated_at) \
-         VALUES (?1, ?2, ?3, ?4, 'pending', ?5, datetime('now'), datetime('now'))",
-        &sql_params![id, session_id, prompt, position, source],
+        "INSERT INTO task_queue \
+         (id, session_id, project_id, agent_id, prompt, position, status, source, created_at, updated_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'pending', ?7, datetime('now'), datetime('now'))",
+        &sql_params![id, session_id, project_param, agent_param, prompt, position, source],
     ) {
         Ok(affected) if affected > 0 => {
             host.log_info(&format!(
@@ -242,6 +332,91 @@ pub fn add_task_with_source(
             Err(format!("task queue insert failed: {e}"))
         }
     }
+}
+
+/// 按 `(project_id, agent_id)` 入队：有活跃运行直接投递，否则挂到占位队列
+///
+/// 返回 `(task_id, position, session_id)`；`session_id` 可能是占位键
+/// （[`pending_key`]），调用方据此区分「已投递到运行」与「等待运行」。
+pub fn add_task_for_target(
+    host: &WasmHost,
+    project_id: &str,
+    agent_id: &str,
+    prompt: &str,
+    source: &str,
+) -> Result<(String, i64, String), String> {
+    if project_id.is_empty() || agent_id.is_empty() {
+        return Err("task target requires project_id and agent_id".to_string());
+    }
+    let session_id = find_active_run(host, project_id, agent_id)
+        .unwrap_or_else(|| pending_key(project_id, agent_id));
+    let (task_id, position) = add_task_with_source_target(
+        host,
+        &session_id,
+        Some(project_id),
+        Some(agent_id),
+        prompt,
+        source,
+    )?;
+    // 占位队列（无活跃运行）也要广播：界面按「等待运行」分组展示，不能等
+    // 运行启动才看到任务。真实会话的广播仍由调用方（dispatch 入口）负责。
+    if is_pending_key(&session_id) {
+        let remaining = pending_count(host, &session_id);
+        broadcast_queue_changed(
+            host,
+            &session_id,
+            remaining,
+            "add",
+            Some(&task_id),
+            Some("pending"),
+        );
+    }
+    Ok((task_id, position, session_id))
+}
+
+/// 目标占位队列里的待执行任务数（无活跃运行时的「等待运行」提示）
+pub fn pending_count_for_target(host: &WasmHost, project_id: &str, agent_id: &str) -> i64 {
+    pending_count(host, &pending_key(project_id, agent_id))
+}
+
+/// 运行启动后把占位队列迁移到真实会话并立即尝试调度
+///
+/// 与 `task_config_queues` 的「启动时迁移 pending 行」同一手法：队列状态机仍按
+/// `session_id` 工作，绑定只是把占位键换成真实键。返回迁移行数。
+pub fn bind_pending_tasks(
+    host: &WasmHost,
+    project_id: &str,
+    agent_id: &str,
+    session_id: &str,
+) -> usize {
+    if project_id.is_empty() || agent_id.is_empty() || session_id.is_empty() {
+        return 0;
+    }
+    let key = pending_key(project_id, agent_id);
+    let moved = host
+        .plugin_db_execute_params(
+            "UPDATE task_queue SET session_id = ?1, updated_at = datetime('now') \
+             WHERE session_id = ?2 AND project_id = ?3 AND agent_id = ?4 \
+               AND status = 'pending'",
+            &sql_params![session_id, key, project_id, agent_id],
+        )
+        .unwrap_or(-1)
+        .max(0) as usize;
+    if moved == 0 {
+        return 0;
+    }
+    let remaining = pending_count(host, &key);
+    broadcast_queue_changed(host, &key, remaining, "bind", None, None);
+    let count = pending_count(host, session_id);
+    broadcast_queue_changed(host, session_id, count, "add", None, None);
+    host.log_info(&format!(
+        "Pending tasks bound: project_id={} agent_id={} session_id={} moved={}",
+        project_id, agent_id, session_id, moved
+    ));
+    // 不在这里立即调度：会话刚 spawn，agent CLI 的 SessionStart idle 还没到，
+    // 此刻投递输入会丢失/重复下发（与 config-queue start 同一时序纪律）。
+    // 首轮下发由 idle 推送（on_session_idle → try_dispatch_next）驱动。
+    moved
 }
 
 /// 取消队列中的活动任务（waiting / executing），供用户主动取消长任务
@@ -372,8 +547,8 @@ pub fn remove_task(host: &WasmHost, session_id: &str, task_id: &str) -> bool {
 /// 查询指定会话的待执行队列
 pub fn list_queue(host: &WasmHost, session_id: &str) -> Vec<Value> {
     host.plugin_db_query_params(
-        "SELECT id, prompt, position, status, source, created_at FROM task_queue \
-         WHERE session_id = ?1 AND status = 'pending' \
+        "SELECT id, session_id, project_id, agent_id, prompt, position, status, source, created_at \
+         FROM task_queue WHERE session_id = ?1 AND status = 'pending' \
          ORDER BY position ASC",
         &sql_params![session_id],
     )
@@ -1839,6 +2014,28 @@ mod tests {
             body.contains("view_via_host(&session_id)"),
             "续跑前必须判会话是否仍在册（会话已消失时调度入口只会自己判不存在返回）"
         );
+    }
+
+    /// 目标占位键：稳定、带前缀、不与会话 id 混淆
+    #[test]
+    fn pending_key_is_stable_and_distinct() {
+        let key = pending_key("p1", "claude");
+        assert_eq!(key, "pending:p1:claude");
+        assert_eq!(
+            key,
+            pending_key("p1", "claude"),
+            "同一目标必须得到同一占位键"
+        );
+        assert_ne!(key, pending_key("p1", "pi"), "不同 agent 不得共用占位队列");
+        assert!(is_pending_key(&key));
+        assert!(!is_pending_key("8f14e45f-ceea-467f-a1b7-9a3f0a1d2e3f"));
+    }
+
+    /// 目标入队必须同时给项目 + agent（缺一显性报错，不猜目标）
+    #[test]
+    fn add_task_for_target_requires_both_ids() {
+        assert!(add_task_for_target(&WasmHost, "", "claude", "x", "queue").is_err());
+        assert!(add_task_for_target(&WasmHost, "p1", "", "x", "queue").is_err());
     }
 
     /// 看门狗只看 retrying 行：合法长任务（in_progress）与等待人工应答（asking）

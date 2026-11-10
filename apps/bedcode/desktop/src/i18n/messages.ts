@@ -343,7 +343,19 @@ export type MessageSchema = {
   'task.queueCount': string
   'task.createTaskTitle': string
   'task.createTaskSession': string
+  'task.createTaskProject': string
+  'task.createTaskAgent': string
+  'task.projectPlaceholder': string
+  'task.agentPlaceholder': string
   'task.saveAsPresetOption': string
+  'task.saveAsPresetTarget': string
+  'task.waitingRunHint': string
+  'task.waitingRun': string
+  'task.pendingTargetsTitle': string
+  'task.presetTargetProject': string
+  'task.presetTargetAgent': string
+  'task.presetTargetHint': string
+  'task.targetUnbound': string
   'task.createNewSessionOption': string
   'task.createTaskPromptPlaceholder': string
   'task.createTaskSubmit': string
@@ -414,6 +426,10 @@ export type MessageSchema = {
   'task.scheduledName': string
   'task.scheduledConfig': string
   'task.scheduledConfigPlaceholder': string
+  'task.scheduledProject': string
+  'task.scheduledAgent': string
+  'task.scheduledTarget': string
+  'task.scheduledAutoStartHint': string
   'task.scheduledTriggerAt': string
   'task.scheduledUtcHint': string
   'task.scheduledPrompts': string
