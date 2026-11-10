@@ -35,7 +35,7 @@ vi.mock('@vuepic/vue-datepicker', () => ({
   default: { name: 'Datepicker', render: () => null },
 }))
 vi.mock('@binblink/wasmnest-plugin-sdk-desktop/ui', () => ({
-  default: { name: 'Select', props: ['modelValue'], render: () => null },
+  default: { name: 'Select', props: ['modelValue'], template: '<div />' },
 }))
 
 // app 自有 router：终端窗口路由参数即当前会话 id（宿主前端下沉：sharedRouter
@@ -53,7 +53,6 @@ vi.mock('@/router', () => ({
 }))
 
 const SESSION_ID = 'sess-1'
-
 const TARGET = {
   project_id: 'p1',
   project_name: '项目一',
@@ -66,19 +65,29 @@ const TARGET = {
   active_session_id: SESSION_ID,
   active_status: 'running',
   pending_count: 0,
-  pending_session_id: 'pending:p1:claude',
-  pending_tasks: [],
 }
 
 /** 命令面路由：按新命令 id 返回最小可渲染载荷，并记录调用 */
 async function defaultExecute(command: string, args?: unknown) {
   switch (command) {
     case 'session.task.queue-list':
-      return { tasks: [], active_task: null, session_id: (args as { session_id: string }).session_id }
+      return {
+        tasks: [],
+        active_task: null,
+        session_id: (args as { session_id: string }).session_id,
+      }
     case 'session.task.history-list':
       return { tasks: [], total: 0 }
     case 'session.task.history-stats':
       return { total: 0, completed: 0, success_rate: 0 }
+    case 'session.task.log-session':
+      return taskLogDetail()
+    case 'agent.get-resume-command':
+      return { command: 'claude --resume c-1', binary: 'claude', displayName: 'Claude Code' }
+    case 'agent.scan-usage':
+      return { state: { status: 'syncing' } }
+    case 'agent.get-usage-state':
+      return { state: { status: 'ok' } }
     case 'session.task.targets':
       return { targets: [TARGET] }
     case 'session.task.preset-list':
@@ -108,8 +117,6 @@ async function defaultExecute(command: string, args?: unknown) {
           },
         ],
       }
-    case 'session.task.session-configs':
-      return { configs: [{ id: 'c1', name: 'claude-dev', is_supported: true }] }
     case 'session.task.scheduled-list':
       return { jobs: [] }
     case 'session.task.queue-add':
@@ -136,10 +143,10 @@ async function defaultExecute(command: string, args?: unknown) {
       return { auto_mode: true }
     case 'session.task.preset-enqueue':
       return { task_id: 't3', position: 0 }
-    case 'session.task.queue-remove':
-      return { removed: true }
     case 'session.task.queue-update':
       return { updated: true }
+    case 'session.task.queue-remove':
+      return { removed: true }
     case 'session.task.preset-create':
       return { preset_id: 'p2' }
     case 'session.task.set-auto-mode':
@@ -291,6 +298,53 @@ describe('TaskQueueModal（终端工具栏任务弹窗）', () => {
   })
 })
 
+// ==================== 任务日志详情夹具（与后端 log-session 线形状同构） ====================
+
+const TASK_FIXTURE = {
+  id: 'task-1',
+  description: '跑一轮回归',
+  status: 'completed',
+  agent: 'claude',
+  source: 'queue',
+  session_id: 'sess-1',
+  claude_sid: 'c-1',
+  working_dir: '/work/proj',
+  auto_approve: 0,
+  exit_reason: null,
+  created_at: '2026-11-07 10:00:00',
+  started_at: '2026-11-07 10:00:05',
+  completed_at: '2026-11-07 10:01:05',
+  input_tokens: 120,
+  output_tokens: 30,
+}
+
+/** 成功读到的详情：两条事件 + 两行原始 JSONL（倒序渲染见组件契约） */
+function taskLogDetail() {
+  return {
+    task: TASK_FIXTURE,
+    adapter: 'claude',
+    cliSessionId: 'c-1',
+    resolvedBy: 'claude_sid',
+    reason: null,
+    log: {
+      events: [
+        { ts: 1_700_000_000_000, role: 'user', text: '请跑回归', model: null, tokens: null },
+        {
+          ts: 1_700_000_001_000,
+          role: 'assistant',
+          text: '已完成',
+          model: 'opus',
+          tokens: { input: 120, output: 30, cacheRead: 0, cacheWrite: 0, reasoning: 0 },
+        },
+      ],
+      eventsTruncated: false,
+      raw: ['{"type":"user"}', '{"type":"assistant"}'],
+      rawTruncated: false,
+      skippedLines: 0,
+    },
+  }
+}
+
 describe('TaskHistoryView（侧边栏任务历史）', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -384,9 +438,7 @@ describe('TaskHistoryView（侧边栏任务历史）', () => {
     await flushPromises()
 
     // 启动按钮（mock 队列带任务 → 可用）
-    const startBtn = wrapper
-      .findAll('button')
-      .find((b) => b.text() === 'task.queueStart')
+    const startBtn = wrapper.findAll('button').find((b) => b.text() === 'task.queueStart')
     expect(startBtn?.attributes('disabled')).toBeUndefined()
     await startBtn?.trigger('click')
     await flushPromises()
@@ -395,9 +447,7 @@ describe('TaskHistoryView（侧边栏任务历史）', () => {
     ])
 
     // 自动模式开关（开启 → auto_mode: true）
-    const autoBtn = wrapper
-      .findAll('button')
-      .find((b) => b.text().includes('task.queueAutoMode'))
+    const autoBtn = wrapper.findAll('button').find((b) => b.text().includes('task.queueAutoMode'))
     expect(autoBtn).toBeTruthy()
     await autoBtn?.trigger('click')
     await flushPromises()
@@ -412,9 +462,7 @@ describe('TaskHistoryView（侧边栏任务历史）', () => {
     await flushPromises()
 
     // 任务队列卡片内的编辑按钮（title = task.edit）
-    const editBtn = wrapper
-      .findAll('button')
-      .find((b) => b.attributes('title') === 'task.edit')
+    const editBtn = wrapper.findAll('button').find((b) => b.attributes('title') === 'task.edit')
     expect(editBtn).toBeTruthy()
     await editBtn?.trigger('click')
     await flushPromises()
@@ -433,6 +481,169 @@ describe('TaskHistoryView（侧边栏任务历史）', () => {
     ])
     // 保存后刷新任务队列区
     expect(commandsTo('session.task.config-queues-list').length).toBeGreaterThanOrEqual(2)
+    wrapper.unmount()
+  })
+
+  it('H8 任务日志：点行进入详情，任务记录 / 原始 JSONL 页签都可看，可返回表格', async () => {
+    execute.mockImplementation(async (command: string, args?: unknown) => {
+      if (command === 'session.task.history-list') return { tasks: [TASK_FIXTURE], total: 1 }
+      return defaultExecute(command, args)
+    })
+    const wrapper = mountComponent(TaskHistoryView)
+    await flushPromises()
+    await wrapper.get('[data-testid="tasks-tab-records"]').trigger('click')
+    await flushPromises()
+
+    await wrapper.get('[data-testid="task-log-row"]').trigger('click')
+    await flushPromises()
+
+    // 详情按任务 id 取数（不信任前端缓存的整行）
+    expect(commandsTo('session.task.log-session')).toEqual([
+      ['session.task.log-session', { task_id: 'task-1' }],
+    ])
+    // 任务记录：倒序（最后回复在最上面）
+    expect(wrapper.findAll('.ah-msg .ah-msg-text').map((el) => el.text())).toEqual([
+      '已完成',
+      '请跑回归',
+    ])
+    // 原始 JSONL 页签
+    await wrapper.get('[data-testid="task-log-tab-raw"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('{"type":"assistant"}')
+    // 返回后仍是原表格
+    await wrapper.get('[data-testid="task-log-back"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('[data-testid="task-log-row"]').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('H9 未索引：给分类文案与扫描出路；扫描落定后自动重读并展示转写', async () => {
+    let detailCalls = 0
+    execute.mockImplementation(async (command: string, args?: unknown) => {
+      if (command === 'session.task.history-list') return { tasks: [TASK_FIXTURE], total: 1 }
+      if (command === 'session.task.log-session') {
+        detailCalls += 1
+        return detailCalls === 1
+          ? { ...taskLogDetail(), reason: 'not-indexed', log: null }
+          : taskLogDetail()
+      }
+      if (command === 'agent.scan-usage') return { state: { status: 'syncing' } }
+      if (command === 'agent.get-usage-state') return { state: { status: 'ok' } }
+      return defaultExecute(command, args)
+    })
+    const wrapper = mountComponent(TaskHistoryView)
+    await flushPromises()
+    await wrapper.get('[data-testid="tasks-tab-records"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="task-log-row"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('task.log.notIndexed')
+    expect(wrapper.find('[data-testid="task-log-scan"]').exists()).toBe(true)
+
+    await wrapper.get('[data-testid="task-log-scan"]').trigger('click')
+    await flushPromises()
+
+    // 扫描走 Agent 管理的同一套命令；落定后自动重读详情
+    expect(commandsTo('agent.scan-usage')).toEqual([['agent.scan-usage', {}]])
+    expect(commandsTo('agent.get-usage-state').length).toBeGreaterThanOrEqual(1)
+    expect(detailCalls).toBe(2)
+    // 重读后不再是分类原因面，转写可见
+    expect(wrapper.find('[data-testid="task-log-reason"]').exists()).toBe(false)
+    expect(wrapper.text()).toContain('已完成')
+    wrapper.unmount()
+  })
+
+  it('H10 无 CLI 会话：显性说明，恢复按钮禁用且不提供无效扫描', async () => {
+    execute.mockImplementation(async (command: string, args?: unknown) => {
+      if (command === 'session.task.history-list') return { tasks: [TASK_FIXTURE], total: 1 }
+      if (command === 'session.task.log-session') {
+        return {
+          ...taskLogDetail(),
+          adapter: '',
+          cliSessionId: '',
+          resolvedBy: 'none',
+          reason: 'no-cli-session',
+          log: null,
+        }
+      }
+      return defaultExecute(command, args)
+    })
+    const wrapper = mountComponent(TaskHistoryView)
+    await flushPromises()
+    await wrapper.get('[data-testid="tasks-tab-records"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="task-log-row"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('task.log.noSession')
+    expect(wrapper.get('[data-testid="task-log-resume"]').attributes('disabled')).toBeDefined()
+    // 没有 CLI 会话 id 时扫描也解决不了，不摆一个点了没用的按钮
+    expect(wrapper.find('[data-testid="task-log-scan"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('H11 详情「恢复会话」：按解析出的 CLI 会话生成命令，工作目录取任务行', async () => {
+    execute.mockImplementation(async (command: string, args?: unknown) => {
+      if (command === 'session.task.history-list') return { tasks: [TASK_FIXTURE], total: 1 }
+      return defaultExecute(command, args)
+    })
+    const wrapper = mountComponent(TaskHistoryView)
+    await flushPromises()
+    await wrapper.get('[data-testid="tasks-tab-records"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="task-log-row"]').trigger('click')
+    await flushPromises()
+
+    await wrapper.get('[data-testid="task-log-resume"]').trigger('click')
+    await flushPromises()
+
+    expect(commandsTo('agent.get-resume-command')).toEqual([
+      ['agent.get-resume-command', { adapter: 'claude', cliSessionId: 'c-1' }],
+    ])
+    expect(wrapper.find('[data-testid="resume-dialog"]').exists()).toBe(true)
+    expect(
+      (wrapper.get('[data-testid="resume-working-dir"]').element as HTMLInputElement).value,
+    ).toBe('/work/proj')
+    wrapper.unmount()
+  })
+
+  it('H12 等待运行的任务：按占位键删除（不依赖真实会话）', async () => {
+    execute.mockImplementation(async (command: string, args?: unknown) => {
+      if (command === 'session.task.targets') {
+        return {
+          targets: [
+            {
+              ...TARGET,
+              active_session_id: null,
+              active_status: null,
+              pending_count: 1,
+              pending_session_id: 'pending:p1:claude',
+              pending_tasks: [
+                {
+                  id: 'pt1',
+                  prompt: '等待运行的任务',
+                  position: 1,
+                  status: 'pending',
+                  created_at: '',
+                },
+              ],
+            },
+          ],
+        }
+      }
+      return defaultExecute(command, args)
+    })
+    const wrapper = mountComponent(TaskHistoryView)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('等待运行的任务')
+    await wrapper.get('[data-testid="pending-task-remove"]').trigger('click')
+    await flushPromises()
+
+    expect(commandsTo('session.task.queue-remove')).toEqual([
+      ['session.task.queue-remove', { session_id: 'pending:p1:claude', task_id: 'pt1' }],
+    ])
     wrapper.unmount()
   })
 })

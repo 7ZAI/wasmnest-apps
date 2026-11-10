@@ -33,16 +33,17 @@
 pub mod agent;
 pub mod config_queue;
 pub mod hooks;
+pub mod log;
 pub mod preset;
 pub mod queue;
 pub mod scheduled;
 pub mod state;
 
-use wasmnest_plugin_api::host::{ConfigKey, HostConfig, HostLog, HostPluginDatabase};
-use wasmnest_plugin_api::wasm_host::WasmHost;
 use serde::Serialize;
 use serde_json::Value;
+use wasmnest_plugin_api::host::{ConfigKey, HostConfig, HostLog, HostPluginDatabase};
 use wasmnest_plugin_api::sql_params;
+use wasmnest_plugin_api::wasm_host::WasmHost;
 
 /// 长循环让出护栏（WASI 0.3 async 语义）
 ///
@@ -755,8 +756,16 @@ mod tests {
             "票 03 五条 + 票 04 git 三条"
         );
         assert_eq!(crate::sessions_http::SESSIONS_HTTP_PATHS.len(), 7);
-        assert_eq!(crate::projects_http::PROJECTS_HTTP_PATHS.len(), 4, "项目 / 运行 / Agent 四条移动面");
-        assert_eq!(crate::run::bridge::HTTP_ENDPOINTS.len(), 4, "run-attach + 三条桥接路由");
+        assert_eq!(
+            crate::projects_http::PROJECTS_HTTP_PATHS.len(),
+            4,
+            "项目 / 运行 / Agent 四条移动面"
+        );
+        assert_eq!(
+            crate::run::bridge::HTTP_ENDPOINTS.len(),
+            4,
+            "run-attach + 三条桥接路由"
+        );
         for endpoint in crate::GIT_HTTP_ENDPOINTS {
             assert!(
                 declared.iter().any(|d| d == endpoint),

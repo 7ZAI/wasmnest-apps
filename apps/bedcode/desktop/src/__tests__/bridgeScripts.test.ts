@@ -139,6 +139,40 @@ describe('wasmnest_bridge（pi）', () => {
     handlers.get('session_shutdown')!({ type: 'session_shutdown', reason: 'quit' })
   })
 
+  it('session_start 上报会话身份：运行行 agent_session_id 的真源（任务日志详情靠它找转写）', async () => {
+    const host = installHost()
+    const module = await import('../../scripts/wasmnest_bridge_pi.ts?case=pi-session-identity')
+    const handlers = new Map<string, (...args: unknown[]) => void>()
+    module.default({
+      on: (name: string, handler: (...args: unknown[]) => void) => {
+        handlers.set(name, handler)
+        return () => {}
+      },
+      sendUserMessage: vi.fn(async () => {}),
+    })
+
+    handlers.get('session_start')!(
+      { type: 'session_start', reason: 'startup' },
+      {
+        sessionManager: {
+          getSessionId: () => '01a1-pi-cli',
+          getSessionName: () => 'pi-wasmnest apps',
+        },
+        model: null,
+        thinkingLevel: null,
+      },
+    )
+    await vi.advanceTimersByTimeAsync(200)
+    await flushMicrotasks()
+
+    const events = eventPosts(host.calls).flat()
+    const identity = events.find((event) => event.type === 'session')
+    expect(identity, 'session_start 应上行 session 身份事件').toBeTruthy()
+    expect(identity).toMatchObject({ id: '01a1-pi-cli', title: 'pi-wasmnest apps' })
+    // 身份事件与 idle 状态同拍到达（不依赖后续消息）：
+    expect(identity).toHaveProperty('time')
+  })
+
   it('运行行尚未写入（404）不会永久停用桥接：下一拍继续轮询', async () => {
     let firstPoll = true
     const calls: CapturedCall[] = []

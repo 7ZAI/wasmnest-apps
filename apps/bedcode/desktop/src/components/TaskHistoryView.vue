@@ -17,6 +17,17 @@ import Datepicker from '@vuepic/vue-datepicker'
 // 宿主共享下拉组件（替代原生 <select>，经 SDK 引用，样式随宿主主题 token）
 import Select from '@binblink/wasmnest-plugin-sdk-desktop/ui'
 import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-desktop'
+import router from '@/router'
+// 任务日志表格 / 详情复用 Agent 管理日志的视觉真源（同一份 `ah-*` 样式）。
+// 插件 CSS 由 vite 内联进单文件包、模块求值即注入 <style>；本视图单独 import
+// 一份，保证「从侧边栏直接进 Agent 任务、没先开过 Agent 管理」时样式也在。
+import '../agents/hub-styles.css'
+import AgentIcon from '../agents/components/AgentIcon.vue'
+import SessionTranscript from '../agents/components/SessionTranscript.vue'
+import ResumeSessionDialog from '../agents/components/ResumeSessionDialog.vue'
+import { useResumeSession } from '../agents/composables/useResumeSession'
+import { abbreviateProject, formatTokens } from '../agents/utils/format'
+import type { NormalizedEventView, UsageSessionRow } from '../agents/types'
 
 const context = inject<PluginContext>('pluginContext')!
 // i18n：与 TaskQueueModal 一致，经 context.i18n 自动加插件 ID 前缀
@@ -40,6 +51,28 @@ interface TaskRecord {
   completed_at: string | null
   input_tokens: number | null
   output_tokens: number | null
+}
+
+/**
+ * 任务日志详情载荷（`session.task.log-session` 返回）
+ *
+ * `reason` 是**机器可读的「看不到内容」分类**（guest `task/log.rs`）：
+ * null = 读到转写；其余三档界面各给对应文案与出路，不用空对话冒充「无内容」。
+ * `cliSessionId` / `adapter` 即使未索引也会返回——「恢复会话」不依赖日志索引。
+ */
+interface TaskLogDetail {
+  task: TaskRecord
+  adapter: string
+  cliSessionId: string
+  resolvedBy: 'run' | 'claude_sid' | 'none'
+  reason: 'no-cli-session' | 'not-indexed' | 'unreadable' | null
+  log: {
+    events: NormalizedEventView[]
+    eventsTruncated: boolean
+    raw: string[]
+    rawTruncated: boolean
+    skippedLines: number
+  } | null
 }
 
 interface QueueItem {
@@ -176,7 +209,18 @@ const limit = 10
 const offset = ref(0)
 const loading = ref(false)
 const stats = ref<HistoryStats | null>(null)
-const expandedId = ref<string | null>(null)
+
+// 任务日志详情（二级页）：点行进入，读该任务的 CLI 会话转写。
+// 与「行内展开」不同，详情是独立一页（头卡 + 任务记录 / 原始 JSONL 页签）——
+// 与 Agent 管理的会话日志详情同构（见 agents/components/SessionLogsTab.vue）。
+const openedTask = ref<TaskRecord | null>(null)
+const logDetail = ref<TaskLogDetail | null>(null)
+const logLoading = ref(false)
+/** 命令本身失败（与「有分类原因的读不到」区分：那种走 logDetail.reason） */
+const logError = ref('')
+const logTab = ref<'chat' | 'raw'>('chat')
+/** 「未索引」时的一键扫描在途（进度文案 + 防重入） */
+const usageScanning = ref(false)
 
 const filterStatus = ref('')
 const filterAgent = ref('')
@@ -914,8 +958,156 @@ function nextPage() {
 }
 
 // 点击行：展开/收起详情
-function toggleTask(task: TaskRecord) {
-  expandedId.value = expandedId.value === task.id ? null : task.id
+// ==================== 任务日志详情（二级页） ====================
+
+/**
+ * 打开某条任务的日志详情
+ *
+ * 任务行本身不存对话：详情经 `session.task.log-session` 由后端把任务行解析成
+ * CLI 会话 id（运行记录 agent_session_id / 任务行 claude_sid），再复用 Agent
+ * 管理日志的同一份转写解析（对话事件流 + 原始 JSONL）。
+ */
+async function openTaskLog(task: TaskRecord) {
+  openedTask.value = task
+  logTab.value = 'chat'
+  logDetail.value = null
+  logError.value = ''
+  await loadTaskLog()
+}
+
+/** 关闭详情，回到表格（不重置筛选/分页：回来还是原样） */
+function closeTaskLog() {
+  openedTask.value = null
+  logDetail.value = null
+  logError.value = ''
+}
+
+/** 读一次详情（打开 / 扫描后重试共用） */
+async function loadTaskLog() {
+  const task = openedTask.value
+  if (!task) return
+  logLoading.value = true
+  logError.value = ''
+  try {
+    const data = await context.commands.execute('session.task.log-session', { task_id: task.id })
+    logDetail.value = data as TaskLogDetail
+  } catch (e) {
+    console.error('[Session Center/task] Failed to load task log:', e)
+    logDetail.value = null
+    logError.value = t('task.log.loadFailed')
+  } finally {
+    logLoading.value = false
+  }
+}
+
+/**
+ * 「未索引」→ 发起会话日志扫描并等它落定后重试
+ *
+ * 扫描是 Agent 管理的同一套流程（批量目录授权 → 枚举 → 解析入库）；发起后
+ * 轮询状态直到脱离 syncing（guest 侧另有失活守卫，最长约 2 分钟），再重读详情。
+ * 轮询上限比 guest 失活窗口留出余量，避免界面先停表而扫描其实已完成。
+ */
+async function scanUsageAndRetry() {
+  if (usageScanning.value) return
+  usageScanning.value = true
+  logError.value = ''
+  try {
+    await context.commands.execute('agent.scan-usage', {})
+    const deadline = Date.now() + 180_000
+    let status = ''
+    while (Date.now() < deadline) {
+      const state = (await context.commands.execute('agent.get-usage-state', {})) as {
+        state?: { status?: string }
+      } | null
+      status = state?.state?.status ?? ''
+      if (status !== 'syncing') break
+      await new Promise((resolve) => setTimeout(resolve, 1500))
+    }
+    // 扫描没落地就给出路（拒绝授权 / 扫描失败都不是「未索引」，别让用户空等）
+    if (status === 'auth-required') {
+      logError.value = t('task.log.scanAuthRequired')
+      return
+    }
+    if (status === 'error' || status === '') {
+      logError.value = t('task.log.scanFailed')
+      return
+    }
+    await loadTaskLog()
+  } catch (e) {
+    console.error('[Session Center/task] Failed to scan usage logs:', e)
+    logError.value = t('task.log.scanFailed')
+  } finally {
+    usageScanning.value = false
+  }
+}
+
+// ==================== 详情 → 恢复会话 ====================
+const resume = useResumeSession(context)
+/** 能否恢复：解析出 CLI 会话 id（未索引也能生成 resume 命令） */
+const canResumeTask = computed(() => !!logDetail.value?.adapter && !!logDetail.value?.cliSessionId)
+/** 恢复按钮的提示：不可恢复时说明原因，不留一个点了没反应的按钮 */
+const resumeTaskTip = computed(() =>
+  canResumeTask.value ? t('task.log.resumeTip') : t('task.log.resumeUnavailable'),
+)
+
+/** 分类原因 → 文案（三种「看不到内容」的成因各不相同，文案也不合并） */
+const reasonText = computed(() => {
+  switch (logDetail.value?.reason) {
+    case 'no-cli-session':
+      return t('task.log.noSession')
+    case 'not-indexed':
+      return t('task.log.notIndexed')
+    case 'unreadable':
+      return t('task.log.unreadable')
+    default:
+      return ''
+  }
+})
+
+/**
+ * 恢复该任务的 CLI 会话
+ *
+ * 复用 Agent 管理的恢复弹窗与同一条会话创建链：工作目录取任务行记录的工程目录，
+ * 恢复命令由 guest 注册表按 (adapter, cliSessionId) 生成（前端不维护第二份映射）。
+ * 详情载荷的字段名与 UsageSessionRow 不同（任务域 wire），这里只做形状适配。
+ */
+function resumeTask() {
+  const detail = logDetail.value
+  const task = openedTask.value
+  if (!detail || !task || !canResumeTask.value) return
+  const row: UsageSessionRow = {
+    id: 0,
+    adapter: detail.adapter as UsageSessionRow['adapter'],
+    cli_session_id: detail.cliSessionId,
+    project: task.working_dir,
+    title: task.description,
+    started_at: null,
+    ended_at: null,
+    duration_ms: null,
+    model: null,
+    tokens_in: task.input_tokens ?? 0,
+    tokens_out: task.output_tokens ?? 0,
+    tokens_cache_read: 0,
+    tokens_cache_write: 0,
+    tokens_reasoning: 0,
+    cost_total: null,
+  }
+  void resume.show(row)
+}
+
+/** 恢复成功 → 落到项目面（与 Agent 管理日志详情的去向一致） */
+function emitResumed(): void {
+  void router.push('/projects')
+}
+
+// ==================== 表格列（与 Agent 管理日志表格同构） ====================
+
+/** 任务耗时（秒）：只算已完成的区间；进行中不按「此刻」估算（列表不随时间重算） */
+function taskSeconds(task: TaskRecord): number | undefined {
+  const started = task.started_at ? toDate(task.started_at) : null
+  const completed = task.completed_at ? toDate(task.completed_at) : null
+  if (!started || !completed) return undefined
+  return (completed.getTime() - started.getTime()) / 1000
 }
 
 // ==================== 会话开关（队列卡片上的启动 / 自动应答） ====================
@@ -2015,255 +2207,329 @@ function onConfigQueueLiveChanged() {
           </div>
         </div>
 
-        <!-- Tab2 任务日志 -->
+        <!-- Tab2 任务日志：一级表格（与 Agent 管理日志表格同构）⇄ 二级详情 -->
         <div
           v-else-if="activeTab === 'records'"
           class="flex-1 flex flex-col min-h-0"
           data-testid="tasks-panel-records"
         >
-          <!-- 筛选条 -->
-          <div class="px-4 pt-3 flex-shrink-0 space-y-2">
-            <div class="grid grid-cols-3 gap-1.5 items-start">
-              <Select
-                v-model="filterStatus"
-                :options="filterStatusOptions"
-                size="sm"
-                :placeholder="t('task.filterStatus')"
-                @update:model-value="onFilterChanged"
-              />
-              <Select
-                v-model="filterAgent"
-                :options="filterAgentOptions"
-                size="sm"
-                :placeholder="t('task.filterAgent')"
-                @update:model-value="onFilterChanged"
-              />
-              <Select
-                v-model="filterSource"
-                :options="filterSourceOptions"
-                size="sm"
-                :placeholder="t('task.filterSource')"
-                @update:model-value="onFilterChanged"
-              />
-            </div>
-            <div class="grid grid-cols-2 gap-1.5">
-              <div>
-                <label class="block text-xs text-[var(--text-secondary)] mb-1">{{
-                  t('task.filterSince')
-                }}</label>
-                <Datepicker
-                  v-model="filterSince"
-                  :format="dateFormat"
-                  :locale="dateLocale"
-                  :dark="isDark"
-                  :clearable="true"
-                  :enable-time-picker="true"
-                  :select-text="dpSelectText"
-                  :cancel-text="dpCancelText"
-                  :now-button-label="dpNowLabel"
-                  :teleport="'body'"
-                  :placeholder="t('task.filterSince')"
-                  data-testid="task-filter-since"
-                  @update:model-value="onFilterChangedDebounced"
+          <!-- ==================== 一级：筛选 + 分页表格 ==================== -->
+          <template v-if="!openedTask">
+            <!-- 筛选条（条件与分页语义未变，只是表格换了皮） -->
+            <div class="px-4 pt-3 pb-3 flex-shrink-0 space-y-2">
+              <div class="grid grid-cols-3 gap-1.5 items-start">
+                <Select
+                  v-model="filterStatus"
+                  :options="filterStatusOptions"
+                  size="sm"
+                  :placeholder="t('task.filterStatus')"
+                  @update:model-value="onFilterChanged"
+                />
+                <Select
+                  v-model="filterAgent"
+                  :options="filterAgentOptions"
+                  size="sm"
+                  :placeholder="t('task.filterAgent')"
+                  @update:model-value="onFilterChanged"
+                />
+                <Select
+                  v-model="filterSource"
+                  :options="filterSourceOptions"
+                  size="sm"
+                  :placeholder="t('task.filterSource')"
+                  @update:model-value="onFilterChanged"
                 />
               </div>
-              <div>
-                <label class="block text-xs text-[var(--text-secondary)] mb-1">{{
-                  t('task.filterUntil')
-                }}</label>
-                <Datepicker
-                  v-model="filterUntil"
-                  :format="dateFormat"
-                  :locale="dateLocale"
-                  :dark="isDark"
-                  :clearable="true"
-                  :enable-time-picker="true"
-                  :select-text="dpSelectText"
-                  :cancel-text="dpCancelText"
-                  :now-button-label="dpNowLabel"
-                  :teleport="'body'"
-                  :placeholder="t('task.filterUntil')"
-                  data-testid="task-filter-until"
-                  @update:model-value="onFilterChangedDebounced"
-                />
+              <div class="grid grid-cols-2 gap-1.5">
+                <div>
+                  <label class="block text-xs text-[var(--text-secondary)] mb-1">{{
+                    t('task.filterSince')
+                  }}</label>
+                  <Datepicker
+                    v-model="filterSince"
+                    :format="dateFormat"
+                    :locale="dateLocale"
+                    :dark="isDark"
+                    :clearable="true"
+                    :enable-time-picker="true"
+                    :select-text="dpSelectText"
+                    :cancel-text="dpCancelText"
+                    :now-button-label="dpNowLabel"
+                    :teleport="'body'"
+                    :placeholder="t('task.filterSince')"
+                    data-testid="task-filter-since"
+                    @update:model-value="onFilterChangedDebounced"
+                  />
+                </div>
+                <div>
+                  <label class="block text-xs text-[var(--text-secondary)] mb-1">{{
+                    t('task.filterUntil')
+                  }}</label>
+                  <Datepicker
+                    v-model="filterUntil"
+                    :format="dateFormat"
+                    :locale="dateLocale"
+                    :dark="isDark"
+                    :clearable="true"
+                    :enable-time-picker="true"
+                    :select-text="dpSelectText"
+                    :cancel-text="dpCancelText"
+                    :now-button-label="dpNowLabel"
+                    :teleport="'body'"
+                    :placeholder="t('task.filterUntil')"
+                    data-testid="task-filter-until"
+                    @update:model-value="onFilterChangedDebounced"
+                  />
+                </div>
               </div>
-            </div>
-            <div class="flex justify-end">
-              <button
-                class="text-xs text-[var(--color-primary)] hover:underline transition-colors duration-200"
-                @click="resetFilters"
-              >
-                {{ t('task.filterReset') }}
-              </button>
-            </div>
-          </div>
-
-          <!-- 任务列表：固定高度区域（filterReset 与分页之间），任务超出时内部滚动；
-              分页固定在面板底部不随列表滚动。flex-1 + max-h 保证常规窗口下列表高度固定为 440px，
-              窗口过小时自动收缩以保持分页可见（相对容器计算，随 ui-scale 自适应） -->
-          <div
-            class="relative flex-1 min-h-0 max-h-[440px] overflow-y-auto overflow-x-hidden px-4 py-3 space-y-0.5 [scrollbar-gutter:stable]"
-          >
-            <!-- 列表加载中（浮层，不挤压列表布局，避免翻页时内容抖动） -->
-            <Transition name="fade">
-              <div
-                v-if="loading"
-                class="absolute inset-x-0 top-3 z-10 flex justify-center pointer-events-none"
-              >
-                <span
-                  class="rounded-full bg-[var(--bg-card)] px-3 py-1 text-xs text-[var(--text-tertiary)] shadow-sm border border-[var(--border)]"
+              <div class="flex justify-end">
+                <button
+                  class="text-xs text-[var(--color-primary)] hover:underline transition-colors duration-200"
+                  @click="resetFilters"
                 >
-                  {{ t('task.loading') }}
+                  {{ t('task.filterReset') }}
+                </button>
+              </div>
+            </div>
+
+            <!-- 分页表格：Agent | 任务 | 项目 | 开始时间 | 时长 | Tokens
+                 （列轨 / 表头与滚动容器 / 分页器结构与 Agent 管理日志表格同一份样式，
+                 见 agents/hub-styles.css 的 `.ah-lg-*`） -->
+            <div class="ah-card ah-lg-table mx-4 mb-3">
+              <div class="ah-lg-table-scroll">
+                <div class="ah-lg-table-head">
+                  <span>{{ t('hub.lg.col.agent') }}</span>
+                  <span>{{ t('task.log.colTask') }}</span>
+                  <span>{{ t('hub.lg.col.project') }}</span>
+                  <span class="ah-lg-col-time">{{ t('hub.lg.col.started') }}</span>
+                  <span class="ah-lg-col-dur">{{ t('hub.lg.col.duration') }}</span>
+                  <span class="ah-lg-col-tokens">{{ t('hub.lg.col.tokens') }}</span>
+                  <span class="ah-lg-col-go"></span>
+                </div>
+
+                <div class="ah-lg-table-rows">
+                  <div v-if="loading" class="ah-st-empty" data-testid="task-log-list-loading">
+                    {{ t('task.loading') }}
+                  </div>
+                  <div
+                    v-else-if="tasks.length === 0"
+                    class="ah-st-empty"
+                    data-testid="task-log-empty"
+                  >
+                    <p>{{ t('task.emptyHistory') }}</p>
+                    <p class="text-xs text-[var(--text-tertiary)] mt-1">
+                      {{ t('task.emptyHistoryHint') }}
+                    </p>
+                  </div>
+                  <div
+                    v-for="task in tasks"
+                    :key="task.id"
+                    class="ah-lg-row"
+                    role="button"
+                    tabindex="0"
+                    :title="`${t('task.log.open')} · ${statusLabel[task.status] || task.status}`"
+                    data-testid="task-log-row"
+                    @click="openTaskLog(task)"
+                    @keydown.enter="openTaskLog(task)"
+                  >
+                    <div class="ah-lg-cell-agent">
+                      <AgentIcon :adapter="task.agent || 'unknown'" :size="16" />
+                      <span class="ah-lg-cell-agent-name">{{ task.agent || '-' }}</span>
+                    </div>
+                    <div class="ah-lg-cell-title" :title="task.description || task.session_id">
+                      <span
+                        class="inline-block w-1.5 h-1.5 rounded-full flex-shrink-0 mr-1.5"
+                        :class="statusDot[task.status] || 'bg-[var(--text-tertiary)]'"
+                        aria-hidden="true"
+                      ></span>
+                      {{ task.description || task.session_id }}
+                    </div>
+                    <div class="ah-lg-cell-sub" :title="task.working_dir || ''">
+                      {{ abbreviateProject(task.working_dir, '') }}
+                    </div>
+                    <div class="ah-lg-col-time ah-mono">
+                      {{ formatTime(task.started_at || task.created_at) }}
+                    </div>
+                    <div class="ah-lg-col-dur ah-mono">{{ formatDuration(taskSeconds(task)) }}</div>
+                    <div class="ah-lg-col-tokens ah-mono">
+                      {{ formatTokens((task.input_tokens || 0) + (task.output_tokens || 0)) }}
+                    </div>
+                    <div class="ah-lg-col-go">›</div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="ah-lg-pager">
+                <span class="ah-lg-pager-info">
+                  {{ t('task.paginationRange', { from: pageFrom, to: pageTo, total }) }}
+                </span>
+                <span v-if="hasPrev || hasNext" class="ah-speed-actions-btns">
+                  <button
+                    type="button"
+                    class="ah-btn ah-btn-ghost ah-btn-sm"
+                    :disabled="!hasPrev || loading"
+                    @click="prevPage"
+                  >
+                    ‹ {{ t('task.paginationPrev') }}
+                  </button>
+                  <button
+                    type="button"
+                    class="ah-btn ah-btn-ghost ah-btn-sm"
+                    :disabled="!hasNext || loading"
+                    @click="nextPage"
+                  >
+                    {{ t('task.paginationNext') }} ›
+                  </button>
                 </span>
               </div>
-            </Transition>
+            </div>
+          </template>
 
-            <!-- 任务列表（自然高度卡片，超出滚动；分页固定在底部不随列表滚动）。
-               翻页/筛选切换：旧整块瞬时移除，新数据逐条从左向右横移滑入并淡入（stagger）。 -->
-            <TransitionGroup v-if="tasks.length > 0" tag="div" name="task-list" class="space-y-0.5">
-              <div
-                v-for="(task, idx) in tasks"
-                :key="task.id"
-                :style="{ '--enter-delay': idx * 45 + 'ms' }"
-                class="rounded-md border border-[var(--border)] bg-[var(--bg-card)] cursor-pointer transition-colors duration-200 hover:bg-[var(--bg-hover)]"
-                @click="toggleTask(task)"
-              >
-                <div class="flex items-center gap-2 px-2.5 py-1.5">
-                  <div
-                    class="w-1.5 h-1.5 rounded-full flex-shrink-0"
-                    :class="statusDot[task.status] || 'bg-[var(--text-tertiary)]'"
-                  ></div>
-                  <p class="flex-1 min-w-0 text-xs text-[var(--text-primary)] truncate">
-                    {{ task.description || task.session_id }}
-                  </p>
-                  <span
-                    class="text-[calc(11px*var(--ui-scale))] text-[var(--text-tertiary)] flex-shrink-0"
+          <!-- ==================== 二级：任务日志详情 ====================
+               头卡 + 页签 + 转写内容面。与 Agent 管理日志详情同构；差异只在头卡
+               字段（任务描述 / 状态 / 来源 / 各时间点）与「未索引」出路。 -->
+          <template v-else>
+            <div class="ah-lg-detail px-4 py-3">
+              <div class="ah-card ah-lg-detail-head">
+                <div class="ah-lg-detail-head-row">
+                  <button
+                    type="button"
+                    class="ah-btn ah-btn-ghost ah-btn-sm ah-lg-detail-back"
+                    data-testid="task-log-back"
+                    @click="closeTaskLog"
                   >
-                    {{ formatTime(task.started_at || task.created_at) }}
+                    ← {{ t('task.log.back') }}
+                  </button>
+                  <AgentIcon :adapter="openedTask.agent || 'unknown'" :size="16" />
+                  <span class="ah-lg-detail-title">{{
+                    openedTask.description || openedTask.session_id
+                  }}</span>
+                  <span v-if="openedTask.agent" class="ah-cli-tag ok">{{ openedTask.agent }}</span>
+                  <span class="ah-lg-detail-tabs" role="tablist">
+                    <button
+                      type="button"
+                      class="ah-lg-tab"
+                      :class="{ active: logTab === 'chat' }"
+                      role="tab"
+                      :aria-selected="logTab === 'chat'"
+                      data-testid="task-log-tab-chat"
+                      @click="logTab = 'chat'"
+                    >
+                      {{ t('hub.lg.detail.tabChat') }}
+                    </button>
+                    <button
+                      type="button"
+                      class="ah-lg-tab"
+                      :class="{ active: logTab === 'raw' }"
+                      role="tab"
+                      :aria-selected="logTab === 'raw'"
+                      data-testid="task-log-tab-raw"
+                      @click="logTab = 'raw'"
+                    >
+                      {{ t('hub.lg.detail.tabRaw') }}
+                    </button>
                   </span>
-                  <span
-                    class="text-[calc(11px*var(--ui-scale))] flex-shrink-0"
-                    :class="statusColor[task.status] || 'text-[var(--text-secondary)]'"
+                  <!-- 恢复会话：解析出 CLI 会话 id 即可用（不依赖日志索引） -->
+                  <button
+                    type="button"
+                    class="ah-btn ah-btn-primary ah-btn-sm ah-lg-detail-resume"
+                    data-testid="task-log-resume"
+                    :disabled="!canResumeTask"
+                    :title="resumeTaskTip"
+                    @click="resumeTask"
                   >
-                    {{ statusLabel[task.status] || task.status }}
-                  </span>
-                  <svg
-                    class="w-3 h-3 text-[var(--text-tertiary)] flex-shrink-0 transition-transform duration-200"
-                    :class="{ 'rotate-90': expandedId === task.id }"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="2"
-                      d="M9 5l7 7-7 7"
-                    />
-                  </svg>
+                    {{ t('hub.lg.resume.open') }}
+                  </button>
                 </div>
+                <div class="ah-lg-head-src ah-mono" :title="openedTask.working_dir || ''">
+                  {{ openedTask.working_dir || t('hub.lg.noSource') }}
+                </div>
+                <div class="ah-lg-head-meta ah-mono">
+                  <span>{{ statusLabel[openedTask.status] || openedTask.status }}</span>
+                  <span v-if="openedTask.source">
+                    {{ sourceLabel[openedTask.source] || openedTask.source }}
+                  </span>
+                  <span
+                    >↑ {{ formatTokens(openedTask.input_tokens) }} ↓
+                    {{ formatTokens(openedTask.output_tokens) }}</span
+                  >
+                  <span>{{ t('task.log.created') }} {{ formatTime(openedTask.created_at) }}</span>
+                  <span>{{ t('task.log.started') }} {{ formatTime(openedTask.started_at) }}</span>
+                  <span v-if="openedTask.completed_at"
+                    >{{ t('task.log.completed') }} {{ formatTime(openedTask.completed_at) }}</span
+                  >
+                </div>
+                <div v-if="openedTask.exit_reason" class="ah-lg-warn" data-testid="task-log-exit">
+                  {{ openedTask.exit_reason }}
+                </div>
+                <div v-if="logDetail?.log?.eventsTruncated" class="ah-lg-warn">
+                  {{ t('hub.lg.eventsTruncated') }}
+                </div>
+                <div v-if="logDetail?.log?.rawTruncated" class="ah-lg-warn">
+                  {{ t('hub.lg.rawTruncated') }}
+                </div>
+              </div>
 
-                <!-- 行内详情展开 -->
-                <div
-                  v-if="expandedId === task.id"
-                  class="px-3 pb-2.5 pt-1.5 border-t border-[var(--border)]"
-                >
-                  <div class="grid grid-cols-[auto_1fr] gap-x-2 gap-y-1 text-xs">
-                    <span class="text-[var(--text-tertiary)]">{{ t('task.detailAgent') }}</span>
-                    <span class="text-[var(--text-primary)] truncate min-w-0">{{
-                      task.agent || '-'
-                    }}</span>
-                    <span class="text-[var(--text-tertiary)]">{{ t('task.detailSource') }}</span>
-                    <span class="text-[var(--text-primary)] truncate min-w-0">{{
-                      sourceLabel[task.source ?? ''] || task.source || '-'
-                    }}</span>
-                    <span class="text-[var(--text-tertiary)]">{{ t('task.detailCreated') }}</span>
-                    <span class="text-[var(--text-primary)] truncate min-w-0">{{
-                      formatTime(task.created_at)
-                    }}</span>
-                    <span class="text-[var(--text-tertiary)]">{{ t('task.detailStarted') }}</span>
-                    <span class="text-[var(--text-primary)] truncate min-w-0">{{
-                      formatTime(task.started_at)
-                    }}</span>
-                    <span class="text-[var(--text-tertiary)]">{{ t('task.detailCompleted') }}</span>
-                    <span class="text-[var(--text-primary)] truncate min-w-0">{{
-                      formatTime(task.completed_at)
-                    }}</span>
-                    <span class="text-[var(--text-tertiary)]">{{
-                      t('task.detailWorkingDir')
-                    }}</span>
-                    <span class="text-[var(--text-primary)] truncate min-w-0">{{
-                      task.working_dir || '-'
-                    }}</span>
-                    <span class="text-[var(--text-tertiary)]">{{
-                      t('task.detailExitReason')
-                    }}</span>
-                    <span class="text-[var(--text-primary)] truncate min-w-0">{{
-                      task.exit_reason || '-'
-                    }}</span>
-                  </div>
-                  <div class="text-xs mt-1">
-                    <span class="text-[var(--text-tertiary)]"
-                      >{{ t('task.detailDescription') }}:
-                    </span>
-                    <span class="text-[var(--text-primary)] whitespace-pre-wrap break-words">{{
-                      task.description || '-'
-                    }}</span>
+              <!-- 取数中 -->
+              <div v-if="logLoading" class="ah-card ah-lg-events" data-testid="task-log-loading">
+                <div class="ah-st-empty">{{ t('task.log.loading') }}</div>
+              </div>
+              <!-- 命令失败（真正的异常；可分类的「读不到」走下面的 reason） -->
+              <div v-else-if="logError" class="ah-card ah-lg-events" data-testid="task-log-error">
+                <div class="ah-st-empty">{{ logError }}</div>
+              </div>
+              <!-- 分类原因：没 CLI 会话 id / 未索引 / 读不出来，各给对应出路 -->
+              <div
+                v-else-if="logDetail && logDetail.reason"
+                class="ah-card ah-lg-events"
+                data-testid="task-log-reason"
+              >
+                <div class="ah-st-empty">
+                  <p>{{ reasonText }}</p>
+                  <p
+                    v-if="logDetail.reason === 'not-indexed'"
+                    class="text-xs text-[var(--text-tertiary)] mt-2"
+                  >
+                    {{ t('task.log.notIndexedHint') }}
+                  </p>
+                  <div
+                    v-if="logDetail.reason === 'not-indexed'"
+                    class="flex items-center gap-2 mt-3"
+                  >
+                    <button
+                      type="button"
+                      class="ah-btn ah-btn-primary ah-btn-sm"
+                      :disabled="usageScanning"
+                      data-testid="task-log-scan"
+                      @click="scanUsageAndRetry"
+                    >
+                      {{ usageScanning ? t('task.log.scanning') : t('task.log.scan') }}
+                    </button>
+                    <button
+                      type="button"
+                      class="ah-btn ah-btn-ghost ah-btn-sm"
+                      :disabled="usageScanning"
+                      data-testid="task-log-retry"
+                      @click="loadTaskLog"
+                    >
+                      {{ t('task.log.retry') }}
+                    </button>
                   </div>
                 </div>
               </div>
-            </TransitionGroup>
-
-            <!-- 空状态 -->
-            <div
-              v-if="!loading && tasks.length === 0"
-              class="flex flex-col items-center justify-center py-12"
-            >
-              <svg
-                class="w-12 h-12 text-[var(--text-tertiary)] mb-3"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="1.5"
-                  d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
-                />
-              </svg>
-              <p class="text-sm text-[var(--text-tertiary)]">{{ t('task.emptyHistory') }}</p>
-              <p class="text-xs text-[var(--text-tertiary)] mt-1">
-                {{ t('task.emptyHistoryHint') }}
-              </p>
+              <!-- 转写内容面（任务记录 / 原始 JSONL）：与 Agent 管理日志详情共用 -->
+              <SessionTranscript
+                v-else-if="logDetail?.log"
+                :session-key="openedTask.id"
+                :tab="logTab"
+                :events="logDetail.log.events"
+                :raw="logDetail.log.raw"
+                :empty-text="t('hub.lg.noEvents')"
+                :no-raw-text="t('hub.lg.noRaw')"
+                @update:tab="logTab = $event"
+              />
             </div>
-          </div>
-
-          <!-- 分页 -->
-          <div
-            v-if="total > 0"
-            class="flex items-center justify-between px-4 py-2 border-t border-[var(--border)] flex-shrink-0"
-          >
-            <span class="text-xs text-[var(--text-secondary)]">
-              {{ t('task.paginationRange', { from: pageFrom, to: pageTo, total }) }}
-            </span>
-            <div class="flex items-center gap-1.5">
-              <button
-                class="h-7 px-2.5 rounded-[6px] text-xs font-medium bg-[var(--bg-hover)] text-[var(--text-primary)] hover:bg-[var(--border)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-200"
-                :disabled="!hasPrev"
-                @click="prevPage"
-              >
-                {{ t('task.paginationPrev') }}
-              </button>
-              <button
-                class="h-7 px-2.5 rounded-[6px] text-xs font-medium bg-[var(--bg-hover)] text-[var(--text-primary)] hover:bg-[var(--border)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-200"
-                :disabled="!hasNext"
-                @click="nextPage"
-              >
-                {{ t('task.paginationNext') }}
-              </button>
-            </div>
-          </div>
+          </template>
         </div>
 
         <!-- Tab3 定时任务 -->
@@ -2714,6 +2980,9 @@ function onConfigQueueLiveChanged() {
         </div>
       </Transition>
     </div>
+
+    <!-- 恢复会话弹窗（Teleport 到 body；复用 Agent 管理的恢复链） -->
+    <ResumeSessionDialog :resume="resume" @resumed="emitResumed" />
   </div>
 </template>
 

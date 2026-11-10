@@ -112,14 +112,14 @@ mod ws_control;
 pub mod ws_events;
 mod ws_terminal;
 
+use pairing::code::PairingCode;
+use pairing::qr::QrTokenManager;
+use std::sync::{Mutex, OnceLock};
 use wasmnest_plugin_api::host::{HostBus, HostLog, HostStorage, HostTimer, HostWebsocket};
 use wasmnest_plugin_api::types::PluginManifest;
 use wasmnest_plugin_api::wasm::WasmPlugin;
 use wasmnest_plugin_api::wasm_host::WasmHost;
 use wasmnest_plugin_api::{plugin_api, BusMessage, CommandArgs};
-use pairing::code::PairingCode;
-use pairing::qr::QrTokenManager;
-use std::sync::{Mutex, OnceLock};
 
 /// 插件互调 api 声明（ADR 0017）：trait 方法名 ↔ manifest.api 条目
 /// （`com.wasmnest.bedcode.<method>`，`#[api(...)]` 覆盖为连字符名），宏在编译期
@@ -1401,9 +1401,7 @@ impl WasmPlugin for SessionPlugin {
             // 命令面保留供宿主闭环测试与调试直调。
 
             // 统一信任视图 → {devices, peerError}（issue #6：真源改指认证中心）
-            "session.trust.list" => {
-                auth_center_client::trust_list().map_err(anyhow::Error::msg)
-            }
+            "session.trust.list" => auth_center_client::trust_list().map_err(anyhow::Error::msg),
 
             // 撤销统一条目 {id} → {removed, kind}（认证中心统一裁决 pairing / peer）
             "session.trust.revoke" => {
@@ -1618,7 +1616,9 @@ impl WasmPlugin for SessionPlugin {
                             );
                         }
                         (
-                            tunnel::validate_relay_addrs(&addrs).map_err(anyhow::Error::msg)?,
+                            // 空数组 = 前端已确认「仅 LAN」（中心未配置 / 用户关掉外网）
+                            tunnel::normalize_explicit_relay_addrs(&addrs)
+                                .map_err(anyhow::Error::msg)?,
                             None,
                         )
                     }
@@ -1628,8 +1628,17 @@ impl WasmPlugin for SessionPlugin {
                     },
                 };
                 // T18：业务 WAN 注册表逐应用裁决（默认 true；显式 false = 仅 LAN）。
-                // 注册表读不到时保持默认并带出原因，不静默关掉用户已配置的外网。
-                let (allow_wan, wan_error) = relay_center::allow_wan_via_host();
+                // `allowWan` 可显式传入（前端已从同一份中心回执取到）：显式值不再重复
+                // 读中心，避免中心挂起时页面连续等两次 5s；未传时保持后端自行裁决。
+                let (allow_wan, wan_error) = match args.get("allowWan") {
+                    Some(value) => (
+                        value
+                            .as_bool()
+                            .ok_or_else(|| anyhow::anyhow!("allowWan must be a boolean"))?,
+                        None,
+                    ),
+                    None => relay_center::allow_wan_via_host(),
+                };
                 if let Some(reason) = wan_error {
                     relay_error = Some(match relay_error {
                         Some(existing) => format!("{existing}; {reason}"),
@@ -1639,8 +1648,8 @@ impl WasmPlugin for SessionPlugin {
                 if !allow_wan {
                     relay_addrs.clear();
                 }
-                let mut view = tunnel::prepare_via_host(port, &relay_addrs)
-                    .map_err(anyhow::Error::msg)?;
+                let mut view =
+                    tunnel::prepare_via_host(port, &relay_addrs).map_err(anyhow::Error::msg)?;
                 if let Some(reason) = relay_error {
                     view["relayError"] = serde_json::Value::String(reason);
                 }
@@ -1795,6 +1804,17 @@ impl WasmPlugin for SessionPlugin {
             "session.task.history-stats" => {
                 let filter = task_history_filter_from_args(&CommandArgs::new(args));
                 task::state::task_history_stats(&WasmHost, &filter)
+            }
+
+            // 任务日志详情 {task_id} → 任务行 + CLI 会话转写（对话事件流 / 原始 JSONL）
+            // 与 Agent 管理日志详情同源同解析（按 adapter + cli_session_id 复用
+            // hub usage 的读盘路径）；解析不到时用机器可读 reason 分类返回。
+            "session.task.log-session" => {
+                let task_id = CommandArgs::new(args).str_or("task_id", "");
+                if task_id.is_empty() {
+                    return Err(anyhow::anyhow!("log-session: missing task_id"));
+                }
+                task::log::read_task_log(&WasmHost, &task_id)
             }
 
             // 运行中会话（含最新任务摘要）→ {sessions}
@@ -2306,14 +2326,7 @@ impl WasmPlugin for SessionPlugin {
                 // anonymous）——桥接域的本机门禁吃它（issue #25 H3）
                 let caller = a.str_or("caller", "");
                 Ok(handle_http_endpoint(
-                    &WasmHost,
-                    &method,
-                    &path,
-                    &body,
-                    &query,
-                    &params,
-                    &device,
-                    &caller,
+                    &WasmHost, &method, &path, &body, &query, &params, &device, &caller,
                 ))
             }
 
@@ -2386,8 +2399,10 @@ impl WasmPlugin for SessionPlugin {
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| anyhow::anyhow!("projectId required"))?;
                 let dir_path = args.get("dirPath").and_then(|v| v.as_str()).unwrap_or("");
-                let exclude_dirs: Option<Vec<String>> =
-                    args.get("excludeDirs").and_then(|v| v.as_array()).map(|arr| {
+                let exclude_dirs: Option<Vec<String>> = args
+                    .get("excludeDirs")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| {
                         arr.iter()
                             .filter_map(|v| v.as_str().map(str::to_string))
                             .collect()
@@ -2406,8 +2421,7 @@ impl WasmPlugin for SessionPlugin {
                     .get("filePath")
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| anyhow::anyhow!("filePath required"))?;
-                project::files::content_via_host(project_id, file_path)
-                    .map_err(anyhow::Error::msg)
+                project::files::content_via_host(project_id, file_path).map_err(anyhow::Error::msg)
             }
 
             // 项目 Git 提交图 {projectId, limit?} → {isGitRepo, currentBranch, commits, truncated}
@@ -2458,9 +2472,7 @@ impl WasmPlugin for SessionPlugin {
             }
 
             // 切换模型 / 思考等级 {runId, model?, thinkingLevel?}（运行内生效，不重启）
-            "run.agent.set" => {
-                run::agent_control::set_via_host(&args).map_err(anyhow::Error::msg)
-            }
+            "run.agent.set" => run::agent_control::set_via_host(&args).map_err(anyhow::Error::msg),
 
             // ==================== Agent 池（编排的选人真源） ====================
             // `agent.profile.*` 必须在下一行 `agent.*` 的 hub 转发**之前**截获：池是
@@ -2734,7 +2746,10 @@ fn handle_quick_actions_http(
         Ok(items) => items,
         Err(e) => {
             host.log_warn(&format!("quick-actions http: {}", e));
-            return wasmnest_plugin_api::http_response::error(500, "quick action store unavailable");
+            return wasmnest_plugin_api::http_response::error(
+                500,
+                "quick action store unavailable",
+            );
         }
     };
     wasmnest_plugin_api::http_response::ok_with_data(serde_json::json!({
@@ -2773,6 +2788,10 @@ mod tests {
     }
 
     /// issue #6 切换：本插件**不得**再注册 / 注销认证中心（K4 单中心）
+    ///
+    /// 结构锁（不是行为锁）：`activate` / `deactivate` 是 WIT 入口、纯宿主调用，
+    /// native 无端口可注入 ⇒ 只能钉「不得出现某个调用」这条否定型不变量；
+    /// 断言的失败后果就是它存在的理由（双中心 / 半死中心）。
     ///
     /// 认证中心已迁到 `com.wasmnest.auth-center`，它负责注册与 `/api/auth/*` 路由。
     /// BedCode 若仍调用 `auth-center-register`，按其加载顺序只有两种结局：抢在中心
@@ -2814,6 +2833,9 @@ mod tests {
     }
 
     /// H1：deactivate 必须撤销隧道暴露规则（否则租约 / relay 预留 / 对等面泄漏）
+    ///
+    /// 结构锁（同 `bedcode_does_not_register_or_unregister_auth_center`：WIT 入口
+    /// 直调宿主，native 没有端口可注入）。
     #[test]
     fn deactivate_revokes_tunnel_expose() {
         let src = include_str!("lib.rs");
@@ -3077,8 +3099,9 @@ mod tests {
     /// 命令面在 native 下同样显性失败（转发层不可用，不落 Unknown command）
     #[test]
     fn center_status_command_fails_loudly_on_native() {
-        let err = SessionPlugin::invoke_command("session.auth.center-status", serde_json::json!({}))
-            .expect_err("native 无互调宿主，必须显性失败");
+        let err =
+            SessionPlugin::invoke_command("session.auth.center-status", serde_json::json!({}))
+                .expect_err("native 无互调宿主，必须显性失败");
         assert!(
             err.to_string().contains("unavailable outside wasm runtime"),
             "必须派发到认证中心转发层（而非 Unknown command）: {err}"

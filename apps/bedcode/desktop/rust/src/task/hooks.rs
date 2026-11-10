@@ -14,6 +14,7 @@
 //! ensure_agent_integration() 为统一入口（会话创建前调用），
 //! cleanup_all_agent_integrations() 为统一清理入口（禁用/退出时调用）。
 
+use serde::{Deserialize, Serialize};
 use wasmnest_plugin_api::constants::{
     CLAUDE_CONFIG_DIR_NAME, CLAUDE_SETTINGS_FILE, CODEX_CONFIG_DIR_NAME, CODEX_HOOKS_FILE,
     CODEX_HOOK_SCRIPT_NAME, HOOK_SCRIPT_NAME, OPENCODE_CONFIG_DIR_NAME, OPENCODE_HOOK_SCRIPT_NAME,
@@ -21,7 +22,6 @@ use wasmnest_plugin_api::constants::{
 };
 use wasmnest_plugin_api::host::{ConfigKey, HostConfig, HostFs, HostLog, HostStorage};
 use wasmnest_plugin_api::wasm_host::WasmHost;
-use serde::{Deserialize, Serialize};
 
 use crate::task::agent::{self, SessionIntegration};
 use crate::task::yield_guard;
@@ -831,7 +831,9 @@ fn pi_extension_port_matches(content: &str, port: u16) -> bool {
 /// v9（ADR 0004）：任务 hook 合并为 `wasmnest_bridge.ts`（事件上行 + 命令下行 + 任务状态），旧文件部署时清理。
 /// v10（2026-11-05）：新增 `agent-control` 下行命令（模型 / 思考等级运行内切换）与
 /// `model_select` / `thinking_level_select` 上行——工作台终端 header 的模型下拉。
-pub(crate) const PI_EXTENSION_TEMPLATE_VERSION: &str = "10";
+/// v11（2026-11-07）：`session_start` 上报会话身份（`session` 事件：pi 会话 id /
+/// 标题）——任务日志详情按 CLI 会话 id 定位转写、恢复会话也靠它。
+pub(crate) const PI_EXTENSION_TEMPLATE_VERSION: &str = "11";
 
 /// 检查已部署扩展是否携带当前模板版本标记
 fn pi_extension_version_matches(content: &str) -> bool {

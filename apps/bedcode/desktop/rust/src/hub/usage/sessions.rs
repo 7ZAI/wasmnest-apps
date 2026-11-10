@@ -203,6 +203,34 @@ pub(crate) fn read_session(h: &WasmHost, args: &Value) -> anyhow::Result<Value> 
     }))
 }
 
+/// 按 (adapter, cli_session_id) 打开会话（任务日志详情的入口）
+///
+/// 任务行只带 CLI 会话 id，没有 `usage_session` 主键；`UNIQUE(adapter,
+/// cli_session_id)` 是该表的业务键，按它查到行后复用 [`read_session`] 的同一条
+/// 读盘 / 解析路径（不维护第二套转写解析）。**未索引返回 `Ok(None)`**：
+/// 「日志索引里没有这个会话」与「读失败」是两种成因，调用方必须分开呈现
+/// （fail-visible：不拿空事件流冒充「无内容」）。
+pub(crate) fn read_session_by_cli_id(
+    h: &WasmHost,
+    adapter: &str,
+    cli_session_id: &str,
+) -> anyhow::Result<Option<Value>> {
+    ensure_schema(h)?;
+    let row = h
+        .plugin_db_query_params(
+            "SELECT id FROM usage_session WHERE adapter = ?1 AND cli_session_id = ?2",
+            &sql_params![adapter, cli_session_id],
+        )
+        .map_err(|e| anyhow::anyhow!("read-session: lookup failed: {e}"))?
+        .and_then(|v| v.as_array().and_then(|a| a.first().cloned()));
+    let Some(row) = row else { return Ok(None) };
+    let id = row
+        .get("id")
+        .and_then(|v| v.as_i64())
+        .ok_or_else(|| anyhow::anyhow!("read-session: invalid id in lookup row"))?;
+    read_session(h, &json!({ "id": id })).map(Some)
+}
+
 /// SQLite 源会话详情：现查联表（票 07）
 ///
 /// 失败**显性报错**（不返回空事件流）：「查不出数据」有三种完全不同的成因

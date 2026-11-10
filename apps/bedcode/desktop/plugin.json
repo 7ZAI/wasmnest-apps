@@ -103,6 +103,10 @@
         "title": "Task history statistics"
       },
       {
+        "id": "session.task.log-session",
+        "title": "Read task session transcript"
+      },
+      {
         "id": "session.task.running-sessions",
         "title": "List running sessions"
       },
@@ -193,6 +197,14 @@
       {
         "id": "session.task.scheduled-reset",
         "title": "Reset scheduled job"
+      },
+      {
+        "id": "session.relay.config",
+        "title": "Read relay config from network centre"
+      },
+      {
+        "id": "session.relay.migration",
+        "title": "Read relay migration status"
       },
       {
         "id": "project.create",

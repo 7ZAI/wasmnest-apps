@@ -21,11 +21,11 @@
 //! 静默放行。宿主第一方清单免审的目录（`.agents` / `.claude/skills` /
 //! `.pi/agent/skills` / `.wasmnest/bedcode/hub/runs`）不进申请列。
 
+use std::collections::HashMap;
+use std::sync::{Mutex, OnceLock};
 use wasmnest_plugin_api::events::ProcessDoneEvent;
 use wasmnest_plugin_api::host::{ConfigKey, HostConfig, HostFs, HostLog, HostStorage};
 use wasmnest_plugin_api::wasm_host::WasmHost;
-use std::collections::HashMap;
-use std::sync::{Mutex, OnceLock};
 
 mod agents;
 mod detect;
@@ -33,7 +33,9 @@ mod env;
 mod install;
 mod providers;
 mod skills;
-mod usage;
+// 会话日志域对**同 crate 的任务域**可见：任务日志详情按 (adapter, cli_session_id)
+// 复用同一份转写解析（`usage::read_session_by_cli_id`），不另起一套读盘逻辑。
+pub(crate) mod usage;
 mod usage_parse;
 mod usage_sqlite;
 mod util;
@@ -342,13 +344,16 @@ mod tests {
         // 宿主第一方清单已免审的目录不进申请列（清单：.agents / .claude/skills /
         // .pi/agent/skills / .wasmnest/bedcode/hub/runs；.agents 因技能库仍需逐文件读写）
         assert!(dirs.iter().all(|d| !d.contains("/.claude/skills")));
-        assert!(dirs.iter().all(|d| !d.contains("/.wasmnest/bedcode/hub/runs")));
+        assert!(dirs
+            .iter()
+            .all(|d| !d.contains("/.wasmnest/bedcode/hub/runs")));
     }
 
     /// list-agents 路由：返回注册表全量（顺序/展示名/能力形状），未知命令仍然拒绝
     #[test]
     fn list_agents_route_returns_registry() {
-        let out = invoke_command("agent.list-agents", serde_json::json!(null)).expect("list-agents");
+        let out =
+            invoke_command("agent.list-agents", serde_json::json!(null)).expect("list-agents");
         let agents = out["agents"].as_array().expect("agents array");
         let ids: Vec<&str> = agents
             .iter()

@@ -222,6 +222,9 @@ describe('C1 工程身份五处一致', () => {
       'session.task.scheduled-create',
       'session.task.scheduled-delete',
       'session.task.scheduled-reset',
+      // T18：网络配置中心消费面（只读投影 + 迁移状态）
+      'session.relay.config',
+      'session.relay.migration',
       // Agent 管理域（原 agent-hub 并入）：hub/mod.rs 分派臂逐条对应；
       // `agent.add/remove-usage-source-path` 为并入时补齐的漏声明（旧 agent-hub
       // manifest 未登记但路由在，生产不可调）

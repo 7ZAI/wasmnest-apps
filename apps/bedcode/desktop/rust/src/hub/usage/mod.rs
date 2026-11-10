@@ -41,7 +41,7 @@ mod stats;
 pub(crate) use clear::clear_data;
 pub(crate) use scan::{handle_scan_done, scan};
 pub(crate) use schema::ensure_schema;
-pub(crate) use sessions::{list_sessions, read_session};
+pub(crate) use sessions::{list_sessions, read_session, read_session_by_cli_id};
 pub(crate) use sources::{
     add_source, add_source_path, list_sources, pick_source_dir, remove_source, remove_source_path,
 };
@@ -49,9 +49,9 @@ pub(crate) use stats::get_stats;
 
 use super::{AUTH_KEY, HOME};
 use crate::hub::install::now_ms;
+use serde_json::{json, Value};
 use wasmnest_plugin_api::host::{HostEvents, HostLog, HostStorage};
 use wasmnest_plugin_api::wasm_host::WasmHost;
-use serde_json::{json, Value};
 
 /// host-storage 键：使用统计域状态
 pub(crate) const USAGE_KEY: &str = "usage";

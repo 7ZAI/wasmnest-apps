@@ -57,7 +57,10 @@ const WASMNEST_PORT = 8765 // @wasmnest-port
 // 模板版本标记：内容升级时递增，宿主据此对旧部署副本自动重部署（hooks.rs）
 // v10（2026-11-05）：新增 `agent-control` 命令（模型 / 思考等级运行内切换）+
 // model_select / thinking_level_select 上行（工作台终端 header 的下拉）。
-// @wasmnest-template-version 10
+// v11（2026-11-07）：session_start 上报会话身份（`session` 事件：pi 会话 id /
+// 标题）——任务日志详情要按 CLI 会话 id 找转写文件，运行行的
+// `agent_session_id` 由它回填（此前 pi 只上行宿主 PTY 会话 id，无法定位）。
+// @wasmnest-template-version 11
 
 const PLUGIN_ID = 'com.wasmnest.bedcode'
 const HOST = '127.0.0.1'
@@ -448,6 +451,19 @@ export default function (pi: ExtensionAPI) {
     agentBusy = false
     void push('idle', 'Session started')
     enqueueEvent({ type: 'session_start', reason: event.reason })
+    // 会话身份上报（`session` 事件 → 后端回填运行行 `agent_session_id` 与标题）：
+    // pi 的会话 id 是它自己 JSONL 转写的真源键，任务日志详情 / resume 都靠它。
+    // 防御式取值：旧版 pi 的 ctx 可能没有 sessionManager（不因此打断上行）。
+    const sessionManager = ctx?.sessionManager
+    const sessionId = sessionManager?.getSessionId?.()
+    if (sessionId) {
+      enqueueEvent({
+        type: 'session',
+        id: sessionId,
+        title: sessionManager?.getSessionName?.() ?? undefined,
+        timestamp: new Date().toISOString(),
+      })
+    }
     if (ctx.model) {
       enqueueEvent({
         type: 'model_change',
