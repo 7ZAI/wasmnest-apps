@@ -38,6 +38,8 @@ export interface RelayConfigView {
   centerError: string | null
   /** 业务 WAN 注册表开关（缺省 = true） */
   allowWan?: boolean
+  /** 注册表读取失败原因（后端按默认 true 继续，但原因必须可见） */
+  wanPolicyError?: string | null
   config?: unknown
 }
 
@@ -50,6 +52,8 @@ export interface TunnelStatusState {
   relay: Ref<RelayConfigView | null>
   /** T18：取中心配置失败的原因（后端已用缓存兜底时仍然记录） */
   relayError: Ref<string | null>
+  /** T18：WAN 注册表读取失败的原因（策略按默认 true 继续，但必须上屏） */
+  wanPolicyError: Ref<string | null>
   /** 准备并读取（页面进入 / 手动刷新） */
   prepare: () => Promise<void>
   /** 只读读取（轮询；不写配置、不建规则） */
@@ -68,6 +72,7 @@ export function useTunnelStatus(env: TunnelStatusEnv | null | undefined): Tunnel
   const loading = ref(false)
   const relay = ref<RelayConfigView | null>(null)
   const relayError = ref<string | null>(null)
+  const wanPolicyError = ref<string | null>(null)
 
   async function run(command: string, args: Record<string, unknown> = {}): Promise<void> {
     if (!env) {
@@ -88,7 +93,7 @@ export function useTunnelStatus(env: TunnelStatusEnv | null | undefined): Tunnel
   }
 
   /**
-   * 取中心配置并把地址显式传给 prepare。
+   * 取中心配置并把地址 + WAN 开关显式传给 prepare。
    *
    * 取不到不阻断 prepare（后端会再试一次中心 + 缓存兜底）；这里只负责把
    * `source` / `centerError` 带到界面上。
@@ -99,13 +104,21 @@ export function useTunnelStatus(env: TunnelStatusEnv | null | undefined): Tunnel
       const view = (await env.commands.execute('session.relay.config')) as RelayConfigView
       relay.value = view
       relayError.value = view.centerError
-      return view.configured && view.relayAddrs.length > 0
-        ? { relayAddrs: view.relayAddrs }
-        : {}
+      wanPolicyError.value = view.wanPolicyError ?? null
+      const hasAddrs = view.configured && view.relayAddrs.length > 0
+      // 显式传入（含空数组 = 仅 LAN）与 allowWan：后端不再重复读中心。中心挂起时
+      // 页面不会在「取配置 → prepare」路径上连续等两次超时。
+      const args: Record<string, unknown> = { relayAddrs: hasAddrs ? view.relayAddrs : [] }
+      // 缺字段按后端默认（允许）处理：显式传 true 才能避免 prepare 再读一次中心。
+      args.allowWan = view.allowWan ?? true
+      return args
     } catch (e) {
       relay.value = null
       relayError.value = errorMessage(e)
-      return {}
+      wanPolicyError.value = null
+      // 取配置失败 = 中心与本地缓存都不可用；prepare 再试一次只会重复超时，
+      // 直接显式走 LAN 分支（配置弹层的错误已上屏）。
+      return { relayAddrs: [], allowWan: true }
     }
   }
 
@@ -118,6 +131,7 @@ export function useTunnelStatus(env: TunnelStatusEnv | null | undefined): Tunnel
     summary,
     relay,
     relayError,
+    wanPolicyError,
     prepare: async () => {
       const args = await relayArgs()
       await run('session.tunnel.prepare', args)

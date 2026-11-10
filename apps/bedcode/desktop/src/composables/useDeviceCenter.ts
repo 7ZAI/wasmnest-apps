@@ -69,6 +69,10 @@ export interface QrConnectionInfo {
    * 非空 = 载荷退回 v1（仅内网可配对），界面必须展示原因，不得静默当作「正常」。
    */
   peerError?: string | null
+  /** T18：中继配置降级原因（中心不可用 / 注册表读不到）；非空 = 界面必须提示 */
+  relayError?: string | null
+  /** T18：业务注册表显式关闭外网 → 载荷只含 LAN 地址 */
+  wanDisabledByPolicy?: boolean
 }
 
 /** 插件存储键：用户选择的对外 IP（宿主 `AppConfig.network.qr_host` 的插件侧承接） */
@@ -124,6 +128,10 @@ export function useDeviceCenter(context: PluginContext) {
    * `qrPeerError` = 隧道不可用导致**退回 v1**（可继续扫，只是仅内网可达）。
    */
   const qrPeerError = computed(() => qrData.value?.peerError ?? null)
+  /** T18：QR 载荷里的中继降级原因（不能是死字段） */
+  const qrRelayError = computed(() => qrData.value?.relayError ?? null)
+  /** T18：业务注册表关闭外网 → 二维码只含 LAN 地址 */
+  const qrWanDisabled = computed(() => qrData.value?.wanDisabledByPolicy === true)
   const hasQr = computed(() => qrData.value !== null && qrRemainingSeconds.value > 0)
 
   // ==================== 设备列表 ====================
@@ -498,6 +506,8 @@ export function useDeviceCenter(context: PluginContext) {
     isQrLoading,
     qrError: qrError as Ref<PairingPayloadErrorReason | null>,
     qrPeerError,
+    qrRelayError,
+    qrWanDisabled,
     hasQr: hasQr as ComputedRef<boolean>,
     generateQr,
     restoreQr,

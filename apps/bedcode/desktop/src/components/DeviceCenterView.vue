@@ -162,6 +162,15 @@
                   : t('pairing.tunnel.relayCenterUnavailable')
               }}
             </span>
+            <!-- T18：WAN 注册表读不到 → 策略按默认 true 继续，但原因必须可见 -->
+            <span
+              v-if="tunnel.wanPolicyError.value"
+              data-testid="pairing-tunnel-wan-policy-error"
+              class="inline-flex items-center px-1.5 h-5 rounded-[6px] bg-[var(--color-warning-light)] text-[var(--color-warning)] text-[calc(11px*var(--ui-scale))]"
+              :title="tunnel.wanPolicyError.value"
+            >
+              {{ t('pairing.tunnel.wanPolicyUnreadable') }}
+            </span>
             <!-- 加密是常量事实（不变量 12/14）：没有关闭入口，故只显示徽标 -->
             <span
               data-testid="pairing-tunnel-encryption"
@@ -322,6 +331,22 @@
                 >
                   {{ t('pairing.qr.copyLink') }}
                 </button>
+                <!-- T18：中继降级 / 注册表关闭外网：二维码仍可用，但必须能看出只走 LAN -->
+                <p
+                  v-if="qrRelayError"
+                  data-testid="pairing-qr-relay-error"
+                  class="mt-2 text-[calc(11px*var(--ui-scale))] text-[var(--color-warning)] leading-relaxed"
+                  :title="qrRelayError"
+                >
+                  {{ t('pairing.qr.relayDegraded') }}
+                </p>
+                <p
+                  v-if="qrWanDisabled"
+                  data-testid="pairing-qr-wan-disabled"
+                  class="mt-2 text-[calc(11px*var(--ui-scale))] text-[var(--color-warning)] leading-relaxed"
+                >
+                  {{ t('pairing.qr.wanDisabled') }}
+                </p>
                 <!-- T08：隧道 peer 未产出 → 载荷为 v1（仅内网），原因必须可见 -->
                 <p
                   v-if="qrPeerError"
@@ -625,6 +650,8 @@ const {
   hasQr,
   qrError,
   qrPeerError,
+  qrRelayError,
+  qrWanDisabled,
   generateQr,
   restoreQr,
   clearQr,

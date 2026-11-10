@@ -109,25 +109,21 @@ fn relay_addrs_from_center_payload(payload: &Value) -> Result<Vec<String>, Strin
 
 /// 解析当前可用 relay 配置（中心 → 本地缓存；两者都不可用 = 显性错误）
 pub fn resolve_relay(host: &impl RelayCenterHost) -> Result<ResolvedRelay, String> {
-    let mut center_error: Option<String>;
-
-    match host.read_center() {
-        Ok(payload) => {
-            let configured = payload
-                .get("configured")
-                .and_then(Value::as_bool)
-                .unwrap_or(false);
-            if !configured {
-                // 中心明确说「未配置」：不回落到缓存（用户可能主动清空了中心）
+    // 中心回执不可信：缺 `configured` / 类型不对属于「回执损坏」，与调用失败一样
+    // 走缓存兜底（不能把损坏静默当成「用户主动清空」）。
+    let center_error: Option<String> = match host.read_center() {
+        Ok(payload) => match payload.get("configured").and_then(Value::as_bool) {
+            // 中心明确说「未配置」：不回落到缓存（用户可能主动清空了中心）
+            Some(false) => {
                 return Ok(ResolvedRelay {
                     configured: false,
                     addrs: Vec::new(),
                     source: "center",
                     center_error: None,
                     raw: None,
-                });
+                })
             }
-            match relay_addrs_from_center_payload(&payload) {
+            Some(true) => match relay_addrs_from_center_payload(&payload) {
                 Ok(addrs) => {
                     return Ok(ResolvedRelay {
                         configured: true,
@@ -137,11 +133,12 @@ pub fn resolve_relay(host: &impl RelayCenterHost) -> Result<ResolvedRelay, Strin
                         raw: payload.get("config").cloned(),
                     })
                 }
-                Err(e) => center_error = Some(e),
-            }
-        }
-        Err(e) => center_error = Some(e),
-    }
+                Err(e) => Some(e),
+            },
+            None => Some("network centre reply missing configured".to_string()),
+        },
+        Err(e) => Some(e),
+    };
 
     // 中心不可用 / 回执损坏 → 本地缓存兜底
     let cached = host.read_kv(crate::tunnel::RELAY_SETTINGS_STORAGE_KEY)?;
@@ -210,6 +207,16 @@ pub fn migrate(host: &impl RelayCenterHost) -> Result<Value, String> {
             "state": "none",
         }));
     };
+
+    // 迁移成功后本地键按设计保留为缓存，因此**之后每次 activate** 都会再走到这里。
+    // `adopted` / `skipped` 是终态：直接复用上次结果，不再发起中心调用（中心异常时
+    // 不会在启动路径上重复阻塞 5s）。`failed` 仍会重试（中心可能已恢复）。
+    if let Some(previous) = host.read_kv(MIGRATION_STORAGE_KEY)? {
+        let state = previous.get("state").and_then(Value::as_str);
+        if matches!(state, Some("adopted" | "skipped")) {
+            return Ok(previous);
+        }
+    }
 
     let status = match crate::tunnel::relay_addrs_from_settings(&local) {
         Err(detail) => serde_json::json!({
@@ -372,7 +379,8 @@ mod tests {
     use std::collections::BTreeMap;
 
     const PEER_ID: &str = "12D3KooWEgB32or8rjD4jBv6KdABzehxstZ4oFVJV934U9GU387H";
-    const ADDR: &str = "/dns4/relay.example.com/tcp/4001/p2p/12D3KooWEgB32or8rjD4jBv6KdABzehxstZ4oFVJV934U9GU387H";
+    const ADDR: &str =
+        "/dns4/relay.example.com/tcp/4001/p2p/12D3KooWEgB32or8rjD4jBv6KdABzehxstZ4oFVJV934U9GU387H";
 
     fn relay_settings(addrs: &[&str]) -> Value {
         serde_json::json!({
@@ -385,6 +393,7 @@ mod tests {
         center: Result<Value, String>,
         policy: Result<Value, String>,
         adopt: Result<Value, String>,
+        adopt_calls: std::cell::Cell<usize>,
         local: RefCell<BTreeMap<String, Value>>,
     }
 
@@ -394,6 +403,7 @@ mod tests {
                 center,
                 policy: Ok(serde_json::json!({ "version": 1, "apps": {} })),
                 adopt: Ok(serde_json::json!({ "adopted": true })),
+                adopt_calls: std::cell::Cell::new(0),
                 local: RefCell::new(BTreeMap::new()),
             }
         }
@@ -414,6 +424,10 @@ mod tests {
             self.adopt = outcome;
             self
         }
+
+        fn adopt_calls(&self) -> usize {
+            self.adopt_calls.get()
+        }
     }
 
     impl RelayCenterHost for FakeCenter {
@@ -426,6 +440,7 @@ mod tests {
         }
 
         fn adopt(&self, _config: &Value) -> Result<Value, String> {
+            self.adopt_calls.set(self.adopt_calls.get() + 1);
             self.adopt.clone()
         }
 
@@ -512,6 +527,32 @@ mod tests {
             .as_deref()
             .unwrap_or("")
             .contains("shape invalid"));
+    }
+
+    #[test]
+    fn centre_reply_missing_configured_falls_back_to_cache() {
+        // 缺字段 ≠ 用户主动清空：必须报「回执损坏」并用缓存兜底
+        let host = FakeCenter::new(Ok(serde_json::json!({}))).with_local(relay_settings(&[ADDR]));
+        let resolved = resolve_relay(&host).expect("resolve");
+        assert_eq!(resolved.source, "cache");
+        assert_eq!(resolved.addrs, vec![ADDR.to_string()]);
+        assert!(
+            resolved
+                .center_error
+                .as_deref()
+                .unwrap_or("")
+                .contains("configured"),
+            "回执损坏原因必须带出: {:?}",
+            resolved.center_error
+        );
+    }
+
+    #[test]
+    fn centre_reply_missing_configured_without_cache_is_visible() {
+        let host = FakeCenter::new(Ok(serde_json::json!({})));
+        let err = resolve_relay(&host).expect_err("中心回执损坏且无缓存必须显性失败");
+        assert!(err.contains("configured"), "{err}");
+        assert!(err.contains("unavailable"), "{err}");
     }
 
     #[test]
@@ -626,10 +667,46 @@ mod tests {
             .with_adopt(Err("api call host error: timeout".to_string()));
         let status = migrate(&down).expect("migrate");
         assert_eq!(status["state"], serde_json::json!("failed"));
-        assert!(status["detail"]
-            .as_str()
-            .unwrap_or("")
-            .contains("timeout"));
+        assert!(status["detail"].as_str().unwrap_or("").contains("timeout"));
+    }
+
+    #[test]
+    fn migrate_does_not_re_adopt_after_terminal_state() {
+        let host = FakeCenter::new(Ok(serde_json::json!({ "configured": false })))
+            .with_local(relay_settings(&[ADDR]));
+        let first = migrate(&host).expect("migrate");
+        assert_eq!(first["state"], serde_json::json!("adopted"));
+        assert_eq!(host.adopt_calls(), 1);
+
+        // 后续 activate：本地键仍是缓存，但终态已记录 → 不再调中心
+        let second = migrate(&host).expect("migrate again");
+        assert_eq!(second["state"], serde_json::json!("adopted"));
+        assert_eq!(host.adopt_calls(), 1, "adopted 终态不得重复收养");
+    }
+
+    #[test]
+    fn migrate_retries_after_failed_state() {
+        let host = FakeCenter::new(Ok(serde_json::json!({ "configured": false })))
+            .with_local(relay_settings(&[ADDR]))
+            .with_adopt(Err("api call host error: timeout".to_string()));
+        assert_eq!(
+            migrate(&host).expect("migrate")["state"],
+            serde_json::json!("failed")
+        );
+        assert_eq!(host.adopt_calls(), 1);
+
+        // 中心恢复后重试仍会真正收养
+        let host = FakeCenter::new(Ok(serde_json::json!({ "configured": false })))
+            .with_local(relay_settings(&[ADDR]));
+        host.local.borrow_mut().insert(
+            MIGRATION_STORAGE_KEY.to_string(),
+            serde_json::json!({ "version": 1, "state": "failed", "detail": "timeout" }),
+        );
+        assert_eq!(
+            migrate(&host).expect("retry")["state"],
+            serde_json::json!("adopted")
+        );
+        assert_eq!(host.adopt_calls(), 1);
     }
 
     #[test]

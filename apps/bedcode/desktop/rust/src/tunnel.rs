@@ -88,7 +88,9 @@ pub fn validate_relay_addrs(addrs: &[String]) -> Result<Vec<String>, String> {
         let (host_proto, host, tcp_proto, port, p2p_proto, peer_id) =
             (parts[0], parts[1], parts[2], parts[3], parts[4], parts[5]);
         if !matches!(host_proto, "ip4" | "ip6" | "dns" | "dns4" | "dns6") {
-            return Err(format!("relay address host protocol unsupported: {host_proto}"));
+            return Err(format!(
+                "relay address host protocol unsupported: {host_proto}"
+            ));
         }
         if host.is_empty() {
             return Err(format!("relay address has an empty host: {addr}"));
@@ -102,7 +104,7 @@ pub fn validate_relay_addrs(addrs: &[String]) -> Result<Vec<String>, String> {
         if port == 0 || port > 65535 {
             return Err(format!("relay address port out of range: {addr}"));
         }
-        if peer_id.is_empty() || peer_id.len() > 128 {
+        if !peer_id_is_plausible(peer_id) {
             return Err(format!("relay address has an invalid peer id: {addr}"));
         }
         if !out.iter().any(|existing| existing == addr) {
@@ -110,6 +112,27 @@ pub fn validate_relay_addrs(addrs: &[String]) -> Result<Vec<String>, String> {
         }
     }
     Ok(out)
+}
+
+/// PeerId 形态：base58 字母表 + 合理长度（与网络配置中心 `model.rs` 同口径）
+///
+/// 完整公钥解码与指纹复算在前端导入期完成；后端守住「不是 base58 / 长度离谱」
+/// 这类存储层污染，避免把任意字符串写进宿主通道配置。
+fn peer_id_is_plausible(peer_id: &str) -> bool {
+    const BASE58: &str = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+    peer_id.len() >= 32 && peer_id.len() <= 128 && peer_id.chars().all(|c| BASE58.contains(c))
+}
+
+/// 显式地址入参的规范化：空列表 = 仅 LAN（合法状态），非空才做形状校验
+///
+/// `session.tunnel.prepare` 的 `relayAddrs: []` 是「用户主动清空中心配置」的
+/// 正常表达，不是错误——错误只应来自非法地址，而不是「没有地址」。
+pub fn normalize_explicit_relay_addrs(addrs: &[String]) -> Result<Vec<String>, String> {
+    if addrs.is_empty() {
+        Ok(Vec::new())
+    } else {
+        validate_relay_addrs(addrs)
+    }
 }
 
 /// 插件 KV `network.relay` → 中继地址列表
@@ -674,7 +697,8 @@ mod tests {
             "未配置中继 → allowWan=false（LAN 入口不受影响）"
         );
 
-        let addr = "/ip4/203.0.113.9/tcp/4001/p2p/12D3KooWPbYEEfpRvnRKk2YLu43F28fLZgU22wic2M5m6Spkv9ZA";
+        let addr =
+            "/ip4/203.0.113.9/tcp/4001/p2p/12D3KooWPbYEEfpRvnRKk2YLu43F28fLZgU22wic2M5m6Spkv9ZA";
         assert!(sync_channel_config(&fake, &[addr.to_string()]).expect("configure"));
         assert_eq!(
             fake.calls().last().unwrap(),
@@ -692,11 +716,16 @@ mod tests {
             "/ip4/1.2.3.4/tcp/4001".to_string(),
             "/ip4/1.2.3.4/tcp/4001/p2p/12D3KooWPbYEEfpRvnRKk2YLu43F28fLZgU22wic2M5m6Spkv9ZA/p2p-circuit/p2p/12D3KooWPbYEEfpRvnRKk2YLu43F28fLZgU22wic2M5m6Spkv9ZA".to_string(),
             " /ip4/1.2.3.4/tcp/4001/p2p/12D3KooWPbYEEfpRvnRKk2YLu43F28fLZgU22wic2M5m6Spkv9ZA".to_string(),
+            // 非 base58 / 过短的 peer id 不能被当成合法中继地址
+            "/ip4/1.2.3.4/tcp/4001/p2p/not-a-peer-id".to_string(),
         ] {
             let err = sync_channel_config(&fake, &[bad.clone()]).expect_err("必须拒绝");
             assert!(!err.is_empty(), "{bad:?} 必须给出原因");
         }
-        assert!(sync_channel_config(&fake, &[]).is_err(), "空列表不是 sync 的输入");
+        assert!(
+            sync_channel_config(&fake, &[]).is_err(),
+            "空列表不是 sync 的输入"
+        );
         assert!(
             !fake.calls().iter().any(|c| c.starts_with("configure")),
             "地址不可信时不得写入宿主"
@@ -722,7 +751,8 @@ mod tests {
             ])),
             None,
         );
-        let addr = "/ip4/203.0.113.9/tcp/4001/p2p/12D3KooWPbYEEfpRvnRKk2YLu43F28fLZgU22wic2M5m6Spkv9ZA";
+        let addr =
+            "/ip4/203.0.113.9/tcp/4001/p2p/12D3KooWPbYEEfpRvnRKk2YLu43F28fLZgU22wic2M5m6Spkv9ZA";
         assert_eq!(
             prepare_channel(&fake, 8765, &[addr.to_string()]).expect("prepare"),
             "rule-1"
@@ -744,13 +774,20 @@ mod tests {
         );
     }
 
-    /// 显式地址的规范化：重复地址去重、顺序保持；空列表由 LAN 分支处理
+    /// 显式地址的规范化：空列表 = 仅 LAN；重复地址去重、顺序保持
     #[test]
     fn explicit_addrs_are_deduped_and_ordered() {
-        let a = "/ip4/203.0.113.9/tcp/4001/p2p/12D3KooWPbYEEfpRvnRKk2YLu43F28fLZgU22wic2M5m6Spkv9ZA";
+        assert_eq!(
+            normalize_explicit_relay_addrs(&[]).expect("空列表 = 仅 LAN"),
+            Vec::<String>::new()
+        );
+        assert!(normalize_explicit_relay_addrs(&["bad".to_string()]).is_err());
+
+        let a =
+            "/ip4/203.0.113.9/tcp/4001/p2p/12D3KooWPbYEEfpRvnRKk2YLu43F28fLZgU22wic2M5m6Spkv9ZA";
         let b = "/dns4/relay.example.com/tcp/4001/p2p/12D3KooWPbYEEfpRvnRKk2YLu43F28fLZgU22wic2M5m6Spkv9ZA";
-        let addrs = validate_relay_addrs(&[a.to_string(), b.to_string(), a.to_string()])
-            .expect("validate");
+        let addrs =
+            validate_relay_addrs(&[a.to_string(), b.to_string(), a.to_string()]).expect("validate");
         assert_eq!(addrs, vec![a.to_string(), b.to_string()]);
     }
 
@@ -792,10 +829,7 @@ mod tests {
         for (name, result) in [
             ("tunnel.prepare", prepare_via_host(8765, &[]).map(|_| ())),
             ("tunnel.status", status_via_host().map(|_| ())),
-            (
-                "tunnel.peer",
-                pairing_peer_via_host(8765, &[]).map(|_| ()),
-            ),
+            ("tunnel.peer", pairing_peer_via_host(8765, &[]).map(|_| ())),
             ("tunnel.unexpose", unexpose_via_host().map(|_| ())),
         ] {
             let err = result.expect_err("native 必须显性失败");

@@ -265,11 +265,11 @@ fn qr_connection_info(
         u16::try_from(port).map_err(|_| format!("network port out of range: {port}"))?;
     // T18：中继地址从网络配置中心取（本地缓存兜底）。取不到**不阻断 LAN 配对**：
     // 退化为仅 LAN 并把原因带出（`relayError`），不伪造 WAN 可用。
-    let (mut relay_addrs, mut relay_error) = match crate::relay_center::resolve_relay_addrs_via_host()
-    {
-        Ok(resolved) => (resolved.addrs, resolved.center_error),
-        Err(e) => (Vec::new(), Some(e)),
-    };
+    let (mut relay_addrs, mut relay_error) =
+        match crate::relay_center::resolve_relay_addrs_via_host() {
+            Ok(resolved) => (resolved.addrs, resolved.center_error),
+            Err(e) => (Vec::new(), Some(e)),
+        };
     // T18：注册表显式关闭本业务时只产出 LAN 地址（不建中继预留）；
     // 注册表读不到时保持默认 true，但把原因带出（不静默关外网）。
     let (allow_wan, wan_error) = crate::relay_center::allow_wan_via_host();
@@ -509,7 +509,10 @@ mod tests {
             ("pairing.generate", pairing_generate_via_host().map(|_| ())),
             ("pairing.status", pairing_status_via_host().map(|_| ())),
             ("pairing.clear", pairing_clear_via_host()),
-            ("qr.generate", qr_generate_via_host(Some("192.168.1.10")).map(|_| ())),
+            (
+                "qr.generate",
+                qr_generate_via_host(Some("192.168.1.10")).map(|_| ()),
+            ),
             ("qr.info", qr_info_via_host(None).map(|_| ())),
             ("qr.clear", qr_clear_via_host()),
         ] {

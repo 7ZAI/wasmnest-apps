@@ -53,6 +53,15 @@
         {{ t('relay.moved.centerError', { message: centerError || t('relay.moved.sourceCache') }) }}
       </p>
 
+      <!-- WAN 注册表读不到：策略按默认 true 继续，但用户必须知道关不掉的真实原因 -->
+      <p
+        v-if="config?.wanPolicyError"
+        class="text-xs text-[var(--color-warning-ink)] leading-relaxed"
+        data-testid="relay-moved-wan-policy-error"
+      >
+        {{ t('relay.moved.wanPolicyError', { message: config.wanPolicyError }) }}
+      </p>
+
       <!-- 迁移失败：本地旧配置没能进中心，用户需要显式重新导入 -->
       <p
         v-if="migration?.state === 'failed'"
@@ -99,6 +108,8 @@ interface RelayConfigView {
   centerError: string | null
   /** 业务 WAN 注册表开关（缺省 = true） */
   allowWan?: boolean
+  /** 注册表读取失败原因（策略按默认 true 继续，但原因必须可见） */
+  wanPolicyError?: string | null
 }
 
 /** `session.relay.migration` 回执 */

@@ -103,6 +103,8 @@ async function defaultExecute(command: string, args?: unknown): Promise<unknown>
         relayAddrs: [RELAY_ADDR],
         source: 'center',
         centerError: null,
+        allowWan: true,
+        wanPolicyError: null,
       }
     case 'session.tunnel.prepare':
     case 'session.tunnel.status':
@@ -888,8 +890,54 @@ describe('DeviceCenterView（设备与配对页面）', () => {
 
     const prepare = commandsTo('session.tunnel.prepare')
     expect(prepare).toHaveLength(1)
-    expect(prepare[0][1]).toEqual({ relayAddrs: [RELAY_ADDR] })
+    expect(prepare[0][1]).toEqual({ relayAddrs: [RELAY_ADDR], allowWan: true })
     expect(wrapper.find('[data-testid="pairing-tunnel-relay-source"]').exists()).toBe(false)
+  })
+
+  it('C27b2 未配置中心地址时显式传空数组 + allowWan（不再让后端重复等中心）', async () => {
+    execute.mockImplementation(async (command: string, args?: unknown) => {
+      if (command === 'session.relay.config') {
+        return {
+          configured: false,
+          relayAddrs: [],
+          source: 'center',
+          centerError: null,
+          allowWan: true,
+          wanPolicyError: null,
+        }
+      }
+      return defaultExecute(command, args)
+    })
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(commandsTo('session.tunnel.prepare').at(-1)![1]).toEqual({
+      relayAddrs: [],
+      allowWan: true,
+    })
+    expect(wrapper.find('[data-testid="pairing-tunnel-relay-source"]').exists()).toBe(false)
+  })
+
+  it('C27b3 WAN 注册表读不到时显性可见（策略按默认 true 继续）', async () => {
+    execute.mockImplementation(async (command: string, args?: unknown) => {
+      if (command === 'session.relay.config') {
+        return {
+          configured: true,
+          relayAddrs: [RELAY_ADDR],
+          source: 'center',
+          centerError: null,
+          allowWan: true,
+          wanPolicyError: 'wan policy unreadable: timeout',
+        }
+      }
+      return defaultExecute(command, args)
+    })
+    const wrapper = mountView()
+    await flushPromises()
+
+    const badge = wrapper.find('[data-testid="pairing-tunnel-wan-policy-error"]')
+    expect(badge.exists()).toBe(true)
+    expect(badge.attributes('title')).toBe('wan policy unreadable: timeout')
   })
 
   it('C27c 中心不可用、正在用缓存时显性提示（T18）', async () => {
@@ -914,6 +962,7 @@ describe('DeviceCenterView（设备与配对页面）', () => {
     // 缓存地址仍要传给后端，否则「缓存兜底」只停在界面上
     expect(commandsTo('session.tunnel.prepare').at(-1)![1]).toEqual({
       relayAddrs: [RELAY_ADDR],
+      allowWan: true,
     })
   })
 
@@ -951,5 +1000,28 @@ describe('DeviceCenterView（设备与配对页面）', () => {
     expect(hint.text()).toBe('pairing.tunnel.onlyLan')
     // 载荷仍是可用的 v1（能扫，只是仅内网）
     expect(wrapper.find('[data-testid="pairing-qr-copy-link"]').exists()).toBe(true)
+  })
+
+  it('C29b QR 载荷里的中继降级 / 关闭外网不再是死字段', async () => {
+    execute.mockImplementation(async (command: string, args?: unknown) => {
+      if (command === 'session.qr.generate') {
+        return {
+          ...seed.qr,
+          relayError: 'api call host error: timeout',
+          wanDisabledByPolicy: true,
+        }
+      }
+      return defaultExecute(command, args)
+    })
+    const wrapper = mountView()
+    await flushPromises()
+
+    await findButton(wrapper, 'pairing.qr.generate')!.trigger('click')
+    await flushPromises()
+
+    const degraded = wrapper.find('[data-testid="pairing-qr-relay-error"]')
+    expect(degraded.exists()).toBe(true)
+    expect(degraded.attributes('title')).toBe('api call host error: timeout')
+    expect(wrapper.find('[data-testid="pairing-qr-wan-disabled"]').exists()).toBe(true)
   })
 })

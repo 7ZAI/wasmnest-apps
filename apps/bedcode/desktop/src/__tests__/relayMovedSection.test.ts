@@ -160,4 +160,26 @@ describe('降级与迁移失败可见', () => {
     expect(wrapper.find('[data-testid="relay-moved-state"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="relay-moved-migration-error"]').exists()).toBe(false)
   })
+
+  it('WAN 注册表读不到：原因上屏（策略按默认 true 继续）', async () => {
+    const wrapper = await mountSection(
+      makeContext({
+        config: {
+          configured: true,
+          relayAddrs: [
+            '/dns4/relay.example.com/tcp/4001/p2p/12D3KooWEgB32or8rjD4jBv6KdABzehxstZ4oFVJV934U9GU387H',
+          ],
+          source: 'center',
+          centerError: null,
+          allowWan: true,
+          wanPolicyError: 'wan policy unreadable: timeout',
+        },
+      }),
+    )
+    const warning = wrapper.get('[data-testid="relay-moved-wan-policy-error"]')
+    expect(warning.text()).toContain('timeout')
+    expect(wrapper.get('[data-testid="relay-moved-state"]').text()).toContain(
+      t('relay.moved.sourceCenter'),
+    )
+  })
 })
