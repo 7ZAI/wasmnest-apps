@@ -128,7 +128,7 @@ export function filterPresetCommands(commands: string[], input: string): string[
   return commands.filter(c => c.length > 1 && c.toLowerCase().startsWith(`/${keyword}`))
 }
 
-/** 会话启动命令 → Agent CLI 关键词包含匹配（命中即返回，按序优先） */
+/** 会话启动命令 → Agent CLI 关键词匹配（命中即返回，按序优先） */
 const AGENT_KEYWORDS: Array<[Exclude<AgentType, 'generic'>, string]> = [
   ['claude_code', 'claude'],
   ['codex', 'codex'],
@@ -136,11 +136,23 @@ const AGENT_KEYWORDS: Array<[Exclude<AgentType, 'generic'>, string]> = [
   ['pi', 'pi'],
 ]
 
+/**
+ * 关键词是否以**词边界**出现在命令里
+ *
+ * 旧实现用 `includes('pi')`：`pip` / `python` / `pipx` 全部被误判成 pi，
+ * 加载错误的预设面板（P2-4）。边界判据是「前后不是字母/数字」——保留
+ * `npx pi`、`/usr/bin/pi`、`pi-coding-agent`（`-` 是边界），排除 `pip`。
+ */
+function matchesKeyword(lower: string, keyword: string): boolean {
+  const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return new RegExp(`(^|[^a-z0-9])${escaped}([^a-z0-9]|$)`).test(lower)
+}
+
 /** 从会话启动命令识别 Agent CLI；未命中返回 generic */
 export function detectAgentType(command: string): AgentType {
   const lower = command.toLowerCase()
   for (const [type, keyword] of AGENT_KEYWORDS) {
-    if (lower.includes(keyword)) return type
+    if (matchesKeyword(lower, keyword)) return type
   }
   return 'generic'
 }

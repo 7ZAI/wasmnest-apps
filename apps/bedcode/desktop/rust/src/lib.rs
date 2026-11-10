@@ -2607,7 +2607,7 @@ fn handle_http_endpoint(
         // 项目 / 运行 / Agent 的移动端 REST 面（桌面项目化的消费投影）：项目列表、
         // 项目内运行列表、启动运行、agent 清单。项目写面需要桌面目录选择，不在此开放。
         "projects" | "runs" | "runs/start" | "agents" => {
-            projects_http::handle_projects_http(host, method, path, body, query)
+            projects_http::handle_projects_http(host, method, path, body, query, device)
         }
         _ => task::handle_http_via_host(host, method, path, body, query, caller),
     }

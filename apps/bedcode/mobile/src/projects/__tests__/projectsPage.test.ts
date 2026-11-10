@@ -300,10 +300,15 @@ describe('项目详情与运行', () => {
     document.querySelector<HTMLButtonElement>('[data-testid="mobile-agent-pi"]')!.click()
     await settle()
 
-    expect(ctx.commands.execute).toHaveBeenCalledWith('bedcode.start-run', {
-      projectId: 'p-1',
-      agentId: 'pi',
-    })
+    // P0-1：启动时随请求带上本端预估网格（桌面端据此建 PTY，手机启动的
+    // 运行不再先画一屏 120 列；正统端由桌面从 JWT 取，前端不传 sourceDevice）
+    const startCall = (ctx.commands.execute as unknown as {
+      mock: { calls: [string, Record<string, unknown>][] }
+    }).mock.calls.find(([id]) => id === 'bedcode.start-run')
+    expect(startCall?.[1]).toMatchObject({ projectId: 'p-1', agentId: 'pi' })
+    expect(startCall?.[1].cols).toBeGreaterThan(0)
+    expect(startCall?.[1].rows).toBeGreaterThan(0)
+    expect(startCall?.[1]).not.toHaveProperty('sourceDevice')
     expect(wrapper.emitted('open-terminal')?.[0]).toEqual(['r-new', '支付重构'])
     wrapper.unmount()
   })

@@ -291,6 +291,8 @@ import AgentPicker from './components/AgentPicker.vue'
 import ProjectCard from './components/ProjectCard.vue'
 import RunRow from './components/RunRow.vue'
 import { envLabel, type AgentEntry, type ProjectView, type RunView } from './types'
+import { readStoredDisplaySettings } from '../terminal/displaySettings'
+import { computeDeviceDefaultGridSize } from '../terminal/utils/metrics'
 import './projects.css'
 
 const props = withDefaults(defineProps<{ active?: boolean }>(), { active: true })
@@ -335,6 +337,20 @@ const {
   startTicker,
   stopTicker,
 } = useProjects(context)
+
+/**
+ * 启动运行前预估本端终端网格（P0-1）
+ *
+ * 桌面端直接按这个网格创建 PTY：手机启动的 pi 不会再先画一屏 120 列再被
+ * resize 纠正（错位窗口），也避开「用户取消覆盖尺寸 → PTY 永久 120×40」。
+ * 量不到（容器无布局）时返回 undefined，交回宿主默认网格。
+ * 读持久化设置而不是 pinia store：本页不依赖终端域 store（保持可独立测试/挂载）。
+ */
+function initialRunGrid(): { cols: number; rows: number } | undefined {
+  const settings = readStoredDisplaySettings()
+  const grid = computeDeviceDefaultGridSize(settings.fontSize, settings.letterSpacing)
+  return grid.cols > 0 && grid.rows > 0 ? grid : undefined
+}
 
 const isAuthenticated = computed(() => api.isPaired.value)
 const isRefreshing = computed(() => loadingProjects.value || loadingRuns.value)
@@ -416,7 +432,7 @@ function pickAgent(agent: AgentEntry): void {
 async function start(agent: AgentEntry): Promise<void> {
   const projectId = currentProject.value?.id
   try {
-    const created = await startRun(agent.id)
+    const created = await startRun(agent.id, initialRunGrid())
     showAgentPicker.value = false
     // 启动期间用户切走页签 / 退回列表 / 换了项目：不在后台强拉终端页
     if (!props.active || !projectId || currentProject.value?.id !== projectId) {

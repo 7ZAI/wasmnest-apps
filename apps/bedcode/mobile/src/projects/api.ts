@@ -47,14 +47,24 @@ export async function fetchAgents(context: PluginContext): Promise<AgentEntry[]>
   return Array.isArray(res?.data?.agents) ? res!.data!.agents! : []
 }
 
-/** 启动运行（项目 × agent）→ 新运行 id / 名称 */
+/** 启动运行（项目 × agent）→ 新运行 id / 名称
+ *
+ * `grid` = 本端预估终端网格（P0-1）：桌面端按它创建 PTY，并把本机 JWT 设备名
+ * 登记为正统渲染端（`sourceDevice` 由桌面从 JWT 取，前端不传、也不能伪造）。
+ * 缺省（拿不到网格）由宿主按默认 120×40 启动，随后 fit 仍会纠正尺寸。
+ */
 export async function startRun(
   context: PluginContext,
   projectId: string,
   agentId: string,
+  grid?: { cols: number; rows: number },
 ): Promise<{ runId: string; name: string }> {
   const res = ensureCommandOk(
-    (await context.commands.execute('bedcode.start-run', { projectId, agentId })) as CommandResult<{
+    (await context.commands.execute('bedcode.start-run', {
+      projectId,
+      agentId,
+      ...(grid ? { cols: grid.cols, rows: grid.rows } : {}),
+    })) as CommandResult<{
       runId?: string
       name?: string
     }>,

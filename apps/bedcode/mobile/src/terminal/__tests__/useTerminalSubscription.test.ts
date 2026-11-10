@@ -69,7 +69,11 @@ vi.mock('../host', () => ({
 
 // isMockSession 经 SDK getMobileApi 判定（测试环境非 mock 会话）
 vi.mock('@binblink/wasmnest-plugin-sdk-mobile', () => ({
-  getMobileApi: () => ({ mockSessionId: null }),
+  getMobileApi: () => ({
+    mockSessionId: null,
+    // 页面通道登记（registerRealtimeHandler → markPageEntered 需要）
+    openTerminalStream: () => Promise.resolve({ dispose: () => {} }),
+  }),
 }))
 
 const { cmd, eventHandlers } = mocks
@@ -200,7 +204,8 @@ describe('useTerminalSubscription（票 05：subscribed 门控 + 超时兜底 + 
     })
 
     it('已订阅期间触发 subscribeWithRetry：仍发起一次 fresh subscribe（页面挂载语义）', async () => {
-      // 预加载后进入终端页：belief 已真，仍需重播一次
+      // 预加载后进入终端页：页面挂载复位重放窗口/在屏内容，belief 已真仍需重播一次
+      store.registerRealtimeHandler('s1', { onOutput: () => {} })
       emitState({ session_id: 's1', phase: 'live', detail: 'subscribed' })
       const sub = useTerminalSubscription(makeCtx(), { bufferStore: store, subscribeSession: store.subscribeSession })
       await sub.subscribeWithRetry()

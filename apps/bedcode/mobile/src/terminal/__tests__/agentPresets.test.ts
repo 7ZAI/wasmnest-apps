@@ -25,6 +25,17 @@ describe('detectAgentType', () => {
     expect(detectAgentType('pnpm run dev')).toBe('generic')
     expect(detectAgentType('powershell.exe')).toBe('generic')
   })
+
+  it('does not misdetect python/pip as pi (word-boundary match)', () => {
+    // 回归 2026-11-10 P2-4：`includes('pi')` 会把 pip / python 认成 pi，
+    // 加载错误的预设面板
+    expect(detectAgentType('python -m http.server')).toBe('generic')
+    expect(detectAgentType('pip install requests')).toBe('generic')
+    expect(detectAgentType('pipx run black')).toBe('generic')
+    // 词边界仍应命中 pi
+    expect(detectAgentType('/usr/local/bin/pi --tui-mode fullscreen')).toBe('pi')
+    expect(detectAgentType('pi-coding-agent')).toBe('pi')
+  })
 })
 
 describe('AGENT_PRESETS', () => {

@@ -16,6 +16,11 @@ pub struct StartRequest {
     /// 启动端预算网格（缺省由宿主取默认网格）
     pub cols: Option<u16>,
     pub rows: Option<u16>,
+    /// 启动端设备名（JWT claims 派生；缺省 = 桌面本地启动）
+    ///
+    /// 透传给 `launch` 决定正统渲染端初始归属：移动端发起的运行归移动端，
+    /// 首次 resize 直接 `applied`，不必等用户点「覆盖终端尺寸」。
+    pub source_device: Option<String>,
 }
 
 impl StartRequest {
@@ -45,6 +50,12 @@ impl StartRequest {
             agent_id: text("agentId")?,
             cols: size("cols"),
             rows: size("rows"),
+            source_device: value
+                .get("sourceDevice")
+                .and_then(|v| v.as_str())
+                .map(str::trim)
+                .filter(|v| !v.is_empty())
+                .map(str::to_string),
         })
     }
 }
@@ -141,10 +152,14 @@ mod tests {
         assert_eq!(ok.agent_id, "opencode");
         assert_eq!(ok.cols, Some(120));
         assert_eq!(ok.rows, Some(40));
+        assert_eq!(ok.source_device, None, "缺省 = 桌面本地启动");
 
         for (payload, needle) in [
             (serde_json::json!({ "agentId": "pi" }), "projectId required"),
-            (serde_json::json!({ "projectId": "p-1" }), "agentId required"),
+            (
+                serde_json::json!({ "projectId": "p-1" }),
+                "agentId required",
+            ),
             (
                 serde_json::json!({ "projectId": "  ", "agentId": "pi" }),
                 "projectId required",
@@ -175,6 +190,29 @@ mod tests {
         .expect("缺网格合法");
         assert_eq!(none.cols, None);
         assert_eq!(none.rows, None);
+    }
+
+    /// 启动端设备名：去空白后为空按缺省（桌面本地）处理，不把空串当设备
+    #[test]
+    fn parse_source_device_trims_and_rejects_empty() {
+        let req = StartRequest::parse(&serde_json::json!({
+            "projectId": "p-1", "agentId": "pi", "sourceDevice": " Pixel 9 "
+        }))
+        .expect("设备名合法");
+        assert_eq!(req.source_device.as_deref(), Some("Pixel 9"));
+
+        for value in [
+            serde_json::json!(""),
+            serde_json::json!("   "),
+            serde_json::json!(null),
+            serde_json::json!(42),
+        ] {
+            let req = StartRequest::parse(&serde_json::json!({
+                "projectId": "p-1", "agentId": "pi", "sourceDevice": value
+            }))
+            .expect("非法设备名不阻断启动");
+            assert_eq!(req.source_device, None);
+        }
     }
 
     // ==================== 配置复用 ====================

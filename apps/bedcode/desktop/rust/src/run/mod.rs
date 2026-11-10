@@ -29,7 +29,10 @@ use plan::{find_config, new_config, StartRequest};
 #[cfg(target_arch = "wasm32")]
 use wasmnest_plugin_api::wasm_host::WasmHost;
 
-/// `run.start` 编排：`{projectId, agentId, cols?, rows?}` → `{runId, name, configId}`
+/// `run.start` 编排：`{projectId, agentId, cols?, rows?, sourceDevice?}` → `{runId, name, configId}`
+///
+/// `sourceDevice` 由 HTTP 面从 JWT claims 注入（客户端自报的同名字段被覆盖），
+/// 命令面直接调用时缺省 = 桌面本地启动。
 ///
 /// 失败一律显性（未知项目 / 未注册 agent / 配置写入失败 / PTY 启动失败），不返回
 /// 半成品 id——前端拿到 id 就会去开终端，幽灵 runId 等于一个永远空的终端页签。
@@ -64,12 +67,15 @@ pub fn start_via_host(args: &serde_json::Value) -> Result<serde_json::Value, Str
         }
     };
 
-    // 启动仍走唯一那条链（`start: true` 是它唯一支持的形态）
+    // 启动仍走唯一那条链（`start: true` 是它唯一支持的形态）。
+    // `sourceDevice` 决定正统渲染端初始归属：移动端 HTTP 启动路径从 JWT 取设备名
+    // 透传进来，缺省（桌面本地启动）由 launch 归为 Desktop。
     let launched = crate::launch::create_via_host(&serde_json::json!({
         "configId": config.id,
         "cols": request.cols,
         "rows": request.rows,
         "start": true,
+        "sourceDevice": request.source_device,
     }))?;
     let run_id = launched
         .get("sessionId")
@@ -84,7 +90,11 @@ pub fn start_via_host(args: &serde_json::Value) -> Result<serde_json::Value, Str
     let name = crate::session::view_via_host(&run_id)
         .ok()
         .flatten()
-        .and_then(|view| view.get("name").and_then(|v| v.as_str()).map(str::to_string))
+        .and_then(|view| {
+            view.get("name")
+                .and_then(|v| v.as_str())
+                .map(str::to_string)
+        })
         .unwrap_or_else(|| project.name.clone());
 
     Ok(serde_json::json!({

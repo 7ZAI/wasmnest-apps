@@ -11,7 +11,7 @@
 
 import { useTerminalBufferStore } from '../store'
 import { logger } from '../host'
-import { createWriteCoalescer } from '../utils/writeCoalescer'
+import { createWriteCoalescer, type WriteCoalescer } from '../utils/writeCoalescer'
 import type { Terminal } from '@xterm/xterm'
 
 /** 会话页预加载的超时上限（毫秒）：超时不再等待，直接跳转由终端页自行重试 */
@@ -29,6 +29,15 @@ const replayIdleTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
 /** sessionId → xterm onWriteParsed 订阅句柄（注销时释放，防同一实例重复注册叠加监听） */
 const writeParsedDisposables = new Map<string, { dispose(): void }>()
+
+/** sessionId → 写入管线（注销时 dispose：取消排队的 rAF/缓存块） */
+const writeCoalescers = new Map<string, WriteCoalescer>()
+
+/** 释放写入管线（页面卸载 / 会话删除；幂等） */
+function disposeWritePipeline(sessionId: string) {
+  writeCoalescers.get(sessionId)?.dispose()
+  writeCoalescers.delete(sessionId)
+}
 
 // ==================== 链路调试统计（渲染背压 ack，2s 节流） ====================
 
@@ -110,9 +119,11 @@ export function useTerminalBuffer() {
     // 为什么不在收到字节时推进：桌面端按 ack 记账放行（未确认窗口 128 KiB 滞回），
     // 以收妥量为水位会让 WebView 解析跟不上时上游照旧全速灌入——真实缓冲退化为
     // WebView 消息队列（背压失效，2026-10-15 修复）。
+    disposeWritePipeline(sessionId)
     const writeCoalescer = createWriteCoalescer(terminal, {
       onParsed: (bytes) => store.noteParsedBytes(sessionId, bytes),
     })
+    writeCoalescers.set(sessionId, writeCoalescer)
     // 渲染进度对账监听（2s 节流日志）：只记事实，不推任何状态。
     // 历史教训仍在：ack 不得设正统渲染端（isCanonicalRenderer）门控——任何订阅端
     // 的确认都代表 PTY 字节被消化，曾因该门控导致「桌面启动会话、手机观看」等
@@ -180,14 +191,6 @@ export function useTerminalBuffer() {
         // 输出到达即重置静止窗口：持续输出期间不触发补刷
         if (replayIdleTimer) armReplayIdleRefresh()
       },
-      onClear: () => {
-        // 链路调试：清屏仅发生在重锚重播路径（低频，出现即链路异常信号）
-        logger.debug(`[useTerminalBuffer] terminal clear for re-anchored replay (${sessionId})`)
-        writeCoalescer.dispose()
-        if (terminal) {
-          terminal.clear()
-        }
-      },
       onTruncated: (offset: number) => {
         // 历史头部被环淘汰：用户无感知（对齐成熟终端不提示），仅留后台日志
         logger.warn(`[useTerminalBuffer] history truncated at offset=${offset}`)
@@ -210,6 +213,7 @@ export function useTerminalBuffer() {
     ackStats.delete(sessionId)
     clearReplayIdleTimer(sessionId)
     disposeWriteParsed(sessionId)
+    disposeWritePipeline(sessionId)
     store.unregisterRealtimeHandler(sessionId)
   }
 
@@ -234,6 +238,7 @@ export function useTerminalBuffer() {
   async function unsubscribeSession(sessionId: string) {
     clearReplayIdleTimer(sessionId)
     disposeWriteParsed(sessionId)
+    disposeWritePipeline(sessionId)
     store.unregisterRealtimeHandler(sessionId)
   }
 
@@ -298,6 +303,7 @@ export function useTerminalBuffer() {
   async function handleSessionRemoved(sessionId: string) {
     clearReplayIdleTimer(sessionId)
     disposeWriteParsed(sessionId)
+    disposeWritePipeline(sessionId)
     store.unregisterRealtimeHandler(sessionId)
     store.clearBuffer(sessionId)
   }

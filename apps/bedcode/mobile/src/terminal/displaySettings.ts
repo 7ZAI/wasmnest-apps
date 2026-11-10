@@ -153,6 +153,29 @@ function fromLegacy(legacy: Record<string, unknown>): TerminalDisplaySettings {
   }
 }
 
+/**
+ * 同步读取已持久化的显示设置（不依赖 pinia / store 实例）
+ *
+ * 场景：项目页在启动运行前预估算 PTY 网格（P0-1），而该页面不持有终端域
+ * store，也不一定处于 store 初始化阶段。读取口径与 store 的 `loadFromStorage`
+ * 完全一致（归一化 + 旧 blob 迁移读取），只是不写回迁移标记。
+ */
+export function readStoredDisplaySettings(): TerminalDisplaySettings {
+  try {
+    const raw = localStorage.getItem(TERMINAL_DISPLAY_STORAGE_KEY)
+    if (raw) return normalizeDisplaySettings(JSON.parse(raw))
+    const legacyRaw = localStorage.getItem(LEGACY_SETTINGS_KEY)
+    if (legacyRaw) {
+      return normalizeDisplaySettings(
+        fromLegacy(JSON.parse(legacyRaw) as Record<string, unknown>),
+      )
+    }
+  } catch (e) {
+    logger.error('[terminalDisplay] Failed to load display settings:', e)
+  }
+  return { ...DEFAULT_TERMINAL_DISPLAY_SETTINGS }
+}
+
 export const useTerminalDisplayStore = defineStore('terminalDisplay', () => {
   const settings = ref<TerminalDisplaySettings>({ ...DEFAULT_TERMINAL_DISPLAY_SETTINGS })
 
@@ -161,23 +184,10 @@ export const useTerminalDisplayStore = defineStore('terminalDisplay', () => {
   }
 
   function loadFromStorage() {
-    try {
-      const raw = localStorage.getItem(TERMINAL_DISPLAY_STORAGE_KEY)
-      if (raw) {
-        settings.value = normalizeDisplaySettings(JSON.parse(raw))
-        return
-      }
-
-      // 首次启动本版本：从旧 blob 迁移显示字段（写入新键即迁移完成标记）
-      const legacyRaw = localStorage.getItem(LEGACY_SETTINGS_KEY)
-      if (!legacyRaw) return
-      settings.value = normalizeDisplaySettings(
-        fromLegacy(JSON.parse(legacyRaw) as Record<string, unknown>),
-      )
-      persist()
-    } catch (e) {
-      logger.error('[terminalDisplay] Failed to load display settings:', e)
-    }
+    const hadNewKey = localStorage.getItem(TERMINAL_DISPLAY_STORAGE_KEY) !== null
+    settings.value = readStoredDisplaySettings()
+    // 首次启动本版本：从旧 blob 迁移显示字段（写入新键即迁移完成标记）
+    if (!hadNewKey && localStorage.getItem(LEGACY_SETTINGS_KEY) !== null) persist()
   }
 
   function saveSettings(patch: Partial<TerminalDisplaySettings>) {

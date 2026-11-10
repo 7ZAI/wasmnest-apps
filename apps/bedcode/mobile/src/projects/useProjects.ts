@@ -23,6 +23,7 @@ import {
   stopRun as stopRunCommand,
 } from './api'
 import type { AgentEntry, ProjectView, RunView } from './types'
+import { refreshSessionDirectory } from '../host/sessionDirectory'
 
 /** 错误对象 → 展示文本（i18n key 或原始 message；与 host 域同口径） */
 function errText(error: unknown): string {
@@ -199,16 +200,25 @@ export function useProjects(context: PluginContext) {
 
   // ==================== 动作 ====================
 
-  async function startRun(agentId: string): Promise<{ runId: string; name: string }> {
+  async function startRun(
+    agentId: string,
+    grid?: { cols: number; rows: number },
+  ): Promise<{ runId: string; name: string }> {
     const project = currentProject.value
     if (!project) throw new Error('project.error.notFound')
     if (startingAgentId.value) throw new Error('project.run.starting')
     startingAgentId.value = agentId
     try {
-      const created = await startRunCommand(context, project.id, agentId)
+      const created = await startRunCommand(context, project.id, agentId, grid)
       await refreshCurrent().catch((error) => {
         // 启动已成功：刷新失败不能把用户报成「启动失败」，留日志并返回 id
         logger.warn(`[projects] refresh after start failed: ${errText(error)}`)
+      })
+      // 会话目录的运行侧不会因 `session_created` 自动刷新（宿主 /api/sessions 不带
+      // 项目运行），这里主动补一次：否则刚启动的运行在目录合并视图里瞬时真空，
+      // 终端页 isSessionActive 会 false→true 抖动并触发第二次 subscribe（P1-4）。
+      await refreshSessionDirectory({ force: true }).catch((error) => {
+        logger.warn(`[projects] refresh session directory failed: ${errText(error)}`)
       })
       return created
     } finally {

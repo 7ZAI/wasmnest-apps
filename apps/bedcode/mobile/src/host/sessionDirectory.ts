@@ -89,12 +89,26 @@ export function directorySessionById(id: string): DirectorySession | undefined {
   return getDirectorySessions().find((session) => session.id === id)
 }
 
-/** 运行列表拉取（配对后才发；失败保留旧值只留痕） */
-export async function refreshSessionDirectory(): Promise<void> {
+/**
+ * 运行列表拉取（配对后才发；失败保留旧值只留痕）
+ *
+ * `force` = 等当前在途请求结束后再拉一次（P1-4）：`startRun` 刚成功的场景里，
+ * 在途刷新可能是在运行创建之前发出的，复用它会把刚启动的运行漏掉，目录合并
+ * 视图出现瞬时真空 → 终端页 `isSessionActive` 抖动并触发重复订阅。
+ */
+export async function refreshSessionDirectory(opts?: { force?: boolean }): Promise<void> {
   const activeCtx = ctx
   if (!activeCtx) return
   if (!getMobileApi()?.isPaired?.value) return
-  if (inflight) return inflight
+  // 非强制：复用在途请求；强制：等它落定后再新起一轮（不在途则直接拉）。
+  // 代际变更（dispose/重新 init）时 finally 不会清 inflight——用 promise 身份
+  // 比对退出等待，防止死循环。
+  while (inflight) {
+    if (!opts?.force) return inflight
+    const pending = inflight
+    await pending
+    if (inflight === pending) break
+  }
   const gen = generation
   inflight = (async () => {
     try {
@@ -133,6 +147,8 @@ export function initSessionDirectory(context: PluginContext): Disposable {
 
   disposables.push(
     api.onSessionEvent((event) => {
+      // `session_status` 同时覆盖创建/恢复（宿主 SDK 无独立 session_created
+      // 事件）；启动运行后 `useProjects.startRun` 另有 force 刷新兜底。
       if (
         event.type === 'session_status' ||
         event.type === 'session_stopped' ||

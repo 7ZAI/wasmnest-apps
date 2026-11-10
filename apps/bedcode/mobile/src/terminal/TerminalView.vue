@@ -44,6 +44,23 @@
                 <span class="reconnect-banner-text">{{ reconnectBannerText }}</span>
               </div>
             </transition>
+            <!-- 尺寸错位提示（P1-3）：用户取消覆盖后 PTY 仍是另一端尺寸，
+                 显示会持续错乱——常驻提示 + 一键改用本机尺寸 -->
+            <transition name="reconnect-fade">
+              <div
+                v-if="rendererSizeMismatch && !reconnecting"
+                class="reconnect-banner size-mismatch-banner"
+                role="status"
+                aria-live="polite"
+              >
+                <span class="reconnect-banner-text">
+                  {{ t('terminal.rendererSizeMismatch', { renderer: rendererSizeMismatch.rendererName }) }}
+                </span>
+                <button class="size-mismatch-action" type="button" @click="confirmRendererOverride">
+                  {{ t('terminal.rendererSizeMismatchApply') }}
+                </button>
+              </div>
+            </transition>
             <div
               ref="scrollContainer"
               class="terminal-scroll-container"
@@ -305,6 +322,27 @@ const sessionId = computed(() => props.sessionId || connection.activeSessionId.v
 // 重进会话时旧订阅流干扰游标连续性（violation 循环，终端多次进入才渲染完整）
 const mountedSessionId = sessionId.value
 
+// ==================== 终端装配就绪门（P1-2） ====================
+//
+// 三个订阅入口（isSessionActive / isConnected watcher / onMounted）在 setup 阶段
+// 就已注册，而 onMounted 的 initTerminal 要先 `await ensureTerminalFontLoaded`
+// 才 registerRealtimeHandler → markPageEntered（登记页面 Channel）。若 watcher 在
+// 这段 await 期间发出 subscribe，桌面端会立即从环起点整段重放，而宿主窄转发表
+// 里还没有通道 → 全部 `no page channel` 丢弃；此时订阅去重又阻止自愈，页面就只剩
+// 实时尾巴。所有订阅入口先等这扇门（登记完成）再发订阅。
+let resolveTerminalReady!: () => void
+const terminalReady = new Promise<void>((resolve) => {
+  resolveTerminalReady = resolve
+})
+let terminalReadyDone = false
+/** 页面是否仍存活（卸载后到达的 await 不得再发订阅） */
+let pageAlive = true
+function markTerminalReady() {
+  if (terminalReadyDone) return
+  terminalReadyDone = true
+  resolveTerminalReady()
+}
+
 // ==================== 链路重连提示（2026-10-04） ====================
 //
 // 终端链路断线时终端插件发 `terminal-state` detail=reconnecting / reconnect_scheduled（票 12）
@@ -471,6 +509,7 @@ const subscription = useTerminalSubscription(kernel, { bufferStore, subscribeSes
 const {
   rendererOverrideTarget,
   showRendererOverrideDialog,
+  rendererSizeMismatch,
   confirmRendererOverride,
   cancelRendererOverride,
 } = resize
@@ -674,8 +713,10 @@ watch(isSessionActive, async (active, prevActive) => {
     // 监听器会永久丢弃新流帧（事件路径 SyncSessionStatusChanged 已复位，
     // 此处兜底防事件丢失场景）
     markSessionRunning(sessionId.value)
-    // 会话停止/重启后重新订阅：fresh subscribe → 回放环窗口（重播在屏内容
-    // 前先经 Rust 重锚事件清屏，旧内容不与新流重叠）
+    // 等页面通道登记完成再发订阅（P1-2）：否则重放会被 `no page channel` 丢掉
+    await terminalReady
+    if (!pageAlive) return
+    // 会话停止/重启后重新订阅：fresh subscribe → 回放环窗口（带内清屏 + 重放）
     await subscription.subscribeWithRetry()
     // 会话激活（含重连后）时 PTY 可能仍是默认尺寸，主动同步一次
     resize.syncTerminalSizeToHost()
@@ -691,6 +732,9 @@ watch(isConnected, async (connected) => {
     subscription.clearSubscribeRetry()
   } else {
     if (isSessionActive.value) {
+      // 等页面通道登记完成再发订阅（P1-2，同 isSessionActive watcher）
+      await terminalReady
+      if (!pageAlive) return
       // 重连成功后 PTY 重建为默认 80x24，需主动同步当前尺寸
       await subscription.subscribeWithRetry()
     }
@@ -736,6 +780,11 @@ onMounted(async () => {
   bufferStore.resetCursor(sessionId.value)
 
   await initTerminal()
+  // 页面通道已登记（registerRealtimeHandler → markPageEntered）：放行早到的
+  // isSessionActive / isConnected watcher（P1-2）
+  markTerminalReady()
+  // 装配期间已卸载：不再订阅（xterm 已销毁，订阅只会丢字节）
+  if (!pageAlive) return
 
   // DEV 前缀：生产构建常量折叠为 false，整个 mock 分支（含 startOutput 调用）被 tree-shake
   if (import.meta.env.DEV && isMockSession(sessionId.value) && mockTerminal.isDev) {
@@ -792,6 +841,9 @@ onMounted(async () => {
 onUnmounted(async () => {
   // 链路调试：渲染管线卸载（writeCoalescer dispose 汇总日志随后输出）
   logger.debug(`[TerminalView] unmounted (session=${mountedSessionId})`)
+  // 释放就绪门等待者（initTerminal 未走完就被卸载：await 不得永久悬挂）
+  pageAlive = false
+  markTerminalReady()
   // 订阅重试定时器 + 门控兜底定时器（遮罩已放行时为 null，防御未走完 onMounted 的卸载竞态）
   subscription.disposeSubscription()
 
@@ -801,6 +853,8 @@ onUnmounted(async () => {
   }
   // 键盘避让双通道监听 + 页面 pan 守卫
   keyboard.dispose()
+  // 作废 resize 退避重试定时器（P1-3）
+  resize.disposeResize()
 
   if (isMockSession(mountedSessionId)) {
     mockTerminal.stopOutput()

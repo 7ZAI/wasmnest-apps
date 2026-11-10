@@ -126,6 +126,27 @@
   white-space: nowrap;
 }
 
+/* 尺寸属于另一端（用户取消覆盖）：常驻提示 + 一键改用本机尺寸。
+   与重连横幅同款位置/配色，但必须可点（pointer-events 放开）。 */
+.size-mismatch-banner {
+  pointer-events: auto;
+}
+
+.size-mismatch-action {
+  flex: 0 0 auto;
+  padding: 0.15rem 0.5rem;
+  border: 1px solid var(--mobile-warning, #f59e0b);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--mobile-text-primary);
+  font-size: var(--font-size-xs, 12px);
+  cursor: pointer;
+}
+
+.size-mismatch-action:active {
+  background: var(--mobile-warning-muted, rgba(245, 158, 11, 0.16));
+}
+
 /* 与 .loading-fade 同档：纯 opacity，200ms 内完成 */
 .reconnect-fade-enter-active,
 .reconnect-fade-leave-active {

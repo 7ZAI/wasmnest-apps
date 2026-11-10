@@ -11,10 +11,10 @@
 //! 时间戳与状态字面量沿用旧控制器口径（RFC3339 / SessionStatus wire 串）。
 
 use crate::{SessionApi, SessionPlugin};
+use serde_json::Value;
 use wasmnest_plugin_api::host::{HostEvents, HostLog};
 use wasmnest_plugin_api::http_response;
 use wasmnest_plugin_api::WasmHost;
-use serde_json::Value;
 
 /// sessions REST 内部端点段（`_http_endpoint` 分派键；host 模板在 `http_routes`）
 pub const SESSIONS_HTTP_PATHS: &[&str] = &[
@@ -33,10 +33,17 @@ fn sessions_error(message: &str) -> Value {
 }
 
 /// 设备名（JWT claims 派生，宿主转发 `device.deviceName`；无 → 桌面/缺省源）
-fn device_name(device: &Value) -> Option<String> {
+///
+/// 同时供 `projects_http` 使用：移动端启动项目运行也必须把 JWT 设备名传进
+/// `run.start`，否则运行登记的正统端会错认成桌面（首次 resize 被
+/// `needsConfirmation` 拒绝，PTY 停在宿主默认 120×40）。
+pub(crate) fn device_name(device: &Value) -> Option<String> {
     device
         .get("deviceName")
         .and_then(|v| v.as_str())
+        // 首尾空白与空串同义：设备名会进会话记录（正统端归属）与前端展示，
+        // 留着纯空白等于登记了一个不可读的端名。
+        .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(str::to_string)
 }
