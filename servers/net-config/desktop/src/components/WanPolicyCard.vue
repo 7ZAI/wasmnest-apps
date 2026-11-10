@@ -5,9 +5,11 @@
  * 只读展示宿主已知业务 + 注册表已有条目；开关写 `net-config.wan-policy.set`。
  * 关闭后业务下次配置时自然不再建立中继预留（LAN 入口不受影响）；本卡片不参与
  * 任何业务的 `expose` / `connect`。
+ *
+ * 「未登记」的生效值是**允许**（与后端默认一致）；首次点击写入显式 `false`。
  */
 import { computed } from 'vue'
-import type { WanPolicyRow } from '@/composables/useWanPolicy'
+import { effectiveAllowWan, type WanPolicyRow } from '@/composables/useWanPolicy'
 
 const props = defineProps<{
   rows: WanPolicyRow[]
@@ -21,11 +23,11 @@ const emit = defineEmits<{
   (e: 'toggle', pluginId: string, allowWan: boolean): void
 }>()
 
-const allowedCount = computed(() => props.rows.filter((row) => row.entry?.allowWan).length)
+const allowedCount = computed(() => props.rows.filter((row) => effectiveAllowWan(row.entry)).length)
 
 function toggle(row: WanPolicyRow): void {
   if (props.busy) return
-  emit('toggle', row.pluginId, !(row.entry?.allowWan ?? false))
+  emit('toggle', row.pluginId, !effectiveAllowWan(row.entry))
 }
 </script>
 
@@ -65,11 +67,11 @@ function toggle(row: WanPolicyRow): void {
         <div class="nc-row-meta">
           <span
             class="nc-tag"
-            :class="row.entry?.allowWan ? 'is-ok' : 'is-muted'"
+            :class="effectiveAllowWan(row.entry) ? 'is-ok' : 'is-muted'"
             :data-testid="`net-config-wan-state-${row.pluginId}`"
-            :data-allowed="row.entry?.allowWan ? 'true' : 'false'"
+            :data-allowed="effectiveAllowWan(row.entry) ? 'true' : 'false'"
           >
-            {{ row.entry?.allowWan ? t('wan.state.allowed') : t('wan.state.blocked') }}
+            {{ effectiveAllowWan(row.entry) ? t('wan.state.allowed') : t('wan.state.blocked') }}
           </span>
           <span
             class="nc-row-updated"
@@ -83,7 +85,7 @@ function toggle(row: WanPolicyRow): void {
             :data-testid="`net-config-wan-toggle-${row.pluginId}`"
             @click="toggle(row)"
           >
-            {{ row.entry?.allowWan ? t('wan.block') : t('wan.allow') }}
+            {{ effectiveAllowWan(row.entry) ? t('wan.block') : t('wan.allow') }}
           </button>
         </div>
       </li>

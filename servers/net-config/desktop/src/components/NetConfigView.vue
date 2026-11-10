@@ -17,7 +17,7 @@
 import { computed, inject, onMounted, ref } from 'vue'
 import type { NetConfigContext } from '@/appContext'
 import { useRelayConfig } from '@/composables/useRelayConfig'
-import { useWanPolicy } from '@/composables/useWanPolicy'
+import { effectiveAllowWan, useWanPolicy } from '@/composables/useWanPolicy'
 import {
   RELAY_DEFAULT_PORT,
   RELAY_DEFAULT_VERSION,
@@ -112,7 +112,7 @@ function downloadCompose(): void {
 
 const importText = ref('')
 const importError = ref<{
-  key: RelayImportErrorKey | 'relay.import.saveFailed'
+  key: RelayImportErrorKey | 'relay.import.saveFailed' | 'relay.import.clearFailed'
   detail?: string
 } | null>(null)
 const importOk = ref(false)
@@ -142,11 +142,12 @@ async function removeConfig(): Promise<void> {
   if (relay.busy.value) return
   importOk.value = false
   clearOk.value = false
+  importError.value = null
   try {
     await relay.clear()
     clearOk.value = true
   } catch {
-    importError.value = { key: 'relay.import.saveFailed' }
+    importError.value = { key: 'relay.import.clearFailed' }
   }
 }
 
@@ -167,7 +168,7 @@ async function toggleWan(pluginId: string, allowWan: boolean): Promise<void> {
 }
 
 const allowedWanCount = computed(
-  () => wan.rows.value.filter((row) => row.entry?.allowWan).length,
+  () => wan.rows.value.filter((row) => effectiveAllowWan(row.entry)).length,
 )
 /** 已配置地址但所有业务都关着外网：状态必须区分「未配置」与「配置了但关闭」 */
 const configuredButWanOff = computed(
@@ -334,7 +335,7 @@ onMounted(async () => {
         class="nc-note"
         data-testid="net-config-wan-off-hint"
       >
-        已配置中转地址，但当前没有业务允许走外网：业务仍可局域网访问，跨网入口保持关闭。
+        {{ t('wan.noneAllowed') }}
       </p>
 
       <!-- 部署文本 -->

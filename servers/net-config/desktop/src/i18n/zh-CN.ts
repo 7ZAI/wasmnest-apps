@@ -4,7 +4,6 @@ import type { MessageSchema } from './messages'
 const zhCN: MessageSchema = {
   title: '网络配置',
   subtitle: '自建 relay 的地址在这里导入一次，所有需要跨网的应用共用；页面同时管理「哪些业务允许走外网」。',
-  loading: '读取中…',
   refresh: '刷新',
   'error.body': '读取失败：{message}',
 
@@ -95,19 +94,16 @@ const zhCN: MessageSchema = {
     '公网可达性需要从另一台网络实测；doctor 会如实标 unknown，不会把本机可连说成公网可用。',
 
   'wan.title': '业务外网注册表',
-  'wan.desc': '逐业务决定是否允许建立中继预留；关闭后该业务立即不再建立预留，LAN 入口不受影响。地址共享 ≠ 允许被外网访问。',
+  'wan.desc':
+    '逐业务决定是否允许建立中继预留；关闭后该业务下次配置时不再建立预留（已有预留不会立即撤销），LAN 入口不受影响。地址共享 ≠ 允许被外网访问。',
   'wan.empty': '还没有登记任何业务；业务首次接入时会出现在这里。',
-  'wan.id': '插件 id',
   'wan.allow': '允许外网',
   'wan.block': '禁止外网',
   'wan.state.allowed': '允许',
   'wan.state.blocked': '禁止',
-  'wan.updatedAt': '最近更新',
-  'wan.note': '备注',
-  'wan.saveFailed': '策略已切换，但写入存储失败：请刷新确认当前状态',
-  'wan.toggleFailed': '切换策略失败：请重试',
-  'wan.unknown': '未知',
-  'wan.loadFailed': '业务注册表读取失败；未自动清空，请重试或检查存储。',
+  'wan.noneAllowed':
+    '已配置中转地址，但当前没有业务允许走外网：业务仍可局域网访问，跨网入口保持关闭。',
+  'wan.unknown': '未登记',
 
   'preview.title': '网络配置',
   'preview.configured': '{count} 个中转地址',

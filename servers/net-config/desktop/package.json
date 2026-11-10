@@ -29,7 +29,6 @@
     "vite-plugin-css-injected-by-js": "^5.0.2",
     "vitest": "^3.2.7",
     "vue": "^3.4.0",
-    "vue-i18n": "^9.0.0",
     "vue-tsc": "^2.0.6"
   }
 }

@@ -13,7 +13,6 @@ import { describe, it, expect } from 'vitest'
 import {
   RELAY_CONTROL_PROTOCOL,
   base58Decode,
-  buildRelayImportPayload,
   decodeEd25519PeerId,
   parseRelayAddr,
   parseRelayImport,
@@ -252,11 +251,11 @@ describe('空输入与回写载荷', () => {
     })
   })
 
-  it('buildRelayImportPayload 的产物可被本解析器回读', async () => {
-    const parsed = await parseRelayImport(JSON.stringify(payload()))
-    expect(parsed.ok).toBe(true)
-    if (!parsed.ok) return
-    const roundTrip = await parseRelayImport(JSON.stringify(buildRelayImportPayload(parsed.value)))
-    expect(roundTrip).toEqual(parsed)
+  it('文本元数据重复时给出语言无关的行号 detail', async () => {
+    const parsed = await parseRelayImport('peerId: a\npeerId: b')
+    expect(parsed.ok).toBe(false)
+    if (parsed.ok) return
+    expect(parsed.errorKey).toBe('relay.error.metadata')
+    expect(parsed.detail).toBe('line 2: peerId')
   })
 })

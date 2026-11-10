@@ -190,7 +190,11 @@ mod tests {
         assert_eq!(stored["peerId"], serde_json::json!(PEER_ID));
         assert_eq!(stored["peerIdSha256"], serde_json::json!(FINGERPRINT));
         assert_eq!(
-            load_relay(&store).expect("load").expect("some").relay_addrs.len(),
+            load_relay(&store)
+                .expect("load")
+                .expect("some")
+                .relay_addrs
+                .len(),
             1
         );
     }
@@ -240,9 +244,9 @@ mod tests {
         // 第二次（或目标已有值）不覆盖，返回是否采纳
         let mut other = relay_payload();
         other["peerId"] = serde_json::json!("12D3KooWD3eckifWpRn9wQpMG9R9hX3sD158z7EqHWmweQAJU5SA");
-        other["relayAddrs"] = serde_json::json!([format!(
+        other["relayAddrs"] = serde_json::json!([
             "/dns4/other.example.com/tcp/4001/p2p/12D3KooWD3eckifWpRn9wQpMG9R9hX3sD158z7EqHWmweQAJU5SA"
-        )]);
+        ]);
         let second = adopt_relay(&store, &other, 1_700_000_001).expect("adopt again");
         assert_eq!(second["adopted"], serde_json::json!(false));
         assert_eq!(second["reason"], serde_json::json!("already-configured"));
@@ -284,8 +288,14 @@ mod tests {
         );
 
         // 逐业务：关掉一个不影响另一个
-        set_policy(&store, "com.wasmnest.file-transfer", false, "", 1_700_000_001)
-            .expect("set");
+        set_policy(
+            &store,
+            "com.wasmnest.file-transfer",
+            false,
+            "",
+            1_700_000_001,
+        )
+        .expect("set");
         let read = load_policy(&store).expect("read");
         assert_eq!(read.apps.len(), 2);
         assert!(!read.apps["com.wasmnest.file-transfer"].allow_wan);
@@ -310,7 +320,10 @@ mod tests {
         let status = status_view(&store);
         assert_eq!(status["configured"], serde_json::json!(false));
         assert!(
-            status["relayError"].as_str().expect("error").contains("version"),
+            status["relayError"]
+                .as_str()
+                .expect("error")
+                .contains("version"),
             "{status}"
         );
 

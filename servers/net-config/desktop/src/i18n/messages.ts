@@ -9,7 +9,6 @@ export type MessageSchema = {
   // ==================== 页面 ====================
   title: string
   subtitle: string
-  loading: string
   refresh: string
   'error.body': string
 
@@ -99,17 +98,12 @@ export type MessageSchema = {
   'wan.title': string
   'wan.desc': string
   'wan.empty': string
-  'wan.id': string
   'wan.allow': string
   'wan.block': string
   'wan.state.allowed': string
   'wan.state.blocked': string
-  'wan.updatedAt': string
-  'wan.note': string
-  'wan.saveFailed': string
-  'wan.toggleFailed': string
+  'wan.noneAllowed': string
   'wan.unknown': string
-  'wan.loadFailed': string
 
   // ==================== 预览 ====================
   'preview.title': string

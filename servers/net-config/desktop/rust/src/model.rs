@@ -146,13 +146,21 @@ impl RelayConfig {
         }
         for addr in &self.relay_addrs {
             validate_relay_addr(addr)?;
+            // 地址里的 PeerId 必须就是配置声明的中继身份：两者不一致时，客户端会
+            // 拨到一个「证书对不上」的节点（或把配置写成了别人的 relay）。
+            if addr.rsplit("/p2p/").next() != Some(self.peer_id.as_str()) {
+                return Err(format!(
+                    "relay address peer id does not match peerId: {addr}"
+                ));
+            }
         }
         if !peer_id_is_plausible(&self.peer_id) {
             return Err("relay settings has an invalid peerId".to_string());
         }
         if !fingerprint_is_valid(&self.peer_id_sha256) {
             return Err(
-                "relay settings has an invalid peerIdSha256 (64 lowercase hex required)".to_string(),
+                "relay settings has an invalid peerIdSha256 (64 lowercase hex required)"
+                    .to_string(),
             );
         }
         if let Some(mode) = &self.access_mode {
@@ -174,7 +182,10 @@ impl RelayConfig {
             return Err("relay settings has an empty importedAt".to_string());
         }
         if self.source != "json" && self.source != "text" {
-            return Err(format!("relay settings source unsupported: {}", self.source));
+            return Err(format!(
+                "relay settings source unsupported: {}",
+                self.source
+            ));
         }
         Ok(())
     }
@@ -184,10 +195,7 @@ impl WanPolicy {
     /// 结构不变式：版本 + 每个 key 是插件 id + updatedAt 非空
     pub fn validate(&self) -> Result<(), String> {
         if self.version != WAN_POLICY_VERSION {
-            return Err(format!(
-                "wan policy version unsupported: {}",
-                self.version
-            ));
+            return Err(format!("wan policy version unsupported: {}", self.version));
         }
         for (plugin_id, entry) in &self.apps {
             if !plugin_id_is_valid(plugin_id) {
@@ -264,7 +272,9 @@ pub fn validate_relay_addr(addr: &str) -> Result<(), String> {
     let (host_proto, host, tcp_proto, port, p2p_proto, peer_id) =
         (parts[0], parts[1], parts[2], parts[3], parts[4], parts[5]);
     if !matches!(host_proto, "ip4" | "ip6" | "dns" | "dns4" | "dns6") {
-        return Err(format!("relay address host protocol unsupported: {host_proto}"));
+        return Err(format!(
+            "relay address host protocol unsupported: {host_proto}"
+        ));
     }
     if host.is_empty() || host.contains(char::is_whitespace) {
         return Err(format!("relay address has an invalid host: {text}"));
@@ -359,7 +369,10 @@ mod tests {
         assert_eq!(config.relay_addrs, vec![addr()]);
         assert_eq!(config.peer_id, PEER_ID);
         assert_eq!(config.access_mode.as_deref(), Some("open"));
-        assert_eq!(config.quota.expect("quota").max_circuit_bytes, 1_073_741_824);
+        assert_eq!(
+            config.quota.expect("quota").max_circuit_bytes,
+            1_073_741_824
+        );
     }
 
     #[test]
@@ -393,17 +406,26 @@ mod tests {
             }),
             ("额外段", {
                 let mut v = valid_config();
-                v["relayAddrs"] = serde_json::json!([format!("/dns4/relay.example.com/tcp/4001/p2p/{PEER_ID}/ws")]);
+                v["relayAddrs"] = serde_json::json!([format!(
+                    "/dns4/relay.example.com/tcp/4001/p2p/{PEER_ID}/ws"
+                )]);
                 v
             }),
             ("端口越界", {
                 let mut v = valid_config();
-                v["relayAddrs"] = serde_json::json!([format!("/dns4/relay.example.com/tcp/70000/p2p/{PEER_ID}")]);
+                v["relayAddrs"] =
+                    serde_json::json!([format!("/dns4/relay.example.com/tcp/70000/p2p/{PEER_ID}")]);
                 v
             }),
             ("非法 peerId", {
                 let mut v = valid_config();
                 v["peerId"] = serde_json::json!("0OIl");
+                v
+            }),
+            ("地址 PeerId 与 peerId 不一致", {
+                let mut v = valid_config();
+                v["peerId"] =
+                    serde_json::json!("12D3KooWD3eckifWpRn9wQpMG9R9hX3sD158z7EqHWmweQAJU5SA");
                 v
             }),
             ("非法指纹", {
@@ -439,10 +461,20 @@ mod tests {
     fn wan_policy_upserts_and_validates_plugin_ids() {
         let mut policy = WanPolicy::default();
         policy
-            .upsert("com.wasmnest.bedcode", true, "desktop", "2026-11-09T00:00:00Z")
+            .upsert(
+                "com.wasmnest.bedcode",
+                true,
+                "desktop",
+                "2026-11-09T00:00:00Z",
+            )
             .expect("upsert");
         policy
-            .upsert("com.wasmnest.file-transfer", false, "", "2026-11-09T00:00:01Z")
+            .upsert(
+                "com.wasmnest.file-transfer",
+                false,
+                "",
+                "2026-11-09T00:00:01Z",
+            )
             .expect("upsert");
         policy.validate().expect("valid");
         assert!(policy.apps["com.wasmnest.bedcode"].allow_wan);

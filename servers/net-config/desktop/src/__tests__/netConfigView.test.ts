@@ -307,10 +307,12 @@ describe('R4 / R5 导入与移除', () => {
     const wrapper = await mountView(harness)
     await wrapper.get('[data-testid="net-config-import-input"]').setValue(JSON.stringify(payload()))
     await wrapper.get('[data-testid="net-config-import-submit"]').trigger('click')
-    await flushPromises()
+    // 指纹复算走 WebCrypto（真正的异步任务），不能只 flush 一次 microtask
+    await vi.waitFor(() => {
+      expect(harness.calls.filter((c) => c.command === 'net-config.relay.save')).toHaveLength(1)
+    })
 
     const saves = harness.calls.filter((c) => c.command === 'net-config.relay.save')
-    expect(saves).toHaveLength(1)
     const config = (saves[0].args as { config: StoredRelaySettings }).config
     expect(config).toMatchObject({
       version: 1,
@@ -333,7 +335,9 @@ describe('R4 / R5 导入与移除', () => {
     const wrapper = await mountView(harness)
     await wrapper.get('[data-testid="net-config-import-input"]').setValue(JSON.stringify(payload()))
     await wrapper.get('[data-testid="net-config-import-submit"]').trigger('click')
-    await flushPromises()
+    await vi.waitFor(() => {
+      expect(wrapper.find('[data-testid="net-config-import-error"]').exists()).toBe(true)
+    })
     expect(wrapper.get('[data-testid="net-config-import-error"]').text()).toContain(
       t('relay.import.saveFailed'),
     )
@@ -353,13 +357,16 @@ describe('R4 / R5 导入与移除', () => {
     expect(wrapper.find('[data-testid="net-config-relay-cleared"]').exists()).toBe(true)
   })
 
-  it('移除失败保留配置并显性报错', async () => {
+  it('移除失败保留配置并显性报错（用「移除失败」语义，不是保存失败）', async () => {
     const harness = makeHarness({ relay: stored(), clearError: new Error('locked') })
     const wrapper = await mountView(harness)
     await wrapper.get('[data-testid="net-config-import-clear"]').trigger('click')
     await flushPromises()
     expect(wrapper.find('[data-testid="net-config-current"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="net-config-relay-cleared"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="net-config-import-error"]').text()).toContain(
+      t('relay.import.clearFailed'),
+    )
   })
 })
 
@@ -378,10 +385,28 @@ describe('R6 连通性探测（宿主未装配）', () => {
 })
 
 describe('R7 业务注册表', () => {
-  it('只列业务应用（服务型 wasm 不出现）', async () => {
+  it('未登记业务的生效值是「允许」（与后端默认一致）', async () => {
     const wrapper = await mountView(makeHarness())
     expect(wrapper.find(`[data-testid="net-config-wan-row-${BEDCODE}"]`).exists()).toBe(true)
     expect(wrapper.find(`[data-testid="net-config-wan-row-${AUTH_CENTER}"]`).exists()).toBe(false)
+    expect(wrapper.get(`[data-testid="net-config-wan-state-${BEDCODE}"]`).text()).toBe(
+      t('wan.state.allowed'),
+    )
+    expect(
+      wrapper.get(`[data-testid="net-config-wan-state-${BEDCODE}"]`).attributes('data-allowed'),
+    ).toBe('true')
+    expect(wrapper.get('[data-testid="net-config-wan-count"]').text()).toContain('1 / 1')
+  })
+
+  it('未登记业务首次切换写入显式 false（不是写回原本生效的 true）', async () => {
+    const harness = makeHarness()
+    const wrapper = await mountView(harness)
+    await wrapper.get(`[data-testid="net-config-wan-toggle-${BEDCODE}"]`).trigger('click')
+    await flushPromises()
+
+    const sets = harness.calls.filter((c) => c.command === 'net-config.wan-policy.set')
+    expect(sets).toHaveLength(1)
+    expect(sets[0].args).toEqual({ pluginId: BEDCODE, allowWan: false })
     expect(wrapper.get(`[data-testid="net-config-wan-state-${BEDCODE}"]`).text()).toBe(
       t('wan.state.blocked'),
     )
@@ -419,8 +444,18 @@ describe('R7 业务注册表', () => {
   })
 
   it('已配置地址但所有业务都禁止外网时给出显性区分提示', async () => {
-    const wrapper = await mountView(makeHarness({ relay: stored() }))
+    const wrapper = await mountView(
+      makeHarness({
+        relay: stored(),
+        policy: policyWith(BEDCODE, false, '2026-11-09T00:00:00Z'),
+      }),
+    )
     expect(wrapper.find('[data-testid="net-config-wan-off-hint"]').exists()).toBe(true)
+  })
+
+  it('已配置地址且存在未登记业务时不提示「全部关闭」（默认允许）', async () => {
+    const wrapper = await mountView(makeHarness({ relay: stored() }))
+    expect(wrapper.find('[data-testid="net-config-wan-off-hint"]').exists()).toBe(false)
   })
 
   it('切换失败保留旧状态并显性报错', async () => {
@@ -430,7 +465,7 @@ describe('R7 业务注册表', () => {
     await flushPromises()
     expect(wrapper.get('[data-testid="net-config-wan-error"]').text()).toContain('denied')
     expect(wrapper.get(`[data-testid="net-config-wan-state-${BEDCODE}"]`).text()).toBe(
-      t('wan.state.blocked'),
+      t('wan.state.allowed'),
     )
   })
 })

@@ -48,7 +48,6 @@ export const PROBE_DOCTOR = 'net-config-probe-doctor'
 export const WAN = 'net-config-wan'
 export const WAN_EMPTY = 'net-config-wan-empty'
 export const WAN_ERROR = 'net-config-wan-error'
-export const WAN_COUNT = 'net-config-wan-count'
 export const wanRow = (pluginId: string): string => `net-config-wan-row-${pluginId}`
 export const wanState = (pluginId: string): string => `net-config-wan-state-${pluginId}`
 export const wanToggle = (pluginId: string): string => `net-config-wan-toggle-${pluginId}`

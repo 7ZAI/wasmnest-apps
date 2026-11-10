@@ -38,7 +38,6 @@ mod model;
 mod ops;
 mod store;
 
-use model::{RELAY_KEY, WAN_POLICY_KEY};
 use serde_json::Value;
 use store::HostStore;
 // `HostBus` 供 `#[plugin_api]` 生成的 `Dispatcher::register()` 使用（订阅请求
@@ -84,8 +83,7 @@ fn dispatch_command(name: &str, args: Value) -> anyhow::Result<Value> {
         }
         "net-config.wan-policy.get" => {
             let policy = ops::load_policy(&store).map_err(anyhow::Error::msg)?;
-            serde_json::to_value(policy)
-                .map_err(|e| anyhow::anyhow!("wan policy serialize: {}", e))
+            serde_json::to_value(policy).map_err(|e| anyhow::anyhow!("wan policy serialize: {}", e))
         }
         "net-config.wan-policy.set" => {
             let plugin_id = args
@@ -106,8 +104,7 @@ fn dispatch_command(name: &str, args: Value) -> anyhow::Result<Value> {
                 .to_string();
             let policy = ops::set_policy(&store, &plugin_id, allow_wan, &note, ops::now_secs())
                 .map_err(anyhow::Error::msg)?;
-            serde_json::to_value(policy)
-                .map_err(|e| anyhow::anyhow!("wan policy serialize: {}", e))
+            serde_json::to_value(policy).map_err(|e| anyhow::anyhow!("wan policy serialize: {}", e))
         }
         other => Err(anyhow::anyhow!("Unknown command: {}", other)),
     }
@@ -122,6 +119,11 @@ fn dispatch_command(name: &str, args: Value) -> anyhow::Result<Value> {
 ///
 /// 只读面给所有业务（BedCode / FileTransfer / 后续接入方）读 relay 地址与注册表；
 /// `relay-adopt` 是唯一的写例外（幂等、目标已有值不覆盖），供 BedCode 迁移。
+///
+/// **已知边界（L9）**：当前 `host-api-call` 不向被调方携带调用方身份，所以
+/// `relay-adopt` 无法在中心侧按调用方白名单收窄——中心只能靠「仅补空、不覆盖」
+/// 把投毒面压到「中心为空时的先到先写」。若后续插件面扩大，必须先让宿主传递
+/// caller 身份再在此加准入，不要用额外权限位代替身份校验。
 #[plugin_api(manifest = "../plugin.json")]
 pub trait NetConfigApi {
     /// 当前 relay 配置：`{configured, config}`（未配置不是错误）
@@ -215,6 +217,7 @@ wasmnest_plugin_api::wasm_entry!(NetConfigPlugin);
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model::{RELAY_KEY, WAN_POLICY_KEY};
 
     #[test]
     fn manifest_api_matches_declared_surface() {
@@ -252,7 +255,8 @@ mod tests {
             "net-config.wan-policy.get",
             "net-config.relay.clear",
         ] {
-            let err = dispatch_command(name, serde_json::json!({})).expect_err("native 必须显性失败");
+            let err =
+                dispatch_command(name, serde_json::json!({})).expect_err("native 必须显性失败");
             assert!(
                 err.to_string().contains("outside wasm runtime"),
                 "{name} 未接到存储层: {err}"

@@ -4,9 +4,10 @@
  *
  * 只做一件事：显示「是否配置了中转地址」。**不等待数据就返回挂载**
  * （entry.mountPreview 立即返回 handle），数据在 `onMounted` 里取一次；失败按
- * 「读取失败」呈现，不冒充「未配置」。预览路径**只读**：不写存储、不改策略。
+ * 「读取失败」呈现，不冒充「未配置」——存储损坏（`relayError` / `wanError` 非空）
+ * 同样属于读不出来，不能显示成「尚未导入」。预览路径**只读**：不写存储、不改策略。
  */
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import i18n, { MESSAGE_NAMESPACE } from '../i18n'
 import type { AppPreviewEnv } from '../entry'
 import type { NetConfigStatus } from '../types'
@@ -18,6 +19,8 @@ const t = (key: string, params?: Record<string, unknown>): string =>
 
 const status = ref<NetConfigStatus | null>(null)
 const failed = ref(false)
+/** 后端带出的读取失败原因（损坏 ≠ 未配置） */
+const readError = computed(() => status.value?.relayError || status.value?.wanError || null)
 
 onMounted(async () => {
   try {
@@ -37,7 +40,12 @@ onMounted(async () => {
 <template>
   <div class="nc-preview" data-testid="net-config-preview">
     <p class="nc-preview-title">{{ t('preview.title') }}</p>
-    <p v-if="failed" class="nc-preview-state is-bad" data-testid="net-config-preview-state">
+    <p
+      v-if="failed || readError"
+      class="nc-preview-state is-bad"
+      data-testid="net-config-preview-state"
+      :title="readError ?? undefined"
+    >
       {{ t('preview.unavailable') }}
     </p>
     <p

@@ -401,7 +401,7 @@ async function parseTextPayload(text: string): Promise<RelayImportParseResult> {
         return {
           ok: false,
           errorKey: 'relay.error.metadata',
-          detail: `${key}（第 ${index + 1} 行）`,
+          detail: `line ${index + 1}: ${key}`,
         }
       }
       meta.set(key, value)
@@ -477,31 +477,4 @@ export async function parseRelayImport(text: string): Promise<RelayImportParseRe
   if (!trimmed) return { ok: false, errorKey: 'relay.error.empty' }
   if (trimmed.startsWith('{')) return parseJsonPayload(trimmed)
   return parseTextPayload(trimmed)
-}
-
-/**
- * 生成给二维码/复制用的标准载荷（字段与产出方 `print-addrs --json` 同形）
- *
- * 只把**已知**字段写进去：文本形态缺 `controlProtocol` 时不伪造控制协议名，
- * 消费方按 `v/kind/peer_id/peer_id_sha256/addrs` 即能完成身份与寻址校验。
- */
-export function buildRelayImportPayload(value: RelayImport): Record<string, unknown> {
-  return {
-    v: RELAY_IMPORT_VERSION,
-    kind: RELAY_IMPORT_KIND,
-    ...(value.relayVersion ? { relay_version: value.relayVersion } : {}),
-    peer_id: value.peerId,
-    peer_id_sha256: value.peerIdSha256,
-    ...(value.controlProtocol ? { control_protocol: value.controlProtocol } : {}),
-    addrs: [...value.relayAddrs],
-    ...(value.accessMode ? { access: { mode: value.accessMode } } : {}),
-    ...(value.quota
-      ? {
-          quota: {
-            max_circuit_bytes: value.quota.maxCircuitBytes,
-            max_circuit_duration_secs: value.quota.maxCircuitDurationSecs,
-          },
-        }
-      : {}),
-  }
 }

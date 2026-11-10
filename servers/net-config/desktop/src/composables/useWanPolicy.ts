@@ -24,6 +24,17 @@ export interface WanPolicyRow {
   entry: WanPolicyEntry | null
 }
 
+/**
+ * 行的**生效**外网开关（与后端 `relay_center::allow_wan_for` 同口径）：
+ * 未登记 / 缺字段 = 允许（spec「未显式设置时 true」）。
+ *
+ * 界面的徽标、计数与首次切换都必须走这里——直接读 `entry?.allowWan` 会把
+ * 「未登记」显示成「禁止」，与后端实际行为相反。
+ */
+export function effectiveAllowWan(entry: WanPolicyEntry | null): boolean {
+  return entry?.allowWan ?? true
+}
+
 export interface WanPolicyState {
   policy: Ref<WanPolicy | null>
   rows: ComputedRef<WanPolicyRow[]>

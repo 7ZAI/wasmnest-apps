@@ -74,10 +74,7 @@ pub struct MemoryStore {
 impl MemoryStore {
     pub fn with(key: &str, value: Value) -> Self {
         let store = Self::default();
-        store
-            .data
-            .borrow_mut()
-            .insert(key.to_string(), value);
+        store.data.borrow_mut().insert(key.to_string(), value);
         store
     }
 

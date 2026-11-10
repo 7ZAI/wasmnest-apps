@@ -5,7 +5,6 @@ const en: MessageSchema = {
   title: 'Network',
   subtitle:
     'Import your self-hosted relay once here and every cross-network app reuses it; this page also manages which apps may expose over WAN.',
-  loading: 'Loading…',
   refresh: 'Refresh',
   'error.body': 'Failed to read: {message}',
 
@@ -107,20 +106,15 @@ const en: MessageSchema = {
 
   'wan.title': 'App WAN registry',
   'wan.desc':
-    'Decide per app whether it may hold a relay reservation; turning it off stops new reservations immediately and leaves the LAN entry untouched. Shared addresses do not imply WAN access.',
+    'Decide per app whether it may hold a relay reservation; turning it off stops new reservations at the next configuration (existing reservations are not revoked immediately) and leaves the LAN entry untouched. Shared addresses do not imply WAN access.',
   'wan.empty': 'No app registered yet; apps appear here when they first integrate.',
-  'wan.id': 'Plugin id',
   'wan.allow': 'Allow WAN',
   'wan.block': 'Block WAN',
   'wan.state.allowed': 'Allowed',
   'wan.state.blocked': 'Blocked',
-  'wan.updatedAt': 'Last updated',
-  'wan.note': 'Note',
-  'wan.saveFailed': 'Policy switched, but writing storage failed: refresh to confirm the state',
-  'wan.toggleFailed': 'Failed to switch policy: please retry',
-  'wan.unknown': 'Unknown',
-  'wan.loadFailed':
-    'Failed to read the app registry; nothing was cleared automatically. Retry or check storage.',
+  'wan.noneAllowed':
+    'A relay address is configured, but no app currently allows WAN: apps stay reachable on the LAN and the cross-network entry stays closed.',
+  'wan.unknown': 'Not registered',
 
   'preview.title': 'Network',
   'preview.configured': '{count} relay address(es)',
