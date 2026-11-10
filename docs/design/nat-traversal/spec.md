@@ -14,7 +14,7 @@
 
 - 能力仓：p2p-engine relay client、`host-tunnel` 能力与 `/wasmnest/tunnel/1` 流、对等 HTTP/WS 面（`HttpCaller::Peer`）、双端链加密豁免判据改面标记、`dial-peer-addrs`、`wasmnest-relay` 一键包（仅 Linux）。
 - 平台仓：权限词汇（`tunnel:serve` / `tunnel:connect`）、compose / SDK / 双端宿主装配、`net.tunnel` 租约与 reservation 引用计数、§4.9 宿主侧网络判定、release-manifest。
-- 应用仓：bedcode 双端（桌面 expose + QR v2 + 固定 `required`；移动 tunnel 客户端）、auth-center QR v2、file-transfer 多地址拨号 + 固定加密、桌面「中转服务器」卡片、双端 E2E 与验证模板。
+- 应用仓：bedcode 双端（桌面 expose + QR v2 + 固定 `required`；移动 tunnel 客户端）、auth-center QR v2、file-transfer 多地址拨号 + 固定加密、桌面「中转服务器」卡片、**穿透配置中心（T18：统一设置 + 业务注册）**、双端 E2E 与验证模板。
 
 **非目标（v1 明确不做）**：
 
@@ -160,8 +160,9 @@ Android dev / 真机目验与双端 E2E（`host-runtime.lock.json` 的 `artifact
 | [T11](tickets/T11-dial-peer-addrs.md) | P2 | wasmnest-lib | `dial-peer-addrs` + 数据面多地址记忆 | T02 |
 | [T12](tickets/T12-file-transfer-wan.md) | P2 | wasmnest-apps | file-transfer 远程传输 + 固定加密 | T11、T06 |
 | [T13](tickets/T13-relay-oneclick.md) | P2 | wasmnest-lib | `wasmnest-relay` 一键包（仅 Linux） | T01（可与 P1 并行） |
-| [T14](tickets/T14-relay-settings-card.md) | P2 | wasmnest-apps | 桌面「中转服务器」卡片（落点 app 待确认） | T13 |
+| [T14](tickets/T14-relay-settings-card.md) | P2 | wasmnest-apps | 桌面「中转服务器」卡片（已裁定落点 bedcode 设置页） | T13 |
 | [T15](tickets/T15-p2-acceptance.md) | P2 | wasmnest-apps | P2 验收：1GB 跨 NAT + 一键 relay 全流程 | T12、T13、T14 |
+| [T18](tickets/T18-net-config-service.md) | P2 | wasmnest-apps | 穿透配置中心（服务型 wasm）：统一设置 + 业务注册 | T14（迁移来源）、T06 |
 | [T16](tickets/T16-p3-direct-upgrade.md) | P3 | wasmnest-lib | 直连升级评估（QUIC/DCUtR/TCP 打洞/UPnP） | T15 |
 | [T17](tickets/T17-lan-exposure-authnone.md) | 独立 | wasmnest-apps | 存量 LAN 暴露：三条 auth:none 路由收紧评估 | — |
 
