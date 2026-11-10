@@ -90,9 +90,24 @@ export type MessageSchema = {
   'relay.probe.title': string
   'relay.probe.desc': string
   'relay.probe.action': string
+  'relay.probe.running': string
+  'relay.probe.ok': string
   'relay.probe.empty': string
   'relay.probe.unsupported': string
   'relay.probe.publicHint': string
+  'relay.probe.resultAddr': string
+  'relay.probe.resultPeerId': string
+  'relay.probe.resultRtt': string
+  'relay.probe.resultRttUnknown': string
+  'relay.probe.resultHandshake': string
+  'relay.probe.resultCheckedAt': string
+  'relay.probe.errorUnreachable': string
+  'relay.probe.errorIdentity': string
+  'relay.probe.errorAddress': string
+  'relay.probe.errorRateLimited': string
+  'relay.probe.errorNotConfigured': string
+  'relay.probe.errorPermission': string
+  'relay.probe.errorUnknown': string
 
   // ==================== 业务注册表 ====================
   'wan.title': string

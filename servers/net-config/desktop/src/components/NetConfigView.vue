@@ -17,6 +17,7 @@
 import { computed, inject, onMounted, ref } from 'vue'
 import type { NetConfigContext } from '@/appContext'
 import { useRelayConfig } from '@/composables/useRelayConfig'
+import { useRelayProbe } from '@/composables/useRelayProbe'
 import { effectiveAllowWan, useWanPolicy } from '@/composables/useWanPolicy'
 import {
   RELAY_DEFAULT_PORT,
@@ -33,6 +34,20 @@ const t = (key: string, params?: Record<string, unknown>): string => context.i18
 
 const relay = useRelayConfig(context)
 const wan = useWanPolicy(context)
+const probe = useRelayProbe(context)
+
+/** 探测失败且原因是「宿主没装这个原语」时才提示出路（其余失败有各自的文案） */
+const probeUnsupported = computed(() => probe.failure.value?.code === 'tunnel-unavailable')
+
+const probeRtt = computed(() => {
+  const report = probe.report.value
+  if (!report) return ''
+  return report.rttMs === null ? t('relay.probe.resultRttUnknown') : `${report.rttMs} ms`
+})
+
+async function runProbe(): Promise<void> {
+  await probe.run()
+}
 
 const wanError = ref<string | null>(null)
 
@@ -136,6 +151,8 @@ async function submitImport(): Promise<void> {
   }
   importText.value = ''
   importOk.value = true
+  // 地址变了：上一轮探测结论不再指代当前配置
+  probe.reset()
 }
 
 async function removeConfig(): Promise<void> {
@@ -146,6 +163,7 @@ async function removeConfig(): Promise<void> {
   try {
     await relay.clear()
     clearOk.value = true
+    probe.reset()
   } catch {
     importError.value = { key: 'relay.import.clearFailed' }
   }
@@ -469,17 +487,65 @@ onMounted(async () => {
         </p>
       </section>
 
-      <!-- 连通性探测（宿主原语未装配：不伪造可用） -->
+      <!-- 连通性探测（T19：只读，只测已保存地址；宿主未装配时不伪造可用） -->
       <section class="nc-card" data-testid="net-config-probe">
         <h2 class="nc-h2">{{ t('relay.probe.title') }}</h2>
         <p class="nc-hint">{{ t('relay.probe.desc') }}</p>
-        <button class="nc-btn" data-testid="net-config-probe-button" disabled>
-          {{ t('relay.probe.action') }}
-        </button>
+
+        <div class="nc-actions">
+          <button
+            class="nc-btn"
+            data-testid="net-config-probe-button"
+            :disabled="probe.running.value || relay.busy.value || !relay.config.value"
+            @click="runProbe"
+          >
+            {{ probe.running.value ? t('relay.probe.running') : t('relay.probe.action') }}
+          </button>
+          <span v-if="probe.report.value" class="nc-ok" data-testid="net-config-probe-ok">
+            {{ t('relay.probe.ok') }}
+          </span>
+        </div>
+
         <p v-if="!relay.config.value" class="nc-hint" data-testid="net-config-probe-empty">
           {{ t('relay.probe.empty') }}
         </p>
-        <p class="nc-warn" data-testid="net-config-probe-unsupported">
+
+        <dl v-if="probe.report.value" class="nc-meta" data-testid="net-config-probe-result">
+          <div>
+            <dt>{{ t('relay.probe.resultAddr') }}</dt>
+            <dd class="nc-mono nc-break">{{ probe.report.value.addr }}</dd>
+          </div>
+          <div>
+            <dt>{{ t('relay.probe.resultPeerId') }}</dt>
+            <dd class="nc-mono nc-break">{{ probe.report.value.peerId }}</dd>
+          </div>
+          <div>
+            <dt>{{ t('relay.probe.resultRtt') }}</dt>
+            <dd data-testid="net-config-probe-rtt">{{ probeRtt }}</dd>
+          </div>
+          <div>
+            <dt>{{ t('relay.probe.resultHandshake') }}</dt>
+            <dd>{{ probe.report.value.handshakeMs }} ms</dd>
+          </div>
+          <div>
+            <dt>{{ t('relay.probe.resultCheckedAt') }}</dt>
+            <dd>{{ probe.report.value.checkedAt }}</dd>
+          </div>
+        </dl>
+
+        <p
+          v-if="probe.failure.value"
+          class="nc-error"
+          role="alert"
+          data-testid="net-config-probe-error"
+        >
+          {{ t(probe.failure.value.key) }}
+          <code v-if="probe.failure.value.detail" class="nc-mono nc-break nc-block">
+            {{ probe.failure.value.detail }}
+          </code>
+        </p>
+
+        <p v-if="probeUnsupported" class="nc-warn" data-testid="net-config-probe-unsupported">
           {{ t('relay.probe.unsupported') }}
         </p>
         <pre class="nc-pre" data-testid="net-config-probe-doctor">{{ doctorCommand }}</pre>

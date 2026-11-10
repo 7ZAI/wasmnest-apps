@@ -9,6 +9,10 @@
 //! `tunnel:connect` 权限与时机调宿主 `host-tunnel`；本中心不代任何业务
 //! `expose` / `connect` / 签发配对票据（那等于开权限借用后门）。
 //!
+//! 唯一例外是 **只读连通性探测**（T19，`tunnel:probe`）：只对已保存的中继地址做
+//! 一次握手 + ping，报告可达性 / PeerId 指纹 / RTT；不建 reservation、不登记规则、
+//! 不写信任、不发事件（见 [`probe`]）。
+//!
 //! ## 为什么是 L2（`internal-business`）
 //!
 //! 宿主固定按 L1 → L2 → L3 装配，L2 先于所有业务应用（L3）就绪，业务启动时调用
@@ -36,6 +40,7 @@
 
 mod model;
 mod ops;
+mod probe;
 mod store;
 
 use serde_json::Value;
@@ -80,6 +85,16 @@ fn dispatch_command(name: &str, args: Value) -> anyhow::Result<Value> {
         "net-config.relay.adopt" => {
             let raw = config_arg(&args).map_err(anyhow::Error::msg)?;
             ops::adopt_relay(&store, &raw, ops::now_secs()).map_err(anyhow::Error::msg)
+        }
+        // T19：只探测已保存地址（地址真源在 KV，不接受前端入参——否则成为任意
+        // multiaddr 拨号器）。`timeoutMs` 省略 / 0 = 宿主缺省（8000）。
+        "net-config.relay.probe" => {
+            let timeout_ms = args
+                .get("timeoutMs")
+                .and_then(Value::as_u64)
+                .map_or(0, |value| u32::try_from(value).unwrap_or(u32::MAX));
+            probe::probe_saved_relay(&store, &probe::WasmProbeHost, timeout_ms)
+                .map_err(anyhow::Error::msg)
         }
         "net-config.wan-policy.get" => {
             let policy = ops::load_policy(&store).map_err(anyhow::Error::msg)?;
@@ -237,8 +252,8 @@ mod tests {
         );
         assert_eq!(
             manifest.permissions,
-            vec!["storage".to_string()],
-            "中心不碰网络 / 隧道 / 进程：只声明 storage"
+            vec!["storage".to_string(), "tunnel:probe".to_string()],
+            "中心只读配置 + 只读探测：storage 与 tunnel:probe（无 serve / connect）"
         );
     }
 
@@ -254,6 +269,7 @@ mod tests {
             "net-config.relay.get",
             "net-config.wan-policy.get",
             "net-config.relay.clear",
+            "net-config.relay.probe",
         ] {
             let err =
                 dispatch_command(name, serde_json::json!({})).expect_err("native 必须显性失败");

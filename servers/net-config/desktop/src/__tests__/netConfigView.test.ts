@@ -7,7 +7,8 @@
  * - R3 复制 / 下载走前端能力，失败显性提示（不谎报成功）；
  * - R4 导入非法载荷报错且不写存储；合法载荷经 `net-config.relay.save` 写入；
  * - R5 中心读取失败 / 指纹不一致时只报错、不显示「未配置」；显式移除才删键；
- * - R6 连通性探测在宿主未装配时不可伪装可用：按钮禁用 + 显性说明 + doctor 出路；
+ * - R6 连通性探测（T19）：未配置禁用 + 空态；已配置可点并按报告 / 错误码渲染；
+ *   宿主未装配（tunnel-unavailable）与未知码都显性，不伪造可用或成功；
  * - R7 业务注册表：只列业务应用（服务型 wasm 不出现）、逐业务开关、显示更新时间。
  */
 
@@ -82,7 +83,23 @@ interface EnvOptions {
   clearError?: Error
   /** `net-config.wan-policy.set` 是否失败 */
   policySetError?: Error
+  /** `net-config.relay.probe` 的回执；`Error` = 命令失败（`code: detail` 串在 message 里） */
+  probe?: Record<string, unknown> | Error
   hosts?: Array<Record<string, unknown>>
+}
+
+/** 探测成功回执（能力域 `host-tunnel.probe-relay` v1 形状） */
+function probeReport(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    v: 1,
+    addr: ADDR,
+    peerId: PEER_ID,
+    peerIdSha256: FINGERPRINT,
+    handshakeMs: 62,
+    rttMs: 64,
+    checkedAt: '2026-11-10T13:26:37Z',
+    ...overrides,
+  }
 }
 
 interface Harness {
@@ -111,6 +128,10 @@ function makeHarness(options: EnvOptions = {}): Harness {
       case 'net-config.relay.clear': {
         if (options.clearError) throw options.clearError
         return { cleared: true }
+      }
+      case 'net-config.relay.probe': {
+        if (options.probe instanceof Error) throw options.probe
+        return options.probe ?? probeReport()
       }
       case 'net-config.wan-policy.get': {
         if (options.policy instanceof Error) throw options.policy
@@ -370,17 +391,100 @@ describe('R4 / R5 导入与移除', () => {
   })
 })
 
-describe('R6 连通性探测（宿主未装配）', () => {
-  it('按钮禁用并显性说明原因，给出 doctor 出路', async () => {
-    const wrapper = await mountView(makeHarness())
-    const button = wrapper.get('[data-testid="net-config-probe-button"]')
-    expect(button.attributes('disabled')).toBeDefined()
-    expect(wrapper.get('[data-testid="net-config-probe-unsupported"]').text()).toBe(
-      t('relay.probe.unsupported'),
-    )
-    expect(wrapper.get('[data-testid="net-config-probe-doctor"]').text()).toContain(
-      'wasmnest-relay doctor',
-    )
+describe('R6 连通性探测（T19：只读、只测已保存地址）', () => {
+  const BUTTON = '[data-testid="net-config-probe-button"]'
+  const EMPTY = '[data-testid="net-config-probe-empty"]'
+  const RESULT = '[data-testid="net-config-probe-result"]'
+  const RTT = '[data-testid="net-config-probe-rtt"]'
+  const OK = '[data-testid="net-config-probe-ok"]'
+  const ERROR = '[data-testid="net-config-probe-error"]'
+  const UNSUPPORTED = '[data-testid="net-config-probe-unsupported"]'
+  const DOCTOR = '[data-testid="net-config-probe-doctor"]'
+
+  it('未配置：按钮禁用、空态提示、doctor 出路常驻；未点击前不冒充「宿主未装配」', async () => {
+    const wrapper = await mountView(makeHarness({ relay: null }))
+    expect(wrapper.get(BUTTON).attributes('disabled')).toBeDefined()
+    expect(wrapper.get(EMPTY).text()).toBe(t('relay.probe.empty'))
+    expect(wrapper.find(UNSUPPORTED).exists()).toBe(false)
+    expect(wrapper.get(DOCTOR).text()).toContain('wasmnest-relay doctor')
+  })
+
+  it('已配置：点击只调用一次命令并渲染报告（地址 / PeerId / RTT / 握手）', async () => {
+    const harness = makeHarness({ relay: stored() })
+    const wrapper = await mountView(harness)
+    expect(wrapper.get(BUTTON).attributes('disabled')).toBeUndefined()
+
+    await wrapper.get(BUTTON).trigger('click')
+    await flushPromises()
+
+    const calls = harness.calls.filter((call) => call.command === 'net-config.relay.probe')
+    expect(calls).toHaveLength(1)
+    expect(wrapper.get(RESULT).text()).toContain(ADDR)
+    expect(wrapper.get(RESULT).text()).toContain(PEER_ID)
+    expect(wrapper.get(RTT).text()).toBe('64 ms')
+    expect(wrapper.find(OK).exists()).toBe(true)
+    expect(wrapper.find(ERROR).exists()).toBe(false)
+  })
+
+  it('rttMs = null 时显性说明「未取到」，不伪造 0ms', async () => {
+    const harness = makeHarness({ relay: stored(), probe: probeReport({ rttMs: null }) })
+    const wrapper = await mountView(harness)
+    await wrapper.get(BUTTON).trigger('click')
+    await flushPromises()
+    expect(wrapper.get(RTT).text()).toBe(t('relay.probe.resultRttUnknown'))
+    expect(wrapper.get(RTT).text()).not.toContain('0 ms')
+  })
+
+  it('relay-unreachable：按错误码渲染并带明细；不显示「宿主未装配」', async () => {
+    const harness = makeHarness({
+      relay: stored(),
+      probe: new Error('relay-unreachable: 127.0.0.1:9 → 拒绝连接'),
+    })
+    const wrapper = await mountView(harness)
+    await wrapper.get(BUTTON).trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get(ERROR).text()).toContain(t('relay.probe.errorUnreachable'))
+    expect(wrapper.get(ERROR).text()).toContain('127.0.0.1:9')
+    expect(wrapper.find(UNSUPPORTED).exists()).toBe(false)
+    expect(wrapper.find(RESULT).exists()).toBe(false)
+  })
+
+  it('tunnel-unavailable：显性说明宿主未装配并给出出路', async () => {
+    const harness = makeHarness({
+      relay: stored(),
+      probe: new Error('tunnel-unavailable: 宿主未导出 probe-relay'),
+    })
+    const wrapper = await mountView(harness)
+    await wrapper.get(BUTTON).trigger('click')
+    await flushPromises()
+    expect(wrapper.find(UNSUPPORTED).exists()).toBe(true)
+    expect(wrapper.get(UNSUPPORTED).text()).toBe(t('relay.probe.unsupported'))
+  })
+
+  it('未知错误码不吞明细（不猜成「不可达」）', async () => {
+    const harness = makeHarness({
+      relay: stored(),
+      probe: new Error('weird-code: boom'),
+    })
+    const wrapper = await mountView(harness)
+    await wrapper.get(BUTTON).trigger('click')
+    await flushPromises()
+    expect(wrapper.get(ERROR).text()).toContain(t('relay.probe.errorUnknown'))
+    expect(wrapper.get(ERROR).text()).toContain('boom')
+  })
+
+  it('移除配置后清空上一轮探测结论', async () => {
+    const harness = makeHarness({ relay: stored() })
+    const wrapper = await mountView(harness)
+    await wrapper.get(BUTTON).trigger('click')
+    await flushPromises()
+    expect(wrapper.find(RESULT).exists()).toBe(true)
+
+    await wrapper.get('[data-testid="net-config-import-clear"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.find(RESULT).exists()).toBe(false)
+    expect(wrapper.get(BUTTON).attributes('disabled')).toBeDefined()
   })
 })
 

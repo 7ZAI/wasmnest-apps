@@ -37,6 +37,7 @@
 | [file-transfer.md](file-transfer.md) | `com.wasmnest.file-transfer` | 桌面 + 移动 | `e2e/specs/file-transfer.spec.ts`（8）、`e2e/mobile/file-transfer-shell.spec.ts`（4） | 真实对端 / 共享目录 / 真机                |
 | [monitor.md](monitor.md)             | `com.wasmnest.monitor`       | 桌面 + 移动 | `e2e/specs/monitor.spec.ts`（10）、`e2e/specs/sys-apps.spec.ts`（3）                  | 宿主已装配 metrics 快照源                 |
 | [auth-center.md](auth-center.md)     | `com.wasmnest.auth-center`   | 桌面        | `e2e/specs/auth-center.spec.ts`（6）；双端配对间接                                    | BedCode / File Transfer 消费链路          |
+| [net-config.md](net-config.md)       | `com.wasmnest.net-config`    | 桌面        | `e2e/specs/net-config.spec.ts`（7）                                                   | 已部署 relay / 宿主已按 T19 重打       |
 
 > **BedCode 专项分册**：[agent-hub.md](agent-hub.md) 描述 BedCode 的 Agent 管理域（`/agents`）——
 > 原独立应用 agent-hub 已按 [ADR 0002](../adr/0002-agent-hub-merge-into-bedcode.md) 并入 bedcode，

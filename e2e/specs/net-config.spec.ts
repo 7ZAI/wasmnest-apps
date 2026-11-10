@@ -10,7 +10,8 @@
  * 2. 当前配置只有两种合法呈现：已配置（PeerId / 地址有值）或未配置（空态）；
  *    二者之外必须出现显性错误（不允许「空白页面」冒充未配置）。
  * 3. 业务注册表随 staging 装载哪些应用变化：只断言取值域，不写死行数。
- * 4. 探测按钮必须禁用（宿主 relay 拨号原语未装配）；出现可点按钮 = 伪造能力。
+ * 4. 探测（T19）只读：未配置时按钮必须禁用；已配置时按钮必须可点。不点它——
+ *    点击会真的拨 relay，而本用例不写真实配置（见第 1 条）。
  */
 
 import { browser } from '@wdio/globals'
@@ -48,6 +49,7 @@ import {
   PROBE,
   PROBE_BUTTON,
   PROBE_DOCTOR,
+  PROBE_EMPTY,
   PROBE_UNSUPPORTED,
   REFRESH,
   STATE_CONFIGURED,
@@ -163,15 +165,27 @@ describe('Network Config（桌面端 · 系统服务面）', () => {
     )
   })
 
-  it('连通性：宿主未装配时按钮禁用，给出 doctor 出路（不伪造可用）', async () => {
-    expectEqual(await visible(PROBE_UNSUPPORTED), true, '显性说明探测能力未装配')
+  it('连通性：只读探测；未配置禁用 + 空态，doctor 出路常驻（不写真实配置）', async () => {
+    expectEqual(await visible(PROBE), true, '探测卡片存在')
     expectEqual(await visible(PROBE_BUTTON), true, '按钮存在')
-    expectEqual(await isDisabled(PROBE_BUTTON), true, '按钮必须禁用（可点 = 伪造能力）')
     expectEqual(
       ((await text(PROBE_DOCTOR)) ?? '').includes('wasmnest-relay doctor'),
       true,
       '给出服务器侧自检命令',
     )
+
+    if (await exists(STATE_CONFIGURED)) {
+      // T19 起探测面已装配：已配置时按钮必须可点（禁用了才是回归）
+      expectEqual(await isDisabled(PROBE_BUTTON), false, '已配置时按钮必须可点')
+      expectEqual(await visible(PROBE_EMPTY), false, '已配置时不显示空态')
+    } else {
+      expectEqual(await isDisabled(PROBE_BUTTON), true, '未配置时按钮禁用')
+      expectEqual(await visible(PROBE_EMPTY), true, '未配置时给出空态提示')
+    }
+
+    // 点击会真的拨 relay（且 E2E 纪律禁止写真实配置，无法备好可拨地址）：
+    // 点击路径由组件单测（R6）与能力域 probe 单测覆盖，这里只验可点性与文案。
+    expectEqual(await visible(PROBE_UNSUPPORTED), false, '未点击前不得冒充「宿主未装配」')
   })
 
   it('业务注册表：行状态取值域；空表走空态；读取失败显性可见', async () => {

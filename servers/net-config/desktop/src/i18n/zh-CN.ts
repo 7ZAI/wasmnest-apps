@@ -85,13 +85,29 @@ const zhCN: MessageSchema = {
 
   'relay.probe.title': '检测连通性',
   'relay.probe.desc':
-    '用本机 peer 引擎拨 relay，显示 PeerId 指纹与 RTT；失败会给出端口 / 防火墙 / DNS / 版本原因。',
+    '对「已保存」的中继地址做一次探测：TCP 握手 + Noise 身份校验 + ping 往返。只读，不建立预留、不开放任何端口。',
   'relay.probe.action': '检测连通性',
+  'relay.probe.running': '正在检测…',
+  'relay.probe.ok': '握手成功',
   'relay.probe.empty': '先导入中转地址再检测。',
   'relay.probe.unsupported':
-    '当前宿主未提供 relay 拨号探测能力（需平台 T06 装配）；下面的服务器侧自检是现阶段可操作的验证路径。',
+    '当前宿主未装配 relay 探测原语（旧宿主 / 未重新打包），本页不伪造可用；下面的服务器侧自检是替代路径。',
   'relay.probe.publicHint':
     '公网可达性需要从另一台网络实测；doctor 会如实标 unknown，不会把本机可连说成公网可用。',
+  'relay.probe.resultAddr': '实际探测地址',
+  'relay.probe.resultPeerId': '握手实测 PeerId',
+  'relay.probe.resultRtt': 'RTT',
+  'relay.probe.resultRttUnknown': '未取到（对端不支持 ping 或超时；可达性已成立）',
+  'relay.probe.resultHandshake': '握手耗时',
+  'relay.probe.resultCheckedAt': '检测时间',
+  'relay.probe.errorUnreachable': 'relay 不可达：端口未监听 / 防火墙 / DNS / 地址失效，明细见下。',
+  'relay.probe.errorIdentity':
+    '身份不符：握手实测 PeerId 与地址里钉住的不一致——不要继续使用这套地址（可能被顶替）。',
+  'relay.probe.errorAddress': '地址不合法：需要 `.../tcp/<端口>/p2p/<relay PeerId>` 形状的已保存地址。',
+  'relay.probe.errorRateLimited': '探测过于频繁：等上一次结束后再试（2 秒冷却）。',
+  'relay.probe.errorNotConfigured': '还没有可探测的中转地址：先导入 `print-addrs` 输出。',
+  'relay.probe.errorPermission': '本应用未被授予 tunnel:probe 权限，无法探测。',
+  'relay.probe.errorUnknown': '探测失败（未识别的错误码，明细见下）。',
 
   'wan.title': '业务外网注册表',
   'wan.desc':

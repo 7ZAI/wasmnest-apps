@@ -42,6 +42,11 @@ export const IMPORT_OK = 'net-config-import-ok'
 
 export const PROBE = 'net-config-probe'
 export const PROBE_BUTTON = 'net-config-probe-button'
+export const PROBE_EMPTY = 'net-config-probe-empty'
+export const PROBE_RESULT = 'net-config-probe-result'
+export const PROBE_RTT = 'net-config-probe-rtt'
+export const PROBE_OK = 'net-config-probe-ok'
+export const PROBE_ERROR = 'net-config-probe-error'
 export const PROBE_UNSUPPORTED = 'net-config-probe-unsupported'
 export const PROBE_DOCTOR = 'net-config-probe-doctor'
 

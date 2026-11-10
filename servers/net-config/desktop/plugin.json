@@ -3,7 +3,7 @@
   "name": "Network Config",
   "version": "0.0.1",
   "platform": "desktop",
-  "description": "网络配置中心（T18）：穿透配置的跨应用唯一真源。一处导入自建 relay 地址（print-addrs JSON / 文本 / multiaddr），按插件 id 维护「是否允许外网」注册表，并承载部署文本生成与地址校验页面。\n边界：本中心只统一**配置来源**，不代任何业务拨号 / 暴露 / 签发配对票据；业务仍按自己的 tunnel:serve / tunnel:connect 权限与时机调宿主隧道原语。\n装配角色为 L2（internal-business），只为借用「先于业务应用就绪」的装配顺序，不注册任何网关裁决。",
+  "description": "网络配置中心（T18）：穿透配置的跨应用唯一真源。一处导入自建 relay 地址（print-addrs JSON / 文本 / multiaddr），按插件 id 维护「是否允许外网」注册表，并承载部署文本生成与地址校验页面。\n边界：本中心只统一**配置来源**，不代任何业务拨号 / 暴露 / 签发配对票据；业务仍按自己的 tunnel:serve / tunnel:connect 权限与时机调宿主隧道原语。唯一例外是只读连通性探测（tunnel:probe）：只对**已保存**的中继地址做一次 TCP + Noise + PeerId 校验 + ping，不建 reservation、不开暴露面、不写信任。\n装配角色为 L2（internal-business），只为借用「先于业务应用就绪」的装配顺序，不注册任何网关裁决。",
   "author": "WasmNest",
   "main": "index.js",
   "pluginType": "full",
@@ -11,7 +11,8 @@
   "icon": "icon.svg",
   "type": "internal-business",
   "permissions": [
-    "storage"
+    "storage",
+    "tunnel:probe"
   ],
   "api": [
     "com.wasmnest.net-config.relay-config",
@@ -39,6 +40,10 @@
       {
         "id": "net-config.relay.adopt",
         "title": "Network Config: Adopt Relay Config"
+      },
+      {
+        "id": "net-config.relay.probe",
+        "title": "Network Config: Probe Relay Connectivity"
       },
       {
         "id": "net-config.wan-policy.get",

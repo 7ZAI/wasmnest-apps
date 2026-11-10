@@ -96,13 +96,31 @@ const en: MessageSchema = {
 
   'relay.probe.title': 'Connectivity check',
   'relay.probe.desc':
-    'Dials the relay with the local peer engine and shows the PeerId fingerprint plus RTT; failures point at port / firewall / DNS / version causes.',
+    'Probes the saved relay address once: TCP handshake + Noise identity check + ping round trip. Read-only — no reservation, no exposed port.',
   'relay.probe.action': 'Check connectivity',
+  'relay.probe.running': 'Checking…',
+  'relay.probe.ok': 'Handshake succeeded',
   'relay.probe.empty': 'Import a relay address before checking.',
   'relay.probe.unsupported':
-    'This host does not expose relay dialing yet (requires platform T06). Use the server-side self-check below for now.',
+    'This host does not expose the relay probe primitive (older host / not rebuilt). The page will not fake it; use the server-side self-check below.',
   'relay.probe.publicHint':
     'Public reachability must be tested from another network; doctor reports it as unknown instead of claiming local success means public availability.',
+  'relay.probe.resultAddr': 'Probed address',
+  'relay.probe.resultPeerId': 'PeerId seen in handshake',
+  'relay.probe.resultRtt': 'RTT',
+  'relay.probe.resultRttUnknown': 'not available (peer lacks ping or timed out; reachability already proven)',
+  'relay.probe.resultHandshake': 'Handshake',
+  'relay.probe.resultCheckedAt': 'Checked at',
+  'relay.probe.errorUnreachable':
+    'Relay unreachable: nothing listening / firewall / DNS / stale address — see detail below.',
+  'relay.probe.errorIdentity':
+    'Identity mismatch: the PeerId seen in the handshake differs from the pinned one — stop using these addresses (possible substitution).',
+  'relay.probe.errorAddress':
+    'Invalid address: expected saved addresses shaped `.../tcp/<port>/p2p/<relay PeerId>`.',
+  'relay.probe.errorRateLimited': 'Probing too often: wait for the previous run (2s cooldown).',
+  'relay.probe.errorNotConfigured': 'No relay address to probe: import the `print-addrs` output first.',
+  'relay.probe.errorPermission': 'This app was not granted tunnel:probe, so it cannot probe.',
+  'relay.probe.errorUnknown': 'Probe failed (unrecognized error code — see detail below).',
 
   'wan.title': 'App WAN registry',
   'wan.desc':
