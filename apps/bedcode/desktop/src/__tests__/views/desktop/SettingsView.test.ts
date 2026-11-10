@@ -15,6 +15,7 @@ import i18n from '@/i18n'
 import SettingsView from '@/views/SettingsView.vue'
 import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-desktop'
 import type { AppMountEnv } from '@/entry'
+import manifest from '../../../../plugin.json'
 import { invoke } from '@tauri-apps/api/core'
 
 // Mock Tauri APIs（业务分组经注入上下文取数，无宿主 store 依赖）
@@ -94,6 +95,14 @@ describe('SettingsView 业务分组渲染', () => {
   it('渲染六个应用分组，标题序列 = order 升序（外观 → 配对 → 中转服务器 → 链路加密 → 会话 → 版本更新）', async () => {
     const wrapper = await mountView()
     expect(titles(wrapper)).toEqual(SECTION_TITLES)
+  })
+
+  it('版本更新分组固定在最后，且检查前就显示当前版本号', async () => {
+    const wrapper = await mountView()
+    const sections = wrapper.findAll('[data-testid^="settings-section-"]')
+    expect(sections.at(-1)?.attributes('data-testid')).toBe('settings-section-appUpdate')
+    const update = wrapper.get('[data-testid="settings-section-appUpdate"]')
+    expect(update.text()).toContain(`v${manifest.version}`)
   })
 
   it('不渲染宿主平台分组（系统 / 日志 / 关于仍归宿主系统页）', async () => {

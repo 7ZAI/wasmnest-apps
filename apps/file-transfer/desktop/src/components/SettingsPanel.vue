@@ -11,6 +11,7 @@ import type { Settings } from '../types'
 import type { RootItem } from '../composables/useSettings'
 import TrustedPeersSection from './TrustedPeersSection.vue'
 import AppUpdateSection from '@binblink/wasmnest-plugin-sdk-desktop/ui/app-update'
+import manifest from '../../plugin.json'
 import NumberField from '@binblink/wasmnest-plugin-sdk-desktop/ui/number-field'
 
 const context = inject<PluginContext>('pluginContext')!
@@ -273,11 +274,6 @@ function onTimeoutCommit(secs: number): void {
         <!-- 可信对端管理（spec 决策 8）：独立分区，列表/撤销自包含 -->
         <TrustedPeersSection data-testid="ft-settings-section-trusted" />
 
-        <!-- 版本更新（SDK 默认实现；宿主统一 GitHub Release 判定） -->
-        <section class="ft-settings-section" data-testid="ft-settings-section-update">
-          <AppUpdateSection />
-        </section>
-
         <!-- 安全告知（spec §10 常驻） -->
         <div class="ft-warning" data-testid="ft-settings-warning">
           <svg class="ft-warning-ico" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -290,6 +286,12 @@ function onTimeoutCommit(secs: number): void {
           </svg>
           <span>{{ t('transfer.settings.encryptionNotice') }}</span>
         </div>
+
+        <!-- 版本更新（SDK 默认实现；宿主统一 GitHub Release 判定）——
+             固定放在最后；版本号随包内联，检查前也能看到 -->
+        <section class="ft-settings-section" data-testid="ft-settings-section-update">
+          <AppUpdateSection :current-version="manifest.version" />
+        </section>
       </div>
     </div>
   </div>

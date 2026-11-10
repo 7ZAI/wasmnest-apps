@@ -20,6 +20,7 @@ import { KIND_PRIVATE_DOWNLOADS } from '../types'
 import type { ReceivingPolicy } from '../types'
 import TrustedPeersSection from './TrustedPeersSection.vue'
 import AppUpdateSection from '@binblink/wasmnest-plugin-sdk-mobile/ui/app-update'
+import manifest from '../../plugin.json'
 
 type SettingsApi = ReturnType<typeof useSettings>
 
@@ -395,12 +396,13 @@ watch(() => props.settingsApi.settings.value.relayMaxBytesPerTask, syncRelayThre
       </div>
     </section>
 
-    <!-- ==================== 版本更新（SDK 默认实现） ==================== -->
-    <AppUpdateSection />
-
     <!-- ==================== 可信对端管理（spec 决策 8） ==================== -->
     <!-- 独立分区，列表/撤销自包含 -->
     <TrustedPeersSection />
+
+    <!-- ==================== 版本更新（SDK 默认实现） ====================
+         固定放在最后；版本号随包内联，检查前也能看到 -->
+    <AppUpdateSection :current-version="manifest.version" />
   </div>
 </template>
 

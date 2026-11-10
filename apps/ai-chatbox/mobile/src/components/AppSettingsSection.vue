@@ -319,9 +319,9 @@
       </div>
     </div>
 
-    <!-- 版本更新（SDK 默认实现） -->
+    <!-- 版本更新（SDK 默认实现）——固定放在最后；版本号随包内联，检查前也能看到 -->
     <div>
-      <AppUpdateSection />
+      <AppUpdateSection :current-version="manifest.version" />
     </div>
   </div>
 </template>
@@ -340,6 +340,7 @@
 import { computed, defineComponent, h, ref, type Ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppUpdateSection from '@binblink/wasmnest-plugin-sdk-mobile/ui/app-update'
+import manifest from '../../plugin.json'
 import type { PluginConfig } from '../types'
 import {
   CODE_FONT_SIZE_MAX,

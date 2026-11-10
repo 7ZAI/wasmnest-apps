@@ -6,8 +6,10 @@
  * 设置页分组适配：标题由设置页统一渲染，卡片内不再重复标题。
  */
 import AppUpdateSection from '@binblink/wasmnest-plugin-sdk-desktop/ui/app-update'
+import manifest from '../../plugin.json'
 </script>
 
 <template>
-  <AppUpdateSection :labels="{ title: '' }" />
+  <!-- 当前版本随包内联（与宿主加载的 plugin.json 同源），检查前也能看到版本号 -->
+  <AppUpdateSection :current-version="manifest.version" :labels="{ title: '' }" />
 </template>

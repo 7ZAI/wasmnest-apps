@@ -120,9 +120,6 @@
       </div>
     </section>
 
-    <!-- 版本更新（SDK 默认实现；宿主统一 GitHub Release 判定） -->
-    <AppUpdateSection />
-
     <!-- ==================== 重置 ==================== -->
     <button
       type="button"
@@ -133,6 +130,10 @@
     >
       {{ t('settings.actions.reset') }}
     </button>
+
+    <!-- 版本更新（SDK 默认实现；宿主统一 GitHub Release 判定）——
+         固定放在页面最后；版本号随包内联，检查前也能看到 -->
+    <AppUpdateSection :current-version="manifest.version" />
   </div>
 </template>
 
@@ -148,6 +149,7 @@
  */
 import { onMounted } from 'vue'
 import AppUpdateSection from '@binblink/wasmnest-plugin-sdk-mobile/ui/app-update'
+import manifest from '../../plugin.json'
 import Toggle from '../terminal/components/Toggle.vue'
 import StepperControl from '../terminal/components/StepperControl.vue'
 import { SETTING_GROUPS, SETTINGS_BY_KEY } from './settingsModel'
