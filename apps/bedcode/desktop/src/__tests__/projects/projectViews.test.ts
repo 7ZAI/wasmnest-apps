@@ -41,6 +41,12 @@ vi.mock('vue-sonner', () => ({
 // 宿主平台事实：项目表单按平台过滤执行环境（Linux 只有 linux）
 vi.mock('@tauri-apps/plugin-os', () => ({ platform: () => 'linux' }))
 
+// 语法高亮有独立用例（projectFileViewer.test.ts）；这里桩掉，避免整个工作台
+// 用例为一次 shiki wasm 初始化买单
+vi.mock('@/utils/codeHighlight', () => ({
+  highlightFileContent: async () => ({ status: 'unsupported' }),
+}))
+
 import ProjectListView from '@/views/projects/ProjectListView.vue'
 import ProjectWorkbenchView from '@/views/projects/ProjectWorkbenchView.vue'
 import { PROJECT_GIT_LIMIT } from '@/composables/useProjectGit'

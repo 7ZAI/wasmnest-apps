@@ -19,6 +19,13 @@
         >
           {{ t('project.fileViewer.lines', { n: lineCount }) }}
         </span>
+        <span
+          v-if="highlightTooLarge"
+          class="shrink-0 text-[calc(11px*var(--ui-scale))] text-[var(--text-tertiary)]"
+          data-testid="project-file-viewer-highlight-skipped"
+        >
+          {{ t('project.fileViewer.highlightSkipped') }}
+        </span>
       </div>
     </template>
 
@@ -81,7 +88,14 @@
             :style="{ width: gutterWidth }"
             aria-hidden="true"
             >{{ lineNumbers }}</pre>
-          <pre class="wb-code wb-code-body"><code>{{ content }}</code></pre>
+          <!-- 高亮（shiki 双主题）：行号仍由左列负责；高亮未就绪 / 失败时渲染纯文本 -->
+          <div
+            v-if="highlightedHtml"
+            class="wb-code wb-code-host"
+            data-testid="project-file-viewer-highlighted"
+            v-html="highlightedHtml"
+          ></div>
+          <pre v-else class="wb-code wb-code-body"><code>{{ content }}</code></pre>
         </div>
       </div>
     </div>
@@ -122,17 +136,21 @@
  * 项目文件只读查看器（工作台右栏文件页签点开）
  *
  * 移动端文件弹窗的桌面等价物：文件名 + 行数 + 等宽正文（行号列 Sticky）。
- * 桌面工程没有 shiki/marked 依赖，这里不做语法高亮与 Markdown 渲染——先把
- * 「看得见文件内容」做到，高亮是后续增强，不在拉取链路上新增第三方包。
+ * 语法高亮走 shiki（与移动端同一张语言/主题表，见 `utils/codeHighlight.ts`），
+ * Markdown 仍按源码展示、不渲染。
  *
  * 读文件走 `project.file-content`（后端复用 file_browse 的 2MB 上限、越界与
  * 二进制判定）；错误显性展示，不用空正文冒充「文件是空的」。
+ *
+ * 高亮是渐进增强：正文先以纯文本出现，高亮完成后原地替换；超大 / 未知语言 /
+ * 高亮失败都退回纯文本，不阻断阅读。
  */
 import { computed, inject, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-desktop'
 import PluginModal from '@/components/PluginModal.vue'
 import { useProjectFiles } from '@/composables/useProjectFiles'
+import { logger } from '@/utils/frontendLogger'
 import { resolvePluginErrorText } from '@/utils/pluginError'
 
 const props = defineProps<{
@@ -158,6 +176,10 @@ const isLoading = ref(false)
 const error = ref<unknown>(null)
 const content = ref('')
 const fileName = ref('')
+/** shiki 渲染结果（空串 = 尚未就绪 / 不走高亮，模板退回纯文本） */
+const highlightedHtml = ref('')
+/** 超过高亮上限（正文仍可读，header 显性提示） */
+const highlightTooLarge = ref(false)
 let loadSeq = 0
 
 const errorText = computed(() =>
@@ -179,11 +201,14 @@ async function load(): Promise<void> {
   error.value = null
   content.value = ''
   fileName.value = ''
+  highlightedHtml.value = ''
+  highlightTooLarge.value = false
   try {
     const result = await readFile(props.path)
     if (seq !== loadSeq) return
     content.value = result.content
     fileName.value = result.fileName
+    void applyHighlight(seq, result.content, result.fileName)
   } catch (e) {
     if (seq !== loadSeq) return
     console.error('[Project File Viewer] read file failed:', e)
@@ -193,10 +218,39 @@ async function load(): Promise<void> {
   }
 }
 
+/**
+ * 异步高亮当前正文（`seq` 用于丢弃切文件 / 关弹窗后到达的旧结果）。
+ *
+ * shiki 首次调用要编译 oniguruma wasm 并注册语法，耗时可感知；期间正文以
+ * 纯文本呈现，不阻塞读文件。任何异常都只降级为纯文本并记日志。
+ */
+async function applyHighlight(seq: number, text: string, file: string): Promise<void> {
+  try {
+    // 懒加载：shiki 与其语言包只在首次打开文件时才求值（挂载包仍是单文件，
+    // 这里延迟的是执行而不是下载）
+    const { highlightFileContent } = await import('@/utils/codeHighlight')
+    const result = await highlightFileContent(text, file)
+    if (seq !== loadSeq) return
+    if (result.status === 'highlighted') {
+      highlightedHtml.value = result.html
+    } else if (result.status === 'too-large') {
+      highlightTooLarge.value = true
+    }
+  } catch (e) {
+    if (seq !== loadSeq) return
+    logger.warn('[Project File Viewer] syntax highlight failed, falling back to plain text:', e)
+  }
+}
+
 watch(
   () => [props.modelValue, props.path, props.projectId] as const,
   () => {
-    if (props.modelValue) void load()
+    if (props.modelValue) {
+      void load()
+    } else {
+      // 关闭弹窗：作废在途的读文件 / 高亮结果，别把旧内容渲染到下次打开
+      loadSeq += 1
+    }
   },
   { immediate: true },
 )
@@ -240,5 +294,40 @@ async function copyPath(): Promise<void> {
 .wb-code-body code {
   font: inherit;
   white-space: pre;
+}
+
+/* ==================== shiki 高亮 ==================== */
+
+/* shiki 产出自带 <pre class="shiki">：清掉主题背景与外边距，排版参数与
+   .wb-code-body 对齐（行号列才能与正文逐行对齐） */
+.wb-code-host :deep(.shiki) {
+  margin: 0;
+  padding: 0.75rem 1rem;
+  font: inherit;
+  background: transparent;
+  color: var(--shiki-light);
+}
+
+.wb-code-host :deep(code) {
+  font: inherit;
+  white-space: pre;
+}
+
+.wb-code-host :deep(.shiki span) {
+  color: var(--shiki-light);
+}
+</style>
+
+<style>
+/*
+ * 深色 token 规则必须是非 scoped 块：`:global(.dark)` 与 `:deep()` 混用时，
+ * Vue scoped 编译器会把它压成 `.dark,.dark{...}`（实测产物），等于给所有
+ * `.dark` 元素乱设颜色。这里改用独立全局块，`html.dark` 同时保证特异性
+ * 高于上面的浅色规则（后者带 [data-v-*] 属性）。选择器只命中本组件的
+ * `.wb-code-host` 容器，不会外溢。
+ */
+html.dark .wb-code-host .shiki,
+html.dark .wb-code-host .shiki span {
+  color: var(--shiki-dark);
 }
 </style>
