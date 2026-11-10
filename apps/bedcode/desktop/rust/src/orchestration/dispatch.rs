@@ -58,54 +58,22 @@ pub(crate) struct DispatchRequest<'a> {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum DispatchOutcome {
-    WaitingForBridge {
-        run_id: String,
-    },
-    WaitingForProfile {
-        run_id: String,
-        command_id: i64,
-    },
-    Sent {
-        run_id: String,
-        command_id: i64,
-    },
-    AlreadySent {
-        run_id: String,
-        command_id: i64,
-    },
+    WaitingForBridge { run_id: String },
+    WaitingForProfile { run_id: String, command_id: i64 },
+    Sent { run_id: String, command_id: i64 },
+    AlreadySent { run_id: String, command_id: i64 },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum DispatchError {
-    RunStartFailed {
-        detail: String,
-    },
-    TaskRowFailed {
-        run_id: String,
-        detail: String,
-    },
-    BridgeTimeout {
-        run_id: String,
-    },
-    BridgeProbeFailed {
-        run_id: String,
-        detail: String,
-    },
-    ProfileApplyFailed {
-        run_id: String,
-        detail: String,
-    },
-    ProfileTimeout {
-        run_id: String,
-    },
-    ProfileCommandMissing {
-        run_id: String,
-        command_id: i64,
-    },
-    SendFailed {
-        run_id: String,
-        detail: String,
-    },
+    RunStartFailed { detail: String },
+    TaskRowFailed { run_id: String, detail: String },
+    BridgeTimeout { run_id: String },
+    BridgeProbeFailed { run_id: String, detail: String },
+    ProfileApplyFailed { run_id: String, detail: String },
+    ProfileTimeout { run_id: String },
+    ProfileCommandMissing { run_id: String, command_id: i64 },
+    SendFailed { run_id: String, detail: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

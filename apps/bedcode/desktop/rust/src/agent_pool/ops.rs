@@ -29,12 +29,7 @@ fn check_capacity(profiles: &[AgentProfile], replacing: Option<&str>) -> Result<
     Ok(())
 }
 
-fn build(
-    id: String,
-    draft: ProfileDraft,
-    created_at: String,
-    updated_at: String,
-) -> AgentProfile {
+fn build(id: String, draft: ProfileDraft, created_at: String, updated_at: String) -> AgentProfile {
     AgentProfile {
         id,
         name: draft.name,
@@ -44,7 +39,6 @@ fn build(
         tags: draft.tags,
         specialties: draft.specialties,
         description: draft.description,
-        can_orchestrate: draft.can_orchestrate,
         enabled: draft.enabled,
         created_at,
         updated_at,

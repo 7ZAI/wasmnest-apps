@@ -28,14 +28,18 @@ const agentOptions = computed(() =>
       .filter((value) => !!value)
       .join(' · ')
     const ready = profile.enabled && profile.ready
+    const orchestratable = ready && profile.orchestratable
+    const stateLabel = !profile.enabled
+      ? t('orchestration.agent.disabled')
+      : !profile.ready
+        ? t('orchestration.agent.notReady')
+        : !profile.orchestratable
+          ? t('orchestration.agent.noBridge')
+          : ''
     return {
       value: profile.id,
-      label: ready
-        ? `${profile.name}${suffix ? ` · ${suffix}` : ''}`
-        : `${profile.name}${suffix ? ` · ${suffix}` : ''} (${t(
-            profile.enabled ? 'orchestration.agent.notReady' : 'orchestration.agent.disabled',
-          )})`,
-      disabled: !ready,
+      label: `${profile.name}${suffix ? ` · ${suffix}` : ''}${stateLabel ? ` (${stateLabel})` : ''}`,
+      disabled: !orchestratable,
     }
   }),
 )
@@ -101,7 +105,10 @@ function addNode() {
     key,
     title: '',
     role: 'coder',
-    agentRef: props.agentProfiles.find((profile) => profile.enabled && profile.ready)?.id ?? '',
+    agentRef:
+      props.agentProfiles.find(
+        (profile) => profile.enabled && profile.ready && profile.orchestratable,
+      )?.id ?? '',
     agent: null,
     matchReason: '',
     prompt: '',

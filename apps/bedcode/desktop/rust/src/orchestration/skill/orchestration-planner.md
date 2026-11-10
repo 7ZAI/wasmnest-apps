@@ -21,9 +21,8 @@ You output exactly one JSON object.
    Never invent an id. Never use a CLI name as `agentRef`.
 3. `matchReason` is required for every node: one short sentence explaining why
    this agent fits this node, in the language of `[TASK]`. It is shown to the user.
-4. Prefer the orchestrator/planner-capable agent only for planning-like nodes;
-   do not assign every node to the same agent unless the roster truly has no
-   better fit.
+4. Spread work across agents by fit; do not assign every node to the same agent
+   unless the roster truly has no better fit.
 5. If the roster cannot cover a required skill, still produce a plan with the
    closest agent and say so in `matchReason`. Do not silently omit the node.
 

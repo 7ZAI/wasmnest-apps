@@ -31,7 +31,9 @@ mod wasm_commands {
 
     use super::model::{AgentProfile, AgentProfileView, ProfileInput};
     use super::store::AgentPoolStore;
-    use super::{ops, CREATE_COMMAND, DELETE_COMMAND, LIST_COMMAND, OPTIONS_COMMAND, UPDATE_COMMAND};
+    use super::{
+        ops, CREATE_COMMAND, DELETE_COMMAND, LIST_COMMAND, OPTIONS_COMMAND, UPDATE_COMMAND,
+    };
 
     fn arg_str<'a>(args: &'a Value, key: &str) -> Option<&'a str> {
         args.get(key)
@@ -45,15 +47,13 @@ mod wasm_commands {
             .ok_or_else(|| format!("{command}: {key} required"))
     }
 
-    /// CLI 安装事实（唯一真源 = hub 探测状态）+ 桥接能力（运行域注册表事实）。
+    /// CLI 安装事实（唯一真源 = hub 探测状态）。桥接能力不在此处：池成员
+    /// 允许保存无桥接 CLI，可编排性由视图的 `orchestratable` 表达。
     pub(super) fn cli_facts(cli: &str) -> Result<super::model::CliFacts, String> {
         let state = crate::hub::invoke_command("agent.get-state", Value::Null)
             .map_err(|e| e.to_string())?;
         let installed = state["state"]["clis"][cli]["installed"] == Value::Bool(true);
-        Ok(super::model::CliFacts {
-            installed,
-            bridge_capable: crate::run::bridge::supports_bridge(cli),
-        })
+        Ok(super::model::CliFacts { installed })
     }
 
     fn readiness(profiles: Vec<AgentProfile>) -> Result<Vec<AgentProfileView>, String> {
@@ -64,6 +64,7 @@ mod wasm_commands {
             .into_iter()
             .map(|profile| AgentProfileView {
                 ready: clis[profile.cli.as_str()]["installed"] == Value::Bool(true),
+                orchestratable: crate::run::bridge::supports_bridge(&profile.cli),
                 profile,
             })
             .collect())
@@ -82,7 +83,7 @@ mod wasm_commands {
         WasmHost.list()
     }
 
-    /// 池成员的展示清单（含 CLI 就绪态）；供 `/agents` 页与编排 meta 共用。
+    /// 池成员的展示清单（含 CLI 就绪态 / 可编排性）；供 `/agents` 页与编排 meta 共用。
     pub(crate) fn list_views() -> Result<Vec<AgentProfileView>, String> {
         readiness(WasmHost.list()?)
     }
@@ -94,8 +95,8 @@ mod wasm_commands {
                 "profiles": readiness(WasmHost.list()?)?,
             })),
             CREATE_COMMAND => {
-                let input: ProfileInput = serde_json::from_value(args)
-                    .map_err(|e| format!("profile-invalid: {e}"))?;
+                let input: ProfileInput =
+                    serde_json::from_value(args).map_err(|e| format!("profile-invalid: {e}"))?;
                 let facts = cli_facts(input.cli.trim())?;
                 let profile = ops::create(&WasmHost, &input, facts, &now)?;
                 WasmHost.log_info(&format!(
@@ -110,8 +111,8 @@ mod wasm_commands {
                 if let Some(object) = payload.as_object_mut() {
                     object.remove("id");
                 }
-                let input: ProfileInput = serde_json::from_value(payload)
-                    .map_err(|e| format!("profile-invalid: {e}"))?;
+                let input: ProfileInput =
+                    serde_json::from_value(payload).map_err(|e| format!("profile-invalid: {e}"))?;
                 let facts = cli_facts(input.cli.trim())?;
                 let profile = ops::update(&WasmHost, &id, &input, facts, &now)?;
                 WasmHost.log_info(&format!(

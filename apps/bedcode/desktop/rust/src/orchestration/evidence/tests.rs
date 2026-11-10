@@ -266,7 +266,10 @@ fn collect_runs_acceptance_command_and_reads_verdict_from_the_ledger() {
 fn extract_verdict_requires_a_standalone_line_and_prefers_fail_on_ambiguity() {
     assert_eq!(extract_verdict("VERDICT: PASS"), Some(ReviewVerdict::Pass));
     assert_eq!(extract_verdict("VERDICT: FAIL"), Some(ReviewVerdict::Fail));
-    assert_eq!(extract_verdict("review done.\n**VERDICT: PASS**."), Some(ReviewVerdict::Pass));
+    assert_eq!(
+        extract_verdict("review done.\n**VERDICT: PASS**."),
+        Some(ReviewVerdict::Pass)
+    );
     assert_eq!(extract_verdict("looks good"), None);
     // M10：复述格式 / 引用 prompt 不能再被当成结论。
     assert_eq!(

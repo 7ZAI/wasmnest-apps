@@ -4,6 +4,10 @@
 //! 运行参数，标签 / 擅长 / 职责描述是编排匹配语义。CLI 清单与安装状态由
 //! Agent 管理域提供，本域只引用、不另造 CLI 事实。
 //!
+//! 池子收全部已安装的 agent CLI（含无桥接的 claude / codex）：配置可保存，
+//! 能否被编排派发由 [`AgentProfileView::orchestratable`] 显性表达——计划校验
+//! 仍只接受有桥接的 CLI，不在创建期做隐式降级。
+//!
 //! 校验是**纯函数**：安装状态经 [`CliFacts`] 注入，native 单测不碰宿主；
 //! wasm 命令层负责从 hub 取真实事实。
 
@@ -31,8 +35,6 @@ pub(crate) struct AgentProfile {
     pub tags: Vec<String>,
     pub specialties: Vec<String>,
     pub description: String,
-    /// 是否允许被选为编排 Agent（创建编排时选择）
-    pub can_orchestrate: bool,
     pub enabled: bool,
     pub created_at: String,
     pub updated_at: String,
@@ -51,13 +53,16 @@ impl AgentProfile {
     }
 }
 
-/// 列表视图：池成员 + CLI 就绪态（由 hub 安装事实计算，不落库）。
+/// 列表视图：池成员 + CLI 就绪态 + 可编排能力（由 hub 安装事实 / 运行域
+/// 桥接能力计算，不落库）。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct AgentProfileView {
     #[serde(flatten)]
     pub profile: AgentProfile,
     pub ready: bool,
+    /// 该 CLI 有桥接、可被编排派发；false 时配置仍可保存，但计划不选它。
+    pub orchestratable: bool,
 }
 
 /// 创建 / 更新输入（`id` / 时间戳由命令层持有，不接受前端伪造）。
@@ -79,8 +84,6 @@ pub(crate) struct ProfileInput {
     #[serde(default)]
     pub specialties: Vec<String>,
     pub description: String,
-    #[serde(default)]
-    pub can_orchestrate: bool,
     #[serde(default = "default_enabled")]
     pub enabled: bool,
 }
@@ -89,11 +92,11 @@ fn default_enabled() -> bool {
     true
 }
 
-/// CLI 事实（安装 / 桥接能力）；由 wasm 命令层注入。
+/// CLI 事实（安装状态）；由 wasm 命令层注入。桥接能力不参与创建校验——
+/// 无桥接成员也能保存，只在视图里标 `orchestratable = false`。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct CliFacts {
     pub installed: bool,
-    pub bridge_capable: bool,
 }
 
 /// 校验通过后的归一值（id / created_at 由调用方补齐）。
@@ -106,7 +109,6 @@ pub(crate) struct ProfileDraft {
     pub tags: Vec<String>,
     pub specialties: Vec<String>,
     pub description: String,
-    pub can_orchestrate: bool,
     pub enabled: bool,
 }
 
@@ -132,9 +134,9 @@ impl ProfileError {
 
 /// 校验并归一一条池成员输入。
 ///
-/// `others` 是除自身外的现存成员（名称唯一性用）；`facts` 是 CLI 安装 / 桥接事实。
+/// `others` 是除自身外的现存成员（名称唯一性用）；`facts` 是 CLI 安装事实。
 /// **禁用中的成员不要求 CLI 已安装**：卸载后仍可保留配置并显性标灰，而不是逼用户
-/// 删掉再重建。
+/// 删掉再重建。桥接能力不在创建期阻断（见 [`AgentProfileView::orchestratable`]）。
 pub(crate) fn validate(
     input: &ProfileInput,
     others: &[AgentProfile],
@@ -142,7 +144,10 @@ pub(crate) fn validate(
 ) -> Result<ProfileDraft, ProfileError> {
     let name = input.name.trim();
     if name.is_empty() {
-        return Err(ProfileError::new("profile-name-required", "name must not be empty"));
+        return Err(ProfileError::new(
+            "profile-name-required",
+            "name must not be empty",
+        ));
     }
     if name.chars().count() > NAME_MAX {
         return Err(ProfileError::new(
@@ -170,12 +175,6 @@ pub(crate) fn validate(
     let control = profile_for(cli).ok_or_else(|| {
         ProfileError::new("profile-cli-unknown", format!("unknown agent CLI `{cli}`"))
     })?;
-    if !facts.bridge_capable {
-        return Err(ProfileError::new(
-            "profile-cli-not-orchestratable",
-            format!("agent CLI `{cli}` has no bridge; it cannot be dispatched by orchestration"),
-        ));
-    }
     if input.enabled && !facts.installed {
         return Err(ProfileError::new(
             "profile-cli-not-installed",
@@ -212,12 +211,7 @@ pub(crate) fn validate(
         }
     }
 
-    let tags = normalize_list(
-        &input.tags,
-        TAG_MAX,
-        "profile-tags-invalid",
-        "tag",
-    )?;
+    let tags = normalize_list(&input.tags, TAG_MAX, "profile-tags-invalid", "tag")?;
     let specialties = normalize_list(
         &input.specialties,
         SPECIALTY_MAX,
@@ -254,7 +248,6 @@ pub(crate) fn validate(
         tags,
         specialties,
         description: description.to_string(),
-        can_orchestrate: input.can_orchestrate,
         enabled: input.enabled,
     })
 }
@@ -290,7 +283,10 @@ fn normalize_list(
                 format!("{label} `{value}` contains control characters"),
             ));
         }
-        if !out.iter().any(|existing| existing.eq_ignore_ascii_case(value)) {
+        if !out
+            .iter()
+            .any(|existing| existing.eq_ignore_ascii_case(value))
+        {
             out.push(value.to_string());
         }
     }

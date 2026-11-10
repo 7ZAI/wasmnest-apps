@@ -115,7 +115,8 @@ mod wasm_commands {
                         ))
                     }
                 };
-                let orchestrator_agent_id = arg_str(&args, "orchestratorAgentId").map(str::to_string);
+                let orchestrator_agent_id =
+                    arg_str(&args, "orchestratorAgentId").map(str::to_string);
                 let require_approval = args
                     .get("requireApproval")
                     .and_then(Value::as_bool)
@@ -250,14 +251,13 @@ mod wasm_commands {
                 .ok_or_else(|| {
                     format!("agent.list-agents entry {index} has no displayName: {agent}")
                 })?;
-            let ready = clis
-                .get(id)
-                .and_then(|cli| cli.get("installed"))
-                == Some(&Value::Bool(true));
+            let ready =
+                clis.get(id).and_then(|cli| cli.get("installed")) == Some(&Value::Bool(true));
             agents.push(model::AgentOption {
                 id: id.to_string(),
                 display_name: display_name.to_string(),
                 ready,
+                orchestratable: crate::run::bridge::supports_bridge(id),
             });
         }
         let profiles = crate::agent_pool::list_views()?;
@@ -449,11 +449,8 @@ mod wasm_commands {
             run_id: &str,
             command_id: i64,
         ) -> Result<Option<CommandState>, String> {
-            let status = crate::run::bridge::commands::CommandStore::status(
-                self,
-                run_id,
-                command_id,
-            )?;
+            let status =
+                crate::run::bridge::commands::CommandStore::status(self, run_id, command_id)?;
             Ok(status.map(|(status, error)| match status.as_str() {
                 "done" => CommandState::Done,
                 "failed" => CommandState::Failed(
@@ -580,9 +577,7 @@ mod wasm_commands {
             Ok(state["state"]["clis"][agent_id]["installed"] == Value::Bool(true))
         }
 
-        fn agent_profiles(
-            &self,
-        ) -> Result<Vec<crate::agent_pool::model::AgentProfile>, String> {
+        fn agent_profiles(&self) -> Result<Vec<crate::agent_pool::model::AgentProfile>, String> {
             crate::agent_pool::list_profiles()
         }
 

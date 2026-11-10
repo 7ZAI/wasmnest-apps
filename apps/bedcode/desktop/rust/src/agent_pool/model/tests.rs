@@ -9,16 +9,12 @@ fn input(name: &str, cli: &str) -> ProfileInput {
         tags: vec![],
         specialties: vec![],
         description: "负责实现".into(),
-        can_orchestrate: false,
         enabled: true,
     }
 }
 
 fn facts(installed: bool) -> CliFacts {
-    CliFacts {
-        installed,
-        bridge_capable: true,
-    }
+    CliFacts { installed }
 }
 
 #[test]
@@ -40,25 +36,23 @@ fn normalizes_lists_and_optional_values() {
 }
 
 #[test]
-fn rejects_unknown_uninstalled_or_non_bridge_cli() {
+fn rejects_unknown_or_uninstalled_cli() {
     let unknown = validate(&input("a", "nope"), &[], facts(true)).unwrap_err();
     assert_eq!(unknown.code, "profile-cli-unknown");
 
     let missing = validate(&input("a", "pi"), &[], facts(false)).unwrap_err();
     assert_eq!(missing.code, "profile-cli-not-installed");
+}
 
-    let mut non_bridge = input("a", "pi");
-    non_bridge.enabled = true;
-    let err = validate(
-        &non_bridge,
-        &[],
-        CliFacts {
-            installed: true,
-            bridge_capable: false,
-        },
-    )
-    .unwrap_err();
-    assert_eq!(err.code, "profile-cli-not-orchestratable");
+/// 池子收全部已安装 CLI：无桥接的 claude / codex 也能保存配置，只是不可编排。
+#[test]
+fn accepts_non_bridge_cli() {
+    let draft =
+        validate(&input("评审", "claude"), &[], facts(true)).expect("claude profile allowed");
+    assert_eq!(draft.cli, "claude");
+
+    let draft = validate(&input("实现", "codex"), &[], facts(true)).expect("codex profile allowed");
+    assert_eq!(draft.cli, "codex");
 }
 
 #[test]
@@ -80,7 +74,6 @@ fn name_uniqueness_is_case_insensitive_but_excludes_self() {
         tags: vec![],
         specialties: vec![],
         description: "d".into(),
-        can_orchestrate: false,
         enabled: true,
         created_at: "t".into(),
         updated_at: "t".into(),

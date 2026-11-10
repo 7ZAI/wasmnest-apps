@@ -234,7 +234,10 @@ fn dependency_cycles_are_rejected() {
 fn agents_outside_bridge_allowlist_are_rejected() {
     for cli in ["claude", "codex", ""] {
         let mut plan = golden_plan();
-        let snapshot = plan.nodes[0].agent.as_mut().expect("fixture has a snapshot");
+        let snapshot = plan.nodes[0]
+            .agent
+            .as_mut()
+            .expect("fixture has a snapshot");
         snapshot.cli = cli.into();
         let errors = validate(&plan, PlanMode::Manual).unwrap_err();
         assert!(
@@ -254,7 +257,6 @@ fn test_profile(id: &str, name: &str, enabled: bool) -> crate::agent_pool::model
         tags: vec![],
         specialties: vec![],
         description: "实现".into(),
-        can_orchestrate: false,
         enabled,
         created_at: "t".into(),
         updated_at: "t".into(),

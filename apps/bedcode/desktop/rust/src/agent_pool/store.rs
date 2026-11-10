@@ -16,7 +16,6 @@ pub(crate) const SCHEMA: &[&str] = &[
      tags_json TEXT NOT NULL, \
      specialties_json TEXT NOT NULL, \
      description TEXT NOT NULL, \
-     can_orchestrate INTEGER NOT NULL DEFAULT 0, \
      enabled INTEGER NOT NULL DEFAULT 1, \
      created_at TEXT NOT NULL, \
      updated_at TEXT NOT NULL)",
@@ -76,7 +75,10 @@ impl AgentPoolStore for MemoryStore {
             .profiles
             .lock()
             .map_err(|e| format!("memory store lock poisoned: {e}"))?;
-        match profiles.iter_mut().find(|existing| existing.id == profile.id) {
+        match profiles
+            .iter_mut()
+            .find(|existing| existing.id == profile.id)
+        {
             Some(existing) => *existing = profile.clone(),
             None => profiles.push(profile.clone()),
         }
@@ -126,7 +128,8 @@ mod wasm_impl {
 
     fn json_array(row: &serde_json::Value, key: &str) -> Result<Vec<String>, String> {
         let raw = required_str(row, key)?;
-        serde_json::from_str(&raw).map_err(|e| format!("agent_profiles column '{key}' is not JSON: {e}"))
+        serde_json::from_str(&raw)
+            .map_err(|e| format!("agent_profiles column '{key}' is not JSON: {e}"))
     }
 
     fn row_to_profile(row: &serde_json::Value) -> Result<AgentProfile, String> {
@@ -139,7 +142,6 @@ mod wasm_impl {
             tags: json_array(row, "tags_json")?,
             specialties: json_array(row, "specialties_json")?,
             description: required_str(row, "description")?,
-            can_orchestrate: required_bool(row, "can_orchestrate")?,
             enabled: required_bool(row, "enabled")?,
             created_at: required_str(row, "created_at")?,
             updated_at: required_str(row, "updated_at")?,
@@ -147,7 +149,8 @@ mod wasm_impl {
     }
 
     fn json_text(values: &[String]) -> Result<String, String> {
-        serde_json::to_string(values).map_err(|e| format!("serialize agent profile list failed: {e}"))
+        serde_json::to_string(values)
+            .map_err(|e| format!("serialize agent profile list failed: {e}"))
     }
 
     impl AgentPoolStore for WasmHost {
@@ -191,15 +194,15 @@ mod wasm_impl {
             self.plugin_db_execute_params(
                 "INSERT INTO agent_profiles \
                  (id, name, cli, model, thinking_level, tags_json, specialties_json, \
-                  description, can_orchestrate, enabled, created_at, updated_at) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12) \
+                  description, enabled, created_at, updated_at) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11) \
                  ON CONFLICT(id) DO UPDATE SET \
                   name = excluded.name, cli = excluded.cli, model = excluded.model, \
                   thinking_level = excluded.thinking_level, \
                   tags_json = excluded.tags_json, \
                   specialties_json = excluded.specialties_json, \
                   description = excluded.description, \
-                  can_orchestrate = excluded.can_orchestrate, enabled = excluded.enabled, \
+                  enabled = excluded.enabled, \
                   updated_at = excluded.updated_at",
                 &sql_params![
                     profile.id,
@@ -210,7 +213,6 @@ mod wasm_impl {
                     json_text(&profile.tags)?,
                     json_text(&profile.specialties)?,
                     profile.description,
-                    profile.can_orchestrate as i64,
                     profile.enabled as i64,
                     profile.created_at,
                     profile.updated_at,
@@ -231,4 +233,3 @@ mod wasm_impl {
         }
     }
 }
-

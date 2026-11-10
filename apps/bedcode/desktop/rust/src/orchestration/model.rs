@@ -439,6 +439,8 @@ pub(crate) struct AgentOption {
     pub id: String,
     pub display_name: String,
     pub ready: bool,
+    /// 有桥接、可被编排派发；无桥接 CLI 仍会出现在清单（建池成员用）。
+    pub orchestratable: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -451,7 +453,7 @@ pub(crate) struct MetaView {
     pub reason_codes: Vec<String>,
     pub plan_error_codes: Vec<String>,
     pub event_kinds: Vec<String>,
-    /// 旧面：CLI 清单（仍供列表 / 图标回退使用）
+    /// 旧面：CLI 清单（全量已适配 CLI；`orchestratable` 表达桥接能力）
     pub agents: Vec<AgentOption>,
     /// 新面：Agent 池（编排选人的唯一候选集）
     pub agent_profiles: Vec<crate::agent_pool::model::AgentProfileView>,
@@ -493,11 +495,9 @@ pub(crate) fn meta(
             .iter()
             .map(|value| value.as_str().to_string())
             .collect(),
-        agents: agents
-            .iter()
-            .filter(|agent| crate::run::bridge::supports_bridge(&agent.id))
-            .cloned()
-            .collect(),
+        // 全量下发：池子允许为所有已安装 CLI 建配置；能否编排由
+        // `orchestratable` 逐项表达（过滤在前端/计划校验做，不在清单里隐去）。
+        agents: agents.to_vec(),
         agent_profiles: agent_profiles.to_vec(),
     }
 }

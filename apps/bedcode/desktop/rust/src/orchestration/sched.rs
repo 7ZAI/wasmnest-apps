@@ -174,13 +174,11 @@ pub(crate) fn plan_tick(snapshot: &TickSnapshot) -> Vec<Decision> {
             None
         } else {
             match (node.status, node.task_status) {
-                (N::Dispatching, Some(T::InProgress | T::Retrying)) => {
-                    Some(Decision::Transition {
-                        node_key: node.key.clone(),
-                        to: N::Running,
-                        reason: None,
-                    })
-                }
+                (N::Dispatching, Some(T::InProgress | T::Retrying)) => Some(Decision::Transition {
+                    node_key: node.key.clone(),
+                    to: N::Running,
+                    reason: None,
+                }),
                 (N::Dispatching | N::Running | N::AwaitingInput, Some(T::Completed)) => {
                     Some(Decision::Transition {
                         node_key: node.key.clone(),
@@ -188,13 +186,11 @@ pub(crate) fn plan_tick(snapshot: &TickSnapshot) -> Vec<Decision> {
                         reason: None,
                     })
                 }
-                (N::Running | N::AwaitingInput, Some(T::Asking)) => {
-                    Some(Decision::Transition {
-                        node_key: node.key.clone(),
-                        to: N::AwaitingInput,
-                        reason: None,
-                    })
-                }
+                (N::Running | N::AwaitingInput, Some(T::Asking)) => Some(Decision::Transition {
+                    node_key: node.key.clone(),
+                    to: N::AwaitingInput,
+                    reason: None,
+                }),
                 (N::Dispatching | N::Running | N::AwaitingInput, Some(T::Interrupted)) => {
                     Some(Decision::Fail {
                         node_key: node.key.clone(),

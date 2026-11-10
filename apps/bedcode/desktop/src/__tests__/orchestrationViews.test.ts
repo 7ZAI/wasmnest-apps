@@ -29,6 +29,7 @@ import OrchestrationListView from '@/views/orchestration/OrchestrationListView.v
 import OrchestrationDetailView from '@/views/orchestration/OrchestrationDetailView.vue'
 import OrchestrationTimeline from '@/components/orchestration/OrchestrationTimeline.vue'
 import PlanEditor from '@/components/orchestration/PlanEditor.vue'
+import AppSelectField from '@/components/ui/AppSelectField.vue'
 
 const meta = {
   statuses: ['draft', 'awaiting-approval', 'running', 'paused', 'completed', 'failed'],
@@ -39,8 +40,8 @@ const meta = {
   planErrorCodes: ['invalid-write-scope'],
   eventKinds: ['created', 'approved', 'started'],
   agents: [
-    { id: 'pi', displayName: 'Pi', ready: true },
-    { id: 'opencode', displayName: 'OpenCode', ready: false },
+    { id: 'pi', displayName: 'Pi', ready: true, orchestratable: true },
+    { id: 'opencode', displayName: 'OpenCode', ready: false, orchestratable: true },
   ],
   agentProfiles: [
     {
@@ -52,9 +53,9 @@ const meta = {
       tags: ['frontend'],
       specialties: ['Vue'],
       description: '负责前端实现',
-      canOrchestrate: false,
       enabled: true,
       ready: true,
+      orchestratable: true,
       createdAt: '2026-11-05T00:00:00Z',
       updatedAt: '2026-11-05T00:00:00Z',
     },
@@ -67,9 +68,9 @@ const meta = {
       tags: [],
       specialties: ['评审'],
       description: '只做只读评审',
-      canOrchestrate: false,
       enabled: true,
       ready: true,
+      orchestratable: true,
       createdAt: '2026-11-05T00:00:00Z',
       updatedAt: '2026-11-05T00:00:00Z',
     },
@@ -82,9 +83,9 @@ const meta = {
       tags: [],
       specialties: ['编排'],
       description: '负责编排',
-      canOrchestrate: true,
       enabled: true,
       ready: true,
+      orchestratable: true,
       createdAt: '2026-11-05T00:00:00Z',
       updatedAt: '2026-11-05T00:00:00Z',
     },
@@ -470,6 +471,35 @@ describe('PlanEditor（轮询不覆盖用户输入）', () => {
     await titleInput().setValue('用户输入')
     await wrapper.setProps({ plan: { ...plan, title: '轮询标题' } })
     expect((titleInput().element as HTMLInputElement).value).toBe('用户输入')
+    wrapper.unmount()
+  })
+
+  it('无桥接池成员在节点选人里置灰并标明原因', async () => {
+    const profiles = [
+      ...meta.agentProfiles,
+      {
+        ...meta.agentProfiles[0],
+        id: 'ap-claude',
+        name: 'Claude 成员',
+        cli: 'claude',
+        orchestratable: false,
+      },
+    ]
+    const wrapper = mount(PlanEditor, {
+      props: { plan, agentProfiles: profiles, errors: [] },
+      global: { plugins: [i18n] },
+    })
+    await flushPromises()
+
+    const field = wrapper
+      .findAllComponents(AppSelectField)
+      .find((entry) => entry.props('testid') === 'orchestration-plan-node-agent')
+    expect(field).toBeTruthy()
+    const options = field?.props('options') as { value: string; label: string; disabled?: boolean }[]
+    const claude = options.find((option) => option.value === 'ap-claude')
+    expect(claude?.disabled).toBe(true)
+    expect(claude?.label).toContain('无桥接')
+    expect(options.find((option) => option.value === 'ap-frontend')?.disabled).toBe(false)
     wrapper.unmount()
   })
 })

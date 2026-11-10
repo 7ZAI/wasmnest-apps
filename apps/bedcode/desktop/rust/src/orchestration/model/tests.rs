@@ -187,24 +187,28 @@ fn meta_lists_the_complete_wire_vocabulary() {
 }
 
 #[test]
-fn meta_filters_agents_by_the_bridge_allowlist_and_keeps_readiness() {
+fn meta_keeps_every_agent_and_reports_orchestratable() {
     let agents = [
         AgentOption {
             id: "pi".into(),
             display_name: "Pi".into(),
             ready: true,
+            orchestratable: true,
         },
         AgentOption {
             id: "opencode".into(),
             display_name: "OpenCode".into(),
             ready: false,
+            orchestratable: true,
         },
         AgentOption {
             id: "claude".into(),
             display_name: "Claude".into(),
             ready: true,
+            orchestratable: false,
         },
     ];
 
-    assert_eq!(meta(&agents, &[]).agents, agents[..2].to_vec());
+    // 无桥接 CLI 也进清单（池子可建配置），可编排性逐项表达
+    assert_eq!(meta(&agents, &[]).agents, agents.to_vec());
 }

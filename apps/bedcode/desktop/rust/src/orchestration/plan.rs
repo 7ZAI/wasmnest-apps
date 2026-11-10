@@ -24,9 +24,7 @@ pub(crate) fn bind_agents(plan: &mut Plan, profiles: &[AgentProfile]) -> Vec<Pla
                 errors.push(PlanError {
                     code: PlanErrorCode::UnknownAgent.as_str().into(),
                     node_key: Some(node.key.clone()),
-                    message: format!(
-                        "agentRef `{reference}` does not match any agent in the pool"
-                    ),
+                    message: format!("agentRef `{reference}` does not match any agent in the pool"),
                 });
             }
             Some(profile) if !profile.enabled => {

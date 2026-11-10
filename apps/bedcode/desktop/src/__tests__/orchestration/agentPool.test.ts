@@ -3,6 +3,7 @@ import { mount, flushPromises } from '@vue/test-utils'
 import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-desktop'
 import i18n from '@/i18n'
 import AgentPoolArea from '@/components/orchestration/AgentPoolArea.vue'
+import AppSelectField from '@/components/ui/AppSelectField.vue'
 import type { AgentOption, AgentProfileView } from '@/composables/orchestration/types'
 
 const execute = vi.fn()
@@ -16,16 +17,16 @@ const PROFILE: AgentProfileView = {
   tags: ['frontend'],
   specialties: ['Vue', 'CSS'],
   description: '负责前端页面实现与联调。',
-  canOrchestrate: false,
   enabled: true,
   ready: true,
+  orchestratable: true,
   createdAt: '2026-11-05T00:00:00Z',
   updatedAt: '2026-11-05T00:00:00Z',
 }
 
 const CLI_OPTIONS: AgentOption[] = [
-  { id: 'pi', displayName: 'Pi', ready: true },
-  { id: 'opencode', displayName: 'OpenCode', ready: false },
+  { id: 'pi', displayName: 'Pi', ready: true, orchestratable: true },
+  { id: 'opencode', displayName: 'OpenCode', ready: false, orchestratable: true },
 ]
 
 function makeContext(): PluginContext {
@@ -152,7 +153,6 @@ describe('AgentPoolArea', () => {
       tags: ['frontend', 'vue'],
       specialties: ['组件拆分', '样式还原'],
       description: '负责前端页面实现。',
-      canOrchestrate: false,
       enabled: true,
     })
     expect(
@@ -230,9 +230,11 @@ describe('AgentPoolArea', () => {
     await wrapper.find('[data-testid="orchestration-pool-edit"]').trigger('click')
     await flushPromises()
 
-    expect(
-      (wrapper.find('[data-testid="orchestration-pool-model"]').element as HTMLInputElement).value,
-    ).toBe(PROFILE.model)
+    const modelField = wrapper
+      .findAllComponents(AppSelectField)
+      .find((field) => field.props('testid') === 'orchestration-pool-model')
+    expect(modelField).toBeTruthy()
+    expect(modelField?.props('modelValue')).toBe(PROFILE.model)
 
     await wrapper.find('[data-testid="orchestration-pool-save"]').trigger('click')
     await flushPromises()
@@ -248,6 +250,132 @@ describe('AgentPoolArea', () => {
     expect(
       execute.mock.calls.filter(([command]) => command === 'agent.profile.options'),
     ).toHaveLength(1)
+    wrapper.unmount()
+  })
+
+  it('模型下拉列出该 CLI 已适配的模型，选「自定义」切回手填', async () => {
+    const wrapper = mountPool([PROFILE])
+    await flushPromises()
+    execute.mockImplementation(async (command: string) => {
+      if (command === 'agent.profile.list') return { profiles: [PROFILE] }
+      if (command === 'agent.profile.options') {
+        return {
+          cli: 'pi',
+          installed: true,
+          bridgeCapable: true,
+          models: [
+            { value: 'anthropic/claude-sonnet-4.5', label: 'sonnet', source: 'catalog' },
+            { value: 'openai/gpt-5', label: 'gpt-5', source: 'catalog' },
+          ],
+          thinkingLevels: ['low', 'high'],
+        }
+      }
+      throw new Error(`unexpected command: ${command}`)
+    })
+
+    await wrapper.find('[data-testid="orchestration-pool-edit"]').trigger('click')
+    await flushPromises()
+
+    const modelField = wrapper
+      .findAllComponents(AppSelectField)
+      .find((field) => field.props('testid') === 'orchestration-pool-model')
+    const values = (modelField?.props('options') as { value: string }[]).map(
+      (option) => option.value,
+    )
+    expect(values).toEqual(['anthropic/claude-sonnet-4.5', 'openai/gpt-5', '__custom_model__'])
+
+    await modelField?.vm.$emit('update:modelValue', '__custom_model__')
+    await flushPromises()
+    expect(wrapper.find('[data-testid="orchestration-pool-model"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="orchestration-pool-model-custom"]').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('目录为空（无枚举入口的 CLI）直接给自由输入', async () => {
+    const wrapper = mountPool([])
+    await flushPromises()
+    execute.mockImplementation(async (command: string) => {
+      if (command === 'agent.profile.list') return { profiles: [] }
+      if (command === 'agent.profile.options') {
+        return {
+          cli: 'claude',
+          installed: true,
+          bridgeCapable: true,
+          models: [],
+          thinkingLevels: [],
+        }
+      }
+      throw new Error(`unexpected command: ${command}`)
+    })
+
+    await wrapper.find('[data-testid="orchestration-pool-create"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="orchestration-pool-model"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="orchestration-pool-model-custom"]').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('无桥接 CLI 也能建成员：下拉标注、表单提示、保存可提交', async () => {
+    const claude: AgentOption = {
+      id: 'claude',
+      displayName: 'Claude',
+      ready: true,
+      orchestratable: false,
+    }
+    const wrapper = mountPool([], [...CLI_OPTIONS, claude])
+    await flushPromises()
+    execute.mockImplementation(async (command: string) => {
+      if (command === 'agent.profile.list') return { profiles: [] }
+      if (command === 'agent.profile.options') {
+        return {
+          cli: 'claude',
+          installed: true,
+          bridgeCapable: false,
+          models: [],
+          thinkingLevels: ['high'],
+        }
+      }
+      if (command === 'agent.profile.create') return { profile: { ...PROFILE, cli: 'claude' } }
+      throw new Error(`unexpected command: ${command}`)
+    })
+
+    await wrapper.find('[data-testid="orchestration-pool-create"]').trigger('click')
+    await flushPromises()
+
+    // 默认仍优先可编排的 pi（opencode 未安装）
+    const cliField = wrapper
+      .findAllComponents(AppSelectField)
+      .find((field) => field.props('testid') === 'orchestration-pool-cli')
+    const options = cliField?.props('options') as { value: string; label: string }[]
+    expect(options.map((option) => option.value)).toEqual(['pi', 'claude'])
+    expect(options.find((option) => option.value === 'claude')?.label).toContain(
+      'orchestration.pool.cliNoBridge',
+    )
+
+    await cliField?.vm.$emit('update:modelValue', 'claude')
+    await flushPromises()
+    expect(wrapper.find('[data-testid="orchestration-pool-bridge-hint"]').text()).toBe(
+      'orchestration.pool.bridgeHint',
+    )
+
+    await wrapper.find('[data-testid="orchestration-pool-name"]').setValue('评审')
+    await wrapper.find('[data-testid="orchestration-pool-description"]').setValue('只做只读评审')
+    await wrapper.find('[data-testid="orchestration-pool-save"]').trigger('click')
+    await flushPromises()
+
+    const call = execute.mock.calls.find(([command]) => command === 'agent.profile.create')
+    expect(call?.[1]).toMatchObject({ name: '评审', cli: 'claude' })
+    wrapper.unmount()
+  })
+
+  it('卡片给无桥接成员标「不可编排」', async () => {
+    const wrapper = mountPool([
+      { ...PROFILE, cli: 'claude', orchestratable: false },
+    ])
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="orchestration-pool-no-bridge"]').exists()).toBe(true)
     wrapper.unmount()
   })
 

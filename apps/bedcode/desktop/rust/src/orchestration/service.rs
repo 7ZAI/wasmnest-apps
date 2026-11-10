@@ -19,13 +19,13 @@ use super::model::{
     Acceptance, AgentSnapshot, EventKind, NodeStatus, OrchestrationStatus, Plan, PlanError,
     PlanErrorCode, PlanMode, ReasonCode, TaskStatus,
 };
-use crate::agent_pool::model::AgentProfile;
 use super::plan;
 use super::recover::{self, RecoveryDecision, RecoveryNode, RecoverySnapshot, RunState};
 use super::sched::{self, Decision, NodeFacts, TickSnapshot};
 use super::store::{
     Budget, EventDraft, EvidenceKind, EvidenceRecord, NodeRecord, OrchStore, OrchestrationRecord,
 };
+use crate::agent_pool::model::AgentProfile;
 
 /// 节点墙钟（§7.4 默认值；计划级覆盖留待后续版本）
 pub(crate) const NODE_TIMEOUT_SECS: u64 = 1800;
@@ -266,12 +266,6 @@ fn resolve_orchestrator(
             format!("orchestrator `{}` is disabled", profile.name),
         ));
     }
-    if !profile.can_orchestrate {
-        return Err(fail(
-            ReasonCode::AgentUnsupported,
-            format!("agent `{}` is not marked as an orchestrator", profile.name),
-        ));
-    }
     if !crate::run::bridge::supports_bridge(&profile.cli) {
         return Err(fail(
             ReasonCode::AgentUnsupported,
@@ -426,12 +420,8 @@ pub(crate) fn start_planning(
     {
         record.orchestrator_agent_id = Some(profile_id.to_string());
     }
-    let orchestrator = resolve_orchestrator(
-        ports,
-        record.orchestrator_agent_id.as_deref(),
-        true,
-    )?
-    .ok_or_else(|| fail(ReasonCode::AgentNotReady, PLANNER_ORCHESTRATOR_REQUIRED))?;
+    let orchestrator = resolve_orchestrator(ports, record.orchestrator_agent_id.as_deref(), true)?
+        .ok_or_else(|| fail(ReasonCode::AgentNotReady, PLANNER_ORCHESTRATOR_REQUIRED))?;
     let agent = orchestrator.cli.clone();
     if ports.project(&record.project_id)?.is_none() {
         return Err(fail(ReasonCode::RunStartFailed, "project does not exist"));
@@ -934,7 +924,12 @@ pub(crate) fn skip_node(
             continue;
         }
         // 已经跑出结果的下游（Succeeded / Failed / Cancelled）保留事实，不抹历史。
-        if !is_target && !matches!(candidate.status, NodeStatus::Pending | NodeStatus::Ready | NodeStatus::Blocked) {
+        if !is_target
+            && !matches!(
+                candidate.status,
+                NodeStatus::Pending | NodeStatus::Ready | NodeStatus::Blocked
+            )
+        {
             continue;
         }
         candidate.status = NodeStatus::Skipped;
@@ -1250,9 +1245,9 @@ fn tick_one(
             json!({ "reason": ReasonCode::StatusUnknown.as_str(), "detail": detail }),
             now,
         )?;
-        if decisions.iter().any(|decision| {
-            matches!(decision, Decision::Fail { node_key: key, .. } if key == &node_key)
-        }) {
+        if decisions.iter().any(
+            |decision| matches!(decision, Decision::Fail { node_key: key, .. } if key == &node_key),
+        ) {
             continue;
         }
         decisions.push(Decision::Fail {
@@ -1719,9 +1714,9 @@ fn dispatch_error_detail(error: &DispatchError) -> String {
         DispatchError::ProfileTimeout { run_id } => {
             format!("agent profile was not applied for run {run_id}")
         }
-        DispatchError::ProfileCommandMissing { run_id, command_id } => format!(
-            "agent profile command {command_id} disappeared for run {run_id}"
-        ),
+        DispatchError::ProfileCommandMissing { run_id, command_id } => {
+            format!("agent profile command {command_id} disappeared for run {run_id}")
+        }
         DispatchError::SendFailed { detail, .. } => detail.clone(),
     }
 }
@@ -2134,9 +2129,7 @@ fn cancel_node(
             )?;
         }
         CancelOutcome::WaitingForGrace => {}
-        CancelOutcome::Closed => {
-            mark_cancelled(store, &record.id, node, "closed", None, now)?
-        }
+        CancelOutcome::Closed => mark_cancelled(store, &record.id, node, "closed", None, now)?,
         CancelOutcome::Degraded {
             action,
             detail,
@@ -2266,9 +2259,9 @@ fn recover_one(
                     .run_state(run_id)
                     .map_err(|error| format!("node `{}` run_state failed: {error}", node.key))?,
                 // 探测错误不能伪装成「桥接离线」并触发 Pause（M7）。
-                ports.bridge_ready(run_id).map_err(|error| {
-                    format!("node `{}` bridge_ready failed: {error}", node.key)
-                })?,
+                ports
+                    .bridge_ready(run_id)
+                    .map_err(|error| format!("node `{}` bridge_ready failed: {error}", node.key))?,
             ),
             None => (RunState::NotStarted, false),
         };
@@ -2335,7 +2328,7 @@ const PLANNER_SKILL: &str = include_str!("skill/orchestration-planner.md");
 fn planner_roster(profiles: &[AgentProfile]) -> Value {
     let agents: Vec<Value> = profiles
         .iter()
-        .filter(|profile| profile.enabled)
+        .filter(|profile| profile.enabled && crate::run::bridge::supports_bridge(&profile.cli))
         .map(|profile| {
             json!({
                 "id": profile.id,
@@ -2346,7 +2339,6 @@ fn planner_roster(profiles: &[AgentProfile]) -> Value {
                 "tags": profile.tags,
                 "specialties": profile.specialties,
                 "description": profile.description,
-                "canOrchestrate": profile.can_orchestrate,
             })
         })
         .collect();

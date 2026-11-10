@@ -3,8 +3,11 @@
  * Agent 池：编排的「人」这一侧。
  *
  * 成员 = 已安装 CLI + 模型 / 思考等级 + 标签 / 擅长 / 职责描述。编排 Agent 从
- * 这里选人，自动计划按职责描述匹配。创建源 = Agent 管理域已安装的桥接 CLI
+ * 这里选人，自动计划按职责描述匹配。创建源 = Agent 管理域已安装的 CLI
  *（`AgentDescriptor.bridge` 由后端给出），不在前端另造 CLI 白名单。
+ *
+ * 池子收全部已安装 CLI；无桥接的 claude / codex 也能建配置，但卡片与下拉
+ * 显式标「不可编排」，计划编辑器不会把它们列为候选（编排派发仍只走桥接）。
  */
 import { computed, inject, onMounted, reactive, ref, watch } from 'vue'
 import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-desktop'
@@ -24,7 +27,7 @@ import type {
 } from '@/composables/orchestration/types'
 
 const props = defineProps<{
-  /** `orchestration.meta.agents`：已按桥接能力过滤，ready = CLI 已安装 */
+  /** `orchestration.meta.agents`：全量已适配 CLI；ready = 已安装，orchestratable = 有桥接 */
   agents: AgentOption[]
 }>()
 const emit = defineEmits<{ refresh: []; changed: [] }>()
@@ -59,17 +62,27 @@ const form = reactive({
   tagsText: '',
   specialtiesText: '',
   description: '',
-  canOrchestrate: false,
   enabled: true,
 })
 
-const installedBridgeAgents = computed(() => props.agents.filter((agent) => agent.ready))
+/** 下拉里选「自定义…」时改用自由输入（目录可能滞后，不想丢掉手填新模型的能力） */
+const customModel = ref(false)
+const CUSTOM_MODEL = '__custom_model__'
+
+const installedAgents = computed(() => props.agents.filter((agent) => agent.ready))
+/** 默认选中优先选可编排的（无桥接成员可建，但不该成为默认） */
+const defaultCli = computed(() => {
+  const preferred = installedAgents.value.find((agent) => agent.orchestratable)
+  return preferred?.id ?? installedAgents.value[0]?.id ?? ''
+})
 
 /** 编辑禁用成员时保留当前 CLI（即使已卸载），不让「改个标签」变成换 CLI。 */
 const cliOptions = computed(() => {
-  const out = installedBridgeAgents.value.map((agent) => ({
+  const out = installedAgents.value.map((agent) => ({
     value: agent.id,
-    label: agent.displayName,
+    label: agent.orchestratable
+      ? agent.displayName
+      : `${agent.displayName} (${t('orchestration.pool.cliNoBridge')})`,
   }))
   if (form.cli && !out.some((option) => option.value === form.cli)) {
     const known = props.agents.find((agent) => agent.id === form.cli)
@@ -84,12 +97,48 @@ const cliOptions = computed(() => {
 const thinkingOptions = computed(() =>
   (options.value?.thinkingLevels ?? []).map((level) => ({ value: level, label: level })),
 )
-const modelSuggestions = computed(() => (options.value?.models ?? []).slice(0, 8))
+const modelCatalog = computed(() => options.value?.models ?? [])
+/** 目录非空才有下拉意义；claude 等没有枚举入口的 CLI 直接自由输入 */
+const hasModelCatalog = computed(() => modelCatalog.value.length > 0)
+const showModelSelect = computed(() => hasModelCatalog.value && !customModel.value)
+
+/** 编辑既有成员时，目录里已没有的模型也要留在下拉里（否则一保存就被清空） */
+const modelSelectOptions = computed(() => {
+  const out = modelCatalog.value.map((model) => ({
+    value: model.value,
+    label: model.label || model.value,
+  }))
+  if (form.model && !out.some((option) => option.value === form.model)) {
+    out.unshift({ value: form.model, label: form.model })
+  }
+  out.push({ value: CUSTOM_MODEL, label: t('orchestration.pool.modelCustom') })
+  return out
+})
+const modelSelectValue = computed(() => (customModel.value ? CUSTOM_MODEL : form.model))
+const modelInputHelp = computed(() => {
+  if (options.value && !hasModelCatalog.value) return t('orchestration.pool.modelCatalogEmpty')
+  return ''
+})
 const thinkingHint = computed(() => {
   if (!options.value) return ''
   if (options.value.thinkingLevels.length === 0) return t('orchestration.pool.thinkingUnsupported')
   return ''
 })
+/** 无桥接 CLI：配置可保存，但编排节点不会列它（fail-visible，不静默） */
+const bridgeHint = computed(() => {
+  if (options.value && !options.value.bridgeCapable) return t('orchestration.pool.bridgeHint')
+  return ''
+})
+
+function onModelSelect(value: string | number) {
+  if (value === CUSTOM_MODEL) {
+    customModel.value = true
+    form.model = ''
+    return
+  }
+  customModel.value = false
+  form.model = String(value)
+}
 
 function cliLabel(cli: string): string {
   return props.agents.find((agent) => agent.id === cli)?.displayName ?? cli
@@ -129,9 +178,9 @@ function resetForm() {
   form.tagsText = ''
   form.specialtiesText = ''
   form.description = ''
-  form.canOrchestrate = false
   form.enabled = true
   formError.value = null
+  customModel.value = false
   options.value = null
   optionsError.value = null
 }
@@ -145,6 +194,9 @@ async function loadOptions(cli: string) {
     if (!form.thinkingLevel && options.value.thinkingLevels.length === 0) {
       form.thinkingLevel = ''
     }
+    // 目录里没有的模型（目录滞后 / CLI 换版本）留在自由输入，不让它静默消失。
+    customModel.value =
+      !!form.model && !options.value.models.some((model) => model.value === form.model)
   } catch (error) {
     console.error('[orchestration-pool] options failed', error)
     optionsError.value = resolveAgentProfileError(
@@ -159,7 +211,7 @@ function openCreate() {
   editing.value = null
   syncing = true
   resetForm()
-  form.cli = installedBridgeAgents.value[0]?.id ?? ''
+  form.cli = defaultCli.value
   form.enabled = true
   editorOpen.value = true
   syncing = false
@@ -177,7 +229,6 @@ function openEdit(profile: AgentProfileView) {
   form.tagsText = toText(profile.tags)
   form.specialtiesText = toText(profile.specialties)
   form.description = profile.description
-  form.canOrchestrate = profile.canOrchestrate
   form.enabled = profile.enabled
   editorOpen.value = true
   syncing = false
@@ -216,7 +267,6 @@ async function save() {
     tags: chips(form.tagsText),
     specialties: chips(form.specialtiesText),
     description: form.description.trim(),
-    canOrchestrate: form.canOrchestrate,
     enabled: form.enabled,
   }
   try {
@@ -244,7 +294,6 @@ async function toggleEnabled(profile: AgentProfileView) {
       tags: profile.tags,
       specialties: profile.specialties,
       description: profile.description,
-      canOrchestrate: profile.canOrchestrate,
       enabled: !profile.enabled,
     })
     await load()
@@ -295,7 +344,7 @@ onMounted(load)
       <button
         type="button"
         class="wb-btn-primary"
-        :disabled="installedBridgeAgents.length === 0"
+        :disabled="installedAgents.length === 0"
         data-testid="orchestration-pool-create"
         @click="openCreate"
       >
@@ -303,7 +352,7 @@ onMounted(load)
       </button>
     </div>
 
-    <div v-if="installedBridgeAgents.length === 0" class="orch-pool-banner">
+    <div v-if="installedAgents.length === 0" class="orch-pool-banner">
       <span class="orch-pool-banner-icon">i</span>
       <span class="orch-pool-banner-text">{{ t('orchestration.pool.noCli') }}</span>
       <button
@@ -362,11 +411,15 @@ onMounted(load)
                     : t('orchestration.pool.disabled')
                 }}
               </span>
-              <span v-if="profile.canOrchestrate" class="orch-pool-tag orch-pool-tag-accent">
-                {{ t('orchestration.pool.canOrchestrate') }}
-              </span>
               <span v-if="!profile.ready" class="orch-pool-tag orch-pool-tag-warn">
                 {{ t('orchestration.pool.cliNotInstalled') }}
+              </span>
+              <span
+                v-else-if="!profile.orchestratable"
+                class="orch-pool-tag orch-pool-tag-warn"
+                data-testid="orchestration-pool-no-bridge"
+              >
+                {{ t('orchestration.pool.noBridgeTag') }}
               </span>
             </div>
             <div class="orch-pool-meta">
@@ -445,26 +498,32 @@ onMounted(load)
           required
           testid="orchestration-pool-cli"
         />
+        <p
+          v-if="bridgeHint"
+          class="orch-pool-form-hint"
+          data-testid="orchestration-pool-bridge-hint"
+        >
+          {{ bridgeHint }}
+        </p>
         <div>
-          <AppTextField
-            v-model="form.model"
+          <AppSelectField
+            v-if="showModelSelect"
+            :model-value="modelSelectValue"
             :label="t('orchestration.pool.model')"
+            :options="modelSelectOptions"
             :placeholder="t('orchestration.pool.modelPlaceholder')"
             :help="t('orchestration.pool.modelHelp')"
             testid="orchestration-pool-model"
+            @update:model-value="onModelSelect"
           />
-          <div v-if="modelSuggestions.length" class="orch-pool-suggestions">
-            <button
-              v-for="option in modelSuggestions"
-              :key="option.value"
-              type="button"
-              class="orch-pool-tag orch-pool-tag-action"
-              data-testid="orchestration-pool-model-suggestion"
-              @click="form.model = option.value"
-            >
-              {{ option.value }}
-            </button>
-          </div>
+          <AppTextField
+            v-else
+            v-model="form.model"
+            :label="t('orchestration.pool.model')"
+            :placeholder="t('orchestration.pool.modelPlaceholder')"
+            :help="modelInputHelp"
+            testid="orchestration-pool-model-custom"
+          />
           <p v-if="optionsError" class="orch-pool-form-hint">{{ optionsError }}</p>
         </div>
         <AppSelectField
@@ -473,6 +532,7 @@ onMounted(load)
           :options="thinkingOptions"
           :placeholder="t('orchestration.pool.thinkingDefault')"
           :help="thinkingHint"
+          :disabled="thinkingOptions.length === 0"
           testid="orchestration-pool-thinking"
         />
         <AppTextField
@@ -497,11 +557,6 @@ onMounted(load)
           testid="orchestration-pool-description"
         />
         <div class="orch-pool-switches">
-          <Toggle
-            v-model="form.canOrchestrate"
-            :label="t('orchestration.pool.canOrchestrate')"
-            data-testid="orchestration-pool-can-orchestrate"
-          />
           <Toggle
             v-model="form.enabled"
             :label="t('orchestration.pool.enabled')"
@@ -695,28 +750,10 @@ onMounted(load)
   background: transparent;
 }
 
-.orch-pool-tag-accent {
-  color: var(--color-primary);
-  border-color: color-mix(in srgb, var(--color-primary) 35%, transparent);
-  background: var(--color-primary-light);
-}
-
 .orch-pool-tag-warn {
   color: var(--color-warning-ink);
   border-color: color-mix(in srgb, var(--color-warning) 40%, transparent);
   background: var(--color-warning-light);
-}
-
-.orch-pool-tag-action {
-  cursor: pointer;
-  transition:
-    border-color 0.15s,
-    color 0.15s;
-}
-
-.orch-pool-tag-action:hover {
-  border-color: var(--color-primary);
-  color: var(--color-primary);
 }
 
 .orch-pool-foot {
@@ -769,13 +806,6 @@ onMounted(load)
   display: flex;
   gap: 22px;
   flex-wrap: wrap;
-}
-
-.orch-pool-suggestions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
-  margin-top: 7px;
 }
 
 .orch-pool-delete-copy {

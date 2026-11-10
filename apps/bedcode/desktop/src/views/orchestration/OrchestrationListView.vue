@@ -48,10 +48,10 @@ const createForm = reactive({
   requireApproval: true,
 })
 
-/** 可作为编排 Agent 的池成员：启用 + CLI 已安装 + 标记可编排 */
+/** 可作为编排 Agent 的池成员：启用 + CLI 已安装 + 有桥接（可派发） */
 const orchestratorOptions = computed(() =>
   (meta.value?.agentProfiles ?? [])
-    .filter((profile) => profile.enabled && profile.ready && profile.canOrchestrate)
+    .filter((profile) => profile.enabled && profile.ready && profile.orchestratable)
     .map((profile) => ({
       value: profile.id,
       label: `${profile.name} · ${profile.cli}`,

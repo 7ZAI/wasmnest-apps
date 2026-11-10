@@ -77,11 +77,7 @@ impl DispatchPort for FakePort {
         Ok(11)
     }
 
-    fn command_state(
-        &self,
-        run_id: &str,
-        command_id: i64,
-    ) -> Result<Option<CommandState>, String> {
+    fn command_state(&self, run_id: &str, command_id: i64) -> Result<Option<CommandState>, String> {
         self.calls
             .borrow_mut()
             .push(format!("command_state:{run_id}:{command_id}"));
@@ -304,10 +300,7 @@ fn task_row_failure_closes_the_started_run() {
 fn cancel_interrupts_then_force_closes_after_the_grace_period() {
     let port = FakePort::default();
 
-    assert_eq!(
-        cancel(&port, "run-1", None, 0),
-        CancelOutcome::Interrupted
-    );
+    assert_eq!(cancel(&port, "run-1", None, 0), CancelOutcome::Interrupted);
     assert_eq!(
         port.calls.borrow().as_slice(),
         &["interrupt:run-1".to_string()]

@@ -63,6 +63,8 @@ export interface AgentOption {
   id: string
   displayName: string
   ready: boolean
+  /** 有桥接、可被编排派发；false 仍可建池成员，只是计划里不可选 */
+  orchestratable: boolean
 }
 
 export interface MetaView {
@@ -220,15 +222,16 @@ export interface AgentProfile {
   tags: string[]
   specialties: string[]
   description: string
-  canOrchestrate: boolean
   enabled: boolean
   createdAt: string
   updatedAt: string
 }
 
-/** 列表视图：池成员 + CLI 就绪态 */
+/** 列表视图：池成员 + CLI 就绪态 + 可编排能力 */
 export interface AgentProfileView extends AgentProfile {
   ready: boolean
+  /** CLI 有桥接；false = 配置可保存，但编排节点不会列它 */
+  orchestratable: boolean
 }
 
 /** 创建 / 更新输入（id 与时间戳由后端持有） */
@@ -240,7 +243,6 @@ export interface AgentProfileInput {
   tags: string[]
   specialties: string[]
   description: string
-  canOrchestrate: boolean
   enabled: boolean
 }
 

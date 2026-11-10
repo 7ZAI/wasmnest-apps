@@ -11,23 +11,24 @@ fn input(name: &str, cli: &str) -> ProfileInput {
         tags: vec!["frontend".into()],
         specialties: vec!["Vue".into()],
         description: "负责前端实现".into(),
-        can_orchestrate: false,
         enabled: true,
     }
 }
 
 fn facts() -> CliFacts {
-    CliFacts {
-        installed: true,
-        bridge_capable: true,
-    }
+    CliFacts { installed: true }
 }
 
 #[test]
 fn create_update_delete_round_trip() {
     let store = MemoryStore::new();
-    let created = create(&store, &input("前端", "pi"), facts(), "2026-11-06T00:00:00Z")
-        .expect("create");
+    let created = create(
+        &store,
+        &input("前端", "pi"),
+        facts(),
+        "2026-11-06T00:00:00Z",
+    )
+    .expect("create");
     assert!(!created.id.is_empty());
     assert_eq!(created.created_at, "2026-11-06T00:00:00Z");
     assert_eq!(list(&store).unwrap().len(), 1);
@@ -36,14 +37,8 @@ fn create_update_delete_round_trip() {
     let mut next = input("前端实现", "pi");
     next.model = None;
     next.enabled = false;
-    let updated = update(
-        &store,
-        &created.id,
-        &next,
-        facts(),
-        "2026-11-06T01:00:00Z",
-    )
-    .expect("update");
+    let updated =
+        update(&store, &created.id, &next, facts(), "2026-11-06T01:00:00Z").expect("update");
     assert_eq!(updated.name, "前端实现");
     assert_eq!(updated.model, None);
     assert!(!updated.enabled);

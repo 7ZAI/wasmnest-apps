@@ -57,8 +57,8 @@ fn snapshot(entries: &[(&str, &str)]) -> GitSnapshot {
 }
 
 fn test_profiles() -> Vec<AgentProfile> {
-    let profile = |id: &str, name: &str, cli: &str, model: Option<&str>, level: Option<&str>, can_orchestrate: bool| {
-        AgentProfile {
+    let profile =
+        |id: &str, name: &str, cli: &str, model: Option<&str>, level: Option<&str>| AgentProfile {
             id: id.to_string(),
             name: name.to_string(),
             cli: cli.to_string(),
@@ -67,12 +67,10 @@ fn test_profiles() -> Vec<AgentProfile> {
             tags: vec!["test".to_string()],
             specialties: vec![name.to_string()],
             description: format!("{name}的职责描述"),
-            can_orchestrate,
             enabled: true,
             created_at: "2026-11-05T00:00:00Z".to_string(),
             updated_at: "2026-11-05T00:00:00Z".to_string(),
-        }
-    };
+        };
     vec![
         profile(
             "ap-frontend",
@@ -80,11 +78,26 @@ fn test_profiles() -> Vec<AgentProfile> {
             "pi",
             Some("anthropic/claude-sonnet-4.5"),
             Some("high"),
-            false,
         ),
-        profile("ap-reviewer", "独立评审", "opencode", None, None, false),
-        profile("ap-orchestrator", "编排", "pi", None, None, true),
+        profile("ap-reviewer", "独立评审", "opencode", None, None),
+        profile("ap-orchestrator", "编排", "pi", None, None),
     ]
+}
+
+#[test]
+fn planner_roster_skips_profiles_without_a_bridge() {
+    let mut profiles = test_profiles();
+    let mut claude = profiles[0].clone();
+    claude.id = "ap-claude".to_string();
+    claude.name = "Claude".to_string();
+    claude.cli = "claude".to_string();
+    claude.model = None;
+    profiles.push(claude);
+
+    let roster = super::planner_roster(&profiles);
+    let agents = roster["agents"].as_array().expect("agents array");
+    assert_eq!(agents.len(), 3, "无桥接成员不进 planner roster");
+    assert!(agents.iter().all(|agent| agent["cli"] != "claude"));
 }
 
 #[derive(Default)]
@@ -681,7 +694,10 @@ fn auto_planning_produces_a_plan_and_waits_for_approval() {
     let record = store.get("o1").unwrap().unwrap();
     assert_eq!(record.planner_agent_id.as_deref(), Some("pi"));
     assert_eq!(
-        record.planner_agent.as_ref().map(|agent| agent.profile_id.as_str()),
+        record
+            .planner_agent
+            .as_ref()
+            .map(|agent| agent.profile_id.as_str()),
         Some("ap-orchestrator")
     );
     assert_eq!(record.plan_rev, 2);
@@ -941,7 +957,11 @@ fn slow_bridge_still_sends_the_work_order_on_a_later_tick() {
     *ports.bridge_ready.borrow_mut() = true;
     tick_all(&store, &ports, &t(6)); // agent-control 入队
     tick_all(&store, &ports, &t(7)); // 回执 done → send
-    assert_eq!(ports.sent.borrow().len(), 1, "prompt must be sent after the bridge is ready");
+    assert_eq!(
+        ports.sent.borrow().len(),
+        1,
+        "prompt must be sent after the bridge is ready"
+    );
     assert_eq!(node_status(&store, "o1", "n1"), NodeStatus::Running);
 }
 
@@ -1088,7 +1108,10 @@ fn cancelling_planning_closes_the_planner_run() {
     let run_id = before.planner_run_id.clone().expect("planner run started");
 
     cancel(&store, &ports, "o1", &t(3)).unwrap();
-    assert!(ports.closed.borrow().contains(&run_id), "planner run 必须被 close");
+    assert!(
+        ports.closed.borrow().contains(&run_id),
+        "planner run 必须被 close"
+    );
     let after = store.get("o1").unwrap().unwrap();
     assert_eq!(after.status, OrchestrationStatus::Cancelling);
     assert!(after.planner_command_id.is_none());
@@ -1120,10 +1143,8 @@ fn single_node_probe_error_is_node_level_not_a_tick_failure() {
     assert_eq!(node_status(&store, "o1", "n1"), NodeStatus::Failed);
     let events = store.events("o1", 0, 100).unwrap();
     assert!(
-        events
-            .iter()
-            .any(|event| event.kind == EventKind::Note
-                && event.payload.to_string().contains("ipc broken")),
+        events.iter().any(|event| event.kind == EventKind::Note
+            && event.payload.to_string().contains("ipc broken")),
         "探测错误要落可见 note"
     );
 }
@@ -1181,7 +1202,10 @@ fn auto_plan_without_approval_approves_and_starts_immediately() {
 
     let record = store.get("o1").unwrap().unwrap();
     assert_eq!(record.status, OrchestrationStatus::Running);
-    assert!(record.approved(), "auto approval must pin the current plan rev");
+    assert!(
+        record.approved(),
+        "auto approval must pin the current plan rev"
+    );
     assert_eq!(record.approved_plan_rev, Some(record.plan_rev));
     assert!(record.started_at.is_some());
     assert!(record.plan.is_some());
