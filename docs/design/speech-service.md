@@ -19,7 +19,7 @@
 | # | 决策 | 理由摘要 |
 | --- | --- | --- |
 | D1 | 双端**单 wasm 产物**，沿用 file-transfer 模式（`rust/core` + `rust/plugin` + `wasmnest.sharedRustManifest`） | 识别逻辑（base64、字节校验、回退判定、结果归一）是纯函数，双端各写必漂移 |
-| D2 | `local` 通道 = 自建 HTTP 端点（`127.0.0.1` / 局域网），非 wasm 内推理 | wasm 有 128MiB 线性内存 + 64G 燃料硬顶（`wasmnest-host-kit/src/limits.rs:41,63`），跑不动 ASR 模型；且组件无法链接 native 库（`cdylib` 限制） |
+| D2 | `local` 通道 = 自建 HTTP 端点（`127.0.0.1` / 局域网），非 wasm 内推理 | wasm 有 64MiB 线性内存 + 32G 燃料硬顶（`wasmnest-host-kit/src/limits.rs`），跑不动 ASR 模型；且组件无法链接 native 库（`cdylib` 限制） |
 | D3 | API Key **归服务持有**，调用方不接触 Key | 否则「公共服务」退化成「公共 HTTP 代理」，权限面更大 |
 | D4 | 桌面 Key 存 **secret-store**（`auth_secret_*`，`auth` 权限）；移动端无此能力，存 `storage` + UI 明确警告 | 移动端 `host/auth` 是设备入场认证引擎面、凭据零过境，全仓无 `set_secret`（§6.4） |
 | D5 | v1 **Final-only**，接口按流式预留（Segment 带 `isFinal`） | 所有 Segment 都是 `isFinal=true`；`http_fetch` 本身不是长连接，流式靠宿主事件通道透传，v1 没有采集链路驱动它 |
@@ -31,7 +31,7 @@
 | D11 | 语种默认 `auto`，可显式 `zh` / `en`；不承诺中英混说 | 多数 provider 对 code-switching 支持不一致 |
 | D12 | 识别结果**不持久化**；只留 `transcription_records` 元数据（无音频、无文本） | 服务不是转写历史库；元数据用于排查「这次为什么走云端」 |
 | D13 | `auto` 判据 = 连接被拒 / 解析失败 / 连接超时 / `502,503,504` | 结构化错误集，见 §7 |
-| D14 | 单次识别音频**原始字节 ≤ 8 MiB**，超出报 `audio-too-large` | base64 膨胀 1.33×，加上 JSON 与 JS 字符串副本，逼近 128MiB |
+| D14 | 单次识别音频**原始字节 ≤ 8 MiB**，超出报 `audio-too-large` | base64 膨胀 1.33×，加上 JSON 与 JS 字符串副本，须留出 64MiB 线性内存硬顶余量 |
 | D15 | 异步形态：`transcribe-submit` → `jobId` → 事件 `speech.transcription.done` + `transcribe-result` 补拉 | 云端 ASR 2-20s，长音频更久；同步 RPC 超时给不足 |
 | D16 | `preference.mode` 可由调用方覆盖，`order` 不可覆盖 | 防止调用方悄悄改优先级顺序 |
 | D17 | 不分发 sidecar / 模型；只给默认端点建议 + 启动说明 | 模型分发（校验/多平台矩阵）是独立工程 |
