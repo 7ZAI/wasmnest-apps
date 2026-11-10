@@ -45,6 +45,26 @@ const emit = defineEmits<{ 'update:tab': [value: 'chat' | 'raw'] }>()
 const context = inject<PluginContext>('pluginContext')!
 const t = (key: string, params?: Record<string, unknown>) => context.i18n.t(key, params)
 
+/**
+ * 角色文案走静态字面量分支（与 DeviceCenterView 的显式映射同口径）：
+ * C6 门禁只收集 `t('...')` 形式的 key，模板字符串拼 key 收不到；穷尽 switch
+ * 还让新增 role 值在编译期报错，不会出现「界面显示原始 key 而测试仍绿」。
+ */
+function roleLabel(role: NormalizedEventView['role']): string {
+  switch (role) {
+    case 'user':
+      return t('hub.lg.role.user')
+    case 'assistant':
+      return t('hub.lg.role.assistant')
+    case 'thinking':
+      return t('hub.lg.role.thinking')
+    case 'tool':
+      return t('hub.lg.role.tool')
+    case 'system':
+      return t('hub.lg.role.system')
+  }
+}
+
 /** 助手事件 token 明细（↑ 输入 ↓ 输出 ⚡ 缓存读 +缓存写） */
 function tokenMeta(e: NormalizedEventView): string {
   if (!e.tokens) return ''
@@ -263,7 +283,7 @@ function toggleExpand(i: number) {
         <div v-for="row in chatRows" :key="row.i" class="ah-msg" :class="`role-${row.e.role}`">
           <div class="ah-msg-head">
             <span class="ah-msg-dot" aria-hidden="true"></span>
-            <span class="ah-msg-role">{{ t(`hub.lg.role.${row.e.role}`) }}</span>
+            <span class="ah-msg-role">{{ roleLabel(row.e.role) }}</span>
             <!-- 工具卡头：类型 · 名称（无头形态时整条都落进卡身） -->
             <span v-if="row.card && row.card.head" class="ah-msg-tool-head ah-mono">
               {{ row.card.head }}

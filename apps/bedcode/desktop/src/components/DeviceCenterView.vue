@@ -338,7 +338,7 @@
                   class="mt-2 text-[calc(11px*var(--ui-scale))] text-[var(--color-warning)] leading-relaxed"
                   :title="qrRelayError"
                 >
-                  {{ t('pairing.qr.relayDegraded') }}
+                  {{ t('pairing.qr.relayDegraded', { message: qrRelayError }) }}
                 </p>
                 <p
                   v-if="qrWanDisabled"

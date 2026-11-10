@@ -33,6 +33,7 @@ apps/ai-chatbox/desktop/go/
 # AI agent（工具本地的插件 / 扩展 / 会话状态，不入库）
 *.codebuddy/
 *.workbuddy/
+.claude/
 .opencode/
 .pi/
 

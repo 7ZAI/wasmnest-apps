@@ -128,7 +128,12 @@ function makeContext(): PluginContext {
   return {
     id: 'com.wasmnest.bedcode',
     i18n: {
-      t: (key: string) => key,
+      // 带 {message} 的降级文案按真实 i18n 语义替换：否则桩只返回 key，
+      // 用例锁不住「降级原因必须进可见文案」这条行为
+      t: (key: string, params?: Record<string, unknown>) =>
+        key === 'pairing.qr.relayDegraded' && params?.message
+          ? `中继配置降级：${String(params.message)}`
+          : key,
       getI18n: () => ({ global: { locale: { value: 'zh-CN' }, t: (key: string) => key } }),
       registerMessages: vi.fn(),
     },
@@ -1022,6 +1027,9 @@ describe('DeviceCenterView（设备与配对页面）', () => {
     const degraded = wrapper.find('[data-testid="pairing-qr-relay-error"]')
     expect(degraded.exists()).toBe(true)
     expect(degraded.attributes('title')).toBe('api call host error: timeout')
+    // 降级原因必须进 {message} 插值：只放 title 会让用户看到未替换的占位符
+    expect(degraded.text()).toContain('api call host error: timeout')
+    expect(degraded.text()).not.toContain('{message}')
     expect(wrapper.find('[data-testid="pairing-qr-wan-disabled"]').exists()).toBe(true)
   })
 })
