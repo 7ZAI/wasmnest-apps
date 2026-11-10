@@ -35,22 +35,8 @@
         :data-testid="`mobile-agent-${agent.id}`"
         @click="$emit('pick', agent)"
       >
-        <span class="config-icon chip-cyan" aria-hidden="true">
-          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="1.6"
-              d="M9 3h6a2 2 0 012 2v2h1a2 2 0 012 2v8a2 2 0 01-2 2H6a2 2 0 01-2-2V9a2 2 0 012-2h1V5a2 2 0 012-2z"
-            />
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="1.6"
-              d="M9 12h6M12 9v6"
-            />
-          </svg>
-        </span>
+        <!-- Agent 自己的官方品牌标（与桌面端同一份图元，未知 id 回退通用占位） -->
+        <AgentIcon :agent-id="agent.id" :size="34" />
 
         <div class="flex-1 min-w-0">
           <div class="group-row-title truncate">{{ agent.displayName }}</div>
@@ -85,10 +71,12 @@
  * 就绪度来自桌面 `/api/agents`：`missing` 行保留在列表里（用户要知道缺什么），
  * 但整行降透明度并由父级在点击时给出「去桌面端安装」提示——不渲染灰按钮假装
  * 可启动，也不静默隐藏。`unknown` 允许尝试启动（探测没结论，不谎称未安装）。
+ * 行首图标一律用 Agent 自己的官方品牌标（`agents/components/AgentIcon.vue`）。
  */
 import { computed } from 'vue'
 import { useHostPage } from '../../host/useHostPage'
 import Modal from '../../host/components/ui/Modal.vue'
+import AgentIcon from '../../agents/components/AgentIcon.vue'
 import type { AgentEntry } from '../types'
 
 const props = defineProps<{

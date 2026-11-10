@@ -192,6 +192,16 @@ export function canOpenTerminal(run: Pick<RunView, 'active'>): boolean {
   return run.active
 }
 
+/**
+ * 移动端运行列表只保留活着的运行
+ *
+ * 已停止 / 出错的运行是历史记录（PTY 已回收，点开也只有空终端），项目详情不展示。
+ * 判据与项目卡「活跃运行数」同源：后端 `active` = 非终态，前端不再解析状态枚举。
+ */
+export function liveRuns(runs: RunView[]): RunView[] {
+  return runs.filter((run) => run.active)
+}
+
 /** agent 是否可尝试启动（只有确认未安装才禁用） */
 export function agentStartable(agent: Pick<AgentEntry, 'readiness'>): boolean {
   return agent.readiness !== 'missing'

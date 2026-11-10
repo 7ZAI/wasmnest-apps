@@ -3,7 +3,7 @@
  *
  * 只断言外部行为：
  * - 项目卡渲染 / 进入项目后按 projectId 取运行；
- * - 活跃运行点击 → prewarm + emit open-terminal；终态运行拒绝打开；
+ * - 活跃运行点击 → prewarm + emit open-terminal；终态运行不进列表；
  * - 新建运行 → 选 agent → `bedcode.start-run` → 打开新运行终端；
  * - missing agent 不启动；停止运行先确认再走 `bedcode.stop-session`；
  * - 未认证空态 → 去连接；系统返回键详情 → 列表；
@@ -224,11 +224,19 @@ describe('项目详情与运行', () => {
     wrapper.unmount()
   })
 
-  it('Error 状态是 `{error}` 对象：折成 error 文案，不显示成空闲', async () => {
+  it('终态运行不进列表：stopped / error 都是历史，只渲染活跃运行', async () => {
     routers['bedcode.list-runs'] = () => ({
       code: 0,
       data: {
         runs: [
+          runView({ id: 'r-live', title: '活跃运行' }),
+          runView({
+            id: 'r-old',
+            title: '已停止运行',
+            status: 'stopped',
+            active: false,
+            stoppedAt: '2026-10-31T00:10:00Z',
+          }),
           runView({
             id: 'r-err',
             title: '失败运行',
@@ -242,8 +250,26 @@ describe('项目详情与运行', () => {
     await settle()
     await enterProject(wrapper)
 
-    expect(wrapper.text()).toContain('project.status.error')
-    expect(wrapper.text()).not.toContain('project.status.idle')
+    expect(wrapper.findAll('.run-row')).toHaveLength(1)
+    expect(wrapper.text()).toContain('活跃运行')
+    expect(wrapper.text()).not.toContain('已停止运行')
+    expect(wrapper.text()).not.toContain('失败运行')
+    expect(wrapper.text()).not.toContain('project.status.error')
+    wrapper.unmount()
+  })
+
+  it('只有终态运行：显性空态，不渲染空运行行、不发 prewarm', async () => {
+    routers['bedcode.list-runs'] = () => ({
+      code: 0,
+      data: { runs: [runView({ id: 'r-old', status: 'stopped', active: false })] },
+    })
+    const wrapper = mountPage()
+    await settle()
+    await enterProject(wrapper)
+
+    expect(wrapper.findAll('.run-row')).toHaveLength(0)
+    expect(wrapper.text()).toContain('project.run.empty')
+    expect(ctx.commands.execute).not.toHaveBeenCalledWith('bedcode.prewarm', expect.anything())
     wrapper.unmount()
   })
 
@@ -258,24 +284,6 @@ describe('项目详情与运行', () => {
     expect(wrapper.emitted('open-terminal')?.[0]).toEqual(['r-1', '修复支付回调'])
     expect(api.activeSessionId.value).toBe('r-1')
     expect(ctx.commands.execute).toHaveBeenCalledWith('bedcode.prewarm', { sessionId: 'r-1' })
-    wrapper.unmount()
-  })
-
-  it('点终态运行：提示已结束，不打开终端、不预热', async () => {
-    routers['bedcode.list-runs'] = () => ({
-      code: 0,
-      data: { runs: [runView({ id: 'r-old', status: 'stopped', active: false })] },
-    })
-    const wrapper = mountPage()
-    await settle()
-    await enterProject(wrapper)
-
-    await wrapper.find('.run-row .run-open').trigger('click')
-    await settle()
-
-    expect(wrapper.emitted('open-terminal')).toBeUndefined()
-    expect(ctx.commands.execute).not.toHaveBeenCalledWith('bedcode.prewarm', { sessionId: 'r-old' })
-    expect(ctx.dialogs.showToast).toHaveBeenCalledWith('project.run.ended', 'warning')
     wrapper.unmount()
   })
 
@@ -296,6 +304,9 @@ describe('项目详情与运行', () => {
     await wrapper.find('.new-run-btn').trigger('click')
     await settle()
     expect(document.querySelector('[data-testid="mobile-agent-pi"]')).toBeTruthy()
+    // Agent 行首是官方品牌标（不是自绘通用机器人）
+    const pickerIcon = document.querySelector('[data-testid="mobile-agent-pi"] .agent-icon')
+    expect(pickerIcon?.classList.contains('agent-icon--pi')).toBe(true)
 
     document.querySelector<HTMLButtonElement>('[data-testid="mobile-agent-pi"]')!.click()
     await settle()

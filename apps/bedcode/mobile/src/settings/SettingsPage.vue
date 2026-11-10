@@ -133,10 +133,6 @@
     >
       {{ t('settings.actions.reset') }}
     </button>
-
-    <p class="text-xs px-1" :style="{ color: 'var(--mobile-text-secondary)' }">
-      {{ t('settings.platformHint') }}
-    </p>
   </div>
 </template>
 
@@ -146,7 +142,7 @@
  *
  * 本页只管**业务设置**（连接策略 / 通知 / 终端上限 / 首选认证）。
  * 平台设置（外观、语言、字号缩放、关于、出站授权、链路加密）由宿主壳持有，
- * 见 spec §2 设置切分口径——本页底部给出去处说明，不重复实现一套。
+ * 见 spec §2 设置切分口径——本页不重复实现，也不另加底部去处说明。
  *
  * 数据面：useAppSettings（宿主通用 KV 桥）；本组件不直连任何 Tauri 命令。
  */

@@ -165,8 +165,8 @@ export function useTerminalDisplay(ctx: TerminalKernelContext, deps: TerminalDis
     )
 
     const term = new Terminal({
-      // 渲染器：默认 DOM（xterm 内置 canvas）；USE_WEBGL_RENDERER 开启时
-      // WebGL addon 加载成功后自动接管渲染，失败则保持 DOM
+      // 渲染器：WebGL 优先（USE_WEBGL_RENDERER）；addon 加载成功后自动接管
+      // 渲染，失败或 context loss 则回退/保持 DOM（xterm 内置 canvas）
       cols: initial.cols,
       rows: initial.rows,
       fontSize: terminalSettings.value.fontSize,

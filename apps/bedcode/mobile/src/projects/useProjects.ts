@@ -8,6 +8,7 @@
  * 刷新策略：
  * - 页签可见 / 手动刷新：列表页重取项目；详情页重取运行 + 项目统计（最近活动、
  *   活跃运行数随运行状态变化）；
+ * - 详情只保留活跃运行（`liveRuns`）：已停止 / 出错的运行是历史，不进移动端列表；
  * - 会话生命周期事件（`session_status` / `session_stopped` / `session_removed`）：
  *   300ms 合并后按当前页刷新——运行是会话的投影，事件仍由会话域发出；
  * - 相对时间由 30s ticker 推进，不为每一行挂独立定时器。
@@ -22,7 +23,7 @@ import {
   startRun as startRunCommand,
   stopRun as stopRunCommand,
 } from './api'
-import type { AgentEntry, ProjectView, RunView } from './types'
+import { liveRuns, type AgentEntry, type ProjectView, type RunView } from './types'
 import { refreshSessionDirectory } from '../host/sessionDirectory'
 
 /** 错误对象 → 展示文本（i18n key 或原始 message；与 host 域同口径） */
@@ -90,7 +91,7 @@ export function useProjects(context: PluginContext) {
     try {
       const nextRuns = await fetchRuns(context, projectId)
       // 返回 / 切项目后旧请求才回来：只接受仍属于当前项目的运行列表
-      if (currentProject.value?.id === projectId) runs.value = nextRuns
+      if (currentProject.value?.id === projectId) runs.value = liveRuns(nextRuns)
     } catch (error) {
       if (currentProject.value?.id === projectId) loadError.value = errText(error)
       logger.error(`[projects] load runs failed: ${errText(error)}`)
@@ -122,7 +123,7 @@ export function useProjects(context: PluginContext) {
       projects.value = nextProjects
       // 用户已返回列表 / 切到别的项目：这次响应只用来刷新项目列表，不回填详情
       if (currentProject.value?.id !== project.id) return
-      runs.value = nextRuns
+      runs.value = liveRuns(nextRuns)
       const found = nextProjects.find((item) => item.id === project.id) ?? null
       if (!found) {
         currentProject.value = null

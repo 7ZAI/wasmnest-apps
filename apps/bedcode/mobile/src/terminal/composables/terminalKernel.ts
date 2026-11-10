@@ -12,7 +12,7 @@
  * - 终端实例的创建与销毁仍由 TerminalView 编排（构造选项含移动端专用项）
  * - 会话/连接状态以 getter 注入（移动端会话来自路由参数 + 连接 composable，
  *   不像桌面端是 props）
- * - 无 WebGL addon 引用时视为 DOM 渲染器（移动端默认，见 useTerminalRenderer）
+ * - 无 WebGL addon 引用时视为 DOM 渲染器（加载失败/降级态，见 useTerminalRenderer）
  */
 import { ref, shallowRef, type Ref, type ShallowRef } from 'vue'
 import type { Terminal } from '@xterm/xterm'
@@ -35,7 +35,7 @@ export interface TerminalKernelContext {
   terminalRef: ShallowRef<Terminal | null>
   /** 当前 FitAddon 实例（渲染器 / resize 域共享） */
   fitAddonRef: ShallowRef<FitAddon | null>
-  /** 当前 WebGL addon（渲染器域读写；mobile 默认不加载 → null = DOM 渲染器） */
+  /** 当前 WebGL addon（渲染器域读写；未加载/降级时为 null = DOM 渲染器） */
   webglAddonRef: ShallowRef<WebglAddon | null>
   /** xterm 挂载点（模板 ref，渲染器域测量容器尺寸） */
   xtermContainerRef: Ref<HTMLDivElement | null>

@@ -11,6 +11,7 @@
  * - `src/host/**`：设备 / 连接态内容面（票 2026-10-09 自宿主 src/ 迁入）
  * - `src/projects/**`：项目域（ADR 0003 移动消费面）——项目列表 → 运行 → 终端，
  *   运行启动与 Agent 选择；项目写面仍在桌面
+ * - `src/agents/**`：Agent 品牌图标（与桌面端同一份图元，测试锁跨端同步）
  * - `src/terminal/**`：终端消费 UI 域（TerminalView / terminalBuffer store / 终端
  *   输入助手 / 样式与文案，票 15 自宿主 src/ 整体迁入）
  * - `src/task/**`：任务域（原 auto-task 插件整体并入，票 16）——任务队列面板 /

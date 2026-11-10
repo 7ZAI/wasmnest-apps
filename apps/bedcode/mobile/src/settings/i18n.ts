@@ -48,7 +48,6 @@ export const messagesZhCN = {
       resetConfirm: '确定要把业务设置恢复为默认值吗？',
       resetDone: '已重置为默认值',
     },
-    platformHint: '外观、语言、关于与出站授权等平台设置请在「我的」页调整',
   },
 }
 
@@ -94,6 +93,5 @@ export const messagesEn = {
       resetConfirm: 'Restore business settings to their default values?',
       resetDone: 'Settings restored to defaults',
     },
-    platformHint: 'Appearance, language, about and egress settings live under the Me tab',
   },
 }

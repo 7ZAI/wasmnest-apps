@@ -135,6 +135,8 @@
 src/
 ├─ app/        应用壳域（底部导航 + 页签容器 + 终端沉浸运行面）
 ├─ host/       设备 / 会话 / 连接态内容面
+├─ projects/   项目 → 运行域（只列活跃运行 / Agent 选择 / 启动与停止）
+├─ agents/     Agent 品牌图标（与桌面端同一份图元，测试锁跨端同步）
 ├─ terminal/   终端消费 UI 域（TerminalView / terminalBuffer store / 输入助手）
 ├─ task/       任务域（桌面任务域的**只读投影**）
 ├─ settings/   设置域

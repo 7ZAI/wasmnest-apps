@@ -9,11 +9,13 @@ import {
   canOpenTerminal,
   envChipClass,
   envLabel,
+  liveRuns,
   relativeTimeSpec,
   runStatusBadgeClass,
   runStatusChipClass,
   runStatusLabelKey,
   normalizeRunStatus,
+  type RunView,
 } from '../types'
 
 const NOW = new Date('2026-11-01T12:00:00Z').getTime()
@@ -120,6 +122,15 @@ describe('可操作判据', () => {
   it('只有活跃运行能打开终端（终态 PTY 已回收）', () => {
     expect(canOpenTerminal({ active: true })).toBe(true)
     expect(canOpenTerminal({ active: false })).toBe(false)
+  })
+
+  it('运行列表只保留非终态：stopped / error 是历史，不进项目详情', () => {
+    const runs = [
+      { id: 'r-live', active: true },
+      { id: 'r-old', active: false },
+      { id: 'r-err', active: false },
+    ] as RunView[]
+    expect(liveRuns(runs).map((run) => run.id)).toEqual(['r-live'])
   })
 
   it('missing 之外都允许尝试启动（unknown 不谎称未安装）', () => {
