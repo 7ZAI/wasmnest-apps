@@ -195,6 +195,8 @@ export type MessageSchema = {
   'pairing.qr.copyLink': string
   'pairing.qr.copyLinkDone': string
   'pairing.qr.copyLinkFailed': string
+  'pairing.qr.relayDegraded': string
+  'pairing.qr.wanDisabled': string
 
   // ==================== 隧道状态栏（T07） ====================
   'pairing.tunnel.title': string
@@ -211,6 +213,7 @@ export type MessageSchema = {
   'pairing.tunnel.onlyLan': string
   'pairing.tunnel.relayCache': string
   'pairing.tunnel.relayCenterUnavailable': string
+  'pairing.tunnel.wanPolicyUnreadable': string
 
   // ==================== 设备列表 ====================
   'pairing.device.sectionOnline': string
@@ -406,6 +409,25 @@ export type MessageSchema = {
   // ==================== 分页 ====================
   'task.paginationRange': string
   'task.paginationPrev': string
+  'task.log.colTask': string
+  'task.log.open': string
+  'task.log.back': string
+  'task.log.loading': string
+  'task.log.loadFailed': string
+  'task.log.noSession': string
+  'task.log.notIndexed': string
+  'task.log.notIndexedHint': string
+  'task.log.scan': string
+  'task.log.scanning': string
+  'task.log.retry': string
+  'task.log.scanFailed': string
+  'task.log.scanAuthRequired': string
+  'task.log.unreadable': string
+  'task.log.resumeTip': string
+  'task.log.resumeUnavailable': string
+  'task.log.created': string
+  'task.log.started': string
+  'task.log.completed': string
   'task.paginationNext': string
   // ==================== 行内详情 ====================
   'task.detailAgent': string
@@ -568,6 +590,7 @@ export type MessageSchema = {
   'relay.moved.open': string
   'relay.moved.openUnavailable': string
   'relay.moved.wanDisabled': string
+  'relay.moved.wanPolicyError': string
 
   // ==================== 应用级兜底（2026-10-27 自宿主 `desktop.notFound.*` / `desktop.runtimeUnexpected` 迁入） ====================
   'notFound.title': string
@@ -1341,6 +1364,7 @@ export type MessageSchema = {
   'project.fileViewer.lines': string
   'project.fileViewer.copyPath': string
   'project.fileViewer.copied': string
+  'project.fileViewer.highlightSkipped': string
   'project.fileViewer.close': string
 
   // ==================== Agent 编排 ====================
@@ -1584,9 +1608,14 @@ export type MessageSchema = {
   'orchestration.pool.name': string
   'orchestration.pool.cli': string
   'orchestration.pool.cliNotInstalled': string
+  'orchestration.pool.cliNoBridge': string
+  'orchestration.pool.noBridgeTag': string
+  'orchestration.pool.bridgeHint': string
   'orchestration.pool.model': string
   'orchestration.pool.modelPlaceholder': string
   'orchestration.pool.modelHelp': string
+  'orchestration.pool.modelCustom': string
+  'orchestration.pool.modelCatalogEmpty': string
   'orchestration.pool.thinking': string
   'orchestration.pool.thinkingDefault': string
   'orchestration.pool.thinkingUnsupported': string
@@ -1597,7 +1626,6 @@ export type MessageSchema = {
   'orchestration.pool.specialtiesHelp': string
   'orchestration.pool.description': string
   'orchestration.pool.descriptionHelp': string
-  'orchestration.pool.canOrchestrate': string
   'orchestration.pool.enabled': string
   'orchestration.pool.disabled': string
   'orchestration.pool.disable': string
@@ -1624,7 +1652,6 @@ export type MessageSchema = {
   'orchestration.pool.error.profile-name-taken': string
   'orchestration.pool.error.profile-cli-unknown': string
   'orchestration.pool.error.profile-cli-not-installed': string
-  'orchestration.pool.error.profile-cli-not-orchestratable': string
   'orchestration.pool.error.profile-model-invalid': string
   'orchestration.pool.error.profile-thinking-unsupported': string
   'orchestration.pool.error.profile-thinking-unknown': string
@@ -1650,6 +1677,7 @@ export type MessageSchema = {
   'orchestration.planEditor.nodeMatchReason': string
   'orchestration.planEditor.matchReasonPlaceholder': string
   'orchestration.agent.disabled': string
+  'orchestration.agent.noBridge': string
   'orchestration.reason.agent-profile-failed': string
   'orchestration.reason.auto-start-failed': string
   'orchestration.planError.unknown-agent': string

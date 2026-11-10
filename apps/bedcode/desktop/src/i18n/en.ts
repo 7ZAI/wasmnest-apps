@@ -196,9 +196,13 @@ const en: MessageSchema = {
   'pairing.tunnel.onlyLan': 'LAN-only pairing (tunnel not ready)',
   'pairing.tunnel.relayCache': 'Network page unavailable, using local cache',
   'pairing.tunnel.relayCenterUnavailable': 'Network page unavailable',
+  'pairing.tunnel.wanPolicyUnreadable':
+    'Failed to read WAN policy; continuing with the default allow',
   'pairing.qr.copyLink': 'Copy connection link',
   'pairing.qr.copyLinkDone': 'Connection link copied',
   'pairing.qr.copyLinkFailed': 'Copy failed: clipboard unavailable',
+  'pairing.qr.relayDegraded': 'Relay configuration degraded: {message}',
+  'pairing.qr.wanDisabled': 'WAN is disabled for this app: the QR code contains LAN addresses only',
 
   'pairing.device.sectionOnline': 'Online',
   'pairing.device.sectionOffline': 'Offline',
@@ -339,6 +343,30 @@ const en: MessageSchema = {
   'task.durationHours': 'h',
   'task.paginationRange': 'Items {from}–{to} of {total}',
   'task.paginationPrev': 'Previous',
+  'task.log.colTask': 'Task',
+  'task.log.open': 'View task log',
+  'task.log.back': 'Back to task log',
+  'task.log.loading': 'Reading session transcript…',
+  'task.log.loadFailed': 'Failed to read session transcript',
+  'task.log.noSession':
+    'No CLI session can be located for this task (legacy record or the agent did not report a session ID); the conversation and resume are unavailable.',
+  'task.log.notIndexed':
+    'This task session is not indexed in the log index yet (not scanned, or already cleaned up).',
+  'task.log.notIndexedHint':
+    'Scan the local agent session logs and retry; you can also scan manually in Agent Hub → Session Logs.',
+  'task.log.scan': 'Scan session logs',
+  'task.log.scanning': 'Scanning…',
+  'task.log.retry': 'Retry',
+  'task.log.scanFailed': 'Scan failed; retry in Agent Hub → Session Logs',
+  'task.log.scanAuthRequired':
+    'Scanning needs permission to read the agent session directories; restart the scan in Agent Hub → Session Logs and allow access.',
+  'task.log.unreadable':
+    'The session transcript cannot be read (source file deleted, or sqlite3 unavailable).',
+  'task.log.resumeTip': 'Generate a resume command from this task CLI session',
+  'task.log.resumeUnavailable': 'This task has no resumable CLI session ID',
+  'task.log.created': 'Created',
+  'task.log.started': 'Started',
+  'task.log.completed': 'Completed',
   'task.paginationNext': 'Next',
   'task.detailAgent': 'Agent',
   'task.detailSource': 'Source',
@@ -563,6 +591,8 @@ const en: MessageSchema = {
   'relay.moved.openUnavailable':
     'This host cannot jump between apps: open "Network" from the sidebar instead.',
   'relay.moved.wanDisabled': 'WAN disabled',
+  'relay.moved.wanPolicyError':
+    'Failed to read WAN policy (continuing with default allow): {message}',
 
   // ==================== App-level fallbacks (migrated from host, 2026-10-27) ====================
   'notFound.title': 'Page Not Found',
@@ -605,10 +635,17 @@ const en: MessageSchema = {
   'orchestration.pool.name': 'Name',
   'orchestration.pool.cli': 'Agent type (CLI)',
   'orchestration.pool.cliNotInstalled': 'not installed',
+  'orchestration.pool.cliNoBridge': 'no bridge · not orchestratable',
+  'orchestration.pool.noBridgeTag': 'No bridge',
+  'orchestration.pool.bridgeHint':
+    'This CLI has no bridge: the profile can be saved, but orchestration nodes will not list it as a candidate.',
   'orchestration.pool.model': 'Model',
   'orchestration.pool.modelPlaceholder': 'Empty = CLI default model',
   'orchestration.pool.modelHelp':
-    'Pick a suggestion or type a model directly (new models need not wait for the catalog).',
+    'Lists the models this CLI is adapted to; pick Custom for anything not in the catalog.',
+  'orchestration.pool.modelCustom': 'Custom…',
+  'orchestration.pool.modelCatalogEmpty':
+    'This CLI exposes no model catalog; type the model name directly.',
   'orchestration.pool.thinking': 'Thinking level',
   'orchestration.pool.thinkingDefault': 'Default (unset)',
   'orchestration.pool.thinkingUnsupported':
@@ -622,7 +659,6 @@ const en: MessageSchema = {
   'orchestration.pool.description': 'Responsibility',
   'orchestration.pool.descriptionHelp':
     'State what it owns and does not own; the orchestrator matches tasks against it.',
-  'orchestration.pool.canOrchestrate': 'Can orchestrate',
   'orchestration.pool.enabled': 'Enabled',
   'orchestration.pool.disabled': 'Disabled',
   'orchestration.pool.disable': 'Disable',
@@ -639,7 +675,7 @@ const en: MessageSchema = {
   'orchestration.pool.emptyHint':
     'Create an agent first so orchestration can pick by responsibility.',
   'orchestration.pool.noCli':
-    'No orchestration-capable CLI yet. Install Pi or OpenCode under Install & Update first.',
+    'No installed agent CLI yet. Install any agent under Install & Update first.',
   'orchestration.pool.loading': 'Loading agent pool…',
   'orchestration.pool.loadFailed': 'Failed to load the agent pool',
   'orchestration.pool.saveFailed': 'Failed to save the agent',
@@ -654,8 +690,6 @@ const en: MessageSchema = {
   'orchestration.pool.error.profile-name-taken': 'An agent with this name already exists',
   'orchestration.pool.error.profile-cli-unknown': 'Unknown agent CLI',
   'orchestration.pool.error.profile-cli-not-installed': 'This CLI is not installed',
-  'orchestration.pool.error.profile-cli-not-orchestratable':
-    'This CLI cannot be orchestrated (no bridge)',
   'orchestration.pool.error.profile-model-invalid': 'Invalid model token',
   'orchestration.pool.error.profile-thinking-unsupported':
     'This CLI has no separate thinking level',
@@ -1425,6 +1459,7 @@ const en: MessageSchema = {
   'project.fileViewer.lines': '{n} lines',
   'project.fileViewer.copyPath': 'Copy path',
   'project.fileViewer.copied': 'Path copied',
+  'project.fileViewer.highlightSkipped': 'Highlighting off (large file)',
   'project.fileViewer.close': 'Close',
 
   // ==================== Agent 编排 ====================
@@ -1433,7 +1468,8 @@ const en: MessageSchema = {
   'orchestration.list.refresh': 'Refresh',
   'orchestration.list.create': 'New orchestration',
   'orchestration.list.empty': 'No orchestrations yet',
-  'orchestration.list.emptyHint': 'Create one and let pi / opencode execute a plan together.',
+  'orchestration.list.emptyHint':
+    'Create one and let the agents in the pool execute a plan together.',
   'orchestration.list.loading': 'Loading orchestrations…',
   'orchestration.list.noMatches': 'No orchestrations match the current filters',
   'orchestration.list.clearFilters': 'Clear filters',
@@ -1460,9 +1496,10 @@ const en: MessageSchema = {
   'orchestration.create.orchestrator': 'Orchestrator agent',
   'orchestration.create.orchestratorHint':
     'It generates auto plans and matches tasks against the pool specialties and responsibilities.',
-  'orchestration.create.orchestratorRequired': 'AI planning needs an orchestration-capable agent',
+  'orchestration.create.orchestratorRequired':
+    'AI planning needs an enabled agent with an installed CLI',
   'orchestration.create.noOrchestrator':
-    'No agent is marked as an orchestrator yet. Create one under Agent management → Agent Pool.',
+    'No enabled agent with an installed CLI yet. Create one under Agent management → Agent Pool.',
   'orchestration.create.requireApproval': 'Require manual approval before execution',
   'orchestration.create.requireApprovalHint':
     'When off, a valid auto plan starts immediately; manual plans still require an explicit start.',
@@ -1564,6 +1601,7 @@ const en: MessageSchema = {
   'orchestration.agent.ready': 'Ready',
   'orchestration.agent.notReady': 'Not ready',
   'orchestration.agent.disabled': 'Disabled',
+  'orchestration.agent.noBridge': 'no bridge, not orchestratable',
   'orchestration.mode.manual': 'Manual',
   'orchestration.mode.auto': 'AI planner',
   'orchestration.time.secondsAgo': '{n}s ago',
