@@ -25,13 +25,15 @@
 
 use crate::config::model::{SessionConfig, VALID_ENVIRONMENTS};
 
-// ==================== 会话引用视图（自 host-session.list-sessions JSON 解析） ====================
+// ==================== 会话引用视图（自 session::internal_records_json 解析） ====================
 
-/// 命名唯一化关心的会话字段子集（自宿主 `SessionInfo` camelCase JSON 解析）
+/// 命名唯一化关心的会话字段子集（自 `session::internal_records_json` 的 camelCase JSON 解析）
 ///
-/// `status` 与宿主 `SessionStatus` 的 serde 变体名一致：`"Starting"` / `"Running"` /
-/// `"WaitingInput"` / `"Stopped"` —— 仅 `Stopped` 不参与「活跃」计数（与宿主
-/// `DefaultNamingService` 的 `status != SessionStatus::Stopped` 过滤等价）。
+/// `status` 是 `SessionStatus` 的 **wire 形态**（externally tagged camelCase）：
+/// `"starting"` / `"running"` / `"waitingInput"` / `"stopping"` / `"stopped"` /
+/// `{"error": …}`——**不是 Rust 变体名**（`"Stopped"` 只存在于源码，线上永不出现）。
+/// 终态（`stopped` / `error`）不参与「活跃」计数，与宿主
+/// `DefaultNamingService` 的 `status != SessionStatus::Stopped` 语义等价。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionRef {
     pub config_id: String,
@@ -39,10 +41,11 @@ pub struct SessionRef {
     pub status: String,
 }
 
-/// 解析宿主会话列表 JSON（camelCase 数组）→ `SessionRef[]`
+/// 解析会话记录 JSON（`session::internal_records_json` 的 camelCase 数组）→ `SessionRef[]`
 ///
 /// 宽容策略：字段缺失/类型不符的会话条目跳过（命名唯一化无需为坏数据整体失败——
-/// 与会话列表的可展示性解耦；但合法条目的解析错误不静默）。
+/// 与会话列表的可展示性解耦）。`status` 为 `{"error": …}` 对象的终态记录也在此
+/// 跳过（字符串策略；终态本就不参与编号，跳过与排除同效）。
 pub fn parse_sessions(json: &serde_json::Value) -> Vec<SessionRef> {
     let Some(arr) = json.as_array() else {
         return Vec::new();
@@ -97,12 +100,20 @@ pub fn resolve_session_base_name(config_name: &str, working_dir: &str, fallback:
 /// - 命中 `base`（编号 0）→ `base(1)`
 /// - 命中 `base(N)` → `base(N+1)`
 ///
+/// 编号取自**活跃会话**的最大后缀（不是活跃条数）：中间某条停止后，剩余
+/// `base(2)` 仍在用，按条数会生成重复的 `base(1)`；最大后缀既贴合「运行中
+/// 数量递增」的直觉，又不会与存活会话重名。
+///
 /// 多配置同名互不干扰：过滤条件要求 `config_id == 目标配置`（另一配置的同名会话
 /// 不算冲突）。
 pub fn generate_unique_name(config_id: &str, base_name: &str, sessions: &[SessionRef]) -> String {
     let max_index = sessions
         .iter()
-        .filter(|s| s.config_id == config_id && s.status != "Stopped")
+        // 终态记录是历史，不占活跃编号。判据必须用 **wire 标签**（`SessionStatus`
+        // externally tagged camelCase），不是 Rust 变体名 `"Stopped"`：命名源
+        // `internal_records_json` 序列化出的是 `"stopped"`，2026-11-10 真机就因按
+        // 变体名过滤导致停止过的运行永久占编号、新运行名一路递增。
+        .filter(|s| s.config_id == config_id && !matches!(s.status.as_str(), "stopped" | "error"))
         .filter_map(|s| {
             let name = &s.name;
             if name == base_name {
@@ -495,7 +506,7 @@ mod tests {
         let base =
             resolve_session_base_name("", "/home/binblink/WasmNest", FALLBACK_SESSION_BASE_NAME);
         assert_eq!(base, "WasmNest");
-        let sessions = vec![session("c1", "WasmNest", "Running")];
+        let sessions = vec![session("c1", "WasmNest", "running")];
         assert_eq!(generate_unique_name("c1", &base, &sessions), "WasmNest(1)");
     }
 
@@ -510,7 +521,7 @@ mod tests {
     /// 重名冲突：活跃会话已用原名 → 递增为 base(1)
     #[test]
     fn unique_name_second_becomes_suffix_one() {
-        let sessions = vec![session("c1", "dev", "Running")];
+        let sessions = vec![session("c1", "dev", "running")];
         assert_eq!(generate_unique_name("c1", "dev", &sessions), "dev(1)");
     }
 
@@ -518,9 +529,9 @@ mod tests {
     #[test]
     fn unique_name_increments_from_max_suffix() {
         let sessions = vec![
-            session("c1", "dev", "Running"),
-            session("c1", "dev(3)", "WaitingInput"),
-            session("c1", "dev(1)", "Running"),
+            session("c1", "dev", "running"),
+            session("c1", "dev(3)", "waitingInput"),
+            session("c1", "dev(1)", "running"),
         ];
         assert_eq!(generate_unique_name("c1", "dev", &sessions), "dev(4)");
     }
@@ -528,7 +539,7 @@ mod tests {
     /// 删除后编号不回退：base(2) 已删，只剩 base(1) → 仍生成 base(2)（非 base(1)）
     #[test]
     fn unique_name_does_not_reuse_freed_suffix() {
-        let sessions = vec![session("c1", "dev(1)", "Running")];
+        let sessions = vec![session("c1", "dev(1)", "running")];
         assert_eq!(generate_unique_name("c1", "dev", &sessions), "dev(2)");
     }
 
@@ -536,30 +547,69 @@ mod tests {
     #[test]
     fn unique_name_ignores_other_config_same_name() {
         let sessions = vec![
-            session("c1", "dev", "Running"),
-            session("c2", "dev", "Running"),
-            session("c2", "dev(7)", "Running"),
+            session("c1", "dev", "running"),
+            session("c2", "dev", "running"),
+            session("c2", "dev(7)", "running"),
         ];
         assert_eq!(generate_unique_name("c1", "dev", &sessions), "dev(1)");
         assert_eq!(generate_unique_name("c2", "dev", &sessions), "dev(8)");
     }
 
-    /// Stopped 会话不参与计数（与宿主 `status != Stopped` 过滤等价）
+    /// 终态会话不参与计数（与宿主 `status != SessionStatus::Stopped` 等价）
+    ///
+    /// 回归（2026-11-10 真机）：命名源 `internal_records_json` 序列化出的是
+    /// **wire 小写**状态；旧实现按 Rust 变体名 `"Stopped"` 过滤，条件永不命中，
+    /// 每条停止过的运行都占编号 → 移动端新建运行名一路 `dev(5)`… 递增。
     #[test]
     fn unique_name_ignores_stopped() {
         let sessions = vec![
-            session("c1", "dev", "Stopped"),
-            session("c1", "dev", "Running"),
+            session("c1", "dev", "stopped"),
+            session("c1", "dev", "running"),
         ];
         assert_eq!(generate_unique_name("c1", "dev", &sessions), "dev(1)");
-        let only_stopped = vec![session("c1", "dev", "Stopped")];
+        let only_stopped = vec![session("c1", "dev", "stopped")];
         assert_eq!(generate_unique_name("c1", "dev", &only_stopped), "dev");
+        // 连续停止多次后新建：仍从基名起算，不随历史无限递增
+        let many_stopped = vec![
+            session("c1", "dev", "stopped"),
+            session("c1", "dev(1)", "stopped"),
+            session("c1", "dev(2)", "stopped"),
+        ];
+        assert_eq!(generate_unique_name("c1", "dev", &many_stopped), "dev");
+    }
+
+    /// wire 形状回归：状态输入取自 `SessionStatus` 的真实 serde 输出（不是变体名）
+    #[test]
+    fn unique_name_accepts_serde_wire_statuses() {
+        use crate::session::model::SessionStatus;
+
+        let wire = |status: SessionStatus| serde_json::to_value(status).expect("serialize status");
+        let json = serde_json::json!([
+            {"configId": "c1", "name": "dev", "status": wire(SessionStatus::Stopped)},
+            {"configId": "c1", "name": "dev(5)", "status": wire(SessionStatus::Error(Some("boom".into())))},
+            {"configId": "c1", "name": "dev(2)", "status": wire(SessionStatus::Running)},
+        ]);
+        let sessions = parse_sessions(&json);
+        // Error 是 `{"error": …}` 对象，字符串策略跳过它；Stopped/Running 保留，
+        // 但 Stopped 不参与编号
+        assert_eq!(sessions.len(), 2);
+        assert_eq!(generate_unique_name("c1", "dev", &sessions), "dev(3)");
+
+        // 只剩终态记录 → 从基名开始（不是 dev(6)）
+        let only_terminal = serde_json::json!([
+            {"configId": "c1", "name": "dev(5)", "status": wire(SessionStatus::Stopped)},
+            {"configId": "c1", "name": "dev(4)", "status": wire(SessionStatus::Error(None))},
+        ]);
+        assert_eq!(
+            generate_unique_name("c1", "dev", &parse_sessions(&only_terminal)),
+            "dev"
+        );
     }
 
     /// 前缀误匹配不计数：「dev-ops」不以 "dev(" 形式跟随编号，不构成冲突
     #[test]
     fn unique_name_only_matches_numbered_suffix() {
-        let sessions = vec![session("c1", "dev-ops", "Running")];
+        let sessions = vec![session("c1", "dev-ops", "running")];
         assert_eq!(generate_unique_name("c1", "dev", &sessions), "dev");
     }
 
@@ -568,14 +618,16 @@ mod tests {
     #[test]
     fn parse_sessions_from_host_json() {
         let json = serde_json::json!([
-            {"id": "s1", "configId": "c1", "name": "dev", "status": "Running"},
-            {"id": "s2", "configId": "c1", "name": "dev(1)", "status": "Stopped"},
+            {"id": "s1", "configId": "c1", "name": "dev", "status": "running"},
+            {"id": "s2", "configId": "c1", "name": "dev(1)", "status": "stopped"},
+            // Error 是对象形态：命名唯一化按宽容策略跳过（终态本就不计数）
+            {"id": "s3", "configId": "c1", "name": "dev(2)", "status": {"error": "pty closed"}},
             {"bad": "entry"}, // 缺字段跳过
         ]);
         let sessions = parse_sessions(&json);
         assert_eq!(sessions.len(), 2);
-        assert_eq!(sessions[0].status, "Running");
-        assert_eq!(sessions[1].status, "Stopped");
+        assert_eq!(sessions[0].status, "running");
+        assert_eq!(sessions[1].status, "stopped");
     }
 
     #[test]
