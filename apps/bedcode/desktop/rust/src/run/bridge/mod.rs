@@ -41,7 +41,12 @@ pub const MAX_EVENT_BATCH: usize = 500;
 pub const COMMAND_CLAIM_STALE_SECS: i64 = 30;
 
 /// 本域回环路由（注册表与分派表的共同事实源；全部 `auth: none` + 本机门禁）
-pub const HTTP_ENDPOINTS: &[&str] = &["run-attach", "run-events", "run-commands", "run-commands-ack"];
+pub const HTTP_ENDPOINTS: &[&str] = &[
+    "run-attach",
+    "run-events",
+    "run-commands",
+    "run-commands-ack",
+];
 
 /// 桥接协议唯一合法调用方档位：宿主判定的环回（`_http_endpoint` 的 `caller`
 /// 字段；判定在平台侧 `caller_identity`，对端 IP 为环回即此档）。本机扩展只可能
@@ -213,7 +218,13 @@ fn supported_driver(record: &SessionRecord) -> Result<&str, RouteError> {
 /// `caller` = 宿主判定的调用方档位（`_http_endpoint` 参数里的顶层 `caller` 字段）：
 /// 全部桥接路由先过本机门禁，再进业务分派。
 #[cfg(target_arch = "wasm32")]
-pub fn handle_http_endpoint(host: &WasmHost, method: &str, path: &str, body: &Value, caller: &str) -> Value {
+pub fn handle_http_endpoint(
+    host: &WasmHost,
+    method: &str,
+    path: &str,
+    body: &Value,
+    caller: &str,
+) -> Value {
     if method != "POST" {
         return wasmnest_plugin_api::http_response::error(
             405,
@@ -285,8 +296,7 @@ fn handle_run_attach(host: &WasmHost, body: &Value) -> Result<Value, RouteError>
     let project_ids =
         crate::project::ids_by_working_dir_via_host(cwd).map_err(RouteError::Internal)?;
     if agent_session_id.is_none() {
-        let records =
-            crate::session::records_snapshot_via_host().map_err(RouteError::Internal)?;
+        let records = crate::session::records_snapshot_via_host().map_err(RouteError::Internal)?;
         let run_ids: Vec<String> = ownable_bridge_runs(&records, &project_ids)
             .into_iter()
             .map(|record| record.id.clone())
@@ -296,9 +306,8 @@ fn handle_run_attach(host: &WasmHost, body: &Value) -> Result<Value, RouteError>
         })));
     }
     let now = crate::config::model::now_rfc3339();
-    let run_id =
-        crate::session::bind_bridge_via_host(&project_ids, agent_session_id, claim, &now)
-            .map_err(RouteError::Internal)?;
+    let run_id = crate::session::bind_bridge_via_host(&project_ids, agent_session_id, claim, &now)
+        .map_err(RouteError::Internal)?;
     if run_id.is_none() {
         host.log_debug(&format!(
             "bridge run-attach: no claimable run (cwd={cwd:?}, agentSessionId={agent_session_id:?}, claim={claim})"
@@ -648,10 +657,7 @@ mod tests {
 
     #[test]
     fn claim_picks_oldest_live_unbound_run() {
-        let records = vec![
-            run_record("run-old", "p1"),
-            run_record("run-new", "p1"),
-        ];
+        let records = vec![run_record("run-old", "p1"), run_record("run-new", "p1")];
         let projects = vec!["p1".to_string()];
         let picked = claim_bridge_run(&records, &projects, None, true).unwrap();
         assert_eq!(picked.id, "run-old", "升序第一个可服务者胜（先启动先服务）");
@@ -677,8 +683,7 @@ mod tests {
         let fresh = run_record("run-fresh", "p1");
         let records = vec![bound.clone(), fresh];
         let projects = vec!["p1".to_string()];
-        let picked =
-            claim_bridge_run(&records, &projects, Some("ses_a"), true).unwrap();
+        let picked = claim_bridge_run(&records, &projects, Some("ses_a"), true).unwrap();
         assert_eq!(picked.id, "run-bound", "已绑定会话幂等返回原运行");
     }
 
@@ -689,9 +694,7 @@ mod tests {
         bound.status = crate::session::model::SessionStatus::Stopped;
         let fresh = run_record("run-fresh", "p1");
         let records = vec![bound, fresh];
-        let picked =
-            claim_bridge_run(&records, &["p1".to_string()], Some("ses_a"), true)
-                .unwrap();
+        let picked = claim_bridge_run(&records, &["p1".to_string()], Some("ses_a"), true).unwrap();
         assert_eq!(picked.id, "run-fresh", "终态运行不收事件：回落重新认领");
     }
 
@@ -751,13 +754,10 @@ mod tests {
         let fresh = run_record("run-fresh", "p1");
         let records = vec![bound, fresh];
         let projects = vec!["p1".to_string()];
-        let picked =
-            claim_bridge_run(&records, &projects, Some("ses_a"), false)
-                .unwrap();
+        let picked = claim_bridge_run(&records, &projects, Some("ses_a"), false).unwrap();
         assert_eq!(picked.id, "run-bound", "重绑模式仍可幂等命中已绑定运行");
         assert!(
-            claim_bridge_run(&records, &projects, Some("ses_b"), false)
-                .is_none(),
+            claim_bridge_run(&records, &projects, Some("ses_b"), false).is_none(),
             "重绑模式不为未绑定会话开新认领"
         );
         assert!(

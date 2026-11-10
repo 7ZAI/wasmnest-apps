@@ -3,8 +3,8 @@
 use super::*;
 
 use crate::trust::source::tests::MockRecords;
-use wasmnest_plugin_api::host::HostError;
 use std::sync::Mutex;
+use wasmnest_plugin_api::host::HostError;
 
 /// 空信任列表 → 空 devices（pairing/peer 均空）
 #[test]

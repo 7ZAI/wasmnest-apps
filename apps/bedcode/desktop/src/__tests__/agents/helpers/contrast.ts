@@ -700,6 +700,7 @@ export function templateClasses(agentHubDir = AGENT_HUB): { used: Set<string>; p
     'src/agents/components/ProviderApply.vue',
     'src/agents/components/ProvidersTab.vue',
     'src/agents/components/SessionLogsTab.vue',
+    'src/agents/components/SessionTranscript.vue',
     'src/agents/components/SkillEditor.vue',
     'src/agents/components/SkillsTab.vue',
     'src/agents/components/StatsBars.vue',

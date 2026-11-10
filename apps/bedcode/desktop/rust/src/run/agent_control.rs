@@ -198,7 +198,9 @@ pub fn parse_pi_models(stdout: &str) -> Vec<ModelOption> {
     let mut out = Vec::new();
     for line in stdout.lines() {
         let mut cols = line.split_whitespace();
-        let Some(provider) = cols.next() else { continue };
+        let Some(provider) = cols.next() else {
+            continue;
+        };
         let Some(model) = cols.next() else { continue };
         if provider == "provider" || model == "model" {
             continue;
@@ -210,6 +212,29 @@ pub fn parse_pi_models(stdout: &str) -> Vec<ModelOption> {
         out.push(ModelOption {
             value: format!("{provider}/{model}"),
             label: format!("{provider}/{model}"),
+            source: "catalog",
+        });
+    }
+    out
+}
+
+/// `opencode models` → 模型项（每行一个 `provider/model`，无表头）
+///
+/// 该命令读的是 opencode 自己的配置（含已应用的供应商），因此就是用户要的
+/// 「供应商配置的模型」；非法 / 非 `provider/model` 形状的行不进清单。
+pub fn parse_opencode_models(stdout: &str) -> Vec<ModelOption> {
+    let mut out: Vec<ModelOption> = Vec::new();
+    for line in stdout.lines() {
+        let value = line.trim();
+        if value.is_empty() || !value.contains('/') || !safe_token(value) {
+            continue;
+        }
+        if out.iter().any(|existing| existing.value == value) {
+            continue;
+        }
+        out.push(ModelOption {
+            value: value.to_string(),
+            label: value.to_string(),
             source: "catalog",
         });
     }
@@ -264,7 +289,10 @@ pub fn parse_codex_levels(stdout: &str) -> Vec<String> {
         if model.get("visibility").and_then(Value::as_str) == Some("hidden") {
             continue;
         }
-        let Some(levels) = model.get("supported_reasoning_levels").and_then(Value::as_array) else {
+        let Some(levels) = model
+            .get("supported_reasoning_levels")
+            .and_then(Value::as_array)
+        else {
             continue;
         };
         for level in levels {
@@ -358,10 +386,7 @@ pub fn validate_request(
             return Err(Reason::LevelUnknown(level.to_string()));
         }
     }
-    Ok((
-        model.map(str::to_string),
-        level.map(str::to_string),
-    ))
+    Ok((model.map(str::to_string), level.map(str::to_string)))
 }
 
 /// 合并模型清单：当前值 → 目录 → 供应商预设（按 value 去重、保序）
@@ -468,13 +493,16 @@ mod host_impl {
                     .unwrap_or_default(),
                 Vec::new(),
             ),
+            "opencode" => (
+                run_sync(host, "opencode models")
+                    .map(|stdout| parse_opencode_models(&stdout))
+                    .unwrap_or_default(),
+                Vec::new(),
+            ),
             "codex" => {
                 let stdout = run_sync(host, "codex debug models");
                 match stdout {
-                    Some(stdout) => (
-                        parse_codex_models(&stdout),
-                        parse_codex_levels(&stdout),
-                    ),
+                    Some(stdout) => (parse_codex_models(&stdout), parse_codex_levels(&stdout)),
                     None => (Vec::new(), Vec::new()),
                 }
             }
@@ -497,8 +525,7 @@ mod host_impl {
     /// codex 版本（`codex --version`）：与目录同为 60s 缓存，避免每次
     /// options / set 都串行起一次登录 shell 子进程（M21）。
     fn codex_version(host: &WasmHost) -> Option<(u32, u32, u32)> {
-        static VERSION: OnceLock<Mutex<Option<(u64, Option<(u32, u32, u32)>)>>> =
-            OnceLock::new();
+        static VERSION: OnceLock<Mutex<Option<(u64, Option<(u32, u32, u32)>)>>> = OnceLock::new();
         let cache = VERSION.get_or_init(|| Mutex::new(None));
         let now = now_epoch();
         if let (Some(now), Ok(guard)) = (now, cache.lock()) {
@@ -572,11 +599,7 @@ mod host_impl {
         }))
     }
 
-    fn capability(
-        supported: bool,
-        channel: ControlChannel,
-        reason: Option<Reason>,
-    ) -> Value {
+    fn capability(supported: bool, channel: ControlChannel, reason: Option<Reason>) -> Value {
         match reason {
             None => json!({
                 "supported": supported,
@@ -595,9 +618,11 @@ mod host_impl {
 
     /// `agent.profile.options {cli}` → 池成员编辑器用的「无运行」能力清单。
     ///
-    /// 与 `run.agent.options` 同源（同一份 catalog / preset / 画像），差别只在于
-    /// 没有运行行：模型来自 CLI 目录 + 供应商预设，思考等级来自静态画像
-    ///（codex 以目录覆盖）。opencode 没有独立等级入口 → 空数组 + 说明由前端给。
+    /// 模型来自**该 CLI 自己的配置读取命令**（`pi --list-models` /
+    /// `opencode models` / `codex debug models`）——应用供应商之后，这份清单
+    /// 就是它实际可用的模型；未应用的预设模板不混入（pi / opencode 的模型值
+    /// 需要 `provider/` 前缀，裸模板值不可用）。思考等级来自静态画像
+    ///（codex 以目录覆盖）。没有枚举入口的 CLI（claude）返回空清单 + 自由输入。
     pub fn catalog_via_host(args: &Value) -> Result<Value, String> {
         let cli = args
             .get("cli")
@@ -605,28 +630,28 @@ mod host_impl {
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .ok_or_else(|| "agent.profile.options: cli required".to_string())?;
-        let profile = profile_for(cli)
-            .ok_or_else(|| format!("agent-unsupported: unknown agent `{cli}`"))?;
+        let profile =
+            profile_for(cli).ok_or_else(|| format!("agent-unsupported: unknown agent `{cli}`"))?;
         let host = WasmHost;
         let state = crate::hub::invoke_command("agent.get-state", Value::Null)
             .map_err(|e| e.to_string())?;
         let installed = state["state"]["clis"][cli]["installed"] == Value::Bool(true);
 
-        let mut models: Vec<ModelOption> = Vec::new();
-        let mut catalog_levels: Vec<String> = Vec::new();
-        if cli == "pi" {
-            models = catalog(&host, "pi").models;
-        } else if cli == "codex" {
-            let cached = catalog(&host, "codex");
-            models = cached.models;
-            catalog_levels = cached.levels;
-        }
-        // 供应商预设只对接受 provider/model 的桥接 CLI 有意义（M22）。
-        let presets = match profile.channel {
-            ControlChannel::Bridge => preset_models(&host),
-            ControlChannel::Pty => Vec::new(),
+        let cached = match cli {
+            "pi" => Some(catalog(&host, "pi")),
+            "opencode" => Some(catalog(&host, "opencode")),
+            "codex" => Some(catalog(&host, "codex")),
+            _ => None,
         };
-        let merged = merge_models(None, models, presets);
+        let models = cached
+            .as_ref()
+            .map(|cached| cached.models.clone())
+            .unwrap_or_default();
+        let catalog_levels = if cli == "codex" {
+            cached.map(|cached| cached.levels).unwrap_or_default()
+        } else {
+            Vec::new()
+        };
         let thinking_levels: Vec<String> = if profile.thinking_levels.is_empty() {
             Vec::new()
         } else if cli == "codex" && !catalog_levels.is_empty() {
@@ -643,7 +668,7 @@ mod host_impl {
             "cli": cli,
             "installed": installed,
             "bridgeCapable": crate::run::bridge::supports_bridge(cli),
-            "models": merged.iter().map(ModelOption::json).collect::<Vec<_>>(),
+            "models": models.iter().map(ModelOption::json).collect::<Vec<_>>(),
             "thinkingLevels": thinking_levels,
         }))
     }
@@ -702,12 +727,18 @@ mod host_impl {
 
         // 模型能力
         let model_capability = match profile {
-            None => capability(false, ControlChannel::Pty, Some(Reason::AgentUnsupported(agent.clone()))),
+            None => capability(
+                false,
+                ControlChannel::Pty,
+                Some(Reason::AgentUnsupported(agent.clone())),
+            ),
             Some(profile) => {
                 let mut reason = None;
                 if !live {
                     reason = Some(Reason::RunEnded);
-                } else if profile.channel == ControlChannel::Bridge && !record.bridge_connected(&crate::config::model::now_rfc3339()) {
+                } else if profile.channel == ControlChannel::Bridge
+                    && !record.bridge_connected(&crate::config::model::now_rfc3339())
+                {
                     reason = Some(Reason::BridgeOffline);
                 } else if profile.channel == ControlChannel::Pty && record.pty_id.is_none() {
                     reason = Some(Reason::NoPty);
@@ -725,7 +756,11 @@ mod host_impl {
 
         // 思考能力
         let thinking_capability = match profile {
-            None => capability(false, ControlChannel::Pty, Some(Reason::AgentUnsupported(agent.clone()))),
+            None => capability(
+                false,
+                ControlChannel::Pty,
+                Some(Reason::AgentUnsupported(agent.clone())),
+            ),
             Some(profile) if profile.thinking_levels.is_empty() => {
                 capability(false, profile.channel, Some(Reason::ThinkingUnsupported))
             }
@@ -733,7 +768,9 @@ mod host_impl {
                 let mut reason = None;
                 if !live {
                     reason = Some(Reason::RunEnded);
-                } else if profile.channel == ControlChannel::Bridge && !record.bridge_connected(&crate::config::model::now_rfc3339()) {
+                } else if profile.channel == ControlChannel::Bridge
+                    && !record.bridge_connected(&crate::config::model::now_rfc3339())
+                {
                     reason = Some(Reason::BridgeOffline);
                 } else if profile.channel == ControlChannel::Pty && record.pty_id.is_none() {
                     reason = Some(Reason::NoPty);
@@ -757,7 +794,11 @@ mod host_impl {
                 if agent == "codex" && !catalog_levels.is_empty() {
                     catalog_levels
                 } else {
-                    profile.thinking_levels.iter().map(|s| s.to_string()).collect()
+                    profile
+                        .thinking_levels
+                        .iter()
+                        .map(|s| s.to_string())
+                        .collect()
                 }
             }
         };
@@ -795,8 +836,8 @@ mod host_impl {
         if record.status.is_terminal() {
             return Err(Reason::RunEnded.message());
         }
-        let profile = profile_for(&agent)
-            .ok_or_else(|| Reason::AgentUnsupported(agent.clone()).message())?;
+        let profile =
+            profile_for(&agent).ok_or_else(|| Reason::AgentUnsupported(agent.clone()).message())?;
         let (model, level) = validate_request(profile, model, level).map_err(|r| r.message())?;
 
         match profile.channel {
@@ -833,8 +874,10 @@ mod host_impl {
                         .map(|version| version_at_least(version, min))
                         .unwrap_or(false);
                     if !ok {
-                        return Err(Reason::CodexUpdateRequired(CODEX_INLINE_MIN_VERSION.to_string())
-                            .message());
+                        return Err(Reason::CodexUpdateRequired(
+                            CODEX_INLINE_MIN_VERSION.to_string(),
+                        )
+                        .message());
                     }
                 }
                 let line = slash_line(&agent, model.as_deref(), level.as_deref())
@@ -929,6 +972,18 @@ opencode     claude-opus-4-5               200K     64K      yes       yes
     }
 
     #[test]
+    fn opencode_catalog_parsing_keeps_provider_prefixed_models() {
+        let stdout = "\
+gmi/openai/gpt-5\nopencode-go/deepseek-v4.1-flash\nopencode-go/deepseek-v4.1-flash\nnot-a-model\n\n";
+        let models = parse_opencode_models(stdout);
+        assert_eq!(models.len(), 2);
+        assert_eq!(models[0].value, "gmi/openai/gpt-5");
+        assert_eq!(models[1].value, "opencode-go/deepseek-v4.1-flash");
+        assert!(models.iter().all(|m| m.source == "catalog"));
+        assert!(parse_opencode_models("").is_empty());
+    }
+
+    #[test]
     fn codex_catalog_parsing_reads_slugs_and_levels() {
         let stdout = r#"{"models":[{"slug":"gpt-6-astra","display_name":"GPT-6-Astra","visibility":"list","supported_reasoning_levels":[{"effort":"low"},{"effort":"high"}]},{"slug":"hidden-one","visibility":"hidden","supported_reasoning_levels":[{"effort":"ultra"}]}]}"#;
         let models = parse_codex_models(stdout);
@@ -972,7 +1027,10 @@ opencode     claude-opus-4-5               200K     64K      yes       yes
             Some("/model --reasoning low\r".to_string())
         );
         assert_eq!(slash_line("claude", None, None).unwrap(), None);
-        assert!(slash_line("pi", Some("m"), None).is_err(), "bridge agent 无斜杠命令");
+        assert!(
+            slash_line("pi", Some("m"), None).is_err(),
+            "bridge agent 无斜杠命令"
+        );
     }
 
     #[test]
@@ -985,7 +1043,10 @@ opencode     claude-opus-4-5               200K     64K      yes       yes
                 Some("high".to_string())
             )
         );
-        assert_eq!(validate_request(pi, None, None).unwrap_err(), Reason::InvalidValue);
+        assert_eq!(
+            validate_request(pi, None, None).unwrap_err(),
+            Reason::InvalidValue
+        );
         assert_eq!(
             validate_request(pi, Some("bad model"), None).unwrap_err(),
             Reason::InvalidValue
@@ -1018,7 +1079,11 @@ opencode     claude-opus-4-5               200K     64K      yes       yes
                     source: "catalog",
                 },
             ],
-            vec!["amd/y".to_string(), " preset-a ".to_string(), "bad model".to_string()],
+            vec![
+                "amd/y".to_string(),
+                " preset-a ".to_string(),
+                "bad model".to_string(),
+            ],
         );
         assert_eq!(
             merged.iter().map(|m| m.value.as_str()).collect::<Vec<_>>(),

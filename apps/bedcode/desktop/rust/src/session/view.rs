@@ -364,11 +364,13 @@ mod tests {
     #[test]
     fn run_view_status_is_wire_string() {
         let mut record = record();
-        assert_eq!(run_json(&record, "2026-09-23T00:00:06Z")["status"], "running");
+        assert_eq!(
+            run_json(&record, "2026-09-23T00:00:06Z")["status"],
+            "running"
+        );
 
-        record.status = SessionStatus::Error(Some(
-            "host process restarted; run interrupted".to_string(),
-        ));
+        record.status =
+            SessionStatus::Error(Some("host process restarted; run interrupted".to_string()));
         assert_eq!(run_json(&record, "2026-09-23T00:00:06Z")["status"], "error");
 
         record.status = SessionStatus::Error(None);

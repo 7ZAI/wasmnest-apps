@@ -10,9 +10,9 @@ use super::sources::NODE_VERSION;
 use crate::hub::install::now_ms;
 use crate::hub::{BOOTSTRAP_KEY, DATA_DIR, HOME};
 use serde_json::{json, Value};
+use std::sync::atomic::{AtomicU32, Ordering};
 use wasmnest_plugin_api::host::{HostEvents, HostLog, HostStorage};
 use wasmnest_plugin_api::wasm_host::WasmHost;
-use std::sync::atomic::{AtomicU32, Ordering};
 
 /// 状态推送序号（单调自增；前端按 seq 丢弃乱序旧事件）
 static STATE_SEQ: AtomicU32 = AtomicU32::new(0);

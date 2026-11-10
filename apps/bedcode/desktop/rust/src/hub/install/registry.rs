@@ -10,10 +10,10 @@ use super::state::{all_sources, emit, emit_and_return, now_ms, read_state, write
 use super::version::compare_versions;
 use crate::hub::agents::{self, Agent, LatestSource};
 use crate::hub::detect;
-use wasmnest_plugin_api::host::{HostHttp, HostLog, HostStorage};
-use wasmnest_plugin_api::wasm_host::WasmHost;
 use serde_json::{json, Value};
 use std::cmp::Ordering;
+use wasmnest_plugin_api::host::{HostHttp, HostLog, HostStorage};
+use wasmnest_plugin_api::wasm_host::WasmHost;
 
 /// npm 官方源与 npmmirror（spec §4.2 固定两源）
 pub(crate) const NPMJS: &str = "https://registry.npmjs.org";

@@ -1,9 +1,9 @@
 //! 建表 + 幂等迁移（每条单独 execute：宿主 plugin_db_execute 为单语句语义，
 //! 多语句会被静默截断；CREATE IF NOT EXISTS 可对旧库重跑）
 
+use serde_json::Value;
 use wasmnest_plugin_api::host::HostPluginDatabase;
 use wasmnest_plugin_api::wasm_host::WasmHost;
-use serde_json::Value;
 
 // ==================== Schema（幂等建表，单语句逐条执行） ====================
 

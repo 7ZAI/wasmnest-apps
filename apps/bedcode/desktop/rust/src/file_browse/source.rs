@@ -269,7 +269,8 @@ pub(crate) mod tests {
         /// 失败注入（T-G05）：(cwd, args-joined) → ProcessSyncResult 重写——
         /// 非零退出码 / stderr 诊断 / 超时的行为在此编码（旧实现恒成功，
         /// git 失败路径从未被测）；命中即返回重写结果，不查 outputs
-        pub failures: Mutex<HashMap<(String, String), wasmnest_plugin_api::host::ProcessSyncResult>>,
+        pub failures:
+            Mutex<HashMap<(String, String), wasmnest_plugin_api::host::ProcessSyncResult>>,
     }
 
     impl MockGit {

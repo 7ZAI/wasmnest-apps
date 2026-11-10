@@ -44,7 +44,6 @@ impl Phase {
             Phase::Cancelled => "cancelled",
         }
     }
-
 }
 
 /// 失败码（wire 字符串；前端 i18n 映射，禁止在 Rust 侧写死用户文案）。

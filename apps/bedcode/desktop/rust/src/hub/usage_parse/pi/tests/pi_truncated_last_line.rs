@@ -3,7 +3,7 @@
 use super::*;
 
 use crate::hub::usage_parse::MAX_EVENTS;
-use serde_json::{json};
+use serde_json::json;
 
 #[test]
 fn pi_truncated_last_line_skipped() {

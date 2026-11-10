@@ -57,7 +57,8 @@ pub trait EventStore {
 /// 尾部快照（省略 `afterId`）：内层取最近 `limit` 行（按 seq 倒序），外层按 seq
 /// 正序回。**外层列清单必须含 `rev`**（`row_to_event` 对它硬取，漏列 = 读取整体
 /// 失败；issue #25 H1 的病灶就是外层漏了）。
-pub(crate) const LIST_TAIL_SQL: &str = "SELECT id, run_id, seq, rev, at, kind, payload, source, dedupe_key FROM \
+pub(crate) const LIST_TAIL_SQL: &str =
+    "SELECT id, run_id, seq, rev, at, kind, payload, source, dedupe_key FROM \
      (SELECT id, run_id, seq, rev, at, kind, payload, source, dedupe_key FROM run_events \
       WHERE run_id = ?1 ORDER BY seq DESC LIMIT ?2) ORDER BY seq";
 
@@ -65,7 +66,8 @@ pub(crate) const LIST_TAIL_SQL: &str = "SELECT id, run_id, seq, rev, at, kind, p
 /// 若按 seq 排序，第一批里被原地更新的行（新 id）会把游标顶过中段未交付行的 id，
 /// 那些行此后永远读不到（issue #25 H2）；重交付与乱序交给前端按 seq 合并
 /// （`mergeEvents` 同 seq 就地替换），渲染顺序本就不由这条 SQL 决定。
-pub(crate) const LIST_INCREMENTAL_SQL: &str = "SELECT id, run_id, seq, rev, at, kind, payload, source, dedupe_key FROM run_events \
+pub(crate) const LIST_INCREMENTAL_SQL: &str =
+    "SELECT id, run_id, seq, rev, at, kind, payload, source, dedupe_key FROM run_events \
      WHERE run_id = ?1 AND id > ?2 ORDER BY id LIMIT ?3";
 
 #[cfg(target_arch = "wasm32")]
@@ -243,7 +245,10 @@ mod wasm_impl {
         ) -> Result<Vec<StoredEvent>, String> {
             let limit = limit.max(1) as i64;
             let rows = match after_id {
-                Some(after) => self.plugin_db_query_params(LIST_INCREMENTAL_SQL, &sql_params![run_id, after, limit]),
+                Some(after) => self.plugin_db_query_params(
+                    LIST_INCREMENTAL_SQL,
+                    &sql_params![run_id, after, limit],
+                ),
                 None => self.plugin_db_query_params(LIST_TAIL_SQL, &sql_params![run_id, limit]),
             }
             .map_err(|e| format!("run_events read failed: {}", e.message))?;

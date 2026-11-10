@@ -27,11 +27,11 @@ use crate::hub::agents::{self, Agent};
 use crate::hub::detect;
 use crate::hub::detect::path_bootstrap_unix;
 use crate::hub::util::{is_windows, shell_invocation};
+use serde_json::{json, Value};
+use std::sync::atomic::{AtomicU32, Ordering as AtomicOrdering};
 use wasmnest_plugin_api::events::ProcessDoneEvent;
 use wasmnest_plugin_api::host::{HostFs, HostLog, HostProcess, HostStorage};
 use wasmnest_plugin_api::wasm_host::WasmHost;
-use serde_json::{json, Value};
-use std::sync::atomic::{AtomicU32, Ordering as AtomicOrdering};
 
 mod mirror;
 pub(crate) mod recipe;
@@ -364,8 +364,8 @@ pub(crate) fn start(h: &WasmHost, args: &Value) -> anyhow::Result<Value> {
 /// `detect_agent` 归属。任何查询失败都按「不拦截」处理（返回 None）：
 /// 护栏是收窄而不是新的可用性依赖。
 fn running_sessions_for_agent(cli: &str) -> Option<Vec<String>> {
-    let running = crate::session::list_views_via_host(&serde_json::json!({ "filter": "running" }))
-        .ok()?;
+    let running =
+        crate::session::list_views_via_host(&serde_json::json!({ "filter": "running" })).ok()?;
     let sessions = running.get("sessions")?.as_array()?;
     if sessions.is_empty() {
         return None;
@@ -384,13 +384,12 @@ fn running_sessions_for_agent(cli: &str) -> Option<Vec<String>> {
         .filter_map(|s| {
             let config_id = s.get("configId")?.as_str()?;
             let command = command_of(config_id)?;
-            (crate::task::agent::detect_agent(command) == cli)
-                .then(|| {
-                    s.get("name")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or(config_id)
-                        .to_string()
-                })
+            (crate::task::agent::detect_agent(command) == cli).then(|| {
+                s.get("name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(config_id)
+                    .to_string()
+            })
         })
         .collect();
     (!names.is_empty()).then_some(names)

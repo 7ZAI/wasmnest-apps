@@ -146,7 +146,10 @@ mod tests {
             l.node_dir("v24.22.1"),
             "/home/u/.wasmnest/bedcode/hub/runtime/node/v24.22.1"
         );
-        assert_eq!(l.bin_dir("v24.22.1"), format!("{}/bin", l.node_dir("v24.22.1")));
+        assert_eq!(
+            l.bin_dir("v24.22.1"),
+            format!("{}/bin", l.node_dir("v24.22.1"))
+        );
         assert_eq!(l.npm_prefix(), "/home/u/.local");
         assert_eq!(l.tmp_dir(7), format!("{}/.tmp-7", l.runtime_root()));
         assert_eq!(l.runs_dir(), "/home/u/.wasmnest/bedcode/hub/runs");
@@ -165,7 +168,10 @@ mod tests {
             l.npm_prefix(),
             "C:/Users/u/.wasmnest/bedcode/hub/npm-global"
         );
-        assert_eq!(l.cache_file("x.zip"), "C:/Users/u/.wasmnest/bedcode/hub/cache/x.zip");
+        assert_eq!(
+            l.cache_file("x.zip"),
+            "C:/Users/u/.wasmnest/bedcode/hub/cache/x.zip"
+        );
     }
 
     /// 尾斜杠归一：数据目录以 `/` 结尾时不产生双斜杠
@@ -193,8 +199,16 @@ mod tests {
     fn script_safety_gate() {
         assert!(linux().script_paths_safe());
         assert!(windows().script_paths_safe());
-        assert!(!Layout::new(false, "/home/a'b/.wasmnest/bedcode/hub", "/home/a'b").script_paths_safe());
-        assert!(!Layout::new(true, "C:/Users/100%/.wasmnest/bedcode/hub", "C:/Users/100%").script_paths_safe());
-        assert!(!Layout::new(false, "/home/a\"b/.wasmnest/bedcode/hub", "/home/a\"b").script_paths_safe());
+        assert!(
+            !Layout::new(false, "/home/a'b/.wasmnest/bedcode/hub", "/home/a'b").script_paths_safe()
+        );
+        assert!(
+            !Layout::new(true, "C:/Users/100%/.wasmnest/bedcode/hub", "C:/Users/100%")
+                .script_paths_safe()
+        );
+        assert!(
+            !Layout::new(false, "/home/a\"b/.wasmnest/bedcode/hub", "/home/a\"b")
+                .script_paths_safe()
+        );
     }
 }

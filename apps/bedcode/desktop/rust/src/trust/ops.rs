@@ -148,8 +148,8 @@ pub fn revoke_via_host(_id: &str) -> Result<serde_json::Value, String> {
 mod tests {
     use super::*;
     use crate::trust::source::tests::MockRecords;
-    use wasmnest_plugin_api::host::HostError;
     use std::sync::Mutex;
+    use wasmnest_plugin_api::host::HostError;
     // 跨分组共享的测试脚手架（子模块经 `use super::*` 可见）
 
     /// mock host-peer（native 单测；peer_list_trusted 返回 TrustedPeerDto

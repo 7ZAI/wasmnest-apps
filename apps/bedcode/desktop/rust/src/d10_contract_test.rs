@@ -57,6 +57,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use crate::http_routes::{HttpRouteDecl, ROUTES};
+use futures_util::{SinkExt, StreamExt};
 use wasmnest_plugin_api::host::bus::TOPIC_NS_SEP;
 use wasmnest_plugin_api::host::ws::WS_CLIENT_CONNECT;
 use wasmnest_server_base::config::NetworkConfig;
@@ -66,14 +67,13 @@ use wasmnest_server_base::ports::{
     MdnsTypeSubscription, PathsPort, PluginInvoker, PowerPort, RuntimePort, ServerLifecycleEvent,
     ServerLifecyclePort, ServerPorts, SystemInfoPort,
 };
-use futures_util::{SinkExt, StreamExt};
 // 注册面吃的是**能力仓自持的 wire 副本**（`wasmnest_server_http::wire` /
 // `wasmnest_server_websocket::wire`），与桌面 SDK 的 `wasmnest_plugin_api::EndpointAuth`
 // 是两份逐字一致、由能力仓 `cross-end-tests` 漂移锁钉住的独立类型。测试要过的注册表
 // 认前者，故档位解析也必须用前者——用 SDK 副本会得到 E0308（两个同名不同类型）。
+use serde_json::{json, Value};
 use wasmnest_server_http::wire::EndpointAuth as HttpEndpointAuth;
 use wasmnest_server_websocket::endpoint::EndpointAuth as WsEndpointAuth;
-use serde_json::{json, Value};
 
 /// 本插件 id（与 `plugin.json` 的 `id` 逐字一致；命名空间段由宿主注入）
 const PLUGIN_ID: &str = "com.wasmnest.bedcode";

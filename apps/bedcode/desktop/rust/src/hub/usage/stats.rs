@@ -21,10 +21,10 @@
 use super::schema::ensure_schema;
 use super::BREAKDOWN_LIMIT;
 use crate::hub::usage_parse::ModelUsage;
-use wasmnest_plugin_api::host::HostPluginDatabase;
-use wasmnest_plugin_api::wasm_host::WasmHost;
 use serde_json::{json, Value};
 use std::collections::HashMap;
+use wasmnest_plugin_api::host::HostPluginDatabase;
+use wasmnest_plugin_api::wasm_host::WasmHost;
 
 /// 时间窗上限（天）：超过即视为非法参数回落全量，防止一条命令拉全历史聚合
 const MAX_WINDOW_DAYS: i64 = 3650;

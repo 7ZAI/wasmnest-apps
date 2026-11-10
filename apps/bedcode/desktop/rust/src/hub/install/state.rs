@@ -7,9 +7,9 @@
 use super::registry::MIRROR_SOURCES;
 use super::INSTALL_KEY;
 use crate::hub::agents;
+use serde_json::{json, Value};
 use wasmnest_plugin_api::host::{ConfigKey, HostConfig, HostEvents, HostLog, HostStorage};
 use wasmnest_plugin_api::wasm_host::WasmHost;
-use serde_json::{json, Value};
 
 /// 读用户自定义源 [(id, url)]（install 状态 mirror.customSources）
 pub(super) fn custom_sources(state: &Value) -> Vec<(String, String)> {

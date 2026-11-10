@@ -26,13 +26,13 @@
 use super::{host, pending, PendingRun, AUTH_KEY, DATA_DIR, STATE_KEY};
 use crate::hub::agents::{self, Agent};
 use crate::hub::util::{is_windows, os_platform, shell_invocation};
-use wasmnest_plugin_api::events::ProcessDoneEvent;
-use wasmnest_plugin_api::host::{HostEvents, HostFs, HostLog, HostProcess, HostStorage};
-use wasmnest_plugin_api::wasm_host::WasmHost;
 use serde_json::{json, Value};
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Mutex, OnceLock};
+use wasmnest_plugin_api::events::ProcessDoneEvent;
+use wasmnest_plugin_api::host::{HostEvents, HostFs, HostLog, HostProcess, HostStorage};
+use wasmnest_plugin_api::wasm_host::WasmHost;
 
 /// 探测项：注册表全部 agent + 1 个环境采集
 pub(crate) const ENV_KIND: &str = "env";
@@ -934,7 +934,10 @@ mod tests {
             extract_version("opencode v2.0.29"),
             Some("2.0.29".to_string())
         );
-        assert_eq!(extract_version("opencode V2.0.29"), Some("2.0.29".to_string()));
+        assert_eq!(
+            extract_version("opencode V2.0.29"),
+            Some("2.0.29".to_string())
+        );
         // 独立 v token 不干扰后续版本 token（v 2.0.29 形态：v 自身不匹配）
         assert_eq!(extract_version("v 2.0.29"), Some("2.0.29".to_string()));
         // 纯 v 不是版本；vv2.0 剥一前缀后首段仍非纯数字

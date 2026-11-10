@@ -10,9 +10,9 @@ use super::scan::scan;
 use super::SKIPPED_SAMPLE_CAP;
 use super::{library_root, read_state, write_state};
 use crate::hub::install::now_ms;
+use serde_json::{json, Value};
 use wasmnest_plugin_api::host::{HostEvents, HostFs, HostHttp, HostLog};
 use wasmnest_plugin_api::wasm_host::WasmHost;
-use serde_json::{json, Value};
 
 // ==================== GitHub 安装（纯函数） ====================
 

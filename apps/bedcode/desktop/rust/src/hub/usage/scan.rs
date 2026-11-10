@@ -59,7 +59,9 @@ pub(crate) fn scan(h: &WasmHost) -> anyhow::Result<Value> {
     // 拒绝 → 整体降级 auth-required（与旧闸门同语义，但闸门从「activate 固定清单」
     // 换成「本次扫描实际要读的根目录」——claude projects 与会话源目录只有这里
     // 申请得到，旧闸门下它们静默读失败且无修复入口）
-    let granted = h.fs_request_auth(&scan_auth_roots(&sections)).unwrap_or(false);
+    let granted = h
+        .fs_request_auth(&scan_auth_roots(&sections))
+        .unwrap_or(false);
     state["authGranted"] = json!(granted);
     if !granted {
         state["status"] = json!("auth-required");
@@ -308,7 +310,7 @@ fn scan_done_inner(event: &ProcessDoneEvent) -> anyhow::Result<()> {
     // 会话文件读内容：v20 host-task `execute-batch` **并行**（读是主流开销——
     // 大量 JSONL 日志文件逐个串行 fs_read 各占一次宿主调用；池线程真并发替代）。
     // **分片读→处理→释放（2026-09-28 OOM trap 修复，2026-10-22 硬顶收紧后加密）**：
-    // wasm 线性内存硬顶 128MB（宿主 `MAX_PLUGIN_MEMORY_BYTES`），全量 listing
+    // wasm 线性内存硬顶 64MB（宿主 `MAX_PLUGIN_MEMORY_BYTES`），全量 listing
     // （实机 430MB）一次驻留 + 解码副本必然 rust_oom abort；
     // 逐片读（≤ [`SCAN_SLICE_FILES`] 文件）→ 逐文件解析落库 → 释放再读下一片，
     // 峰值内存 = 单片内容。宿主单元结果 >1MB 截断（truncated）的大文件在
@@ -409,13 +411,14 @@ fn scan_done_inner(event: &ProcessDoneEvent) -> anyhow::Result<()> {
 }
 
 /// 扫描分片粒度（文件数/片）——**wasm 线性内存纪律（2026-09-28 OOM trap 修复，
-/// 2026-10-22 硬顶 256MB → 128MB 后由 32 收到 16）**：插件线性内存硬顶 128MB
-/// （宿主 `MAX_PLUGIN_MEMORY_BYTES`），而宿主 `execute-batch` 一次性返回整片全部
+/// 2026-10-22 硬顶 256MB → 128MB 后由 32 收到 16；2026-11-07 进一步收紧到
+/// 64MB 后由 16 收到 8）**：插件线性内存硬顶 64MB（宿主
+/// `MAX_PLUGIN_MEMORY_BYTES`），而宿主 `execute-batch` 一次性返回整片全部
 /// 单元结果，插件解码还会产生 2 份副本（raw + parsed/results + 解码内容）。
-/// 单片 16 文件 × 单元结果上限（~1MB）× 3 ≈ 48MB 峰值（占硬顶约 37%），
+/// 单片 8 文件 × 单元结果上限（~1MB）× 3 ≈ 24MB 峰值（占硬顶约 37%），
 /// 安全余量充足；同时远低于宿主单 plan 单元数上限 256。
 /// 全量 listing（实机 430MB）一次驻留必然 OOM。
-const SCAN_SLICE_FILES: usize = 16;
+const SCAN_SLICE_FILES: usize = 8;
 
 /// 单文件读取结果（execute-batch 单元结果 → 调用方逐文件处理）
 #[derive(Clone, Debug)]
@@ -440,7 +443,7 @@ fn scan_slices(listing: &[(String, String)]) -> Vec<&[(String, String)]> {
 /// 并行读**一片**会话文件内容（v20 host-task `execute-batch`：`fs.read` 单元池线程
 /// 真并发）。返回按入参顺序的结果。
 ///
-/// **内存纪律**：wasm 线性内存 128MB 硬顶，宿主响应整片返回 + 解码副本——
+/// **内存纪律**：wasm 线性内存 64MB 硬顶，宿主响应整片返回 + 解码副本——
 /// 全量一次提交（此前 200 单元/片 × ~660KB 平均 ≈ 500MB 峰值）直接
 /// `rust_oom` abort trap。调用方必须经 [`scan_slices`] 分片，逐片读→处理→释放。
 /// 单元结果 >1MB 被宿主截断（`truncated` 标记，产物非完整 JSON）→
@@ -581,7 +584,7 @@ mod tests {
 
     /// 分片回归锁（2026-09-28 实机 bug 两个）：① 852 单元一次 execute-batch
     /// 被宿主拒绝（`plan exceeds max units per plan (852 > 256)`）→ 零扫描；
-    /// ② 全量 430MB 内容一次驻留 + 解码副本 → wasm 线性内存 128MB 硬顶
+    /// ② 全量 430MB 内容一次驻留 + 解码副本 → wasm 线性内存 64MB 硬顶
     /// rust_oom abort trap（`on_process_done`）。断言：listing 切成多片、
     /// 每片 ≤ [`SCAN_SLICE_FILES`]（既是内存包络也远低于宿主 plan 上限 256）、
     /// 原序覆盖无丢失。

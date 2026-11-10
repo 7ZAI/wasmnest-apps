@@ -58,10 +58,10 @@ use crate::hub::providers::store::{
     build_state, emit_and_return, list_presets, preset_key_of, preset_names, read_stored,
     write_stored,
 };
+use serde_json::{json, Value};
 use wasmnest_plugin_api::host::{HostLog, HostPluginDatabase};
 use wasmnest_plugin_api::sql_params;
 use wasmnest_plugin_api::wasm_host::WasmHost;
-use serde_json::{json, Value};
 
 // ==================== 命令：预设 CRUD ====================
 
@@ -254,11 +254,12 @@ pub(crate) fn import_providers(h: &WasmHost) -> anyhow::Result<Value> {
         .ok_or_else(|| anyhow::anyhow!("import: home unavailable"))?;
 
     // 收集 import 钩子并按声明顺序执行（稳定排序：同 rank 保持注册顺序）
-    let mut importers: Vec<(u8, fn(&WasmHost, &str) -> Vec<PresetDraft>)> = crate::hub::agents::all()
-        .iter()
-        .filter_map(|a| a.provider())
-        .filter_map(|p| p.import.map(|f| (p.import_rank, f)))
-        .collect();
+    let mut importers: Vec<(u8, fn(&WasmHost, &str) -> Vec<PresetDraft>)> =
+        crate::hub::agents::all()
+            .iter()
+            .filter_map(|a| a.provider())
+            .filter_map(|p| p.import.map(|f| (p.import_rank, f)))
+            .collect();
     importers.sort_by_key(|(rank, _)| *rank);
 
     let mut drafts: Vec<PresetDraft> = Vec::new();
@@ -370,7 +371,10 @@ pub(crate) fn import_presets(h: &WasmHost, args: &Value) -> anyhow::Result<Value
             continue;
         };
         let base_url = r.get("baseUrl").and_then(|v| v.as_str()).unwrap_or("");
-        let api_style = r.get("apiStyle").and_then(|v| v.as_str()).unwrap_or("openai");
+        let api_style = r
+            .get("apiStyle")
+            .and_then(|v| v.as_str())
+            .unwrap_or("openai");
         let models = r.get("models").cloned().unwrap_or_else(|| json!([]));
         let models_json = serde_json::to_string(&models).unwrap_or_else(|_| "[]".to_string());
         let models_url = r.get("modelsUrl").and_then(|v| v.as_str()).unwrap_or("");
@@ -380,7 +384,10 @@ pub(crate) fn import_presets(h: &WasmHost, args: &Value) -> anyhow::Result<Value
             .get("createdAt")
             .and_then(|v| v.as_i64())
             .unwrap_or(now as i64);
-        let updated_at = r.get("updatedAt").and_then(|v| v.as_i64()).unwrap_or(created_at);
+        let updated_at = r
+            .get("updatedAt")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(created_at);
         h.plugin_db_execute_params(
             "INSERT INTO provider_preset (name, base_url, api_style, models_json, models_url, \
              api_key, notes, created_at, updated_at) \
@@ -388,7 +395,14 @@ pub(crate) fn import_presets(h: &WasmHost, args: &Value) -> anyhow::Result<Value
              ON CONFLICT(name) DO UPDATE SET base_url = ?2, api_style = ?3, models_json = ?4, \
              models_url = ?5, api_key = ?6, notes = ?7, updated_at = ?9",
             &sql_params![
-                name, base_url, api_style, models_json, models_url, api_key, notes, created_at,
+                name,
+                base_url,
+                api_style,
+                models_json,
+                models_url,
+                api_key,
+                notes,
+                created_at,
                 updated_at
             ],
         )

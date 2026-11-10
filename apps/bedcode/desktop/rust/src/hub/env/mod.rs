@@ -186,7 +186,12 @@ pub(crate) fn start(h: &WasmHost) -> anyhow::Result<Value> {
     if resume {
         // 上次已经落位成功（preflight / 下载 / 校验 / 解压都过了）：只重跑剩余步骤
         h.log_info("env bootstrap resuming at register/reprobe (runtime already placed)");
-        return Ok(register_and_reprobe(h, &layout, &mut st, sources::NODE_VERSION));
+        return Ok(register_and_reprobe(
+            h,
+            &layout,
+            &mut st,
+            sources::NODE_VERSION,
+        ));
     }
 
     st["active"] = json!(true);
@@ -281,7 +286,11 @@ pub(crate) fn start(h: &WasmHost) -> anyhow::Result<Value> {
         return Ok(fail(
             h,
             &mut st,
-            Failure::new(Phase::Preflight, Code::ExtractFailed, format!("mkdir failed: {e}")),
+            Failure::new(
+                Phase::Preflight,
+                Code::ExtractFailed,
+                format!("mkdir failed: {e}"),
+            ),
         ));
     }
 
@@ -473,8 +482,12 @@ pub(crate) fn abort_active(h: &WasmHost) -> anyhow::Result<()> {
     st["active"] = json!(false);
     st["runId"] = Value::Null;
     st["finishedAt"] = json!(state::started_now(h));
-    st["error"] = Failure::new(Phase::Cancelled, Code::Cancelled, "deactivated while running")
-        .to_json();
+    st["error"] = Failure::new(
+        Phase::Cancelled,
+        Code::Cancelled,
+        "deactivated while running",
+    )
+    .to_json();
     state::write(h, &st);
     state::emit(h, &st);
     Ok(())
@@ -493,7 +506,11 @@ pub(crate) fn handle_process_done(event: &ProcessDoneEvent) -> anyhow::Result<()
     if entry.kind != "bootstrap" {
         return Ok(());
     }
-    let output = h.fs_read(&entry.output_path).ok().flatten().unwrap_or_default();
+    let output = h
+        .fs_read(&entry.output_path)
+        .ok()
+        .flatten()
+        .unwrap_or_default();
     let _ = h.fs_delete(&entry.output_path);
 
     let mut st = state::read(&h);
@@ -506,7 +523,9 @@ pub(crate) fn handle_process_done(event: &ProcessDoneEvent) -> anyhow::Result<()
         "downloading" => on_download_done(&h, &mut st, event, &output),
         "extracting" => on_extract_done(&h, &mut st, event, &output),
         other => {
-            h.log_warn(&format!("bootstrap: run finished in unexpected phase {other}"));
+            h.log_warn(&format!(
+                "bootstrap: run finished in unexpected phase {other}"
+            ));
             Ok(())
         }
     }
@@ -585,9 +604,7 @@ pub(crate) fn env_prefix_for(windows: bool, data_dir: &str, home: &str) -> Strin
     let bin = l.native(&l.bin_dir(sources::NODE_VERSION));
     if windows {
         let prefix = l.native(&l.npm_prefix());
-        format!(
-            "set \"PATH={bin};{prefix};%PATH%\" & set \"npm_config_prefix={prefix}\" & "
-        )
+        format!("set \"PATH={bin};{prefix};%PATH%\" & set \"npm_config_prefix={prefix}\" & ")
     } else {
         let prefix_bin = format!("{}/bin", l.npm_prefix());
         format!(
@@ -748,10 +765,7 @@ fn run_script_sync(
     timeout_ms: u64,
 ) -> Result<ProcessSyncResult, String> {
     let (program, args) = shell_invocation(script, windows);
-    let cmd = platform::Cmd {
-        program,
-        args,
-    };
+    let cmd = platform::Cmd { program, args };
     run_cmd_sync(h, &cmd, timeout_ms)
 }
 
@@ -866,7 +880,11 @@ fn spawn_download(h: &WasmHost, layout: &Layout, st: &mut Value) -> anyhow::Resu
     let windows = layout.windows;
     let pre = preflight_from_state(st);
     let Some(target) = current_target(st) else {
-        let f = Failure::new(Phase::Downloading, Code::DownloadFailed, "target table missing");
+        let f = Failure::new(
+            Phase::Downloading,
+            Code::DownloadFailed,
+            "target table missing",
+        );
         return Ok(fail(h, st, f));
     };
     let file = target["file"].as_str().unwrap_or_default().to_string();
@@ -983,19 +1001,31 @@ fn advance_download(
             st["sourceIndex"] = json!(source);
             st["attemptIndex"] = json!(attempt);
             h.log_warn(&format!("bootstrap: download retry ({detail})"));
-            spawn_download(h, layout, st)
-                .unwrap_or_else(|e| fail(h, st, Failure::new(Phase::Downloading, Code::DownloadFailed, e.to_string())))
+            spawn_download(h, layout, st).unwrap_or_else(|e| {
+                fail(
+                    h,
+                    st,
+                    Failure::new(Phase::Downloading, Code::DownloadFailed, e.to_string()),
+                )
+            })
         }
         phases::Plan::Fallback => {
             h.log_warn(&format!(
                 "bootstrap: primary archive exhausted; falling back ({detail})"
             ));
             apply_target(st, target_index + 1);
-            spawn_download(h, layout, st)
-                .unwrap_or_else(|e| fail(h, st, Failure::new(Phase::Downloading, Code::DownloadFailed, e.to_string())))
+            spawn_download(h, layout, st).unwrap_or_else(|e| {
+                fail(
+                    h,
+                    st,
+                    Failure::new(Phase::Downloading, Code::DownloadFailed, e.to_string()),
+                )
+            })
         }
         phases::Plan::Exhausted => {
-            h.log_error(&format!("bootstrap: all download attempts failed ({detail})"));
+            h.log_error(&format!(
+                "bootstrap: all download attempts failed ({detail})"
+            ));
             fail(h, st, Failure::new(Phase::Downloading, fail_code, detail))
         }
     }
@@ -1009,7 +1039,15 @@ fn on_download_done(
     output: &str,
 ) -> anyhow::Result<()> {
     let Some(layout) = layout() else {
-        fail(h, st, Failure::new(Phase::Downloading, Code::DownloadFailed, "layout unavailable"));
+        fail(
+            h,
+            st,
+            Failure::new(
+                Phase::Downloading,
+                Code::DownloadFailed,
+                "layout unavailable",
+            ),
+        );
         return Ok(());
     };
     let windows = layout.windows;
@@ -1065,12 +1103,7 @@ fn on_download_done(
 // ---------------- 解压 ----------------
 
 /// 校验通过 → 解压到临时目录（异步；解压大包可能数十秒）
-fn begin_extract(
-    h: &WasmHost,
-    layout: &Layout,
-    st: &mut Value,
-    cache: &str,
-) -> anyhow::Result<()> {
+fn begin_extract(h: &WasmHost, layout: &Layout, st: &mut Value, cache: &str) -> anyhow::Result<()> {
     let seq = RUN_SEQ.fetch_add(1, Ordering::Relaxed);
     let tmp = layout.tmp_dir(seq);
     // 解压目标目录必须先存在（tar -C / Expand-Archive 都不会自己建）
@@ -1083,7 +1116,11 @@ fn begin_extract(
         fail(
             h,
             st,
-            Failure::new(Phase::Extracting, Code::ExtractFailed, format!("mkdir tmp failed: {e}")),
+            Failure::new(
+                Phase::Extracting,
+                Code::ExtractFailed,
+                format!("mkdir tmp failed: {e}"),
+            ),
         );
         return Ok(());
     }
@@ -1093,16 +1130,15 @@ fn begin_extract(
     spawn_extract(h, layout, st, cache)
 }
 
-fn spawn_extract(
-    h: &WasmHost,
-    layout: &Layout,
-    st: &mut Value,
-    cache: &str,
-) -> anyhow::Result<()> {
+fn spawn_extract(h: &WasmHost, layout: &Layout, st: &mut Value, cache: &str) -> anyhow::Result<()> {
     let windows = layout.windows;
     let pre = preflight_from_state(st);
     let Some(target) = current_target(st).cloned() else {
-        fail(h, st, Failure::new(Phase::Extracting, Code::ExtractFailed, "target missing"));
+        fail(
+            h,
+            st,
+            Failure::new(Phase::Extracting, Code::ExtractFailed, "target missing"),
+        );
         return Ok(());
     };
     let archive = archive_of(&target);
@@ -1114,7 +1150,11 @@ fn spawn_extract(
             .as_str()
             .map(|s| s.to_string())
             .unwrap_or_else(|| format!("no extraction command available (attempt {index})"));
-        fail(h, st, Failure::new(Phase::Extracting, Code::ExtractFailed, detail));
+        fail(
+            h,
+            st,
+            Failure::new(Phase::Extracting, Code::ExtractFailed, detail),
+        );
         return Ok(());
     };
 
@@ -1168,7 +1208,11 @@ fn on_extract_done(
     output: &str,
 ) -> anyhow::Result<()> {
     let Some(layout) = layout() else {
-        fail(h, st, Failure::new(Phase::Extracting, Code::ExtractFailed, "layout unavailable"));
+        fail(
+            h,
+            st,
+            Failure::new(Phase::Extracting, Code::ExtractFailed, "layout unavailable"),
+        );
         return Ok(());
     };
     if event.timed_out || event.exit_code != Some(0) {
@@ -1193,7 +1237,11 @@ fn finish_extract(h: &WasmHost, layout: &Layout, st: &mut Value) -> anyhow::Resu
     let windows = layout.windows;
     let version = sources::NODE_VERSION;
     let Some(target) = current_target(st).cloned() else {
-        fail(h, st, Failure::new(Phase::Extracting, Code::ExtractFailed, "target missing"));
+        fail(
+            h,
+            st,
+            Failure::new(Phase::Extracting, Code::ExtractFailed, "target missing"),
+        );
         return Ok(());
     };
     let top = sources::top_dir_for(target["platform"].as_str().unwrap_or(""));
@@ -1205,14 +1253,22 @@ fn finish_extract(h: &WasmHost, layout: &Layout, st: &mut Value) -> anyhow::Resu
         Ok(res) if !res.timed_out && res.exit_code == Some(0) => {}
         Ok(res) => {
             let detail = detail_of("place", res.exit_code, res.timed_out, &output_of(&res));
-            fail(h, st, Failure::new(Phase::Extracting, Code::ExtractFailed, detail));
+            fail(
+                h,
+                st,
+                Failure::new(Phase::Extracting, Code::ExtractFailed, detail),
+            );
             return Ok(());
         }
         Err(e) => {
             fail(
                 h,
                 st,
-                Failure::new(Phase::Extracting, Code::ExtractFailed, format!("place failed: {e}")),
+                Failure::new(
+                    Phase::Extracting,
+                    Code::ExtractFailed,
+                    format!("place failed: {e}"),
+                ),
             );
             return Ok(());
         }
@@ -1223,20 +1279,35 @@ fn finish_extract(h: &WasmHost, layout: &Layout, st: &mut Value) -> anyhow::Resu
     let version_out = match run_cmd_sync(h, &probe, SHORT_TIMEOUT_MS) {
         Ok(res) if !res.timed_out && res.exit_code == Some(0) => res.stdout.trim().to_string(),
         Ok(res) => {
-            let detail = detail_of("node --version", res.exit_code, res.timed_out, &output_of(&res));
-            fail(h, st, Failure::new(Phase::Extracting, Code::ExtractFailed, detail));
+            let detail = detail_of(
+                "node --version",
+                res.exit_code,
+                res.timed_out,
+                &output_of(&res),
+            );
+            fail(
+                h,
+                st,
+                Failure::new(Phase::Extracting, Code::ExtractFailed, detail),
+            );
             return Ok(());
         }
         Err(e) => {
             fail(
                 h,
                 st,
-                Failure::new(Phase::Extracting, Code::ExtractFailed, format!("node self-check failed: {e}")),
+                Failure::new(
+                    Phase::Extracting,
+                    Code::ExtractFailed,
+                    format!("node self-check failed: {e}"),
+                ),
             );
             return Ok(());
         }
     };
-    h.log_info(&format!("env bootstrap extracted node {version_out} -> {dst}"));
+    h.log_info(&format!(
+        "env bootstrap extracted node {version_out} -> {dst}"
+    ));
 
     // 临时目录已 move 走，清掉空壳（尽力而为）
     let _ = run_script_sync(
@@ -1256,12 +1327,7 @@ fn finish_extract(h: &WasmHost, layout: &Layout, st: &mut Value) -> anyhow::Resu
 ///
 /// 首次安装（[`finish_extract`] 尾部）与失败续跑（上次止步于 `registering` /
 /// `reprobing`）共用——保证「重试只重跑该步」而不是整条流水线重来。
-fn register_and_reprobe(
-    h: &WasmHost,
-    layout: &Layout,
-    st: &mut Value,
-    version: &str,
-) -> Value {
+fn register_and_reprobe(h: &WasmHost, layout: &Layout, st: &mut Value, version: &str) -> Value {
     let windows = layout.windows;
     // 目录可能在上次失败后被清理：`register-path` 要求目录存在（宿主侧 is_dir 校验）
     let mut dirs = vec![layout.runtime_root()];
@@ -1499,9 +1565,18 @@ mod tests {
     /// 归档格式解析：未知值退回 zip（Windows 形态），不 panic
     #[test]
     fn archive_parsing() {
-        assert_eq!(archive_of(&json!({"archive": "tar.gz"})), sources::Archive::TarGz);
-        assert_eq!(archive_of(&json!({"archive": "tar.xz"})), sources::Archive::TarXz);
-        assert_eq!(archive_of(&json!({"archive": "zip"})), sources::Archive::Zip);
+        assert_eq!(
+            archive_of(&json!({"archive": "tar.gz"})),
+            sources::Archive::TarGz
+        );
+        assert_eq!(
+            archive_of(&json!({"archive": "tar.xz"})),
+            sources::Archive::TarXz
+        );
+        assert_eq!(
+            archive_of(&json!({"archive": "zip"})),
+            sources::Archive::Zip
+        );
         assert_eq!(archive_of(&json!({})), sources::Archive::Zip);
     }
 
@@ -1521,7 +1596,12 @@ mod tests {
     fn detail_includes_exit_and_tail() {
         let empty = detail_of("download", Some(1), false, "   ");
         assert_eq!(empty, "download: exit=Some(1) timed_out=false");
-        let with_tail = detail_of("download", Some(1), false, "curl: (6) Could not resolve host\n");
+        let with_tail = detail_of(
+            "download",
+            Some(1),
+            false,
+            "curl: (6) Could not resolve host\n",
+        );
         assert!(with_tail.contains("Could not resolve host"));
         assert!(with_tail.starts_with("download: exit=Some(1)"));
     }
@@ -1539,9 +1619,13 @@ mod tests {
             "Windows 前缀必须先登记版本目录：{win}"
         );
         assert!(win.contains(";C:\\Users\\u\\.wasmnest\\bedcode\\hub\\npm-global;%PATH%\""));
-        assert!(win
-            .contains("& set \"npm_config_prefix=C:\\Users\\u\\.wasmnest\\bedcode\\hub\\npm-global\" & "));
-        assert!(win.ends_with(" & "), "Windows 前缀要能直接拼在 cmd 链头：{win}");
+        assert!(win.contains(
+            "& set \"npm_config_prefix=C:\\Users\\u\\.wasmnest\\bedcode\\hub\\npm-global\" & "
+        ));
+        assert!(
+            win.ends_with(" & "),
+            "Windows 前缀要能直接拼在 cmd 链头：{win}"
+        );
         assert!(!win.contains("export "), "Windows 形态不得出现 POSIX 语法");
 
         let unix = env_prefix_for(false, "/home/u/.wasmnest/bedcode/hub", "/home/u");
@@ -1653,12 +1737,7 @@ mod tests {
         assert!(res.status.success(), "extract failed");
         let top = sources::top_dir_for(target.platform);
         let dst = root.join("runtime").join(sources::NODE_VERSION);
-        let place = platform::place_script(
-            false,
-            &tmp_s,
-            &top,
-            &dst.to_string_lossy(),
-        );
+        let place = platform::place_script(false, &tmp_s, &top, &dst.to_string_lossy());
         let res = std::process::Command::new("/bin/bash")
             .args(["-lc", &place])
             .output()
@@ -1742,5 +1821,4 @@ mod tests {
         assert_eq!(paths[0], "/d/runtime/node/.tmp-3");
         assert_eq!(paths[1], "/d/cache/x.tar.gz.part");
     }
-
 }

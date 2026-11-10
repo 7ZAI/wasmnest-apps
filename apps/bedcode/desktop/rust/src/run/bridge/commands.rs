@@ -41,11 +41,7 @@ pub trait CommandStore {
     ) -> Result<bool, String>;
     /// 单条命令状态（`pending` / `claimed` / `done` / `failed` + error 原文）。
     /// 编排等 `agent-control` 回执用；None = 行不存在。
-    fn status(
-        &self,
-        run_id: &str,
-        id: i64,
-    ) -> Result<Option<(String, Option<String>)>, String>;
+    fn status(&self, run_id: &str, id: i64) -> Result<Option<(String, Option<String>)>, String>;
 }
 
 /// 一次最多领取的命令数（轮询频率 500ms，20 条足够；防止一条坏命令拖住队列）
@@ -78,7 +74,8 @@ pub(crate) const CLAIM_READY_SQL: &str = "SELECT id, kind, payload FROM run_comm
 /// 领取落库：**WHERE 必须复核与选行一致的完整就绪谓词**（issue #25 M3）——
 /// 只判 `status IN ('pending','claimed')` 时，两个领取者先后执行都能命中同一行，
 /// 命令被重复交付；单条 UPDATE 在 SQLite 里原子，复核谓词即排他
-pub(crate) const CLAIM_UPDATE_SQL: &str = "UPDATE run_commands SET status = 'claimed', claimed_at = ?1 \
+pub(crate) const CLAIM_UPDATE_SQL: &str =
+    "UPDATE run_commands SET status = 'claimed', claimed_at = ?1 \
      WHERE id = ?2 AND run_id = ?3 AND (status = 'pending' OR \
        (status = 'claimed' AND (claimed_at IS NULL OR claimed_at < ?4)))";
 

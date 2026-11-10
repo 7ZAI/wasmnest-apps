@@ -73,7 +73,8 @@ impl SubmittedLineTracker {
     /// 既让命令失效、又会把用户草稿当 prompt 提交；调用方据此显性拒绝。
     pub fn has_pending_input(&self, session_id: &str) -> bool {
         let map = self.buffers.lock().unwrap_or_else(|e| e.into_inner());
-        map.get(session_id).is_some_and(LineBuffer::has_pending_input)
+        map.get(session_id)
+            .is_some_and(LineBuffer::has_pending_input)
     }
 }
 

@@ -109,11 +109,11 @@ pub(crate) use listing::parse_listing;
 pub(crate) use scan::scan;
 
 use super::{host, pending, HOME};
+use serde_json::{json, Value};
+use std::sync::atomic::AtomicU32;
 use wasmnest_plugin_api::events::ProcessDoneEvent;
 use wasmnest_plugin_api::host::{HostEvents, HostLog, HostStorage};
 use wasmnest_plugin_api::wasm_host::WasmHost;
-use serde_json::{json, Value};
-use std::sync::atomic::AtomicU32;
 
 use self::import::handle_import_done;
 use self::scan::handle_scan_done;

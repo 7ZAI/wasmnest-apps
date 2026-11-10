@@ -187,12 +187,7 @@ fn first_u64(s: &str) -> Option<u64> {
 ///
 /// 只保留 preflight 证明可用的工具；全部不可用 → 空列表（调用方报
 /// `unsupported-platform`，不尝试静默跳过）。
-pub(crate) fn download_attempts(
-    windows: bool,
-    pre: &Preflight,
-    url: &str,
-    dest: &str,
-) -> Vec<Cmd> {
+pub(crate) fn download_attempts(windows: bool, pre: &Preflight, url: &str, dest: &str) -> Vec<Cmd> {
     let mut out = Vec::new();
     if windows {
         if pre.has("curl") {
@@ -252,10 +247,7 @@ pub(crate) fn download_attempts(
             ));
         }
         if pre.has("wget") {
-            out.push(Cmd::new(
-                "wget",
-                &["-q", "--tries=3", "-O", dest, url],
-            ));
+            out.push(Cmd::new("wget", &["-q", "--tries=3", "-O", dest, url]));
         }
     }
     out
@@ -276,7 +268,10 @@ pub(crate) fn verify_attempts(windows: bool, pre: &Preflight, file: &str) -> Vec
                 vec![
                     "-NoProfile".into(),
                     "-Command".into(),
-                    format!("(Get-FileHash -Algorithm SHA256 -LiteralPath '{}').Hash", file),
+                    format!(
+                        "(Get-FileHash -Algorithm SHA256 -LiteralPath '{}').Hash",
+                        file
+                    ),
                 ],
             ));
         }
@@ -436,7 +431,10 @@ pub(crate) fn file_exists_script(windows: bool, path: &str) -> String {
     if windows {
         format!("if exist \"{path}\" (echo == hit ==)")
     } else {
-        format!("if [ -f {p} ]; then echo '== hit =='; fi", p = crate::hub::util::sh_quote(path))
+        format!(
+            "if [ -f {p} ]; then echo '== hit =='; fi",
+            p = crate::hub::util::sh_quote(path)
+        )
     }
 }
 
@@ -452,7 +450,10 @@ pub(crate) fn list_dir_script(windows: bool, dir: &str) -> String {
     if windows {
         format!("dir /b /ad \"{dir}\" 2>nul & dir /b /a-d \"{dir}\" 2>nul")
     } else {
-        format!("ls -1 {dir} 2>/dev/null", dir = crate::hub::util::sh_quote(dir))
+        format!(
+            "ls -1 {dir} 2>/dev/null",
+            dir = crate::hub::util::sh_quote(dir)
+        )
     }
 }
 
@@ -474,9 +475,7 @@ pub(crate) fn is_version_dir_name(name: &str) -> bool {
         Some(r) => r,
         None => return false,
     };
-    rest.chars()
-        .next()
-        .is_some_and(|c| c.is_ascii_digit())
+    rest.chars().next().is_some_and(|c| c.is_ascii_digit())
 }
 
 /// 落位后自检：直接跑解压出来的 node，确认产物可用（失败 = `extract-failed`）
@@ -613,7 +612,11 @@ mod tests {
         assert_eq!(win[0].args, vec!["-hashfile", "C:/c/x.zip", "SHA256"]);
         assert!(win[1].args.iter().any(|a| a.contains("Get-FileHash")));
 
-        let unix = verify_attempts(false, &pre(&["sha256sum", "shasum", "openssl"]), "/c/x.tar.gz");
+        let unix = verify_attempts(
+            false,
+            &pre(&["sha256sum", "shasum", "openssl"]),
+            "/c/x.tar.gz",
+        );
         assert_eq!(unix.len(), 3);
         assert_eq!(unix[0].program, "sha256sum");
         assert_eq!(unix[1].args, vec!["-a", "256", "/c/x.tar.gz"]);
@@ -640,10 +643,7 @@ mod tests {
             Some(hex)
         );
         // Get-FileHash 输出大写
-        assert_eq!(
-            parse_sha256(&hex.to_uppercase()).as_deref(),
-            Some(hex)
-        );
+        assert_eq!(parse_sha256(&hex.to_uppercase()).as_deref(), Some(hex));
 
         assert_eq!(parse_sha256("CertUtil: -hashfile command FAILED"), None);
         assert_eq!(parse_sha256(""), None);

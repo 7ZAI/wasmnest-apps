@@ -60,6 +60,10 @@ use model::{SessionRecord, SessionStatus};
 use std::sync::Mutex;
 
 #[cfg(target_arch = "wasm32")]
+use registry::Registry;
+#[cfg(target_arch = "wasm32")]
+use store::SessionStore;
+#[cfg(target_arch = "wasm32")]
 use wasmnest_plugin_api::host::bus::owned_topic;
 #[cfg(target_arch = "wasm32")]
 use wasmnest_plugin_api::host::{HostBus, HostEvents, HostLog, HostPty};
@@ -67,10 +71,6 @@ use wasmnest_plugin_api::host::{HostBus, HostEvents, HostLog, HostPty};
 use wasmnest_plugin_api::user_facing_string;
 #[cfg(target_arch = "wasm32")]
 use wasmnest_plugin_api::wasm_host::WasmHost;
-#[cfg(target_arch = "wasm32")]
-use registry::Registry;
-#[cfg(target_arch = "wasm32")]
-use store::SessionStore;
 
 /// 进程级注册表实例（wasm 侧全插件共用一份；同实例串行访问，无需额外并发协议）
 #[cfg(target_arch = "wasm32")]

@@ -33,9 +33,9 @@
 use crate::hub::usage_parse::{
     parse_opencode_events, parse_opencode_session_row, NormalizedEvent, ParsedSession,
 };
+use serde_json::Value;
 use wasmnest_plugin_api::host::{HostFs, HostLog, HostProcess};
 use wasmnest_plugin_api::wasm_host::WasmHost;
-use serde_json::Value;
 
 /// 聚合层每页行数（本机 54 行会话 = 1 页即完；万级会话也只跑 20 次）
 const SESSION_PAGE_ROWS: usize = 500;

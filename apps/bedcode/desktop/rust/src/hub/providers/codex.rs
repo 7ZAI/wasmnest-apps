@@ -27,9 +27,9 @@
 //!    用户手写说明的注释通常独占整行，逐字保留）
 
 use super::paths::codex_config_path;
+use serde_json::{json, Value};
 use wasmnest_plugin_api::host::{HostFs, HostLog};
 use wasmnest_plugin_api::wasm_host::WasmHost;
-use serde_json::{json, Value};
 
 // ==================== TOML 纯函数（splice / 转义 / 校验） ====================
 

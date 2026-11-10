@@ -14,11 +14,11 @@ use super::{LIBRARY_SEG, RUN_SEQ, SCAN_TIMEOUT_MS};
 use crate::hub::install::now_ms;
 use crate::hub::util::{is_windows, sh_quote, shell_invocation};
 use crate::hub::{host, pending, PendingRun, DATA_DIR, HOME};
+use serde_json::{json, Value};
+use std::sync::atomic::Ordering as AtomicOrdering;
 use wasmnest_plugin_api::events::ProcessDoneEvent;
 use wasmnest_plugin_api::host::{HostFs, HostLog, HostProcess};
 use wasmnest_plugin_api::wasm_host::WasmHost;
-use serde_json::{json, Value};
-use std::sync::atomic::Ordering as AtomicOrdering;
 
 // ==================== 扫描脚本（双平台分派） ====================
 

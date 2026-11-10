@@ -162,7 +162,10 @@ pub(crate) fn validate_source(url: &str) -> Result<(), String> {
 /// 版本主版本号：`v24.22.1` / `24.22.1` → `24`；不可解析 → None
 pub(crate) fn node_major(version: &str) -> Option<u32> {
     let v = version.trim();
-    let v = v.strip_prefix('v').or_else(|| v.strip_prefix('V')).unwrap_or(v);
+    let v = v
+        .strip_prefix('v')
+        .or_else(|| v.strip_prefix('V'))
+        .unwrap_or(v);
     let first = v.split('.').next()?;
     if first.is_empty() || !first.chars().all(|c| c.is_ascii_digit()) {
         return None;
@@ -253,7 +256,10 @@ mod tests {
     /// 产物表给出的每条来源都必须过校验（拼接与判据同源，防漂移）
     #[test]
     fn every_generated_source_passes_allowlist() {
-        for file in ["node-v24.22.1-win-x64.zip", "node-v24.22.1-linux-x64.tar.gz"] {
+        for file in [
+            "node-v24.22.1-win-x64.zip",
+            "node-v24.22.1-linux-x64.tar.gz",
+        ] {
             for url in source_urls(file) {
                 assert!(validate_source(&url).is_ok(), "被自己的判据拒了: {url}");
             }
