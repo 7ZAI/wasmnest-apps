@@ -46,7 +46,7 @@ export const DEFAULT_ALERT_SETTINGS: AlertSettings = {
   enabled: true,
   notify: true,
   // 平台合计用绝对值（各插件配额之和不是共享池，比值没有真实上限语义）；
-  // 默认 256 / 512 MiB：单插件默认配额 128 MiB，正常装机合计远低于此。
+  // 默认 256 / 512 MiB：单插件默认配额 64 MiB，正常装机合计远低于此。
   platformMemoryWarnBytes: 256 * 1024 * 1024,
   platformMemoryCriticalBytes: 512 * 1024 * 1024,
   pluginMemoryWarn: 0.9,

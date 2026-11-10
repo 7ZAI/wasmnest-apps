@@ -209,7 +209,7 @@ const zhCN: MessageSchema = {
   'monitor.alerts.platformMemoryWarn': '平台内存预警（MiB）',
   'monitor.alerts.platformMemoryCritical': '平台内存严重（MiB）',
   'monitor.alerts.bytesHint':
-    '0 = 关闭。合计 = 全部 wasm 线性内存；单插件默认配额 128 MiB，正常装机远低于默认阈值。',
+    '0 = 关闭。合计 = 全部 wasm 线性内存；单插件默认配额 64 MiB，正常装机远低于默认阈值。',
   'monitor.alerts.pluginMemoryWarn': '单插件内存预警（%）',
   'monitor.alerts.computeWarn': '计算负载阈值（燃料/秒）',
   'monitor.alerts.computeHint': '0 = 关闭。燃料单位随机器负载量级不同，请按实测峰值填写。',

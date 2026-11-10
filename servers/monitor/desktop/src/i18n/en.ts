@@ -215,7 +215,7 @@ const en: MessageSchema = {
   'monitor.alerts.platformMemoryWarn': 'Platform memory warning (MiB)',
   'monitor.alerts.platformMemoryCritical': 'Platform memory critical (MiB)',
   'monitor.alerts.bytesHint':
-    '0 = off. Total = all wasm linear memory; the default per-plugin quota is 128 MiB, so normal installs stay well below the defaults.',
+    '0 = off. Total = all wasm linear memory; the default per-plugin quota is 64 MiB, so normal installs stay well below the defaults.',
   'monitor.alerts.pluginMemoryWarn': 'Per-plugin memory warning (%)',
   'monitor.alerts.computeWarn': 'Compute load threshold (fuel/s)',
   'monitor.alerts.computeHint':
