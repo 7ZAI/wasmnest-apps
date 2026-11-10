@@ -85,7 +85,9 @@
         <div
           class="h-10 px-2.5 shrink-0 flex items-center justify-between gap-2 border-b border-[var(--border)]"
         >
-          <!-- 收起入口放在面板外侧边缘：箭头指向面板消失的方向，与右侧面板对称 -->
+          <!-- 收起入口放在面板外侧边缘，与右侧面板对称。
+               图标用「侧栏」图形（不用箭头）：页头的返回按钮已经是箭头，箭头会被读成
+               「上一页」；填充的左列 = 面板当前展开，与 aria-expanded 同义。 -->
           <button
             class="w-6 h-6 shrink-0 rounded-[6px] flex items-center justify-center text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--color-primary)]"
             :aria-expanded="!runsCollapsed"
@@ -95,12 +97,24 @@
             data-testid="run-collapse"
             @click="toggleRuns"
           >
-            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="1.75"
-                d="M15 19l-7-7 7-7"
+            <svg
+              class="w-3.5 h-3.5"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+            >
+              <rect x="3.5" y="5" width="17" height="14" rx="2" stroke-width="1.5" />
+              <path stroke-width="1.5" d="M9.5 5v14" />
+              <rect
+                x="5.5"
+                y="6.8"
+                width="2.2"
+                height="10.4"
+                rx="1.1"
+                fill="currentColor"
+                stroke="none"
+                opacity="0.45"
               />
             </svg>
           </button>
@@ -113,7 +127,7 @@
           <button
             class="w-6 h-6 rounded-[6px] flex items-center justify-center text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] transition-colors"
             :disabled="isStarting"
-            :title="t('project.run.new')"
+            :title="isStarting ? t('project.run.starting') : t('project.run.new')"
             data-testid="run-new"
             @click="openAgentPicker"
           >
@@ -240,25 +254,6 @@
             </ul>
           </template>
         </div>
-
-        <div class="p-2 border-t border-[var(--border)]">
-          <button
-            class="wb-btn-primary w-full"
-            :disabled="isStarting"
-            data-testid="run-new-primary"
-            @click="openAgentPicker"
-          >
-            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="1.75"
-                d="M12 4v16m8-8H4"
-              />
-            </svg>
-            {{ isStarting ? t('project.run.starting') : t('project.run.new') }}
-          </button>
-        </div>
       </aside>
 
       <!-- 折叠后的窄轨：常驻恢复入口（不靠悬停，否则等于没有入口） -->
@@ -278,13 +273,16 @@
             data-testid="run-collapse"
             @click="toggleRuns"
           >
-            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="1.75"
-                d="M9 5l7 7-7 7"
-              />
+            <!-- 与展开态同一「侧栏」图形，只是不填充：面板收起时左列不亮 -->
+            <svg
+              class="w-3.5 h-3.5"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+            >
+              <rect x="3.5" y="5" width="17" height="14" rx="2" stroke-width="1.5" />
+              <path stroke-width="1.5" d="M9.5 5v14" />
             </svg>
           </button>
         </div>
@@ -698,7 +696,7 @@
       <aside
         v-if="!inspectorCollapsed"
         id="wb-pane-inspector"
-        class="shrink-0 flex flex-col bg-[var(--bg-card)]"
+        class="shrink-0 relative z-40 flex flex-col bg-[var(--bg-card)]"
         :style="{ width: `${inspectorWidth}px` }"
         data-testid="pane-inspector"
       >
@@ -734,12 +732,25 @@
             data-testid="inspector-collapse"
             @click="toggleInspector"
           >
-            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="1.75"
-                d="M9 5l7 7-7 7"
+            <!-- 右栏镜像：图形同左栏，只是分隔线/填充列在右侧 -->
+            <svg
+              class="w-3.5 h-3.5"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+            >
+              <rect x="3.5" y="5" width="17" height="14" rx="2" stroke-width="1.5" />
+              <path stroke-width="1.5" d="M14.5 5v14" />
+              <rect
+                x="16.3"
+                y="6.8"
+                width="2.2"
+                height="10.4"
+                rx="1.1"
+                fill="currentColor"
+                stroke="none"
+                opacity="0.45"
               />
             </svg>
           </button>
@@ -788,10 +799,10 @@
         </template>
       </aside>
 
-      <!-- 折叠后的窄轨：常驻恢复入口（与左侧同构，箭头指向面板展开方向） -->
+      <!-- 折叠后的窄轨：常驻恢复入口（与左侧同构，同一「侧栏」图形、不填充 = 面板收起） -->
       <aside
         v-if="inspectorCollapsed"
-        class="shrink-0 flex flex-col items-center bg-[var(--bg-card)] border-l border-[var(--border)]"
+        class="shrink-0 relative z-40 flex flex-col items-center bg-[var(--bg-card)] border-l border-[var(--border)]"
         :style="{ width: `${PANE_RAIL_WIDTH}px` }"
         data-testid="pane-inspector-rail"
       >
@@ -805,13 +816,15 @@
             data-testid="inspector-collapse"
             @click="toggleInspector"
           >
-            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="1.75"
-                d="M15 19l-7-7 7-7"
-              />
+            <svg
+              class="w-3.5 h-3.5"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+            >
+              <rect x="3.5" y="5" width="17" height="14" rx="2" stroke-width="1.5" />
+              <path stroke-width="1.5" d="M14.5 5v14" />
             </svg>
           </button>
         </div>
