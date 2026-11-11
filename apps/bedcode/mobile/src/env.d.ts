@@ -16,3 +16,14 @@ declare module '*.css?inline' {
   const content: string
   export default content
 }
+
+/**
+ * html5-qrcode 随包分发的 zxing-js（UMD，包内无类型声明）
+ *
+ * 形状由 `host/scan/zxingDecoder.ts` 运行期校验（缺类 → 显性日志 + 回退路径关闭），
+ * 这里只声明成不透明对象，避免各调用点各写一份 `any`。
+ */
+declare module 'html5-qrcode/third_party/zxing-js.umd.js' {
+  const ZXing: Record<string, unknown>
+  export default ZXing
+}

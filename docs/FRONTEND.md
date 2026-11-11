@@ -152,6 +152,24 @@ src/
 - 数值真源 = 平台仓 `wasmnest-mobile/src/styles/mobile.css` 默认档。改宿主默认 token 必须同改 `themeScope.css`；`themeScope.test.ts` T-S1/T-S2 逐 token 比对，宿主主题预设新增基础 token 时点名缺失。
 - 应用源码避免使用宿主主题结构规则命中的类名（`.settings-group` / `.notify-card` / `.shell-*` 等）。允许项只有 `.group-card`（分组卡基础语汇）与 `.mobile-ui`（弹层排版口径），两者已在隔离层中和（T-S4）。
 
+### 2.5 扫码解码策略：bedcode/mobile（2026-11-11）
+
+相机实时扫码**不再走 html5-qrcode 的相机循环**（相册 `scanFile` 保留）。原因是库的解码画布 = 解码区域的 CSS 像素、每帧只解一次全尺寸，而 T08 的 v2 载荷是 85~93 模块：内置 ZXing 的 finder 会锁到数据区里的假 finder（`zxing#897` / `html5-qrcode#380`、`#726`），整帧丢弃且失败回调静默，界面表现是「对准了毫无反应」。
+
+- 模块：`src/host/scan/`
+  - `decodeStrategy.ts`：纯函数层（不依赖 DOM），`planAttempts`（本帧序列）/ `attemptCapture`（一档取样几何）/ `workCanvasEdge` / `nextFrameDelayMs` 全部可单测。
+    - 尝试顺序：原生 `BarcodeDetector`（探测通过才排第一）→ ZXing 全尺寸 + `TRY_HARDER` → `0.66×` 降采样 →（连续未命中 ≥ 30 帧）中心 ROI ×1.4 → `0.45×`。
+    - 单帧总预算 60ms；预算裁剪按序取（单档 ≥ 15ms）。慢帧（> 120ms）把采样从 10fps 降到 5fps。
+    - `quarterTurns` 随连续未命中数轮换：同一帧只跑 2~3 档，四帧覆盖 0/90/180/270 四个扫描方向（实测这是绕开假 finder 的关键：同一「小码 + 失焦」退化语料连续扫描命中 80% → 92%）。
+  - `useQrScanLoop.ts`：工作画布（短边 `min(720, CSS×2)`，`willReadFrequently`）+ 帧循环 + 逐档执行；命中即停。
+  - `useCameraStream.ts`：`getUserMedia` 生命周期（后置优先 / `torch` / 权限分类）；`dispose()` 必须停轨并解绑 `srcObject`（面板卸载不得留常亮摄像头）。
+  - `zxingDecoder.ts`：用 html5-qrcode 随包分发的 `third_party/zxing-js.umd` 解 `ImageData`（`RGBLuminanceSource`，不经画布），相册路径继续用库。
+  - `nativeDetector.ts`：`BarcodeDetector` **构造存在 ≠ 能用**（Android WebView 依赖 GMS）——启动时真调一次 `detect()`，连续失败 2 次即降级；探测失败只损失原生加速，不影响回退路径。
+  - `scanHint.ts`：连续 10s 无结果 → `hub.scanHintSlow` 非阻断提示（命中 / 相机错误即隐藏，不停相机）。
+- 安全：解码原文只进 `onResult`；命中日志只记 `tier / kind / scale / turn / cost`（真机排障要看到多尺度命中），质检日志只记解析结论——二维码含 token / 一次性票据，原文永不落日志（C4）。
+- 评测：`node scripts/qr-decode-bench.mjs`（根目录，`pnpm run bench:qr`）用生产代码跑「桌面载荷 → 1080p 退化（σ 1.5/2.5 + 噪声 + 亚像素平移）→ 策略序列」；CI 阈值断言在 `src/host/__tests__/qrDecodeBench.test.ts`（扫描级命中率 ≥ 95%、单帧 p95 ≤ 60ms）。
+- 真机仍必须目验（本机或双端 E2E）：`mobile-scan-panel` / `mobile-scan-slow-hint` / `mobile-scan-torch` / `mobile-scan-album` 锚点见 `docs/E2E.md` §10.5。
+
 ---
 
 ## 3. i18n

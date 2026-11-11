@@ -26,11 +26,12 @@
  * 2. **载荷可还原**：采样矩阵按整数像素重画后用 html5-qrcode 内置 ZXing
  *    （`third_party/zxing-js.umd`，与运行时同一个包）解码，再交给 `parseQrText`。
  *
- * 不直接拿 ZXing 的相机检测器当判据：该版本 finder 定位在人工合成的高锐度大模块图上
- * 会锁到数据区里的假 finder 图案（`getProvisionalVersionForDimension` 拿到 53/57 这类
- * 错维度，随 mask 随机失败）——上游已知问题（zxing#897 假中心、html5-qrcode#380/#726
- * 大码与高密码）。真机主解码器是系统 `BarcodeDetector`（html5-qrcode 2.3.4+ 默认
- * 启用并与 ZXing 交替），把检测器的随机性写进用例只会变成假红绿。
+ * 不直接拿 ZXing 的相机检测器当判据（**单发**）：该版本 finder 定位在人工合成的高锐度大
+ * 模块图上会锁到数据区里的假 finder 图案（`getProvisionalVersionForDimension` 拿到 53/57
+ * 这类错维度，随 mask 随机失败）——上游已知问题（zxing#897 假中心、html5-qrcode#380/#726
+ * 大码与高密码）。本文件同时锁住「生产的多档重试 + 旋转轮换」（见
+ * `should_decodeThroughStrategySequence_when_nativeDetectorUnavailable`）：单发不稳，
+ * 但「换尺度 + 换扫描方向」的序列必须稳定命中。
  *
  * 刻意**跨端引用桌面模块**：这张图必须由桌面侧真实代码生成，各写一份就测不到契约。
  */
@@ -46,6 +47,13 @@ import {
 } from '../../../../desktop/src/utils/qrRender'
 import { parseQrText } from '../qr'
 import { scanFrameSize } from '../scanViewport'
+import {
+  attemptCapture,
+  FRAME_BUDGET_MS,
+  planAttempts,
+  type DecodeAttempt,
+} from '../scan/decodeStrategy'
+import { decodeQrImage } from '../scan/zxingDecoder'
 
 // ==================== 运行时解码库（html5-qrcode 内置 ZXing） ====================
 
@@ -250,6 +258,104 @@ function countModuleErrors(capture: Capture, matrix: QrMatrix): number {
   return mismatches
 }
 
+// ==================== 策略序列（生产解码路径） ====================
+
+/** 任意尺寸的 RGBA 区域重采样（区域平均 = 相机降采样 / 策略缩放同一模型） */
+function resampleRegion(
+  src: Uint8ClampedArray,
+  srcW: number,
+  srcH: number,
+  sx: number,
+  sy: number,
+  sw: number,
+  sh: number,
+  dstW: number,
+  dstH: number,
+): Uint8ClampedArray {
+  const out = new Uint8ClampedArray(dstW * dstH * 4)
+  for (let y = 0; y < dstH; y++) {
+    const ry0 = Math.floor((y * sh) / dstH)
+    const py0 = sy + ry0
+    const py1 = sy + Math.max(ry0 + 1, Math.floor(((y + 1) * sh) / dstH))
+    for (let x = 0; x < dstW; x++) {
+      const rx0 = Math.floor((x * sw) / dstW)
+      const px0 = sx + rx0
+      const px1 = sx + Math.max(rx0 + 1, Math.floor(((x + 1) * sw) / dstW))
+      let sum = 0
+      let count = 0
+      for (let py = py0; py < py1; py++) {
+        for (let px = px0; px < px1; px++) {
+          if (px < 0 || py < 0 || px >= srcW || py >= srcH) continue
+          sum += src[(py * srcW + px) * 4]
+          count += 1
+        }
+      }
+      const value = count > 0 ? Math.round(sum / count) : 255
+      const offset = (y * dstW + x) * 4
+      out[offset] = value
+      out[offset + 1] = value
+      out[offset + 2] = value
+      out[offset + 3] = 255
+    }
+  }
+  return out
+}
+
+/** 顺时针 90° × `turns`（与 `useQrScanLoop.tryZxing` 的 canvas 旋转等价） */
+function rotateRgba(
+  rgba: Uint8ClampedArray,
+  width: number,
+  height: number,
+  turns: number,
+): { rgba: Uint8ClampedArray; width: number; height: number } {
+  let current = { rgba, width, height }
+  for (let turn = 0; turn < turns; turn++) {
+    const out = new Uint8ClampedArray(current.width * current.height * 4)
+    for (let y = 0; y < current.height; y++) {
+      for (let x = 0; x < current.width; x++) {
+        const from = (y * current.width + x) * 4
+        const to = (x * current.height + (current.height - 1 - y)) * 4
+        out[to] = current.rgba[from]
+        out[to + 1] = current.rgba[from + 1]
+        out[to + 2] = current.rgba[from + 2]
+        out[to + 3] = 255
+      }
+    }
+    current = { rgba: out, width: current.height, height: current.width }
+  }
+  return current
+}
+
+/** 按一档尝试的几何（缩放 / ROI / 旋转）生成位图 */
+function attemptImage(
+  capture: Capture,
+  attempt: DecodeAttempt,
+): { data: Uint8ClampedArray; width: number; height: number } {
+  const geometry = attemptCapture(attempt.scale, capture.width, capture.height)
+  const resampled = resampleRegion(
+    capture.rgba,
+    capture.width,
+    capture.height,
+    geometry.sx,
+    geometry.sy,
+    geometry.sw,
+    geometry.sh,
+    geometry.dw,
+    geometry.dh,
+  )
+  const rotated = rotateRgba(resampled, geometry.dw, geometry.dh, attempt.quarterTurns)
+  return { data: rotated.rgba, width: rotated.width, height: rotated.height }
+}
+
+/** 跑一帧的生产尝试序列（无原生检测器 = 无 GMS 机型的回退路径） */
+function decodeWithStrategy(capture: Capture, frameIndex = 0): string | null {
+  for (const attempt of planAttempts({ nativeDetector: false }, frameIndex, FRAME_BUDGET_MS)) {
+    const text = decodeQrImage(attemptImage(capture, attempt), attempt.tryHarder)
+    if (text) return text
+  }
+  return null
+}
+
 // ==================== 载荷（宿主 status 的真实形状） ====================
 
 const NODE_ID = '12D3KooWBSCkgKRqQWpPhGGC61TfEWno22bcEGXxQvohhPbQBkud'
@@ -360,6 +466,31 @@ describe('跨端集成：桌面二维码 → 移动端扫描', () => {
     if (parsed.ok) {
       expect(parsed.payload).toEqual({ host: '10.0.0.9', port: 8765, token: TOKEN })
     }
+  })
+
+  it('should_decodeThroughStrategySequence_when_nativeDetectorUnavailable', () => {
+    // 无 GMS 机型（或 BarcodeDetector 探测未通过）只剩 ZXing：单发会因为数据区的假
+    // finder 随机失败，但「多尺度 + 四方向旋转轮换」的序列必须在几帧内命中。
+    // 这里不降级图片（保持锐利），验证的是策略层本身的覆盖能力；相机退化另见
+    // `__tests__/qrDecodeBench.test.ts`（σ / 噪声 / 亚像素平移）。
+    const payload = payloadOf(PEER)
+    const { capture } = scanDesktopQr(payload)
+
+    let decoded: string | null = null
+    for (let frame = 0; frame < 4 && !decoded; frame++) {
+      decoded = decodeWithStrategy(capture, frame)
+    }
+
+    expect(decoded, '新策略序列 4 帧内未解出').not.toBeNull()
+    const parsed = parseQrText(decoded)
+    expect(parsed.ok).toBe(true)
+    if (!parsed.ok) return
+    expect(parsed.payload).toEqual({
+      host: '192.168.1.100',
+      port: 8765,
+      token: TOKEN,
+      peer: PEER,
+    })
   })
 
   it('should_loseModules_when_oldFixed192Canvas', () => {

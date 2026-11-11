@@ -365,6 +365,10 @@ scripts/e2e-dual.mjs（编排层）
   （本次补：`mobile-bedcode-root` / `mobile-manual-connect` / `mobile-manual-input` /
   `mobile-manual-confirm` / `mobile-pairing-dialog` / `mobile-pairing-key-<d>` /
   `mobile-pairing-submit` / `mobile-connection-status`）。
+- 扫码面板（2026-11-11 解码面重做后补）：`mobile-scan-panel`（相机预览根）/
+  `mobile-scan-slow-hint`（10s 无结果提示，仅出现时在场）/ `mobile-scan-torch` /
+  `mobile-scan-album`。相机本身在 E2E 里不可用，断言走锚点在场 / 提示出现，
+  不依赖真实取景画面。
 - **宿主壳没有锚点**（平台仓未加）：移动端主屏应用卡用 `aria-label` 前缀（= 应用名，
   与语言无关），桌面端壳用 ARIA 语义（§5）。
 

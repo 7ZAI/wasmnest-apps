@@ -1,8 +1,15 @@
 <template>
   <div class="h-full w-full flex flex-col pt-2" style="background: var(--mobile-bg-primary)">
     <!-- 相机预览（扫描整合进连接页：取景器占满内容区，停止扫描由父页「二维码连接」按钮切换） -->
-    <div class="relative flex-1 min-h-[52vh] rounded-xl overflow-hidden" style="background: #000">
-      <div :id="readerId" ref="readerRef" class="qr-reader w-full h-full"></div>
+    <div
+      class="relative flex-1 min-h-[52vh] rounded-xl overflow-hidden"
+      style="background: #000"
+      data-testid="mobile-scan-panel"
+    >
+      <!-- 相机流由本面板自管（useCameraStream），帧循环 / 解码策略见 ../scan/ -->
+      <div ref="readerRef" class="qr-reader w-full h-full">
+        <video ref="videoRef" class="qr-video" playsinline muted autoplay></video>
+      </div>
 
       <!-- 取景器遮罩 + 定位框（框外压暗，框内透明） -->
       <template v-if="!errorMessage">
@@ -64,9 +71,21 @@
             <!-- 扫描线动画（2s 循环） -->
             <div class="scan-line"></div>
           </div>
-          <p class="mt-10 text-sm" style="color: var(--mobile-text-secondary)">
-            {{ t('hub.scanHint') }}
-          </p>
+          <!-- 提示区固定高度：久扫不出时第二行出现，取景框不随文字出现而跳动 -->
+          <div class="mt-10 h-10 flex flex-col items-center gap-1">
+            <p class="text-sm" style="color: var(--mobile-text-secondary)">
+              {{ t('hub.scanHint') }}
+            </p>
+            <!-- 非阻断提示：相机常驻扫描，连续 10s 无结果才出现（见 ../scan/scanHint） -->
+            <p
+              v-if="hintVisible"
+              class="text-xs text-center px-6"
+              style="color: var(--mobile-text-muted)"
+              data-testid="mobile-scan-slow-hint"
+            >
+              {{ t('hub.scanHintSlow') }}
+            </p>
+          </div>
         </div>
       </template>
 
@@ -81,6 +100,7 @@
           :class="{ active: torchOn }"
           :disabled="torchUnsupported"
           :title="t('hub.scanTorch')"
+          data-testid="mobile-scan-torch"
           @click="toggleTorch"
         >
           <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -93,7 +113,12 @@
           </svg>
           <span class="text-xs mt-1">{{ t('hub.scanTorch') }}</span>
         </button>
-        <button class="toolbar-btn pointer-events-auto" :title="t('hub.scanAlbum')" @click="triggerAlbumPicker">
+        <button
+          class="toolbar-btn pointer-events-auto"
+          :title="t('hub.scanAlbum')"
+          data-testid="mobile-scan-album"
+          @click="triggerAlbumPicker"
+        >
           <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path
               stroke-linecap="round"
@@ -108,6 +133,9 @@
 
       <!-- 隐藏的相册文件选择器 -->
       <input ref="albumInputRef" type="file" accept="image/*" class="hidden" @change="handleAlbumFile" />
+
+      <!-- 相册解码的挂载点：html5-qrcode 的 scanFile 需要元素 id（与相机面完全隔离） -->
+      <div :id="albumScannerId" class="hidden"></div>
 
       <!-- Error state（相机不可用 / 二维码无效 / 相册无二维码） -->
       <div
@@ -163,13 +191,21 @@
  * 二维码扫描面板（自旧宿主 `src/components/ScanPanel.vue` 迁入插件）
  *
  * 行为对齐（与旧实现同口径）：
- * - 相机（facingMode: environment）常驻扫描；识别到**合法**载荷即停扫并 emit `scan-result`
+ * - 相机（后置优先）常驻扫描；识别到**合法**载荷即停扫并 emit `scan-result`
  * - 无码 / 无效码不打断相机，只在面板内给错误态；错误原因区分「无效 / 信息不完整 / 相机不可用」
- * - 相册识别（`scanFile`）：未识别 → toast 提示且保留相机扫描
- * - 手电筒（torch）经 `applyVideoConstraints`；设备不支持 → 禁用按钮 + toast
+ * - 相册识别（html5-qrcode `scanFile`）：未识别 → toast 提示且保留相机扫描
+ * - 手电筒（torch）经 `applyConstraints`；设备不支持 → 禁用按钮 + toast
+ *
+ * 2026-11-11 解码面重做（票 `bedcode-scan-decoder`）：相机循环从 html5-qrcode 剥出来，
+ * 见 `../scan/`——每帧按 `decodeStrategy` 的序列多档解码（原生 BarcodeDetector 优先，
+ * ZXing 全尺寸 / 0.66× / 0.45× / 长期未命中时 ROI 放大），单帧 60ms 预算、慢帧降帧率。
+ * 旧实现只解一次「解码区域 CSS 尺寸」的全尺寸图，v2 载荷（85~93 模块）在假 finder
+ * 图案下整帧丢弃且回调静默 = 用户眼里「毫无反应」。
+ * 相册路径**保留** html5-qrcode（它已处理缩图与多解码器轮换），依赖不删不换。
  *
  * 与旧实现的差异（有意）：
  * - 载荷解析改走本域纯函数 `../qr`（`parseQrText`，含单测），不再就地 `JSON.parse`
+ * - 久扫不出（10s）在取景框下给一行非阻断提示（`hub.scanHintSlow`），命中即消失
  * - **未迁**旧面板的「我的二维码」信息弹窗（展示本机平台 + 默认端口；插件侧暂无平台投影），
  *   与旧 `QrScanner` 的同名遗留项一致，待宿主提供平台投影后补
  *
@@ -180,6 +216,16 @@ import { Html5Qrcode } from 'html5-qrcode'
 import { useHostPage } from '../useHostPage'
 import { parseQrText, type QrPayload } from '../qr'
 import { scanFrameSize } from '../scanViewport'
+import { useCameraStream } from '../scan/useCameraStream'
+import { useQrScanLoop } from '../scan/useQrScanLoop'
+import {
+  createScanHintState,
+  noteScanHit,
+  startScanHint,
+  suppressScanHint,
+  tickScanHint,
+  type ScanHintState,
+} from '../scan/scanHint'
 
 const emit = defineEmits<{
   close: []
@@ -194,9 +240,10 @@ const toast = ctrl.toast
 
 /** 每个实例一个容器 id（html5-qrcode 按 id 找挂载点；同屏只应有一个扫描面板） */
 let instanceSeq = 0
-const readerId = `hub-qr-reader-${++instanceSeq}`
+const albumScannerId = `hub-qr-album-${++instanceSeq}`
 
 const readerRef = ref<HTMLElement | null>(null)
+const videoRef = ref<HTMLVideoElement | null>(null)
 const albumInputRef = ref<HTMLInputElement | null>(null)
 /** 错误槽位（i18n key，渲染一律 t()）；空串 = 无错误 */
 const errorMessage = ref('')
@@ -205,33 +252,53 @@ const isCameraError = ref(false)
 /** 取景框边长（CSS px）：相机就绪后按预览可见区测量，见 `../scanViewport` */
 const frameSize = ref(scanFrameSize(0, 0, 0))
 
+/** 久扫不出提示（连续 10s 无解码结果）；纯展示，不停相机、不改错误态 */
+const hintVisible = ref(false)
+let hintState: ScanHintState = createScanHintState()
+
 // 手电筒状态（部分设备不支持，启动失败时禁用按钮）
 const torchOn = ref(false)
 const torchUnsupported = ref(false)
 
-let html5QrCode: Html5Qrcode | null = null
+/** 相册解码专用实例（扫描相机流已不从 html5-qrcode 走） */
+let albumQr: Html5Qrcode | null = null
+/** 组件已卸载：异步起流 / 起循环返回后不得再挂资源 */
+let disposed = false
 
-function retry() {
-  errorMessage.value = ''
-  isCameraError.value = false
-  torchUnsupported.value = false
-  torchOn.value = false
-  void startScanner()
-}
+const camera = useCameraStream({
+  logger,
+  onError: (kind) => {
+    logger.warn(`[host] qr camera error: kind=${kind}`)
+    suppressScanHint(hintState)
+    hintVisible.value = false
+    isCameraError.value = true
+    errorMessage.value = 'hub.scanCameraFailed'
+  },
+})
 
-async function handleQrScan(decodedText: string) {
-  // 停止扫描（相册路径实例可能从未 start，需守卫 isScanning）
-  if (html5QrCode?.isScanning) {
-    await html5QrCode.stop()
-  }
-  html5QrCode = null
+const loop = useQrScanLoop({
+  logger,
+  onResult: (text) => handleDecoded(text),
+  onMiss: () => {
+    // 提示状态只在可见性变化时写 ref，避免 10fps 的响应式抖动
+    const visible = tickScanHint(hintState, Date.now())
+    if (visible !== hintVisible.value) hintVisible.value = visible
+  },
+})
+
+/** 相机 / 相册识别到原文：停扫 → 解析 → 交给父页（无效载荷进错误态） */
+function handleDecoded(text: string): void {
+  loop.stop()
+  camera.stop()
+  noteScanHit(hintState)
+  hintVisible.value = false
 
   // 相册扫码完成后复位 input，允许再次选择同一张图
   if (albumInputRef.value) {
     albumInputRef.value.value = ''
   }
 
-  const result = parseQrText(decodedText)
+  const result = parseQrText(text)
   if (!result.ok) {
     // 不落二维码原文（可能含 token）：只记结论
     logger.warn(`[host] qr payload rejected: reason=${result.reason}`)
@@ -242,38 +309,25 @@ async function handleQrScan(decodedText: string) {
   emit('scan-result', result.payload)
 }
 
-async function startScanner() {
-  if (!readerRef.value) return
+async function startScanner(): Promise<void> {
+  const video = videoRef.value
+  if (!video || disposed) return
 
-  // 已有实例在运行时先停掉（错误重试路径），避免重复 start 抛错
-  if (html5QrCode?.isScanning) {
-    await html5QrCode.stop()
-    html5QrCode = null
-  }
+  errorMessage.value = ''
+  isCameraError.value = false
+  torchUnsupported.value = false
+  torchOn.value = false
+  hintState = startScanHint(createScanHintState(), Date.now())
+  hintVisible.value = false
 
-  try {
-    html5QrCode = new Html5Qrcode(readerId)
-    await html5QrCode.start(
-      { facingMode: 'environment' },
-      {
-        fps: 10,
-        // 不传 `qrbox`：解码区域 = 整个预览区。传了 qrbox 时解码画布只有框那么大的
-        // CSS 像素（与相机分辨率无关），v2 载荷 85+ 模块每模块不足 3px，而且
-        // `qrbox` 相对 video 元素居中、可见框相对容器居中，两者错位时码会被裁掉。
-      },
-      (text) => {
-        void handleQrScan(text)
-      },
-      () => {
-        // 逐帧未识别：属正常扫描过程，不记日志（热路径克制）
-      },
-    )
-    measureFrame()
-  } catch (e) {
-    logger.error(`[host] qr camera start failed: ${e instanceof Error ? e.message : e}`)
-    isCameraError.value = true
-    errorMessage.value = 'hub.scanCameraFailed'
-  }
+  const ok = await camera.attach(video)
+  if (!ok || disposed) return
+  measureFrame()
+  await loop.start(video)
+}
+
+function retry(): void {
+  void startScanner()
 }
 
 /** 底部工具栏高度预留（CSS px）：手电筒 / 相册按钮压在最下沿，取景框与提示文案要让开 */
@@ -285,9 +339,9 @@ const SCAN_TOOLBAR_RESERVE = 96
  * 取景框只是给用户的对位提示，解码覆盖整个预览；但用户会把码卡进框里，
  * 框越大 = 二维码在相机画面里占的像素越多 = 每模块分辨率越高。
  */
-function measureFrame() {
+function measureFrame(): void {
   const reader = readerRef.value
-  const video = reader?.querySelector('video')
+  const video = videoRef.value
   if (!reader || !video) return
   const usableHeight = Math.max(0, reader.clientHeight - SCAN_TOOLBAR_RESERVE)
   frameSize.value = scanFrameSize(video.clientWidth, video.clientHeight, usableHeight)
@@ -295,12 +349,13 @@ function measureFrame() {
 
 // ==================== 工具栏：手电筒 ====================
 
-/** 切换手电筒：通过 applyVideoConstraints 设置 torch（摄像头不支持时禁用） */
-async function toggleTorch() {
-  if (!html5QrCode || torchUnsupported.value) return
+/** 切换手电筒：不支持（能力缺失 / 应用约束失败）时禁用按钮并 toast */
+async function toggleTorch(): Promise<void> {
+  if (torchUnsupported.value) return
   const next = !torchOn.value
   try {
-    await html5QrCode.applyVideoConstraints({ advanced: [{ torch: next }] as never })
+    const applied = await camera.setTorch(next)
+    if (!applied) throw new Error('torch unsupported')
     torchOn.value = next
   } catch (e) {
     logger.warn(`[host] qr torch unsupported: ${e instanceof Error ? e.message : e}`)
@@ -312,24 +367,28 @@ async function toggleTorch() {
 // ==================== 工具栏：相册 ====================
 
 /** 打开相册文件选择器 */
-function triggerAlbumPicker() {
+function triggerAlbumPicker(): void {
   albumInputRef.value?.click()
 }
 
-/** 从相册图片中识别二维码（复用 handleQrScan 的成功路径；
+/** 取（或建）相册解码实例；挂载点是与相机面隔离的隐藏 div */
+function albumScanner(): Html5Qrcode {
+  if (!albumQr) albumQr = new Html5Qrcode(albumScannerId)
+  return albumQr
+}
+
+/** 从相册图片中识别二维码（复用 handleDecoded 的成功路径；
     未识别时 toast 提示且不打断相机扫描，避免误报错误态） */
-async function handleAlbumFile(e: Event) {
+async function handleAlbumFile(e: Event): Promise<void> {
   const input = e.target as HTMLInputElement
   const file = input.files?.[0]
   if (!file) return
 
   try {
-    if (!html5QrCode) {
-      html5QrCode = new Html5Qrcode(readerId)
-    }
-    const decoded = await html5QrCode.scanFile(file, true)
+    // showImage=false：不把所选的图贴进面板（扫描器只借它的缩图 + 多解码器轮换）
+    const decoded = await albumScanner().scanFile(file, false)
     if (decoded) {
-      await handleQrScan(decoded)
+      handleDecoded(decoded)
     } else {
       toast.showToast(t('hub.scanAlbumNoQr'), 'warning')
     }
@@ -347,21 +406,35 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
-  if (html5QrCode?.isScanning) {
-    void html5QrCode.stop()
+  disposed = true
+  loop.stop()
+  // 相机流只在面板存活期间持有：停轨 + 解绑，不留常亮摄像头
+  camera.dispose()
+  suppressScanHint(hintState)
+  try {
+    albumQr?.clear()
+  } catch {
+    // 清理失败无补救动作：宿主元素随组件卸载
   }
-  html5QrCode = null
+  albumQr = null
 })
 </script>
 
 <style scoped>
-/* 预览垂直居中：html5-qrcode 只给 video 设宽度（= 容器宽），高度由画面比例决定。
-   竖屏画面通常比容器高、横屏画面比容器矮；居中后预览与取景框共用同一中心，
-   不会出现「框在中间、画面贴在上沿」的错位。 */
+/* 预览容器：video 用 cover 铺满（取景框与解码区域都以中心为基准，不出现错位裁切） */
 .qr-reader {
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  position: relative;
+  width: 100%;
+  height: 100%;
+  background: #000;
+}
+
+.qr-video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  /* cover：画面填满容器、中心对齐；解码用的是完整视频帧，中心区域一定在解码范围内 */
+  object-fit: cover;
 }
 
 /* 扫描线动画：取景框内自上而下循环（2s） */

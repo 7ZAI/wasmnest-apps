@@ -129,6 +129,8 @@ export const messagesZhCN = {
     discoverStopScan: '停止扫描',
     discoverRestartScan: '重新扫描',
     scanHint: '将二维码对准框内扫描',
+    // 久扫不出（10s 无结果）的非阻断提示：不停止相机、不转错误态
+    scanHintSlow: '未识别到二维码？靠近一点，或把桌面二维码调大',
     scanResultTitle: '扫描结果',
     scanStop: '停止扫描',
     scanFailedTitle: '扫描失败',
@@ -317,6 +319,7 @@ export const messagesEn = {
     discoverStopScan: 'Stop Scan',
     discoverRestartScan: 'Scan Again',
     scanHint: 'Point the QR code at the frame',
+    scanHintSlow: 'Not scanning? Move closer, or make the desktop QR code bigger',
     scanResultTitle: 'Scan Result',
     scanStop: 'Stop Scanning',
     scanFailedTitle: 'Scan Failed',
