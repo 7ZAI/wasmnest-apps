@@ -73,7 +73,8 @@ export default {
   // ==================== Task states (spec 9.3 four-color) ====================
   'transfer.task.state.queued': 'Queued',
   'transfer.task.state.awaitingPeer': 'Waiting for peer',
-  'transfer.task.awaitingPeerHint': 'Waiting for the other device to accept — transfer starts automatically once accepted.',
+  'transfer.task.awaitingPeerHint':
+    'Waiting for the other device to accept — transfer starts automatically once accepted.',
   'transfer.task.state.transferring': 'Transferring',
   'transfer.task.state.paused': 'Paused',
   'transfer.task.state.resumable': 'Resumable',
@@ -94,8 +95,10 @@ export default {
   'transfer.task.upload': 'Upload',
   'transfer.task.empty': 'No transfer tasks',
   'transfer.task.progress': '{done} / {total}',
-  'transfer.task.reason.duplicateName': 'A file with the same name already exists in the target folder',
-  'transfer.task.reason.remoteChanged': "The remote file has changed and can't be resumed. Please start over.",
+  'transfer.task.reason.duplicateName':
+    'A file with the same name already exists in the target folder',
+  'transfer.task.reason.remoteChanged':
+    "The remote file has changed and can't be resumed. Please start over.",
   'transfer.task.reason.dirUnavailable': 'This folder is currently unavailable',
   'transfer.task.reason.noRoots': 'The remote device has not shared any folders',
   'transfer.task.reason.localNotFound': 'Local file not found',
@@ -126,16 +129,19 @@ export default {
   'transfer.settings.sharedRoots': 'Shared folders',
   'transfer.settings.pickRoot': 'Pick folder',
   'transfer.settings.picking': 'Picking…',
-  'transfer.settings.pickFailed': 'Failed to add: folder selection incomplete or authorization failed. Try again.',
-  'transfer.settings.pickUnsupported': 'The system directory picker is Android-only and unavailable here.',
+  'transfer.settings.pickFailed':
+    'Failed to add: folder selection incomplete or authorization failed. Try again.',
+  'transfer.settings.pickUnsupported':
+    'The system directory picker is Android-only and unavailable here.',
   'transfer.settings.rootDuplicate': 'This folder is already in the share list',
   'transfer.settings.rootInvalid': 'Invalidated',
   'transfer.settings.reauthorize': 'Re-authorize',
   'transfer.settings.reauthorized': 'Re-authorized',
   'transfer.settings.freeBadge': 'No auth needed',
-  'transfer.settings.specialEntryHint': 'The "No auth needed" entry is the app private downloads folder (the only auth-free shared entry, always visible).',
+  'transfer.settings.specialEntryHint':
+    'The "No auth needed" entry is the app private downloads folder (the only auth-free shared entry, always visible).',
   'transfer.settings.removeRoot': 'Remove',
-  'transfer.settings.noRoots': 'No shared folders yet. The remote device won\'t see your files.',
+  'transfer.settings.noRoots': "No shared folders yet. The remote device won't see your files.",
   'transfer.settings.downloadDir': 'Download folder',
   'transfer.settings.noDownloadDir': 'Not set',
   'transfer.settings.downloadDirHint': 'Downloads are saved to the system Downloads folder',
@@ -180,8 +186,10 @@ export default {
   'transfer.notify.failedBody': '{count} file(s) failed. Check the queue.',
 
   // ==================== Errors (spec §10) ====================
-  'transfer.error.duplicateName': 'Upload failed: a file with the same name already exists in the target folder',
-  'transfer.error.remoteChanged': "The remote file has changed and can't be resumed. Please start over.",
+  'transfer.error.duplicateName':
+    'Upload failed: a file with the same name already exists in the target folder',
+  'transfer.error.remoteChanged':
+    "The remote file has changed and can't be resumed. Please start over.",
   'transfer.error.dirUnavailable': 'This folder is currently unavailable',
 
   // ==================== Empty states ====================
@@ -193,7 +201,8 @@ export default {
 
   // ==================== Peer storage permission notice ====================
   'transfer.notice.storageAccessTitle': 'The peer may not have storage access granted',
-  'transfer.notice.storageAccess': 'The shared folder lives in Android top-level storage, which requires "All files access" to read. Grant it in System settings → Apps → WasmNest → Allow all files',
+  'transfer.notice.storageAccess':
+    'The shared folder lives in Android top-level storage, which requires "All files access" to read. Grant it in System settings → Apps → WasmNest → Allow all files',
 
   // ==================== Units ====================
   'transfer.size.bytes': '{value} B',
@@ -229,7 +238,8 @@ export default {
   'transfer.history.empty': 'No transfer history',
   'transfer.history.openFolder': 'Show in folder',
   'transfer.history.clearConfirmTitle': 'Clear transfer history?',
-  'transfer.history.clearConfirmMessage': 'All history entries (sent and received) will be deleted. This cannot be undone.',
+  'transfer.history.clearConfirmMessage':
+    'All history entries (sent and received) will be deleted. This cannot be undone.',
   'transfer.history.clearConfirmAction': 'Clear',
   'transfer.history.results.completed': 'Completed',
   'transfer.history.results.failed': 'Failed',
@@ -288,7 +298,8 @@ export default {
   'transfer.consent.body': '{name} wants to connect to your device for file transfer',
   'transfer.consent.fingerprint': 'Device fingerprint: {fingerprint}',
   'transfer.consent.timeoutHint': 'Auto-reject if unanswered in {seconds}s',
-  'transfer.consent.namelessHint': 'The device name could not be verified; check the fingerprint before deciding',
+  'transfer.consent.namelessHint':
+    'The device name could not be verified; check the fingerprint before deciding',
   'transfer.consent.trust': 'Trust',
   'transfer.consent.deny': 'Deny',
   'transfer.consent.autoTrustedToast': 'Auto-trusted paired device {name}',
@@ -296,36 +307,50 @@ export default {
   // ==================== Trusted peers (spec decision 8) ====================
   'transfer.trusted.title': 'Trusted peers',
   'transfer.trusted.loading': 'Loading...',
-  'transfer.trusted.empty': 'No trusted peers yet; trust is established after the first approved connection',
+  'transfer.trusted.empty':
+    'No trusted peers yet; trust is established after the first approved connection',
   'transfer.trusted.loadFailed': 'Failed to load trusted peers',
   'transfer.trusted.retry': 'Retry',
   'transfer.trusted.addedAt': 'Added: {time}',
   'transfer.trusted.revoke': 'Revoke',
   'transfer.trusted.cancel': 'Cancel',
   'transfer.trusted.revokeTitle': 'Revoke trust',
-  'transfer.trusted.revokeBody': 'After revoking, {name} will need your approval again on the next connection. Revoke trust for this device?',
+  'transfer.trusted.revokeBody':
+    'After revoking, {name} will need your approval again on the next connection. Revoke trust for this device?',
   'transfer.trusted.revokeFailed': 'Revoke failed; please try again later',
   'transfer.trusted.revokedToast': 'Revoked trust for {name}',
 
-  // ==================== Three-section main view (Transfers / Browse / Devices) ====================
+  // ==================== Bottom nav + top-level pages (Transfers / Browse / Discover) ====================
   'transfer.v2.tab.transfers': 'Transfers',
   'transfer.v2.tab.browse': 'Browse',
-  'transfer.v2.tab.devices': 'Devices',
+  'transfer.v2.tab.devices': 'Discover',
+  'transfer.v2.nav.settings': 'Settings',
   'transfer.v2.filter.all': 'All',
   'transfer.v2.filter.sending': 'Sending',
   'transfer.v2.filter.receiving': 'Receiving',
   'transfer.v2.filter.history': 'History',
   'transfer.v2.upload.cta': 'Upload file',
+  'transfer.v2.upload.short': 'Send',
   'transfer.v2.queue.hint': '{count} in queue',
   'transfer.v2.active.overall': 'Overall {percent}%',
   'transfer.v2.active.viewQueue': 'View queue',
   'transfer.v2.devices.subtitle': 'WasmNest nodes on the same network',
+  'transfer.v2.devices.scanningTitle': 'Searching for nearby devices…',
+  'transfer.v2.devices.scanningHint':
+    'Make sure the other device has WasmNest open on the same network',
+  'transfer.v2.devices.found': '{count} device(s) found',
+  'transfer.v2.devices.rescan': 'Scan again',
+  'transfer.v2.devices.groupConnected': 'Connected',
+  'transfer.v2.devices.groupNearby': 'Nearby devices',
+  'transfer.v2.devices.emptyTitle': 'No devices yet',
   'transfer.v2.pendingRequests': '{count} pending request(s)',
   'transfer.v2.history.openFolder': 'Open containing folder',
   'transfer.v2.history.noLocalFile': 'File not on this device',
   'transfer.history.allFilesAccess.title': 'All files access required',
-  'transfer.history.allFilesAccess.message': 'Opening the system Downloads folder requires the "All files access" permission (Settings → Apps → Special access → All files access). Some devices do not offer this switch; in that case WasmNest automatically shows a mirrored folder view of your downloads, no permission needed.',
+  'transfer.history.allFilesAccess.message':
+    'Opening the system Downloads folder requires the "All files access" permission (Settings → Apps → Special access → All files access). Some devices do not offer this switch; in that case WasmNest automatically shows a mirrored folder view of your downloads, no permission needed.',
   'transfer.history.allFilesAccess.cancel': 'Cancel',
   'transfer.history.allFilesAccess.goToSettings': 'Open settings',
-  'transfer.history.allFilesAccess.after': 'Enable "All files access" in system settings, then tap "Show in folder" again',
+  'transfer.history.allFilesAccess.after':
+    'Enable "All files access" in system settings, then tap "Show in folder" again',
 } satisfies MessageSchema

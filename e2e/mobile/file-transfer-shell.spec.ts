@@ -84,7 +84,7 @@ describe('File Transfer（真机 · 移动宿主运行面）', () => {
     }
   })
 
-  it('应用在真宿主里挂载成功：运行面与主分段就位', async function () {
+  it('应用在真宿主里挂载成功：运行面与底栏入口就位', async function () {
     this.timeout(60_000)
     expectEqual(
       await phone().visible('[data-testid="mobile-ft-root"]'),
@@ -95,26 +95,32 @@ describe('File Transfer（真机 · 移动宿主运行面）', () => {
       expectEqual(
         await phone().visible(`[data-testid="mobile-ft-tab-${key}"]`),
         true,
-        `主分段 ${key} 可见`,
+        `底栏入口 ${key} 可见`,
       )
     }
+    // 设置是底栏第四项（进宿主二级页），不是一级页：有锚点但没有 aria-pressed 选中态
+    expectEqual(
+      await phone().visible('[data-testid="mobile-ft-settings"]'),
+      true,
+      '底栏设置入口可见',
+    )
   })
 
   it('主分段可切换：状态位随点击推进（aria-pressed）', async function () {
     this.timeout(60_000)
     const tab = (key: string) => `[data-testid="mobile-ft-tab-${key}"]`
 
-    // 默认落在传输页（应用的第一目标）
-    expectEqual(await phone().attr(tab('transfers'), 'aria-pressed'), 'true', '默认选中传输分段')
-    expectEqual(await phone().attr(tab('browse'), 'aria-pressed'), 'false', '默认未选中浏览分段')
+    // 默认落在探索连接（没有可用对端时传输页无事可做；底栏第一项即首页）
+    expectEqual(await phone().attr(tab('devices'), 'aria-pressed'), 'true', '默认选中探索连接')
+    expectEqual(await phone().attr(tab('transfers'), 'aria-pressed'), 'false', '默认未选中传输分段')
 
     await phone().tap(tab('browse'))
     await phone().waitForAttr(tab('browse'), 'aria-pressed', 'true', 15_000)
-    expectEqual(await phone().attr(tab('transfers'), 'aria-pressed'), 'false', '切到浏览后传输分段解除')
+    expectEqual(await phone().attr(tab('devices'), 'aria-pressed'), 'false', '切到浏览后探索连接解除')
 
-    await phone().tap(tab('devices'))
-    await phone().waitForAttr(tab('devices'), 'aria-pressed', 'true', 15_000)
-    expectEqual(await phone().attr(tab('browse'), 'aria-pressed'), 'false', '切到设备后浏览分段解除')
+    await phone().tap(tab('transfers'))
+    await phone().waitForAttr(tab('transfers'), 'aria-pressed', 'true', 15_000)
+    expectEqual(await phone().attr(tab('browse'), 'aria-pressed'), 'false', '切到传输后浏览分段解除')
   })
 
   it('无对端时上传入口禁用（真实 wasm 的对端判定生效，非 mock 壳）', async function () {

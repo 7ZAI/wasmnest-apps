@@ -9,14 +9,15 @@
  *   4. 设置为应用内二级页（registerRoute settings）：齿轮入口在应用自持界面内，
  *      宿主设置页不再陈列应用项（2026-10-25 与 registerSettingsEntry 退役同批）
  *
- * 应用主题：registerSurface 的 accent 声明本应用的功能色（雾青，与
+ * 应用主题：registerSurface 的 accent 声明本应用的功能色（电光青 #17C3E8，与
  * styles.css 的 .ft-app token 段同源）——壳可消费（应用图标色调等），应用
  * 内部界面由 .ft-app 作用域自持，不写回平台 --mobile-* token。
  *
- * 主视图 FileTransferView 采用三段式布局：传输列表默认可见、浏览与设备
- * 折叠为 tab，底栏按多选/活跃/上传三态收敛唯一入口，齿轮进设置。领域逻辑
- * （useTasks / usePeerDevices / useRemoteFs / useSettings）由组件内 setup 启动，
- * 组件卸载/插件停用时经 context._disposables 与组件 onUnmounted 清理。
+ * 主视图 FileTransferView 采用底部导航布局：探索连接（默认）/ 浏览 / 传输三个
+ * 一级页面在底栏，设置从底栏第四项进宿主二级页；顶栏常驻「页面标题 + 对端 + 发送」，
+ * 上下文行动条只在多选 / 活跃传输时出现。领域逻辑（useTasks / usePeerDevices /
+ * useRemoteFs / useSettings）由组件内 setup 启动，组件卸载 / 插件停用时经
+ * context._disposables 与组件 onUnmounted 清理。
  */
 import FileTransferView from './components/FileTransferView.vue'
 import SettingsPage from './components/SettingsPage.vue'
@@ -54,8 +55,8 @@ export async function activate(context: PluginContext): Promise<void> {
   }
 
   // 3. 宿主壳运行面：独立页面（不再是旧宿主工具箱页；appId = 插件 id 由宿主代填）
-  //    accent = 应用功能色（雾青 #356873，与 styles.css .ft-app token 段同源）
-  context.ui.registerSurface({ component: FileTransferView, accent: '#356873' })
+  //    accent = 应用功能色（电光青 #17C3E8，与 styles.css .ft-app token 段同源）
+  context.ui.registerSurface({ component: FileTransferView, accent: '#17C3E8' })
 
   // 4. 设置二级页动态路由：header: true — 用宿主的 SettingsSubPage 页头（返回 + 标题
   //    + 平台底色 + 安全区）。插件自绘页头拿不到 Android 安全区，标题会压进系统状态栏，

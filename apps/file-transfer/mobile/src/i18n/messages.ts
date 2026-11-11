@@ -302,13 +302,17 @@ export type MessageSchema = {
   'transfer.trusted.revokeFailed': string
   'transfer.trusted.revokedToast': string
 
-  // ==================== 三段式主视图（传输/浏览/设备） ====================
-  /** 主分段：传输列表 */
+  // ==================== 底部导航 + 一级页面（传输/浏览/探索连接） ====================
+  /** 底栏一级页：传输列表（同时作页面标题） */
   'transfer.v2.tab.transfers': string
-  /** 主分段：浏览对端共享目录 */
+  /** 底栏一级页：浏览对端共享目录 */
   'transfer.v2.tab.browse': string
-  /** 主分段：附近设备 */
+  /** 底栏一级页：探索附近设备（同时作页面标题） */
   'transfer.v2.tab.devices': string
+  /** 底栏一级页：设置（宿主二级页入口） */
+  'transfer.v2.nav.settings': string
+  /** 顶栏发送按钮短文案（比 upload.cta 短，给标题与对端让位） */
+  'transfer.v2.upload.short': string
   /** 传输 tab 筛选 chip：全部（含双向） */
   'transfer.v2.filter.all': string
   /** 传输 tab 筛选 chip：仅本端发出 */
@@ -327,6 +331,20 @@ export type MessageSchema = {
   'transfer.v2.active.viewQueue': string
   /** 设备 tab 空态：未发现节点 */
   'transfer.v2.devices.subtitle': string
+  /** 探索连接页：扫描进行中的标题（雷达动画旁的唯一状态文案） */
+  'transfer.v2.devices.scanningTitle': string
+  /** 探索连接页：扫描进行中的说明（引导同网条件） */
+  'transfer.v2.devices.scanningHint': string
+  /** 探索连接页：已发现数量的紧凑标题 */
+  'transfer.v2.devices.found': string
+  /** 探索连接页：重新扫描按钮 */
+  'transfer.v2.devices.rescan': string
+  /** 探索连接页：已连接分组标题 */
+  'transfer.v2.devices.groupConnected': string
+  /** 探索连接页：附近设备分组标题 */
+  'transfer.v2.devices.groupNearby': string
+  /** 探索连接页：空态标题（未发现设备） */
+  'transfer.v2.devices.emptyTitle': string
   /** 批请求角标：N 个待处理请求 */
   'transfer.v2.pendingRequests': string
   /** 历史卡操作：打开所在文件夹（接收完成的条目带本机路径时） */

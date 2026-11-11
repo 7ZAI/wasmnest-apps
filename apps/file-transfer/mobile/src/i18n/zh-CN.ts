@@ -30,7 +30,7 @@ export default {
   'transfer.devices.subtitle': '同一网络内的 WasmNest 节点',
   'transfer.devices.empty': '未发现附近设备；请确认对方已打开 WasmNest 并接入同一网络',
   'transfer.devices.online': '在线',
-'transfer.devices.recentSeen': '最近可见',
+  'transfer.devices.recentSeen': '最近可见',
   'transfer.devices.connected': '已连接',
   'transfer.devices.connecting': '连接中…',
   'transfer.devices.capNone': '不支持传输',
@@ -124,13 +124,15 @@ export default {
   'transfer.settings.pickRoot': '选择目录',
   'transfer.settings.picking': '选择中…',
   'transfer.settings.pickFailed': '添加失败：目录选择未完成或授权失败，请重试',
-  'transfer.settings.pickUnsupported': '当前平台不支持系统目录选择器（仅 Android），无法添加共享目录',
+  'transfer.settings.pickUnsupported':
+    '当前平台不支持系统目录选择器（仅 Android），无法添加共享目录',
   'transfer.settings.rootDuplicate': '该目录已在共享列表中',
   'transfer.settings.rootInvalid': '已失效',
   'transfer.settings.reauthorize': '重新授权',
   'transfer.settings.reauthorized': '已重新授权',
   'transfer.settings.freeBadge': '免授权',
-  'transfer.settings.specialEntryHint': '「免授权」条目为应用私有下载目录（唯一免授权的共享条目，始终可见）',
+  'transfer.settings.specialEntryHint':
+    '「免授权」条目为应用私有下载目录（唯一免授权的共享条目，始终可见）',
   'transfer.settings.removeRoot': '移除',
   'transfer.settings.noRoots': '尚未添加共享目录，对端将看不到你的文件',
   'transfer.settings.downloadDir': '下载目录',
@@ -190,7 +192,8 @@ export default {
 
   // ==================== 对端存储权限提示 ====================
   'transfer.notice.storageAccessTitle': '对端可能未授予存储访问权限',
-  'transfer.notice.storageAccess': '共享的目录位于 Android 顶层存储，需要「所有文件访问权限」才能读取。请在手机系统设置 → 应用 → WasmNest → 允许访问所有文件 中授权',
+  'transfer.notice.storageAccess':
+    '共享的目录位于 Android 顶层存储，需要「所有文件访问权限」才能读取。请在手机系统设置 → 应用 → WasmNest → 允许访问所有文件 中授权',
 
   // ==================== 单位 ====================
   'transfer.size.bytes': '{value} B',
@@ -226,7 +229,8 @@ export default {
   'transfer.history.empty': '暂无传输历史',
   'transfer.history.openFolder': '打开所在文件夹',
   'transfer.history.clearConfirmTitle': '清空传输历史？',
-  'transfer.history.clearConfirmMessage': '将删除全部历史记录（含发送与接收的归档条目），此操作不可撤销。',
+  'transfer.history.clearConfirmMessage':
+    '将删除全部历史记录（含发送与接收的归档条目），此操作不可撤销。',
   'transfer.history.clearConfirmAction': '清空',
   'transfer.history.results.completed': '已完成',
   'transfer.history.results.failed': '失败',
@@ -253,8 +257,7 @@ export default {
 
   // ==================== 中继发送提示（T12） ====================
   'transfer.relayHint.title': '正在经中继发送',
-  'transfer.relayHint.body':
-    '当前连接经中继转发，大文件可能较慢；加密保持开启。是否继续本次发送？',
+  'transfer.relayHint.body': '当前连接经中继转发，大文件可能较慢；加密保持开启。是否继续本次发送？',
   'transfer.relayHint.confirm': '继续发送',
   'transfer.relayHint.cancel': '取消',
 
@@ -297,29 +300,41 @@ export default {
   'transfer.trusted.revoke': '撤销',
   'transfer.trusted.cancel': '取消',
   'transfer.trusted.revokeTitle': '撤销信任',
-  'transfer.trusted.revokeBody': '撤销后，{name} 再次连接时需要重新经过你的确认。确定撤销对该设备的信任吗？',
+  'transfer.trusted.revokeBody':
+    '撤销后，{name} 再次连接时需要重新经过你的确认。确定撤销对该设备的信任吗？',
   'transfer.trusted.revokeFailed': '撤销失败，请稍后重试',
   'transfer.trusted.revokedToast': '已撤销对 {name} 的信任',
 
-  // ==================== 三段式主视图（传输/浏览/设备） ====================
+  // ==================== 底部导航 + 一级页面（传输/浏览/探索连接） ====================
   'transfer.v2.tab.transfers': '传输',
   'transfer.v2.tab.browse': '浏览',
-  'transfer.v2.tab.devices': '设备',
+  'transfer.v2.tab.devices': '探索连接',
+  'transfer.v2.nav.settings': '设置',
   'transfer.v2.filter.all': '全部',
   'transfer.v2.filter.sending': '发送',
   'transfer.v2.filter.receiving': '接收',
   'transfer.v2.filter.history': '历史',
   'transfer.v2.upload.cta': '上传文件',
+  'transfer.v2.upload.short': '发送',
   'transfer.v2.queue.hint': '队列 {count} 项',
   'transfer.v2.active.overall': '总体 {percent}%',
   'transfer.v2.active.viewQueue': '查看队列',
   'transfer.v2.devices.subtitle': '同一网络内的 WasmNest 节点',
+  'transfer.v2.devices.scanningTitle': '正在搜索附近设备…',
+  'transfer.v2.devices.scanningHint': '请确认对方已打开 WasmNest 并接入同一网络',
+  'transfer.v2.devices.found': '已发现 {count} 台设备',
+  'transfer.v2.devices.rescan': '重新扫描',
+  'transfer.v2.devices.groupConnected': '已连接',
+  'transfer.v2.devices.groupNearby': '附近设备',
+  'transfer.v2.devices.emptyTitle': '还没有发现设备',
   'transfer.v2.pendingRequests': '{count} 个待处理请求',
   'transfer.v2.history.openFolder': '打开所在文件夹',
   'transfer.v2.history.noLocalFile': '本机没有对应文件',
   'transfer.history.allFilesAccess.title': '需要「所有文件访问」权限',
-  'transfer.history.allFilesAccess.message': '打开系统的公共下载目录需要「所有文件访问」权限（系统设置 → 应用 → 特殊权限设置 → 所有文件访问）。部分设备未提供该开关，此时 WasmNest 会自动改用镜像目录视图显示下载文件，无需授权。',
+  'transfer.history.allFilesAccess.message':
+    '打开系统的公共下载目录需要「所有文件访问」权限（系统设置 → 应用 → 特殊权限设置 → 所有文件访问）。部分设备未提供该开关，此时 WasmNest 会自动改用镜像目录视图显示下载文件，无需授权。',
   'transfer.history.allFilesAccess.cancel': '取消',
   'transfer.history.allFilesAccess.goToSettings': '去设置',
-  'transfer.history.allFilesAccess.after': '请在系统设置中开启「允许访问所有文件」后，重新点击「打开所在文件夹」',
+  'transfer.history.allFilesAccess.after':
+    '请在系统设置中开启「允许访问所有文件」后，重新点击「打开所在文件夹」',
 } satisfies MessageSchema

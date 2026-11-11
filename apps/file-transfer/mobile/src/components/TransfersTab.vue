@@ -2,10 +2,11 @@
 /**
  * TransfersTab — 传输列表 tab
  *
- * 与旧版的核心差异：传输列表**直接铺在主内容区**（不再收进 bottom sheet），
- * 用四个筛选 chip 划分 全部 / 发送 / 接收 / 历史。「全部」为发送队列 ∪ 接收中
- * （计数与展示同口径，历史归档单独成 tab）。领域模型由本层映射为
- * TaskCard 的纯展示 props（文案格式化在此完成，卡内不含逻辑）。
+ * 结构：顶部四等分分段控件（全部 / 发送 / 接收 / 历史，占满整宽，滑块指示
+ * 当前段）+ 传输列表。「全部」为发送队列 ∪ 接收中（计数与展示同口径，
+ * 历史归档单独成段）。领域模型由本层映射为 TaskCard 的纯展示 props
+ * （文案格式化在此完成，卡内不含逻辑）。列表空但存在活跃对端时，空态直接给
+ * 「发送文件」主按钮——传输页没有任务时仍要有下一步动作。
  *
  * 状态呈现仍走 spec 9.3 四色体系（ft-color-* / ft-progress-*）。
  * 列表入场走 TransitionGroup 错峰浮入（fv2-card-in-*），筛选切换时剩余
@@ -20,6 +21,7 @@ import {
   isTerminalState,
 } from '../types'
 import { formatBytes, formatSpeed, progressPercent } from '../utils/format'
+import { nextFilterKey } from '../utils/filterSwipe'
 import type { TaskAction, TransferFilter } from '../types'
 import TaskCard from './TaskCard.vue'
 import EmptyState from './EmptyState.vue'
@@ -30,6 +32,9 @@ const props = defineProps<{
   tasks: Task[]
   receiving: ReceivingTask[]
   history: HistoryEntry[]
+  /** 空态主 CTA：发送文件（有活跃对端时才给动作） */
+  uploadLabel: string
+  canUpload: boolean
   t: Translate
 }>()
 
@@ -42,6 +47,7 @@ const emit = defineEmits<{
   (e: 'cancel-receiving', sessionId: string): void
   (e: 'clear-history'): void
   (e: 'open-location', id: string): void
+  (e: 'upload'): void
 }>()
 
 const t = props.t
@@ -80,7 +86,9 @@ const receivingCards = computed(() =>
 )
 
 /** 活动传输区是否整体为空（决定空态显隐） */
-const listEmpty = computed(() => visibleQueue.value.length === 0 && receivingCards.value.length === 0)
+const listEmpty = computed(
+  () => visibleQueue.value.length === 0 && receivingCards.value.length === 0,
+)
 
 const FILTERS = computed<Array<{ key: TransferFilter; labelKey: string; count: number }>>(() => [
   { key: 'all', labelKey: 'transfer.v2.filter.all', count: counts.value.all },
@@ -88,6 +96,38 @@ const FILTERS = computed<Array<{ key: TransferFilter; labelKey: string; count: n
   { key: 'receiving', labelKey: 'transfer.v2.filter.receiving', count: counts.value.receiving },
   { key: 'history', labelKey: 'transfer.v2.filter.history', count: counts.value.history },
 ])
+
+/**
+ * 分段控件滑块位置：四个筛选等分整宽，滑块按索引平移自身宽度（100% = 一格）。
+ * 用 transform 而非改 left，位移走合成层；索引与格宽都由同一份 FILTERS 决定，
+ * 增删筛选项不会出现滑块与文字错位。
+ */
+const filterIndex = computed(() => {
+  const index = FILTERS.value.findIndex((f) => f.key === filter.value)
+  return index < 0 ? 0 : index
+})
+
+const indicatorStyle = computed(() => ({ transform: `translateX(${filterIndex.value * 100}%)` }))
+
+/**
+ * 手势步进一格筛选（父级横滑手势转调，本组件自持筛选状态不外包）。
+ *
+ * @returns true = 本次滑动已消费（换了段）；false = 已在首/尾段，父级据此翻一级页面
+ */
+function stepFilter(dir: 'left' | 'right'): boolean {
+  const next = nextFilterKey(
+    FILTERS.value.map((f) => f.key),
+    filter.value,
+    dir,
+  )
+  if (!next) return false
+  filter.value = next
+  return true
+}
+
+// 页内横滑的入口：手势仍由 FileTransferView 的横滑区统一持有（触摸与 dev-shell
+// 鼠标拖动共用一套阈值/方向逻辑），这里只暴露「能不能再切一段」
+defineExpose({ stepFilter })
 
 /** 空态图标（按当前筛选给不同语义图标） */
 const emptyIcon = computed(() => {
@@ -125,9 +165,10 @@ function taskStateLabel(task: Task): string {
 /** 任务元信息：已传/总大小 + 速率（仅传输中带速率；等待确认时无字节可报） */
 function taskMeta(task: Task): string {
   if (isAwaitingPeer(task)) return ''
-  const size = task.size > 0
-    ? `${formatBytes(task.offset, t)} / ${formatBytes(task.size, t)}`
-    : formatBytes(task.offset, t)
+  const size =
+    task.size > 0
+      ? `${formatBytes(task.offset, t)} / ${formatBytes(task.size, t)}`
+      : formatBytes(task.offset, t)
   return task.state === 'transferring' ? `${size} · ${formatSpeed(task.rateBps ?? 0, t)}` : size
 }
 
@@ -195,12 +236,18 @@ function hasPaused(tasks: Task[]): boolean {
 function receivingStateKey(task: ReceivingTask): string {
   if (task.state === 'running' || task.state === 'transferring') return 'transfer.task.receiving'
   switch (task.state) {
-    case 'paused': return 'transfer.task.state.paused'
-    case 'completed': return 'transfer.history.results.completed'
-    case 'failed': return 'transfer.history.results.failed'
-    case 'rejected': return 'transfer.history.results.rejected'
-    case 'cancelled': return 'transfer.history.results.cancelled'
-    default: return 'transfer.history.results.failed'
+    case 'paused':
+      return 'transfer.task.state.paused'
+    case 'completed':
+      return 'transfer.history.results.completed'
+    case 'failed':
+      return 'transfer.history.results.failed'
+    case 'rejected':
+      return 'transfer.history.results.rejected'
+    case 'cancelled':
+      return 'transfer.history.results.cancelled'
+    default:
+      return 'transfer.history.results.failed'
   }
 }
 
@@ -230,11 +277,16 @@ function historyTime(ms: number): string {
 
 function historyStateKey(state: string): string {
   switch (state) {
-    case 'completed': return 'transfer.history.results.completed'
-    case 'failed': return 'transfer.history.results.failed'
-    case 'rejected': return 'transfer.history.results.rejected'
-    case 'cancelled': return 'transfer.history.results.cancelled'
-    default: return 'transfer.history.results.failed'
+    case 'completed':
+      return 'transfer.history.results.completed'
+    case 'failed':
+      return 'transfer.history.results.failed'
+    case 'rejected':
+      return 'transfer.history.results.rejected'
+    case 'cancelled':
+      return 'transfer.history.results.cancelled'
+    default:
+      return 'transfer.history.results.failed'
   }
 }
 
@@ -299,7 +351,11 @@ function historyMeta(entry: HistoryEntry): string {
 function historyActions(entry: HistoryEntry): TaskAction[] {
   const btns: TaskAction[] = []
   if (entry.direction === 'download' && entry.state === 'completed') {
-    btns.push({ kind: 'open-location', label: t('transfer.v2.history.openFolder'), variant: 'tint' })
+    btns.push({
+      kind: 'open-location',
+      label: t('transfer.v2.history.openFolder'),
+      variant: 'tint',
+    })
   }
   if (
     entry.retryable &&
@@ -313,39 +369,66 @@ function historyActions(entry: HistoryEntry): TaskAction[] {
 /** 操作分发：kind → 对应 emit */
 function onCardAction(kind: TaskAction['kind'], id: string): void {
   switch (kind) {
-    case 'cancel': emit('cancel', id); break
-    case 'retry': emit('retry', id); break
-    case 'pause': emit('pause', id); break
-    case 'resume': emit('resume', id); break
-    case 'cancel-receiving': emit('cancel-receiving', id); break
-    case 'clear-history': emit('clear-history'); break
-    case 'open-location': emit('open-location', id); break
+    case 'cancel':
+      emit('cancel', id)
+      break
+    case 'retry':
+      emit('retry', id)
+      break
+    case 'pause':
+      emit('pause', id)
+      break
+    case 'resume':
+      emit('resume', id)
+      break
+    case 'cancel-receiving':
+      emit('cancel-receiving', id)
+      break
+    case 'clear-history':
+      emit('clear-history')
+      break
+    case 'open-location':
+      emit('open-location', id)
+      break
   }
 }
 </script>
 
 <template>
   <div class="flex-1 min-h-0 flex flex-col">
-    <!-- 筛选 chip 行（横向滚动，计数 tabular-nums） -->
-    <div class="fv2-filters">
-      <button
-        v-for="f in FILTERS"
-        :key="f.key"
-        type="button"
-        class="fv2-filter"
-        :class="{ 'fv2-filter--active': filter === f.key }"
-        :aria-pressed="filter === f.key"
-        @click="filter = f.key"
-      >
-        {{ t(f.labelKey) }}
-        <span v-if="f.count > 0" class="fv2-filter-count">{{ f.count }}</span>
-      </button>
+    <!-- 分段控件：四等分占满整宽（全部 / 发送 / 接收 / 历史），滑块指示当前段。
+         计数只在 >0 时渲染，tabular-nums 防宽度跳动 -->
+    <div class="fv2-seg-wrap">
+      <div class="fv2-seg" role="tablist" :aria-label="t('transfer.queue.title')">
+        <span class="fv2-seg-indicator" :style="indicatorStyle" aria-hidden="true"></span>
+        <button
+          v-for="f in FILTERS"
+          :key="f.key"
+          type="button"
+          role="tab"
+          class="fv2-seg-btn"
+          :class="{ 'fv2-seg-btn--active': filter === f.key }"
+          :aria-selected="filter === f.key"
+          :aria-pressed="filter === f.key"
+          :data-testid="`mobile-ft-filter-${f.key}`"
+          @click="filter = f.key"
+        >
+          <span class="fv2-seg-label">{{ t(f.labelKey) }}</span>
+          <span v-if="f.count > 0" class="fv2-seg-count">{{ f.count }}</span>
+        </button>
+      </div>
     </div>
+
     <!-- 全部继续（存在已暂停任务时；独立操作按钮） -->
     <div v-if="hasPaused(tasks)" class="fv2-resume-all">
       <button type="button" class="fv2-resume-all-btn" @click="emit('resumeAll')">
         <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.348a1.125 1.125 0 010 1.971l-11.54 6.347a1.125 1.125 0 01-1.667-.985V5.653z" />
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="2"
+            d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.348a1.125 1.125 0 010 1.971l-11.54 6.347a1.125 1.125 0 01-1.667-.985V5.653z"
+          />
         </svg>
         {{ t('transfer.task.resumeAll') }}
       </button>
@@ -357,7 +440,16 @@ function onCardAction(kind: TaskAction['kind'], id: string): void {
            .fv2-card-in-*；--card-i 为错峰索引，第 7 张起不再递增避免长列表久等） -->
       <template v-if="filter !== 'history'">
         <div v-if="listEmpty" class="h-full flex flex-col">
-          <EmptyState :icon="emptyIcon" :title="emptyTitle" :hint="t('transfer.minibar.noActive')" />
+          <!-- 空态主 CTA：发送文件（有活跃对端才可点；无对端引导走探索连接） -->
+          <EmptyState
+            :icon="emptyIcon"
+            :title="emptyTitle"
+            :hint="t('transfer.minibar.noActive')"
+            :action-label="canUpload ? uploadLabel : undefined"
+            action-icon="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"
+            action-variant="primary"
+            @action="emit('upload')"
+          />
         </div>
         <TransitionGroup v-else tag="div" name="fv2-card-in" appear class="flex flex-col">
           <TaskCard
@@ -384,12 +476,23 @@ function onCardAction(kind: TaskAction['kind'], id: string): void {
             :style="{ '--card-i': Math.min(i, 6) }"
             direction="download"
             :name="basename(task.remotePath)"
-            :meta="task.size > 0 ? `${formatBytes(task.offset ?? 0, t)} / ${formatBytes(task.size, t)}` : formatBytes(task.size, t)"
+            :meta="
+              task.size > 0
+                ? `${formatBytes(task.offset ?? 0, t)} / ${formatBytes(task.size, t)}`
+                : formatBytes(task.size, t)
+            "
             :state-label="t(receivingStateKey(task))"
             :state-class="receivingStateClass(task)"
-            :progress="RECEIVING_TERMINAL.has(task.state) ? null : (progressPercent(task.offset ?? 0, task.size) ?? null)"
+            :progress="
+              RECEIVING_TERMINAL.has(task.state)
+                ? null
+                : (progressPercent(task.offset ?? 0, task.size) ?? null)
+            "
             progress-class="ft-progress-active"
-            :indeterminate="(task.state === 'running' || task.state === 'transferring') && (task.offset ?? 0) === 0"
+            :indeterminate="
+              (task.state === 'running' || task.state === 'transferring') &&
+              (task.offset ?? 0) === 0
+            "
             :reason="receivingReason(task)"
             :actions="receivingActions(task)"
             @action="onCardAction"
@@ -405,8 +508,18 @@ function onCardAction(kind: TaskAction['kind'], id: string): void {
         <template v-else>
           <div class="flex justify-end pb-1">
             <button class="fv2-btn-text" @click="emit('clear-history')">
-              <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              <svg
+                class="w-4 h-4 flex-shrink-0"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                />
               </svg>
               {{ t('transfer.history.clear') }}
             </button>

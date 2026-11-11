@@ -21,7 +21,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import styles from '../../styles.css?raw'
-import browseTab from '../BrowseTab.vue?raw'
+import browseTab from '../../components/BrowseTab.vue?raw'
 
 /** 取某个选择器块的声明体（样式表结构简单，按首个 `{}` 切足够） */
 function ruleBody(css: string, selector: string): string | null {

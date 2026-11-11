@@ -15,6 +15,9 @@ export default defineConfig({
     // 需要 DOM 的用例（组件交互）再加 happy-dom 依赖并改这里。
     environment: 'node',
     globals: true,
+    // 样式静态锁（themeIsolation）以 `styles.css?raw` 读源码断言；
+    // Vitest 默认把 CSS 导入换成空串（含 ?raw 查询），关掉处理后才能拿到正文。
+    css: true,
     include: ['src/**/__tests__/**/*.test.ts'],
     exclude: ['node_modules', 'dist'],
   },

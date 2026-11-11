@@ -71,8 +71,9 @@ apps/file-transfer/
 │                               ConsentDialog / BatchRequestDialog / notifications.ts
 │                               composables：usePeerDevices / useRemoteFs / useTasks
 │                                            useReceiving / useBatchPrompt / useConsent / useSettings
-└─ mobile/src/                  index / FileTransferView / TabBar / BrowseTab / DevicesTab
-                                TransfersTab / TaskCard / SummaryBar / SettingsPage
+└─ mobile/src/                  index / FileTransferView / AppHeader / BottomNav / ScanRadar
+                                DevicesTab / BrowseTab / TransfersTab / TaskCard / SummaryBar
+                                SettingsPage / SettingsSection / TrustedPeersSection
                                 composables：同构 + useAllFilesAccess / useBatchDialog
 ```
 

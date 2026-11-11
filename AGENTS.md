@@ -122,7 +122,7 @@
 
 | 命令 | 说明 | 例外 |
 | --- | --- | --- |
-| `pnpm run test:run` | 该 app 的 vitest | `file-transfer/mobile` 无此脚本（也无 `vitest.config.ts`） |
+| `pnpm run test:run` | 该 app 的 vitest | 无（全部 app 均有 `vitest.config.ts`） |
 | `pnpm run build` | 桌面 = `node scripts/build.js`；移动 = SDK CLI / 平台包装脚本 | `file-transfer/mobile` 的 build 直接指向 `wasmnest-mobile/scripts/plugin-build.js` |
 | `pnpm run build:frontend` / `build:rust` | 桌面分段构建 | `bedcode/desktop` 的 `build:rust` = `build.js --rust-only`；移动端无分段脚本 |
 | `pnpm run dev` | 桌面 = `build.js --watch`；移动 = SDK dev-shell（HMR） | **`bedcode/desktop` 无 dev 脚本**（前端最重，dev 期不参与 watch） |

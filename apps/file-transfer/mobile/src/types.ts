@@ -252,10 +252,10 @@ export interface TaskAction {
   variant: 'neutral' | 'tint'
 }
 
-/** 底部行动条三态 */
-export type FooterMode = 'upload' | 'select' | 'active'
+/** 底部行动条状态（idle = 整条不渲染；发送入口常驻顶栏） */
+export type FooterMode = 'idle' | 'select' | 'active'
 
-/** 主分段 tab 键 */
+/** 底部导航一级页面键 */
 export type MainTab = 'transfers' | 'browse' | 'devices'
 
 /** 传输 tab 筛选键 */

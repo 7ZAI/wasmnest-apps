@@ -211,7 +211,7 @@ node scripts/replace-console.mjs <desktop|mobile> [appDirName]
 - 每 app 至少覆盖：契约（`mountApp` / `activate` 行为）、关键逻辑（纯函数 / composable）、边界与错误路径。
 - 有预览面的桌面 app 另需覆盖：正常数据渲染、空态 / 命令失败、无副作用（不启动通知 / 轮询）、`unmount` 清理、预览 DOM 内无可聚焦控件。预览内容裁决归各 app owner；平台只钉契约与回退（L5 + `AppPreviewTile` 行为测试）。
 - **禁止**：无断言 / 恒真断言 / 只测 mock / 快照替代行为断言。
-- 现状：`file-transfer/mobile` **没有** `test:run`、没有 `vitest.config.ts`（只有 `build` 与 `dev`）。给它加测试时须同步补 `vitest.config.ts` 与 devDependencies。
+- 现状：`file-transfer/mobile` 已有 `test:run` 与 `vitest.config.ts`（覆盖纯函数与样式静态锁；组件交互仍以真机 / dev-shell 目验为准），改样式表或工具函数时必须跑。
 
 ---
 
@@ -225,5 +225,5 @@ node scripts/replace-console.mjs <desktop|mobile> [appDirName]
 | monitor | servers/desktop | `entry.ts` | 组件内 | 无 | ✅ | ✅ |
 | ai-chatbox | mobile | `index.ts` | 组件内 | 宿主路由 | ✅ | ✅ dev-shell |
 | bedcode | mobile | `index.ts` | pinia | 宿主路由 | ✅ | ✅ dev-shell |
-| file-transfer | mobile | `index.ts` | 组件内 | 宿主路由 + `registerRoute` | ❌ | ✅ dev-shell |
+| file-transfer | mobile | `index.ts` | 组件内 | 宿主路由 + `registerRoute` | ✅ | ✅ dev-shell |
 | monitor | servers/mobile | `index.ts` | 组件内（composable） | 宿主运行面 | ✅ | ✅ dev-shell |

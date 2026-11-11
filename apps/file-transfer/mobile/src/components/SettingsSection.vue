@@ -565,13 +565,25 @@ watch(() => props.settingsApi.settings.value.relayMaxBytesPerTask, syncRelayThre
 }
 
 .ft-segmented-item--active {
-  background: var(--ft-bg-elevated);
-  color: var(--ft-accent-text);
+  /* 选中项用主操作渐变实底 + 墨字：轨道是 --ft-bg-tertiary，此档若也用背景 token
+     （原 --ft-bg-elevated 与它在深色档同为 #14232e）实际只有文字染青这一档差异，
+     真机上几乎读不出「现在是哪一档」。渐变 + 墨字 + 轻微外发光一眼可辨，
+     且与主按钮同源（--ft-grad-*）不引入新色。 */
+  background-image: linear-gradient(135deg, var(--ft-grad-from), var(--ft-grad-to));
+  color: var(--ft-grad-ink);
+  font-weight: 700;
+  box-shadow: 0 8px 18px -12px var(--ft-glow);
 }
 
-/* 只读档位（固定加密）：外观同选中项，但不可点 */
+/* 只读档位（固定加密）：是状态而不是选择，改淡青底 + 描边——
+   与可点的选中项区分，又不至于弱化成一行普通说明文字 */
 .ft-segmented-item--static {
   cursor: default;
+  background-image: none;
+  background-color: var(--ft-accent-muted);
+  color: var(--ft-accent-text);
+  font-weight: 600;
+  box-shadow: inset 0 0 0 1px var(--ft-border-strong);
 }
 
 /* 同意超时数字输入：完全自绘外观（token 边框/圆角/字号，无系统控件观感）。
