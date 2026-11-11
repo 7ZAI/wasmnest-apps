@@ -113,13 +113,6 @@
   color: var(--text-primary);
 }
 
-.mn-page-sub {
-  margin: 0;
-  font-size: calc(13px * var(--ui-scale));
-  line-height: 1.4;
-  color: var(--text-secondary);
-}
-
 /* ==================== 运行时仪表（整幅墨色场） ==================== */
 
 .mn-hero {
@@ -457,14 +450,6 @@
   line-height: 1.1;
   letter-spacing: -0.03em;
   color: var(--text-primary);
-}
-
-.mn-section-hint {
-  margin: 8px 0 0;
-  max-width: 56ch;
-  font-size: calc(15px * var(--ui-scale));
-  line-height: 1.55;
-  color: var(--text-secondary);
 }
 
 .mn-role-summary {
@@ -1631,14 +1616,6 @@
   font-variant-numeric: tabular-nums;
 }
 
-.mn-quota-note {
-  max-width: 66ch;
-  margin: 14px 0 0;
-  font-size: calc(13px * var(--ui-scale));
-  line-height: 1.5;
-  color: var(--text-secondary);
-}
-
 /* ==================== 宿主维度 ==================== */
 
 .mn-host-section {
@@ -1654,10 +1631,6 @@
 
 .mn-host-section .mn-section-title {
   font-size: calc(22px * var(--ui-scale));
-}
-
-.mn-host-section .mn-section-hint {
-  font-size: calc(14px * var(--ui-scale));
 }
 
 .mn-host-section .mn-system-grid {
@@ -1789,24 +1762,6 @@
   transform-origin: left center;
   background: var(--color-success-ink);
   opacity: 0.7;
-}
-
-/* ==================== 收束（脚注） ==================== */
-
-.mn-footer {
-  margin-top: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding-top: 56px;
-  padding-bottom: 40px;
-}
-
-.mn-footer-note {
-  margin: 0;
-  font-size: calc(13px * var(--ui-scale));
-  line-height: 1.5;
-  color: var(--text-tertiary);
 }
 
 /* ==================== 动效 ==================== */
@@ -1980,10 +1935,6 @@
     font-size: calc(30px * var(--ui-scale));
   }
 
-  .mn-host-section .mn-section-hint {
-    font-size: calc(15px * var(--ui-scale));
-  }
-
   .mn-host-section .mn-system-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 22px 28px;
@@ -2087,11 +2038,6 @@
 
   .mn-number.is-lead {
     grid-column: 1 / -1;
-  }
-
-  .mn-footer {
-    padding-top: 40px;
-    padding-bottom: 32px;
   }
 
   .mn-host-section .mn-system-grid {

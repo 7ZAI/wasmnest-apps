@@ -3,7 +3,6 @@ import type { MessageSchema } from './messages'
 /** English copy (keys mirror zh-CN one-to-one) */
 const en: MessageSchema = {
   'monitor.title': 'Monitor',
-  'monitor.subtitle': 'Runtime metrics · read-only',
   'monitor.live': 'Live',
   'monitor.interval': 'Refreshes every {seconds}s',
   'monitor.updated': 'Updated {time}',
@@ -32,7 +31,6 @@ const en: MessageSchema = {
   'monitor.kpi.pluginsUnavailable': '{n} not ready',
   'monitor.kpi.calls': 'Total calls',
   'monitor.kpi.inFlight': 'In flight',
-  'monitor.kpi.inFlightHint': "Includes this app's own call",
   'monitor.kpi.traps': 'Total traps',
   'monitor.kpi.memoryPeak': 'Peak memory (sum)',
 
@@ -72,7 +70,6 @@ const en: MessageSchema = {
   'monitor.metric.quotaInstances': 'Instance limit',
   'monitor.metric.quotaMemories': 'Memory count limit',
   'monitor.metric.quotaTables': 'Table count limit',
-  'monitor.metric.quotaNote': 'These are host quota limits, not live usage.',
   'monitor.metric.lastEvent': 'Latest: {event} · {time}',
   'monitor.metric.memoryUsage': 'Limit usage',
 
@@ -121,17 +118,14 @@ const en: MessageSchema = {
     'The host wasm list is unavailable, so runtime state cannot be confirmed. Rows below show plugin ids from metrics only.',
   'monitor.hero.proofStale':
     'The latest refresh failed. Values below are the last successful snapshot, not live.',
-  'monitor.hero.proofMobile': 'Mobile reads metrics only; host runtime state is not available.',
   'monitor.signal.title': 'Call rate',
   'monitor.signal.perSecond': 'per second',
   'monitor.signal.window': 'This session · last {seconds}s',
   'monitor.signal.justStarted': 'This session · just started',
   'monitor.signal.starting': 'Establishing baseline',
   'monitor.signal.inFlight': '{n} in flight',
-  'monitor.signal.note': 'Rate is the delta between polls and lives only in this session.',
   'monitor.signal.peak': 'Peak {n}/s',
   'monitor.ledger.title': 'wasm',
-  'monitor.ledger.hint': 'Sorted by state.',
   'monitor.ledger.calls': '{n} calls',
   'monitor.ledger.select': 'Inspect {name} metrics',
   'monitor.ledger.metricsUnavailable': 'Metrics unavailable',
@@ -148,13 +142,8 @@ const en: MessageSchema = {
   'monitor.inspector.noMetricsTitle': 'No runtime metrics',
   'monitor.inspector.noMetricsHint':
     'This component is registered in the host but has not been instantiated (or failed to load), so no wasm store metrics are available.',
-  'monitor.host.hint': 'A read-only snapshot of the host task pool.',
-  'monitor.footer.source': 'Data from monitor.snapshot · permission metrics:read',
-  'monitor.footer.session': 'This session · cleared on close',
 
   'monitor.process.title': 'Host process (WebView)',
-  'monitor.process.hint':
-    'Whole-app view: the OS account for the host process plus its WebView children. PSS apportions shared pages (the real footprint); RSS is an upper bound; wasm linear memory is part of the host process, so the two figures are never added together.',
   'monitor.process.unavailable':
     'This host does not provide the process section (older host, or no metrics source wired up); no numbers are shown.',
   'monitor.process.notSampled':
@@ -181,25 +170,18 @@ const en: MessageSchema = {
   'monitor.process.details': 'Process detail',
 
   'monitor.overview.title': 'Platform overview',
-  'monitor.overview.hint':
-    'Totals across every loaded wasm app, summed straight from the host snapshot — no estimation.',
   'monitor.overview.memory': 'Total wasm memory',
   'monitor.overview.memoryUnbounded': 'No memory limits declared in the snapshot',
   'monitor.overview.peak': 'Total peak memory',
   'monitor.overview.plugins': '{n} wasm registered',
   'monitor.overview.compute': 'Compute load',
-  'monitor.overview.computeHint':
-    'Fuel burn rate (a proxy for wasm execution); real host-process memory / CPU live in the Host process (WebView) panel.',
+  'monitor.overview.fuelPerSecond': 'fuel/s (execution proxy)',
   'monitor.overview.callsRate': 'Call rate',
   'monitor.overview.callsNote': '{n} calls total',
   'monitor.overview.perSecond': '/ s',
   'monitor.overview.consumers': 'Top memory consumers',
-  'monitor.overview.hostGap':
-    'This page only sums the wasm runtime (linear memory / fuel / calls). The whole-app view — real memory and CPU of the host process tree including the WebView — is in the Host process (WebView) panel; the two scopes are never added together.',
 
   'monitor.alerts.title': 'Alerts',
-  'monitor.alerts.hint':
-    'Thresholds for platform memory, per-plugin quotas, trap deltas, plugin state and task-pool back-pressure; new alerts can be delivered as host notifications.',
   'monitor.alerts.empty': 'Nothing is over threshold right now.',
   'monitor.alerts.disabled': 'Alerts are off (enable them in the settings below).',
   'monitor.alerts.recentResolved': 'Recently resolved',

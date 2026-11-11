@@ -413,9 +413,6 @@ function stateTone(state: PluginDisplayState): string {
               <b>{{ entry.value }}</b>
             </div>
           </div>
-          <p class="mn-quota-note" :data-testid="`monitor-quota-note-${row.id}`">
-            {{ t('monitor.metric.quotaNote') }}
-          </p>
         </div>
       </details>
     </template>

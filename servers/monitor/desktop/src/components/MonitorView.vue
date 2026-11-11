@@ -354,9 +354,9 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="mn-view mn-page" data-testid="monitor-view">
-    <!-- ==================== 页头（身份 / 标题 / 只读说明） ==================== -->
-    <!-- 标题原先只在页脚出现：滚动到底才知道自己在哪一页。页头承载身份与只读
-         口径，页脚只留数据来源 / 采样口径等脚注。 -->
+    <!-- ==================== 页头（身份 / 标题） ==================== -->
+    <!-- 标题原先只在页脚出现：滚动到底才知道自己在哪一页。页头只承载身份与标题，
+         不再补「运行时指标 · 只读」这类说明（各分区同理，只留标题与数据）。 -->
     <header class="mn-topbar">
       <div class="mn-wrap mn-topbar-inner">
         <div class="mn-topbar-id">
@@ -400,7 +400,6 @@ onBeforeUnmount(() => {
             {{ t('monitor.title') }}
           </h1>
         </div>
-        <p class="mn-page-sub">{{ t('monitor.subtitle') }}</p>
       </div>
     </header>
 
@@ -519,7 +518,6 @@ onBeforeUnmount(() => {
             <div class="mn-vital" data-testid="monitor-kpi-inflight">
               <span class="mn-vital-value">{{ formatNumber(summary.callsInFlight) }}</span>
               <span class="mn-vital-label">{{ t('monitor.kpi.inFlight') }}</span>
-              <span class="mn-vital-note">{{ t('monitor.kpi.inFlightHint') }}</span>
             </div>
             <div class="mn-vital" data-testid="monitor-kpi-traps">
               <span class="mn-vital-value" :class="{ 'is-danger': summary.trapsTotal > 0 }">
@@ -545,7 +543,6 @@ onBeforeUnmount(() => {
         <header class="mn-section-head mn-rise">
           <div>
             <h2 id="overview-title" class="mn-section-title">{{ t('monitor.overview.title') }}</h2>
-            <p class="mn-section-hint">{{ t('monitor.overview.hint') }}</p>
           </div>
         </header>
         <PlatformOverview :totals="platform" :consumers="memoryConsumers" />
@@ -561,7 +558,6 @@ onBeforeUnmount(() => {
         <header class="mn-section-head mn-rise">
           <div>
             <h2 id="process-title" class="mn-section-title">{{ t('monitor.process.title') }}</h2>
-            <p class="mn-section-hint">{{ t('monitor.process.hint') }}</p>
           </div>
         </header>
         <HostProcessPanel :metrics="hostProcess" />
@@ -592,7 +588,6 @@ onBeforeUnmount(() => {
         <header class="mn-section-head mn-rise">
           <div>
             <h2 id="plugins-title" class="mn-section-title">{{ t('monitor.ledger.title') }}</h2>
-            <p class="mn-section-hint">{{ t('monitor.ledger.hint') }}</p>
             <div class="mn-filter" role="group" :aria-label="t('monitor.filter.aria')" data-ui>
               <button
                 v-for="option in filterOptions"
@@ -698,7 +693,6 @@ onBeforeUnmount(() => {
               <header class="mn-section-head">
                 <div>
                   <h2 class="mn-section-title">{{ t('monitor.section.host') }}</h2>
-                  <p class="mn-section-hint">{{ t('monitor.host.hint') }}</p>
                 </div>
               </header>
               <SystemPanel :sections="systems" />
@@ -726,7 +720,6 @@ onBeforeUnmount(() => {
         <header class="mn-section-head mn-rise">
           <div>
             <h2 id="alerts-title" class="mn-section-title">{{ t('monitor.alerts.title') }}</h2>
-            <p class="mn-section-hint">{{ t('monitor.alerts.hint') }}</p>
           </div>
         </header>
         <AlertPanel
@@ -746,13 +739,6 @@ onBeforeUnmount(() => {
       <section class="mn-wrap mn-update-section" data-ui>
         <AppUpdateSection :current-version="manifest.version" />
       </section>
-
-      <!-- ==================== 收束（脚注：数据来源 / 采样口径 / 会话寿命） ==================== -->
-      <footer class="mn-wrap mn-footer">
-        <p class="mn-footer-note">{{ t('monitor.footer.source') }}</p>
-        <p class="mn-footer-note">{{ t('monitor.signal.note') }}</p>
-        <p class="mn-footer-note">{{ t('monitor.footer.session') }}</p>
-      </footer>
     </template>
 
     <!-- ==================== 提供方面板（整页；由宿主中介装载） ==================== -->

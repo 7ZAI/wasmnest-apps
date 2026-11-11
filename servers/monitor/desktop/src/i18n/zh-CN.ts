@@ -3,7 +3,6 @@ import type { MessageSchema } from './messages'
 /** 中文文案（key 与 messages.ts MessageSchema 一一对应） */
 const zhCN: MessageSchema = {
   'monitor.title': '运行监控',
-  'monitor.subtitle': '运行时指标 · 只读',
   'monitor.live': '实时',
   'monitor.interval': '每 {seconds} 秒刷新',
   'monitor.updated': '更新于 {time}',
@@ -31,7 +30,6 @@ const zhCN: MessageSchema = {
   'monitor.kpi.pluginsUnavailable': '另有 {n} 个未就绪',
   'monitor.kpi.calls': '调用总数',
   'monitor.kpi.inFlight': '在飞调用',
-  'monitor.kpi.inFlightHint': '含本应用自身的指标调用',
   'monitor.kpi.traps': 'Trap 总数',
   'monitor.kpi.memoryPeak': '内存峰值合计',
 
@@ -71,7 +69,6 @@ const zhCN: MessageSchema = {
   'monitor.metric.quotaInstances': '实例数上限',
   'monitor.metric.quotaMemories': '内存数上限',
   'monitor.metric.quotaTables': '表数上限',
-  'monitor.metric.quotaNote': '以上是宿主配额上限，不是实时占用。',
   'monitor.metric.lastEvent': '最近：{event} · {time}',
   'monitor.metric.memoryUsage': '占用上限',
 
@@ -119,17 +116,14 @@ const zhCN: MessageSchema = {
   'monitor.hero.proofUnknown':
     '宿主 wasm 清单不可用，运行状态无法确认；以下只显示指标里的 plugin_id。',
   'monitor.hero.proofStale': '最近一次刷新失败；以下是上一次成功快照，不是当前值。',
-  'monitor.hero.proofMobile': '移动端只读取指标，不提供宿主运行状态。',
   'monitor.signal.title': '调用速率',
   'monitor.signal.perSecond': '次/秒',
   'monitor.signal.window': '本次打开 · 最近 {seconds} 秒',
   'monitor.signal.justStarted': '本次打开 · 刚刚开始',
   'monitor.signal.starting': '正在建立基线',
   'monitor.signal.inFlight': '在飞 {n}',
-  'monitor.signal.note': '速率为相邻两次采样的差值，只保留在本次打开。',
   'monitor.signal.peak': '峰值 {n} 次/秒',
   'monitor.ledger.title': 'wasm',
-  'monitor.ledger.hint': '按状态排序。',
   'monitor.ledger.calls': '{n} 次调用',
   'monitor.ledger.select': '查看 {name} 的指标',
   'monitor.ledger.metricsUnavailable': '指标不可用',
@@ -146,13 +140,8 @@ const zhCN: MessageSchema = {
   'monitor.inspector.noMetricsTitle': '无运行时指标',
   'monitor.inspector.noMetricsHint':
     '该组件已登记在宿主，但尚未实例化或装载失败，因此没有 wasm Store 指标。',
-  'monitor.host.hint': '宿主任务池的只读快照。',
-  'monitor.footer.source': '数据来自 monitor.snapshot · 权限 metrics:read',
-  'monitor.footer.session': '本次打开 · 关闭即失',
 
   'monitor.process.title': '宿主进程（WebView）',
-  'monitor.process.hint':
-    '整机口径：宿主主进程 + WebView 子进程的 OS 账。PSS 是共享页按比例分摊后的真占用，RSS 是上界；wasm 线性内存是宿主进程的一部分，两者不相加。',
   'monitor.process.unavailable':
     '当前宿主未提供 process 段（宿主版本较旧或指标源未装配），此处不显示数字。',
   'monitor.process.notSampled': '宿主已装配 process 段，但本次采样不可用。',
@@ -177,24 +166,18 @@ const zhCN: MessageSchema = {
   'monitor.process.details': '进程明细',
 
   'monitor.overview.title': '平台总览',
-  'monitor.overview.hint': '全部已加载 wasm 的内存与计算负载合计；数字直接来自宿主快照，不做估算。',
   'monitor.overview.memory': 'wasm 内存合计',
   'monitor.overview.memoryUnbounded': '快照未声明内存上限',
   'monitor.overview.peak': '内存峰值合计',
   'monitor.overview.plugins': '{n} 个 wasm 在册',
   'monitor.overview.compute': '计算负载',
-  'monitor.overview.computeHint':
-    '燃料消耗速率（wasm 执行量代理）；宿主进程树的真实内存 / CPU 见「宿主进程（WebView）」面板。',
+  'monitor.overview.fuelPerSecond': '燃料/秒（执行量代理）',
   'monitor.overview.callsRate': '调用速率',
   'monitor.overview.callsNote': '累计 {n} 次调用',
   'monitor.overview.perSecond': '/ 秒',
   'monitor.overview.consumers': '内存占用前三',
-  'monitor.overview.hostGap':
-    '本页只统计 wasm 运行时（线性内存 / 燃料 / 调用）。整机口径——宿主进程树（含 WebView）的真实内存与 CPU——在「宿主进程（WebView）」面板；两边口径不可相加。',
 
   'monitor.alerts.title': '预警',
-  'monitor.alerts.hint':
-    '按阈值监视平台内存、单插件配额、Trap 增量、插件状态与任务池背压；新预警可经宿主投递系统通知。',
   'monitor.alerts.empty': '当前没有越界项。',
   'monitor.alerts.disabled': '预警已关闭（可在下方设置中开启）。',
   'monitor.alerts.recentResolved': '最近解除',

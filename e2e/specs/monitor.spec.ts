@@ -50,7 +50,6 @@ import {
   PROCESS_WEBVIEW,
   PROCESS_WEBVIEW_NOTE,
   SELF_CARD,
-  SELF_QUOTA_NOTE,
   SELF_QUOTA_TOGGLE,
   SELF_ROLE,
   SYS_ENTRY_NAMES,
@@ -166,7 +165,7 @@ describe('Monitor（桌面端 · 宿主内挂载）', () => {
     await waitFor(SELF_CARD)
   })
 
-  it('配额详情默认可展开，展开后标注「上限不是实时占用」，且不顶动左侧宿主段', async () => {
+  it('配额详情默认可展开，且不顶动左侧宿主段', async () => {
     await waitFor(SELF_CARD)
     expectEqual(await exists(SELF_QUOTA_TOGGLE), true, '配额折叠头在场')
 
@@ -182,13 +181,8 @@ describe('Monitor（桌面端 · 宿主内挂载）', () => {
     expectEqual(typeof hostTopBefore, 'number', '宿主维度段有布局盒')
 
     await click(SELF_QUOTA_TOGGLE)
-    await waitFor(SELF_QUOTA_NOTE)
+    await waitForAttr(quota, 'open', '')
     expectEqual(await attr(quota, 'open'), '', '展开后 details open')
-    expectInSet(
-      await text(SELF_QUOTA_NOTE),
-      ['以上是宿主配额上限，不是实时占用。', 'These are host quota limits, not live usage.'],
-      '配额说明是诚实边界',
-    )
     expectEqual(await pageTop('monitor-system-list'), hostTopBefore, '展开配额后左侧宿主段位置不变')
     // 收起，避免保活实例把展开态带给后续用例
     await click(SELF_QUOTA_TOGGLE)

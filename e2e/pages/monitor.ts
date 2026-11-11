@@ -20,7 +20,6 @@ export const MONITOR_PLUGIN_ID = 'com.wasmnest.monitor'
 /** 本应用在快照里的插件卡 */
 export const SELF_CARD = `monitor-plugin-${MONITOR_PLUGIN_ID}`
 export const SELF_QUOTA_TOGGLE = `monitor-quota-toggle-${MONITOR_PLUGIN_ID}`
-export const SELF_QUOTA_NOTE = `monitor-quota-note-${MONITOR_PLUGIN_ID}`
 
 /** 角色过滤（全部 / 服务 / 应用） */
 export const FILTER_ALL = 'monitor-filter-all'

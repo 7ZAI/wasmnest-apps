@@ -89,13 +89,8 @@ const consumerBase = computed(() =>
 
       <div class="mn-overview-card" data-testid="monitor-overview-compute">
         <span class="mn-overview-label">{{ t('monitor.overview.compute') }}</span>
-        <span class="mn-overview-value">
-          {{ formatRate(props.totals.fuelPerSecond) }}
-          <span v-if="props.totals.fuelPerSecond !== null" class="mn-overview-unit">
-            {{ t('monitor.overview.perSecond') }}
-          </span>
-        </span>
-        <span class="mn-overview-note">{{ t('monitor.overview.computeHint') }}</span>
+        <span class="mn-overview-value">{{ formatRate(props.totals.fuelPerSecond) }}</span>
+        <span class="mn-overview-note">{{ t('monitor.overview.fuelPerSecond') }}</span>
       </div>
 
       <div class="mn-overview-card" data-testid="monitor-overview-calls">
@@ -136,9 +131,5 @@ const consumerBase = computed(() =>
         </li>
       </ol>
     </div>
-
-    <p class="mn-overview-gap" data-testid="monitor-overview-host-gap">
-      {{ t('monitor.overview.hostGap') }}
-    </p>
   </section>
 </template>
