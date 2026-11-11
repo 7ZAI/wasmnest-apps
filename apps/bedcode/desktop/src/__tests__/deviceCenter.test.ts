@@ -44,7 +44,11 @@ vi.mock('vue-sonner', () => ({
 }))
 
 vi.mock('qrcode', () => ({
-  default: { toCanvas: vi.fn(async () => {}) },
+  default: {
+    toCanvas: vi.fn(async () => {}),
+    // 组件按真实矩阵尺寸选画布规格：给出 v2 典型模块数（85）
+    create: vi.fn(() => ({ modules: { size: 85 } })),
+  },
 }))
 
 const routerPush = vi.hoisted(() => vi.fn(async () => {}))
@@ -264,6 +268,25 @@ describe('DeviceCenterView（设备与配对页面）', () => {
       port: seed.qr.port,
       token: seed.qr.token,
     })
+  })
+
+  it('C5h 画布按**实际模块数**定尺寸（扫码识别回归锁：固定 192px 时每模块只剩 ~2.2px）', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+
+    await findButton(wrapper, 'pairing.qr.generate')!.trigger('click')
+    await flushPromises()
+
+    const QRCode = (await import('qrcode')).default
+    const options = (QRCode.toCanvas as any).mock.calls.at(-1)[2]
+    const totalModules = 85 + options.margin * 2
+    // 每模块 ≥ 4 CSS px（测试环境 DPR = 1，设备像素与 CSS 像素同值）
+    expect(options.width / totalModules).toBeGreaterThanOrEqual(4)
+    // 模块边界落在整像素上（非整数比例会把模块画成粗细交替的条纹）
+    expect(options.width % totalModules).toBe(0)
+    // CSS 尺寸按 DPR 还原，不直接沿用设备像素值（DPR > 1 时会被浏览器插值放大）
+    const canvas = wrapper.find('canvas').element as HTMLCanvasElement
+    expect(canvas.style.width).toBe(`${options.width}px`)
   })
 
   it('C5b 已有活跃 QR：进入页面恢复展示（不重新生成 token）', async () => {

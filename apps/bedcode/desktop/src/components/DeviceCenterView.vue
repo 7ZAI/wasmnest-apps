@@ -629,6 +629,12 @@ import QRCode from 'qrcode'
 import Select from '@binblink/wasmnest-plugin-sdk-desktop/ui'
 import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-desktop'
 import { sharedRouter } from '../utils/route'
+import {
+  planQrCanvas,
+  qrMatrix,
+  QR_ERROR_CORRECTION,
+  QR_QUIET_ZONE_MODULES,
+} from '../utils/qrRender'
 import PluginModal from './PluginModal.vue'
 import { useDeviceCenter } from '../composables/useDeviceCenter'
 import { useTunnelStatus } from '../composables/useTunnelStatus'
@@ -807,11 +813,19 @@ async function renderQrCanvas() {
   const canvas = qrCanvasRef.value
   if (!payload || !canvas) return
   try {
+    // 画布尺寸必须按**实际模块数**算：v2 载荷（LAN + relay 地址）是 85~93 模块，
+    // 固定 192px 只剩 ~2.2px/模块，手机相机扫不出（见 utils/qrRender.ts 头注）。
+    const plan = planQrCanvas(qrMatrix(payload).size, window.devicePixelRatio)
     await QRCode.toCanvas(canvas, payload, {
-      width: 192,
-      margin: 2,
+      width: plan.size,
+      margin: QR_QUIET_ZONE_MODULES,
+      errorCorrectionLevel: QR_ERROR_CORRECTION,
       color: { dark: '#000000', light: '#ffffff' },
     })
+    // `qrcode` 把 canvas 的 CSS 尺寸设成设备像素值：DPR > 1 时浏览器会把画布
+    // 放大插值，模块边缘糊掉。按 DPR 还原逻辑尺寸，才是 1 设备像素对 1 物理像素。
+    canvas.style.width = `${plan.cssSize}px`
+    canvas.style.height = `${plan.cssSize}px`
   } catch (e) {
     console.error('[Device Center] render qr canvas failed:', e)
   }

@@ -2,33 +2,49 @@
   <div class="h-full w-full flex flex-col pt-2" style="background: var(--mobile-bg-primary)">
     <!-- 相机预览（扫描整合进连接页：取景器占满内容区，停止扫描由父页「二维码连接」按钮切换） -->
     <div class="relative flex-1 min-h-[52vh] rounded-xl overflow-hidden" style="background: #000">
-      <div :id="readerId" ref="readerRef" class="w-full h-full"></div>
+      <div :id="readerId" ref="readerRef" class="qr-reader w-full h-full"></div>
 
       <!-- 取景器遮罩 + 定位框（框外压暗，框内透明） -->
       <template v-if="!errorMessage">
-        <!-- 四块压暗遮罩：中间留出 256px 取景窗口 -->
+        <!-- 四块压暗遮罩：中间留出取景框（尺寸随预览可见区自适应，与解码区域同一中心） -->
         <div class="absolute inset-0 pointer-events-none">
           <div
             class="absolute top-0 left-0 right-0"
-            style="height: calc(50% - 8rem); background: rgba(0, 0, 0, 0.6)"
+            :style="{
+              height: `max(0px, calc(50% - ${frameSize / 2}px))`,
+              background: 'rgba(0, 0, 0, 0.6)',
+            }"
           ></div>
           <div
             class="absolute bottom-0 left-0 right-0"
-            style="height: calc(50% - 8rem); background: rgba(0, 0, 0, 0.6)"
+            :style="{
+              height: `max(0px, calc(50% - ${frameSize / 2}px))`,
+              background: 'rgba(0, 0, 0, 0.6)',
+            }"
           ></div>
           <div
             class="absolute left-0"
-            style="top: calc(50% - 8rem); bottom: calc(50% - 8rem); width: calc(50% - 8rem); background: rgba(0, 0, 0, 0.6)"
+            :style="{
+              top: `calc(50% - ${frameSize / 2}px)`,
+              bottom: `calc(50% - ${frameSize / 2}px)`,
+              width: `max(0px, calc(50% - ${frameSize / 2}px))`,
+              background: 'rgba(0, 0, 0, 0.6)',
+            }"
           ></div>
           <div
             class="absolute right-0"
-            style="top: calc(50% - 8rem); bottom: calc(50% - 8rem); width: calc(50% - 8rem); background: rgba(0, 0, 0, 0.6)"
+            :style="{
+              top: `calc(50% - ${frameSize / 2}px)`,
+              bottom: `calc(50% - ${frameSize / 2}px)`,
+              width: `max(0px, calc(50% - ${frameSize / 2}px))`,
+              background: 'rgba(0, 0, 0, 0.6)',
+            }"
           ></div>
         </div>
 
         <!-- 定位框 + 扫描线 + 提示文案（框下紧贴，消除大段留白） -->
         <div class="absolute inset-0 pointer-events-none flex flex-col items-center justify-center">
-          <div class="w-64 h-64 relative">
+          <div class="relative" :style="{ width: `${frameSize}px`, height: `${frameSize}px` }">
             <div
               class="absolute -top-1 -left-1 w-8 h-8 rounded-tl-lg"
               style="border-top: 4px solid var(--mobile-accent); border-left: 4px solid var(--mobile-accent)"
@@ -163,6 +179,7 @@ import { onMounted, onUnmounted, ref } from 'vue'
 import { Html5Qrcode } from 'html5-qrcode'
 import { useHostPage } from '../useHostPage'
 import { parseQrText, type QrPayload } from '../qr'
+import { scanFrameSize } from '../scanViewport'
 
 const emit = defineEmits<{
   close: []
@@ -184,6 +201,9 @@ const albumInputRef = ref<HTMLInputElement | null>(null)
 /** 错误槽位（i18n key，渲染一律 t()）；空串 = 无错误 */
 const errorMessage = ref('')
 const isCameraError = ref(false)
+
+/** 取景框边长（CSS px）：相机就绪后按预览可见区测量，见 `../scanViewport` */
+const frameSize = ref(scanFrameSize(0, 0, 0))
 
 // 手电筒状态（部分设备不支持，启动失败时禁用按钮）
 const torchOn = ref(false)
@@ -237,7 +257,9 @@ async function startScanner() {
       { facingMode: 'environment' },
       {
         fps: 10,
-        qrbox: { width: 250, height: 250 },
+        // 不传 `qrbox`：解码区域 = 整个预览区。传了 qrbox 时解码画布只有框那么大的
+        // CSS 像素（与相机分辨率无关），v2 载荷 85+ 模块每模块不足 3px，而且
+        // `qrbox` 相对 video 元素居中、可见框相对容器居中，两者错位时码会被裁掉。
       },
       (text) => {
         void handleQrScan(text)
@@ -246,11 +268,29 @@ async function startScanner() {
         // 逐帧未识别：属正常扫描过程，不记日志（热路径克制）
       },
     )
+    measureFrame()
   } catch (e) {
     logger.error(`[host] qr camera start failed: ${e instanceof Error ? e.message : e}`)
     isCameraError.value = true
     errorMessage.value = 'hub.scanCameraFailed'
   }
+}
+
+/** 底部工具栏高度预留（CSS px）：手电筒 / 相册按钮压在最下沿，取景框与提示文案要让开 */
+const SCAN_TOOLBAR_RESERVE = 96
+
+/**
+ * 按预览可见区重算取景框（相机就绪后才能知道 video 的 CSS 尺寸）。
+ *
+ * 取景框只是给用户的对位提示，解码覆盖整个预览；但用户会把码卡进框里，
+ * 框越大 = 二维码在相机画面里占的像素越多 = 每模块分辨率越高。
+ */
+function measureFrame() {
+  const reader = readerRef.value
+  const video = reader?.querySelector('video')
+  if (!reader || !video) return
+  const usableHeight = Math.max(0, reader.clientHeight - SCAN_TOOLBAR_RESERVE)
+  frameSize.value = scanFrameSize(video.clientWidth, video.clientHeight, usableHeight)
 }
 
 // ==================== 工具栏：手电筒 ====================
@@ -315,6 +355,15 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+/* 预览垂直居中：html5-qrcode 只给 video 设宽度（= 容器宽），高度由画面比例决定。
+   竖屏画面通常比容器高、横屏画面比容器矮；居中后预览与取景框共用同一中心，
+   不会出现「框在中间、画面贴在上沿」的错位。 */
+.qr-reader {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
 /* 扫描线动画：取景框内自上而下循环（2s） */
 .scan-line {
   position: absolute;
