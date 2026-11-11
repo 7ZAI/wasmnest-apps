@@ -499,6 +499,10 @@
   display: grid;
   /* 默认单栏（队列收起，文件表格全宽）；展开队列时第二列由 --ft-queue-w 展开到 360px */
   grid-template-columns: minmax(0, 1fr) var(--ft-queue-w);
+  /* 行高必须钉成「容器剩余高度」：隐式 auto 行会按内容长高，远端目录超过一屏时
+     表格被撑到内容高度（.ft-table-wrap 自身不再溢出 ⇒ 没有滚动条），超出部分
+     被 .ft-view 的 overflow:hidden 裁掉，表现就是「看不到后面的文件、也滚不动」 */
+  grid-template-rows: minmax(0, 1fr);
   transition: --ft-queue-w 0.28s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
@@ -508,6 +512,12 @@
 
 .ft-browse {
   min-width: 0;
+  /* 撑满可用高度：作为 .page-swap 的普通子块靠 height 100%（网格行已定高），
+     作为父 .ft-browse 的 flex 子项靠 flex:1（组件根与视图各有一层 .ft-browse）。
+     只留 overflow:hidden 不撑高时，内部表格按内容长高，滚动条永远不会出现 */
+  height: 100%;
+  min-height: 0;
+  flex: 1;
   display: flex;
   flex-direction: column;
   overflow: hidden;
