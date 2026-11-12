@@ -23,8 +23,9 @@ import { useReceiving } from '../composables/useReceiving'
 import { useRemoteFs } from '../composables/useRemoteFs'
 import { useSettings } from '../composables/useSettings'
 import { usePeerDevices } from '../composables/usePeerDevices'
-import { hasRelayCandidate } from '../composables/deviceState'
+import { hasRelayCandidate, type RelayCardAction } from '../composables/deviceState'
 import { prepareDeviceSend } from '../composables/sendToDevice'
+import { useRelayStatus } from '../composables/useRelayStatus'
 import { useBatchPrompt } from '../composables/useBatchPrompt'
 import { toast } from 'vue-sonner'
 
@@ -36,6 +37,7 @@ const {
   peers,
   peer,
   connectedIds,
+  relayDiscovery,
   connect: connectDevice,
   addRemotePeer,
   removeRemotePeer,
@@ -86,6 +88,9 @@ const {
   setAllowWan,
   setRelayMaxBytes,
 } = useSettings(context)
+/** 跨网状态卡（P0-2）：relay 现状 + 宿主发现 envelope */
+const { card: relayCard, load: loadRelayStatus } = useRelayStatus(context, relayDiscovery)
+
 /** 插件自身对等连接：存在任一已建立的对等连接（≠ 宿主主连接） */
 const peerConnected = computed(() => connectedIds.value.size > 0)
 
@@ -200,6 +205,7 @@ function handleAddRemote(link: Parameters<typeof addRemotePeer>[0]): void {
 async function handleInviteJoined(invite: ConnectionInvite): Promise<void> {
   showAddRemote.value = false
   await refreshDevices()
+  await loadRelayStatus()
   const name = invite.name || t('transfer.invite.unnamed')
   toast.success(t('transfer.invite.joined', { name }))
 }
@@ -279,7 +285,34 @@ function cancelRelaySend(): void {
 
 /** 顶栏刷新：任务 + 当前目录层级 + 设备缓存清扫 */
 async function handleRefresh(): Promise<void> {
-  await Promise.all([refreshTasks(), fs.refresh(), refreshDevices()])
+  await Promise.all([refreshTasks(), fs.refresh(), refreshDevices(), loadRelayStatus()])
+}
+
+/** 状态卡操作：统一在本层落入口（弹层 / 跳转 / 重扫） */
+function handleRelayAction(action: RelayCardAction): void {
+  switch (action) {
+    case 'paste-invite':
+      showAddRemote.value = true
+      break
+    case 'generate-invite':
+      showMyDevice.value = true
+      break
+    case 'refresh':
+      void handleScanDevices()
+      break
+    case 'open-center': {
+      const nav = context as PluginContext & { navigate?: (path: string) => boolean }
+      if (typeof nav.navigate !== 'function' || !nav.navigate('/network')) {
+        toast.error(t('transfer.relayCard.openCenterUnavailable'))
+      }
+      break
+    }
+    case 'open-settings':
+      showSettings.value = true
+      break
+    default:
+      break
+  }
 }
 
 /** 发送到手机：系统多文件选择器直发活跃对端（失败 → 友好 toast，原文只进日志） */
@@ -467,6 +500,7 @@ function handleClearHistoryConfirm(): void {
             v-if="devPanelOpen"
             :rows="deviceRows"
             :scanning="deviceScanning"
+            :relay-card="relayCard"
             data-testid="ft-peer-panel"
             @connect="handleConnectDevice"
             @retry-wan="handleRetryWan"
@@ -477,6 +511,7 @@ function handleClearHistoryConfirm(): void {
             @my-device="showMyDevice = true"
             @remove-remote="handleRemoveRemote"
             @send="handleSendToDevice"
+            @relay-action="handleRelayAction"
             @scan="handleScanDevices"
           />
         </Transition>

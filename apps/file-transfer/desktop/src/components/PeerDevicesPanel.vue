@@ -9,7 +9,12 @@
  */
 import { inject } from 'vue'
 import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-desktop'
-import type { DeviceRow, DialFailureCode } from '../composables/deviceState'
+import type {
+  DeviceRow,
+  DialFailureCode,
+  RelayCardAction,
+  RelayCardModel,
+} from '../composables/deviceState'
 
 const context = inject<PluginContext>('pluginContext')!
 const t = (key: string, params?: Record<string, any>) => context.i18n.t(key, params)
@@ -18,6 +23,8 @@ const props = defineProps<{
   rows: DeviceRow[]
   /** 探索发现进行中（扫描按钮转 spinner、防重复点击） */
   scanning?: boolean
+  /** 跨网状态卡模型（P0-2；父级经 deriveRelayCard 产出） */
+  relayCard?: RelayCardModel | null
 }>()
 
 const emit = defineEmits<{
@@ -38,6 +45,8 @@ const emit = defineEmits<{
   send: [nodeId: string]
   /** 探索发现：重新扫描同网节点（父组件负责调 query-peer 并维护 scanning 态） */
   scan: []
+  /** 状态卡操作（粘贴邀请 / 生成邀请 / 刷新 / 打开中心或设置） */
+  relayAction: [action: RelayCardAction]
 }>()
 
 /** 拨号失败分类 → 文案 key（未识别原样展示原文，不猜成因） */
@@ -49,6 +58,16 @@ const DIAL_ERROR_KEYS: Record<DialFailureCode, string> = {
   'lan-unreachable': 'transfer.devices.unreachable',
   timeout: 'transfer.devices.errorTimeout',
   unknown: 'transfer.devices.errorUnknown',
+}
+
+/** 状态卡操作 → 文案 key（none 不渲染） */
+const RELAY_ACTION_KEYS: Record<RelayCardAction, string> = {
+  'paste-invite': 'transfer.relayCard.actionPaste',
+  'generate-invite': 'transfer.relayCard.actionInvite',
+  refresh: 'transfer.relayCard.actionRefresh',
+  'open-center': 'transfer.relayCard.actionCenter',
+  'open-settings': 'transfer.relayCard.actionSettings',
+  none: '',
 }
 
 /** 行内错误文案（unknown 带原文，其余只给分类文案） */
@@ -147,6 +166,58 @@ function dotClass(row: DeviceRow): string {
       >
         + {{ t('transfer.devices.addRemote') }}
       </button>
+    </div>
+
+    <!-- 跨网状态卡（P0-2）：任何状态都有一个明确下一步 -->
+    <div
+      v-if="props.relayCard"
+      class="ft-relay-card"
+      :class="`ft-relay-card--${props.relayCard.tone}`"
+      data-testid="ft-relay-card"
+    >
+      <div class="ft-relay-card-head">
+        <span class="ft-relay-card-title" data-testid="ft-relay-card-title">
+          {{ t(props.relayCard.title) }}
+        </span>
+        <span
+          v-if="props.relayCard.count > 0"
+          class="ft-relay-card-count"
+          data-testid="ft-relay-card-count"
+        >
+          {{ props.relayCard.count }}
+        </span>
+      </div>
+      <p class="ft-relay-card-body" data-testid="ft-relay-card-body">
+        {{ t(props.relayCard.body, props.relayCard.params) }}
+      </p>
+      <p v-if="props.relayCard.stale" class="ft-relay-card-stale" data-testid="ft-relay-card-stale">
+        {{ t('transfer.relayCard.stale') }}
+      </p>
+      <p
+        v-if="props.relayCard.roomHint"
+        class="ft-relay-card-hint"
+        data-testid="ft-relay-card-room-hint"
+      >
+        {{ t('transfer.relayCard.roomHint') }}
+      </p>
+      <div class="ft-relay-card-actions">
+        <button
+          v-if="props.relayCard.primary !== 'none'"
+          class="ft-text-btn ft-text-btn--primary"
+          data-testid="ft-relay-card-primary"
+          @click="emit('relayAction', props.relayCard.primary)"
+        >
+          {{ t(RELAY_ACTION_KEYS[props.relayCard.primary]) }}
+        </button>
+        <button
+          v-if="props.relayCard.secondary !== 'none'"
+          class="ft-text-btn"
+          data-testid="ft-relay-card-secondary"
+          @click="emit('relayAction', props.relayCard.secondary)"
+        >
+          {{ t(RELAY_ACTION_KEYS[props.relayCard.secondary]) }}
+        </button>
+      </div>
     </div>
 
     <!-- 空态：发现缓存无节点 -->
@@ -309,6 +380,58 @@ function dotClass(row: DeviceRow): string {
 </template>
 
 <style scoped>
+.ft-relay-card {
+  margin: 8px 0 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border-color, #3a3f47);
+  background: var(--surface-secondary, rgba(255, 255, 255, 0.03));
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ft-relay-card--progress {
+  border-color: rgba(120, 170, 255, 0.45);
+}
+.ft-relay-card--warn {
+  border-color: rgba(255, 190, 90, 0.5);
+}
+.ft-relay-card--ok {
+  border-color: rgba(90, 200, 140, 0.5);
+}
+.ft-relay-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ft-relay-card-title {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+.ft-relay-card-count {
+  margin-left: auto;
+  font-size: 0.78rem;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: rgba(90, 200, 140, 0.18);
+}
+.ft-relay-card-body,
+.ft-relay-card-stale,
+.ft-relay-card-hint {
+  margin: 0;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  color: var(--text-secondary, #a4a9b3);
+}
+.ft-relay-card-stale {
+  color: var(--warning, #e5b567);
+}
+.ft-relay-card-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 /* 头部新增「我的设备」后共三个动作；窄面板允许换行，不挤掉标题 */
 .ft-dev-head {
   flex-wrap: wrap;

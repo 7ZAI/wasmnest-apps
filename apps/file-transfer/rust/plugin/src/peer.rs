@@ -1860,6 +1860,8 @@ pub(crate) fn get_my_device(h: &WasmHost) -> Result<serde_json::Value> {
         "reason": serde_json::Value::Null,
         "capabilities": host_capabilities(),
         "relayAddrs": relay.addrs,
+        // 本机缓存原文（与生效地址分开）：中心优先时界面仍可判断「邀请被中心覆盖」
+        "relayCacheAddrs": s.relay_addrs,
         "relayRoom": s.relay_room,
         "relayOrigin": s.relay_origin,
         "relaySource": relay.source.as_str(),

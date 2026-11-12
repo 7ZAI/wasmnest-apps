@@ -262,6 +262,38 @@ export type MessageSchema = {
   'transfer.myDevice.relayUnsupported': string
   'transfer.myDevice.refresh': string
   'transfer.myDevice.close': string
+  'transfer.relayCard.conflict.title': string
+  'transfer.relayCard.conflict.body': string
+  'transfer.relayCard.unconfigured.title': string
+  'transfer.relayCard.unconfigured.body': string
+  'transfer.relayCard.connecting.title': string
+  'transfer.relayCard.connecting.body': string
+  'transfer.relayCard.lost.title': string
+  'transfer.relayCard.lost.body': string
+  'transfer.relayCard.disabled.title': string
+  'transfer.relayCard.disabled.body': string
+  'transfer.relayCard.unsupported.title': string
+  'transfer.relayCard.unsupported.body': string
+  'transfer.relayCard.denied.title': string
+  'transfer.relayCard.denied.body': string
+  'transfer.relayCard.error.title': string
+  'transfer.relayCard.error.body': string
+  'transfer.relayCard.unavailable.title': string
+  'transfer.relayCard.unavailable.body': string
+  'transfer.relayCard.readyEmpty.title': string
+  'transfer.relayCard.readyEmpty.body': string
+  'transfer.relayCard.ready.title': string
+  'transfer.relayCard.ready.body': string
+  'transfer.relayCard.pending.title': string
+  'transfer.relayCard.pending.body': string
+  'transfer.relayCard.roomHint': string
+  'transfer.relayCard.stale': string
+  'transfer.relayCard.actionPaste': string
+  'transfer.relayCard.actionInvite': string
+  'transfer.relayCard.actionRefresh': string
+  'transfer.relayCard.actionCenter': string
+  'transfer.relayCard.actionSettings': string
+  'transfer.relayCard.openCenterUnavailable': string
   'transfer.invite.title': string
   'transfer.invite.hint': string
   'transfer.invite.generate': string
