@@ -15,11 +15,16 @@
   "rustLibrary": "wasmnest_plugin_assistant",
   "permissions": [
     "apps:control",
+    "network:http",
     "storage",
     "ui:globalEntry"
   ],
   "contributes": {
     "commands": [
+      {
+        "id": "assistant.chat-stream",
+        "title": "Assistant: Chat Stream"
+      },
       {
         "id": "assistant.ping",
         "title": "Assistant: Ping"
@@ -39,6 +44,18 @@
       {
         "id": "assistant.vault-lock",
         "title": "Assistant: Vault Lock"
+      },
+      {
+        "id": "assistant.vault-delete-secret",
+        "title": "Assistant: Vault Delete Secret"
+      },
+      {
+        "id": "assistant.vault-get-secret",
+        "title": "Assistant: Vault Get Secret"
+      },
+      {
+        "id": "assistant.vault-set-secret",
+        "title": "Assistant: Vault Set Secret"
       },
       {
         "id": "assistant.vault-change-password",
@@ -71,6 +88,10 @@
       {
         "id": "assistant.providers-set-default",
         "title": "Assistant: Providers Set Default"
+      },
+      {
+        "id": "assistant.providers-delete",
+        "title": "Assistant: Providers Delete"
       },
       {
         "id": "assistant.settings-get",

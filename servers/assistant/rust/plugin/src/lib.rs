@@ -1,7 +1,11 @@
-//! Nest 助手插件（WASM，双端同构共享 crate · 票 07 数据底座）
+//! Nest 助手插件（WASM，双端同构共享 crate · 票 08 对话主链路）
 //!
-//! 命令面（spec 附录 A + 票 07）：
+//! 命令面（spec 附录 A + 票 07/08）：
 //! - 保险库：`assistant.vault-status / init / unlock / lock / change-password`
+//! - 保险库密钥槽：`assistant.vault-set-secret / get-secret / delete-secret`（票 08，
+//!   密钥明文只经解锁后的会话密钥解密，落库为 AEAD 密文）
+//! - 对话流：`assistant.chat-stream`（票 08：校验 streamEvent 与 streamId 精确
+//!   匹配后 raw 流式透传宿主，方言知识在前端共享核）
 //! - 记忆：`assistant.memory-list / upsert / delete`
 //! - 审计：`assistant.audit-list`
 //! - 供应商：`assistant.providers-list / upsert / set-default`
@@ -28,6 +32,7 @@ use wasmnest_plugin_api::types::PluginManifest;
 use wasmnest_plugin_api::{WasmHost, WasmPlugin};
 
 mod audit;
+mod chat;
 mod export;
 mod store;
 mod vault;
@@ -82,6 +87,16 @@ impl WasmPlugin for AssistantPlugin {
             "assistant.vault-lock" => cmd_vault_lock(),
             #[cfg(target_arch = "wasm32")]
             "assistant.vault-change-password" => cmd_vault_change_password(&args),
+            #[cfg(target_arch = "wasm32")]
+            "assistant.vault-set-secret" => cmd_vault_set_secret(&args),
+            #[cfg(target_arch = "wasm32")]
+            "assistant.vault-get-secret" => cmd_vault_get_secret(&args),
+            #[cfg(target_arch = "wasm32")]
+            "assistant.vault-delete-secret" => cmd_vault_delete_secret(&args),
+
+            // ==================== 对话流（票 08） ====================
+            #[cfg(target_arch = "wasm32")]
+            "assistant.chat-stream" => chat::chat_stream(&args),
 
             // ==================== 记忆 ====================
             #[cfg(target_arch = "wasm32")]
@@ -102,6 +117,8 @@ impl WasmPlugin for AssistantPlugin {
             "assistant.providers-upsert" => cmd_providers_upsert(&args),
             #[cfg(target_arch = "wasm32")]
             "assistant.providers-set-default" => cmd_providers_set_default(&args),
+            #[cfg(target_arch = "wasm32")]
+            "assistant.providers-delete" => cmd_providers_delete(&args),
 
             // ==================== 设置 ====================
             #[cfg(target_arch = "wasm32")]
@@ -246,6 +263,53 @@ fn cmd_vault_change_password(args: &Value) -> Result<Value, String> {
     Ok(json!({ "ok": true, "unlocked": true }))
 }
 
+// ==================== 保险库密钥槽命令（票 08 · wasm） ====================
+
+/// 密钥槽 AAD 域（与消息 / 记忆区分，密文不跨域互通）
+#[cfg(target_arch = "wasm32")]
+fn secret_aad(key: &str) -> Vec<u8> {
+    vault::content_aad("secret", key)
+}
+
+#[cfg(target_arch = "wasm32")]
+fn cmd_vault_set_secret(args: &Value) -> Result<Value, String> {
+    let store = &WasmHost as &dyn Store;
+    let key = vault::session_key()?; // 未解锁显性报错
+    let name = arg_str(args, "key")?;
+    let value = arg_str(args, "value")?;
+    let nonce = arg_str(args, "nonce")?;
+    let ts = arg_opt_str(args, "ts").unwrap_or_else(|| "0".to_string());
+    let value_enc = vault::encrypt(&key, &nonce, value.as_bytes(), &secret_aad(&name))?;
+    store.put_secret(&crate::store::Secret {
+        key: name.clone(),
+        value_enc,
+        nonce,
+        updated_at: ts,
+    })?;
+    Ok(json!({ "ok": true, "key": name }))
+}
+
+#[cfg(target_arch = "wasm32")]
+fn cmd_vault_get_secret(args: &Value) -> Result<Value, String> {
+    let store = &WasmHost as &dyn Store;
+    let key = vault::session_key()?; // 未解锁显性报错
+    let name = arg_str(args, "key")?;
+    let sec = store
+        .get_secret(&name)?
+        .ok_or_else(|| format!("密钥槽不存在: {name}"))?;
+    let aad = secret_aad(&name);
+    let value = hex::encode(vault::decrypt(&key, &sec.value_enc, &aad)?);
+    Ok(json!({ "key": name, "value": value }))
+}
+
+#[cfg(target_arch = "wasm32")]
+fn cmd_vault_delete_secret(args: &Value) -> Result<Value, String> {
+    let store = &WasmHost as &dyn Store;
+    let name = arg_str(args, "key")?;
+    let deleted = store.delete_secret(&name)?;
+    Ok(json!({ "ok": true, "key": name, "deleted": deleted }))
+}
+
 // ==================== 记忆命令（wasm） ====================
 
 #[cfg(target_arch = "wasm32")]
@@ -361,6 +425,14 @@ fn cmd_providers_set_default(args: &Value) -> Result<Value, String> {
     let id = arg_str(args, "id")?;
     store.set_default_provider(&id)?;
     Ok(json!({ "ok": true, "id": id }))
+}
+
+#[cfg(target_arch = "wasm32")]
+fn cmd_providers_delete(args: &Value) -> Result<Value, String> {
+    let store = &WasmHost as &dyn Store;
+    let id = arg_str(args, "id")?;
+    let deleted = store.delete_provider(&id)?;
+    Ok(json!({ "ok": true, "id": id, "deleted": deleted }))
 }
 
 // ==================== 设置命令（wasm） ====================

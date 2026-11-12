@@ -33,6 +33,40 @@ const zhCN: MessageSchema = {
   'assistant.vault.newPassword': '新口令',
   'assistant.vault.passwordTooShort': '口令至少 4 位',
   'assistant.vault.passwordMismatch': '两次输入的口令不一致',
+
+  // ==================== 对话主链路（票 08） ====================
+  'assistant.chat.empty': 'Nest 是系统助手，不是人。说点什么开始，或先去设置配置供应商。',
+  'assistant.chat.placeholder': '说点什么…',
+  'assistant.chat.send': '发送',
+  'assistant.chat.stop': '停止',
+  'assistant.chat.retry': '重试',
+  'assistant.chat.thinking': '思考中',
+  'assistant.chat.error': '请求失败',
+  'assistant.chat.stopped': '已停止生成',
+  'assistant.chat.newConversation': '新会话',
+
+  // ==================== 设置（票 08） ====================
+  'assistant.settings.title': '设置',
+  'assistant.settings.close': '关闭',
+  'assistant.settings.providers': '模型供应商',
+  'assistant.settings.addProvider': '添加供应商',
+  'assistant.settings.editProvider': '编辑供应商',
+  'assistant.settings.edit': '编辑',
+  'assistant.settings.delete': '删除',
+  'assistant.settings.save': '保存',
+  'assistant.settings.cancel': '取消',
+  'assistant.settings.name': '名称',
+  'assistant.settings.baseUrl': '接口地址（base URL）',
+  'assistant.settings.model': '模型',
+  'assistant.settings.apiKey': 'API 密钥',
+  'assistant.settings.keySet': '已设密钥',
+  'assistant.settings.keyMissing': '未设密钥',
+  'assistant.settings.keyLeaveBlank': '留空则不修改',
+  'assistant.settings.setDefault': '设为默认',
+  'assistant.settings.default': '默认',
+  'assistant.settings.noProviders': '还没有供应商，添加一个后才能对话。',
+  'assistant.settings.fieldsRequired': '名称、接口地址与模型都不能为空',
+  'assistant.settings.privacyHint': '会话内容会发送给你选择的供应商；密钥只存本地保险库，不会上传。',
 }
 
 export default zhCN

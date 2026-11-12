@@ -93,3 +93,158 @@ export type AssistantInvoke = <T = unknown>(
   command: string,
   args?: Record<string, unknown>,
 ) => Promise<T>
+
+// ==================== 票 08：对话主链路 ====================
+
+/** 对话流式命令（前端构建 provider 请求 → Rust 校验透传 → 宿主流式推送） */
+export const ASSISTANT_CHAT_STREAM_COMMAND = 'assistant.chat-stream'
+
+/** 流事件通道前缀（与 Rust chat.rs STREAM_EVENT_PREFIX 同值，双端一致） */
+export const ASSISTANT_STREAM_EVENT_PREFIX = 'assistant:stream:'
+
+/** 由 streamId 派生流事件通道名 */
+export function assistantStreamEvent(streamId: string): string {
+  return `${ASSISTANT_STREAM_EVENT_PREFIX}${streamId}`
+}
+
+/** 生成 streamId（crypto.getRandomValues 为唯一随机源，与 vault 同口径） */
+export function newStreamId(): string {
+  const arr = new Uint8Array(12)
+  crypto.getRandomValues(arr)
+  let out = ''
+  for (const b of arr) out += b.toString(16).padStart(2, '0')
+  return out
+}
+
+/**
+ * 流式 HTTP 请求载荷（`host.http_fetch` raw 模式，spec §3.2 / §5.2）
+ *
+ * 方言知识（OpenAI 兼容等）在 `shared/providers/`，本形状是宿主契约，
+ * Rust 侧只校验 method / url / stream / streamEvent。
+ */
+export interface ChatStreamRequest {
+  method: string
+  url: string
+  headers?: Record<string, string>
+  body?: string
+  stream: true
+  /** 必须等于 `assistant:stream:<streamId>`（Rust 精确匹配校验） */
+  streamEvent: string
+}
+
+/** `assistant.chat-stream` 命令入参 */
+export interface ChatStreamInput {
+  streamId: string
+  request: ChatStreamRequest
+}
+
+/** 宿主流式受理结果（宿主铸造 streamId 并回显事件通道名） */
+export interface ChatStreamAccepted {
+  streamId: string
+  streamEvent: string
+}
+
+/**
+ * 宿主流事件载荷（宿主 http 流式契约，egress.rs execute_streaming_http）
+ *
+ * - `{ chunk, done: false }`：raw 字节块（UTF-8 文本，消费侧自行切分 SSE）
+ * - `{ done: true }`：流正常终止
+ * - `{ error, done: true }`：流失败（非 2xx / 连接中断等）
+ */
+export type ChatStreamEventPayload =
+  | { chunk: string; done: false }
+  | { done: true; error?: undefined }
+  | { error: string; done: true }
+
+// ==================== 供应商（provider 记录 + 密钥槽） ====================
+
+/** provider 请求方言（M1：OpenAI 兼容，含自定义 baseURL / 本地端点；D17） */
+export type ProviderApiStyle = 'openai-compatible'
+
+/** provider 记录（`assistant_providers` 表；**不存密钥**，密钥在保险库密钥槽） */
+export interface ProviderRecord {
+  id: string
+  name: string
+  apiStyle: ProviderApiStyle
+  baseUrl: string
+  model: string
+  isDefault: boolean
+}
+
+/** 供应商命令 */
+export const ASSISTANT_PROVIDERS_LIST_COMMAND = 'assistant.providers-list'
+export const ASSISTANT_PROVIDERS_UPSERT_COMMAND = 'assistant.providers-upsert'
+export const ASSISTANT_PROVIDERS_SET_DEFAULT_COMMAND = 'assistant.providers-set-default'
+export const ASSISTANT_PROVIDERS_DELETE_COMMAND = 'assistant.providers-delete'
+
+/** 密钥槽命令（spec §5.8：vault.getSecret('provider:<id>') 仅在构建请求时取用） */
+export const ASSISTANT_VAULT_SET_SECRET_COMMAND = 'assistant.vault-set-secret'
+export const ASSISTANT_VAULT_GET_SECRET_COMMAND = 'assistant.vault-get-secret'
+export const ASSISTANT_VAULT_DELETE_SECRET_COMMAND = 'assistant.vault-delete-secret'
+
+/** 供应商密钥槽键名（spec §5.8 口径） */
+export function providerSecretKey(providerId: string): string {
+  return `provider:${providerId}`
+}
+
+/** 密钥槽写操作入参（nonce 由前端 crypto.getRandomValues 生成） */
+export interface VaultSetSecretInput {
+  key: string
+  value: string
+  nonce: string
+  ts?: string
+}
+
+/** 密钥槽读操作返回 */
+export interface VaultSecretValue {
+  key: string
+  value: string
+}
+
+// ==================== 会话 / 消息（UI 侧形状） ====================
+
+/** 会话记录（`assistant_conversations` 表） */
+export interface ConversationRecord {
+  id: string
+  title: string
+  kind: 'companion' | 'task'
+  createdAt: string
+  updatedAt: string
+  archived: boolean
+}
+
+/** 消息记录（`assistant_messages` 表；content 已解密） */
+export interface MessageRecord {
+  id: string
+  conversationId: string
+  seq: number
+  role: 'user' | 'assistant'
+  content: string
+  meta: Record<string, unknown>
+  createdAt: string
+}
+
+/** UI 消息卡状态（流式 / 错误可重试 / 完成） */
+export type ChatMessageStatus = 'done' | 'streaming' | 'error' | 'aborted'
+
+/** UI 消息（历史加载与实时流式共用形状） */
+export interface ChatMessage {
+  id: string
+  role: 'user' | 'assistant'
+  content: string
+  status: ChatMessageStatus
+  /** 思考内容（折叠展示；流式增量累加） */
+  thinking?: string
+  /** 错误 / 中止原因（用户可见文案，技术细节只进日志） */
+  errorMessage?: string
+  /** 本轮模型与用量（结束后填充） */
+  model?: string
+  createdAt: string
+}
+
+/** 会话命令 */
+export const ASSISTANT_CONVERSATIONS_LIST_COMMAND = 'assistant.conversations-list'
+export const ASSISTANT_CONVERSATIONS_CREATE_COMMAND = 'assistant.conversations-create'
+export const ASSISTANT_CONVERSATIONS_RENAME_COMMAND = 'assistant.conversations-rename'
+export const ASSISTANT_MESSAGES_LIST_COMMAND = 'assistant.messages-list'
+export const ASSISTANT_MESSAGES_APPEND_COMMAND = 'assistant.messages-append'

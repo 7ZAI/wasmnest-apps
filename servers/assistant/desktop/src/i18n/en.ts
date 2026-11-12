@@ -33,6 +33,40 @@ const en: MessageSchema = {
   'assistant.vault.newPassword': 'New passphrase',
   'assistant.vault.passwordTooShort': 'Passphrase must be at least 4 characters',
   'assistant.vault.passwordMismatch': 'The two passphrase entries do not match',
+
+  // ==================== Conversation (ticket 08) ====================
+  'assistant.chat.empty': 'Nest is a system assistant, not a person. Say something to start, or configure a provider in settings first.',
+  'assistant.chat.placeholder': 'Say something…',
+  'assistant.chat.send': 'Send',
+  'assistant.chat.stop': 'Stop',
+  'assistant.chat.retry': 'Retry',
+  'assistant.chat.thinking': 'Thinking',
+  'assistant.chat.error': 'Request failed',
+  'assistant.chat.stopped': 'Generation stopped',
+  'assistant.chat.newConversation': 'New conversation',
+
+  // ==================== Settings (ticket 08) ====================
+  'assistant.settings.title': 'Settings',
+  'assistant.settings.close': 'Close',
+  'assistant.settings.providers': 'Model providers',
+  'assistant.settings.addProvider': 'Add provider',
+  'assistant.settings.editProvider': 'Edit provider',
+  'assistant.settings.edit': 'Edit',
+  'assistant.settings.delete': 'Delete',
+  'assistant.settings.save': 'Save',
+  'assistant.settings.cancel': 'Cancel',
+  'assistant.settings.name': 'Name',
+  'assistant.settings.baseUrl': 'Base URL',
+  'assistant.settings.model': 'Model',
+  'assistant.settings.apiKey': 'API key',
+  'assistant.settings.keySet': 'Key set',
+  'assistant.settings.keyMissing': 'No key set',
+  'assistant.settings.keyLeaveBlank': 'Leave blank to keep unchanged',
+  'assistant.settings.setDefault': 'Set as default',
+  'assistant.settings.default': 'Default',
+  'assistant.settings.noProviders': 'No provider yet — add one before chatting.',
+  'assistant.settings.fieldsRequired': 'Name, base URL and model are all required',
+  'assistant.settings.privacyHint': 'Conversations are sent to your chosen provider. Keys stay in the local vault and are never uploaded.',
 }
 
 export default en

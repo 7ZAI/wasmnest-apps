@@ -1,10 +1,10 @@
 /**
- * Nest 助手插件入口（移动端）— 宿主壳运行面 · 票 05 骨架
+ * Nest 助手插件入口（移动端）— 宿主壳运行面 · 票 08 对话主链路
  *
- * 骨架阶段：注册 i18n 消息后经 `ui.registerSurface` 注册整页运行面（包装组件
- * `AssistantSurface` 做移动侧宿主适配，渲染共享占位视图）。占位页挂载后自动
- * 跑一次 `assistant.ping`，验证「前端 commands.execute → 共享 crate 命令 →
- * 宿主返回」链路（spec §2.4：失败点名原因，不静默假装可用）。
+ * 注册 i18n 消息后经 `ui.registerSurface` 注册整页运行面（包装组件
+ * `AssistantSurface` 做移动侧宿主适配，渲染共享全屏会话页 ChatView：
+ * 保险库门 → 对话 / 供应商设置）。命令调用与事件订阅的端差异全部收敛在
+ * 包装组件内，共享核不感知端（D3 双端同构）。
  */
 import AssistantSurface from './components/AssistantSurface.vue'
 import { messages } from './i18n'
@@ -23,7 +23,7 @@ export async function activate(context: PluginContext): Promise<void> {
   context.ui.registerSurface({ component: AssistantSurface })
 
   activeLogger = context.logger
-  activeLogger.info('[Nest] assistant skeleton activated (mobile, ping wiring only)')
+  activeLogger.info('[Nest] assistant activated (mobile, chat streaming wired)')
 }
 
 export async function deactivate(): Promise<void> {

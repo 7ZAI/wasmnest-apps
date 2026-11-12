@@ -42,4 +42,38 @@ export type MessageSchema = {
   'assistant.vault.newPassword': string
   'assistant.vault.passwordTooShort': string
   'assistant.vault.passwordMismatch': string
+
+  // ==================== 对话主链路（票 08） ====================
+  'assistant.chat.empty': string
+  'assistant.chat.placeholder': string
+  'assistant.chat.send': string
+  'assistant.chat.stop': string
+  'assistant.chat.retry': string
+  'assistant.chat.thinking': string
+  'assistant.chat.error': string
+  'assistant.chat.stopped': string
+  'assistant.chat.newConversation': string
+
+  // ==================== 设置（票 08） ====================
+  'assistant.settings.title': string
+  'assistant.settings.close': string
+  'assistant.settings.providers': string
+  'assistant.settings.addProvider': string
+  'assistant.settings.editProvider': string
+  'assistant.settings.edit': string
+  'assistant.settings.delete': string
+  'assistant.settings.save': string
+  'assistant.settings.cancel': string
+  'assistant.settings.name': string
+  'assistant.settings.baseUrl': string
+  'assistant.settings.model': string
+  'assistant.settings.apiKey': string
+  'assistant.settings.keySet': string
+  'assistant.settings.keyMissing': string
+  'assistant.settings.keyLeaveBlank': string
+  'assistant.settings.setDefault': string
+  'assistant.settings.default': string
+  'assistant.settings.noProviders': string
+  'assistant.settings.fieldsRequired': string
+  'assistant.settings.privacyHint': string
 }

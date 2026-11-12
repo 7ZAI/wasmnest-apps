@@ -30,6 +30,9 @@ const props = defineProps<{
   t: (key: string) => string
 }>()
 
+/** 保险库状态变化（init / unlock / lock / 改口令成功后）：供父级门控感知 */
+const emit = defineEmits<{ changed: [] }>()
+
 const status = ref<VaultStatus | null>(null)
 const loading = ref(false)
 const error = ref('')
@@ -77,6 +80,7 @@ async function doInit() {
     setupPassword.value = ''
     setupPassword2.value = ''
     await refresh()
+    emit('changed')
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
   } finally {
@@ -91,6 +95,7 @@ async function doUnlock() {
     await vaultUnlock(props.invoke, unlockPassword.value)
     unlockPassword.value = ''
     await refresh()
+    emit('changed')
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
   } finally {
@@ -104,6 +109,7 @@ async function doLock() {
   try {
     await vaultLock(props.invoke)
     await refresh()
+    emit('changed')
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
   } finally {
@@ -131,6 +137,7 @@ async function doChangePassword() {
     changeNew.value = ''
     changeNew2.value = ''
     await refresh()
+    emit('changed')
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
   } finally {

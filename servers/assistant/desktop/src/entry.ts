@@ -1,17 +1,18 @@
 /**
- * Nest 助手前端挂载入口（桌面挂载包形态 · 票 05 骨架）
+ * Nest 助手前端挂载入口（桌面挂载包形态 · 票 08 对话主链路）
  *
  * 契约（与宿主 `src/shell/mount/useAppMount.ts` 逐字同形）：`mountApp(root, env)`
- * 由宿主壳装载后挂载本 app 界面（当前为占位页）。本包自带全部依赖
- * （无 __WASMNEST_SHARED__ 外部化），独立构建。
+ * 由宿主壳装载后挂载本 app 界面。本包自带全部依赖（无 __WASMNEST_SHARED__
+ * 外部化），独立构建。
  *
- * 骨架阶段只做两件事：渲染占位页 + 挂载后自动跑一次 `assistant.ping`，把
- * 「前端 appInvoke → 共享 crate 命令 → 宿主返回」链路状态显性呈现
- * （spec §2.4：失败点名原因，不静默假装可用）。真实对话 / 记忆 / 保险库界面
- * 随票 07–14 在共享核（`../shared/`）上续接。
+ * 票 08 起挂载全屏会话页（ChatView）：保险库门（票 07 VaultView）→ 对话。
+ * 端差异注入点只有两个：命令调用面 `env.appInvoke`、事件订阅面（桌面经
+ * `@tauri-apps/api/event` 的 `listen` 订阅宿主流式事件 `assistant:stream:*`，
+ * 与 ai-chatbox 同款先例）；其余逻辑全在共享核（D3 双端同构）。
  */
 import { createApp, type App as VueApp } from 'vue'
-import VaultView from '@nest-shared/components/VaultView.vue'
+import { listen } from '@tauri-apps/api/event'
+import ChatView from '@nest-shared/components/ChatView.vue'
 import i18n, { MESSAGE_NAMESPACE } from './i18n'
 import './style.css'
 
@@ -55,6 +56,35 @@ export interface AppMountHandle {
   setTheme?(theme: string): void
 }
 
+/**
+ * 桌面事件订阅适配：Tauri `listen` 订阅宿主事件通道。
+ *
+ * `listen` 返回 Promise<unlisten>：先注册回调（立即生效），句柄到达后保存，
+ * 退订时调用。宿主流式事件（`assistant:stream:*`）由宿主 http 层按
+ * `streamEvent` 名推送（egress.rs），本适配只做载荷透传。
+ */
+function createDesktopSubscribe(
+  log: (level: 'info' | 'warn' | 'error', message: string) => void,
+): (event: string, handler: (payload: unknown) => void) => () => void {
+  return (event, handler) => {
+    let unlisten: (() => void) | null = null
+    let disposed = false
+    listen(event, (tauriEvent: { payload: unknown }) => {
+      handler(tauriEvent.payload)
+    }).then(
+      (fn) => {
+        if (disposed) fn()
+        else unlisten = fn
+      },
+      (e) => log('error', `[nest] 订阅事件失败 ${event}: ${String(e)}`),
+    )
+    return () => {
+      disposed = true
+      unlisten?.()
+    }
+  }
+}
+
 let vueApp: VueApp | null = null
 
 export async function mountApp(root: HTMLElement, env: AppMountEnv): Promise<AppMountHandle> {
@@ -62,10 +92,17 @@ export async function mountApp(root: HTMLElement, env: AppMountEnv): Promise<App
     i18n.global.locale.value = env.locale
   }
 
-  const app = createApp(VaultView, {
+  const log = (level: 'info' | 'warn' | 'error', message: string) => {
+    const fn = (console[level] ?? console.log).bind(console)
+    fn(`[nest] ${message}`)
+  }
+
+  const app = createApp(ChatView, {
     invoke: <T = unknown>(command: string, args?: Record<string, unknown>) =>
       env.appInvoke<T>(command, args),
+    subscribe: createDesktopSubscribe(log),
     t: (key: string) => i18n.global.t(`${MESSAGE_NAMESPACE}.${key}`),
+    lang: env.locale === 'en' ? 'en' : 'zh-CN',
   })
   app.use(i18n)
   app.mount(root)

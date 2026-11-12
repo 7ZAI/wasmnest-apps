@@ -25,6 +25,13 @@ export default defineConfig({
       // 共享 TS 核（spec §5.1 D3）住应用级 `shared/`，在本端 vite root 之外；
       // 经别名解析为绝对路径引入（不引平台仓、不新增 workspace）。
       { find: /^@nest-shared\/(.*)$/, replacement: resolve(__dirname, '../shared/$1') },
+      // pi 共享核（shared/ 在本端 vite root 之外，其裸导入无法沿目录树解析到
+      // 本端 node_modules）：显式别名钉到本端安装位置，构建 / 测试同口径。
+      // 只覆盖共享核直接导入的两个包；pi-schema / pi-telemetry 等传递依赖
+      // 由 pi-ai 在 .pnpm 内自行解析，不能被别名劫持（否则指向不存在的顶层路径）。
+      { find: /^@earendil-works\/pi-ai\/utils\/(.+)$/, replacement: resolve(__dirname, 'node_modules/@earendil-works/pi-ai/dist/utils/$1') },
+      { find: /^@earendil-works\/pi-ai$/, replacement: resolve(__dirname, 'node_modules/@earendil-works/pi-ai') },
+      { find: /^@earendil-works\/pi-agent-core$/, replacement: resolve(__dirname, 'node_modules/@earendil-works/pi-agent-core') },
       { find: /^vue-i18n$/, replacement: 'vue-i18n/dist/vue-i18n.runtime.esm-bundler.js' },
     ],
   },

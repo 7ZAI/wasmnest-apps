@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use crate::vault::VaultMeta;
 
 /// 当前 schema 版本（新增迁移须递增并在下方追加步骤）
-pub const SCHEMA_VERSION: i32 = 1;
+pub const SCHEMA_VERSION: i32 = 2;
 
 // ==================== 表结构 ====================
 
@@ -82,6 +82,13 @@ pub const SCHEMA: &[&str] = &[
         result_digest TEXT, \
         user_visible INTEGER NOT NULL DEFAULT 1)",
     "CREATE INDEX IF NOT EXISTS idx_assistant_audit_ts ON assistant_audit(ts)",
+    // 票 08：保险库密钥槽（provider API key 等；value_enc 为 AEAD 密文 hex，
+    // key = `provider:<providerId>`，spec §5.8）
+    "CREATE TABLE IF NOT EXISTS assistant_secrets (\
+        key TEXT PRIMARY KEY, \
+        value_enc TEXT NOT NULL, \
+        nonce TEXT NOT NULL, \
+        updated_at TEXT NOT NULL)",
 ];
 
 // ==================== 模型 ====================
@@ -151,6 +158,16 @@ pub struct AuditEntry {
     pub user_visible: bool,
 }
 
+/// 保险库密钥槽（`value_enc` 为 AEAD 密文 hex；密钥明文不落库）
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Secret {
+    /// 密钥名（如 `provider:<id>`，spec §5.8）
+    pub key: String,
+    pub value_enc: String,
+    pub nonce: String,
+    pub updated_at: String,
+}
+
 // ==================== 端口（行语义） ====================
 
 /// 数据底座端口：建表 / 迁移 + 各表 CRUD + 导出 / 清空 / 重加密
@@ -194,6 +211,7 @@ pub trait Store {
     fn get_provider(&self, id: &str) -> Result<Option<Provider>, String>;
     fn upsert_provider(&self, p: &Provider) -> Result<(), String>;
     fn set_default_provider(&self, id: &str) -> Result<(), String>;
+    fn delete_provider(&self, id: &str) -> Result<bool, String>;
 
     // ---- 设置 ----
     fn get_setting(&self, key: &str) -> Result<Option<String>, String>;
@@ -202,6 +220,12 @@ pub trait Store {
     // ---- 审计 ----
     fn record_audit(&self, a: &AuditEntry) -> Result<(), String>;
     fn list_audit(&self, limit: i64) -> Result<Vec<AuditEntry>, String>;
+
+    // ---- 保险库密钥槽（票 08） ----
+    fn put_secret(&self, s: &Secret) -> Result<(), String>;
+    fn get_secret(&self, key: &str) -> Result<Option<Secret>, String>;
+    fn delete_secret(&self, key: &str) -> Result<bool, String>;
+    fn list_secret_keys(&self) -> Result<Vec<String>, String>;
 
     // ---- 导出 / 清空 ----
     /// 导出 JSON（会话 + 已确认记忆明文由调用方先解密后传入；密钥不导出）
@@ -324,15 +348,13 @@ mod wasm_impl {
                 self.plugin_db_execute(stmt)
                     .map_err(|e| format!("建表失败: {e}"))?;
             }
-            // 2. 迁移：schema_version 缺行或低于当前版本 → 写入当前版本
-            let cur = self.schema_version()?;
-            if cur < SCHEMA_VERSION {
-                // 顺序迁移：v1 即初始 schema（已在上方建好），仅登记版本
-                self.plugin_db_execute("DELETE FROM schema_version")
-                    .map_err(|e| format!("迁移清理失败: {e}"))?;
-                self.plugin_db_execute("INSERT INTO schema_version(version) VALUES (1)")
-                    .map_err(|e| format!("迁移登记失败: {e}"))?;
-            }
+            // 2. 迁移：schema_version 缺行或低于当前版本 → 顺序补齐后登记
+            // v1 = 初始 schema；v2 = 新增 assistant_secrets 表（票 08，
+            // 建表在上方幂等执行，此处仅登记版本）
+            self.plugin_db_execute("DELETE FROM schema_version")
+                .map_err(|e| format!("迁移清理失败: {e}"))?;
+            self.plugin_db_execute("INSERT INTO schema_version(version) VALUES (2)")
+                .map_err(|e| format!("迁移登记失败: {e}"))?;
             Ok(())
         }
 
@@ -579,6 +601,16 @@ mod wasm_impl {
             Ok(())
         }
 
+        fn delete_provider(&self, id: &str) -> Result<bool, String> {
+            let n = self
+                .plugin_db_execute_params(
+                    "DELETE FROM assistant_providers WHERE id = ?1",
+                    &sql_params![id],
+                )
+                .map_err(|e| format!("删供应商失败: {e}"))?;
+            Ok(n > 0)
+        }
+
         fn get_setting(&self, key: &str) -> Result<Option<String>, String> {
             let rows = self
                 .plugin_db_query_params(
@@ -633,6 +665,59 @@ mod wasm_impl {
             map_rows(rows, row_to_audit)
         }
 
+        fn put_secret(&self, s: &Secret) -> Result<(), String> {
+            self.plugin_db_execute_params(
+                "INSERT OR REPLACE INTO assistant_secrets(key, value_enc, nonce, updated_at) \
+                    VALUES (?1, ?2, ?3, ?4)",
+                &sql_params![s.key, s.value_enc, s.nonce, s.updated_at],
+            )
+            .map_err(|e| format!("写密钥槽失败: {e}"))?;
+            Ok(())
+        }
+
+        fn get_secret(&self, key: &str) -> Result<Option<Secret>, String> {
+            let rows = self
+                .plugin_db_query_params(
+                    "SELECT * FROM assistant_secrets WHERE key = ?1",
+                    &sql_params![key],
+                )
+                .map_err(|e| format!("取密钥槽失败: {e}"))?;
+            match rows {
+                Some(v) => {
+                    let arr = v.as_array().ok_or("密钥槽查询结果非数组")?;
+                    if arr.is_empty() {
+                        Ok(None)
+                    } else {
+                        Ok(Some(Secret {
+                            key: row_str(&arr[0], "key")?.to_string(),
+                            value_enc: row_str(&arr[0], "value_enc")?.to_string(),
+                            nonce: row_str(&arr[0], "nonce")?.to_string(),
+                            updated_at: row_str(&arr[0], "updated_at")?.to_string(),
+                        }))
+                    }
+                }
+                None => Ok(None),
+            }
+        }
+
+        fn delete_secret(&self, key: &str) -> Result<bool, String> {
+            let n = self
+                .plugin_db_execute_params(
+                    "DELETE FROM assistant_secrets WHERE key = ?1",
+                    &sql_params![key],
+                )
+                .map_err(|e| format!("删密钥槽失败: {e}"))?;
+            Ok(n > 0)
+        }
+
+        fn list_secret_keys(&self) -> Result<Vec<String>, String> {
+            let rows = self
+                .plugin_db_query("SELECT key FROM assistant_secrets ORDER BY key")
+                .map_err(|e| format!("列密钥槽失败: {e}"))?;
+            let keys = map_rows(rows, |row| row_str(row, "key").map(|s| s.to_string()))?;
+            Ok(keys)
+        }
+
         fn export_all(
             &self,
             conversations: &[Conversation],
@@ -659,6 +744,7 @@ mod wasm_impl {
                 "DELETE FROM assistant_providers".to_string(),
                 "DELETE FROM assistant_settings".to_string(),
                 "DELETE FROM assistant_audit".to_string(),
+                "DELETE FROM assistant_secrets".to_string(),
             ];
             self.plugin_db_execute_batch(&sqls)
                 .map_err(|e| format!("清空数据失败: {e}"))?;
@@ -712,6 +798,27 @@ mod wasm_impl {
                 )
                 .map_err(|e| format!("重加密记忆失败: {e}"))?;
             }
+            // 3. 密钥槽（票 08）
+            let sec_rows = self
+                .plugin_db_query("SELECT key, value_enc FROM assistant_secrets")
+                .map_err(|e| format!("读密钥槽密文失败: {e}"))?;
+            let sec_arr = sec_rows
+                .unwrap_or_else(|| serde_json::json!([]))
+                .as_array()
+                .cloned()
+                .unwrap_or_default();
+            for row in sec_arr {
+                let key = row_str(&row, "key")?.to_string();
+                let enc = row_str(&row, "value_enc")?.to_string();
+                let aad = vault::content_aad("secret", &key);
+                let pt = vault::decrypt(old_key, &enc, &aad)?;
+                let new_enc = reencrypt_blob(new_key, &enc, &pt, &aad)?;
+                self.plugin_db_execute_params(
+                    "UPDATE assistant_secrets SET value_enc = ?1 WHERE key = ?2",
+                    &sql_params![new_enc, key],
+                )
+                .map_err(|e| format!("重加密密钥槽失败: {e}"))?;
+            }
             Ok(())
         }
     }
@@ -758,6 +865,7 @@ mod tests {
             "assistant_settings",
             "assistant_vault_meta",
             "assistant_audit",
+            "assistant_secrets",
         ] {
             assert!(
                 SCHEMA.iter().any(|s| s.contains(name)),
