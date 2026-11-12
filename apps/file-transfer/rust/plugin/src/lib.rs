@@ -178,6 +178,7 @@ impl WasmPlugin for FileTransferPlugin {
             "peer:transfer-event",
             "peer:consent",
             "peer:connection",
+            "peer:relay-devices",
         ];
         // 旧快照双写期对账 topic：仅桌面仍订阅（移动已整条退役——宿主早无发布者，
         // 订阅只是把死 topic 写进文档）
@@ -288,6 +289,7 @@ impl WasmPlugin for FileTransferPlugin {
             "peer:transfer-event",
             "peer:consent",
             "peer:connection",
+            "peer:relay-devices",
         ];
         if platform.uses_legacy_snapshot() {
             topics.extend(["peer:devices", "peer:transfer", "peer:receive"]);
@@ -300,6 +302,8 @@ impl WasmPlugin for FileTransferPlugin {
         }
         // T21：插件下线 = 释放自己那份 relay 预留；共享节点可能仍被其他插件持有，
         // 因此不能靠节点停机的自然释放代替（在此之前调用，节点还活着）
+        // 先关会合：应用已停用，不应继续让同一中继上的设备发现本机
+        peer::publish_relay_room(&h, "", Some(false));
         if peer::HOST_RELAY_RESERVATION_SUPPORTED {
             match h.peer_configure_relay(&[], false) {
                 Ok(info) => h.log_info(&format!(
@@ -336,6 +340,12 @@ impl WasmPlugin for FileTransferPlugin {
             // 设备列表由自建 browse 的定向事件流自行收敛）
             "file-transfer.refresh-devices" => {
                 ensure_mdns_browse(&h);
+                // 空间码 / 会合开关可能早于宿主订阅者登记（激活瞬间丢失）：
+                // 每次显式刷新按当前生效配置重发（幂等；中心不可用时按 fail-closed
+                // 处理，不把「未知」当成「可以对外登记」）
+                if let Ok(settings) = settings_store::load_or_migrate(&h) {
+                    peer::apply_relay_reservation(&h, platform, &settings);
+                }
                 h.bus_publish(
                     "peer:discovery-refresh",
                     &serde_json::json!({ "requestedBy": PLUGIN_ID }),
@@ -530,6 +540,14 @@ fn dispatch_bus_message(
     // 定向发现事件透传（wire 形状不过翻译）；设备缓存状态机在前端。
     // 注：payload 增量追加 serviceType / browserId（spec v2 §5.2），
     // 前端按「忽略未知字段」增量原则兼容，这里原样透传
+    // 中继会合发现（跨 NAT）：宿主全量快照 → 前端按 nodeId 与 mDNS 缓存归并。
+    // 与 mDNS 事件分开投递：前端要区分「局域网发现」与「中继发现」（后者没有
+    // addr/port，只有 circuit 候选；TTL 也由宿主的 25s 心跳续期）。
+    if topic == "peer:relay-devices" {
+        h.emit_event("plugin:file-transfer:relay-devices", payload);
+        return Ok(());
+    }
+
     if topic == *MDNS_FOUND_TOPIC || topic == *MDNS_LOST_TOPIC {
         let event = if topic == *MDNS_FOUND_TOPIC {
             "mdns-found"

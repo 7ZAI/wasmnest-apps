@@ -433,3 +433,41 @@ describe('T20 · 上次传输形态驱动重连 + 仅经中继', () => {
     }
   })
 })
+
+
+describe('中继会合发现（composable）', () => {
+  const relayEvent = (addrs = [RELAY]) => ({
+    devices: [
+      {
+        nodeId: NODE_REMOTE,
+        peerId: '12D3KooWTarget',
+        deviceName: 'Phone',
+        addrs,
+        lastSeenMs: Date.now(),
+      },
+    ],
+  })
+
+  it('快照并入设备行；纯中继设备连接走 relayOnly；空快照移除', async () => {
+    const { peers, calls, emit, flush } = setup()
+    peers.start()
+    await flush()
+
+    emit('plugin:file-transfer:relay-devices', relayEvent())
+    await flush()
+    const row = peers.rows.value.find((r) => r.nodeId === NODE_REMOTE)!
+    expect(row.relay).toBe(true)
+    expect(row.wanAvailable).toBe(true)
+
+    expect(await peers.connect(NODE_REMOTE)).toBe('connected')
+    const dial = calls.filter((c) => c.id === 'file-transfer.dial-peer').pop()!
+    expect(dial.args.relayOnly).toBe(true)
+    expect(dial.args.endpoint.addrs).toEqual([RELAY])
+
+    await peers.disconnect(NODE_REMOTE)
+    await flush()
+    emit('plugin:file-transfer:relay-devices', { devices: [] })
+    await flush()
+    expect(peers.rows.value.find((r) => r.nodeId === NODE_REMOTE)).toBeUndefined()
+  })
+})

@@ -32,7 +32,8 @@ import { useTasks } from '../composables/useTasks'
 import { isNeedsAllFilesAccess, promptAllFilesAccess } from '../composables/useAllFilesAccess'
 import { usePeerDevices } from '../composables/usePeerDevices'
 import { hasRelayCandidate } from '../composables/deviceState'
-import type { RemotePeerLink } from '../utils/pairingLink'
+import { prepareDeviceSend } from '../composables/sendToDevice'
+import type { ConnectionInvite, RemotePeerLink } from '../utils/pairingLink'
 import { useRemoteFs } from '../composables/useRemoteFs'
 import { useSettings } from '../composables/useSettings'
 import { formatBytes, formatSpeed } from '../utils/format'
@@ -229,6 +230,16 @@ function handleAddRemote(link: RemotePeerLink): void {
     'success',
   )
 }
+/** 邀请导入成功（T23）：relay + 空间码已写入；只刷新发现并提示，不写信任 */
+async function handleInviteJoined(invite: ConnectionInvite): Promise<void> {
+  await devices.refresh()
+  const name = invite.name || t('transfer.invite.unnamed')
+  context.dialogs.showToast(t('transfer.invite.joined', { name }), 'success')
+}
+
+/** 当前经中继可见的设备数（邀请确认页展示「当前空间 N 台」） */
+const relayDeviceCount = computed(() => devices.rows.value.filter((row) => row.relay).length)
+
 function handleRemoveRemote(nodeId: string): void {
   devices.removeRemotePeer(nodeId)
 }
@@ -237,6 +248,20 @@ function handleDeviceDisconnect(nodeId: string): void {
 }
 function handleDeviceSetActive(nodeId: string): void {
   void devices.switchPeer(nodeId)
+}
+
+/**
+ * 设备行直达发送（T23）：未连接先连、再显式切活跃，最后复用上传流程
+ * （选文件 → 中继提示 → 入队 → 切到传输页）。连接失败不弹选择器。
+ */
+async function handleSendToDevice(nodeId: string): Promise<void> {
+  const row = devices.rows.value.find((item) => item.nodeId === nodeId)
+  const prepared = await prepareDeviceSend(nodeId, row, {
+    connect: devices.connect,
+    switchPeer: devices.switchPeer,
+  })
+  if (!prepared.ok) return
+  await uploadFile()
 }
 
 /** 历史「打开所在文件夹」：优先本地路径（wire 有 localPath，dev-shell 演示链路），
@@ -483,13 +508,16 @@ onUnmounted(() => {
           :rows="devices.rows.value"
           :scanning="deviceScanning"
           :t="t"
+          :relay-device-count="relayDeviceCount"
           @connect="handleDeviceConnect"
           @retry-wan="handleDeviceRetryWan"
           @retry-relay-only="handleDeviceRetryRelayOnly"
           @disconnect="handleDeviceDisconnect"
           @set-active="handleDeviceSetActive"
           @add-remote="handleAddRemote"
+          @invite-joined="handleInviteJoined"
           @remove-remote="handleRemoveRemote"
+          @send="handleSendToDevice"
           @scan="handleScanDevices"
         />
 

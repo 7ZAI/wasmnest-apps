@@ -27,12 +27,15 @@ export type MessageSchema = {
   // ==================== 附近设备面板（bottom sheet） ====================
   'transfer.devices.title': string
   'transfer.devices.subtitle': string
+  'transfer.devices.relayEmptyHint': string
   'transfer.devices.empty': string
   'transfer.devices.online': string
   /** 快照恢复未被实时事件刷新的节点标注 */
   'transfer.devices.recentSeen': string
   'transfer.devices.connected': string
   'transfer.devices.connecting': string
+  'transfer.devices.connectingHint': string
+  'transfer.devices.sendFile': string
   'transfer.devices.capNone': string
   'transfer.devices.activeCurrent': string
   'transfer.devices.setActive': string
@@ -58,6 +61,7 @@ export type MessageSchema = {
   'transfer.devices.lastTransportWan': string
   'transfer.devices.hasRelay': string
   'transfer.devices.lanOnly': string
+  'transfer.devices.relayTag': string
   'transfer.devices.relayOnly': string
   'transfer.devices.relayOnlyHint': string
   'transfer.devices.errorNoEndpoint': string
@@ -294,6 +298,8 @@ export type MessageSchema = {
   'transfer.remote.scanRetry': string
   'transfer.remote.scanFailed': string
   'transfer.remote.scanPermission': string
+  'transfer.remote.paste': string
+  'transfer.remote.pasteFailed': string
   'transfer.remote.errorMalformed': string
   'transfer.remote.errorIncomplete': string
   'transfer.remote.errorAddressInvalid': string
@@ -315,11 +321,21 @@ export type MessageSchema = {
   'transfer.myDevice.relayUnknown': string
   'transfer.myDevice.addresses': string
   'transfer.myDevice.linkLabel': string
+  'transfer.myDevice.autoDiscoveryHint': string
   'transfer.myDevice.linkHint': string
   'transfer.myDevice.linkUnavailable': string
   'transfer.myDevice.copy': string
   'transfer.myDevice.copied': string
   'transfer.myDevice.copyFailed': string
+  'transfer.myDevice.share': string
+  'transfer.myDevice.shared': string
+  'transfer.myDevice.shareFailed': string
+  'transfer.myDevice.relayRoomLabel': string
+  'transfer.myDevice.relayRoomPlaceholder': string
+  'transfer.myDevice.relayRoomHint': string
+  'transfer.myDevice.relayRoomSaved': string
+  'transfer.myDevice.relayRoomError': string
+  'transfer.myDevice.relayRoomSave': string
   'transfer.myDevice.relayTitle': string
   'transfer.myDevice.relayHint': string
   'transfer.myDevice.relayPlaceholder': string
@@ -329,6 +345,39 @@ export type MessageSchema = {
   'transfer.myDevice.relaySave': string
   'transfer.myDevice.refresh': string
   'transfer.myDevice.close': string
+  'transfer.invite.title': string
+  'transfer.invite.hint': string
+  'transfer.invite.generate': string
+  'transfer.invite.generating': string
+  'transfer.invite.generateFailed': string
+  'transfer.invite.errorRelayMissing': string
+  'transfer.invite.errorSaveFailed': string
+  'transfer.invite.errorMalformed': string
+  'transfer.invite.errorMissingRoom': string
+  'transfer.invite.errorAddressInvalid': string
+  'transfer.invite.copy': string
+  'transfer.invite.copied': string
+  'transfer.invite.copyFailed': string
+  'transfer.invite.share': string
+  'transfer.invite.shared': string
+  'transfer.invite.shareFailed': string
+  'transfer.invite.rotate': string
+  'transfer.invite.rotateHint': string
+  'transfer.invite.inputHint': string
+  'transfer.invite.placeholder': string
+  'transfer.invite.joinTitle': string
+  'transfer.invite.joinName': string
+  'transfer.invite.joinRelay': string
+  'transfer.invite.joinRoom': string
+  'transfer.invite.joinDevices': string
+  'transfer.invite.joinLeaveRoom': string
+  'transfer.invite.openCenter': string
+  'transfer.invite.openCenterUnavailable': string
+  'transfer.invite.join': string
+  'transfer.invite.joining': string
+  'transfer.invite.joinFailed': string
+  'transfer.invite.joined': string
+  'transfer.invite.unnamed': string
 
   // ==================== 首连确认（全局对话框，spec 决策 7） ====================
   'transfer.consent.title': string

@@ -180,3 +180,197 @@ export function isRelayCandidate(addr: string): boolean {
 export function relayCandidatesOf(addrs: readonly string[] | undefined): string[] {
   return (addrs ?? []).filter((a) => isRelayCandidate(a))
 }
+
+// ==================== 邀请（v4，T23） ====================
+//
+// v3 设备链接回答「这台设备在哪」（nodeId + 可拨地址）；v4 邀请回答「两端共用
+// 哪台中继 + 哪个空间」，用于跨 NAT 的**首次配置**。两者并存：v3 保留为无法
+// 共用中继时的兜底，入口先按前缀分流，不互相猜语义。
+
+/** 邀请链接前缀 */
+export const JOIN_URI_PREFIX = 'wasmnest://join/'
+
+/** 邀请载荷版本（未知版本拒绝，不猜语义） */
+export const JOIN_URI_VERSION = 4
+
+/** 空间码判据（与核内 `normalize_relay_room` 同口径：1–64 位 `[A-Za-z0-9_-]`） */
+const ROOM_PATTERN = /^[A-Za-z0-9_-]{1,64}$/
+
+/** 展示名上限（仅展示、不参与寻址；超长截断而不是让整张邀请失效） */
+const INVITE_NAME_MAX = 64
+
+/** 中继配置元数据（桌面从网络配置中心带出；仅用于导入后同步全局中继） */
+export interface RelayMeta {
+  /** 中心载荷版本（net-config `version`；缺省 1） */
+  version: number
+  peerId: string
+  peerIdSha256: string
+  /** `open` / `allowlist`；缺失为空串（由接收方 / 中心判） */
+  accessMode: string
+  /** 中继版本；文本导入形态可能没有 */
+  relayVersion: string | null
+  controlProtocol: string
+  /** `json` / `text`（缺省 `json`） */
+  source: string
+}
+
+/** 跨网邀请（v4）：只承载「共用哪台中继 + 哪个空间」，不含 nodeId / 密钥 / 票据 */
+export interface ConnectionInvite {
+  /** 空间码（与核内 `normalize_relay_room` 同判据） */
+  room: string
+  /** relay 端点（至少一条；不得是 circuit 拨号目标） */
+  relay: string[]
+  /** 邀请方展示名（可选，仅确认页展示） */
+  name: string
+  /** 中继元数据（可选；只有桌面从中心生成时才带） */
+  relayMeta?: RelayMeta
+}
+
+/** 解析失败原因（界面按此分文案，不合并成「无效邀请」） */
+export type ConnectionInviteError = 'malformed' | 'missing-room' | 'address-invalid'
+
+export type ConnectionInviteResult =
+  { ok: true; invite: ConnectionInvite } | { ok: false; reason: ConnectionInviteError }
+
+/**
+ * relay 端点判据（与核内 `settings::normalize_relay_addrs` 同口径）：
+ * `<transport>/tcp/<port>/p2p/<relay>`，禁 circuit 拨号目标与未指定地址。
+ */
+function isRelayEndpointAddr(addr: string): boolean {
+  return (
+    addr.startsWith('/') &&
+    !/\s/.test(addr) &&
+    addr.includes('/tcp/') &&
+    addr.includes('/p2p/') &&
+    !addr.includes('/p2p-circuit') &&
+    !addr.includes('/ip4/0.0.0.0') &&
+    !addr.includes('/ip6/::')
+  )
+}
+
+/** 展示名归一：去控制字符、trim、超长截断（截断只影响展示，不影响解析成败） */
+function normalizeInviteName(raw: unknown): string {
+  if (typeof raw !== 'string') return ''
+  const cleaned = Array.from(raw)
+    .filter((ch) => {
+      const code = ch.charCodeAt(0)
+      return code >= 0x20 && code !== 0x7f
+    })
+    .join('')
+    .trim()
+  return cleaned.length > INVITE_NAME_MAX ? cleaned.slice(0, INVITE_NAME_MAX) : cleaned
+}
+
+/**
+ * 解析可选 `relayMeta`。缺身份字段（peerId / 指纹）的元数据没有采用价值
+ * （中心无法校验），整块丢弃但不拖累邀请本身——relay + room 才是会合必需项。
+ */
+function parseRelayMeta(raw: unknown): RelayMeta | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined
+  const rec = raw as Record<string, unknown>
+  const text = (v: unknown): string => (typeof v === 'string' ? v.trim() : '')
+  const peerId = text(rec.peerId)
+  const peerIdSha256 = text(rec.peerIdSha256)
+  if (!peerId || !peerIdSha256) return undefined
+  return {
+    version: typeof rec.version === 'number' && Number.isFinite(rec.version) ? rec.version : 1,
+    peerId,
+    peerIdSha256,
+    accessMode: text(rec.accessMode),
+    relayVersion: text(rec.relayVersion) || null,
+    controlProtocol: text(rec.controlProtocol),
+    source: text(rec.source) || 'json',
+  }
+}
+
+/** 生成邀请连接串；非法 room / relay 显性抛错（调用方不得展示坏码） */
+export function buildConnectionInvite(input: ConnectionInvite): string {
+  const room = (input.room ?? '').trim()
+  if (!ROOM_PATTERN.test(room)) {
+    throw new Error('buildConnectionInvite: invalid room')
+  }
+  const relay: string[] = []
+  for (const item of input.relay ?? []) {
+    const addr = (item ?? '').trim()
+    if (!isRelayEndpointAddr(addr)) {
+      throw new Error(`buildConnectionInvite: invalid relay address: ${addr}`)
+    }
+    if (!relay.includes(addr)) relay.push(addr)
+  }
+  if (relay.length === 0) {
+    throw new Error('buildConnectionInvite: at least one relay address is required')
+  }
+  const payload: Record<string, unknown> = {
+    v: JOIN_URI_VERSION,
+    room,
+    relay,
+    name: normalizeInviteName(input.name),
+  }
+  if (input.relayMeta) payload.relayMeta = { ...input.relayMeta }
+  return `${JOIN_URI_PREFIX}${encodeBase64UrlUtf8(JSON.stringify(payload))}`
+}
+
+/** 是否为邀请文本（入口分流用；只判前缀，不保证一定可解析） */
+export function isConnectionInvite(text: unknown): boolean {
+  return typeof text === 'string' && text.trim().startsWith(JOIN_URI_PREFIX)
+}
+
+/** 解析邀请（`wasmnest://join/<base64url>` 或 v4 JSON 文本） */
+export function parseConnectionInvite(text: unknown): ConnectionInviteResult {
+  if (typeof text !== 'string' || !text.trim()) return { ok: false, reason: 'malformed' }
+  let jsonText = text.trim()
+  if (jsonText.startsWith('wasmnest://')) {
+    if (!jsonText.startsWith(JOIN_URI_PREFIX)) return { ok: false, reason: 'malformed' }
+    const decoded = decodeBase64UrlUtf8(jsonText.slice(JOIN_URI_PREFIX.length).trim())
+    if (decoded === null) return { ok: false, reason: 'malformed' }
+    jsonText = decoded
+  }
+
+  let raw: unknown
+  try {
+    raw = JSON.parse(jsonText)
+  } catch {
+    return { ok: false, reason: 'malformed' }
+  }
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return { ok: false, reason: 'malformed' }
+  }
+  const obj = raw as Record<string, unknown>
+  // 版本必须精确匹配：v3 是设备链接，v4 才是邀请；未知版本不猜
+  if (obj.v !== JOIN_URI_VERSION) return { ok: false, reason: 'malformed' }
+
+  const room = typeof obj.room === 'string' ? obj.room.trim() : ''
+  if (!ROOM_PATTERN.test(room)) return { ok: false, reason: 'missing-room' }
+
+  const relayRaw = obj.relay
+  if (!Array.isArray(relayRaw) || relayRaw.length === 0) {
+    return { ok: false, reason: 'address-invalid' }
+  }
+  const relay: string[] = []
+  for (const item of relayRaw) {
+    if (typeof item !== 'string') return { ok: false, reason: 'address-invalid' }
+    const addr = item.trim()
+    if (!isRelayEndpointAddr(addr)) return { ok: false, reason: 'address-invalid' }
+    if (!relay.includes(addr)) relay.push(addr)
+  }
+
+  const invite: ConnectionInvite = {
+    room,
+    relay,
+    name: normalizeInviteName(obj.name),
+  }
+  const relayMeta = parseRelayMeta(obj.relayMeta)
+  if (relayMeta) invite.relayMeta = relayMeta
+  return { ok: true, invite }
+}
+
+/** 两组 relay 端点是否等价（顺序无关、忽略空项；确认页冲突判定用） */
+export function sameRelaySet(a: readonly string[], b: readonly string[]): boolean {
+  const left = new Set(a.map((x) => x.trim()).filter(Boolean))
+  const right = new Set(b.map((x) => x.trim()).filter(Boolean))
+  if (left.size !== right.size) return false
+  for (const addr of left) {
+    if (!right.has(addr)) return false
+  }
+  return true
+}

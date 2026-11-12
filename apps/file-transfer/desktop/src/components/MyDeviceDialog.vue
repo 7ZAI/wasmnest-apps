@@ -16,6 +16,7 @@ import { computed, inject, onMounted, onUnmounted, ref, watch } from 'vue'
 import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-desktop'
 import QRCode from 'qrcode'
 import { useMyDevice } from '../composables/useMyDevice'
+import { useConnectionInvite } from '../composables/useConnectionInvite'
 import { QR_ERROR_CORRECTION, QR_QUIET_ZONE_MODULES, planQrCanvas } from '../utils/qrRender'
 
 /** appContext 的 `navigate` 扩展（旧宿主不注入时不存在） */
@@ -29,19 +30,44 @@ const emit = defineEmits<{
 }>()
 
 const my = useMyDevice(context)
+/** 邀请（v4）：生成 / 轮换 / 复制；与 v3 设备链接并存（后者是兜底） */
+const invites = useConnectionInvite(context)
 
 const copyState = ref<'idle' | 'ok' | 'failed'>('idle')
+const inviteCopyState = ref<'idle' | 'ok' | 'failed'>('idle')
+const roomText = ref('')
 const navigateUnavailable = ref(false)
 const qrCanvasRef = ref<HTMLCanvasElement | null>(null)
+const inviteQrRef = ref<HTMLCanvasElement | null>(null)
 let copyTimer: ReturnType<typeof setTimeout> | null = null
+let inviteCopyTimer: ReturnType<typeof setTimeout> | null = null
 
 onMounted(() => {
   void my.load()
 })
 
+watch(
+  () => my.info.value.relayRoom,
+  (room) => {
+    roomText.value = room ?? ''
+  },
+  { immediate: true },
+)
+
 onUnmounted(() => {
   if (copyTimer) clearTimeout(copyTimer)
+  if (inviteCopyTimer) clearTimeout(inviteCopyTimer)
 })
+
+/** 生成失败原因 → 文案 key（不把后端原文当用户文案） */
+const INVITE_ERROR_KEYS: Record<string, string> = {
+  'relay-missing': 'transfer.invite.errorRelayMissing',
+  'save-failed': 'transfer.invite.errorSaveFailed',
+}
+
+const inviteErrorKey = computed(() =>
+  invites.error.value ? (INVITE_ERROR_KEYS[invites.error.value] ?? '') : '',
+)
 
 /** 短指纹：前 16 位（完整值在 title / 复制链接里） */
 const shortId = computed(() => (my.info.value.nodeId ?? '').slice(0, 16))
@@ -73,6 +99,42 @@ async function handleRefresh(): Promise<void> {
   await my.load()
 }
 
+/** 生成邀请：缺空间码时由后端先落一个随机码，再刷新本页展示 */
+async function handleGenerateInvite(): Promise<void> {
+  await invites.generate()
+  if (invites.invite.value) await my.load()
+}
+
+/** 轮换空间码：旧邀请仍能进旧房间，但看不到本机（UI 有显性提示） */
+async function handleRotateRoom(): Promise<void> {
+  await invites.rotateRoom()
+  if (invites.invite.value) await my.load()
+}
+
+async function handleCopyInvite(): Promise<void> {
+  const ok = await invites.copy()
+  inviteCopyState.value = ok ? 'ok' : 'failed'
+  if (inviteCopyTimer) clearTimeout(inviteCopyTimer)
+  inviteCopyTimer = setTimeout(() => {
+    inviteCopyState.value = 'idle'
+  }, 2000)
+}
+
+function onRoomInput(): void {
+  my.roomSaved.value = false
+  my.roomError.value = ''
+}
+
+/** 保存空间码（桌面 relay 地址仍由配置中心管理，这里只编辑房间隔离键） */
+async function handleSaveRoom(): Promise<void> {
+  if (my.savingRoom.value) return
+  try {
+    await my.saveRelayRoom(roomText.value)
+  } catch {
+    // my.roomError 已置位并渲染
+  }
+}
+
 /** 跳转到「内网穿透」配置中心（旧宿主无导航扩展时显性提示出路） */
 function openCenter(): void {
   navigateUnavailable.value = false
@@ -87,9 +149,7 @@ function openCenter(): void {
  * 画布规格按**实际模块数**算——v3 载荷（LAN + circuit）约 85~95 模块，固定
  * 192px 只剩 ~2px/模块，手机相机扫不出（判据见 `utils/qrRender.ts`）。
  */
-async function renderQr(): Promise<void> {
-  const payload = my.link.value
-  const canvas = qrCanvasRef.value
+async function renderQrInto(payload: string, canvas: HTMLCanvasElement | null): Promise<void> {
   if (!payload || !canvas) return
   // 测试环境（jsdom）没有 2D 上下文：跳过绘制，不把「环境不支持」当失败刷日志
   if (typeof canvas.getContext !== 'function') return
@@ -112,11 +172,17 @@ async function renderQr(): Promise<void> {
 
 // 链接变化（生成 / 刷新）与 canvas 重建（解锁后才出现）两个触发点缺一不可
 watch(
-  () => my.link.value,
-  () => void renderQr(),
+  () => [my.link.value, invites.invite.value] as const,
+  () => {
+    void renderQrInto(my.link.value, qrCanvasRef.value)
+    void renderQrInto(invites.invite.value, inviteQrRef.value)
+  },
   { flush: 'post' },
 )
-watch(qrCanvasRef, () => void renderQr(), { flush: 'post' })
+watch(qrCanvasRef, () => void renderQrInto(my.link.value, qrCanvasRef.value), { flush: 'post' })
+watch(inviteQrRef, () => void renderQrInto(invites.invite.value, inviteQrRef.value), {
+  flush: 'post',
+})
 </script>
 
 <template>
@@ -168,6 +234,10 @@ watch(qrCanvasRef, () => void renderQr(), { flush: 'post' })
 
           <!-- 能力就绪：身份 / 地址 / relay 状态 + 连接串 -->
           <template v-else>
+            <!-- 新的主路径：同一中继自动发现；连接串只给无法共用中继的对端 -->
+            <p class="ft-md-hint" data-testid="ft-my-device-auto-discovery">
+              {{ t('transfer.myDevice.autoDiscoveryHint') }}
+            </p>
             <div class="ft-md-kv">
               <span>{{ t('transfer.myDevice.deviceName') }}</span>
               <strong>{{ my.info.value.deviceName || t('transfer.myDevice.unnamed') }}</strong>
@@ -188,6 +258,85 @@ watch(qrCanvasRef, () => void renderQr(), { flush: 'post' })
                 my.info.value.addrs?.length ?? 0
               }}</strong>
             </div>
+
+            <!-- T23：跨网邀请（v4）= relay + 空间码，一次带走；对端扫/粘一次即可 -->
+            <section class="ft-md-invite" data-testid="ft-my-device-invite">
+              <h3 class="ft-md-relay-title">{{ t('transfer.invite.title') }}</h3>
+              <p class="ft-md-hint">{{ t('transfer.invite.hint') }}</p>
+              <p
+                v-if="!my.info.value.relayAddrs.length"
+                class="ft-md-hint ft-md-hint--warn"
+                data-testid="ft-my-device-invite-relay-missing"
+              >
+                {{ t('transfer.invite.errorRelayMissing') }}
+              </p>
+              <div class="ft-dialog-actions">
+                <button
+                  class="ft-btn ft-btn--primary"
+                  :disabled="invites.busy.value || !my.info.value.relayAddrs.length"
+                  data-testid="ft-my-device-invite-generate"
+                  @click="handleGenerateInvite"
+                >
+                  {{
+                    invites.busy.value
+                      ? t('transfer.invite.generating')
+                      : t('transfer.invite.generate')
+                  }}
+                </button>
+              </div>
+              <p
+                v-if="invites.error.value"
+                class="ft-remote-error"
+                data-testid="ft-my-device-invite-error"
+              >
+                {{ t(inviteErrorKey) }}
+              </p>
+
+              <template v-if="invites.invite.value">
+                <div class="ft-md-qr-wrap" data-testid="ft-my-device-invite-qr">
+                  <div class="ft-md-qr">
+                    <canvas ref="inviteQrRef" class="block"></canvas>
+                  </div>
+                  <p class="ft-md-hint">{{ t('transfer.invite.qrHint') }}</p>
+                </div>
+                <textarea
+                  class="ft-remote-input ft-md-link"
+                  rows="3"
+                  readonly
+                  :value="invites.invite.value"
+                  data-testid="ft-my-device-invite-link"
+                ></textarea>
+                <div class="ft-dialog-actions">
+                  <button
+                    class="ft-btn"
+                    data-testid="ft-my-device-invite-copy"
+                    @click="handleCopyInvite"
+                  >
+                    {{
+                      inviteCopyState === 'ok'
+                        ? t('transfer.invite.copied')
+                        : inviteCopyState === 'failed'
+                          ? t('transfer.invite.copyFailed')
+                          : t('transfer.invite.copy')
+                    }}
+                  </button>
+                  <button
+                    class="ft-btn"
+                    :disabled="invites.busy.value"
+                    data-testid="ft-my-device-invite-rotate"
+                    @click="handleRotateRoom"
+                  >
+                    {{ t('transfer.invite.rotate') }}
+                  </button>
+                </div>
+                <p
+                  class="ft-md-hint ft-md-hint--warn"
+                  data-testid="ft-my-device-invite-rotate-hint"
+                >
+                  {{ t('transfer.invite.rotateHint') }}
+                </p>
+              </template>
+            </section>
 
             <div v-if="my.canShare.value" class="ft-md-qr-wrap" data-testid="ft-my-device-qr">
               <div class="ft-md-qr">
@@ -266,7 +415,37 @@ watch(qrCanvasRef, () => void renderQr(), { flush: 'post' })
               {{ t('transfer.myDevice.relayCenterError', { message: my.info.value.relayError }) }}
             </p>
 
+            <label class="ft-md-link-label" for="ft-my-device-room">
+              {{ t('transfer.myDevice.relayRoomLabel') }}
+            </label>
+            <input
+              id="ft-my-device-room"
+              v-model="roomText"
+              class="ft-remote-input"
+              :placeholder="t('transfer.myDevice.relayRoomPlaceholder')"
+              data-testid="ft-my-device-room-input"
+              @input="onRoomInput"
+            />
+            <p class="ft-md-hint">{{ t('transfer.myDevice.relayRoomHint') }}</p>
+            <p v-if="my.roomSaved.value" class="ft-md-hint" data-testid="ft-my-device-room-saved">
+              {{ t('transfer.myDevice.relayRoomSaved') }}
+            </p>
+            <p
+              v-if="my.roomError.value"
+              class="ft-remote-error"
+              data-testid="ft-my-device-room-error"
+            >
+              {{ t('transfer.myDevice.relayRoomError') }}
+            </p>
             <div class="ft-dialog-actions">
+              <button
+                class="ft-btn"
+                :disabled="my.savingRoom.value"
+                data-testid="ft-my-device-room-save"
+                @click="handleSaveRoom"
+              >
+                {{ t('transfer.myDevice.relayRoomSave') }}
+              </button>
               <button class="ft-btn" data-testid="ft-my-device-open-center" @click="openCenter">
                 {{ t('transfer.myDevice.relayOpenCenter') }}
               </button>

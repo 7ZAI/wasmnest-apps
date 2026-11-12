@@ -25,6 +25,9 @@ export function useMyDevice(context: PluginContext) {
   const info = ref<MyDeviceInfo>({ ...EMPTY_INFO }) as Ref<MyDeviceInfo>
   const loading = ref(false)
   const loadError = ref(false)
+  const savingRoom = ref(false)
+  const roomError = ref('')
+  const roomSaved = ref(false)
 
   /** 读取本机设备信息（宿主能力未就绪时也成功返回，`supported=false`） */
   async function load(): Promise<void> {
@@ -42,8 +45,11 @@ export function useMyDevice(context: PluginContext) {
         relayAddrs: Array.isArray(r?.relayAddrs)
           ? r.relayAddrs.filter((x: unknown): x is string => typeof x === 'string')
           : [],
+        relayRoom: typeof r?.relayRoom === 'string' ? r.relayRoom : '',
         relaySource:
-          r?.relaySource === 'center' || r?.relaySource === 'cache' ? r.relaySource : undefined,
+          r?.relaySource === 'center' || r?.relaySource === 'cache' || r?.relaySource === 'invite'
+            ? r.relaySource
+            : undefined,
         relayError: typeof r?.relayError === 'string' ? r.relayError : null,
         nodeId: typeof r?.nodeId === 'string' ? r.nodeId : undefined,
         deviceName: typeof r?.deviceName === 'string' ? r.deviceName : undefined,
@@ -81,6 +87,29 @@ export function useMyDevice(context: PluginContext) {
 
   const canShare = computed(() => link.value !== '')
 
+  /**
+   * 保存中继会合空间码（桌面端 relay 地址真源在配置中心，本页只编辑房间隔离键）。
+   * 空串 = 同一中继所有设备可见；非法值后端整批拒绝并上抛，前端不显示假成功。
+   */
+  async function saveRelayRoom(room: string): Promise<void> {
+    savingRoom.value = true
+    roomError.value = ''
+    roomSaved.value = false
+    try {
+      await context.commands.execute('file-transfer.set-settings', {
+        relayRoom: room.trim(),
+      })
+      await load()
+      roomSaved.value = true
+    } catch (e) {
+      roomError.value = 'save-failed'
+      console.error('[File Transfer] save relay room failed:', e)
+      throw e
+    } finally {
+      savingRoom.value = false
+    }
+  }
+
   /** 复制连接串；剪贴板不可用返回 false（界面给显性失败文案） */
   async function copyLink(): Promise<boolean> {
     if (!link.value) return false
@@ -99,7 +128,11 @@ export function useMyDevice(context: PluginContext) {
     loadError,
     link,
     canShare,
+    savingRoom,
+    roomError,
+    roomSaved,
     load,
     copyLink,
+    saveRelayRoom,
   }
 }

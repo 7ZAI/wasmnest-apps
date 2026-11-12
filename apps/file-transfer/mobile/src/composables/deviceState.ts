@@ -36,6 +36,13 @@ export interface DiscoveredDevice {
   /** 手动添加的远程设备：无 mDNS 发现，TTL 清扫不得移除（T12） */
   paired?: boolean
   /**
+   * 中继会合发现（跨 NAT）：宿主经中继控制面拿到的设备。
+   *
+   * 没有 LAN 心跳，由宿主 25s 快照续期；快照不再包含时移除（除非同时有 mDNS
+   * 证据 / 已配对 / 已连接）。这类条目只有 circuit 候选，没有 addr/port。
+   */
+  relay?: boolean
+  /**
    * 上次连接成功时宿主上报的传输形态（T20；断开后保留）
    *
    * 用途：行内显示「上次：外网中继」；下次连接默认把 relay 纳入候选
@@ -113,11 +120,19 @@ export function parseFoundPayload(payload: unknown): DiscoveredDevice | null {
 export function applyLost(
   list: readonly DiscoveredDevice[],
   instanceName: string,
+  nowMs: number = Date.now(),
 ): DiscoveredDevice[] {
   if (!instanceName.startsWith(INSTANCE_PREFIX)) return [...list]
   const short = instanceName.slice(INSTANCE_PREFIX.length, INSTANCE_PREFIX.length + 8)
   if (!short) return [...list]
-  return list.filter((d) => !d.nodeId.startsWith(short))
+  // mDNS goodbye 只证明「LAN 这条路没了」：同一台设备若仍在中继快照里，保留行
+  // 并摘掉 LAN 证据（避免跨网设备在两次 25s 心跳之间从列表里闪掉）
+  return list
+    .filter((d) => !d.nodeId.startsWith(short) || d.relay === true)
+    .map((d) => {
+      if (!d.nodeId.startsWith(short)) return d
+      return { ...d, addr: '', port: 0, instanceName: undefined, lastSeenMs: nowMs }
+    })
 }
 
 /**
@@ -265,6 +280,8 @@ export interface DeviceRow {
   recent: boolean
   /** 手动添加的远程设备（界面标「远程」；不参与 TTL 清扫） */
   paired: boolean
+  /** 中继会合发现（跨 NAT）：界面标「中继」，无需扫码 / 连接串 */
+  relay: boolean
   /** 已连接时宿主上报的真实传输形态（未连接 / 入站未知 = null） */
   transport: TransportKind | null
   /** 上次连接成功时的传输形态（T20：idle 态展示「上次：…」） */
@@ -299,6 +316,103 @@ export function hasRelayCandidate(addrs: readonly string[] | undefined): boolean
   return (addrs ?? []).some((a) => a.includes(RELAY_MARKER))
 }
 
+/** 64 位小写 hex（与核内 NodeId / pairingLink 同判据） */
+const NODE_ID_PATTERN = /^[0-9a-f]{64}$/
+
+/**
+ * 中继会合快照解析（宿主 `peer:relay-devices` 载荷的纯函数）。
+ *
+ * 载荷：`{ devices: [{ nodeId, peerId, deviceName, addrs, lastSeenMs }] }`。
+ * 只收合法 nodeId + 至少一条 circuit 候选；`peerId` 只用于诊断，不参与前端
+ * 寻址（circuit 地址已自带）。非法条目跳过而不是整批失败——单台设备的坏记录
+ * 不该让整个中继名单消失。
+ */
+export function parseRelayDevicesPayload(payload: unknown): DiscoveredDevice[] {
+  if (!payload || typeof payload !== 'object') return []
+  const raw = (payload as Record<string, unknown>).devices
+  if (!Array.isArray(raw)) return []
+  const out: DiscoveredDevice[] = []
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue
+    const rec = item as Record<string, unknown>
+    const nodeId = typeof rec.nodeId === 'string' ? rec.nodeId.trim().toLowerCase() : ''
+    if (!NODE_ID_PATTERN.test(nodeId)) continue
+    const addrs = Array.isArray(rec.addrs)
+      ? rec.addrs
+          .filter((a): a is string => typeof a === 'string')
+          .map((a) => a.trim())
+          .filter((a) => a.startsWith('/') && a.includes(RELAY_MARKER))
+      : []
+    if (addrs.length === 0) continue
+    const deviceName = typeof rec.deviceName === 'string' ? rec.deviceName.trim() : ''
+    out.push({
+      nodeId,
+      deviceName,
+      addr: '',
+      port: 0,
+      fileTransfer: true,
+      addrs: [...new Set(addrs)],
+      relay: true,
+      lastSeenMs: typeof rec.lastSeenMs === 'number' ? rec.lastSeenMs : Date.now(),
+      restored: false,
+    })
+  }
+  return out
+}
+
+/**
+ * 中继快照并入设备缓存（纯函数，返回新数组）。
+ *
+ * 规则：
+ * - 同 nodeId：合并 circuit 候选、保留已有 LAN 证据（addr/port/instanceName）、
+ *   摘除 `restored`（中继心跳是实时证据）；展示名优先保留已有非空值。
+ * - 快照中消失的「纯中继」条目删除——中继离线后不应留下可拨的陈旧 circuit。
+ *   有 mDNS 证据 / 已配对 / 已连接的条目保留（可能是同一条目的另一条发现路径）。
+ * - `nowMs` 只用于给「本次仍在快照里的中继条目」续期，不用中继自报时间
+ *   （两端时钟可能漂移）。
+ */
+export function mergeRelayDevices(
+  devices: readonly DiscoveredDevice[],
+  snapshot: readonly DiscoveredDevice[],
+  nowMs: number,
+  connectedIds: ReadonlySet<string>,
+): DiscoveredDevice[] {
+  const snapshotIds = new Set(snapshot.map((d) => d.nodeId))
+  const byId = new Map<string, DiscoveredDevice>()
+  for (const device of devices) byId.set(device.nodeId, { ...device })
+
+  for (const incoming of snapshot) {
+    const existing = byId.get(incoming.nodeId)
+    if (!existing) {
+      byId.set(incoming.nodeId, { ...incoming, lastSeenMs: nowMs, restored: false })
+      continue
+    }
+    byId.set(incoming.nodeId, {
+      ...existing,
+      deviceName: existing.deviceName || incoming.deviceName,
+      addrs: [...new Set([...(existing.addrs ?? []), ...(incoming.addrs ?? [])])],
+      relay: true,
+      lastSeenMs: nowMs,
+      restored: false,
+    })
+  }
+
+  const out: DiscoveredDevice[] = []
+  for (const device of byId.values()) {
+    if (!device.relay || snapshotIds.has(device.nodeId)) {
+      out.push(device)
+      continue
+    }
+    const lanEvidence =
+      Boolean(device.instanceName) || Boolean(device.addr) || (device.port ?? 0) > 0
+    if (!lanEvidence && !device.paired && !connectedIds.has(device.nodeId)) continue
+    // 行保留（LAN / 配对 / 已连接），但「中继发现」标记必须摘掉：
+    // 继续显示中继徽标会让用户以为跨网路径仍可用
+    out.push({ ...device, relay: false })
+  }
+  return out
+}
+
 /**
  * 归并设备行：状态优先级 connected > connecting > idle；
  * 拨号失败只在 idle 态呈现（连接中/已连接即视为旧错误已消除）
@@ -319,6 +433,7 @@ export function deriveDeviceRows(input: DeviceStateInput): DeviceRow[] {
       isActive: connected && d.nodeId === input.activePeerId,
       recent: d.restored === true && !connected,
       paired: d.paired === true,
+      relay: d.relay === true,
       transport: connected ? (input.transports?.[d.nodeId] ?? null) : null,
       lastTransport: normalizeTransport(d.lastTransport),
       wanAvailable,

@@ -13,6 +13,7 @@
 import { computed, inject, onMounted, onUnmounted, ref, watch, type Ref } from 'vue'
 import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-mobile'
 import { useMyDevice } from '../composables/useMyDevice'
+import { useConnectionInvite } from '../composables/useConnectionInvite'
 
 const context = inject<PluginContext>('pluginContext')!
 const t = (key: string, params?: Record<string, any>) => context.i18n.t(key, params)
@@ -32,10 +33,24 @@ const sheetBottomInset = computed(() => {
 })
 
 const my = useMyDevice(context)
+/** 邀请（v4）：生成 / 轮换 / 复制 / 系统分享；v3 设备链接保留为兜底 */
+const invites = useConnectionInvite(context)
 
 const relayText = ref('')
+const roomText = ref('')
 const copyState = ref<'idle' | 'ok' | 'failed'>('idle')
+const shareState = ref<'idle' | 'ok' | 'failed'>('idle')
+const inviteCopyState = ref<'idle' | 'ok' | 'failed'>('idle')
+const inviteShareState = ref<'idle' | 'ok' | 'failed'>('idle')
 let copyTimer: ReturnType<typeof setTimeout> | null = null
+let shareTimer: ReturnType<typeof setTimeout> | null = null
+let inviteCopyTimer: ReturnType<typeof setTimeout> | null = null
+let inviteShareTimer: ReturnType<typeof setTimeout> | null = null
+
+/** WebView 是否提供系统分享面板（不支持时隐藏按钮，复制仍是兜底） */
+const canNativeShare =
+  typeof navigator !== 'undefined' &&
+  typeof (navigator as Navigator & { share?: unknown }).share === 'function'
 
 watch(
   () => my.info.value.relayAddrs,
@@ -44,6 +59,13 @@ watch(
   },
   { immediate: true, deep: true },
 )
+watch(
+  () => my.info.value.relayRoom,
+  (room) => {
+    roomText.value = room ?? ''
+  },
+  { immediate: true },
+)
 
 onMounted(() => {
   void my.load()
@@ -51,7 +73,20 @@ onMounted(() => {
 
 onUnmounted(() => {
   if (copyTimer) clearTimeout(copyTimer)
+  if (shareTimer) clearTimeout(shareTimer)
+  if (inviteCopyTimer) clearTimeout(inviteCopyTimer)
+  if (inviteShareTimer) clearTimeout(inviteShareTimer)
 })
+
+/** 生成失败原因 → 文案 key（不把后端原文当用户文案） */
+const INVITE_ERROR_KEYS: Record<string, string> = {
+  'relay-missing': 'transfer.invite.errorRelayMissing',
+  'save-failed': 'transfer.invite.errorSaveFailed',
+}
+
+const inviteErrorKey = computed(() =>
+  invites.error.value ? (INVITE_ERROR_KEYS[invites.error.value] ?? '') : '',
+)
 
 /** 短指纹：前 16 位（完整值在 title 里） */
 const shortId = computed(() => (my.info.value.nodeId ?? '').slice(0, 16))
@@ -83,6 +118,16 @@ async function handleCopy(): Promise<void> {
   }, 2000)
 }
 
+/** 系统分享：这是「把连接串交给对方」的直达通道（微信 / 邮件 / 隔空投送等） */
+async function handleShare(): Promise<void> {
+  const ok = await my.shareLink()
+  shareState.value = ok ? 'ok' : 'failed'
+  if (shareTimer) clearTimeout(shareTimer)
+  shareTimer = setTimeout(() => {
+    shareState.value = 'idle'
+  }, 2000)
+}
+
 async function handleSaveRelay(): Promise<void> {
   if (my.savingRelay.value) return
   const addrs = relayText.value
@@ -90,7 +135,7 @@ async function handleSaveRelay(): Promise<void> {
     .map((line) => line.trim())
     .filter(Boolean)
   try {
-    await my.saveRelayAddrs(addrs)
+    await my.saveRelayAddrs(addrs, roomText.value.trim())
   } catch {
     // my.relayError 已置位并渲染；技术细节只进日志
   }
@@ -98,6 +143,36 @@ async function handleSaveRelay(): Promise<void> {
 
 async function handleRefresh(): Promise<void> {
   await my.load()
+}
+
+/** 生成邀请：缺空间码时由后端先落一个随机码，再刷新本页展示 */
+async function handleGenerateInvite(): Promise<void> {
+  await invites.generate()
+  if (invites.invite.value) await my.load()
+}
+
+/** 轮换空间码：旧邀请仍能进旧房间，但看不到本机（UI 有显性提示） */
+async function handleRotateRoom(): Promise<void> {
+  await invites.rotateRoom()
+  if (invites.invite.value) await my.load()
+}
+
+async function handleCopyInvite(): Promise<void> {
+  const ok = await invites.copy()
+  inviteCopyState.value = ok ? 'ok' : 'failed'
+  if (inviteCopyTimer) clearTimeout(inviteCopyTimer)
+  inviteCopyTimer = setTimeout(() => {
+    inviteCopyState.value = 'idle'
+  }, 2000)
+}
+
+async function handleShareInvite(): Promise<void> {
+  const ok = await invites.share()
+  inviteShareState.value = ok ? 'ok' : 'failed'
+  if (inviteShareTimer) clearTimeout(inviteShareTimer)
+  inviteShareTimer = setTimeout(() => {
+    inviteShareState.value = 'idle'
+  }, 2000)
 }
 </script>
 
@@ -150,6 +225,9 @@ async function handleRefresh(): Promise<void> {
         </div>
 
         <template v-else>
+          <p class="fv2-md-hint" data-testid="mobile-my-device-auto-discovery">
+            {{ t('transfer.myDevice.autoDiscoveryHint') }}
+          </p>
           <div class="fv2-md-kv">
             <span>{{ t('transfer.myDevice.deviceName') }}</span>
             <strong>{{ my.info.value.deviceName || t('transfer.myDevice.unnamed') }}</strong>
@@ -171,6 +249,89 @@ async function handleRefresh(): Promise<void> {
             }}</strong>
           </div>
 
+          <!-- T23：跨网邀请（v4）= relay + 空间码，一次带走；对端扫/粘一次即可 -->
+          <section class="fv2-md-invite" data-testid="mobile-my-device-invite">
+            <h4 class="fv2-md-relay-title">{{ t('transfer.invite.title') }}</h4>
+            <p class="fv2-md-hint">{{ t('transfer.invite.hint') }}</p>
+            <p
+              v-if="!my.info.value.relayAddrs.length"
+              class="fv2-md-hint fv2-md-hint--warn"
+              data-testid="mobile-my-device-invite-relay-missing"
+            >
+              {{ t('transfer.invite.errorRelayMissing') }}
+            </p>
+            <button
+              class="fv2-btn-primary"
+              :disabled="invites.busy.value || !my.info.value.relayAddrs.length"
+              data-testid="mobile-my-device-invite-generate"
+              @click="handleGenerateInvite"
+            >
+              {{
+                invites.busy.value ? t('transfer.invite.generating') : t('transfer.invite.generate')
+              }}
+            </button>
+            <p
+              v-if="invites.error.value"
+              class="fv2-device-error"
+              data-testid="mobile-my-device-invite-error"
+            >
+              {{ t(inviteErrorKey) }}
+            </p>
+
+            <template v-if="invites.invite.value">
+              <textarea
+                class="fv2-remote-input fv2-md-link"
+                rows="3"
+                readonly
+                :value="invites.invite.value"
+                data-testid="mobile-my-device-invite-link"
+              ></textarea>
+              <div class="fv2-md-share-row">
+                <button
+                  class="fv2-btn-primary"
+                  data-testid="mobile-my-device-invite-copy"
+                  @click="handleCopyInvite"
+                >
+                  {{
+                    inviteCopyState === 'ok'
+                      ? t('transfer.invite.copied')
+                      : inviteCopyState === 'failed'
+                        ? t('transfer.invite.copyFailed')
+                        : t('transfer.invite.copy')
+                  }}
+                </button>
+                <button
+                  v-if="canNativeShare"
+                  class="fv2-btn-text"
+                  data-testid="mobile-my-device-invite-share"
+                  @click="handleShareInvite"
+                >
+                  {{
+                    inviteShareState === 'ok'
+                      ? t('transfer.invite.shared')
+                      : inviteShareState === 'failed'
+                        ? t('transfer.invite.shareFailed')
+                        : t('transfer.invite.share')
+                  }}
+                </button>
+                <button
+                  class="fv2-btn-text"
+                  :disabled="invites.busy.value"
+                  data-testid="mobile-my-device-invite-rotate"
+                  @click="handleRotateRoom"
+                >
+                  {{ t('transfer.invite.rotate') }}
+                </button>
+              </div>
+              <p
+                class="fv2-md-hint fv2-md-hint--warn"
+                data-testid="mobile-my-device-invite-rotate-hint"
+              >
+                {{ t('transfer.invite.rotateHint') }}
+              </p>
+            </template>
+          </section>
+
           <label class="fv2-md-label" for="mobile-my-device-link">
             {{ t('transfer.myDevice.linkLabel') }}
           </label>
@@ -186,20 +347,37 @@ async function handleRefresh(): Promise<void> {
             {{ t('transfer.myDevice.linkUnavailable') }}
           </p>
           <p v-else class="fv2-md-hint">{{ t('transfer.myDevice.linkHint') }}</p>
-          <button
-            class="fv2-btn-primary"
-            :disabled="!my.canShare.value"
-            data-testid="mobile-my-device-copy"
-            @click="handleCopy"
-          >
-            {{
-              copyState === 'ok'
-                ? t('transfer.myDevice.copied')
-                : copyState === 'failed'
-                  ? t('transfer.myDevice.copyFailed')
-                  : t('transfer.myDevice.copy')
-            }}
-          </button>
+          <div class="fv2-md-share-row">
+            <button
+              class="fv2-btn-primary"
+              :disabled="!my.canShare.value"
+              data-testid="mobile-my-device-copy"
+              @click="handleCopy"
+            >
+              {{
+                copyState === 'ok'
+                  ? t('transfer.myDevice.copied')
+                  : copyState === 'failed'
+                    ? t('transfer.myDevice.copyFailed')
+                    : t('transfer.myDevice.copy')
+              }}
+            </button>
+            <button
+              v-if="canNativeShare"
+              class="fv2-btn-text"
+              :disabled="!my.canShare.value"
+              data-testid="mobile-my-device-share"
+              @click="handleShare"
+            >
+              {{
+                shareState === 'ok'
+                  ? t('transfer.myDevice.shared')
+                  : shareState === 'failed'
+                    ? t('transfer.myDevice.shareFailed')
+                    : t('transfer.myDevice.share')
+              }}
+            </button>
+          </div>
         </template>
 
         <section class="fv2-md-relay" data-testid="mobile-my-device-relay">
@@ -213,6 +391,18 @@ async function handleRefresh(): Promise<void> {
             data-testid="mobile-my-device-relay-input"
             @input="onRelayInput"
           ></textarea>
+          <label class="fv2-md-label" for="mobile-my-device-room">
+            {{ t('transfer.myDevice.relayRoomLabel') }}
+          </label>
+          <input
+            id="mobile-my-device-room"
+            v-model="roomText"
+            class="fv2-remote-input"
+            :placeholder="t('transfer.myDevice.relayRoomPlaceholder')"
+            data-testid="mobile-my-device-room-input"
+            @input="onRelayInput"
+          />
+          <p class="fv2-md-hint">{{ t('transfer.myDevice.relayRoomHint') }}</p>
           <p
             v-if="!my.info.value.capabilities.relayReservation"
             class="fv2-md-hint fv2-md-hint--warn"
@@ -294,6 +484,13 @@ async function handleRefresh(): Promise<void> {
 .fv2-md-label {
   font-size: 0.8rem;
   color: var(--text-tertiary, #8a8f98);
+}
+
+.fv2-md-share-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .fv2-md-link {

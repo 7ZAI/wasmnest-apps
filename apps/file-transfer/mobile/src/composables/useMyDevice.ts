@@ -44,6 +44,12 @@ export function useMyDevice(context: PluginContext) {
         relayAddrs: Array.isArray(r?.relayAddrs)
           ? r.relayAddrs.filter((x: unknown): x is string => typeof x === 'string')
           : [],
+        relayRoom: typeof r?.relayRoom === 'string' ? r.relayRoom : '',
+        relaySource:
+          r?.relaySource === 'center' || r?.relaySource === 'cache' || r?.relaySource === 'invite'
+            ? r.relaySource
+            : undefined,
+        relayError: typeof r?.relayError === 'string' ? r.relayError : null,
         nodeId: typeof r?.nodeId === 'string' ? r.nodeId : undefined,
         deviceName: typeof r?.deviceName === 'string' ? r.deviceName : undefined,
         addrs: Array.isArray(r?.addrs)
@@ -91,12 +97,19 @@ export function useMyDevice(context: PluginContext) {
    * 校验真源在核内 `normalize_relay_addrs`：非法地址整批拒绝并上抛，
    * 前端不吞错、不显示「已保存」假象。
    */
-  async function saveRelayAddrs(addrs: string[]): Promise<void> {
+  async function saveRelayAddrs(addrs: string[], room?: string): Promise<void> {
     savingRelay.value = true
     clearRelayFeedback()
     try {
-      await context.commands.execute('file-transfer.set-settings', { relayAddrs: addrs })
-      info.value = { ...info.value, relayAddrs: [...addrs] }
+      const payload: Record<string, unknown> = { relayAddrs: addrs }
+      // room 未传 = 只改地址（保持既有房间码）；传空串 = 显式清除隔离
+      if (room !== undefined) payload.relayRoom = room
+      await context.commands.execute('file-transfer.set-settings', payload)
+      info.value = {
+        ...info.value,
+        relayAddrs: [...addrs],
+        ...(room !== undefined ? { relayRoom: room } : {}),
+      }
       relaySaved.value = true
     } catch (e) {
       relayError.value = 'save-failed'
@@ -104,6 +117,24 @@ export function useMyDevice(context: PluginContext) {
       throw e
     } finally {
       savingRelay.value = false
+    }
+  }
+
+  /**
+   * 系统分享面板（Web Share API）。返回 false = 当前 WebView 不支持分享，
+   * 调用方回退到复制；用户主动取消也返回 false（不提示失败）。
+   */
+  async function shareLink(): Promise<boolean> {
+    if (!link.value) return false
+    const nav = navigator as Navigator & {
+      share?: (data: { title?: string; text?: string }) => Promise<void>
+    }
+    if (typeof nav.share !== 'function') return false
+    try {
+      await nav.share({ text: link.value })
+      return true
+    } catch {
+      return false
     }
   }
 
@@ -132,5 +163,6 @@ export function useMyDevice(context: PluginContext) {
     clearRelayFeedback,
     saveRelayAddrs,
     copyLink,
+    shareLink,
   }
 }

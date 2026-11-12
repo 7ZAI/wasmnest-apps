@@ -14,11 +14,14 @@ import devMock, { NODE_PIXEL, NODE_XIAOMI } from '../devMock'
 import type { PeerDevMock } from '../devMockTypes'
 import {
   DEVICE_TTL_MS,
+  applyLost,
   deriveDeviceRows,
   dialFailureFromError,
   dialFailureFromResult,
+  mergeRelayDevices,
   normalizeTransport,
   parseFoundPayload,
+  parseRelayDevicesPayload,
   sweepStaleDevices,
 } from '../composables/deviceState'
 
@@ -302,5 +305,151 @@ describe('T20 · lastTransport 与分类失败', () => {
         dialErrors: { [NODE_REMOTE]: failure },
       })[0].dialError,
     ).toBeNull()
+  })
+})
+
+
+describe('中继会合发现（跨 NAT，无需扫码 / 连接串）', () => {
+  const RELAY_BASE = '/ip4/203.0.113.9/tcp/4001/p2p/12D3KooWRelay'
+  const CIRCUIT = `${RELAY_BASE}/p2p-circuit/p2p/12D3KooWTarget`
+  const relayPayload = (overrides: Record<string, unknown> = {}) => ({
+    devices: [
+      {
+        nodeId: NODE_REMOTE,
+        peerId: '12D3KooWTarget',
+        deviceName: 'Phone',
+        addrs: [CIRCUIT],
+        lastSeenMs: Date.now(),
+        ...overrides,
+      },
+    ],
+  })
+
+  it('合法快照解析为 relay 条目；非法 nodeId / 无 circuit 候选整条丢弃', () => {
+    const parsed = parseRelayDevicesPayload(relayPayload())
+    expect(parsed).toHaveLength(1)
+    expect(parsed[0].relay).toBe(true)
+    expect(parsed[0].nodeId).toBe(NODE_REMOTE)
+    expect(parsed[0].addrs).toEqual([CIRCUIT])
+
+    expect(
+      parseRelayDevicesPayload({ devices: [{ ...relayPayload().devices[0], nodeId: 'short' }] }),
+    ).toEqual([])
+    expect(
+      parseRelayDevicesPayload({
+        devices: [{ ...relayPayload().devices[0], addrs: ['/ip4/192.168.1.2/tcp/47613'] }],
+      }),
+    ).toEqual([])
+    expect(parseRelayDevicesPayload({})).toEqual([])
+    expect(parseRelayDevicesPayload(null)).toEqual([])
+  })
+
+  it('并入空缓存：只带 circuit 候选也派生为可连接行', () => {
+    const merged = mergeRelayDevices([], parseRelayDevicesPayload(relayPayload()), 1000, new Set())
+    expect(merged).toHaveLength(1)
+    expect(merged[0]).toMatchObject({
+      nodeId: NODE_REMOTE,
+      deviceName: 'Phone',
+      addr: '',
+      port: 0,
+      relay: true,
+      restored: false,
+      lastSeenMs: 1000,
+    })
+    const row = deriveDeviceRows({
+      devices: merged,
+      connectingIds: new Set(),
+      connectedIds: new Set(),
+      dialErrors: {},
+      activePeerId: '',
+    })[0]
+    expect(row.relay).toBe(true)
+    expect(row.wanAvailable).toBe(true)
+  })
+
+  it('同 node 的 mDNS 与中继合并为一行：保留 LAN 证据与展示名', () => {
+    const lan = parseFoundPayload({
+      instanceName: 'wasmnest-peer-ffffffff',
+      addresses: ['192.168.1.7'],
+      port: 47613,
+      txtRecords: { id: NODE_REMOTE, name: 'Desk LAN', cap: '1' },
+    })!
+    const merged = mergeRelayDevices(
+      [lan],
+      parseRelayDevicesPayload(relayPayload({ deviceName: 'Desk Relay' })),
+      1000,
+      new Set(),
+    )
+    expect(merged).toHaveLength(1)
+    expect(merged[0]).toMatchObject({
+      nodeId: NODE_REMOTE,
+      addr: '192.168.1.7',
+      port: 47613,
+      deviceName: 'Desk LAN',
+      relay: true,
+    })
+    expect(merged[0].addrs).toContain(CIRCUIT)
+  })
+
+  it('中继快照消失：纯中继条目移除；已配对 / 已连接 / 有 LAN 证据的保留', () => {
+    const pure = parseRelayDevicesPayload(relayPayload())[0]
+    const paired = { ...pure, nodeId: 'a'.repeat(64), paired: true }
+    const connected = { ...pure, nodeId: 'b'.repeat(64) }
+    const lanEvidence = {
+      ...pure,
+      nodeId: 'c'.repeat(64),
+      addr: '192.168.1.9',
+      port: 47613,
+    }
+    const merged = mergeRelayDevices(
+      [pure, paired, connected, lanEvidence],
+      [],
+      2000,
+      new Set([connected.nodeId]),
+    )
+    expect(merged.map((d) => d.nodeId)).toEqual([
+      paired.nodeId,
+      connected.nodeId,
+      lanEvidence.nodeId,
+    ])
+    // 保留的行不再声称「中继发现」（中继已不可见，徽标必须如实消失）
+    expect(merged.every((d) => d.relay !== true)).toBe(true)
+  })
+})
+
+
+describe('applyLost · mDNS goodbye 不误删中继行', () => {
+  const instance = 'wasmnest-peer-ffffffff.local.'
+  it('纯 mDNS 条目移除；带 relay 的条目保留但摘掉 LAN 证据', () => {
+    const lanOnly = {
+      nodeId: 'ffffffff' + 'a'.repeat(56),
+      deviceName: 'LAN only',
+      addr: '192.168.1.5',
+      port: 47613,
+      instanceName: instance,
+    }
+    const relayToo = {
+      nodeId: 'ffffffff' + 'b'.repeat(56),
+      deviceName: 'Relay',
+      addr: '192.168.1.6',
+      port: 47613,
+      instanceName: instance,
+      relay: true,
+      addrs: ['/ip4/203.0.113.9/tcp/4001/p2p/12D3KooWRelay/p2p-circuit/p2p/12D3KooWTarget'],
+    }
+    const next = applyLost([lanOnly, relayToo], instance)
+    expect(next).toHaveLength(1)
+    expect(next[0]).toMatchObject({
+      nodeId: relayToo.nodeId,
+      addr: '',
+      port: 0,
+      relay: true,
+    })
+    expect(next[0].instanceName).toBeUndefined()
+  })
+
+  it('实例名不匹配时原样返回', () => {
+    const list = [{ nodeId: 'c'.repeat(64), deviceName: 'x' }]
+    expect(applyLost(list, 'other-instance')).toEqual(list)
   })
 })

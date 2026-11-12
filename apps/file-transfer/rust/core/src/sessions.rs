@@ -300,6 +300,7 @@ mod tests {
             addrs: vec!["/ip4/10.0.0.1/tcp/47821".into()],
             paired: true,
             last_transport: Some("wan-relay".into()),
+            relay: true,
         }];
         save_snapshot(&h, &entries).unwrap();
         assert_eq!(load_snapshot(&h).unwrap(), entries);
@@ -308,6 +309,7 @@ mod tests {
             load_snapshot(&h).unwrap()[0].last_transport.as_deref(),
             Some("wan-relay")
         );
+        assert!(load_snapshot(&h).unwrap()[0].relay, "中继来源随快照落盘");
     }
 
     #[test]

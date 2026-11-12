@@ -14,7 +14,12 @@
  * - 连续 10s 未命中给一条非阻断提示（不停止相机、不改错误态）。
  */
 import { onMounted, onUnmounted, ref } from 'vue'
-import { parseRemotePeerLink, type RemotePeerLink } from '../utils/pairingLink'
+import {
+  parseConnectionInvite,
+  parseRemotePeerLink,
+  type ConnectionInvite,
+  type RemotePeerLink,
+} from '../utils/pairingLink'
 import { useCameraStream } from '../scan/useCameraStream'
 import { useQrScanLoop } from '../scan/useQrScanLoop'
 import {
@@ -30,6 +35,8 @@ type Translate = (key: string, params?: Record<string, any>) => string
 const props = defineProps<{ t: Translate }>()
 const emit = defineEmits<{
   (e: 'link', link: RemotePeerLink): void
+  /** v4 邀请（T23）：交给父级弹确认页，不直接改本机空间 */
+  (e: 'invite', invite: ConnectionInvite): void
   (e: 'close'): void
 }>()
 
@@ -87,18 +94,29 @@ async function start(): Promise<void> {
   }
 }
 
-async function handleText(text: string): Promise<void> {
-  if (finished) return
-  const parsed = parseRemotePeerLink(text)
-  if (!parsed.ok) {
-    // 非法码继续扫（用户可能对着旧版/无关二维码），原文不回显也不落日志
-    return
-  }
+function finishScan(): void {
   finished = true
   loop.stop()
   camera.stop()
   noteScanHit(hint)
   hintVisible.value = false
+}
+
+async function handleText(text: string): Promise<void> {
+  if (finished) return
+  // 先试 v4 邀请（relay + 空间码），再试 v3 设备链接；未知码继续扫
+  const invite = parseConnectionInvite(text)
+  if (invite.ok) {
+    finishScan()
+    emit('invite', invite.invite)
+    return
+  }
+  const parsed = parseRemotePeerLink(text)
+  if (!parsed.ok) {
+    // 非法码继续扫（用户可能对着旧版/无关二维码），原文不回显也不落日志
+    return
+  }
+  finishScan()
   emit('link', parsed.link)
 }
 

@@ -121,6 +121,12 @@ export interface MyDeviceInfo {
   reason?: string | null
   capabilities: HostCapabilities
   relayAddrs: string[]
+  /** 中继会合空间码（空 = 同一中继所有设备可见；双端必须一致） */
+  relayRoom?: string
+  /** relay 地址来源：center / cache / invite（移动端通常 cache / invite） */
+  relaySource?: 'center' | 'cache' | 'invite'
+  /** 读取配置中心的错误（移动端恒空；保留同构形状） */
+  relayError?: string | null
   nodeId?: string
   deviceName?: string
   addrs?: string[]

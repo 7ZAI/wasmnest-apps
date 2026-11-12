@@ -28,12 +28,16 @@ export default {
   // ==================== Nearby devices sheet ====================
   'transfer.devices.title': 'Nearby Devices',
   'transfer.devices.subtitle': 'WasmNest nodes on this network',
+  'transfer.devices.relayEmptyHint':
+    'Devices on the same relay appear automatically (configure the same relay on both ends; the relay must support auto-discovery). QR / link is only needed when a shared relay is unavailable.',
   'transfer.devices.empty':
     'No nearby devices found; make sure the other device has WasmNest open and is on the same network',
   'transfer.devices.online': 'Online',
   'transfer.devices.recentSeen': 'Recently seen',
   'transfer.devices.connected': 'Connected',
   'transfer.devices.connecting': 'Connecting…',
+  'transfer.devices.connectingHint': 'Connecting… (the other side may need to confirm)',
+  'transfer.devices.sendFile': 'Send file',
   'transfer.devices.capNone': 'No transfer',
   'transfer.devices.activeCurrent': 'Current',
   'transfer.devices.setActive': 'Set active',
@@ -60,6 +64,7 @@ export default {
   'transfer.devices.lastTransportWan': 'Last: relay',
   'transfer.devices.hasRelay': 'Relay ready',
   'transfer.devices.lanOnly': 'LAN only',
+  'transfer.devices.relayTag': 'Relay',
   'transfer.devices.relayOnly': 'Relay only',
   'transfer.devices.relayOnlyHint':
     'Skip LAN candidates and dial straight through the relay (faster on cellular)',
@@ -293,7 +298,7 @@ export default {
     'Paste the pairing link (wasmnest://pair/…) or the raw JSON payload from the other device. Only connection info and an optional one-time ticket are carried; long-term keys never are.',
   'transfer.remote.placeholder': 'wasmnest://pair/… or {"nodeId":"…","addrs":["…"]}',
   'transfer.remote.sourceHint':
-    'The link is generated on the other device: open My device in this app there, then copy the link or show the QR code.',
+    'Preferred: configure the same relay on both ends under My device → External access. Devices on the same relay appear automatically — no QR code or link exchange. Use the link / QR below only when both sides cannot share a relay.',
   'transfer.remote.cancel': 'Cancel',
   'transfer.remote.confirm': 'Add',
   'transfer.remote.added': 'Remote device added',
@@ -301,7 +306,8 @@ export default {
   'transfer.remote.addedLanOnly': 'Added (LAN only)',
   'transfer.remote.scan': 'Scan',
   'transfer.remote.scanTitle': 'Scan to add device',
-  'transfer.remote.scanHint': 'Point the camera at the pairing QR code on the other device',
+  'transfer.remote.scanHint':
+    'Point this app’s scanner at the pairing QR code on the other device (the system camera will not open this app)',
   'transfer.remote.scanHintSlow':
     'No QR detected yet: move closer, or raise the screen brightness on the other device',
   'transfer.remote.scanClose': 'Close',
@@ -309,6 +315,8 @@ export default {
   'transfer.remote.scanFailed': 'Cannot start the camera',
   'transfer.remote.scanPermission':
     'Camera permission denied; allow camera access for this app in system settings and retry',
+  'transfer.remote.paste': 'Paste',
+  'transfer.remote.pasteFailed': 'Clipboard unavailable; select and paste manually',
   'transfer.remote.errorMalformed': 'Invalid pairing link or JSON',
   'transfer.remote.errorIncomplete':
     'Pairing data is incomplete (nodeId and at least one address are required)',
@@ -332,16 +340,29 @@ export default {
   'transfer.myDevice.relayUnknown': 'Unknown',
   'transfer.myDevice.addresses': 'Dialable addresses',
   'transfer.myDevice.linkLabel': 'Link',
+  'transfer.myDevice.autoDiscoveryHint':
+    'With the same relay configured on both ends, devices appear automatically under “Nearby devices” — no QR code or link copying. The relay only handles discovery; the first connection still needs approval on the other device.',
   'transfer.myDevice.linkHint':
-    'The other device pastes or scans it in Add remote device; the link contains no long-term key.',
+    'Only needed when the other device cannot join the same relay. Copy it into a chat, then paste it under “Add remote device” on the other device.',
   'transfer.myDevice.linkUnavailable':
     'No dialable address (need a LAN address or a ready relay address)',
   'transfer.myDevice.copy': 'Copy link',
   'transfer.myDevice.copied': 'Copied',
   'transfer.myDevice.copyFailed': 'Copy failed; select the text and copy manually',
+  'transfer.myDevice.share': 'Share link',
+  'transfer.myDevice.shared': 'Shared',
+  'transfer.myDevice.shareFailed': 'Share failed; use Copy instead',
+  'transfer.myDevice.relayRoomLabel': 'Space code (same on both ends)',
+  'transfer.myDevice.relayRoomPlaceholder': 'Leave empty to see every device on this relay',
+  'transfer.myDevice.relayRoomHint':
+    'With a space code, only devices in the same space discover each other through the relay. The relay receives its hash, never the code.',
+  'transfer.myDevice.relayRoomSaved': 'Space code saved',
+  'transfer.myDevice.relayRoomError':
+    'Save failed: use letters, digits, underscores or dashes (max 64).',
+  'transfer.myDevice.relayRoomSave': 'Save space code',
   'transfer.myDevice.relayTitle': 'External access (relay)',
   'transfer.myDevice.relayHint':
-    'Only the device being dialed needs this. One relay endpoint per line (…/tcp/4001/p2p/<relay>); leave empty for LAN only.',
+    'Import the address once in the Network ingress center; all apps share it. Auto-discovery requires the same relay on both ends (optionally with the same space code). The relay only forwards and helps discovery; it is not an authorization point.',
   'transfer.myDevice.relayPlaceholder': '/ip4/203.0.113.9/tcp/4001/p2p/12D3KooW…',
   'transfer.myDevice.relayUnsupported':
     'This host version only saves the config; it does not establish a relay reservation yet. It will take effect after a host upgrade.',
@@ -350,6 +371,44 @@ export default {
   'transfer.myDevice.relaySave': 'Save external access',
   'transfer.myDevice.refresh': 'Refresh',
   'transfer.myDevice.close': 'Done',
+  'transfer.invite.title': 'Invite a device',
+  'transfer.invite.hint':
+    'Bundle the relay and space code into one invite; the other side scans or pastes it once to discover you.',
+  'transfer.invite.generate': 'Generate invite',
+  'transfer.invite.generating': 'Generating…',
+  'transfer.invite.generateFailed': 'Could not generate the invite. Try again.',
+  'transfer.invite.errorRelayMissing':
+    'No relay configured yet. Fill in the relay under My device, or paste an invite.',
+  'transfer.invite.errorSaveFailed': 'Could not save the space code. Try again.',
+  'transfer.invite.errorMalformed': 'This is not a valid invite (damaged payload)',
+  'transfer.invite.errorMissingRoom': 'The invite has no space code',
+  'transfer.invite.errorAddressInvalid': 'The relay address in the invite is not usable',
+  'transfer.invite.copy': 'Copy invite',
+  'transfer.invite.copied': 'Invite copied',
+  'transfer.invite.copyFailed': 'Copy failed; select the text manually',
+  'transfer.invite.share': 'Share invite',
+  'transfer.invite.shared': 'Shared',
+  'transfer.invite.shareFailed': 'Share failed; use Copy instead',
+  'transfer.invite.rotate': 'Rotate space code',
+  'transfer.invite.rotateHint':
+    'Old invites can still enter the old space, but will no longer see this device. Send the new invite to the devices you want to connect.',
+  'transfer.invite.inputHint':
+    'Paste an invite or device link from the other side; an invite asks you to confirm the space first.',
+  'transfer.invite.placeholder': 'wasmnest://join/… or wasmnest://pair/…',
+  'transfer.invite.joinTitle': 'Join space',
+  'transfer.invite.joinName': 'Join the space of “{name}”?',
+  'transfer.invite.joinRelay': 'Relay',
+  'transfer.invite.joinRoom': 'Space code',
+  'transfer.invite.joinDevices': 'Devices in this space',
+  'transfer.invite.joinLeaveRoom': 'You are in another space; joining will hide its devices.',
+  'transfer.invite.openCenter': 'Open Network',
+  'transfer.invite.openCenterUnavailable':
+    'This host cannot navigate there; open the Network app manually.',
+  'transfer.invite.join': 'Join',
+  'transfer.invite.joining': 'Joining…',
+  'transfer.invite.joinFailed': 'Save failed; you have not joined. Try again.',
+  'transfer.invite.joined': 'Joined the space of “{name}”',
+  'transfer.invite.unnamed': 'the other device',
 
   // ==================== 首连确认（全局对话框，spec 决策 7） ====================
   'transfer.consent.title': 'Connection request',

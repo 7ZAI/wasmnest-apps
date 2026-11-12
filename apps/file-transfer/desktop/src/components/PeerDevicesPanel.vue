@@ -34,6 +34,8 @@ const emit = defineEmits<{
   myDevice: []
   /** 移除手动添加的远程设备（T12） */
   removeRemote: [nodeId: string]
+  /** 直达发送（T23）：未连接时先连后选文件；已连接时切活跃 + 选文件 */
+  send: [nodeId: string]
   /** 探索发现：重新扫描同网节点（父组件负责调 query-peer 并维护 scanning 态） */
   scan: []
 }>()
@@ -149,7 +151,10 @@ function dotClass(row: DeviceRow): string {
 
     <!-- 空态：发现缓存无节点 -->
     <div v-if="rows.length === 0" class="ft-dev-empty" data-testid="ft-peer-empty">
-      {{ t('transfer.devices.empty') }}
+      <p>{{ t('transfer.devices.empty') }}</p>
+      <p class="ft-dev-empty-hint" data-testid="ft-peer-relay-hint">
+        {{ t('transfer.devices.relayEmptyHint') }}
+      </p>
     </div>
 
     <!-- 设备行列表 -->
@@ -167,6 +172,9 @@ function dotClass(row: DeviceRow): string {
             <span class="ft-dev-fp">{{ shortFingerprint(row.nodeId) }}</span>
             <span v-if="row.paired" class="ft-dev-tag" data-testid="ft-dev-remote-tag">
               {{ t('transfer.devices.remote') }}
+            </span>
+            <span v-if="row.relay" class="ft-dev-tag" data-testid="ft-dev-relay-tag">
+              {{ t('transfer.devices.relayTag') }}
             </span>
             <span v-if="row.isActive" class="ft-dev-tag ft-dev-tag--active">
               {{ t('transfer.devices.activeCurrent') }}
@@ -199,7 +207,7 @@ function dotClass(row: DeviceRow): string {
               >
             </template>
             <template v-else-if="row.status === 'connecting'">
-              {{ t('transfer.devices.connecting') }}
+              {{ t('transfer.devices.connectingHint') }}
             </template>
             <template v-else-if="row.recent">
               {{ t('transfer.devices.recentSeen')
@@ -225,6 +233,16 @@ function dotClass(row: DeviceRow): string {
         </div>
 
         <div class="ft-dev-actions">
+          <!-- T23：直达发送 = 连接（如需要）+ 选文件 + 发送，不再先回设备页 -->
+          <button
+            class="ft-text-btn ft-text-btn--primary"
+            :disabled="!row.fileTransfer || row.status === 'connecting'"
+            :title="t('transfer.devices.sendFile')"
+            data-testid="ft-dev-send"
+            @click="emit('send', row.nodeId)"
+          >
+            {{ t('transfer.devices.sendFile') }}
+          </button>
           <button
             v-if="row.status === 'connected' && !row.isActive"
             class="ft-text-btn"

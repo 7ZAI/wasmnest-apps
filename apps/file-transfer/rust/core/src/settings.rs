@@ -59,6 +59,21 @@ pub struct TransferSettings {
     /// `host-peer`（见 T21）；本字段先落存储，宿主能力到位后由插件在激活时推送。
     #[serde(default)]
     pub relay_addrs: Vec<String>,
+    /// 中继会合空间码（跨 NAT 自动发现的隔离键；双端填同一个才互相可见）。
+    ///
+    /// 空 = 同一台中继上的所有设备互相可见（自建私有中继的默认口径）。非空时
+    /// 插件只把**原文**经本机总线交给宿主，宿主用 SHA-256 派生房间键后发给中继；
+    /// 中继永远看不到空间码明文。它不是密码，不参与授权——访问控制仍在目标
+    /// 宿主的信任表 + 首连确认。
+    #[serde(default)]
+    pub relay_room: String,
+    /// relay 地址来源：`""` = 手动 / 缓存，`"invite"` = 邀请导入。
+    ///
+    /// 只影响「中心明确未配置」时是否允许沿用本地缓存：邀请是显式用户动作，
+    /// 允许在中心为空时生效；手动缓存仍按 T21 语义不复活。中心已配置时始终
+    /// 中心优先（冲突由前端提示，不在后端静默覆盖）。
+    #[serde(default)]
+    pub relay_origin: String,
 }
 
 fn default_concurrency() -> u8 {
@@ -86,6 +101,8 @@ impl Default for TransferSettings {
             allow_wan: default_allow_wan(),
             relay_max_bytes_per_task: 0,
             relay_addrs: Vec::new(),
+            relay_room: String::new(),
+            relay_origin: String::new(),
         }
     }
 }
@@ -134,6 +151,33 @@ pub fn normalize_relay_addrs(raw: &[String]) -> Result<Vec<String>, String> {
         }
     }
     Ok(out)
+}
+
+/// 空间码校验：空白 = 关闭房间隔离（relay-wide）；非空只允许 `[A-Za-z0-9_-]`，
+/// 最长 64。非法值显性报错——静默截断会让两端算出不同房间键。
+pub fn normalize_relay_room(raw: &str) -> Result<String, String> {
+    let room = raw.trim();
+    if room.is_empty() {
+        return Ok(String::new());
+    }
+    if room.len() > 64
+        || !room
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+    {
+        return Err("relay room must be 1-64 chars of [A-Za-z0-9_-]".to_string());
+    }
+    Ok(room.to_string())
+}
+
+/// relay 来源校验：只有空串（手动 / 缓存）与 `invite`（邀请导入）两个值。
+/// 未知来源显性报错——静默归成一类会让「中心为空时是否复活缓存」的判定漂移。
+pub fn normalize_relay_origin(raw: &str) -> Result<String, String> {
+    match raw.trim() {
+        "" => Ok(String::new()),
+        "invite" => Ok("invite".to_string()),
+        other => Err(format!("relay origin must be empty or `invite`: `{other}`")),
+    }
 }
 
 /// UI 词表 → 宿主策略词表
@@ -352,6 +396,8 @@ mod tests {
             allow_wan: false,
             relay_max_bytes_per_task: 1_073_741_824,
             relay_addrs: Vec::new(),
+            relay_room: String::new(),
+            relay_origin: String::new(),
         };
         save_and_push(&h, &s).unwrap();
         assert_eq!(
@@ -640,5 +686,31 @@ mod tests {
         assert_eq!(policy_to_host("ask"), "ask");
         assert_eq!(clamp_timeout(5), 10);
         assert_eq!(clamp_timeout(700), 600);
+    }
+
+    #[test]
+    fn relay_origin_accepts_only_manual_or_invite() {
+        assert_eq!(normalize_relay_origin("").expect("manual"), "");
+        assert_eq!(normalize_relay_origin("  ").expect("blank"), "");
+        assert_eq!(
+            normalize_relay_origin(" invite ").expect("invite"),
+            "invite"
+        );
+        assert!(normalize_relay_origin("center").is_err());
+        assert!(normalize_relay_origin("invite!").is_err());
+    }
+
+    #[test]
+    fn relay_room_allows_empty_and_rejects_unsafe() {
+        assert_eq!(normalize_relay_room("").expect("empty"), "");
+        assert_eq!(normalize_relay_room("  ").expect("blank"), "");
+        assert_eq!(normalize_relay_room(" home_1 ").expect("valid"), "home_1");
+        assert_eq!(
+            normalize_relay_room(&"a".repeat(64)).expect("max"),
+            "a".repeat(64)
+        );
+        assert!(normalize_relay_room(&"a".repeat(65)).is_err());
+        assert!(normalize_relay_room("two words").is_err());
+        assert!(normalize_relay_room("斜杠/").is_err());
     }
 }
