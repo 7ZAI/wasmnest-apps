@@ -63,6 +63,9 @@
             :style="codeStyle"
             v-html="highlightedHtml"
           ></div>
+          <!-- 高亮引擎不可用（如 wasm 资产取不到）时不得渲染成空白，必须可见报错 -->
+          <div v-else-if="isLoading" class="viewer-loading">{{ t('file.loading') }}</div>
+          <div v-else-if="highlightError" class="viewer-error">{{ highlightError }}</div>
         </div>
 
         <!-- Footer -->
@@ -112,7 +115,8 @@ const emit = defineEmits<{
 }>()
 
 const safeArea = inject<Ref<{ top: number; bottom: number }>>('safeArea')!
-const { highlightedHtml, isLoading, highlight, highlightDiff } = useCodeHighlight()
+const { highlightedHtml, isLoading, error: highlightError, highlight, highlightDiff } =
+  useCodeHighlight()
 
 const isFullscreen = ref(false)
 const codeViewerStore = useCodeViewerStore()

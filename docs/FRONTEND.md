@@ -125,6 +125,7 @@
 
 - `vite.config.ts`：经 `wasmnestPlugin()`，`vue` / `vue-i18n` / `pinia` 外置为宿主全局 `window.__WASMNEST_SHARED__`（**移动端仍是外置形态，与桌面挂载包不同**）。产物入口 `src/index.ts`，`main` 指向 `index.js`。
 - 库模式下 Vite 不把提取的 CSS 注入 JS，宿主只 import `index.js` → 样式会整体失效。需要 CSS 的应用自行加内联插件（`ai-chatbox/mobile/vite.config.ts` 的 `inlinePluginCss()` 是现成范例，`data-plugin-css` 标记保证重载时先移除旧样式）。
+- **产物必须单文件**：`build.rollupOptions.output` 置 `codeSplitting: false`（旧写法 `inlineDynamicImports: true`）。宿主只 `import()` 清单里的 `main`，且装载 URL 形如 `http://asset.localhost/<整条绝对路径 percent-encoded>`；代码分割出的相对 chunk 会解析成 `http://asset.localhost/<chunk>`（在 asset scope 外，403）。实例：bedcode 的 `import('shiki/wasm')` / `import('@xterm/addon-webgl')` 曾因此全部失败——终端退回 DOM 渲染器，**源码查看静默空白**（2026-11-12 真机定位）。
 - `pnpm run dev` 起 SDK dev-shell（浏览器 HMR）；`devMock` 出口提供领域种子数据（真实宿主忽略）。**具体业务 mock / 种子数据归各 app 工程**，不要写进 SDK dev-shell。
 
 ### 2.3 域组织
