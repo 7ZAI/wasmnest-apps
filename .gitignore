@@ -78,3 +78,6 @@ desktop.ini
 
 # AI 工具的计划文件（zcode 生成的会话计划，不入库）
 .zcode/
+
+# 本地 AI 工具状态（codex hooks 等，不入库）
+.codex/
