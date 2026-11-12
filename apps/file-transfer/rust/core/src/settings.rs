@@ -52,6 +52,13 @@ pub struct TransferSettings {
     /// 到指定大小以上才提示。真正的中继配额在 relay 服务端（单 circuit 字节 / 时长）。
     #[serde(default)]
     pub relay_max_bytes_per_task: u64,
+    /// 外网接入（relay）端点地址（file-transfer 独立化 T21）。
+    ///
+    /// 只保存 **relay 端点**（`.../tcp/<port>/p2p/<relay>`），不保存拨号目标；
+    /// 空 = 未配置外网接入（仅内网）。应用不自行建立预留——消费方仍是宿主
+    /// `host-peer`（见 T21）；本字段先落存储，宿主能力到位后由插件在激活时推送。
+    #[serde(default)]
+    pub relay_addrs: Vec<String>,
 }
 
 fn default_concurrency() -> u8 {
@@ -78,6 +85,7 @@ impl Default for TransferSettings {
             concurrency: default_concurrency(),
             allow_wan: default_allow_wan(),
             relay_max_bytes_per_task: 0,
+            relay_addrs: Vec::new(),
         }
     }
 }
@@ -85,6 +93,47 @@ impl Default for TransferSettings {
 /// 钳制并发上限到合法区间（1–8）
 pub fn clamp_concurrency(n: u8) -> u8 {
     n.clamp(1, 8)
+}
+
+/// 规整并校验 relay 端点地址（`set-settings` 的唯一入口；纯函数，宿主无关）。
+///
+/// 判据（与能力仓 `wasmnest-p2p-engine/src/relay.rs::RelayEndpoint::parse` 的
+/// 端点形状同口径的最小集）：
+/// - 必须是以 `/` 开头的 multiaddr，且不含空白；
+/// - 必须含 `/tcp/<port>` 与 `/p2p/<relay>`（钉住 relay 身份）；
+/// - **不得**含 `/p2p-circuit`（这里存的是 relay 端点，不是经中继的拨号目标）；
+/// - 不允许未指定地址（`/ip4/0.0.0.0` / `/ip6/::`）。
+///
+/// 空列表合法（清除配置）。任何一条不合法整批拒绝并点名——静默丢弃会让
+/// 「保存了但没生效」变成不可归因的假故障。
+pub fn normalize_relay_addrs(raw: &[String]) -> Result<Vec<String>, String> {
+    let mut out: Vec<String> = Vec::with_capacity(raw.len());
+    for item in raw {
+        let addr = item.trim();
+        if addr.is_empty() {
+            return Err("relay address must not be empty".to_string());
+        }
+        if !addr.starts_with('/') || addr.chars().any(char::is_whitespace) {
+            return Err(format!("relay address is not a multiaddr: `{addr}`"));
+        }
+        if addr.contains("/p2p-circuit") {
+            return Err(format!(
+                "relay address must be a relay endpoint, not a circuit target: `{addr}`"
+            ));
+        }
+        if !addr.contains("/tcp/") || !addr.contains("/p2p/") {
+            return Err(format!(
+                "relay address must be `<transport>/tcp/<port>/p2p/<relay>`: `{addr}`"
+            ));
+        }
+        if addr.contains("/ip4/0.0.0.0") || addr.contains("/ip6/::") {
+            return Err(format!("relay address must not be unspecified: `{addr}`"));
+        }
+        if !out.iter().any(|existing| existing == addr) {
+            out.push(addr.to_string());
+        }
+    }
+    Ok(out)
 }
 
 /// UI 词表 → 宿主策略词表
@@ -302,6 +351,7 @@ mod tests {
             concurrency: 5,
             allow_wan: false,
             relay_max_bytes_per_task: 1_073_741_824,
+            relay_addrs: Vec::new(),
         };
         save_and_push(&h, &s).unwrap();
         assert_eq!(
@@ -458,6 +508,52 @@ mod tests {
     // ==================== T12：中继设置 ====================
 
     #[test]
+    fn relay_addrs_roundtrip_and_are_normalized() {
+        let h = MockPorts::default();
+        let s = TransferSettings {
+            relay_addrs: vec!["/ip4/203.0.113.9/tcp/4001/p2p/12D3KooWRelay".to_string()],
+            ..Default::default()
+        };
+        save_and_push(&h, &s).unwrap();
+        let back = load(&h).unwrap();
+        assert_eq!(back.relay_addrs, s.relay_addrs);
+        let raw = h.storage_get(SETTINGS_KEY).unwrap().expect("已写入");
+        assert_eq!(
+            raw["relayAddrs"],
+            serde_json::json!(["/ip4/203.0.113.9/tcp/4001/p2p/12D3KooWRelay"])
+        );
+    }
+
+    #[test]
+    fn relay_addrs_normalization_rejects_invalid_batches() {
+        assert_eq!(normalize_relay_addrs(&[]).unwrap(), Vec::<String>::new());
+        let ok = normalize_relay_addrs(&[
+            " /ip4/203.0.113.9/tcp/4001/p2p/12D3KooWRelay ".to_string(),
+            "/ip4/203.0.113.9/tcp/4001/p2p/12D3KooWRelay".to_string(),
+        ])
+        .unwrap();
+        assert_eq!(
+            ok,
+            vec!["/ip4/203.0.113.9/tcp/4001/p2p/12D3KooWRelay".to_string()]
+        );
+
+        for bad in [
+            "",
+            "203.0.113.9:4001",
+            "/ip4/203.0.113.9/udp/4001/p2p/12D3KooWRelay",
+            "/ip4/203.0.113.9/tcp/4001",
+            "/ip4/203.0.113.9/tcp/4001/p2p/12D3KooWRelay/p2p-circuit/p2p/target",
+            "/ip4/0.0.0.0/tcp/4001/p2p/12D3KooWRelay",
+            "/ip4/10 0 0 1/tcp/4001/p2p/12D3KooWRelay",
+        ] {
+            assert!(
+                normalize_relay_addrs(&[bad.to_string()]).is_err(),
+                "应拒绝非法 relay 地址：{bad}"
+            );
+        }
+    }
+
+    #[test]
     fn wan_defaults_to_enabled_without_touching_encryption() {
         let s = TransferSettings::default();
         assert!(s.allow_wan, "中继缺省开（用户可关，但关的不是加密）");
@@ -477,6 +573,10 @@ mod tests {
         let l = load(&h).unwrap();
         assert!(l.allow_wan);
         assert_eq!(l.relay_max_bytes_per_task, 0);
+        assert!(
+            l.relay_addrs.is_empty(),
+            "旧库缺 relayAddrs = 未配置外网接入"
+        );
 
         let s = TransferSettings {
             allow_wan: false,

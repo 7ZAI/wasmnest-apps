@@ -105,6 +105,26 @@ export interface Settings {
   allowWan: boolean
   /** 经中继传输的提示阈值（字节；0 = 每次发送都提示） */
   relayMaxBytesPerTask: number
+  /** 外网接入 relay 端点（T21；空 = 仅内网；`configure-relay` 已就绪，保存即收敛预留） */
+  relayAddrs: string[]
+}
+
+/** 宿主 peer 能力（file-transfer 独立化 T21；false = 宿主未提供对应原语） */
+export interface HostCapabilities {
+  nodeInfo: boolean
+  relayReservation: boolean
+}
+
+/** 「我的设备」读面（get-my-device） */
+export interface MyDeviceInfo {
+  supported: boolean
+  reason?: string | null
+  capabilities: HostCapabilities
+  relayAddrs: string[]
+  nodeId?: string
+  deviceName?: string
+  addrs?: string[]
+  relayState?: string
 }
 
 /** 接收策略取值常量（与宿主 policy mode 映射一致） */
@@ -233,11 +253,16 @@ export interface TransferToastPayload {
 /** 拒绝原因 wire → 展示文案 key 后缀（§8.4 映射；unknown 兜底） */
 export function mapRejectReasonKey(reason: string | null | undefined): string {
   switch (reason) {
-    case 'duplicate-name': return 'duplicateName'
-    case 'user-rejected': return 'rejectedByUser'
-    case 'timeout': return 'noResponse'
-    case 'policy-denied': return 'policyDenied'
-    default: return 'unknown'
+    case 'duplicate-name':
+      return 'duplicateName'
+    case 'user-rejected':
+      return 'rejectedByUser'
+    case 'timeout':
+      return 'noResponse'
+    case 'policy-denied':
+      return 'policyDenied'
+    default:
+      return 'unknown'
   }
 }
 
@@ -246,7 +271,8 @@ export function mapRejectReasonKey(reason: string | null | undefined): string {
 /** 任务卡上的操作按钮描述（调用方决定语义，卡内只渲染） */
 export interface TaskAction {
   /** 操作语义：cancel / retry / cancel-receiving / clear-history / open-location */
-  kind: 'cancel' | 'retry' | 'pause' | 'resume' | 'cancel-receiving' | 'clear-history' | 'open-location'
+  kind:
+    'cancel' | 'retry' | 'pause' | 'resume' | 'cancel-receiving' | 'clear-history' | 'open-location'
   label: string
   /** neutral = 灰底（取消）；tint = accent 浅底（重试等需被看见的次级操作） */
   variant: 'neutral' | 'tint'

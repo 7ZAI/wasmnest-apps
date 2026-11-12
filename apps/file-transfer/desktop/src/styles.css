@@ -279,6 +279,12 @@
   background: color-mix(in srgb, var(--color-primary) 14%, transparent);
 }
 
+/* T20 跨网能力徽标：含中继 = 可跨网（琥珀，与中继形态同色），仅内网 = 中性 */
+.ft-dev-tag--wan {
+  color: var(--color-warning, #b45309);
+  background: color-mix(in srgb, var(--color-warning, #b45309) 12%, transparent);
+}
+
 .ft-dev-meta {
   margin-top: 1px;
   padding-left: 14px;
@@ -1394,6 +1400,14 @@
   background: var(--bg-elevated, var(--bg-card, #1c1a16));
   padding: 20px;
   box-shadow: 0 12px 32px rgb(0 0 0 / 0.35);
+}
+
+/* T20 连接串来源提示：说明「这份链接由对方设备生成」 */
+.ft-remote-source {
+  margin: 4px 0 0;
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+  color: var(--text-tertiary);
 }
 
 .ft-remote-input {

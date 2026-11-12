@@ -5,6 +5,10 @@
  * 归并为设备行列表：connected > connecting > idle 优先级归并，拨号失败
  * 仅在非连接态呈现；活跃对端标记要求已连接。组件只消费派生结果，
  * 编排 composable（usePeerDevices）负责维护输入。
+ *
+ * T20：拨号失败改成**分类 token**（`DialFailureCode`）而不是「不可达」一刀切，
+ * 前端据此给可操作出路（仅经中继 / 打开中继设置 / 重新添加设备）；未识别的
+ * 错误保留原文（`detail`），**不猜**成 LAN / WAN / 成功（fail-visible）。
  */
 
 /** 发现的对端条目（mdns:found 事件派生 + 快照恢复的 camelCase 子集） */
@@ -31,6 +35,13 @@ export interface DiscoveredDevice {
   addrs?: string[]
   /** 手动添加的远程设备：无 mDNS 发现，TTL 清扫不得移除（T12） */
   paired?: boolean
+  /**
+   * 上次连接成功时宿主上报的传输形态（T20；断开后保留）
+   *
+   * 用途：行内显示「上次：外网中继」；下次连接默认把 relay 纳入候选
+   * （LAN 仍优先，见 `connect` 注释）。未知形态不显示。
+   */
+  lastTransport?: TransportKind
 }
 
 /** 在线缓存 TTL：与引擎 PEER_DISCOVERY_TTL 同值（120s 广播周期口径） */
@@ -71,7 +82,9 @@ export function parseFoundPayload(payload: unknown): DiscoveredDevice | null {
   const txt = (p.txtRecords ?? {}) as Record<string, unknown>
   const nodeId = typeof txt.id === 'string' ? txt.id.toLowerCase() : ''
   if (!/^[0-9a-f]{64}$/.test(nodeId)) return null
-  const addresses = Array.isArray(p.addresses) ? p.addresses.filter((a) => typeof a === 'string') : []
+  const addresses = Array.isArray(p.addresses)
+    ? p.addresses.filter((a) => typeof a === 'string')
+    : []
   const port = typeof p.port === 'number' ? p.port : 0
   const capHexRaw = typeof txt.cap === 'string' ? txt.cap.replace(/^0x/i, '') : ''
   const cap = Number.parseInt(capHexRaw, 16)
@@ -97,7 +110,10 @@ export function parseFoundPayload(payload: unknown): DiscoveredDevice | null {
  * lost 事件应用（纯函数）：实例名 → 短指纹（前 8 位）→ 按 nodeId 前缀匹配移除。
  * 返回新数组（不可变更新）。
  */
-export function applyLost(list: readonly DiscoveredDevice[], instanceName: string): DiscoveredDevice[] {
+export function applyLost(
+  list: readonly DiscoveredDevice[],
+  instanceName: string,
+): DiscoveredDevice[] {
   if (!instanceName.startsWith(INSTANCE_PREFIX)) return [...list]
   const short = instanceName.slice(INSTANCE_PREFIX.length, INSTANCE_PREFIX.length + 8)
   if (!short) return [...list]
@@ -123,17 +139,115 @@ export function sweepStaleDevices(
   })
 }
 
-/** 拨号未成功终态 */
-export type DialErrorStatus = 'denied' | 'unreachable'
+/** 实际传输形态（宿主 `peer:connection` 事件的 `transport` 词表） */
+export type TransportKind = 'lan-direct' | 'wan-relay'
+
+/** 宿主 transport 词表归一（未知值不猜，按「未知」处理） */
+export function normalizeTransport(value: unknown): TransportKind | null {
+  return value === 'lan-direct' || value === 'wan-relay' ? value : null
+}
+
+/**
+ * 拨号失败分类（T20 §4.2）
+ *
+ * = 插件 `file-transfer.dial-peer` 返回载荷的 `status` token。为什么用 token 而不是
+ * 错误串前缀：宿主把插件命令失败统一包成 `{ code, request_id }` 信封（ADR 0030），
+ * 双端前端都拿不到错误原文，只有成功载荷里的字段才是可靠通道。
+ *
+ * `unknown` = 未识别（原文进 `detail`，不猜成 LAN / WAN / 成功）。
+ */
+export type DialFailureCode =
+  | 'denied'
+  | 'no-endpoint'
+  | 'relay-disabled'
+  | 'relay-unreachable'
+  | 'lan-unreachable'
+  | 'timeout'
+  | 'unknown'
+
+/** 拨号失败（分类 + 未识别时的原文，供控制台 / 诊断） */
+export interface DialFailure {
+  code: DialFailureCode
+  /** 未识别错误的原文（截断展示；识别出的分类不带正文） */
+  detail?: string
+}
 
 /** 拨号命令返回状态（含成功） */
-export type DialStatus = 'connected' | DialErrorStatus
+export type DialStatus = 'connected' | DialFailureCode
+
+/** 拨号失败原文的展示上限：错误串只用于诊断，不撑爆行内文案 */
+const DIAL_ERROR_DETAIL_MAX = 240
+
+const DIAL_FAILURE_CODES: readonly DialFailureCode[] = [
+  'denied',
+  'no-endpoint',
+  'relay-disabled',
+  'relay-unreachable',
+  'lan-unreachable',
+  'timeout',
+]
+
+/** 是否为已知失败 token（`unknown` 不算：它不是宿主上报值） */
+export function isDialFailureCode(value: unknown): value is DialFailureCode {
+  return typeof value === 'string' && (DIAL_FAILURE_CODES as readonly string[]).includes(value)
+}
+
+/**
+ * `dial-peer` 返回载荷 → 失败分类（`null` = 成功 / 老版本宿主不带 status）
+ *
+ * 只认已知 token：未知 status 不当成功也不当已知失败（返回 unknown），
+ * 让调用方按「未识别」如实呈现。
+ */
+export function dialFailureFromResult(payload: unknown): DialFailure | null {
+  if (!payload || typeof payload !== 'object') return null
+  const status = (payload as Record<string, unknown>).status
+  if (status === undefined || status === 'connected') return null
+  if (isDialFailureCode(status)) {
+    const detail = (payload as Record<string, unknown>).detail
+    return typeof detail === 'string' && detail !== '' ? { code: status, detail } : { code: status }
+  }
+  return { code: 'unknown', detail: stringifyDialError(status) }
+}
+
+/**
+ * 命令抛错 → 失败分类（T20）
+ *
+ * 信封（`{ code, request_id }`）里没有分类信息，故一律 `unknown` + 原文
+ * ——**不**按正文猜成 denied / LAN / WAN（那会把「本机参数错误」说成网络问题）。
+ */
+export function dialFailureFromError(e: unknown): DialFailure {
+  const detail = stringifyDialError(e)
+  return detail ? { code: 'unknown', detail } : { code: 'unknown' }
+}
+
+/** 任意错误值 → 可读短文本（取 message / error / detail，其次 JSON / String） */
+function stringifyDialError(e: unknown): string {
+  let text = ''
+  if (typeof e === 'string') text = e
+  else if (e instanceof Error) text = e.message
+  else if (e && typeof e === 'object') {
+    const rec = e as Record<string, unknown>
+    for (const key of ['message', 'error', 'detail'] as const) {
+      if (typeof rec[key] === 'string' && rec[key] !== '') {
+        text = rec[key] as string
+        break
+      }
+    }
+    if (!text) {
+      try {
+        text = JSON.stringify(e)
+      } catch {
+        text = String(e)
+      }
+    }
+  } else if (e !== undefined && e !== null) {
+    text = String(e)
+  }
+  return text.length > DIAL_ERROR_DETAIL_MAX ? `${text.slice(0, DIAL_ERROR_DETAIL_MAX)}…` : text
+}
 
 /** 设备行归并三态 */
 export type DeviceRowStatus = 'connected' | 'connecting' | 'idle'
-
-/** 实际传输形态（宿主 `peer:connection` 事件的 `transport` 词表） */
-export type TransportKind = 'lan-direct' | 'wan-relay'
 
 /** 派生后的设备行（面板渲染模型） */
 export interface DeviceRow {
@@ -143,8 +257,8 @@ export interface DeviceRow {
   /** 无能力节点可见但不可发起连接 */
   fileTransfer: boolean
   status: DeviceRowStatus
-  /** 拨号失败文案 key 后缀（denied/unreachable）；连接中/已连接时为 null */
-  dialError: DialErrorStatus | null
+  /** 拨号失败分类；连接中/已连接时为 null */
+  dialError: DialFailure | null
   /** 是否为当前活跃对端（仅已连接态可为活跃） */
   isActive: boolean
   /** 快照恢复且未被实时事件刷新：展示「最近可见」标注（spec 故事 2） */
@@ -153,8 +267,17 @@ export interface DeviceRow {
   paired: boolean
   /** 已连接时宿主上报的真实传输形态（未连接 / 入站未知 = null） */
   transport: TransportKind | null
+  /** 上次连接成功时的传输形态（T20：idle 态展示「上次：…」） */
+  lastTransport: TransportKind | null
   /** 有 relay 候选可手动「尝试外网」（§4.9：不自动切，给手动入口） */
   wanAvailable: boolean
+  /**
+   * 建议「仅经中继」：LAN 拨号失败且存在 relay 候选（T20 §4.2）
+   *
+   * 判定不依赖 relay 预留是否生效——预留状态宿主不上报，用户点了才知道；
+   * 失败文案由 `relay-unreachable` 如实给出。
+   */
+  relayOnlyRecommended: boolean
 }
 
 /** deriveDeviceRows 输入（全部为只读快照） */
@@ -162,7 +285,7 @@ export interface DeviceStateInput {
   devices: readonly DiscoveredDevice[]
   connectingIds: ReadonlySet<string>
   connectedIds: ReadonlySet<string>
-  dialErrors: Readonly<Record<string, DialErrorStatus>>
+  dialErrors: Readonly<Record<string, DialFailure>>
   activePeerId: string
   /** 宿主上报的传输形态（nodeId → lan-direct / wan-relay） */
   transports?: Readonly<Record<string, TransportKind>>
@@ -184,8 +307,8 @@ export function deriveDeviceRows(input: DeviceStateInput): DeviceRow[] {
   return input.devices.map((d) => {
     const connected = input.connectedIds.has(d.nodeId)
     const connecting = !connected && input.connectingIds.has(d.nodeId)
-    const dialError =
-      connected || connecting ? null : (input.dialErrors[d.nodeId] ?? null)
+    const dialError = connected || connecting ? null : (input.dialErrors[d.nodeId] ?? null)
+    const wanAvailable = hasRelayCandidate(d.addrs) || input.transports?.[d.nodeId] === 'wan-relay'
     return {
       nodeId: d.nodeId,
       deviceName: d.deviceName || d.nodeId,
@@ -197,9 +320,9 @@ export function deriveDeviceRows(input: DeviceStateInput): DeviceRow[] {
       recent: d.restored === true && !connected,
       paired: d.paired === true,
       transport: connected ? (input.transports?.[d.nodeId] ?? null) : null,
-      wanAvailable: connected
-        ? input.transports?.[d.nodeId] === 'wan-relay' || hasRelayCandidate(d.addrs)
-        : hasRelayCandidate(d.addrs),
+      lastTransport: normalizeTransport(d.lastTransport),
+      wanAvailable,
+      relayOnlyRecommended: dialError?.code === 'lan-unreachable' && wanAvailable,
     }
   })
 }

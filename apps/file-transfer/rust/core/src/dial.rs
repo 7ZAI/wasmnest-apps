@@ -1,17 +1,25 @@
-//! 拨号候选组装（T12）：把「设备缓存里的单地址」与「配对连接串带来的多地址」
+//! 拨号候选组装（T12 + T20）：把「设备缓存里的单地址」与「配对连接串带来的多地址」
 //! 合成一次拨号的 multiaddr 候选表，并把 §4.9 的自动/手动 WAN 判据收敛成一个
 //! 纯函数（双端共用、可直测，不触宿主）。
 //!
-//! ## 判据（设计 §4.9 + T12 验收）
+//! ## 判据（设计 §4.9 + T12 / T20 验收）
 //!
 //! - LAN 直连候选永远排最前（地址顺序 = 调用方策略顺序，宿主不重排）；
 //! - relay（`.../p2p-circuit/...`）候选**只有**满足下列之一才纳入：
 //!   ① 用户显式点「尝试外网」；② 没有任何 LAN 候选（「明确不在内网」的保守
 //!   近似——没有内网地址就别无选择）；③ 上次拨号已走 relay（重连沿用同一路径，
 //!   否则 WAN 会话一断就永远回不来）；
+//! - `relay_only`（用户显式「仅经中继」）跳过 LAN，候选表只剩 relay；
 //! - `allow_wan = false` 时永远不纳入 relay，**但不影响加密**（不变量 12：关的
 //!   只是中继，不是链路加密）；只有 relay 候选时显性报错，不静默降级成「无地址」；
 //! - 空候选表显性报错并点名原因（fail-visible，不返回空表让上层猜）。
+//!
+//! 错误码是**契约**：插件命令边界把码原样作为 `dial-peer` 返回载荷的 `status`
+//! （前端按 token 给可操作出路，见 `rust/plugin/src/peer.rs` 的 `DialAttemptError`），
+//! 数据面命令的错误正文则带 `<code>:` 前缀便于日志关联：`no-endpoint` /
+//! `relay-disabled`。
+
+use std::fmt;
 
 use crate::domain::DialEndpoint;
 
@@ -55,6 +63,56 @@ pub struct DialPlan {
     pub relay_included: bool,
 }
 
+/// 拨号计划失败的稳定码（插件侧作为命令返回载荷的 `status` token 下发；前端只按
+/// token 分类，不猜正文）
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DialErrorCode {
+    /// 没有任何可拨地址（`addr:port` 与 `addrs` 全空，或「仅经中继」但无 relay 候选）
+    NoEndpoint,
+    /// 只剩 relay 候选但 `allowWan = false`（策略挡下，不静默降级）
+    RelayDisabled,
+}
+
+impl DialErrorCode {
+    /// wire 字面（前端前缀表同源）
+    pub fn as_str(self) -> &'static str {
+        match self {
+            DialErrorCode::NoEndpoint => "no-endpoint",
+            DialErrorCode::RelayDisabled => "relay-disabled",
+        }
+    }
+}
+
+impl fmt::Display for DialErrorCode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// 拨号计划失败：分类码 + 归因正文（正文只进日志 / 诊断，不进用户文案分类）
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DialError {
+    pub code: DialErrorCode,
+    pub detail: String,
+}
+
+impl DialError {
+    pub fn new(code: DialErrorCode, detail: impl Into<String>) -> Self {
+        Self {
+            code,
+            detail: detail.into(),
+        }
+    }
+}
+
+impl fmt::Display for DialError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}: {}", self.code, self.detail)
+    }
+}
+
+impl std::error::Error for DialError {}
+
 fn dedup_push(out: &mut Vec<String>, addr: String) {
     if !addr.is_empty() && !out.iter().any(|a| a == &addr) {
         out.push(addr);
@@ -63,9 +121,14 @@ fn dedup_push(out: &mut Vec<String>, addr: String) {
 
 /// 组装拨号计划。
 ///
-/// `manual_wan` = 用户显式「尝试外网」；`ep.wan` = 上次拨号已走 relay（重连沿用）。
-/// 两个意图取并集，再受 `allow_wan` 闸门约束。
-pub fn dial_plan(ep: &DialEndpoint, allow_wan: bool, manual_wan: bool) -> Result<DialPlan, String> {
+/// `manual_wan` = 用户显式「尝试外网」；`ep.wan` = 上次拨号已走 relay（重连沿用）；
+/// `ep.relay_only` = 用户显式「仅经中继」（跳过 LAN，优先级最高）。
+/// 前两个意图取并集，再受 `allow_wan` 闸门约束。
+pub fn dial_plan(
+    ep: &DialEndpoint,
+    allow_wan: bool,
+    manual_wan: bool,
+) -> Result<DialPlan, DialError> {
     let mut lan = Vec::new();
     let mut relay = Vec::new();
     if let Some(direct) = direct_multiaddr(&ep.addr, ep.port) {
@@ -87,6 +150,27 @@ pub fn dial_plan(ep: &DialEndpoint, allow_wan: bool, manual_wan: bool) -> Result
         }
     }
 
+    // 「仅经中继」：显式跳过内网。策略关掉 relay 时显性失败——用户的意图无法
+    // 满足，不能静默降级成 LAN 拨号（那会让「蜂窝下必走的路径」变成撞墙超时）
+    if ep.relay_only {
+        if !allow_wan {
+            return Err(DialError::new(
+                DialErrorCode::RelayDisabled,
+                "relay-only dial requested but relay is disabled (allow-wan=false)",
+            ));
+        }
+        if relay.is_empty() {
+            return Err(DialError::new(
+                DialErrorCode::NoEndpoint,
+                "relay-only dial requested but no relay candidate is known",
+            ));
+        }
+        return Ok(DialPlan {
+            candidates: relay,
+            relay_included: true,
+        });
+    }
+
     let relay_wanted = manual_wan || ep.wan;
     let relay_known = !relay.is_empty();
     let include_relay = allow_wan && relay_known && (relay_wanted || lan.is_empty());
@@ -99,9 +183,15 @@ pub fn dial_plan(ep: &DialEndpoint, allow_wan: bool, manual_wan: bool) -> Result
     if candidates.is_empty() {
         if relay_known {
             // 有地址但被策略挡下：点名是哪个闸门，避免用户以为「设备没地址」
-            return Err("no LAN address known and relay is disabled (allow-wan=false)".to_string());
+            return Err(DialError::new(
+                DialErrorCode::RelayDisabled,
+                "no LAN address known and relay is disabled (allow-wan=false)",
+            ));
         }
-        return Err("no dialable address for peer (addr/port and addrs are all empty)".to_string());
+        return Err(DialError::new(
+            DialErrorCode::NoEndpoint,
+            "no dialable address for peer (addr/port and addrs are all empty)",
+        ));
     }
 
     Ok(DialPlan {
@@ -121,6 +211,7 @@ mod tests {
             port,
             addrs: addrs.iter().map(|s| s.to_string()).collect(),
             wan: false,
+            relay_only: false,
         }
     }
 
@@ -194,7 +285,8 @@ mod tests {
         assert!(!plan.relay_included, "allowWan=false 时手动入口也不得纳入");
 
         let err = dial_plan(&ep("", 0, &[RELAY_CIRCUIT]), false, true).unwrap_err();
-        assert!(err.contains("allow-wan=false"), "实得 {err}");
+        assert_eq!(err.code, DialErrorCode::RelayDisabled);
+        assert!(err.detail.contains("allow-wan=false"), "实得 {err}");
     }
 
     #[test]
@@ -225,8 +317,54 @@ mod tests {
         assert_eq!(plan.candidates.len(), 1, "同一地址去重保序");
 
         let err = dial_plan(&ep("", 0, &[]), true, false).unwrap_err();
-        assert!(err.contains("no dialable address"), "实得 {err}");
+        assert_eq!(err.code, DialErrorCode::NoEndpoint);
+        assert!(err.detail.contains("no dialable address"), "实得 {err}");
         // 空白项跳过而不是当成地址
         assert!(dial_plan(&ep(" ", 0, &["  "]), true, false).is_err());
+    }
+
+    // ==================== T20：仅经中继 ====================
+
+    #[test]
+    fn relay_only_skips_lan_and_dials_relay_first() {
+        let mut e = ep("192.168.1.5", 47613, &[LAN_MULTIADDR, RELAY_CIRCUIT]);
+        e.relay_only = true;
+        let plan = dial_plan(&e, true, false).unwrap();
+        assert_eq!(
+            plan.candidates,
+            vec![RELAY_CIRCUIT.to_string()],
+            "仅经中继：不得先等 LAN 超时"
+        );
+        assert!(plan.relay_included);
+        // 不带 manual_wan 也成立：relay_only 自身就是显式意图
+        assert!(dial_plan(&e, true, false).unwrap().relay_included);
+    }
+
+    #[test]
+    fn relay_only_without_relay_candidate_fails_visibly() {
+        let mut e = ep("192.168.1.5", 47613, &[LAN_MULTIADDR]);
+        e.relay_only = true;
+        let err = dial_plan(&e, true, false).unwrap_err();
+        assert_eq!(err.code, DialErrorCode::NoEndpoint);
+        assert!(err.detail.contains("relay-only"), "实得 {err}");
+    }
+
+    #[test]
+    fn relay_only_respects_allow_wan_gate() {
+        let mut e = ep("192.168.1.5", 47613, &[RELAY_CIRCUIT]);
+        e.relay_only = true;
+        let err = dial_plan(&e, false, false).unwrap_err();
+        assert_eq!(err.code, DialErrorCode::RelayDisabled);
+        assert!(err.detail.contains("allow-wan=false"), "实得 {err}");
+    }
+
+    #[test]
+    fn relay_only_after_wan_memo_keeps_same_path_on_redial() {
+        // 上次仅经中继成功：memo 同时带 wan 与 relay_only，断线重拨仍不得回头试 LAN
+        let mut e = ep("192.168.1.5", 47613, &[LAN_MULTIADDR, RELAY_CIRCUIT]);
+        e.wan = true;
+        e.relay_only = true;
+        let plan = dial_plan(&e, true, false).unwrap();
+        assert_eq!(plan.candidates, vec![RELAY_CIRCUIT.to_string()]);
     }
 }

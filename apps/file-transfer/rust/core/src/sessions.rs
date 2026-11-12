@@ -69,6 +69,9 @@ impl SessionTable {
             .collect();
         for endpoint in self.endpoints.values_mut() {
             endpoint.wan = false;
+            // 「仅经中继」同理：关了中继还把 memo 留在 relay-only，下次数据面重拨
+            // 会因无 relay 候选而失败（且报错成「设备没地址」）
+            endpoint.relay_only = false;
             endpoint
                 .addrs
                 .retain(|addr| !crate::dial::is_relay_addr(addr));
@@ -217,6 +220,7 @@ mod tests {
         let mut wan = ep("wan-node", 7);
         wan.addrs = vec![relay.to_string(), "/ip4/10.0.0.7/tcp/47613".to_string()];
         wan.wan = true;
+        wan.relay_only = true;
         t.remember_session(&wan, "sess-wan".into());
 
         let lan = ep("lan-node", 8);
@@ -226,6 +230,10 @@ mod tests {
         assert_eq!(closed, vec!["sess-wan".to_string()]);
         let memo = t.resolve_endpoint(None, "wan-node").unwrap();
         assert!(!memo.wan, "wan 标记必须清掉");
+        assert!(
+            !memo.relay_only,
+            "「仅经中继」意图同样清掉（否则重拨必失败）"
+        );
         assert!(
             memo.addrs.iter().all(|a| !crate::dial::is_relay_addr(a)),
             "relay 候选必须移除: {memo:?}"
@@ -291,9 +299,15 @@ mod tests {
             last_seen_ms: 1234,
             addrs: vec!["/ip4/10.0.0.1/tcp/47821".into()],
             paired: true,
+            last_transport: Some("wan-relay".into()),
         }];
         save_snapshot(&h, &entries).unwrap();
         assert_eq!(load_snapshot(&h).unwrap(), entries);
+        // 上次传输形态随快照落盘（重启后前端才能显示「上次：外网中继」）
+        assert_eq!(
+            load_snapshot(&h).unwrap()[0].last_transport.as_deref(),
+            Some("wan-relay")
+        );
     }
 
     #[test]

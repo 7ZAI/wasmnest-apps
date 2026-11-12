@@ -41,6 +41,10 @@ function mapWireSettings(raw: any): Settings {
       typeof raw?.relay_max_bytes_per_task === 'number'
         ? Math.max(0, Math.round(raw.relay_max_bytes_per_task))
         : 0,
+    // T21：外网接入 relay 端点（移动端无配置中心，真源就是本机设置）
+    relayAddrs: Array.isArray(raw?.relay_addrs)
+      ? raw.relay_addrs.filter((x: unknown): x is string => typeof x === 'string')
+      : [],
   }
 }
 
@@ -54,6 +58,7 @@ export function useSettings(context: PluginContext) {
     encryption: true,
     allowWan: true,
     relayMaxBytesPerTask: 0,
+    relayAddrs: [],
   })
   const loading = ref(false)
 

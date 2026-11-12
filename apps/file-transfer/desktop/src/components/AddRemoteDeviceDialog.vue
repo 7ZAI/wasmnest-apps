@@ -52,6 +52,10 @@ function submit(): void {
           <span class="ft-dialog-title">{{ t('transfer.remote.title') }}</span>
         </div>
         <p class="ft-confirm-body">{{ t('transfer.remote.hint') }}</p>
+        <!-- T21：连接串来源 = 对方设备的「我的设备」（本应用自持，不依赖其它应用） -->
+        <p class="ft-confirm-body ft-remote-source" data-testid="ft-remote-add-source">
+          {{ t('transfer.remote.sourceHint') }}
+        </p>
         <textarea
           v-model="text"
           class="ft-remote-input"

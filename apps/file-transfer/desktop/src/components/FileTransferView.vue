@@ -16,11 +16,13 @@ import PeerDevicesPanel from './PeerDevicesPanel.vue'
 import BatchRequestDialog from './BatchRequestDialog.vue'
 import ConfirmDialog from './ConfirmDialog.vue'
 import AddRemoteDeviceDialog from './AddRemoteDeviceDialog.vue'
+import MyDeviceDialog from './MyDeviceDialog.vue'
 import { useTasks } from '../composables/useTasks'
 import { useReceiving } from '../composables/useReceiving'
 import { useRemoteFs } from '../composables/useRemoteFs'
 import { useSettings } from '../composables/useSettings'
 import { usePeerDevices } from '../composables/usePeerDevices'
+import { hasRelayCandidate } from '../composables/deviceState'
 import { useBatchPrompt } from '../composables/useBatchPrompt'
 import { toast } from 'vue-sonner'
 
@@ -168,10 +170,22 @@ async function handleDownload(): Promise<void> {
 /** 添加远程设备（T12）：连接串 → 设备缓存（配对条目跨重启保留） */
 const showAddRemote = ref(false)
 
+/** 「我的设备」（T21）：本机连接串 / 外网接入 */
+const showMyDevice = ref(false)
+
 function handleAddRemote(link: Parameters<typeof addRemotePeer>[0]): void {
   const added = addRemotePeer(link)
   showAddRemote.value = false
-  if (added) toast.success(t('transfer.remote.added'))
+  if (!added) return
+  // T20：添加成功要告诉用户「这份链接能不能跨网」——只含 LAN 地址的条目
+  // 在蜂窝网络下必然失败，提前说清楚比事后报错好
+  toast.success(
+    t(
+      hasRelayCandidate(link.addrs)
+        ? 'transfer.remote.addedWithRelay'
+        : 'transfer.remote.addedLanOnly',
+    ),
+  )
 }
 
 function handleRemoveRemote(nodeId: string): void {
@@ -180,6 +194,11 @@ function handleRemoveRemote(nodeId: string): void {
 
 function handleRetryWan(nodeId: string): void {
   void connectDevice(nodeId, { wan: true })
+}
+
+/** 仅经中继（T20）：跳过 LAN 候选，失败不回退（用户显式意图） */
+function handleRetryRelayOnly(nodeId: string): void {
+  void connectDevice(nodeId, { relayOnly: true })
 }
 
 /**
@@ -419,9 +438,11 @@ function handleClearHistoryConfirm(): void {
             data-testid="ft-peer-panel"
             @connect="handleConnectDevice"
             @retry-wan="handleRetryWan"
+            @retry-relay-only="handleRetryRelayOnly"
             @disconnect="handleDisconnectDevice"
             @set-active="handleSetActiveDevice"
             @add-remote="showAddRemote = true"
+            @my-device="showMyDevice = true"
             @remove-remote="handleRemoveRemote"
             @scan="handleScanDevices"
           />
@@ -649,6 +670,9 @@ function handleClearHistoryConfirm(): void {
       @add="handleAddRemote"
       @close="showAddRemote = false"
     />
+
+    <!-- 我的设备（T21）：本机连接串 + 外网接入；添加设备流程不出现中继 -->
+    <MyDeviceDialog v-if="showMyDevice" @close="showMyDevice = false" />
 
     <!-- 经中继发送提示（§9.2#4：无阈值口径下一次提示，可取消；不改变模式判定） -->
     <ConfirmDialog

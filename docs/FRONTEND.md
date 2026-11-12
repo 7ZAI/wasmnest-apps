@@ -171,6 +171,8 @@ src/
 - 评测：`node scripts/qr-decode-bench.mjs`（根目录，`pnpm run bench:qr`）用生产代码跑「桌面载荷 → 1080p 退化（σ 1.5/2.5 + 噪声 + 亚像素平移）→ 策略序列」；CI 阈值断言在 `src/host/__tests__/qrDecodeBench.test.ts`（扫描级命中率 ≥ 95%、单帧 p95 ≤ 60ms）。
 - 真机仍必须目验（本机或双端 E2E）：`mobile-scan-panel` / `mobile-scan-slow-hint` / `mobile-scan-torch` / `mobile-scan-album` 锚点见 `docs/E2E.md` §10.5。
 
+- **file-transfer/mobile 同判据副本**（2026-11-12，#27）：`src/scan/` 复制上述 7 个模块 + `decodeStrategy` / `scanHint` 测试，面板只保留相机 + 提示（无相册 / 手电筒）；提示 key 为 `transfer.remote.scanHintSlow`。改解码策略时两处一起改，禁止跨应用 import。
+
 ---
 
 ## 3. i18n

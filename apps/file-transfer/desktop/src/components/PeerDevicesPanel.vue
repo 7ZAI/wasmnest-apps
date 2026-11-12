@@ -3,13 +3,13 @@
  * PeerDevicesPanel — 附近设备面板（自绘，替代旧「在线设备切换下拉」）
  *
  * 列出全部发现的 WasmNest 节点：已连接 / 连接中 / 未连接三态可区分，
- * 拨号失败（拒绝/不可达）以行内错误文案呈现；已连接设备可断开、
- * 可设为当前活跃对端；无传输能力节点可见但不可连接。
+ * 拨号失败按分类给可操作出路（T20：仅经中继 / 打开中继 / 重新添加）；
+ * 已连接设备可断开、可设为当前活跃对端；无传输能力节点可见但不可连接。
  * 纯展示组件：状态由 usePeerDevices 派生的 rows 传入，操作以事件上抛。
  */
 import { inject } from 'vue'
 import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-desktop'
-import type { DeviceRow } from '../composables/deviceState'
+import type { DeviceRow, DialFailureCode } from '../composables/deviceState'
 
 const context = inject<PluginContext>('pluginContext')!
 const t = (key: string, params?: Record<string, any>) => context.i18n.t(key, params)
@@ -24,20 +24,52 @@ const emit = defineEmits<{
   connect: [nodeId: string]
   /** 手动「尝试外网」：只在有 relay 候选且用户显式点击时纳入 relay（§4.9） */
   retryWan: [nodeId: string]
+  /** 仅经中继：跳过 LAN 候选直接拨 relay（T20 §4.2） */
+  retryRelayOnly: [nodeId: string]
   disconnect: [nodeId: string]
   setActive: [nodeId: string]
   /** 打开「添加远程设备」连接串输入（T12） */
   addRemote: []
+  /** 打开「我的设备」：本机连接串 / 外网接入（T21） */
+  myDevice: []
   /** 移除手动添加的远程设备（T12） */
   removeRemote: [nodeId: string]
   /** 探索发现：重新扫描同网节点（父组件负责调 query-peer 并维护 scanning 态） */
   scan: []
 }>()
 
+/** 拨号失败分类 → 文案 key（未识别原样展示原文，不猜成因） */
+const DIAL_ERROR_KEYS: Record<DialFailureCode, string> = {
+  denied: 'transfer.devices.denied',
+  'no-endpoint': 'transfer.devices.errorNoEndpoint',
+  'relay-disabled': 'transfer.devices.errorRelayDisabled',
+  'relay-unreachable': 'transfer.devices.errorRelayUnreachable',
+  'lan-unreachable': 'transfer.devices.unreachable',
+  timeout: 'transfer.devices.errorTimeout',
+  unknown: 'transfer.devices.errorUnknown',
+}
+
+/** 行内错误文案（unknown 带原文，其余只给分类文案） */
+function dialErrorText(row: DeviceRow): string {
+  const failure = row.dialError
+  if (!failure) return ''
+  if (failure.code === 'unknown' && failure.detail) {
+    return t(DIAL_ERROR_KEYS.unknown, { detail: failure.detail })
+  }
+  return t(DIAL_ERROR_KEYS[failure.code])
+}
+
 /** 传输形态文案（宿主 transport 词表；未知形态不渲染） */
 function transportLabel(row: DeviceRow): string {
   if (row.transport === 'lan-direct') return t('transfer.devices.transportLan')
   if (row.transport === 'wan-relay') return t('transfer.devices.transportWan')
+  return ''
+}
+
+/** 上次传输形态文案（T20：idle 态展示，让用户知道默认重拨会带 relay） */
+function lastTransportLabel(row: DeviceRow): string {
+  if (row.lastTransport === 'lan-direct') return t('transfer.devices.lastTransportLan')
+  if (row.lastTransport === 'wan-relay') return t('transfer.devices.lastTransportWan')
   return ''
 }
 
@@ -51,7 +83,7 @@ function dotClass(row: DeviceRow): string {
   if (row.status === 'connected') return 'ft-dot--online'
   if (row.status === 'connecting') return 'ft-dot--connecting'
   // 不可达终态：降为离线灰，消除「在线」文案与错误提示的矛盾（评审 P2）
-  if (row.dialError === 'unreachable') return 'ft-dot--offline'
+  if (row.dialError) return 'ft-dot--offline'
   // 在线未连接：降饱和绿，与实心绿（已连接）区分（评审 P1：状态点语义）
   return 'ft-dot--reachable'
 }
@@ -95,6 +127,15 @@ function dotClass(row: DeviceRow): string {
         </svg>
         {{ props.scanning ? t('transfer.devices.scanning') : t('transfer.devices.scan') }}
       </button>
+      <!-- 我的设备：生成连接串 / 配置本机外网接入（T21，不依赖其它应用） -->
+      <button
+        class="ft-text-btn ft-dev-scan-btn"
+        :title="t('transfer.devices.myDevice')"
+        data-testid="ft-my-device-open"
+        @click="emit('myDevice')"
+      >
+        {{ t('transfer.devices.myDevice') }}
+      </button>
       <!-- 添加远程设备：粘贴连接串（无摄像头场景；T12） -->
       <button
         class="ft-text-btn ft-dev-scan-btn"
@@ -133,6 +174,17 @@ function dotClass(row: DeviceRow): string {
             <span v-else-if="!row.fileTransfer" class="ft-dev-tag">
               {{ t('transfer.devices.capNone') }}
             </span>
+            <!-- T20：跨网能力小徽标（有 relay 候选 = 可跨网，仅内网 = 需重新配对） -->
+            <span
+              v-if="row.fileTransfer"
+              class="ft-dev-tag"
+              :class="{ 'ft-dev-tag--wan': row.wanAvailable }"
+              data-testid="ft-dev-relay-badge"
+            >
+              {{
+                row.wanAvailable ? t('transfer.devices.hasRelay') : t('transfer.devices.lanOnly')
+              }}
+            </span>
           </div>
           <div class="ft-dev-meta">
             <template v-if="row.status === 'connected'">
@@ -143,7 +195,8 @@ function dotClass(row: DeviceRow): string {
                 class="ft-dev-transport"
                 :class="{ 'ft-dev-transport--wan': row.transport === 'wan-relay' }"
                 data-testid="ft-dev-transport"
-              >{{ transportLabel(row) }}</span>
+                >{{ transportLabel(row) }}</span
+              >
             </template>
             <template v-else-if="row.status === 'connecting'">
               {{ t('transfer.devices.connecting') }}
@@ -156,14 +209,18 @@ function dotClass(row: DeviceRow): string {
               {{ t('transfer.devices.online')
               }}<template v-if="row.addr"> · {{ row.addr }}</template>
             </template>
+            <!-- T20：上次传输形态（断开后仍保留，决定下次重连默认路径） -->
+            <span
+              v-if="lastTransportLabel(row)"
+              class="ft-dev-transport"
+              :class="{ 'ft-dev-transport--wan': row.lastTransport === 'wan-relay' }"
+              data-testid="ft-dev-last-transport"
+              >{{ lastTransportLabel(row) }}</span
+            >
           </div>
-          <!-- 拨号终态反馈：拒绝 / 不可达（行内错误，非全局 toast） -->
-          <div v-if="row.dialError" class="ft-dev-error">
-            {{
-              row.dialError === 'denied'
-                ? t('transfer.devices.denied')
-                : t('transfer.devices.unreachable')
-            }}
+          <!-- 拨号终态反馈：按分类给可操作出路（行内错误，非全局 toast） -->
+          <div v-if="row.dialError" class="ft-dev-error" data-testid="ft-dev-dial-error">
+            {{ dialErrorText(row) }}
           </div>
         </div>
 
@@ -194,6 +251,17 @@ function dotClass(row: DeviceRow): string {
             {{ t('transfer.devices.connecting') }}
           </span>
           <template v-else>
+            <!-- 失败后主入口：「仅经中继」（LAN 失败 + 有 relay 候选；T20 §4.2） -->
+            <button
+              v-if="row.relayOnlyRecommended"
+              class="ft-text-btn ft-text-btn--primary"
+              :disabled="!row.fileTransfer"
+              :title="t('transfer.devices.relayOnlyHint')"
+              data-testid="ft-dev-try-relay-only"
+              @click="emit('retryRelayOnly', row.nodeId)"
+            >
+              {{ t('transfer.devices.relayOnly') }}
+            </button>
             <!-- 手动「尝试外网」：仅存在 relay 候选时给入口；不自动切换（§4.9） -->
             <button
               v-if="row.wanAvailable"
@@ -206,7 +274,8 @@ function dotClass(row: DeviceRow): string {
               {{ t('transfer.devices.tryWan') }}
             </button>
             <button
-              class="ft-text-btn ft-text-btn--primary"
+              class="ft-text-btn"
+              :class="{ 'ft-text-btn--primary': !row.relayOnlyRecommended }"
               :disabled="!row.fileTransfer"
               @click="emit('connect', row.nodeId)"
             >
@@ -220,3 +289,11 @@ function dotClass(row: DeviceRow): string {
     <div class="ft-dev-hint">{{ t('transfer.devices.trustHint') }}</div>
   </div>
 </template>
+
+<style scoped>
+/* 头部新增「我的设备」后共三个动作；窄面板允许换行，不挤掉标题 */
+.ft-dev-head {
+  flex-wrap: wrap;
+  row-gap: 6px;
+}
+</style>

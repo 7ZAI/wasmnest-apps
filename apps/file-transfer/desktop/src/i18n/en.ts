@@ -40,6 +40,7 @@ const en: MessageSchema = {
   'transfer.devices.scanning': 'Discovering…',
   // T12: 中继 / 远程设备（连接串导入、传输形态、手动尝试外网）
   'transfer.devices.addRemote': 'Add remote device',
+  'transfer.devices.myDevice': 'My device',
   'transfer.devices.remote': 'Remote',
   'transfer.devices.removeRemote': 'Forget',
   'transfer.devices.tryWan': 'Try over relay',
@@ -47,6 +48,20 @@ const en: MessageSchema = {
     'Only tries the relay when you ask; same-network failures never switch automatically',
   'transfer.devices.transportLan': 'LAN direct',
   'transfer.devices.transportWan': 'Relay',
+  // T20: last transport / WAN capability / classified failure exits
+  'transfer.devices.lastTransportLan': 'Last: LAN direct',
+  'transfer.devices.lastTransportWan': 'Last: relay',
+  'transfer.devices.hasRelay': 'Relay ready',
+  'transfer.devices.lanOnly': 'LAN only',
+  'transfer.devices.relayOnly': 'Relay only',
+  'transfer.devices.relayOnlyHint':
+    'Skip LAN candidates and dial straight through the relay (faster on cellular)',
+  'transfer.devices.errorNoEndpoint': 'No dialable address; add the remote device again',
+  'transfer.devices.errorRelayDisabled': 'Relay is off: enable "Relay (WAN)" in settings and retry',
+  'transfer.devices.errorRelayUnreachable':
+    'Relay path unreachable: check the relay and whether the peer is online',
+  'transfer.devices.errorTimeout': 'Connection timed out, please retry',
+  'transfer.devices.errorUnknown': 'Connection failed: {detail}',
 
   // ==================== Top bar ====================
   'transfer.topbar.sendToPhone': 'Send to phone…',
@@ -66,7 +81,8 @@ const en: MessageSchema = {
   // ==================== Task states ====================
   'transfer.task.state.queued': 'Queued',
   'transfer.task.state.awaitingPeer': 'Waiting for peer',
-  'transfer.task.awaitingPeerHint': 'Waiting for the other device to accept — transfer starts automatically once accepted.',
+  'transfer.task.awaitingPeerHint':
+    'Waiting for the other device to accept — transfer starts automatically once accepted.',
   'transfer.task.state.transferring': 'Transferring',
   'transfer.task.state.paused': 'Paused',
   'transfer.task.state.resumable': 'Resumable',
@@ -117,7 +133,7 @@ const en: MessageSchema = {
   'transfer.consent.title': 'Connection request',
   'transfer.consent.body': '{name} wants to connect for file transfer',
   'transfer.consent.namelessHint':
-    "Device name unavailable — verify the fingerprint below before deciding",
+    'Device name unavailable — verify the fingerprint below before deciding',
   'transfer.consent.fingerprintLabel': 'Device fingerprint',
   'transfer.consent.copy': 'Copy fingerprint',
   'transfer.consent.copied': 'Copied',
@@ -130,14 +146,16 @@ const en: MessageSchema = {
   // ==================== Trusted peers (spec decision 8) ====================
   'transfer.trusted.title': 'Trusted peers',
   'transfer.trusted.loading': 'Loading...',
-  'transfer.trusted.empty': 'No trusted peers yet; trust is established after the other side approves your first connection',
+  'transfer.trusted.empty':
+    'No trusted peers yet; trust is established after the other side approves your first connection',
   'transfer.trusted.loadFailed': 'Failed to load trusted peers',
   'transfer.trusted.retry': 'Retry',
   'transfer.trusted.addedAt': 'Added: {time}',
   'transfer.trusted.revoke': 'Revoke',
   'transfer.trusted.cancel': 'Cancel',
   'transfer.trusted.revokeTitle': 'Revoke trust',
-  'transfer.trusted.revokeBody': 'After revoking, {name} will need your approval again on the next connection. Revoke trust for this device?',
+  'transfer.trusted.revokeBody':
+    'After revoking, {name} will need your approval again on the next connection. Revoke trust for this device?',
   'transfer.trusted.revokeFailed': 'Revoke failed; please try again later',
 
   // ==================== Queue summary ====================
@@ -194,13 +212,60 @@ const en: MessageSchema = {
   'transfer.remote.hint':
     'Paste the pairing link (wasmnest://pair/…) or the raw JSON payload from the other device. Only a one-time ticket is carried; long-term keys never are.',
   'transfer.remote.placeholder': 'wasmnest://pair/… or {"nodeId":"…","addrs":["…"]}',
+  'transfer.remote.sourceHint':
+    'The link is generated on the other device: open My device in this app there, then copy the link or show the QR code.',
   'transfer.remote.cancel': 'Cancel',
   'transfer.remote.confirm': 'Add',
   'transfer.remote.added': 'Remote device added',
+  'transfer.remote.addedWithRelay': 'Added (relay candidate included, works across networks)',
+  'transfer.remote.addedLanOnly': 'Added (LAN only)',
   'transfer.remote.errorMalformed': 'Invalid pairing link or JSON',
   'transfer.remote.errorIncomplete':
     'Pairing data is incomplete (nodeId and at least one address are required)',
   'transfer.remote.errorAddressInvalid': 'Address is not dialable (expects a /multiaddr)',
+
+  // ==================== My device (T21, file-transfer standalone) ====================
+  'transfer.myDevice.title': 'My device',
+  'transfer.myDevice.loading': 'Reading this device…',
+  'transfer.myDevice.loadFailed': 'Could not read this device. Try again.',
+  'transfer.myDevice.unsupportedTitle': 'This host cannot generate a link yet',
+  'transfer.myDevice.unsupportedBody':
+    'The host must provide the local nodeId and dialable addresses (host-peer node-info) before a link can be shown. This version never fabricates one; the relay address, if configured, is shown below.',
+  'transfer.myDevice.deviceName': 'Device name',
+  'transfer.myDevice.unnamed': 'Unnamed device',
+  'transfer.myDevice.fingerprint': 'Fingerprint',
+  'transfer.myDevice.relayState': 'External access',
+  'transfer.myDevice.relayIdle': 'Off',
+  'transfer.myDevice.relayConnecting': 'Connecting…',
+  'transfer.myDevice.relayReserved': 'Ready',
+  'transfer.myDevice.relayLost': 'Lost (retrying)',
+  'transfer.myDevice.relayUnknown': 'Unknown',
+  'transfer.myDevice.addresses': 'Dialable addresses',
+  'transfer.myDevice.linkLabel': 'Link',
+  'transfer.myDevice.qrHint':
+    'The other device scans it in Add remote device; the link contains no long-term key.',
+  'transfer.myDevice.linkHint':
+    'The other device pastes or scans it in Add remote device; the link contains no long-term key.',
+  'transfer.myDevice.linkUnavailable':
+    'No dialable address (need a LAN address or a ready relay address)',
+  'transfer.myDevice.copy': 'Copy link',
+  'transfer.myDevice.copied': 'Copied',
+  'transfer.myDevice.copyFailed': 'Copy failed; select the text and copy manually',
+  'transfer.myDevice.relayTitle': 'External access (relay)',
+  'transfer.myDevice.relayHint':
+    'Import the address once in Network ingress (shared by all apps); only the device being dialed needs it. Empty = LAN only.',
+  'transfer.myDevice.relayCenterEmpty':
+    'No relay address has been imported in Network ingress yet.',
+  'transfer.myDevice.relaySourceCache':
+    'The Network ingress center is unavailable; showing the local cached address.',
+  'transfer.myDevice.relayCenterError': 'Could not read the config center: {message}',
+  'transfer.myDevice.relayOpenCenter': 'Open Network ingress',
+  'transfer.myDevice.relayOpenUnavailable':
+    'This host cannot navigate between apps; open Network ingress from the sidebar.',
+  'transfer.myDevice.relayUnsupported':
+    'This host version cannot establish a relay reservation yet; the config will take effect after a host upgrade.',
+  'transfer.myDevice.refresh': 'Refresh',
+  'transfer.myDevice.close': 'Done',
 
   // ==================== Errors (spec §10 + v2 reject reasons) ====================
   'transfer.error.duplicateName':
@@ -220,7 +285,8 @@ const en: MessageSchema = {
   'transfer.history.title': 'History',
   'transfer.history.clear': 'Clear history',
   'transfer.history.clearConfirmTitle': 'Clear transfer history?',
-  'transfer.history.clearConfirmBody': 'All completed, failed and cancelled records will be deleted (in-progress tasks are unaffected). This cannot be undone.',
+  'transfer.history.clearConfirmBody':
+    'All completed, failed and cancelled records will be deleted (in-progress tasks are unaffected). This cannot be undone.',
   'transfer.history.empty': 'No transfer history',
   'transfer.history.openFolder': 'Show in folder',
   'transfer.history.results.completed': 'Completed',

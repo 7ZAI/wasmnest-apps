@@ -25,6 +25,7 @@ export function useSettings(context: PluginContext) {
     encryption: true,
     allowWan: true,
     relayMaxBytesPerTask: 0,
+    relayAddrs: [],
   }) as Ref<Settings>
   /** roots 带条目 id（宿主 DTO），与 Settings.roots（展示名列表）并行维护 */
   const rootItems = ref<RootItem[]>([]) as Ref<RootItem[]>
@@ -67,6 +68,10 @@ export function useSettings(context: PluginContext) {
             typeof r.relay_max_bytes_per_task === 'number'
               ? Math.max(0, Math.round(r.relay_max_bytes_per_task))
               : 0,
+          // T21：外网接入 relay 端点（后端已校验；前端只做形状过滤）
+          relayAddrs: Array.isArray(r.relay_addrs)
+            ? r.relay_addrs.filter((x: unknown): x is string => typeof x === 'string')
+            : [],
         }
       }
       loadError.value = false

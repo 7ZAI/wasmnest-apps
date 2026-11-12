@@ -6,7 +6,7 @@
  * `connection-changed` 维护连接态。缓存经 `save-device-snapshot` debounce
  * 落盘（含 last-seen），activate 首屏由 `get-device-snapshot` 恢复并标注
  * 「最近可见」（spec 故事 2）。连接动作携带显式 endpoint 三元组走
- * `dial-peer`（denied/unreachable 行内错误如实上报），断开走
+ * `dial-peer`（失败按命令返回的分类 token 呈现，T20），断开走
  * `disconnect-peer`。
  */
 import { computed, ref, type Ref } from 'vue'
@@ -14,12 +14,15 @@ import type { Disposable, PluginContext } from '@binblink/wasmnest-plugin-sdk-de
 import {
   applyLost,
   deriveDeviceRows,
+  dialFailureFromError,
+  dialFailureFromResult,
   isWithinRestoreWindow,
+  normalizeTransport,
   parseFoundPayload,
   sweepStaleDevices,
   type DeviceRow,
+  type DialFailure,
   type DiscoveredDevice,
-  type DialErrorStatus,
   type DialStatus,
   type TransportKind,
 } from './deviceState'
@@ -54,6 +57,8 @@ interface SnapshotEntry {
   addrs?: string[]
   /** T12：手动添加的远程设备 */
   paired?: boolean
+  /** T20：上次连接成功时的传输形态（未知 / 旧快照缺省 = 不恢复） */
+  lastTransport?: unknown
 }
 
 interface ConnectionPayload {
@@ -62,11 +67,6 @@ interface ConnectionPayload {
   /** 宿主上报的真实传输形态（T11/T12）：lan-direct / wan-relay；入站未知时缺省 */
   transport?: string
   deviceName?: string
-}
-
-/** 宿主 transport 词表归一（未知值不猜，按「未知」处理） */
-function normalizeTransport(value: unknown): TransportKind | null {
-  return value === 'lan-direct' || value === 'wan-relay' ? value : null
 }
 
 function withId(set: ReadonlySet<string>, id: string): Set<string> {
@@ -88,8 +88,8 @@ export function usePeerDevices(context: PluginContext) {
   const connectingIds = ref<ReadonlySet<string>>(new Set())
   /** 已连接节点集合（connection-changed 维护的宿主真相副本） */
   const connectedIds = ref<ReadonlySet<string>>(new Set())
-  /** 最近一次拨号未成功状态（nodeId → denied/unreachable；成功即清除） */
-  const dialErrors = ref<Record<string, DialErrorStatus>>({})
+  /** 最近一次拨号未成功状态（nodeId → 分类 + 原文；成功即清除） */
+  const dialErrors = ref<Record<string, DialFailure>>({})
   /** 宿主上报的传输形态（nodeId → lan-direct / wan-relay；断开即清除） */
   const transports = ref<Record<string, TransportKind>>({})
   /** 活跃对端 id（'' = 未选择；仅已连接节点可成为活跃对端） */
@@ -141,8 +141,8 @@ export function usePeerDevices(context: PluginContext) {
 
   // ==================== 内部辅助 ====================
 
-  function setDialError(nodeId: string, status: DialErrorStatus): void {
-    dialErrors.value = { ...dialErrors.value, [nodeId]: status }
+  function setDialError(nodeId: string, failure: DialFailure): void {
+    dialErrors.value = { ...dialErrors.value, [nodeId]: failure }
   }
 
   function clearDialError(nodeId: string): void {
@@ -156,15 +156,20 @@ export function usePeerDevices(context: PluginContext) {
    * 连接态盖章：刷新最近可见时刻（远程设备无 mDNS 心跳，只靠连接事件续期），
    * `deviceName` 非空时更新展示名（宿主已验证的投影，不覆盖本地更优名？——
    * 直接采用宿主名：它来自对端自报 / 缓存，比空串有用）。
+   *
+   * `transport` 非空时同时记「上次传输形态」（T20：断开后保留，供行内展示与
+   * 下次重连默认纳入 relay）。
    */
-  function touchDevice(nodeId: string, deviceName: string): void {
+  function touchDevice(nodeId: string, deviceName: string, transport: TransportKind | null): void {
     const idx = devices.value.findIndex((d) => d.nodeId === nodeId)
     if (idx < 0) return
     const next = [...devices.value]
     next[idx] = {
       ...next[idx]!,
+      // 没有新信息也要续期：远程设备没有 mDNS 心跳，不盖章会被 TTL 清掉
       lastSeenMs: Date.now(),
       ...(deviceName ? { deviceName } : {}),
+      ...(transport ? { lastTransport: transport } : {}),
     }
     devices.value = next
     scheduleSnapshotSave()
@@ -234,15 +239,17 @@ export function usePeerDevices(context: PluginContext) {
         capabilitiesHex: d.capabilitiesHex ?? '',
         instanceName: d.instanceName ?? '',
         lastSeenMs: d.lastSeenMs ?? 0,
-        // 配对候选与「手动添加」标记必须跨重启保留（否则远程设备重启即丢）
+        // 配对候选与「手动添加」标记必须跨重启保留（否则远程设备重启即丢）；
+        // 上次传输形态是重连策略输入（T20：重启后免再点「尝试外网」）
         addrs: d.addrs ?? [],
         paired: d.paired === true,
+        ...(d.lastTransport ? { lastTransport: d.lastTransport } : {}),
       }))
-      context.commands.execute('file-transfer.save-device-snapshot', { devices: entries }).catch(
-        (e: unknown) => {
+      context.commands
+        .execute('file-transfer.save-device-snapshot', { devices: entries })
+        .catch((e: unknown) => {
           console.error('[File Transfer] save-device-snapshot failed:', e)
-        },
-      )
+        })
     }, SNAPSHOT_SAVE_DEBOUNCE_MS)
   }
 
@@ -274,9 +281,13 @@ export function usePeerDevices(context: PluginContext) {
       markConnected(payload.nodeId)
       const transport = normalizeTransport(payload.transport)
       if (transport) transports.value = { ...transports.value, [payload.nodeId]: transport }
-      // 宿主带出的设备名 / 连接时刻回写缓存：远程设备没有 mDNS 心跳，
-      // 不在这里盖章就永远停在配对那一刻（重启后按 TTL 恢复窗口被丢弃）
-      touchDevice(payload.nodeId, typeof payload.deviceName === 'string' ? payload.deviceName : '')
+      // 宿主带出的设备名 / 连接时刻 / 真实传输形态回写缓存：远程设备没有
+      // mDNS 心跳，不在这里盖章就永远停在配对那一刻（重启后按 TTL 恢复窗口被丢弃）
+      touchDevice(
+        payload.nodeId,
+        typeof payload.deviceName === 'string' ? payload.deviceName : '',
+        transport,
+      )
       ensureActiveFallback()
       // 入站（被连侧）连接没有拨号 memo：数据面命令（浏览/拉取/发送）经它
       // 重拨，endpoint 取自自建缓存（mdns-found 维护）
@@ -333,12 +344,15 @@ export function usePeerDevices(context: PluginContext) {
 
   /**
    * 发起对等连接：握手期间该节点进入 connecting 态（重复发起被拒绝），
-   * denied / unreachable 以行内错误呈现。endpoint 三元组取自自建缓存；
+   * 失败以分类行内错误呈现（T20）。endpoint 三元组取自自建缓存；
    * 返回终态；null 表示本次未实际发起（未发现/无能力/进行中的防御拦截）。
+   *
+   * `opts.wan` 缺省 = 「上次走过中继就把 relay 纳入候选」（LAN 仍优先，T20 §4.1）；
+   * `opts.relayOnly` = 用户显式「仅经中继」（跳过 LAN，失败不回退）。
    */
   async function connect(
     nodeId: string,
-    opts?: { wan?: boolean },
+    opts?: { wan?: boolean; relayOnly?: boolean },
   ): Promise<DialStatus | null> {
     const device = devices.value.find((d) => d.nodeId === nodeId)
     if (!device || !device.fileTransfer) return null
@@ -349,39 +363,50 @@ export function usePeerDevices(context: PluginContext) {
     // 例外：**手动添加的远程设备**（paired）地址来自连接串而非发现缓存，
     // 本就没有 mDNS 实时条目可等，直接按配对候选拨号。
     if (device.restored && !device.paired) {
-      setDialError(nodeId, 'unreachable')
+      setDialError(nodeId, { code: 'lan-unreachable' })
       requestHostRefresh()
-      return 'unreachable'
+      return 'lan-unreachable'
     }
     const addrs = device.addrs ?? []
     if ((!device.addr || !device.port) && addrs.length === 0) {
-      setDialError(nodeId, 'unreachable')
-      return 'unreachable'
+      setDialError(nodeId, { code: 'no-endpoint' })
+      return 'no-endpoint'
     }
     if (connectingIds.value.has(nodeId) || connectedIds.value.has(nodeId)) return null
+
+    const relayOnly = opts?.relayOnly === true
+    // 上次经中继成功 ⇒ 本次默认把 relay 纳入候选（有 LAN 候选时 LAN 仍先试）；
+    // 「仅经中继」是更强的显式意图，优先
+    const wan = relayOnly || (opts?.wan ?? device.lastTransport === 'wan-relay')
 
     connectingIds.value = withId(connectingIds.value, nodeId)
     clearDialError(nodeId)
     try {
-      await context.commands.execute('file-transfer.dial-peer', {
+      const result = await context.commands.execute('file-transfer.dial-peer', {
         endpoint: {
           nodeId,
           addr: device.addr ?? '',
           port: device.port ?? 0,
           ...(addrs.length ? { addrs } : {}),
         },
-        // 手动「尝试外网」：核内只在 allowWan 且显式请求时纳入 relay 候选
-        ...(opts?.wan ? { wan: true } : {}),
+        ...(wan ? { wan: true } : {}),
+        ...(relayOnly ? { relayOnly: true } : {}),
       })
+      // 分类失败经成功载荷返回（信封不带原文，T20 §4.2）；未识别保持 unknown
+      const failure = dialFailureFromResult(result)
+      if (failure) {
+        setDialError(nodeId, failure)
+        return failure.code
+      }
       markConnected(nodeId)
       ensureActiveFallback()
       return 'connected'
     } catch (e) {
-      // 命令面异常：denied 字样按拒绝呈现，其余按不可达（完整链路留在控制台）
+      // 机制失败（宿主不可用 / 参数畸形）：分类交回 unknown，原文只进控制台
       console.error('[File Transfer] dial-peer failed:', e)
-      const msg = e instanceof Error ? e.message : String(e)
-      setDialError(nodeId, msg.includes('denied') ? 'denied' : 'unreachable')
-      return msg.includes('denied') ? 'denied' : 'unreachable'
+      const failure = dialFailureFromError(e)
+      setDialError(nodeId, failure)
+      return failure.code
     } finally {
       connectingIds.value = withoutId(connectingIds.value, nodeId)
     }
@@ -468,10 +493,7 @@ export function usePeerDevices(context: PluginContext) {
     disposables = [
       context.events.on('plugin:file-transfer:mdns-found', handleFound),
       context.events.on('plugin:file-transfer:mdns-lost', handleLost),
-      context.events.on(
-        'plugin:file-transfer:connection-changed',
-        handleConnectionChanged,
-      ),
+      context.events.on('plugin:file-transfer:connection-changed', handleConnectionChanged),
     ]
     void (async () => {
       try {
@@ -483,25 +505,26 @@ export function usePeerDevices(context: PluginContext) {
               // 不得成为首屏拨号候选（见 isWithinRestoreWindow 注释）。
               // 例外：手动添加的远程设备没有 mDNS 心跳，`lastSeenMs` 停在配对时刻，
               // 按 TTL 过滤会让它重启一次就消失 ⇒ paired 无条件恢复。
-              .filter(
-                (d) => d.paired === true || isWithinRestoreWindow(d.lastSeenMs, Date.now()),
-              )
-              .map((d) => ({
-                nodeId: d.nodeId,
-                deviceName: d.deviceName ?? '',
-                addr: d.addr ?? '',
-                port: d.port ?? 0,
-                // 缺失/空 capabilitiesHex 均视为默认开放文件传输（undefined 不再走进 parseInt 得 NaN）
-                fileTransfer:
-                  d.capabilitiesHex === '' || d.capabilitiesHex == null
-                    ? true
-                    : (Number.parseInt(d.capabilitiesHex, 16) & 1) !== 0,
-                ...(d.instanceName ? { instanceName: d.instanceName } : {}),
-                ...(Array.isArray(d.addrs) && d.addrs.length ? { addrs: d.addrs } : {}),
-                ...(d.paired === true ? { paired: true } : {}),
-                lastSeenMs: d.lastSeenMs ?? 0,
-                restored: true,
-              }))
+              .filter((d) => d.paired === true || isWithinRestoreWindow(d.lastSeenMs, Date.now()))
+              .map((d) => {
+                const capHex = d.capabilitiesHex ?? ''
+                // 上次传输形态：词表外的历史值不恢复（不猜）
+                const lastTransport = normalizeTransport(d.lastTransport)
+                return {
+                  nodeId: d.nodeId,
+                  deviceName: d.deviceName ?? '',
+                  addr: d.addr ?? '',
+                  port: d.port ?? 0,
+                  // 缺失/空 capabilitiesHex 均视为默认开放文件传输（undefined 不再走进 parseInt 得 NaN）
+                  fileTransfer: capHex === '' ? true : (Number.parseInt(capHex, 16) & 1) !== 0,
+                  ...(d.instanceName ? { instanceName: d.instanceName } : {}),
+                  ...(Array.isArray(d.addrs) && d.addrs.length ? { addrs: d.addrs } : {}),
+                  ...(d.paired === true ? { paired: true } : {}),
+                  ...(lastTransport ? { lastTransport } : {}),
+                  lastSeenMs: d.lastSeenMs ?? 0,
+                  restored: true,
+                }
+              })
           : []
         if (list.length > 0 && devices.value.length === 0) devices.value = list
       } catch (e) {

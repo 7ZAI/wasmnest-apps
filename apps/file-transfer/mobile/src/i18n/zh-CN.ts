@@ -45,12 +45,25 @@ export default {
   'transfer.devices.scanning': '探索中…',
   // T12: 中继 / 远程设备
   'transfer.devices.addRemote': '添加远程设备',
+  'transfer.devices.myDevice': '我的设备',
   'transfer.devices.remote': '远程',
   'transfer.devices.removeRemote': '移除',
   'transfer.devices.tryWan': '尝试外网',
   'transfer.devices.tryWanHint': '只有你显式点击才尝试中继；同网段不可达不会自动切换',
   'transfer.devices.transportLan': '内网直连',
   'transfer.devices.transportWan': '外网中继',
+  // T20：上次传输形态 / 跨网能力 / 分类失败出路
+  'transfer.devices.lastTransportLan': '上次：内网直连',
+  'transfer.devices.lastTransportWan': '上次：外网中继',
+  'transfer.devices.hasRelay': '含中继',
+  'transfer.devices.lanOnly': '仅内网',
+  'transfer.devices.relayOnly': '仅经中继',
+  'transfer.devices.relayOnlyHint': '跳过内网地址直接经中继连接（蜂窝网络下更快）',
+  'transfer.devices.errorNoEndpoint': '设备没有可用地址，请重新添加远程设备',
+  'transfer.devices.errorRelayDisabled': '中继已关闭：在设置中打开「中继（外网）」后重试',
+  'transfer.devices.errorRelayUnreachable': '中继路径不可达：检查中继服务与对端是否在线',
+  'transfer.devices.errorTimeout': '连接超时，请重试',
+  'transfer.devices.errorUnknown': '连接失败：{detail}',
 
   // ==================== 顶栏 / 浏览 ====================
   'transfer.topbar.settings': '设置',
@@ -264,14 +277,19 @@ export default {
   // ==================== 添加远程设备（T12） ====================
   'transfer.remote.title': '添加远程设备',
   'transfer.remote.hint':
-    '粘贴对方设备生成的配对连接串（wasmnest://pair/…）或原始 JSON 载荷。载荷只含一次性票据，不含长期密钥。',
+    '粘贴对方设备生成的配对连接串（wasmnest://pair/…）或原始 JSON 载荷。载荷只含连接信息与一次性票据，不含长期密钥。',
   'transfer.remote.placeholder': 'wasmnest://pair/… 或 {"nodeId":"…","addrs":["…"]}',
+  'transfer.remote.sourceHint':
+    '连接串由对方设备生成：让对方打开本应用「我的设备」，复制连接串或出示二维码。',
   'transfer.remote.cancel': '取消',
   'transfer.remote.confirm': '添加',
   'transfer.remote.added': '已添加远程设备',
+  'transfer.remote.addedWithRelay': '已添加（含中继候选，可跨网）',
+  'transfer.remote.addedLanOnly': '已添加（仅内网）',
   'transfer.remote.scan': '扫码',
   'transfer.remote.scanTitle': '扫码添加设备',
   'transfer.remote.scanHint': '将对方设备上的配对二维码放入取景框',
+  'transfer.remote.scanHintSlow': '还没识别到二维码：靠近一点，或让对方把屏幕亮度调高',
   'transfer.remote.scanClose': '关闭',
   'transfer.remote.scanRetry': '重试',
   'transfer.remote.scanFailed': '相机启动失败',
@@ -279,6 +297,41 @@ export default {
   'transfer.remote.errorMalformed': '连接串或 JSON 无效',
   'transfer.remote.errorIncomplete': '配对信息不完整（需要 nodeId 与至少一个地址）',
   'transfer.remote.errorAddressInvalid': '地址不可拨号（需为 /multiaddr 形态）',
+
+  // ==================== 我的设备（T21，file-transfer 独立化） ====================
+  'transfer.myDevice.title': '我的设备',
+  'transfer.myDevice.loading': '正在读取本机设备信息…',
+  'transfer.myDevice.loadFailed': '读取本机设备信息失败，请重试',
+  'transfer.myDevice.unsupportedTitle': '当前宿主暂不支持生成连接串',
+  'transfer.myDevice.unsupportedBody':
+    '宿主需要提供本机 nodeId 与可拨地址（host-peer node-info）后，这里才会显示连接串。本版本不会伪造链接；你仍可在下方预先保存外网接入地址。',
+  'transfer.myDevice.deviceName': '设备名',
+  'transfer.myDevice.unnamed': '未命名设备',
+  'transfer.myDevice.fingerprint': '设备指纹',
+  'transfer.myDevice.relayState': '外网接入',
+  'transfer.myDevice.relayIdle': '未启用',
+  'transfer.myDevice.relayConnecting': '连接中…',
+  'transfer.myDevice.relayReserved': '已就绪',
+  'transfer.myDevice.relayLost': '已断开（重试中）',
+  'transfer.myDevice.relayUnknown': '未知',
+  'transfer.myDevice.addresses': '可拨地址',
+  'transfer.myDevice.linkLabel': '连接串',
+  'transfer.myDevice.linkHint': '对方在「添加远程设备」里粘贴或扫码；连接串不含长期密钥。',
+  'transfer.myDevice.linkUnavailable': '没有可拨地址（至少需要一个内网地址或已就绪的中继地址）',
+  'transfer.myDevice.copy': '复制连接串',
+  'transfer.myDevice.copied': '已复制',
+  'transfer.myDevice.copyFailed': '复制失败，请手动选择文本复制',
+  'transfer.myDevice.relayTitle': '外网接入（中继）',
+  'transfer.myDevice.relayHint':
+    '只有「被连的一方」需要配置。每行一个中继端点（…/tcp/4001/p2p/<relay>）；留空 = 仅内网。',
+  'transfer.myDevice.relayPlaceholder': '/ip4/203.0.113.9/tcp/4001/p2p/12D3KooW…',
+  'transfer.myDevice.relayUnsupported':
+    '当前宿主版本只保存配置，还不会建立中继预留；升级宿主后自动生效。',
+  'transfer.myDevice.relaySaved': '已保存',
+  'transfer.myDevice.relayError': '保存失败：地址不合法或存储不可用',
+  'transfer.myDevice.relaySave': '保存外网接入',
+  'transfer.myDevice.refresh': '刷新',
+  'transfer.myDevice.close': '完成',
 
   // ==================== 首连确认（全局对话框，spec 决策 7） ====================
   'transfer.consent.title': '连接请求',

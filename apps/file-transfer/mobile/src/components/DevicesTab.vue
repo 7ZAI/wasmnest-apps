@@ -14,7 +14,7 @@
  * 纯展示：行状态由 usePeerDevices 派生的 rows 传入，操作以事件上抛。
  */
 import { computed, inject, ref, type Ref } from 'vue'
-import type { DeviceRow } from '../composables/deviceState'
+import type { DeviceRow, DialFailureCode } from '../composables/deviceState'
 import {
   parseRemotePeerLink,
   type RemotePeerLink,
@@ -22,6 +22,7 @@ import {
 } from '../utils/pairingLink'
 import ScanRadar from './ScanRadar.vue'
 import ScanPanel from './ScanPanel.vue'
+import MyDeviceSheet from './MyDeviceSheet.vue'
 
 type Translate = (key: string, params?: Record<string, any>) => string
 
@@ -36,6 +37,8 @@ const emit = defineEmits<{
   (e: 'connect', nodeId: string): void
   /** 手动「尝试外网」：只在有 relay 候选且用户显式点击时纳入 relay（§4.9） */
   (e: 'retry-wan', nodeId: string): void
+  /** 仅经中继：跳过 LAN 候选直接拨 relay（T20 §4.2） */
+  (e: 'retry-relay-only', nodeId: string): void
   (e: 'disconnect', nodeId: string): void
   (e: 'set-active', nodeId: string): void
   /** 连接串解析成功 → 父级落设备缓存（T12） */
@@ -78,6 +81,8 @@ const groups = computed(() => {
 // ==================== 添加远程设备（T12：无摄像头场景粘贴连接串） ====================
 
 const addOpen = ref(false)
+/** 「我的设备」底部弹层（T21：连接串 + 外网接入） */
+const myOpen = ref(false)
 const addText = ref('')
 const addError = ref<RemotePeerLinkError | null>(null)
 /** 扫码面板（相机路径；与粘贴共用同一解析） */
@@ -129,16 +134,44 @@ function transportLabel(row: DeviceRow): string {
   return ''
 }
 
+/** 上次传输形态文案（T20：idle 态展示，让用户知道默认重拨会带 relay） */
+function lastTransportLabel(row: DeviceRow): string {
+  if (row.lastTransport === 'lan-direct') return t('transfer.devices.lastTransportLan')
+  if (row.lastTransport === 'wan-relay') return t('transfer.devices.lastTransportWan')
+  return ''
+}
+
+/** 拨号失败分类 → 文案 key（未识别原样展示原文，不猜成因） */
+const DIAL_ERROR_KEYS: Record<DialFailureCode, string> = {
+  denied: 'transfer.devices.denied',
+  'no-endpoint': 'transfer.devices.errorNoEndpoint',
+  'relay-disabled': 'transfer.devices.errorRelayDisabled',
+  'relay-unreachable': 'transfer.devices.errorRelayUnreachable',
+  'lan-unreachable': 'transfer.devices.unreachable',
+  timeout: 'transfer.devices.errorTimeout',
+  unknown: 'transfer.devices.errorUnknown',
+}
+
+/** 行内错误文案（unknown 带原文，其余只给分类文案） */
+function dialErrorText(row: DeviceRow): string {
+  const failure = row.dialError
+  if (!failure) return ''
+  if (failure.code === 'unknown' && failure.detail) {
+    return t(DIAL_ERROR_KEYS.unknown, { detail: failure.detail })
+  }
+  return t(DIAL_ERROR_KEYS[failure.code])
+}
+
 /** 短指纹（前 8 位） */
 function shortFingerprint(nodeId: string): string {
   return nodeId.slice(0, 8)
 }
 
-/** 状态点样式：绿=已连接、琥珀=握手中、降饱和绿=在线未连接、灰=离线/无能力 */
+/** 状态点样式：绿=已连接、琥珀=握手中、降饱和绿=在线未连接、灰=离线/失败 */
 function dotClass(row: DeviceRow): string {
   if (row.status === 'connected') return 'fv2-dev-dot--connected'
   if (row.status === 'connecting') return 'fv2-dev-dot--connecting'
-  if (row.dialError === 'unreachable') return 'fv2-dev-dot--offline'
+  if (row.dialError) return 'fv2-dev-dot--offline'
   if (!row.fileTransfer) return 'fv2-dev-dot--nocap'
   return 'fv2-dev-dot--reachable'
 }
@@ -205,6 +238,13 @@ function metaText(row: DeviceRow): string {
         </button>
         <button class="fv2-btn-text" data-testid="mobile-remote-add" @click="openAddRemote()">
           + {{ t('transfer.devices.addRemote') }}
+        </button>
+        <button
+          class="fv2-btn-text"
+          data-testid="mobile-my-device-open"
+          @click="myOpen = true"
+        >
+          {{ t('transfer.devices.myDevice') }}
         </button>
       </div>
     </div>
@@ -278,6 +318,19 @@ function metaText(row: DeviceRow): string {
                   <span v-if="row.isActive" class="fv2-device-tag fv2-device-tag--active">
                     {{ t('transfer.devices.activeCurrent') }}
                   </span>
+                  <!-- T20：跨网能力小徽标（有 relay 候选 = 可跨网，仅内网 = 需重新配对） -->
+                  <span
+                    v-if="row.fileTransfer"
+                    class="fv2-device-tag"
+                    :class="{ 'fv2-device-tag--wan': row.wanAvailable }"
+                    data-testid="mobile-dev-relay-badge"
+                  >
+                    {{
+                      row.wanAvailable
+                        ? t('transfer.devices.hasRelay')
+                        : t('transfer.devices.lanOnly')
+                    }}
+                  </span>
                 </div>
                 <p class="fv2-device-meta truncate">
                   {{ metaText(row) }}
@@ -288,14 +341,22 @@ function metaText(row: DeviceRow): string {
                     data-testid="mobile-dev-transport"
                     >{{ transportLabel(row) }}</span
                   >
+                  <!-- T20：上次传输形态（断开后仍保留，决定下次重连默认路径） -->
+                  <span
+                    v-if="lastTransportLabel(row)"
+                    class="fv2-device-transport"
+                    :class="{ 'fv2-device-transport--wan': row.lastTransport === 'wan-relay' }"
+                    data-testid="mobile-dev-last-transport"
+                    >{{ lastTransportLabel(row) }}</span
+                  >
                 </p>
-                <!-- 拨号终态反馈：拒绝 / 不可达 -->
-                <p v-if="row.dialError" class="fv2-device-error">
-                  {{
-                    row.dialError === 'denied'
-                      ? t('transfer.devices.denied')
-                      : t('transfer.devices.unreachable')
-                  }}
+                <!-- 拨号终态反馈：按分类给可操作出路（T20） -->
+                <p
+                  v-if="row.dialError"
+                  class="fv2-device-error"
+                  data-testid="mobile-dev-dial-error"
+                >
+                  {{ dialErrorText(row) }}
                 </p>
               </div>
 
@@ -327,6 +388,17 @@ function metaText(row: DeviceRow): string {
                   {{ t('transfer.devices.connecting') }}
                 </span>
                 <template v-else>
+                  <!-- 失败后主入口：「仅经中继」（LAN 失败 + 有 relay 候选；T20 §4.2） -->
+                  <button
+                    v-if="row.relayOnlyRecommended"
+                    class="fv2-btn-text fv2-btn-text--accent"
+                    :disabled="!row.fileTransfer"
+                    :title="t('transfer.devices.relayOnlyHint')"
+                    data-testid="mobile-dev-try-relay-only"
+                    @click="emit('retry-relay-only', row.nodeId)"
+                  >
+                    {{ t('transfer.devices.relayOnly') }}
+                  </button>
                   <!-- 手动「尝试外网」：仅存在 relay 候选时给入口；不自动切换（§4.9） -->
                   <button
                     v-if="row.wanAvailable"
@@ -339,7 +411,8 @@ function metaText(row: DeviceRow): string {
                     {{ t('transfer.devices.tryWan') }}
                   </button>
                   <button
-                    class="fv2-btn-text fv2-btn-text--accent"
+                    class="fv2-btn-text"
+                    :class="{ 'fv2-btn-text--accent': !row.relayOnlyRecommended }"
                     :disabled="!row.fileTransfer"
                     @click="emit('connect', row.nodeId)"
                   >
@@ -363,9 +436,27 @@ function metaText(row: DeviceRow): string {
           </svg>
           {{ t('transfer.devices.addRemote') }}
         </button>
+        <button
+          class="fv2-add-remote"
+          data-testid="mobile-my-device-open-footer"
+          @click="myOpen = true"
+        >
+          <svg aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.8"
+              d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"
+            />
+          </svg>
+          {{ t('transfer.devices.myDevice') }}
+        </button>
         <p class="fv2-trust-hint">{{ t('transfer.devices.trustHint') }}</p>
       </div>
     </template>
+
+    <!-- 我的设备（T21）：连接串 + 外网接入；添加设备流程不出现中继 -->
+    <MyDeviceSheet v-if="myOpen" @close="myOpen = false" />
 
     <!-- 添加远程设备（底部弹层：贴触发点出现，不顶走列表位置） -->
     <div v-if="addOpen" class="fv2-sheet-mask" @click.self="closeAddRemote">
@@ -391,6 +482,10 @@ function metaText(row: DeviceRow): string {
             </svg>
           </button>
         </div>
+        <!-- T21：连接串来源 = 对方设备的「我的设备」（本应用自持） -->
+        <p class="fv2-remote-source" data-testid="mobile-remote-source">
+          {{ t('transfer.remote.sourceHint') }}
+        </p>
         <textarea
           v-model="addText"
           class="fv2-remote-input"

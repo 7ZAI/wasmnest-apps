@@ -230,6 +230,16 @@ mod tests {
         ) -> Result<serde_json::Value, HostError> {
             unimplemented!()
         }
+        fn peer_node_info(&self) -> Result<wasmnest_plugin_api::host::PeerNodeInfo, HostError> {
+            unimplemented!()
+        }
+        fn peer_configure_relay(
+            &self,
+            _relay_addrs: &[String],
+            _enable: bool,
+        ) -> Result<wasmnest_plugin_api::host::PeerNodeInfo, HostError> {
+            unimplemented!()
+        }
     }
 
     fn sample() -> Vec<SharedRoot> {

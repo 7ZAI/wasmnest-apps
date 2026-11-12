@@ -147,6 +147,10 @@
         "title": "Get Settings"
       },
       {
+        "id": "file-transfer.get-my-device",
+        "title": "Get My Device Link"
+      },
+      {
         "id": "file-transfer.set-settings",
         "title": "Set Settings"
       },

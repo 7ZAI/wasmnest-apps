@@ -15,6 +15,9 @@ import type { PeerDevMock } from '../devMockTypes'
 import {
   DEVICE_TTL_MS,
   deriveDeviceRows,
+  dialFailureFromError,
+  dialFailureFromResult,
+  normalizeTransport,
   parseFoundPayload,
   sweepStaleDevices,
 } from '../composables/deviceState'
@@ -83,11 +86,9 @@ describe('devMock 种子与 parseFoundPayload 的契约', () => {
   })
 })
 
-
 // ==================== T12：传输形态 / 远程设备 ====================
 
-const RELAY_ADDR =
-  '/ip4/203.0.113.9/tcp/4001/p2p/12D3KooWRelay/p2p-circuit/p2p/12D3KooWTarget'
+const RELAY_ADDR = '/ip4/203.0.113.9/tcp/4001/p2p/12D3KooWRelay/p2p-circuit/p2p/12D3KooWTarget'
 const LAN_ADDR = '/ip4/192.168.1.5/tcp/47613'
 const NODE_REMOTE = 'f'.repeat(64)
 
@@ -118,7 +119,14 @@ describe('deriveDeviceRows · 传输形态与远程设备', () => {
   it('有 relay 候选才给「尝试外网」入口（LAN-only 设备没有手动入口）', () => {
     const paired = derive({
       devices: [
-        { nodeId: NODE_REMOTE, deviceName: 'Remote', addr: '', port: 0, addrs: [LAN_ADDR, RELAY_ADDR], paired: true },
+        {
+          nodeId: NODE_REMOTE,
+          deviceName: 'Remote',
+          addr: '',
+          port: 0,
+          addrs: [LAN_ADDR, RELAY_ADDR],
+          paired: true,
+        },
       ],
     })
     expect(paired[0].paired).toBe(true)
@@ -144,10 +152,155 @@ describe('sweepStaleDevices · 配对设备不被 TTL 清扫', () => {
   it('过期远程设备保留，过期发现设备移除', () => {
     const now = Date.now()
     const list = [
-      { nodeId: NODE_REMOTE, addr: '', port: 0, addrs: [RELAY_ADDR], paired: true, lastSeenMs: now - DEVICE_TTL_MS * 10 },
-      { nodeId: NODE_PIXEL, addr: '192.168.1.132', port: 51044, lastSeenMs: now - DEVICE_TTL_MS * 10 },
+      {
+        nodeId: NODE_REMOTE,
+        deviceName: '',
+        addr: '',
+        port: 0,
+        addrs: [RELAY_ADDR],
+        paired: true,
+        lastSeenMs: now - DEVICE_TTL_MS * 10,
+      },
+      {
+        nodeId: NODE_PIXEL,
+        deviceName: '',
+        addr: '192.168.1.132',
+        port: 51044,
+        lastSeenMs: now - DEVICE_TTL_MS * 10,
+      },
     ]
     const kept = sweepStaleDevices(list, now, new Set())
     expect(kept.map((d) => d.nodeId)).toEqual([NODE_REMOTE])
+  })
+})
+
+// ==================== T20：上次传输形态 / 失败分类 / 仅经中继 ====================
+
+describe('T20 · lastTransport 与分类失败', () => {
+  it('宿主 transport 词表外的值不猜（normalizeTransport 返回 null）', () => {
+    expect(normalizeTransport('lan-direct')).toBe('lan-direct')
+    expect(normalizeTransport('wan-relay')).toBe('wan-relay')
+    expect(normalizeTransport('satellite')).toBeNull()
+    expect(normalizeTransport(undefined)).toBeNull()
+    expect(normalizeTransport(42)).toBeNull()
+  })
+
+  it('行内带出「上次：…」；断开后仍保留（重连策略输入）', () => {
+    const device = {
+      nodeId: NODE_REMOTE,
+      deviceName: 'Remote',
+      addr: '',
+      port: 0,
+      addrs: [LAN_ADDR, RELAY_ADDR],
+      paired: true,
+      lastTransport: 'wan-relay' as const,
+    }
+    const idle = derive({ devices: [device] })
+    expect(idle[0].lastTransport).toBe('wan-relay')
+    const connected = derive({
+      devices: [device],
+      connectedIds: new Set([NODE_REMOTE]),
+      transports: { [NODE_REMOTE]: 'lan-direct' },
+    })
+    // 本次形态与上次形态各自独立
+    expect(connected[0].lastTransport).toBe('wan-relay')
+    expect(connected[0].transport).toBe('lan-direct')
+    // 词表外的历史值不展示（不猜）
+    expect(
+      derive({ devices: [{ ...device, lastTransport: 'wan' as never }] })[0].lastTransport,
+    ).toBeNull()
+  })
+
+  it('dial-peer 载荷：connected / 缺省 = 成功，已知 token = 对应分类', () => {
+    expect(dialFailureFromResult({ status: 'connected' })).toBeNull()
+    // 老版本宿主不带 status：不当失败（兼容既有行为）
+    expect(dialFailureFromResult({})).toBeNull()
+    expect(dialFailureFromResult(null)).toBeNull()
+    for (const token of [
+      'denied',
+      'no-endpoint',
+      'relay-disabled',
+      'relay-unreachable',
+      'lan-unreachable',
+      'timeout',
+    ] as const) {
+      expect(dialFailureFromResult({ status: token })).toEqual({ code: token })
+    }
+    // 带 detail 的失败保留原文（日志 / 诊断用）
+    expect(
+      dialFailureFromResult({ status: 'relay-disabled', detail: 'relay is disabled' }),
+    ).toEqual({ code: 'relay-disabled', detail: 'relay is disabled' })
+  })
+
+  it('未知 status 不猜成已知分类：落 unknown 并保留原文', () => {
+    expect(dialFailureFromResult({ status: 'quarantined' })).toEqual({
+      code: 'unknown',
+      detail: 'quarantined',
+    })
+  })
+
+  it('命令抛错：分类 unknown + 原文（信封不带分类）；原文截断', () => {
+    expect(dialFailureFromError(new Error('host error -1: peer_dial: boom'))).toEqual({
+      code: 'unknown',
+      detail: 'host error -1: peer_dial: boom',
+    })
+    expect(dialFailureFromError({ code: 'errors.host.internal', request_id: 'abcd1234' })).toEqual({
+      code: 'unknown',
+      detail: '{"code":"errors.host.internal","request_id":"abcd1234"}',
+    })
+    expect(dialFailureFromError('plain failure').detail).toBe('plain failure')
+    const long = dialFailureFromError('x'.repeat(1000))
+    expect(long.detail!.length).toBeLessThanOrEqual(241)
+    expect(long.detail!.endsWith('…')).toBe(true)
+  })
+
+  it('LAN 失败 + 有 relay 候选 ⇒ 建议「仅经中继」（主按钮）', () => {
+    const device = {
+      nodeId: NODE_REMOTE,
+      deviceName: 'Remote',
+      addr: '',
+      port: 0,
+      addrs: [LAN_ADDR, RELAY_ADDR],
+      paired: true,
+    }
+    const lanFail = derive({
+      devices: [device],
+      dialErrors: { [NODE_REMOTE]: { code: 'lan-unreachable' } },
+    })
+    expect(lanFail[0].dialError).toEqual({ code: 'lan-unreachable' })
+    expect(lanFail[0].relayOnlyRecommended).toBe(true)
+
+    // 无 relay 候选：不给「仅经中继」出路
+    const lanOnly = derive({
+      devices: [{ ...device, addrs: [LAN_ADDR] }],
+      dialErrors: { [NODE_REMOTE]: { code: 'lan-unreachable' } },
+    })
+    expect(lanOnly[0].relayOnlyRecommended).toBe(false)
+
+    // 中继本身不可达：不再建议「仅经中继」（避免原地重试）
+    const relayFail = derive({
+      devices: [device],
+      dialErrors: { [NODE_REMOTE]: { code: 'relay-unreachable' } },
+    })
+    expect(relayFail[0].relayOnlyRecommended).toBe(false)
+  })
+
+  it('已连接 / 握手中不残留失败态（旧错误不盖住现役链路）', () => {
+    const device = { nodeId: NODE_REMOTE, deviceName: 'Remote', addr: '', port: 0 }
+    const failure = { code: 'lan-unreachable' as const }
+    expect(
+      derive({
+        devices: [device],
+        connectedIds: new Set([NODE_REMOTE]),
+        dialErrors: { [NODE_REMOTE]: failure },
+      })[0].dialError,
+    ).toBeNull()
+    expect(
+      derive({
+        devices: [device],
+        connectingIds: new Set([NODE_REMOTE]),
+        dialErrors: { [NODE_REMOTE]: failure },
+      })[0].dialError,
+    ).toBeNull()
   })
 })

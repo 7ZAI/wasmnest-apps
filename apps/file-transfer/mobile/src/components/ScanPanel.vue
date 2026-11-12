@@ -1,18 +1,29 @@
 <script setup lang="ts">
 /**
- * ScanPanel — 扫码添加远程设备（T12）
+ * ScanPanel — 扫码添加远程设备（T12 / P0-4）
  *
- * 相机取景（`html5-qrcode`，与 bedcode 移动端同依赖）→ 解码文本 →
- * `parseRemotePeerLink` 与粘贴路径**同一解析口径**（连接串 / JSON / QR v2 包装）。
+ * 相机流与帧循环自持（`../scan/`，与 BedCode 同判据的副本）：每帧按多档解码
+ * （原生 BarcodeDetector 优先，ZXing 全尺寸 / 降采样 / ROI 放大），替代旧的
+ * html5-qrcode 固定 `qrbox: 250` 单次解码——v3 连接串（LAN + relay circuit）
+ * 约 85~95 模块，旧路径在真机上大概率读不出来。
  *
  * 判据：
  * - 非法码不打断扫描（继续等正确码），且不把二维码原文写日志（可能含一次性票据）；
  * - 相机启动失败 / 无权限分开呈现（权限失败给出系统设置出路），不静默留黑屏；
- * - 成功即停扫并上抛 `link`，由父组件落设备缓存（本组件不写存储）。
+ * - 成功即停扫并上抛 `link`，由父组件落设备缓存（本组件不写存储）；
+ * - 连续 10s 未命中给一条非阻断提示（不停止相机、不改错误态）。
  */
 import { onMounted, onUnmounted, ref } from 'vue'
-import { Html5Qrcode } from 'html5-qrcode'
 import { parseRemotePeerLink, type RemotePeerLink } from '../utils/pairingLink'
+import { useCameraStream } from '../scan/useCameraStream'
+import { useQrScanLoop } from '../scan/useQrScanLoop'
+import {
+  createScanHintState,
+  noteScanHit,
+  startScanHint,
+  suppressScanHint,
+  tickScanHint,
+} from '../scan/scanHint'
 
 type Translate = (key: string, params?: Record<string, any>) => string
 
@@ -22,53 +33,57 @@ const emit = defineEmits<{
   (e: 'close'): void
 }>()
 
-/** 取景容器 id（Html5Qrcode 按 id 挂载） */
-const READER_ID = 'ft-qr-reader'
-const error = ref<'' | 'failed' | 'permission'>('')
-
-let scanner: Html5Qrcode | null = null
-let finished = false
-
-async function stop(): Promise<void> {
-  const current = scanner
-  scanner = null
-  if (!current) return
-  try {
-    if (current.isScanning) await current.stop()
-  } catch {
-    // 停止失败不阻断关闭（相机已被系统回收等）
-  }
-  try {
-    current.clear()
-  } catch {
-    // 容器清理失败忽略
-  }
+/** 二维码原文只在内存里交给解析器；日志只记失败结论 */
+const logger = {
+  warn: (message: string) => console.warn('[File Transfer] scan:', message),
 }
 
+const videoRef = ref<HTMLVideoElement | null>(null)
+const error = ref<'' | 'failed' | 'permission'>('')
+const hintVisible = ref(false)
+
+let hint = createScanHintState()
+let finished = false
+let disposed = false
+
+const loop = useQrScanLoop({
+  logger,
+  onResult: (text) => void handleText(text),
+  onMiss: () => {
+    // 只在可见性变化时写 ref，避免 10fps 的响应式抖动
+    const visible = tickScanHint(hint, Date.now())
+    if (visible !== hintVisible.value) hintVisible.value = visible
+  },
+})
+
+const camera = useCameraStream({
+  logger,
+  onError: (kind) => {
+    // 错误面板已说明问题，不再叠加「靠近一点」
+    suppressScanHint(hint)
+    hintVisible.value = false
+    error.value = kind === 'permission' ? 'permission' : 'failed'
+    loop.stop()
+  },
+})
+
 async function start(): Promise<void> {
+  const video = videoRef.value
+  if (!video || disposed) return
   error.value = ''
-  await stop()
-  if (finished) return
-  try {
-    const instance = new Html5Qrcode(READER_ID)
-    scanner = instance
-    await instance.start(
-      { facingMode: 'environment' },
-      { fps: 10, qrbox: { width: 250, height: 250 } },
-      (text) => {
-        void handleText(text)
-      },
-      () => {
-        // 逐帧未识别：正常扫描过程，不记日志
-      },
-    )
-    // start 期间组件被关闭 / 已识别：相机不得留在运行态
-    if (finished) await stop()
-  } catch (e) {
-    const message = e instanceof Error ? e.message : String(e)
-    error.value = /permission|notallowed|denied|security/i.test(message) ? 'permission' : 'failed'
-    // 只记失败结论，不落二维码原文 / 帧内容
-    console.warn('[File Transfer] qr camera start failed:', message)
+  finished = false
+  hint = startScanHint(createScanHintState(), Date.now())
+  hintVisible.value = false
+
+  const ok = await camera.attach(video)
+  if (!ok || disposed) {
+    camera.stop()
+    return
+  }
+  await loop.start(video)
+  if (disposed) {
+    loop.stop()
+    camera.stop()
   }
 }
 
@@ -80,13 +95,17 @@ async function handleText(text: string): Promise<void> {
     return
   }
   finished = true
-  await stop()
+  loop.stop()
+  camera.stop()
+  noteScanHit(hint)
+  hintVisible.value = false
   emit('link', parsed.link)
 }
 
 function close(): void {
   finished = true
-  void stop()
+  loop.stop()
+  camera.stop()
   emit('close')
 }
 
@@ -99,8 +118,10 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  disposed = true
   finished = true
-  void stop()
+  loop.stop()
+  camera.dispose()
 })
 </script>
 
@@ -114,7 +135,7 @@ onUnmounted(() => {
     </div>
 
     <div class="ft-scan-stage">
-      <div :id="READER_ID" class="ft-scan-reader"></div>
+      <video ref="videoRef" class="ft-scan-video" playsinline muted autoplay></video>
       <div v-if="!error" class="ft-scan-frame" aria-hidden="true"></div>
     </div>
 
@@ -140,6 +161,11 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <p v-else class="ft-scan-hint">{{ props.t('transfer.remote.scanHint') }}</p>
+    <template v-else>
+      <p class="ft-scan-hint">{{ props.t('transfer.remote.scanHint') }}</p>
+      <p v-if="hintVisible" class="ft-scan-hint" data-testid="mobile-scan-slow-hint">
+        {{ props.t('transfer.remote.scanHintSlow') }}
+      </p>
+    </template>
   </div>
 </template>

@@ -12,10 +12,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-desktop'
 import { usePeerDevices } from '../composables/usePeerDevices'
-import {
-  DEVICE_TTL_MS,
-  isWithinRestoreWindow,
-} from '../composables/deviceState'
+import { DEVICE_TTL_MS, isWithinRestoreWindow } from '../composables/deviceState'
 
 type EventHandler = (payload: any) => void
 
@@ -146,11 +143,12 @@ describe('usePeerDevices snapshot dial guard', () => {
     dev.start()
     await env.flush()
 
-    // 未验证的恢复条目：拒绝拨号（不发 dial-peer），改为触发宿主即时重查
-    expect(await dev.connect(NODE_A)).toBe('unreachable')
+    // 未验证的恢复条目：拒绝拨号（不发 dial-peer），改为触发宿主即时重查。
+    // 分类是 lan-unreachable（地址未经本会话验证 = 内网路径当前不可用，T20）
+    expect(await dev.connect(NODE_A)).toBe('lan-unreachable')
     expect(env.calls.some((c) => c.id === 'file-transfer.dial-peer')).toBe(false)
     expect(env.calls.some((c) => c.id === 'file-transfer.refresh-devices')).toBe(true)
-    expect(dev.rows.value[0]?.dialError).toBe('unreachable')
+    expect(dev.rows.value[0]?.dialError).toEqual({ code: 'lan-unreachable' })
 
     // 实时 mdns-found 接管（restored 清 false、地址更新）后按实时 endpoint 拨号
     env.onCommand('file-transfer.dial-peer', () => ({ status: 'connected' }))

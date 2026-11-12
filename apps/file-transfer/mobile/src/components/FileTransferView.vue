@@ -31,6 +31,7 @@ import { useSwipeTabs } from '@binblink/wasmnest-plugin-sdk-mobile/ui/swipe-tabs
 import { useTasks } from '../composables/useTasks'
 import { isNeedsAllFilesAccess, promptAllFilesAccess } from '../composables/useAllFilesAccess'
 import { usePeerDevices } from '../composables/usePeerDevices'
+import { hasRelayCandidate } from '../composables/deviceState'
 import type { RemotePeerLink } from '../utils/pairingLink'
 import { useRemoteFs } from '../composables/useRemoteFs'
 import { useSettings } from '../composables/useSettings'
@@ -211,10 +212,22 @@ function handleDeviceConnect(nodeId: string): void {
 function handleDeviceRetryWan(nodeId: string): void {
   void devices.connect(nodeId, { wan: true })
 }
+/** 仅经中继（T20）：跳过 LAN 候选，失败不回退（用户显式意图） */
+function handleDeviceRetryRelayOnly(nodeId: string): void {
+  void devices.connect(nodeId, { relayOnly: true })
+}
 /** 添加远程设备（T12）：连接串 → 设备缓存（paired 条目跨重启保留） */
 function handleAddRemote(link: RemotePeerLink): void {
   devices.addRemotePeer(link)
-  context.dialogs.showToast(t('transfer.remote.added'), 'success')
+  // T20：说清这份链接能不能跨网（只含 LAN 地址 ⇒ 蜂窝网络下必然失败）
+  context.dialogs.showToast(
+    t(
+      hasRelayCandidate(link.addrs)
+        ? 'transfer.remote.addedWithRelay'
+        : 'transfer.remote.addedLanOnly',
+    ),
+    'success',
+  )
 }
 function handleRemoveRemote(nodeId: string): void {
   devices.removeRemotePeer(nodeId)
@@ -472,6 +485,7 @@ onUnmounted(() => {
           :t="t"
           @connect="handleDeviceConnect"
           @retry-wan="handleDeviceRetryWan"
+          @retry-relay-only="handleDeviceRetryRelayOnly"
           @disconnect="handleDeviceDisconnect"
           @set-active="handleDeviceSetActive"
           @add-remote="handleAddRemote"

@@ -70,6 +70,35 @@ export interface Settings {
   allowWan: boolean
   /** 经中继传输的提示阈值（字节；0 = 每次发送都提示） */
   relayMaxBytesPerTask: number
+  /** 外网接入 relay 端点（T21；空 = 仅内网；宿主 configure-relay 就绪后生效） */
+  relayAddrs: string[]
+}
+
+/** 宿主 peer 能力（file-transfer 独立化 T21；false = 宿主未提供对应原语） */
+export interface HostCapabilities {
+  nodeInfo: boolean
+  relayReservation: boolean
+}
+
+/** 「我的设备」读面（get-my-device） */
+export interface MyDeviceInfo {
+  /** 宿主是否提供本机 nodeId / 可拨地址（node-info） */
+  supported: boolean
+  /** supported=false 的原因（fail-visible，不伪造链接） */
+  reason?: string | null
+  capabilities: HostCapabilities
+  /** relay 端点（桌面 = 配置中心真源；移动 = 本机缓存；不是当前生效预留） */
+  relayAddrs: string[]
+  /** relay 地址来源：center = 「内网穿透」配置中心；cache = 本机缓存兜底 */
+  relaySource?: 'center' | 'cache'
+  /** 读取配置中心的错误（仅降级时非空；fail-visible，不吞） */
+  relayError?: string | null
+  nodeId?: string
+  deviceName?: string
+  /** 可拨 multiaddr（LAN 在前；仅 relay 预留生效时含 circuit） */
+  addrs?: string[]
+  /** relay-idle / relay-connecting / relay-reserved / relay-lost */
+  relayState?: string
 }
 
 /** 任务状态是否为终态 */

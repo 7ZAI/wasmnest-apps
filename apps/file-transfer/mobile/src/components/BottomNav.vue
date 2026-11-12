@@ -14,7 +14,7 @@
  *
  * 安全区：Android WebView 的 `env(safe-area-inset-*)` 恒为 0，宿主经 provide
  * 注入 JS 量（`safeArea`，见平台仓 App.vue 的 hostSurfaceEnv）。底部内边距取
- * navigationBar → bottom（与 bedcode 底部导航同口径）；dev-shell 无注入时退化 0。
+ * navigationBar → bottom（与宿主导航栏同口径）；dev-shell 无注入时退化 0。
  */
 import { computed, inject, type Ref } from 'vue'
 import type { MainTab } from '../types'

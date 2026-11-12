@@ -47,6 +47,7 @@ export default {
   'transfer.devices.scanning': 'Discovering…',
   // T12: relay / remote devices
   'transfer.devices.addRemote': 'Add remote device',
+  'transfer.devices.myDevice': 'My device',
   'transfer.devices.remote': 'Remote',
   'transfer.devices.removeRemote': 'Forget',
   'transfer.devices.tryWan': 'Try over relay',
@@ -54,6 +55,20 @@ export default {
     'Only tries the relay when you ask; same-network failures never switch automatically',
   'transfer.devices.transportLan': 'LAN direct',
   'transfer.devices.transportWan': 'Relay',
+  // T20: last transport / WAN capability / classified failure exits
+  'transfer.devices.lastTransportLan': 'Last: LAN direct',
+  'transfer.devices.lastTransportWan': 'Last: relay',
+  'transfer.devices.hasRelay': 'Relay ready',
+  'transfer.devices.lanOnly': 'LAN only',
+  'transfer.devices.relayOnly': 'Relay only',
+  'transfer.devices.relayOnlyHint':
+    'Skip LAN candidates and dial straight through the relay (faster on cellular)',
+  'transfer.devices.errorNoEndpoint': 'No dialable address; add the remote device again',
+  'transfer.devices.errorRelayDisabled': 'Relay is off: enable "Relay (WAN)" in settings and retry',
+  'transfer.devices.errorRelayUnreachable':
+    'Relay path unreachable: check the relay and whether the peer is online',
+  'transfer.devices.errorTimeout': 'Connection timed out, please retry',
+  'transfer.devices.errorUnknown': 'Connection failed: {detail}',
 
   // ==================== Top bar / browsing ====================
   'transfer.topbar.settings': 'Settings',
@@ -275,14 +290,20 @@ export default {
   // ==================== Add remote device (T12) ====================
   'transfer.remote.title': 'Add remote device',
   'transfer.remote.hint':
-    'Paste the pairing link (wasmnest://pair/…) or the raw JSON payload from the other device. Only a one-time ticket is carried; long-term keys never are.',
+    'Paste the pairing link (wasmnest://pair/…) or the raw JSON payload from the other device. Only connection info and an optional one-time ticket are carried; long-term keys never are.',
   'transfer.remote.placeholder': 'wasmnest://pair/… or {"nodeId":"…","addrs":["…"]}',
+  'transfer.remote.sourceHint':
+    'The link is generated on the other device: open My device in this app there, then copy the link or show the QR code.',
   'transfer.remote.cancel': 'Cancel',
   'transfer.remote.confirm': 'Add',
   'transfer.remote.added': 'Remote device added',
+  'transfer.remote.addedWithRelay': 'Added (relay candidate included, works across networks)',
+  'transfer.remote.addedLanOnly': 'Added (LAN only)',
   'transfer.remote.scan': 'Scan',
   'transfer.remote.scanTitle': 'Scan to add device',
   'transfer.remote.scanHint': 'Point the camera at the pairing QR code on the other device',
+  'transfer.remote.scanHintSlow':
+    'No QR detected yet: move closer, or raise the screen brightness on the other device',
   'transfer.remote.scanClose': 'Close',
   'transfer.remote.scanRetry': 'Retry',
   'transfer.remote.scanFailed': 'Cannot start the camera',
@@ -292,6 +313,43 @@ export default {
   'transfer.remote.errorIncomplete':
     'Pairing data is incomplete (nodeId and at least one address are required)',
   'transfer.remote.errorAddressInvalid': 'Address is not dialable (expects a /multiaddr)',
+
+  // ==================== My device (T21, file-transfer standalone) ====================
+  'transfer.myDevice.title': 'My device',
+  'transfer.myDevice.loading': 'Reading this device…',
+  'transfer.myDevice.loadFailed': 'Could not read this device. Try again.',
+  'transfer.myDevice.unsupportedTitle': 'This host cannot generate a link yet',
+  'transfer.myDevice.unsupportedBody':
+    'The host must provide the local nodeId and dialable addresses (host-peer node-info) before a link can be shown. This version never fabricates one; you can still pre-save an external access address below.',
+  'transfer.myDevice.deviceName': 'Device name',
+  'transfer.myDevice.unnamed': 'Unnamed device',
+  'transfer.myDevice.fingerprint': 'Fingerprint',
+  'transfer.myDevice.relayState': 'External access',
+  'transfer.myDevice.relayIdle': 'Off',
+  'transfer.myDevice.relayConnecting': 'Connecting…',
+  'transfer.myDevice.relayReserved': 'Ready',
+  'transfer.myDevice.relayLost': 'Lost (retrying)',
+  'transfer.myDevice.relayUnknown': 'Unknown',
+  'transfer.myDevice.addresses': 'Dialable addresses',
+  'transfer.myDevice.linkLabel': 'Link',
+  'transfer.myDevice.linkHint':
+    'The other device pastes or scans it in Add remote device; the link contains no long-term key.',
+  'transfer.myDevice.linkUnavailable':
+    'No dialable address (need a LAN address or a ready relay address)',
+  'transfer.myDevice.copy': 'Copy link',
+  'transfer.myDevice.copied': 'Copied',
+  'transfer.myDevice.copyFailed': 'Copy failed; select the text and copy manually',
+  'transfer.myDevice.relayTitle': 'External access (relay)',
+  'transfer.myDevice.relayHint':
+    'Only the device being dialed needs this. One relay endpoint per line (…/tcp/4001/p2p/<relay>); leave empty for LAN only.',
+  'transfer.myDevice.relayPlaceholder': '/ip4/203.0.113.9/tcp/4001/p2p/12D3KooW…',
+  'transfer.myDevice.relayUnsupported':
+    'This host version only saves the config; it does not establish a relay reservation yet. It will take effect after a host upgrade.',
+  'transfer.myDevice.relaySaved': 'Saved',
+  'transfer.myDevice.relayError': 'Save failed: invalid address or storage unavailable',
+  'transfer.myDevice.relaySave': 'Save external access',
+  'transfer.myDevice.refresh': 'Refresh',
+  'transfer.myDevice.close': 'Done',
 
   // ==================== 首连确认（全局对话框，spec 决策 7） ====================
   'transfer.consent.title': 'Connection request',

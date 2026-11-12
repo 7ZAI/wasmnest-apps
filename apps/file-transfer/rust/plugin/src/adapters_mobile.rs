@@ -513,6 +513,16 @@ mod tests {
         ) -> Result<serde_json::Value, HostError> {
             unreachable!()
         }
+        fn peer_node_info(&self) -> Result<wasmnest_plugin_api::host::PeerNodeInfo, HostError> {
+            unreachable!()
+        }
+        fn peer_configure_relay(
+            &self,
+            _relay_addrs: &[String],
+            _enable: bool,
+        ) -> Result<wasmnest_plugin_api::host::PeerNodeInfo, HostError> {
+            unreachable!()
+        }
     }
 
     /// 差异面⑦移动侧正例：无认证中心 ⇒ 直答宿主原语，参数逐字、返回值即 hit

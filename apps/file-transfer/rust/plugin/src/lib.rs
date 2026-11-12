@@ -38,6 +38,7 @@ mod auth_center;
 mod device_bridge;
 mod peer;
 mod platform;
+mod relay_center;
 mod roots_registry;
 mod settings_store;
 mod transfer_store;
@@ -197,11 +198,18 @@ impl WasmPlugin for FileTransferPlugin {
         // peer-net-dissolve：业务语义不留在底座），产品默认（Ask + 审批窗口）由
         // 本插件激活期显式给出——否则引擎直拒一切传入传输。失败不翻成激活失败
         // （下次设置变更 save_and_push 重推收敛）
-        if let Err(e) = settings_store::load(&h)
-            .and_then(|settings| settings_store::save_and_push(&h, &settings))
-        {
-            h.log_error(&format!("activate: receive policy push failed: {e}"));
-        }
+        let settings = match settings_store::load(&h) {
+            Ok(settings) => {
+                if let Err(e) = settings_store::save_and_push(&h, &settings) {
+                    h.log_error(&format!("activate: receive policy push failed: {e}"));
+                }
+                Some(settings)
+            }
+            Err(e) => {
+                h.log_error(&format!("activate: receive policy push failed: {e}"));
+                None
+            }
+        };
         // 引擎电源：双端同构——本插件显式请求 peer 节点起停（服务租约按插件 id
         // 记账：首个引用拉起、最后引用关停；宿主外壳不再按产品 id 驱动）
         // 放在 activate 后段，等价于旧外壳的 `result.is_ok()` 门——前面任何
@@ -218,6 +226,13 @@ impl WasmPlugin for FileTransferPlugin {
             Err(e) => h.log_error(&format!(
                 "peer-net node start failed (plugin stays active): {e}"
             )),
+        }
+        // T21（7ZAI/wasmnest-apps#27）：node-info / configure-relay 就绪后，激活期
+        // 按当前生效配置（桌面 = 配置中心；移动 = 本地设置）建立本插件份额的 relay
+        // 预留；deactivate 对称释放。预留失败/节点未起只留痕，不把插件打成不可用——
+        // 打开「我的设备」或改设置会再次收敛（幂等）。
+        if let Some(settings) = &settings {
+            peer::apply_relay_reservation(&h, platform, settings);
         }
         // 注册表层初始化：桌面建 plugin-db 表（幂等，尽早暴露持久化故障）；
         // 移动 storage KV 无表可建（函数内按平台短路）
@@ -281,6 +296,19 @@ impl WasmPlugin for FileTransferPlugin {
             // 退订失败同样留痕：残留订阅会让停用后的插件仍收到事件
             if let Err(e) = h.bus_unsubscribe(topic) {
                 h.log_warn(&format!("deactivate: bus_unsubscribe {topic} failed: {e}"));
+            }
+        }
+        // T21：插件下线 = 释放自己那份 relay 预留；共享节点可能仍被其他插件持有，
+        // 因此不能靠节点停机的自然释放代替（在此之前调用，节点还活着）
+        if peer::HOST_RELAY_RESERVATION_SUPPORTED {
+            match h.peer_configure_relay(&[], false) {
+                Ok(info) => h.log_info(&format!(
+                    "deactivate: relay reservation released (state={})",
+                    info.relay_state
+                )),
+                Err(e) => h.log_warn(&format!(
+                    "deactivate: relay reservation release skipped/failed (non-fatal): {e}"
+                )),
             }
         }
         // 引擎电源：双端同构——插件下线 → 释放本插件的节点引用（会话已在上方
@@ -452,6 +480,9 @@ impl WasmPlugin for FileTransferPlugin {
             // ==================== 设置（真源 = 插件 storage + 注册表） ====================
             "file-transfer.get-settings" => peer::get_settings(&h),
             "file-transfer.set-settings" => peer::set_settings(&h, &args),
+            // T21：「我的设备」——本机身份 / 可拨地址 / relay 状态。宿主
+            // `host-peer.node-info` 未就绪时显性 unsupported（不伪造链接）。
+            "file-transfer.get-my-device" => peer::get_my_device(&h),
             // 接收落点选择（桌面形态）：移动端固定 MediaStore.Downloads，
             // 命令显性报错（与退役前移动端行为逐字一致）
             "file-transfer.pick-download-dir" => {

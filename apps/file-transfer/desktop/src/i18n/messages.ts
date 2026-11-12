@@ -43,12 +43,26 @@ export type MessageSchema = {
   'transfer.devices.scanning': string
   // T12：中继 / 远程设备（连接串导入、传输形态、手动尝试外网）
   'transfer.devices.addRemote': string
+  'transfer.devices.myDevice': string
   'transfer.devices.remote': string
   'transfer.devices.removeRemote': string
   'transfer.devices.tryWan': string
   'transfer.devices.tryWanHint': string
   'transfer.devices.transportLan': string
   'transfer.devices.transportWan': string
+  // T20：上次传输形态 / 跨网能力徽标 / 分类失败出路
+  'transfer.devices.lastTransportLan': string
+  'transfer.devices.lastTransportWan': string
+  'transfer.devices.hasRelay': string
+  'transfer.devices.lanOnly': string
+  'transfer.devices.relayOnly': string
+  'transfer.devices.relayOnlyHint': string
+  'transfer.devices.errorNoEndpoint': string
+  'transfer.devices.errorRelayDisabled': string
+  'transfer.devices.errorRelayUnreachable': string
+  'transfer.devices.errorTimeout': string
+  /** 未识别失败：`{detail}` 为命令原文，原样展示（fail-visible） */
+  'transfer.devices.errorUnknown': string
 
   // ==================== 顶栏 ====================
   'transfer.topbar.sendToPhone': string
@@ -191,9 +205,46 @@ export type MessageSchema = {
   'transfer.remote.cancel': string
   'transfer.remote.confirm': string
   'transfer.remote.added': string
+  'transfer.remote.sourceHint': string
+  'transfer.remote.addedWithRelay': string
+  'transfer.remote.addedLanOnly': string
   'transfer.remote.errorMalformed': string
   'transfer.remote.errorIncomplete': string
   'transfer.remote.errorAddressInvalid': string
+
+  // ==================== 我的设备（T21，file-transfer 独立化） ====================
+  'transfer.myDevice.title': string
+  'transfer.myDevice.loading': string
+  'transfer.myDevice.loadFailed': string
+  'transfer.myDevice.unsupportedTitle': string
+  'transfer.myDevice.unsupportedBody': string
+  'transfer.myDevice.deviceName': string
+  'transfer.myDevice.unnamed': string
+  'transfer.myDevice.fingerprint': string
+  'transfer.myDevice.relayState': string
+  'transfer.myDevice.relayIdle': string
+  'transfer.myDevice.relayConnecting': string
+  'transfer.myDevice.relayReserved': string
+  'transfer.myDevice.relayLost': string
+  'transfer.myDevice.relayUnknown': string
+  'transfer.myDevice.addresses': string
+  'transfer.myDevice.linkLabel': string
+  'transfer.myDevice.qrHint': string
+  'transfer.myDevice.linkHint': string
+  'transfer.myDevice.linkUnavailable': string
+  'transfer.myDevice.copy': string
+  'transfer.myDevice.copied': string
+  'transfer.myDevice.copyFailed': string
+  'transfer.myDevice.relayTitle': string
+  'transfer.myDevice.relayHint': string
+  'transfer.myDevice.relayCenterEmpty': string
+  'transfer.myDevice.relaySourceCache': string
+  'transfer.myDevice.relayCenterError': string
+  'transfer.myDevice.relayOpenCenter': string
+  'transfer.myDevice.relayOpenUnavailable': string
+  'transfer.myDevice.relayUnsupported': string
+  'transfer.myDevice.refresh': string
+  'transfer.myDevice.close': string
 
   // ==================== 错误（spec §10 + v2 拒绝原因） ====================
   'transfer.error.duplicateName': string

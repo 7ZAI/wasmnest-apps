@@ -207,11 +207,10 @@ describe('快照恢复拨号防线（T12 例外）', () => {
     const remote = await peers.connect(NODE_REMOTE)
     expect(remote).toBe('connected')
     // 发现条目被 restored 防线拦下（不触发拨号，改为请求宿主重查）
-    expect(await peers.connect(NODE_MDNS)).toBe('unreachable')
+    expect(await peers.connect(NODE_MDNS)).toBe('lan-unreachable')
     expect(h.calls.filter((c) => c.id === 'file-transfer.dial-peer')).toHaveLength(1)
   })
 })
-
 
 describe('配对设备重启恢复与连接盖章（T12）', () => {
   it('配对条目即使 lastSeen 过期也恢复；发现条目仍按 TTL 丢弃', async () => {
@@ -269,6 +268,166 @@ describe('配对设备重启恢复与连接盖章（T12）', () => {
       const saved = calls.filter((c) => c.id === 'file-transfer.save-device-snapshot').pop()!
       expect(saved.args.devices[0].deviceName).toBe('书房 NAS')
       expect(saved.args.devices[0].lastSeenMs).toBe(device.lastSeenMs)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
+// ==================== T20：上次传输形态 / 仅经中继 / 分类失败 ====================
+
+describe('T20 · 上次传输形态驱动重连 + 仅经中继', () => {
+  it('上次经中继 ⇒ 默认带 wan:true（LAN 仍先试）；显式 relayOnly 带 relayOnly:true', async () => {
+    const { peers, calls, emit, flush } = setup()
+    peers.start()
+    await flush()
+    peers.addRemotePeer({ nodeId: NODE_REMOTE, addrs: [LAN, RELAY], ticket: null, deviceName: '' })
+
+    // 宿主上报「本次经中继」→ 写进设备缓存（lastTransport）
+    emit('plugin:file-transfer:connection-changed', {
+      nodeId: NODE_REMOTE,
+      connected: true,
+      transport: 'wan-relay',
+    })
+    expect(peers.rows.value[0]!.lastTransport).toBe('wan-relay')
+    emit('plugin:file-transfer:connection-changed', { nodeId: NODE_REMOTE, connected: false })
+    await flush()
+    // 断开后保留
+    expect(peers.rows.value[0]!.lastTransport).toBe('wan-relay')
+
+    // 重连：默认纳入 relay（不必再点「尝试外网」）
+    await peers.connect(NODE_REMOTE)
+    let dial = calls.filter((c) => c.id === 'file-transfer.dial-peer').pop()!
+    expect(dial.args.wan).toBe(true)
+    expect(dial.args.relayOnly).toBeUndefined()
+
+    // 显式「仅经中继」：跳过 LAN 候选（已连接时不会重拨，先断开）
+    await peers.disconnect(NODE_REMOTE)
+    await flush()
+    await peers.connect(NODE_REMOTE, { relayOnly: true })
+    dial = calls.filter((c) => c.id === 'file-transfer.dial-peer').pop()!
+    expect(dial.args.relayOnly).toBe(true)
+    expect(dial.args.wan).toBe(true)
+  })
+
+  it('上次内网直连 ⇒ 默认不带 wan（不自动烧中继）', async () => {
+    const { peers, calls, emit, flush } = setup()
+    peers.start()
+    await flush()
+    peers.addRemotePeer({ nodeId: NODE_REMOTE, addrs: [LAN, RELAY], ticket: null, deviceName: '' })
+    emit('plugin:file-transfer:connection-changed', {
+      nodeId: NODE_REMOTE,
+      connected: true,
+      transport: 'lan-direct',
+    })
+    emit('plugin:file-transfer:connection-changed', { nodeId: NODE_REMOTE, connected: false })
+    await flush()
+
+    await peers.connect(NODE_REMOTE)
+    const dial = calls.filter((c) => c.id === 'file-transfer.dial-peer').pop()!
+    expect(dial.args.wan).toBeUndefined()
+  })
+
+  it('分类失败经成功载荷返回：行内给对应出路，且不进入已连接态', async () => {
+    const { peers, onCommand, emit, flush } = setup()
+    peers.start()
+    await flush()
+    peers.addRemotePeer({ nodeId: NODE_REMOTE, addrs: [LAN, RELAY], ticket: null, deviceName: '' })
+    onCommand('file-transfer.dial-peer', () => ({
+      status: 'lan-unreachable',
+      detail: 'dial addrs failed: peer unreachable',
+    }))
+
+    expect(await peers.connect(NODE_REMOTE)).toBe('lan-unreachable')
+    expect(peers.connectedIds.value.has(NODE_REMOTE)).toBe(false)
+    const row = peers.rows.value[0]!
+    // detail 保留宿主原文（只进控制台 / 诊断；UI 对已分类失败只用分类文案）
+    expect(row.dialError).toEqual({
+      code: 'lan-unreachable',
+      detail: 'dial addrs failed: peer unreachable',
+    })
+    expect(row.relayOnlyRecommended).toBe(true)
+
+    // 成功即清除旧失败态
+    onCommand('file-transfer.dial-peer', () => ({ status: 'connected' }))
+    expect(await peers.connect(NODE_REMOTE, { relayOnly: true })).toBe('connected')
+    expect(peers.rows.value[0]!.dialError).toBeNull()
+    // 未收到 connection-changed 时不伪造 transport / lastTransport
+    expect(peers.rows.value[0]!.transport).toBeNull()
+    expect(peers.rows.value[0]!.lastTransport).toBeNull()
+    emit('plugin:file-transfer:connection-changed', { nodeId: NODE_REMOTE, connected: false })
+  })
+
+  it('未知失败（信封无分类）不猜成因：dialError.code = unknown 且原文只作 detail', async () => {
+    const { peers, onCommand, flush } = setup()
+    peers.start()
+    await flush()
+    peers.addRemotePeer({ nodeId: NODE_REMOTE, addrs: [RELAY], ticket: null, deviceName: '' })
+    onCommand('file-transfer.dial-peer', () => {
+      throw new Error('host error -1: peer_dial_addrs: invalid multiaddr')
+    })
+
+    expect(await peers.connect(NODE_REMOTE)).toBe('unknown')
+    const row = peers.rows.value[0]!
+    expect(row.dialError).toEqual({
+      code: 'unknown',
+      detail: 'host error -1: peer_dial_addrs: invalid multiaddr',
+    })
+    expect(row.relayOnlyRecommended).toBe(false)
+  })
+
+  it('无有效 endpoint：本地即判 no-endpoint，不发命令', async () => {
+    const { peers, calls, flush } = setup()
+    peers.start()
+    await flush()
+    peers.addRemotePeer({ nodeId: NODE_REMOTE, addrs: [], ticket: null, deviceName: '' })
+    expect(await peers.connect(NODE_REMOTE)).toBe('no-endpoint')
+    expect(calls.some((c) => c.id === 'file-transfer.dial-peer')).toBe(false)
+    expect(peers.rows.value[0]!.dialError).toEqual({ code: 'no-endpoint' })
+  })
+
+  it('快照落盘与恢复带 lastTransport（重启后免再点「尝试外网」）', async () => {
+    vi.useFakeTimers()
+    try {
+      const h = makeContext()
+      h.onCommand('file-transfer.get-device-snapshot', () => ({
+        devices: [
+          {
+            nodeId: NODE_REMOTE,
+            deviceName: 'Remote',
+            addrs: [LAN, RELAY],
+            paired: true,
+            lastSeenMs: Date.now(),
+            lastTransport: 'wan-relay',
+          },
+          // 词表外的历史值不恢复（不猜）
+          { nodeId: 'e'.repeat(64), paired: true, lastSeenMs: Date.now(), lastTransport: 'quic' },
+        ],
+      }))
+      h.onCommand('file-transfer.save-device-snapshot', () => ({ ok: true }))
+      h.onCommand('file-transfer.refresh-devices', () => ({ ok: true }))
+      const peers = usePeerDevices(h.context)
+      peers.start()
+      // fake timers 下 h.flush 的 setTimeout(0) 不会自己走：显式推进
+      await vi.advanceTimersByTimeAsync(0)
+
+      const restored = peers.devices.value.find((d) => d.nodeId === NODE_REMOTE)!
+      expect(restored.lastTransport).toBe('wan-relay')
+      expect(
+        peers.devices.value.find((d) => d.nodeId === 'e'.repeat(64))!.lastTransport,
+      ).toBeUndefined()
+
+      // 落盘回写保持 camelCase 字段
+      peers.addRemotePeer({
+        nodeId: NODE_REMOTE,
+        addrs: [LAN, RELAY],
+        ticket: null,
+        deviceName: '',
+      })
+      await vi.advanceTimersByTimeAsync(2100)
+      const saved = h.calls.filter((c) => c.id === 'file-transfer.save-device-snapshot').pop()!
+      const entry = saved.args.devices.find((d: any) => d.nodeId === NODE_REMOTE)!
+      expect(entry.lastTransport).toBe('wan-relay')
     } finally {
       vi.useRealTimers()
     }
