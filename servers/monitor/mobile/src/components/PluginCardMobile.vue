@@ -196,8 +196,6 @@ function trapLabel(key: string): string {
         </svg>
       </div>
 
-      <div class="mnm-plugin-id">{{ row.id }}</div>
-
       <div class="mnm-plugin-meta">
         <span class="mnm-plugin-mem">
           {{ formatBytes(metrics.memory_current_bytes) }}
@@ -355,7 +353,6 @@ function trapLabel(key: string): string {
             <dd>{{ entry.value }}</dd>
           </div>
         </dl>
-        <p class="mnm-quota-note">{{ tx('monitor.metric.quotaNote') }}</p>
       </section>
     </div>
   </details>
@@ -441,14 +438,6 @@ function trapLabel(key: string): string {
 
 .mnm-plugin[open] .mnm-chevron {
   transform: rotate(180deg);
-}
-
-.mnm-plugin-id {
-  margin-top: 2px;
-  overflow-wrap: anywhere;
-  font-size: 13px;
-  line-height: 1.45;
-  color: var(--mnm-ink-3);
 }
 
 .mnm-plugin-meta {
@@ -721,13 +710,6 @@ function trapLabel(key: string): string {
 
 .mnm-kv dd.is-warning {
   color: var(--mnm-warning-ink);
-}
-
-.mnm-quota-note {
-  margin: 8px 0 0;
-  font-size: 13px;
-  line-height: 1.5;
-  color: var(--mnm-ink-3);
 }
 
 @keyframes mnm-detail-in {

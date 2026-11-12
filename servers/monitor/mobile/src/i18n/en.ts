@@ -3,7 +3,6 @@ import type { MessageSchema } from './messages'
 /** English copy (keys mirror zh-CN one-to-one) */
 const en: MessageSchema = {
   'monitor.title': 'Monitor',
-  'monitor.subtitle': 'Runtime metrics · read-only',
   'monitor.live': 'Live',
   'monitor.interval': 'Refreshes every {seconds}s',
   'monitor.updated': 'Updated {time}',
@@ -26,7 +25,6 @@ const en: MessageSchema = {
   'monitor.kpi.pluginsValue': '{running} / {total} running',
   'monitor.kpi.calls': 'Total calls',
   'monitor.kpi.inFlight': 'In flight',
-  'monitor.kpi.inFlightHint': "Includes this app's own call",
   'monitor.kpi.traps': 'Total traps',
   'monitor.kpi.memoryPeak': 'Peak memory (sum)',
 
@@ -65,7 +63,6 @@ const en: MessageSchema = {
   'monitor.metric.quotaInstances': 'Instance limit',
   'monitor.metric.quotaMemories': 'Memory count limit',
   'monitor.metric.quotaTables': 'Table count limit',
-  'monitor.metric.quotaNote': 'These are host quota limits, not live usage.',
   'monitor.metric.lastEvent': 'Latest: {event} · {time}',
   'monitor.metric.more': 'More metrics',
 
@@ -98,26 +95,20 @@ const en: MessageSchema = {
     'Mobile cannot read the host wasm list; rows below show plugin ids from metrics only.',
   'monitor.hero.proofStale':
     'The latest refresh failed. Values below are the last successful snapshot, not live.',
-  'monitor.hero.proofMobile': 'Mobile reads metrics only; host runtime state is not available.',
   'monitor.hero.memoryHigh': 'Platform memory at {ratio}',
   'monitor.hero.memoryCritical': 'Platform memory at {ratio} (critical)',
 
   'monitor.overview.title': 'Platform overview',
-  'monitor.overview.hint':
-    'Totals across every loaded wasm app, summed straight from the host snapshot.',
   'monitor.overview.memory': 'Total wasm memory',
   'monitor.overview.unbounded': 'No memory limits in the snapshot',
   'monitor.overview.compute': 'Compute load',
   'monitor.overview.perSecond': 'fuel/s (execution proxy)',
-  'monitor.overview.hostGap':
-    'Host-process CPU / RSS is not part of the metrics:read contract; this page only reports the wasm runtime and does not guess host-process numbers.',
   'monitor.signal.title': 'Call rate',
   'monitor.signal.perSecond': 'per second',
   'monitor.signal.window': 'This session · last {seconds}s',
   'monitor.signal.justStarted': 'This session · just started',
   'monitor.signal.starting': 'Establishing baseline',
   'monitor.signal.inFlight': '{n} in flight',
-  'monitor.signal.note': 'Rate is the delta between polls and lives only in this session.',
   'monitor.signal.peak': 'Peak {n}/s',
   'monitor.ledger.title': 'wasm',
   'monitor.ledger.calls': '{n} calls',
@@ -136,8 +127,6 @@ const en: MessageSchema = {
   'monitor.inspector.usage': '{ratio} of memory limit',
   'monitor.inspector.noTraps': 'No traps recorded',
   'monitor.process.title': 'Host process (WebView)',
-  'monitor.process.hint':
-    'Whole-machine view: PSS (apportioned shared pages) and RSS (upper bound), CPU as percent of one core. Separate from the wasm metrics above; the two are never added together.',
   'monitor.process.unavailable':
     'This host does not provide the process section (older host); no numbers are shown.',
   'monitor.process.notSampled':
@@ -155,11 +144,6 @@ const en: MessageSchema = {
   'monitor.process.otherValue': '{n} · PSS {pss}',
   'monitor.process.treeRow': 'Process tree total',
   'monitor.process.treeValue': 'PSS {pss} · RSS {rss} · CPU {cpu}',
-  'monitor.process.treeNote':
-    'The total excludes the WebView renderer process: mobile cannot read it, so this is not the whole-app figure.',
-
-  'monitor.footer.source': 'Data from monitor.snapshot · permission metrics:read',
-  'monitor.footer.session': 'This session · cleared on close',
 }
 
 export default en

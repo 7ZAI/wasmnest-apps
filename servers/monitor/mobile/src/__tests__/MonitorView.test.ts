@@ -104,10 +104,6 @@ describe('MonitorView（移动界面契约）', () => {
     expect(wrapper.find('[data-testid="mobile-monitor-process-webview"]').text()).toContain(
       '不可归属',
     )
-    // 树合计的边界说明在场
-    expect(wrapper.find('[data-testid="mobile-monitor-process-tree-note"]').text()).toContain(
-      '不含 WebView',
-    )
     // 与 wasm 台账同时在场（两块各说各的事实）
     expect(wrapper.find('[data-testid="mobile-monitor-plugin-list"]').exists()).toBe(true)
   })

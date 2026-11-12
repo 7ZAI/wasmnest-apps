@@ -59,7 +59,6 @@ const heapText = computed<string | null>(() => {
   <section class="mnm-proc" data-ui data-testid="mobile-monitor-process">
     <header class="mnm-proc-head">
       <h2 class="mnm-proc-title">{{ tx('monitor.process.title') }}</h2>
-      <p class="mnm-proc-note">{{ tx('monitor.process.hint') }}</p>
     </header>
 
     <p
@@ -147,10 +146,6 @@ const heapText = computed<string | null>(() => {
           </dd>
         </div>
       </dl>
-
-      <p class="mnm-proc-note" data-testid="mobile-monitor-process-tree-note">
-        {{ tx('monitor.process.treeNote') }}
-      </p>
     </template>
   </section>
 </template>
