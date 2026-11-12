@@ -41,6 +41,7 @@ export const messagesZhCN = {
     tunnelErrorRelayUnreachable: '中继服务器不可达，请检查地址与网络',
     tunnelErrorWanDisabled: '外网通道已关闭或未配置中继服务器',
     tunnelErrorPeerOffline: '桌面端离线或对等网络未启动',
+    tunnelErrorNoPeerRecord: '找不到该桌面的对端记录，请重新扫码配对',
     tunnelErrorTunnelClosed: '通道已关闭，请重新连接',
     tunnelErrorNotMatched: '该设备未完成配对，无法建立通道',
     tunnelErrorTicketExpired: '配对票据已过期，请重新扫码',
@@ -59,7 +60,6 @@ export const messagesZhCN = {
       error: '连接失败',
       unknown: '未知状态',
     },
-    projects: '项目',
     disconnect: '断开',
     // 设备
     manualConnect: '手动连接',
@@ -76,6 +76,12 @@ export const messagesZhCN = {
     history: '连接历史',
     clearHistory: '清除',
     historyClearFailed: '清空连接历史失败',
+    // 远程连接（中继）：持久化对端记录，跨网重连无需桌面重发二维码
+    relayTargetsTitle: '远程连接（中继）',
+    relayTargetsHint: '跨网络连接时使用；桌面端需保持运行并已配置中继服务器',
+    relayTargetMeta: '{node} · 端口 {port}',
+    relayTargetLastMode: '上次：{mode}',
+    relayTargetConnect: '连接',
     pairingFailed: '配对失败',
     // 会话
     notConnected: '未连接到桌面端',
@@ -237,6 +243,7 @@ export const messagesEn = {
     tunnelErrorRelayUnreachable: 'Relay server unreachable; check the address and your network',
     tunnelErrorWanDisabled: 'WAN channel disabled or no relay server configured',
     tunnelErrorPeerOffline: 'Desktop offline or peer network not started',
+    tunnelErrorNoPeerRecord: 'No peer record for that desktop; scan the QR code again',
     tunnelErrorTunnelClosed: 'Channel closed; reconnect to continue',
     tunnelErrorNotMatched: 'Device is not paired yet, cannot open a channel',
     tunnelErrorTicketExpired: 'Pairing ticket expired; scan again',
@@ -256,7 +263,6 @@ export const messagesEn = {
       error: 'Connection failed',
       unknown: 'Unknown state',
     },
-    projects: 'Projects',
     disconnect: 'Disconnect',
     manualConnect: 'Manual connect',
     connectFailed: 'Connection failed',
@@ -272,6 +278,13 @@ export const messagesEn = {
     history: 'Connection history',
     clearHistory: 'Clear',
     historyClearFailed: 'Failed to clear connection history',
+    // Remote (relay) targets: persisted peer records, no QR reshoot needed to reconnect
+    relayTargetsTitle: 'Remote (relay) devices',
+    relayTargetsHint:
+      'Use when the desktop is on another network; it must stay running with a relay server configured',
+    relayTargetMeta: '{node} · port {port}',
+    relayTargetLastMode: 'Last: {mode}',
+    relayTargetConnect: 'Connect',
     pairingFailed: 'Pairing failed',
     notConnected: 'Not connected to desktop',
     notConnectedHint: 'Connect first to view and start remote sessions',

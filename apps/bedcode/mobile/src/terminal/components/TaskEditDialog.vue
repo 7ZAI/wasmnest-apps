@@ -3,7 +3,7 @@
     <Transition name="center-modal">
       <div v-if="visible" class="fixed inset-0 z-[100] flex items-center justify-center p-4 mobile-ui" data-bedcode-surface>
         <div class="absolute inset-0 bg-[var(--mobile-overlay-heavy)]" @click="emit('close')"></div>
-        <div class="relative w-full max-w-lg bg-[var(--mobile-bg-card)] border border-[var(--mobile-border)] rounded-2xl p-6 shadow-xl max-h-[85vh] flex flex-col modal-panel">
+        <div class="relative w-full max-w-lg bg-[var(--mobile-bg-card)] border border-[var(--mobile-border)] rounded-[var(--bc-radius-card)] p-6 bc-overlay-panel max-h-[85vh] flex flex-col modal-panel">
           <div class="flex items-center justify-between mb-4 flex-shrink-0">
             <h3 class="text-lg font-semibold text-[var(--mobile-text-primary)]">
               {{ task ? t('toolbox.editTask') : t('toolbox.addTaskTitle') }}
@@ -35,7 +35,7 @@
                   </svg>
                 </button>
                 <Transition name="dropdown">
-                  <div v-if="showDirDropdown" class="absolute top-full right-0 mt-1 min-w-[clamp(140px,180px,220px)] max-h-[180px] overflow-y-auto bg-[var(--mobile-bg-tertiary)] border border-[var(--mobile-border)] rounded-lg shadow-[0_8px_24px_rgba(0,0,0,0.4)] z-30" @click.stop>
+                  <div v-if="showDirDropdown" class="bc-overlay-panel absolute top-full right-0 mt-1 min-w-[clamp(140px,180px,220px)] max-h-[180px] overflow-y-auto bg-[var(--mobile-bg-tertiary)] border border-[var(--mobile-border)] rounded-lg z-30" @click.stop>
                     <button
                       v-for="dir in projectDirs"
                       :key="dir"
@@ -120,7 +120,7 @@
     <Transition name="center-modal">
       <div v-if="showFileExplorer && fileExplorerSessionId" class="fixed inset-0 z-[100] flex items-center justify-center p-[10%] mobile-ui" data-bedcode-surface>
         <div class="absolute inset-0 bg-[var(--mobile-overlay-heavy)]" @click="showFileExplorer = false"></div>
-        <div class="relative w-full h-full bg-[var(--mobile-bg-card)] border border-[var(--mobile-border)] rounded-2xl shadow-xl overflow-hidden flex flex-col modal-panel">
+        <div class="relative w-full h-full bg-[var(--mobile-bg-card)] border border-[var(--mobile-border)] rounded-[var(--bc-radius-card)] bc-overlay-panel overflow-hidden flex flex-col modal-panel">
           <FileExplorer
             :session-id="fileExplorerSessionId"
             mode="emit"
@@ -290,7 +290,9 @@ function handleSave() {
 /* Dropdown transition */
 .dropdown-enter-active,
 .dropdown-leave-active {
-  transition: all 0.2s ease;
+  transition:
+    opacity var(--bc-dur-base) var(--bc-ease),
+    transform var(--bc-dur-base) var(--bc-ease);
 }
 
 .dropdown-enter-from,

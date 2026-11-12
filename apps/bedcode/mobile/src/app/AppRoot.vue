@@ -12,23 +12,33 @@
       <!-- ==================== 应用级头部（仅任务 / 设置页签；连接与会话页自带页头） ====================
            旧宿主是「每页自带头部」形态：连接页「连接配对」+ 状态小字 + 雷达按钮，会话页「会话」+ 刷新。
            本组件仅给尚未自持页头的页签（任务 / 设置）画应用级头部，避免两层头部叠在同一屏。 -->
-      <div v-if="showAppHeader" class="flex items-center gap-2 px-4 pt-3 pb-2 flex-shrink-0">
+      <div v-if="showAppHeader" class="flex items-center gap-2 px-4 pt-3 pb-3 flex-shrink-0">
         <span class="text-base font-semibold" :style="{ color: 'var(--mobile-text-primary)' }">
           {{ t(headerTitleKey) }}
         </span>
-        <span class="text-xs px-2 py-0.5 rounded-full shrink-0" :style="statusChipStyle">
-          {{ t(statusTextKey) }}
+        <!-- 连接状态：一处小字 + 一个点。状态是事实不是徽章，不给底色 -->
+        <span
+          class="flex items-center gap-1.5 shrink-0 ml-1"
+          :style="{ color: 'var(--mobile-text-muted)' }"
+          :data-connected="isConnectedState ? 'true' : 'false'"
+        >
+          <span
+            class="status-dot"
+            :style="{ background: isConnectedState ? 'var(--mobile-success)' : 'var(--mobile-text-disabled)' }"
+            aria-hidden="true"
+          />
+          <span class="text-[var(--font-size-sm)]">{{ t(statusTextKey) }}</span>
         </span>
         <div class="flex-1" />
         <button
           v-if="isAuthenticated"
           type="button"
-          class="flex items-center justify-center min-w-[36px] min-h-[36px] rounded-lg transition-colors active:opacity-70"
+          class="flex items-center justify-center -mr-2 min-w-[44px] min-h-[44px] rounded-[var(--bc-radius-control)] transition-colors active:opacity-70"
           :style="{ color: 'var(--mobile-text-secondary)' }"
           :aria-label="t('app.refresh')"
           @click="onRefreshSessions"
         >
-          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
             <path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
           </svg>
         </button>
@@ -58,10 +68,7 @@
           v-if="isVisited('connection')"
           :class="['app-tab-panel absolute inset-0 overflow-y-auto', panelClass('connection')]"
         >
-          <DevicesSection
-            :active="tabs.active.value === 'connection'"
-            @open-projects="onSelectTab('projects')"
-          />
+          <DevicesSection :active="tabs.active.value === 'connection'" />
         </div>
         <div
           v-if="isVisited('projects')"
@@ -122,6 +129,9 @@ import { registerAppBack } from './appBack'
 import DevicesSection from '../host/components/DevicesSection.vue'
 import ProjectsPage from '../projects/ProjectsPage.vue'
 import { useHostPage } from '../host/useHostPage'
+import { directorySessionById } from '../host/sessionDirectory'
+import { SLOT_INTENT_OPEN_SESSION, intentSessionId } from '../host/slotIntent'
+import { isSessionActive } from '../host/utils'
 import SettingsPage from '../settings/SettingsPage.vue'
 import AutoTaskToolboxView from '../task/components/AutoTaskToolboxView.vue'
 import TerminalView from '../terminal/TerminalView.vue'
@@ -214,13 +224,10 @@ const statusTextKey = computed(() => {
   }
 })
 
-const statusChipStyle = computed(() => {
+/** 判定「已连通」的两种状态（与连接页同口径）：点取绿，其余取中性灰 */
+const isConnectedState = computed(() => {
   const status = ctrl.connectionStatus.value
-  const ok = status === 'paired' || status === 'connected'
-  return {
-    background: ok ? 'var(--mobile-accent-muted)' : 'var(--mobile-bg-card)',
-    color: ok ? 'var(--mobile-accent)' : 'var(--mobile-text-secondary)',
-  }
+  return status === 'paired' || status === 'connected'
 })
 
 /** 页签视觉顺序（面板停靠的相对序依据；与底部导航一致，过滤后即可用页签） */
@@ -331,6 +338,19 @@ let disposeBackPress: Disposable | null = null
 
 onMounted(() => {
   subscriptions = ctrl.subscribe()
+  // 宿主快捷卡片的入口意图（如「打开最近活跃会话」）：订阅前到达的由宿主排队补投，
+  // 所以本组件晚于点击创建也不会丢（见宿主 shell/surfaceIntent.ts）
+  subscriptions.push(
+    ctrl.context.ui.onSurfaceIntent((intent) => {
+      if (intent.key !== SLOT_INTENT_OPEN_SESSION) return
+      const sessionId = intentSessionId(intent.payload)
+      if (!sessionId) {
+        logger.warn('[app] open-session intent 缺 sessionId，忽略')
+        return
+      }
+      openSessionById(sessionId)
+    }),
+  )
   disposeBackPress = registerAppBack(ctrl.context, [
     // 终端沉浸页优先：打开终端时页签容器已卸载，项目页的「详情」状态仍记在
     // useProjects 的模块级记忆里；先收终端再退详情，否则返回会跳过终端。
@@ -365,6 +385,33 @@ onUnmounted(() => {
 
 function onOpenTerminal(sessionId: string, sessionName: string): void {
   terminalSession.value = { id: sessionId, name: sessionName }
+}
+
+/**
+ * 按会话 id 直接进沉浸终端（宿主快捷卡片入口；与项目页 openRun 同一条链路）
+ *
+ * 会话已停止 / 被移除时不打开一个死终端：落到项目页（会话上下文）并留一条
+ * warn，让「卡片指的会话已不在」可被观测，而不是空白终端或静默无反应。
+ * 存活会话先预热传输面（只建连不发 subscribe，与 ProjectsPage.openRun 同口径）。
+ */
+function openSessionById(sessionId: string): void {
+  const session = directorySessionById(sessionId)
+  if (!session) {
+    logger.warn(`[app] open-session intent 目标会话不存在: ${sessionId}`)
+    void gotoTab('projects')
+    return
+  }
+  ctrl.api.activeSessionId.value = sessionId
+  if (isSessionActive(session.status ?? '')) {
+    void ctrl.context.commands
+      .execute('bedcode.prewarm', { sessionId })
+      .catch((error) =>
+        logger.warn(`[app] terminal prewarm failed: ${error instanceof Error ? error.message : String(error)}`),
+      )
+  }
+  // 终端关闭后落到项目页：入口来自会话读数，回到会话所在上下文，而不是连接页
+  void gotoTab('projects')
+  terminalSession.value = { id: sessionId, name: session.name || sessionId }
 }
 
 function closeTerminal(): void {

@@ -185,9 +185,9 @@
         <p>{{ t('scheduled.empty') }}</p>
       </div>
 
-      <!-- 定时任务列表 -->
-      <div v-else class="att-list">
-        <div v-for="job in jobs" :key="job.id" class="att-row">
+      <!-- 定时任务列表：一张分组卡，每条定时任务是一行（与连接历史同一语汇） -->
+      <div v-else class="att-list group-card">
+        <div v-for="job in jobs" :key="job.id" class="att-row group-row">
           <div class="att-row-head">
             <p class="att-row-title">{{ job.name || t('scheduled.defaultName') }}</p>
             <span class="att-badge" :style="badgeStyle(job.status)">{{

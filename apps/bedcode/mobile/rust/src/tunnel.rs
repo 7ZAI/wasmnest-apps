@@ -43,7 +43,11 @@ pub struct PeerTarget {
     pub node_id: String,
     #[serde(default)]
     pub device_name: String,
-    /// relay circuit 候选（跨会话保留；拨号时排在 LAN 候选之后由宿主判定）
+    /// relay circuit **拨号候选**（跨会话保留；拨号时排在 LAN 候选之后由宿主判定）
+    ///
+    /// 存的是 circuit 目标（`…/p2p/<relay>/p2p-circuit/p2p/<peer>`），不是
+    /// `configure` 的 relay 端点——端点写配置时由候选现派生（见
+    /// [`relay_endpoint_of`]），两种形态不能混用。
     #[serde(default)]
     pub relay_addrs: Vec<String>,
     /// 目标逻辑端口（桌面业务端口；手动「尝试外网」重建拨号入参用，不是 LAN IP）
@@ -75,7 +79,7 @@ pub fn is_dialable_addr(addr: &str) -> bool {
     !(addr.contains("/ip4/0.0.0.0") || addr.contains("/ip6/::") || addr.contains("/ip4/127.0.0.1"))
 }
 
-/// 是否经 relay 的候选（用于从拨号候选里提取宿主 `configure` 需要的 relay 地址）
+/// 是否经 relay 的候选（`connect.addrs` 的**拨号目标**形态）
 pub fn is_relay_addr(addr: &str) -> bool {
     addr.contains(WAN_ADDR_MARKER)
 }
@@ -99,12 +103,56 @@ where
     out
 }
 
-/// 从候选里提取 relay 地址（宿主 `configure` 的 `relayAddrs`）
-pub fn relay_addrs_from(addrs: &[String]) -> Vec<String> {
-    normalize_addrs(addrs.iter().filter(|addr| is_relay_addr(addr)))
+/// relay circuit 拨号目标 → relay **端点**（`configure.relayAddrs` 的形态）
+///
+/// 两种地址在宿主契约里是不同物，不能混用：
+/// - `connect.addrs` 收 circuit 拨号目标
+///   `/ip4/…/tcp/…/p2p/<relay>/p2p-circuit/p2p/<peer>`；
+/// - `configure.relayAddrs` 收 relay 端点 `/ip4/…/tcp/…/p2p/<relay>`——**不得**含
+///   `/p2p-circuit`（预留地址由引擎自行拼装）。宿主 `configure` 逐条走
+///   `RelayEndpoint::parse`，带 circuit 的端点被点名拒绝（`wan-disabled`），整次
+///   拨号就停在写配置这一步：连模式都还没落，界面只能显示「传输状态未知」。
+///
+/// 结构不合法的候选（缺 `/p2p/<target>` 目标段 / 端点不以 `/p2p/<relay-id>` 收尾
+/// / 缺 `/tcp/`）返回 `None`：猜一个端点去预留只会把配置错误变成 relay 侧死等。
+pub fn relay_endpoint_of(addr: &str) -> Option<String> {
+    let addr = addr.trim();
+    let (head, tail) = addr.split_once(WAN_ADDR_MARKER)?;
+    let head = head.trim_end_matches('/');
+    if !head.starts_with('/') || !head.contains("/tcp/") {
+        return None;
+    }
+    // 目标段必须是 `/p2p/<peer>`（circuit 语义 = 经 relay 到某个 peer）
+    let target = tail.strip_prefix("/p2p/")?;
+    if target.is_empty() || target.contains('/') {
+        return None;
+    }
+    // 端点必须钉住 relay 身份（引擎 `RelayEndpoint::parse` 同判据）
+    let (_, relay_id) = head.rsplit_once("/p2p/")?;
+    if relay_id.is_empty() || relay_id.contains('/') {
+        return None;
+    }
+    Some(head.to_string())
 }
 
-/// 合并 relay 地址（新候选 + 存量记录；去重保序）
+/// 候选表 → relay 端点表（去重保序；非 circuit / 结构不合法项跳过）
+pub fn relay_endpoints_from(addrs: &[String]) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for raw in addrs {
+        let Some(endpoint) = relay_endpoint_of(raw) else {
+            continue;
+        };
+        if !out.iter().any(|existing| existing == &endpoint) {
+            out.push(endpoint);
+        }
+    }
+    out
+}
+
+/// 合并 relay **拨号候选**（新候选 + 存量记录；去重保序）
+///
+/// 合并的是 circuit 拨号目标（记录里可跨会话重放的寻址）；写配置需要的端点在
+/// [`channel_config`] 里现派生，不落盘第二份。
 pub fn merge_relay_addrs(incoming: &[String], remembered: &[String]) -> Vec<String> {
     let mut merged = normalize_addrs(incoming.iter().filter(|a| is_relay_addr(a)));
     for addr in remembered {
@@ -115,13 +163,15 @@ pub fn merge_relay_addrs(incoming: &[String], remembered: &[String]) -> Vec<Stri
     merged
 }
 
-/// 通道配置决策：`allowWan` 只看用户设置与「是否有 relay 地址」
+/// 通道配置决策：`allowWan` 只看用户设置与「是否有 relay 端点」
 ///
-/// 没有 relay 地址却宣称 `allowWan=true` 会被宿主直接 `wan-disabled`，
-/// 那是配置错误不是安全默认值——本函数把它收敛成 `allowWan=false` 的
-/// LAN-only 形态（对外仍显性：状态视图里 `allowWan=false`）。
+/// 入参是拨号候选（QR / 记录里的 circuit 目标），出参的 `relayAddrs` 是宿主
+/// `configure` 需要的**端点**（[`relay_endpoints_from`] 去掉 circuit 尾巴）。
+/// 没有端点却宣称 `allowWan=true` 会被宿主直接 `wan-disabled`，那是配置错误不是
+/// 安全默认值——本函数把它收敛成 `allowWan=false` 的 LAN-only 形态（对外仍显性：
+/// 状态视图里 `allowWan=false`）。
 pub fn channel_config(allow_wan_setting: bool, relay_addrs: &[String]) -> (bool, Vec<String>) {
-    let relay = relay_addrs_from(relay_addrs);
+    let relay = relay_endpoints_from(relay_addrs);
     (allow_wan_setting && !relay.is_empty(), relay)
 }
 
@@ -369,7 +419,7 @@ fn write_targets(host: &impl TunnelHost, targets: &[PeerTarget]) -> Result<(), S
     host.write_storage(TARGETS_STORAGE_KEY, &targets_value(targets)?)
 }
 
-/// 写通道配置：`allowWan` 设置 + 记录里的 relay 地址
+/// 写通道配置：`allowWan` 设置 + 从候选派生的 relay 端点
 fn sync_config(host: &impl TunnelHost, relay_addrs: &[String]) -> Result<bool, String> {
     let setting = allow_wan_setting(host)?;
     let (allow_wan, relay) = channel_config(setting, relay_addrs);
@@ -760,6 +810,11 @@ mod tests {
         "/ip4/203.0.113.7/tcp/4001/p2p/12D3KooWRELAY/p2p-circuit/p2p/12D3KooWPEER".to_string()
     }
 
+    /// 上面对应 relay 的**端点**形态（宿主 `configure` 要这个，不能带 circuit）
+    fn relay_endpoint() -> String {
+        "/ip4/203.0.113.7/tcp/4001/p2p/12D3KooWRELAY".to_string()
+    }
+
     fn status_with_mode(node_id: &str, mode: &str, reason: Option<&str>) -> serde_json::Value {
         serde_json::json!({
             "node": { "started": true, "nodeId": "12D3KooWSELF", "addrs": [lan_addr()] },
@@ -791,26 +846,46 @@ mod tests {
     }
 
     #[test]
-    fn relay_and_lan_candidates_are_split_without_reordering() {
+    fn relay_candidates_and_endpoints_are_different_shapes() {
         let all = vec![lan_addr(), relay_addr()];
-        assert_eq!(relay_addrs_from(&all), vec![relay_addr()]);
         assert!(is_relay_addr(&relay_addr()));
         assert!(!is_relay_addr(&lan_addr()));
+        // 拨号候选 → 端点（去掉 `/p2p-circuit/p2p/<peer>` 尾巴）
+        assert_eq!(
+            relay_endpoint_of(&relay_addr()).as_deref(),
+            Some(relay_endpoint().as_str())
+        );
+        assert_eq!(relay_endpoints_from(&all), vec![relay_endpoint()]);
+        // 非 circuit / 结构不合法 → 不猜端点（宁可不预留外网也不拼一个坏地址）
+        assert_eq!(relay_endpoint_of(&lan_addr()), None);
+        assert_eq!(
+            relay_endpoint_of("/ip4/203.0.113.7/tcp/4001/p2p-circuit/p2p/peer"),
+            None
+        );
+        assert_eq!(
+            relay_endpoint_of("/ip4/203.0.113.7/tcp/4001/p2p/relay/p2p-circuit"),
+            None
+        );
+        assert_eq!(
+            relay_endpoint_of("/ip4/203.0.113.7/p2p/relay/p2p-circuit/p2p/peer"),
+            None
+        );
+        assert!(relay_endpoints_from(&[lan_addr(), "junk".to_string()]).is_empty());
     }
 
     #[test]
-    fn channel_config_requires_relay_addresses() {
-        // 用户开 + 有 relay → 开
+    fn channel_config_requires_relay_endpoints() {
+        // 用户开 + 有 relay → 开，但写给宿主的是**端点**（带 circuit 会被 configure 拒绝）
         assert_eq!(
             channel_config(true, &[relay_addr()]),
-            (true, vec![relay_addr()])
+            (true, vec![relay_endpoint()])
         );
         // 用户开但没有 relay → 收敛成 LAN-only（否则每次拨号都 wan-disabled）
         assert_eq!(channel_config(true, &[]), (false, Vec::<String>::new()));
-        // 用户关 → 关（LAN 不受影响）
+        // 用户关 → 关（LAN 不受影响），端点仍保留（重开即恢复外网能力）
         assert_eq!(
             channel_config(false, &[relay_addr()]),
-            (false, vec![relay_addr()])
+            (false, vec![relay_endpoint()])
         );
     }
 
@@ -947,11 +1022,11 @@ mod tests {
         assert_eq!(out["address"], "127.0.0.1");
         assert_eq!(out["mode"], "lan-active");
 
-        // 配置先于拨号，且 relayAddrs 只含 relay 候选
+        // 配置先于拨号，且 relayAddrs 是**端点**（不是 circuit 拨号目标）
         let configs = host.configs.borrow();
         assert_eq!(configs.len(), 1);
         assert_eq!(configs[0].0, true);
-        assert_eq!(configs[0].1, vec![relay_addr()]);
+        assert_eq!(configs[0].1, vec![relay_endpoint()]);
 
         // 拨号入参顺序即调用方给出的顺序（宿主自己决定 LAN 优先）
         let dials = host.dials.borrow();
@@ -992,10 +1067,11 @@ mod tests {
         )
         .unwrap();
         let configs = host.configs.borrow();
-        assert_eq!(configs.last().unwrap().1, vec![relay_addr()]);
+        assert_eq!(configs.last().unwrap().1, vec![relay_endpoint()]);
         assert_eq!(
             read_targets(&host).unwrap()[0].relay_addrs,
-            vec![relay_addr()]
+            vec![relay_addr()],
+            "记录里保留可重放的 circuit 拨号目标"
         );
     }
 
@@ -1075,9 +1151,9 @@ mod tests {
         {
             let configs = host.configs.borrow();
             assert_eq!(configs.last().unwrap().0, false);
-            // relay 地址仍保留（关闭外网不等于忘掉中继）；
+            // relay 端点仍保留（关闭外网不等于忘掉中继）；
             // 重新打开即可恢复外网能力
-            assert_eq!(configs.last().unwrap().1, vec![relay_addr()]);
+            assert_eq!(configs.last().unwrap().1, vec![relay_endpoint()]);
         }
         assert!(set_allow_wan_via(&host, true).unwrap());
     }

@@ -13,7 +13,7 @@
         ></div>
 
         <!-- Panel -->
-        <div class="relative w-full max-w-sm mx-4 mb-[var(--safe-area-bottom,0px)] bg-[var(--mobile-bg-card)] border border-[var(--mobile-border)] rounded-2xl overflow-hidden shadow-xl modal-panel" role="dialog" aria-modal="true" :aria-label="title">
+        <div class="relative w-full max-w-sm mx-4 mb-[var(--safe-area-bottom,0px)] bg-[var(--mobile-bg-card)] border border-[var(--mobile-border)] rounded-[var(--bc-radius-card)] overflow-hidden bc-overlay-panel modal-panel" role="dialog" aria-modal="true" :aria-label="title">
           <!-- Header -->
           <div class="px-6 pt-6 pb-2">
             <div class="flex items-center gap-3 mb-2">

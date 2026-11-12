@@ -7,14 +7,14 @@
 
         <!-- 弹窗卡片：页面保持可见，仅中央弹窗提示 -->
         <div
-          class="relative rounded-2xl px-8 py-6 shadow-xl flex flex-col items-center gap-4 min-w-[220px] max-w-[85vw]"
+          class="relative rounded-[var(--bc-radius-card)] px-8 py-6 bc-overlay-panel flex flex-col items-center gap-4 min-w-[220px] max-w-[85vw]"
           style="background: var(--mobile-bg-card); border: 1px solid var(--mobile-border)"
         >
           <div
-            class="w-10 h-10 border-4 border-current border-t-transparent rounded-full animate-spin"
-            style="color: var(--mobile-accent)"
+            class="w-8 h-8 border-2 border-current border-t-transparent rounded-full animate-spin"
+            style="color: var(--mobile-text-muted)"
           ></div>
-          <p class="text-sm font-medium text-center" style="color: var(--mobile-text-secondary)">
+          <p class="text-[var(--font-size-base)] font-medium text-center" style="color: var(--mobile-text-secondary)">
             {{ message }}
           </p>
         </div>

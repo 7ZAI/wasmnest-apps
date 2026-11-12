@@ -772,9 +772,10 @@ onUnmounted(() => {
   max-height: 240px;
   background: var(--mobile-bg-tertiary);
   border: 1px solid var(--mobile-border);
-  border-radius: 0.5rem;
+  border-radius: var(--bc-radius-control);
   z-index: 40;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  /* 分层跟随应用口径：深色无投影，浅色一层小投影（悬浮列表不靠硬投影抬起来） */
+  box-shadow: var(--bc-overlay-shadow);
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -877,10 +878,10 @@ onUnmounted(() => {
   right: 0.5rem;
   background: var(--mobile-bg-tertiary);
   border: 1px solid var(--mobile-border);
-  border-radius: 0.75rem;
+  border-radius: var(--bc-radius-card);
   padding: 0.75rem;
   z-index: 30;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--bc-overlay-shadow);
 }
 
 .settings-panel-section {
@@ -1043,7 +1044,7 @@ onUnmounted(() => {
   height: 4px;
   border-radius: 50%;
   background: var(--mobile-border);
-  transition: background 0.15s ease;
+  transition: background-color var(--bc-dur-fast) var(--bc-ease);
 }
 
 .slider-dot.active {
@@ -1066,11 +1067,14 @@ onUnmounted(() => {
 .settings-panel-btn {
   flex: 1;
   padding: 0.5rem;
-  border-radius: 0.375rem;
+  border-radius: var(--bc-radius-control);
   font-size: var(--font-size-sm);
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition:
+    background-color var(--bc-dur-base) var(--bc-ease),
+    color var(--bc-dur-base) var(--bc-ease),
+    opacity var(--bc-dur-base) var(--bc-ease);
 }
 
 .settings-panel-btn.cancel {
@@ -1103,7 +1107,9 @@ onUnmounted(() => {
 /* Dropdown transition */
 .dropdown-enter-active,
 .dropdown-leave-active {
-  transition: all 0.2s ease;
+  transition:
+    opacity var(--bc-dur-base) var(--bc-ease),
+    transform var(--bc-dur-base) var(--bc-ease);
 }
 
 .dropdown-enter-from,
@@ -1174,22 +1180,24 @@ onUnmounted(() => {
 .go-settings-btn {
   margin-top: 0.5rem;
   padding: 0.5rem 1rem;
-  border-radius: 0.5rem;
+  border-radius: var(--bc-radius-control);
   background: var(--mobile-accent);
   color: var(--mobile-text-on-accent);
-  font-size: 0.75rem;
+  font-size: var(--font-size-sm);
   font-weight: 500;
 }
 
 .retry-btn {
   padding: 0.375rem 1rem;
-  border-radius: 0.375rem;
+  border-radius: var(--bc-radius-control);
   background: var(--mobile-bg-elevated);
   border: 1px solid var(--mobile-border);
   color: var(--mobile-text-secondary);
   font-size: var(--font-size-sm);
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition:
+    border-color var(--bc-dur-base) var(--bc-ease),
+    color var(--bc-dur-base) var(--bc-ease);
 }
 
 .retry-btn:hover {

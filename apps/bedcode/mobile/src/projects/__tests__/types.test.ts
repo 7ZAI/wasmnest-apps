@@ -7,12 +7,10 @@ import { describe, expect, it } from 'vitest'
 import {
   agentStartable,
   canOpenTerminal,
-  envChipClass,
   envLabel,
   liveRuns,
   relativeTimeSpec,
-  runStatusBadgeClass,
-  runStatusChipClass,
+  runStatusDotColor,
   runStatusLabelKey,
   normalizeRunStatus,
   type RunView,
@@ -68,19 +66,12 @@ describe('relativeTimeSpec', () => {
 })
 
 describe('环境徽标', () => {
-  it('三取值固定映射；未知值原样大写不伪造', () => {
+  it('三取值固定映射；未知值原样展示不伪造、不强行大写', () => {
     expect(envLabel('wsl2')).toBe('WSL2')
     expect(envLabel('linux')).toBe('Linux')
     expect(envLabel('windows')).toBe('Windows')
-    expect(envLabel('darwin')).toBe('DARWIN')
+    expect(envLabel('darwin')).toBe('darwin')
     expect(envLabel(null)).toBe('—')
-  })
-
-  it('语义色按环境归属', () => {
-    expect(envChipClass('wsl2')).toBe('chip-violet')
-    expect(envChipClass('linux')).toBe('chip-cyan')
-    expect(envChipClass('windows')).toBe('chip-amber')
-    expect(envChipClass('other')).toBe('chip-zinc')
   })
 })
 
@@ -106,15 +97,14 @@ describe('运行状态映射', () => {
     expect(runStatusLabelKey('unknown-state')).toBe('project.status.idle')
   })
 
-  it('徽章 / 图标 chip 同语义色', () => {
-    expect(runStatusBadgeClass('running')).toBe('badge-emerald')
-    expect(runStatusBadgeClass('waitingInput')).toBe('badge-amber')
-    expect(runStatusBadgeClass('starting')).toBe('badge-cyan')
-    expect(runStatusBadgeClass('error')).toBe('badge-red')
-    expect(runStatusBadgeClass('stopped')).toBe('badge-zinc')
-    expect(runStatusChipClass('running')).toBe('chip-emerald')
-    expect(runStatusChipClass('error')).toBe('chip-red')
-    expect(runStatusChipClass('stopped')).toBe('chip-zinc')
+  it('状态点只有四种取值：在跑 / 等人 / 过渡 / 出错，其余中性', () => {
+    expect(runStatusDotColor('running')).toBe('var(--mobile-success)')
+    expect(runStatusDotColor('waitingInput')).toBe('var(--mobile-warning)')
+    expect(runStatusDotColor('starting')).toBe('var(--mobile-text-secondary)')
+    expect(runStatusDotColor('stopping')).toBe('var(--mobile-text-secondary)')
+    expect(runStatusDotColor('error')).toBe('var(--mobile-error)')
+    expect(runStatusDotColor('stopped')).toBe('var(--mobile-text-disabled)')
+    expect(runStatusDotColor('idle')).toBe('var(--mobile-text-disabled)')
   })
 })
 

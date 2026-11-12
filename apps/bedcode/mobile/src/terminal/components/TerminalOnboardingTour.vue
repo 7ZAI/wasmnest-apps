@@ -11,43 +11,50 @@
           <div class="tour-dim" :style="dimStyle('right')"></div>
           <div
             v-if="hole"
-            class="absolute rounded-xl border-2 border-[var(--mobile-accent)] shadow-[0_0_0_9999px_rgba(0,0,0,0)]"
+            class="absolute rounded-[var(--bc-radius-card)] border-2 border-[var(--mobile-accent)]"
             :style="holeStyle"
           ></div>
         </div>
 
-        <!-- 引导卡片：定位在目标附近，pointer-events auto -->
+        <!-- 引导卡片：定位在目标附近，pointer-events auto。
+             一屏只有一处 accent（底部主按钮）：步骤号与「试着」提示都只是说明文字，
+             跟着上色会让整张卡片看起来有两个主操作。 -->
         <div
           v-if="card"
-          class="absolute tour-card bg-[var(--mobile-bg-card)] border border-[var(--mobile-border)] rounded-xl p-4 shadow-xl"
+          class="absolute tour-card bg-[var(--mobile-bg-card)] border border-[var(--mobile-border)] rounded-[var(--bc-radius-card)] p-4 bc-overlay-panel"
           :style="cardStyle"
         >
           <div class="flex items-center justify-between mb-2">
-            <span class="text-xs font-medium text-[var(--mobile-accent)]">{{ stepLabel }}</span>
+            <span class="text-[var(--font-size-sm)] font-medium text-[var(--mobile-text-muted)]">{{
+              stepLabel
+            }}</span>
             <button
-              class="text-xs text-[var(--mobile-text-muted)] active:opacity-70 px-1.5 py-1 rounded-md"
+              class="text-[var(--font-size-sm)] text-[var(--mobile-text-muted)] active:opacity-70 px-1.5 py-1 rounded-md"
               @click="finish"
             >
               {{ t('terminal.onboardingSkip') }}
             </button>
           </div>
-          <p class="text-sm font-semibold text-[var(--mobile-text-primary)]">{{ t(step.titleKey) }}</p>
-          <p class="text-xs text-[var(--mobile-text-secondary)] mt-1.5 leading-relaxed">{{ t(step.descKey) }}</p>
+          <p class="text-[var(--font-size-base)] font-semibold text-[var(--mobile-text-primary)]">
+            {{ t(step.titleKey) }}
+          </p>
           <p
-            v-if="step.tryHintKey"
-            class="text-xs font-medium text-[var(--mobile-accent)] mt-2"
+            class="text-[var(--font-size-sm)] text-[var(--mobile-text-secondary)] mt-1.5 leading-relaxed"
           >
+            {{ t(step.descKey) }}
+          </p>
+          <p v-if="step.tryHintKey" class="text-[var(--font-size-sm)] font-medium text-[var(--mobile-text-secondary)] mt-2">
             {{ t('terminal.onboardingTry') }}{{ t(step.tryHintKey) }}
           </p>
           <button
-            class="mt-3 w-full py-2.5 rounded-lg bg-[var(--mobile-accent)] text-[var(--mobile-text-on-accent)] text-sm font-semibold active:opacity-80 transition-opacity"
+            class="mt-3 w-full py-2.5 rounded-[var(--bc-radius-control)] bg-[var(--mobile-accent)] text-[var(--mobile-text-on-accent)] text-[var(--font-size-base)] font-semibold active:opacity-80 transition-opacity"
             @click="advance"
           >
             {{ isLast ? t('terminal.onboardingDone') : t('terminal.onboardingNext') }}
           </button>
           <button
             v-if="isLast"
-            class="mt-2 w-full py-2 rounded-lg border border-[var(--mobile-border)] bg-[var(--mobile-bg-elevated)] text-[var(--mobile-text-secondary)] text-xs active:opacity-80 transition-opacity"
+            class="mt-2 w-full py-2 rounded-[var(--bc-radius-control)] border border-[var(--mobile-border)] bg-[var(--mobile-bg-elevated)] text-[var(--mobile-text-secondary)] text-[var(--font-size-sm)] active:opacity-80 transition-opacity"
             @click="emit('open-help')"
           >
             {{ t('terminal.onboardingFullGuide') }}

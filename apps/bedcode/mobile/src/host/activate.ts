@@ -10,6 +10,10 @@
  * 会话停止后立即回收槽位，卡片随之消失。宿主槽位没有可见性开关，因此这里用
  * 注册 / dispose 表达显隐（registry 对壳清单是响应式投影）。
  *
+ * 点击入场（2026-11-11）：卡片带一个应用自定义入口意图——直接进入「最近活跃的
+ * 存活会话」终端（`./slotIntent` 口径），而不是只停在应用首页。意图在点击时刻
+ * 现算（会话集合随时在变），宿主只负责启动 / 打开应用并原样投递。
+ *
  * 运行面（底部导航 + 页签容器）自票 2026-10-10 起归 app 域（见 ../app/activate.ts）——
  * 本域只出设备内容面，导航与页面容器不再由本域承担；项目内容面归 `../projects`。
  *
@@ -20,6 +24,7 @@ import type { Disposable, PluginContext } from '@binblink/wasmnest-plugin-sdk-mo
 import SlotCard from './SlotCard.vue'
 import { messagesEn, messagesZhCN } from './i18n'
 import { getDirectorySessions } from './sessionDirectory'
+import { sessionSlotIntent } from './slotIntent'
 import { isSessionActive } from './utils'
 
 /**
@@ -48,6 +53,9 @@ export function activateHostPageDomain(context: PluginContext): Disposable {
         id: 'host-sessions',
         component: SlotCard,
         order: 10,
+        // 点击直达会话：最近活跃的存活会话（`./slotIntent`）；集合为空时卡片
+        // 本就不会注册，这里返回 null 也不会发生，只是把「无目标」显性化
+        onPress: () => sessionSlotIntent(getDirectorySessions()),
       })
     } else if (!hasLiveSessions && slot) {
       slot.dispose()

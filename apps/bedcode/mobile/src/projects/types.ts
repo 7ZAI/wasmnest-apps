@@ -91,7 +91,12 @@ export function relativeTimeSpec(
   return { key: 'project.time.daysAgo', params: { n: Math.floor(diffSec / 86_400) } }
 }
 
-/** 执行环境 → 徽标文字（三取值固定；未知环境按原样大写，不伪造） */
+/**
+ * 执行环境 → 徽标文字（三取值固定；未知环境原样展示，不伪造也不强行大写）
+ *
+ * 2026-11-11 unslop：未知值不再 `toUpperCase()`。全大写是「标签体系」的写法，
+ * 页面上会出现 `DARWIN` 这种既不是产品词、也不是用户输入的形态；原样回显最诚实。
+ */
 export function envLabel(environment: string | null | undefined): string {
   switch ((environment ?? '').toLowerCase()) {
     case 'wsl2':
@@ -101,21 +106,7 @@ export function envLabel(environment: string | null | undefined): string {
     case 'windows':
       return 'Windows'
     default:
-      return (environment ?? '').toUpperCase() || '—'
-  }
-}
-
-/** 环境徽标的语义色类（wsl2 紫 / linux 青 / windows 琥珀 / 其余锌） */
-export function envChipClass(environment: string | null | undefined): string {
-  switch ((environment ?? '').toLowerCase()) {
-    case 'wsl2':
-      return 'chip-violet'
-    case 'linux':
-      return 'chip-cyan'
-    case 'windows':
-      return 'chip-amber'
-    default:
-      return 'chip-zinc'
+      return environment || '—'
   }
 }
 
@@ -153,37 +144,26 @@ export function runStatusLabelKey(status: string): string {
   }
 }
 
-/** 运行状态 → 状态徽章样式（badge-*） */
-export function runStatusBadgeClass(status: string): string {
+/**
+ * 运行状态 → 状态点颜色（CSS 变量值）
+ *
+ * 状态只用**一个点**表达（列表左侧固定 8px 列），文字另给状态名。
+ * 原先同时给「40px 彩色图标底 + 彩色胶囊徽章」，两处都在上色，颜色因此变成装饰；
+ * 现在只有四种取值：跑起来了（绿）/ 要人看（琥珀）/ 过渡态（次文字色）/ 出错（红）。
+ */
+export function runStatusDotColor(status: string): string {
   switch (status) {
     case 'running':
-      return 'badge-emerald'
+      return 'var(--mobile-success)'
     case 'waitingInput':
-    case 'stopping':
-      return 'badge-amber'
+      return 'var(--mobile-warning)'
     case 'starting':
-      return 'badge-cyan'
-    case 'error':
-      return 'badge-red'
-    default:
-      return 'badge-zinc'
-  }
-}
-
-/** 运行状态 → 图标 chip 样式（chip-*） */
-export function runStatusChipClass(status: string): string {
-  switch (status) {
-    case 'running':
-      return 'chip-emerald'
-    case 'waitingInput':
     case 'stopping':
-      return 'chip-amber'
-    case 'starting':
-      return 'chip-cyan'
+      return 'var(--mobile-text-secondary)'
     case 'error':
-      return 'chip-red'
+      return 'var(--mobile-error)'
     default:
-      return 'chip-zinc'
+      return 'var(--mobile-text-disabled)'
   }
 }
 

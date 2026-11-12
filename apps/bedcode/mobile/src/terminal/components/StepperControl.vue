@@ -78,7 +78,14 @@ function step(delta: number) {
   /* 取平台流式字阶（同时接受「字体大小」偏好），不再用裸 clamp 固定 */
   font-size: var(--font-size-lg);
   cursor: pointer;
-  transition: opacity 0.2s ease;
+  transition: opacity var(--bc-dur-base) var(--bc-ease);
+}
+
+/* 无底板控件必须有焦点环：键盘 / 读屏用户需知道当前停在哪个符号上 */
+.size-btn:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--mobile-accent) 60%, transparent);
+  outline-offset: 2px;
+  border-radius: var(--bc-radius-control);
 }
 
 .size-btn:hover:not(:disabled),

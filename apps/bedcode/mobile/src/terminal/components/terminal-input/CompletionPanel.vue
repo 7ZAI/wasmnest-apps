@@ -38,8 +38,9 @@ defineEmits<{
   z-index: 50;
   background: var(--mobile-bg-card);
   border: 1px solid var(--mobile-border);
-  border-radius: 0.875rem;
-  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.15);
+  border-radius: var(--bc-radius-card);
+  /* 悬浮列表跟随应用分层口径（深色无投影、浅色小投影） */
+  box-shadow: var(--bc-overlay-shadow);
   overflow-y: auto;
   /* 紧凑布局：面板内边距 + 圆角块式项（分隔线已移除） */
   padding: 0.25rem;

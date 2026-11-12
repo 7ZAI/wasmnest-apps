@@ -8,7 +8,7 @@
       @click.self="emit('close')"
     >
       <div class="absolute inset-0 bg-[var(--mobile-overlay-light)]" @click="emit('close')"></div>
-      <div class="scm-panel relative bg-[var(--mobile-bg-card)] border border-[var(--mobile-border)] rounded-t-2xl w-full max-w-lg h-[min(85vh,44rem)] flex flex-col shadow-xl modal-panel" role="dialog" aria-modal="true" :aria-label="t('shortcutConfig.title')">
+      <div class="scm-panel relative bg-[var(--mobile-bg-card)] border border-[var(--mobile-border)] rounded-t-[var(--bc-radius-sheet)] w-full max-w-lg h-[min(85vh,44rem)] flex flex-col bc-overlay-panel modal-panel" role="dialog" aria-modal="true" :aria-label="t('shortcutConfig.title')">
         <!-- 拖拽指示条 -->
         <div class="flex justify-center pt-2">
           <div class="w-10 h-1 rounded-full bg-[var(--mobile-border)]"></div>
@@ -574,17 +574,17 @@ watch(() => props.visible, (show) => {
   height: 2.25rem;
   border-radius: 0.625rem;
   color: var(--mobile-text-muted);
-  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease, opacity 0.15s ease, transform 0.15s ease;
+  transition:
+    background-color var(--bc-dur-fast) var(--bc-ease),
+    color var(--bc-dur-fast) var(--bc-ease),
+    border-color var(--bc-dur-fast) var(--bc-ease),
+    opacity var(--bc-dur-fast) var(--bc-ease);
 }
 
 .icon-btn:hover,
 .icon-btn:active {
   background: var(--mobile-accent-muted);
   color: var(--mobile-text-primary);
-}
-
-.icon-btn:active {
-  transform: scale(0.92);
 }
 
 /* 分段控件样式随 SegmentedTabs 收敛件内聚（#18） */
@@ -682,11 +682,15 @@ watch(() => props.visible, (show) => {
   color: var(--mobile-danger-color, var(--mobile-text-muted));
   cursor: pointer;
   flex-shrink: 0;
-  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease, opacity 0.15s ease, transform 0.15s ease;
+  transition:
+    background-color var(--bc-dur-fast) var(--bc-ease),
+    color var(--bc-dur-fast) var(--bc-ease),
+    border-color var(--bc-dur-fast) var(--bc-ease),
+    opacity var(--bc-dur-fast) var(--bc-ease);
 }
 
 .delete-btn:active {
-  transform: scale(0.9);
+  background: color-mix(in srgb, var(--mobile-error) 22%, transparent);
 }
 
 .empty-hint {
@@ -713,12 +717,15 @@ watch(() => props.visible, (show) => {
   border: 1px solid var(--mobile-border);
   border-radius: 0.75rem;
   cursor: pointer;
-  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease, opacity 0.15s ease, transform 0.15s ease;
+  transition:
+    background-color var(--bc-dur-fast) var(--bc-ease),
+    color var(--bc-dur-fast) var(--bc-ease),
+    border-color var(--bc-dur-fast) var(--bc-ease),
+    opacity var(--bc-dur-fast) var(--bc-ease);
 }
 
 .ghost-btn:active {
   background: var(--mobile-bg-elevated);
-  transform: scale(0.98);
 }
 
 /* ==================== 添加页 ==================== */
@@ -760,7 +767,11 @@ watch(() => props.visible, (show) => {
   justify-content: center;
   border-radius: 9999px;
   color: var(--mobile-text-muted);
-  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease, opacity 0.15s ease, transform 0.15s ease;
+  transition:
+    background-color var(--bc-dur-fast) var(--bc-ease),
+    color var(--bc-dur-fast) var(--bc-ease),
+    border-color var(--bc-dur-fast) var(--bc-ease),
+    opacity var(--bc-dur-fast) var(--bc-ease);
 }
 
 .clear-btn:hover,
@@ -818,7 +829,11 @@ watch(() => props.visible, (show) => {
   background: var(--mobile-bg-elevated);
   color: var(--mobile-text-secondary);
   cursor: pointer;
-  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease, opacity 0.15s ease, transform 0.15s ease;
+  transition:
+    background-color var(--bc-dur-fast) var(--bc-ease),
+    color var(--bc-dur-fast) var(--bc-ease),
+    border-color var(--bc-dur-fast) var(--bc-ease),
+    opacity var(--bc-dur-fast) var(--bc-ease);
 }
 
 .modifier-btn.selected {
@@ -828,7 +843,7 @@ watch(() => props.visible, (show) => {
 }
 
 .modifier-btn:active {
-  transform: scale(0.95);
+  background: var(--mobile-bg-elevated);
 }
 
 /* 按键网格 - auto-fill 保证各尺寸下按键整齐对齐 */
@@ -851,7 +866,11 @@ watch(() => props.visible, (show) => {
   background: var(--mobile-bg-elevated);
   color: var(--mobile-text-secondary);
   cursor: pointer;
-  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease, opacity 0.15s ease, transform 0.15s ease;
+  transition:
+    background-color var(--bc-dur-fast) var(--bc-ease),
+    color var(--bc-dur-fast) var(--bc-ease),
+    border-color var(--bc-dur-fast) var(--bc-ease),
+    opacity var(--bc-dur-fast) var(--bc-ease);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -866,7 +885,7 @@ watch(() => props.visible, (show) => {
 }
 
 .key-btn:active {
-  transform: scale(0.93);
+  background: var(--mobile-bg-elevated);
 }
 
 /* ==================== 添加页 Footer ==================== */
@@ -895,11 +914,15 @@ watch(() => props.visible, (show) => {
   background: var(--mobile-accent);
   color: var(--mobile-text-on-accent);
   cursor: pointer;
-  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease, opacity 0.15s ease, transform 0.15s ease;
+  transition:
+    background-color var(--bc-dur-fast) var(--bc-ease),
+    color var(--bc-dur-fast) var(--bc-ease),
+    border-color var(--bc-dur-fast) var(--bc-ease),
+    opacity var(--bc-dur-fast) var(--bc-ease);
 }
 
 .add-btn:active:not(:disabled) {
-  transform: scale(0.98);
+  opacity: 0.9;
 }
 
 .add-btn:disabled {

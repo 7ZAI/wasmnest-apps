@@ -28,7 +28,7 @@
         v-for="agent in agents"
         :key="agent.id"
         type="button"
-        class="agent-row w-full flex items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-colors active:opacity-80"
+        class="agent-row w-full flex items-center gap-3 rounded-[var(--bc-radius-card)] border px-3 py-2.5 text-left transition-colors active:opacity-80"
         :class="{ 'agent-row--missing': agent.readiness === 'missing' }"
         :style="{ borderColor: 'var(--mobile-border)' }"
         :aria-disabled="agent.readiness === 'missing' || !!startingAgentId"
@@ -43,10 +43,11 @@
           <div class="group-row-sub font-mono truncate mt-0.5">{{ agent.binary }}</div>
         </div>
 
-        <span v-if="agent.readiness === 'missing'" class="status-badge badge-zinc shrink-0">
+        <!-- 就绪度是「能不能点」的解释，不是状态灯：小字 + 中性底 -->
+        <span v-if="agent.readiness === 'missing'" class="bc-chip shrink-0">
           {{ t('project.run.agentMissing') }}
         </span>
-        <span v-else-if="agent.readiness === 'unknown'" class="status-badge badge-cyan shrink-0">
+        <span v-else-if="agent.readiness === 'unknown'" class="bc-chip shrink-0">
           {{ t('project.run.agentUnknown') }}
         </span>
 
@@ -107,7 +108,7 @@ const hasMissing = computed(() => props.agents.some((agent) => agent.readiness =
   width: 1rem;
   height: 1rem;
   border-radius: 999px;
-  border: 2px solid var(--mobile-accent);
+  border: 2px solid var(--mobile-text-muted);
   border-top-color: transparent;
   animation: picker-spin 0.8s linear infinite;
 }
@@ -121,10 +122,11 @@ const hasMissing = computed(() => props.agents.some((agent) => agent.readiness =
 .picker-retry {
   height: 2.5rem;
   padding: 0 1rem;
-  border-radius: 0.75rem;
+  border-radius: var(--bc-radius-control);
   font-size: var(--font-size-base);
-  color: var(--mobile-accent);
-  background: var(--mobile-accent-muted);
+  color: var(--mobile-text-primary);
+  background: var(--mobile-bg-primary);
+  border: 1px solid var(--mobile-border);
 }
 
 .picker-note {

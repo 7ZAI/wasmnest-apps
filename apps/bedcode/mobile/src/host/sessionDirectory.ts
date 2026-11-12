@@ -39,6 +39,10 @@ export interface DirectorySession {
   configId?: string
   projectId?: string | null
   agentId?: string | null
+  /** 时间字段（宿主会话 / 项目运行两源同名透传；快捷卡片挑「最近活跃会话」用） */
+  createdAt?: string
+  startedAt?: string | null
+  updatedAt?: string
   [key: string]: unknown
 }
 
@@ -63,6 +67,11 @@ export function runToSession(run: RunView): DirectorySession {
     config_id: run.configId,
     projectId: run.projectId,
     agentId: run.agentId,
+    // 时间字段随目录透传：快捷卡片按「最近活跃」挑入口目标，丢弃后宿主会话
+    // （只有 createdAt/startedAt）与项目运行（有 updatedAt）就无法统一比较
+    createdAt: run.createdAt,
+    startedAt: run.startedAt,
+    updatedAt: run.updatedAt,
   }
 }
 

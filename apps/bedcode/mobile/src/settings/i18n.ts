@@ -79,7 +79,7 @@ export const messagesEn = {
       pairingCode: 'Pairing code',
       biometric: 'Biometrics',
     },
-    accentPalette: 'Accent Palette',
+    accentPalette: 'Accent palette',
     accentPaletteHint: 'Applies to this app only; the shell keeps its own colours',
     palette: {
       default: 'Default',

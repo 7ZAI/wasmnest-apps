@@ -309,7 +309,7 @@
 }
 
 .atp-preset-chip:active {
-  transform: scale(0.95);
+  background: var(--mobile-group-row-active);
 }
 
 .atp-preset-chip:disabled {
@@ -390,7 +390,7 @@
 }
 
 .atp-add-btn:active {
-  transform: scale(0.95);
+  background: color-mix(in srgb, var(--mobile-accent) 45%, transparent);
 }
 
 .atp-add-btn:disabled {

@@ -19,11 +19,15 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { nextTick } from 'vue'
 import { createI18n } from 'vue-i18n'
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-mobile'
 import { messagesZhCN } from '../i18n'
 import DevicesSection from '../components/DevicesSection.vue'
-import { installMockMobileApi, uninstallMockMobileApi, type MockMobileApi } from '../../terminal/__tests__/testKit'
+import {
+  installMockMobileApi,
+  uninstallMockMobileApi,
+  type MockMobileApi,
+} from '../../terminal/__tests__/testKit'
 
 // 扫码面板内嵌 html5-qrcode（浏览器库）：挂载测试不触碰相机，仅替身掉模块加载
 vi.mock('html5-qrcode', () => ({ Html5Qrcode: class {} }))
@@ -70,7 +74,9 @@ function makeRealI18nContext(): PluginContext {
   const i18n = createI18n({
     legacy: false,
     locale: 'zh-CN',
-    messages: { 'zh-CN': flatten(messagesZhCN as unknown as Record<string, unknown>, 'com.wasmnest.bedcode') },
+    messages: {
+      'zh-CN': flatten(messagesZhCN as unknown as Record<string, unknown>, 'com.wasmnest.bedcode'),
+    },
   })
   return {
     ...makePluginContext(),
@@ -105,7 +111,9 @@ function encodePairUri(json: string): string {
 
 /** 在手动连接弹层里填入文本并确认（Teleport 到 body，只能走 document 查询） */
 async function submitManualInput(value: string): Promise<void> {
-  const input = document.querySelector('input[placeholder="hub.addressPlaceholder"]') as HTMLInputElement
+  const input = document.querySelector(
+    'input[placeholder="hub.addressPlaceholder"]',
+  ) as HTMLInputElement
   expect(input, '未找到手动地址输入框').toBeTruthy()
   input.value = value
   input.dispatchEvent(new Event('input'))
@@ -154,7 +162,7 @@ describe('C-C1/C-C2/C-C3/C-C7/C-C8 连接页形态与流程契约', () => {
     wrapper.unmount()
   })
 
-  it('should_renderDeviceCardWithDisconnectAndSessionsEntry_when_authenticated', () => {
+  it('should_renderDeviceCardWithDisconnect_when_authenticated', () => {
     api.isConnected.value = true
     api.isPaired.value = true
     api.connectionStatus.value = 'paired'
@@ -164,7 +172,8 @@ describe('C-C1/C-C2/C-C3/C-C7/C-C8 连接页形态与流程契约', () => {
     expect(wrapper.text()).toContain('desk-9')
     expect(wrapper.text()).toContain('10.0.0.9:8765')
     expect(wrapper.text()).toContain('hub.disconnect')
-    expect(wrapper.text()).toContain('hub.projects')
+    // 已连接卡片只报设备事实 + 断开；去项目页走底部导航，不再给就近入口（用户 2026-11-11 口径）
+    expect(wrapper.text()).not.toContain('hub.projects')
     wrapper.unmount()
   })
 
@@ -245,7 +254,9 @@ describe('C-C1/C-C2/C-C3/C-C7/C-C8 连接页形态与流程契约', () => {
     await nextTick()
 
     // BottomSheet 也是 Teleport 到 body 的组件：经组件实例拿输入框
-    const input = document.querySelector('input[placeholder="hub.addressPlaceholder"]') as HTMLInputElement
+    const input = document.querySelector(
+      'input[placeholder="hub.addressPlaceholder"]',
+    ) as HTMLInputElement
     expect(input, '未找到手动地址输入框').toBeTruthy()
     input.value = '10.0.0.5'
     input.dispatchEvent(new Event('input'))
@@ -257,7 +268,11 @@ describe('C-C1/C-C2/C-C3/C-C7/C-C8 连接页形态与流程契约', () => {
     confirmBtn.click()
     await settle()
 
-    expect(connectDevice).toHaveBeenCalledWith({ address: '10.0.0.5', port: 9000, name: '10.0.0.5' })
+    expect(connectDevice).toHaveBeenCalledWith({
+      address: '10.0.0.5',
+      port: 9000,
+      name: '10.0.0.5',
+    })
     // 手动连接必须走认证流程（不允许静默用存量凭据）
     expect(ctx.commands.execute).toHaveBeenCalledWith('bedcode.request-pairing')
     wrapper.unmount()
@@ -274,9 +289,7 @@ describe('C-C9 手动粘贴连接串（与扫码共用一套解析）', () => {
     ctx.commands.execute = vi.fn(async (id: string) =>
       id === 'bedcode.authenticate-with-qr' ? { accepted: true } : {},
     )
-    const link = encodePairUri(
-      JSON.stringify({ host: '10.0.0.9', port: 8765, token: 'one-shot' }),
-    )
+    const link = encodePairUri(JSON.stringify({ host: '10.0.0.9', port: 8765, token: 'one-shot' }))
 
     const wrapper = mountSection(DevicesSection)
     const manualBtn = wrapper.findAll('button').find((b) => b.text().includes('hub.manualConnect'))
@@ -356,7 +369,11 @@ describe('C-C10 扫码认证路径（自持 token，不走配对码兜底）', (
 describe('C-C11 首选认证方式（设置项驱动的弹窗选择）', () => {
   it('should_openBiometricDialog_when_preferredAuthIsBiometricAndBound', async () => {
     api.mobileSettings.value = { preferredAuthMethod: 'biometric' }
-    api.getBiometricKeyStatus = async () => ({ deviceSupported: true, deviceReason: 0, hasKey: true })
+    api.getBiometricKeyStatus = async () => ({
+      deviceSupported: true,
+      deviceReason: 0,
+      hasKey: true,
+    })
     api.isConnected.value = true
     api.connectionStatus.value = 'connected'
     api.currentDevice.value = { address: '10.0.0.9', port: 8765, name: 'desk-9' }
@@ -373,7 +390,11 @@ describe('C-C11 首选认证方式（设置项驱动的弹窗选择）', () => {
   it('should_fallBackToPairing_when_preferredAuthIsBiometricButNotBound', async () => {
     // 首选生物但本机没绑定：旧实现在此回落配对码（不能弹一个点不动的空指纹窗）
     api.mobileSettings.value = { preferredAuthMethod: 'biometric' }
-    api.getBiometricKeyStatus = async () => ({ deviceSupported: true, deviceReason: 0, hasKey: false })
+    api.getBiometricKeyStatus = async () => ({
+      deviceSupported: true,
+      deviceReason: 0,
+      hasKey: false,
+    })
     api.isConnected.value = true
     api.connectionStatus.value = 'connected'
     api.currentDevice.value = { address: '10.0.0.9', port: 8765, name: 'desk-9' }
@@ -491,11 +512,112 @@ describe('C-C12 扫码 / 连接串走隧道本地代理（T09 阻断项回归锁
 
     const wrapper = await connectFromScan({ host: '10.0.0.9', port: 8765, token: 'one-shot' })
 
-    expect(ctx.commands.execute).not.toHaveBeenCalledWith('bedcode.tunnel-connect', expect.anything())
+    expect(ctx.commands.execute).not.toHaveBeenCalledWith(
+      'bedcode.tunnel-connect',
+      expect.anything(),
+    )
     expect(connectDevice).toHaveBeenCalledWith(
       { address: '10.0.0.9', port: 8765, name: 'Desktop' },
       { pairingOnly: true },
     )
+    wrapper.unmount()
+  })
+})
+
+describe('C-C13 远程设备列表（持久化对端记录 → 免扫码跨网重连）', () => {
+  const target = {
+    nodeId: '12D3KooWabcdefghijklmnop',
+    deviceName: 'Desktop',
+    relayAddrs: ['/ip4/203.0.113.9/tcp/4001/p2p/relay/p2p-circuit/p2p/peer-1'],
+    port: 8765,
+    lastMode: 'wan-active',
+    lastReason: 'cellular',
+    updatedAtMs: 100,
+  }
+
+  function stubTunnelStatus(targets: unknown[]) {
+    ctx.commands.execute = vi.fn(async (id: string) => {
+      if (id === 'bedcode.tunnel-status') {
+        return { allowWan: true, relayAddrsConfigured: 1, targets }
+      }
+      if (id === 'bedcode.tunnel-connect') {
+        return { handle: 'tunnel-1', address: '127.0.0.1', port: 45002 }
+      }
+      return {}
+    })
+  }
+
+  it('should_listRelayTargetAndReconnectThroughProxy_when_peerRecordExists', async () => {
+    ctx = makeRealI18nContext()
+    const connectDevice = vi.fn(async () => {})
+    api.connectDevice = connectDevice
+    api.authenticateWithStoredToken = vi.fn(async () => true)
+    stubTunnelStatus([target])
+
+    const wrapper = mountSection(DevicesSection)
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="mobile-relay-targets"]').exists()).toBe(true)
+    expect(wrapper.text()).toContain('远程连接（中继）')
+    // 多台桌面同名 Desktop，靠 nodeId 尾段区分
+    expect(wrapper.text()).toContain('…ijklmnop')
+    expect(wrapper.text()).toContain('上次：外网中继')
+
+    await wrapper.find('[data-testid="mobile-relay-connect-0"]').trigger('click')
+    await flushPromises()
+
+    // 已配对重连不带票据：用持久化 relay 候选建通道，再连回环代理
+    expect(ctx.commands.execute).toHaveBeenCalledWith(
+      'bedcode.tunnel-connect',
+      expect.objectContaining({
+        nodeId: target.nodeId,
+        port: target.port,
+        kind: 'http',
+        addrs: target.relayAddrs,
+      }),
+    )
+    expect(ctx.commands.execute).toHaveBeenCalledWith(
+      'bedcode.tunnel-connect',
+      expect.not.objectContaining({ pairingTicket: expect.anything() }),
+    )
+    expect(connectDevice).toHaveBeenCalledWith({
+      address: '127.0.0.1',
+      port: 45002,
+      name: 'Desktop',
+    })
+    wrapper.unmount()
+  })
+
+  it('should_hideSection_when_peerRecordHasNoRelayCandidate', async () => {
+    ctx = makeRealI18nContext()
+    stubTunnelStatus([{ ...target, relayAddrs: [] }])
+
+    const wrapper = mountSection(DevicesSection)
+    await flushPromises()
+
+    // 只用过 LAN 的旧记录没有中继候选：不展示假入口（点了必然 wan-disabled）
+    expect(wrapper.find('[data-testid="mobile-relay-targets"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('should_showMappedErrorAndNotConnect_when_relayDialFails', async () => {
+    ctx = makeRealI18nContext()
+    const connectDevice = vi.fn(async () => {})
+    api.connectDevice = connectDevice
+    ctx.commands.execute = vi.fn(async (id: string) => {
+      if (id === 'bedcode.tunnel-status') return { targets: [target] }
+      if (id === 'bedcode.tunnel-connect') throw new Error('relay-unreachable: relay down')
+      return {}
+    })
+
+    const wrapper = mountSection(DevicesSection)
+    await flushPromises()
+    await wrapper.find('[data-testid="mobile-relay-connect-0"]').trigger('click')
+    await flushPromises()
+
+    expect(connectDevice).not.toHaveBeenCalled()
+    const dialogs = ctx.dialogs as unknown as { showToast: ReturnType<typeof vi.fn> }
+    expect(dialogs.showToast).toHaveBeenCalledWith('中继服务器不可达，请检查地址与网络', 'error')
     wrapper.unmount()
   })
 })

@@ -16,7 +16,7 @@ bedcode 移动作为拨号方接入穿透：QR v2 / 已配对记录解析出 pee
 ## 验收条件
 
 - [ ] `PrimaryTarget` 增可选 `peer` 信息；持久化改为 nodeId + relayAddrs + deviceName + 最近一次模式与原因（**不再持久化 LAN IP**），重启后重新判定。**现状（2026-11-08）**：持久化已按此形状落地（`PeerTarget`，含逻辑端口、不含 LAN IP）；`PrimaryTarget` 未改（`primary-target` 是宿主投影，应用侧用独立记录表达 peer 身份，见实施记录 §4）。
-- [ ] `tunnel.connect({nodeId, port, kind:"http", addrs, pairingTicket?})`：首次配对带票据（来自 QR/连接串），已匹配省略；成功后本地代理地址接入现有 HTTP/WS 代码。**现状（2026-11-08）**：QR v2 / 连接串路径已接入（票据 + 回环代理地址走既有连接编排）；「已匹配省略票据」与历史/mDNS 重连需连接历史带 `nodeId`，见实施记录 §4。
+- [ ] `tunnel.connect({nodeId, port, kind:"http", addrs, pairingTicket?})`：首次配对带票据（来自 QR/连接串），已匹配省略；成功后本地代理地址接入现有 HTTP/WS 代码。**现状（2026-11-08）**：QR v2 / 连接串路径已接入（票据 + 回环代理地址走既有连接编排）；「已匹配省略票据」与历史/mDNS 重连需连接历史带 `nodeId`，见实施记录 §4。**2026-11-11 追加**：已配对跨网重连已由持久化对端记录（`network.peer-targets`）的「远程连接（中继）」列表覆盖（不带票据），桌面启动即预热 ingress，见 §6；连接历史 / mDNS 仍是 LAN 直连。
 - [x] 模式消费：只读 `host-tunnel.status` + `peer:mode` 事件；Wi-Fi 先 LAN、蜂窝/明确不在内网才 WAN；`lan-unreachable` 显示「内网不可达」+ 手动「尝试外网」入口。（2026-11-08 落地，见实施记录 §1/§2）
 - [ ] 链加密：初始化 link-crypto context；本地代理流量**不触发环回跳过**（T04 判据），正常协商；能力不足/协商失败显性失败（`encryption-required`/`encryption-unsupported`），不降级。**现状（2026-11-08）**：错误码映射已就位；宿主侧本无环回跳过逻辑（T04 事实核查），但**测试锁未补**（平台仓面），见实施记录 §4。
 - [x] 生命周期：前台建立、离开终端页 `close(handle)`；代理关闭后重连拨号映射为显性 `tunnel-closed`/`peer-offline`，**不对已关闭的 127.0.0.1 端口静默重试**；桌面离线显性 `peer-offline`，不退化成 30s 超时。**偏差**：close 绑在「断开设备 / 插件 deactivate」，不绑终端页退出——会话页、项目页同样消费通道，按页关会让其余页面立刻断（见实施记录 §2）。
@@ -64,8 +64,60 @@ bedcode 移动作为拨号方接入穿透：QR v2 / 已配对记录解析出 pee
 
 ### 4. 未做 / 未验证（显性）
 
-- **已匹配省略票据 / 非扫码重连**：历史记录与 mDNS 发现仍按 `address:port` 直连 LAN，未接 `tunnel.connect`——历史条目里没有 `nodeId`，需要先给连接历史加 nodeId 字段（应用侧数据结构变更，另开切片）。因此「新版始终走 tunnel」目前只覆盖 QR v2 / 连接串路径。
+- **已匹配省略票据 / 非扫码重连**：历史记录与 mDNS 发现仍按 `address:port` 直连 LAN，未接 `tunnel.connect`——历史条目里没有 `nodeId`，需要先给连接历史加 nodeId 字段（应用侧数据结构变更，另开切片）。因此「新版始终走 tunnel」目前只覆盖 QR v2 / 连接串路径。**2026-11-11 追加**：跨网重连已由「远程连接（中继）」列表覆盖（数据来自持久化的 `network.peer-targets`，不依赖历史）；历史 / mDNS 条目仍不带 nodeId，保持不变。
 - `PrimaryTarget` 未加 `peer` 字段：host `primary-target` 是宿主投影，应用侧以独立对端记录表达 peer 身份（改写宿主契约会越线）；语义等价的部分已落地。
 - **移动侧链加密测试锁未补**：核对平台仓移动宿主当前无「按目标环回跳过链加密」逻辑（T04 事实核查），回环代理流量本就正常协商，故不变量 15 由既有实现保证；把锁写进平台仓属 T04/T06 面，未在本票代做。
 - **Android dev / 真机目验未跑**：本机无设备/APK 环境；`node scripts/e2e-mobile.mjs --app bedcode` 与双端 E2E 仍被 `host-runtime.lock.json` 的 `artifacts` 为空阻塞（既有环境缺口）。
 - 「撤销后显性安全错误」只到错误码映射层（`not-matched` / `peer-offline`），撤销级联本身归 T07/T08 的信任面。
+
+### 5. 追加切片：连接历史不得记回环代理（2026-11-10）
+
+**问题（自查，真缺陷）**：手动「尝试外网」成功后走的是 `startConnection({address: proxy.address, port: proxy.port})`，
+于是认证成功时 `watch(isAuthenticated)` 把 **`127.0.0.1:<本次代理端口>`** 写进了连接历史。
+后果：① 该端口随句柄关闭即失效，下次点击必连死端口；② 代理端口每次重建都不同，重连几次
+历史里就多几条垃圾条目（界面按 `item.address` 渲染，用户直接看到 `127.0.0.1:53421`）。
+扫码路径早就用「`pendingDevice` 保留原设备、只把传输层拨号改到代理」规避了同一问题（见 §2），
+手动外网这条路径漏了。
+
+**改动**：
+
+- `src/host/tunnel.ts`：新增 `isLoopbackAddress()`（`127.0.0.0/8` / `localhost` / `::1`）与
+  `shouldRecordHistory()`（纯函数，判据单一处）。
+- `src/host/components/DevicesSection.vue`：历史写入点改走 `shouldRecordHistory(device.address)`；
+  回环目标只记 info 日志（不静默），真实设备寻址仍按扫码 / 连接串的原始 `host:port` 写入。
+- `handleTryWan` 的对端记录查找去掉 `targets[0]` 兜底：当前 nodeId 没有记录时给
+  `hub.tunnelErrorNoPeerRecord`（中英双语），不再把「尝试外网」拨到另一台设备
+  （那会让认证必然失败，且界面把原因指向错误的对端）。
+- 单测：`src/host/__tests__/tunnel.test.ts` 新增 3 条（回环写法识别 / 真实地址可记 / 代理不记）。
+
+**实跑**：`apps/bedcode/mobile` → `vitest run src/host/__tests__/tunnel.test.ts` **20 passed**。
+
+**仍未做**（阻塞不变）：历史 / mDNS 条目本身仍只有 `address`，要按 nodeId 经隧道重连需要
+连接历史携带 nodeId（宿主投影数据结构变更，平台仓面），本切片只保证「不再写坏历史」。
+
+### 6. 追加切片：非局域网重连（远程设备列表）+ 桌面启动预热（2026-11-11）
+
+**问题**：扫码只是拿到 `peer`（nodeId + relay 候选 + 一次性票据）的入口；连接历史只存
+`host:port`，重启后点历史仍走 LAN 直连——跨网重连实际仍要求桌面用户在场重发二维码，
+与穿透的使用场景冲突。
+
+**改动（应用仓）**：
+
+- 移动 `src/host/tunnel.ts`：`relayTargetsOf()`（只留有 relay 候选且端口非 0 的记录，按
+  `updatedAtMs` 倒序）/ `shortNodeId()`（nodeId 尾段，展示用）。
+- 移动 `DevicesSection.vue`：连接页新增「远程连接（中继）」列表（`mobile-relay-targets` /
+  `mobile-relay-connect-<i>`）；点选 → `tunnel-connect`（已配对不带 `pairingTicket`）→
+  回环代理 → 既有连接编排（存量凭据静默换新，失败回落配对码 / 生物认证）；失败按宿主
+  错误码上屏并关通道。`onPageActivated` 刷新 `tunnel-status`（重启后列表来自持久化记录）。
+- 桌面 `App.vue`：挂载即 `warmUpTunnelIngress`（`session.relay.config` →
+  `session.tunnel.prepare`，幂等），不再要求用户先打开「设备配对」页；失败只落日志，
+  不阻断首屏。
+- i18n 中英各 5 键；新锚点一律 `mobile-relay-*`。
+
+**验证（实跑）**：移动 `pnpm run test:run` 67 files / **809 passed**；`vue-tsc --noEmit`
+干净；桌面 `vitest run --maxWorkers=2`（CI 口径）82 files / **1350 passed**；`vue-tsc`
+干净；根 `pnpm run lint` **0 error / 43 warning（既有基线）**。真机 / 双端 E2E 仍被
+`host-runtime.lock.json` 的 `artifacts` 为空阻塞（未跑）。
+
+**仍未做**：连接历史 / mDNS 条目按 nodeId 重连（平台历史投影不含 nodeId，未改宿主契约）；
+远程列表的逐条移除（`forget-peer` 命令已存在，UI 未接）。

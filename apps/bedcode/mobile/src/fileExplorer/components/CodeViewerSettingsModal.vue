@@ -10,7 +10,7 @@
       >
         <div class="absolute inset-0 bg-[var(--mobile-overlay-light)]" @click="emit('close')"></div>
         <div
-          class="relative bg-[var(--mobile-bg-card)] border border-[var(--mobile-border)] rounded-t-2xl w-full max-w-lg max-h-[min(85vh,44rem)] flex flex-col shadow-xl modal-panel"
+          class="relative bg-[var(--mobile-bg-card)] border border-[var(--mobile-border)] rounded-t-[var(--bc-radius-sheet)] w-full max-w-lg max-h-[min(85vh,44rem)] flex flex-col bc-overlay-panel modal-panel"
           role="dialog"
           aria-modal="true"
           :aria-label="t('codeViewer.settingsTitle')"
@@ -189,9 +189,11 @@ function apply(patch: Partial<CodeViewerSettings>) {
   justify-content: center;
   width: 2.25rem;
   height: 2.25rem;
-  border-radius: 0.625rem;
+  border-radius: var(--bc-radius-control);
   color: var(--mobile-text-muted);
-  transition: all 0.15s ease;
+  transition:
+    background-color var(--bc-dur-fast) var(--bc-ease),
+    color var(--bc-dur-fast) var(--bc-ease);
 }
 
 .icon-btn:hover,
@@ -230,7 +232,7 @@ function apply(patch: Partial<CodeViewerSettings>) {
 .theme-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: clamp(0.375rem, 0.5rem, 0.75rem);
+  gap: 0.5rem;
 }
 
 .theme-btn {
@@ -238,36 +240,38 @@ function apply(patch: Partial<CodeViewerSettings>) {
   flex-direction: column;
   align-items: center;
   gap: 0.375rem;
-  padding: clamp(0.5rem, 0.75rem, 1rem) clamp(0.375rem, 0.5rem, 0.75rem);
-  border-radius: 0.5rem;
+  padding: 0.75rem 0.5rem;
+  border-radius: var(--bc-radius-control);
   background: var(--mobile-bg-elevated);
   border: 2px solid transparent;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition:
+    background-color var(--bc-dur-base) var(--bc-ease),
+    border-color var(--bc-dur-base) var(--bc-ease);
 }
 
 .theme-btn:hover {
   background: var(--mobile-bg-hover);
 }
 
+/* 选中态只留边框 + 同色弱底：原额外一圈 12px 光晕是同色装饰，不增加信息 */
 .theme-btn.active {
   border-color: var(--mobile-accent);
   background: var(--mobile-accent-muted);
-  box-shadow: 0 0 12px var(--mobile-accent-muted);
 }
 
 .theme-preview {
   width: 100%;
   padding: 0.5rem;
-  border-radius: 0.375rem;
+  border-radius: 6px;
   text-align: center;
-  font-size: clamp(0.75rem, 0.875rem, 1rem);
+  font-size: var(--font-size-sm);
   font-weight: 600;
   font-family: 'Fira Code', 'JetBrains Mono', monospace;
 }
 
 .theme-name {
-  font-size: clamp(0.625rem, 0.75rem, 0.875rem);
+  font-size: var(--font-size-xs);
   color: var(--mobile-text-muted);
 }
 
@@ -279,20 +283,23 @@ function apply(patch: Partial<CodeViewerSettings>) {
 /* Tab 缩进按钮组 */
 .tab-size-group {
   display: flex;
-  gap: clamp(0.375rem, 0.5rem, 0.75rem);
+  gap: 0.5rem;
 }
 
 .tab-size-btn {
   flex: 1;
-  padding: clamp(0.5rem, 0.625rem, 0.75rem);
-  border-radius: 0.5rem;
+  padding: 0.625rem;
+  border-radius: var(--bc-radius-control);
   background: var(--mobile-bg-elevated);
   border: 2px solid transparent;
   color: var(--mobile-text-secondary);
-  font-size: clamp(0.75rem, 0.875rem, 1rem);
+  font-size: var(--font-size-base);
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition:
+    background-color var(--bc-dur-base) var(--bc-ease),
+    border-color var(--bc-dur-base) var(--bc-ease),
+    color var(--bc-dur-base) var(--bc-ease);
 }
 
 .tab-size-btn:hover {
@@ -316,7 +323,7 @@ function apply(patch: Partial<CodeViewerSettings>) {
 }
 
 .slider-value {
-  font-size: clamp(1rem, 1.125rem, 1.25rem);
+  font-size: var(--font-size-lg);
   font-weight: 500;
   color: var(--mobile-text-primary);
 }
@@ -325,13 +332,14 @@ function apply(patch: Partial<CodeViewerSettings>) {
   -webkit-appearance: none;
   appearance: none;
   width: 100%;
-  height: clamp(4px, 6px, 8px);
+  height: 6px;
   border-radius: 3px;
   background: var(--mobile-bg-elevated);
   outline: none;
   cursor: pointer;
 }
 
+/* 滑块按下以「同色外环」反馈（不放大：拇指变大时轨道比例会跟着视觉抖动） */
 .slider-track::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
@@ -341,12 +349,11 @@ function apply(patch: Partial<CodeViewerSettings>) {
   background: var(--mobile-accent);
   border: none;
   cursor: pointer;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
-  transition: transform 0.15s ease;
+  transition: box-shadow var(--bc-dur-fast) var(--bc-ease);
 }
 
 .slider-track::-webkit-slider-thumb:active {
-  transform: scale(1.15);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--mobile-accent) 25%, transparent);
 }
 
 .slider-track::-moz-range-thumb {
@@ -356,7 +363,6 @@ function apply(patch: Partial<CodeViewerSettings>) {
   background: var(--mobile-accent);
   border: none;
   cursor: pointer;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
 }
 
 .slider-track::-moz-range-track {
@@ -366,7 +372,7 @@ function apply(patch: Partial<CodeViewerSettings>) {
 }
 
 .slider-range-label {
-  font-size: clamp(0.625rem, 0.75rem, 0.875rem);
+  font-size: var(--font-size-xs);
   color: var(--mobile-text-muted);
   text-align: right;
 }

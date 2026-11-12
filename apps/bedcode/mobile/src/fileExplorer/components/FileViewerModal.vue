@@ -246,14 +246,19 @@ watch(
 
 .viewer-modal {
   background: var(--mobile-bg-secondary);
-  border-radius: 1rem;
+  border-radius: var(--bc-radius-sheet);
   width: 90%;
-  max-width: clamp(280px, 700px, 900px);
+  max-width: 700px;
   height: 80vh;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  /* 只过渡全屏切换真正会变的几档，避免每次内容变化都重算整张过渡表 */
+  transition:
+    width var(--bc-dur-base) var(--bc-ease),
+    height var(--bc-dur-base) var(--bc-ease),
+    max-width var(--bc-dur-base) var(--bc-ease),
+    border-radius var(--bc-dur-base) var(--bc-ease);
 }
 
 .viewer-fullscreen {
@@ -308,8 +313,8 @@ watch(
 }
 
 .viewer-action-btn {
-  padding: clamp(0.25rem, 0.375rem, 0.5rem);
-  border-radius: 0.375rem;
+  padding: 0.5rem;
+  border-radius: var(--bc-radius-control);
   background: none;
   border: none;
   color: var(--mobile-text-muted);
@@ -317,7 +322,9 @@ watch(
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.2s ease;
+  transition:
+    background-color var(--bc-dur-base) var(--bc-ease),
+    color var(--bc-dur-base) var(--bc-ease);
 }
 
 .viewer-action-btn:hover {

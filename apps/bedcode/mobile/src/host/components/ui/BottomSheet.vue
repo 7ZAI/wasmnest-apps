@@ -29,7 +29,7 @@
           <div v-if="loading" class="mb-4">
             <div class="flex items-center justify-center gap-3 py-4">
               <div
-                class="w-6 h-6 border-2 border-[var(--mobile-accent)] border-t-transparent rounded-full animate-spin"
+                class="w-5 h-5 border-2 border-[var(--mobile-text-muted)] border-t-transparent rounded-full animate-spin"
               ></div>
               <span class="text-[var(--mobile-text-secondary)]">{{ connectingText }}</span>
             </div>

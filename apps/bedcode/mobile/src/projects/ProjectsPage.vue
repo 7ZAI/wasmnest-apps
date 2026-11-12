@@ -70,7 +70,7 @@
         class="min-h-[45vh] flex flex-col items-center justify-center text-center"
       >
         <svg
-          class="w-12 h-12 mb-4"
+          class="w-10 h-10 mb-4"
           style="color: var(--mobile-text-disabled)"
           fill="none"
           stroke="currentColor"
@@ -99,24 +99,19 @@
 
       <!-- ==================== 项目列表 ==================== -->
       <template v-else-if="!currentProject">
+        <!-- 骨架屏：静态色块，不做呼吸动画。加载一闪就没的东西不必循环占用注意力 -->
         <div v-if="!loadedProjects && !loadError" class="space-y-3 mt-3">
           <div
             v-for="i in 3"
             :key="i"
-            class="rounded-xl border p-4 animate-pulse"
+            class="rounded-[var(--bc-radius-card)] border p-4"
             :style="{ background: 'var(--mobile-bg-card)', borderColor: 'var(--mobile-border)' }"
           >
             <div class="flex items-center gap-3">
-              <div
-                class="w-10 h-10 rounded-xl"
-                style="background: var(--mobile-chip-zinc-bg)"
-              ></div>
+              <div class="w-9 h-9 rounded-[var(--bc-radius-control)]" style="background: var(--bc-icon-bg)"></div>
               <div class="flex-1">
-                <div
-                  class="h-4 w-32 rounded mb-2"
-                  style="background: var(--mobile-chip-zinc-bg)"
-                ></div>
-                <div class="h-3 w-48 rounded" style="background: var(--mobile-chip-zinc-bg)"></div>
+                <div class="h-3.5 w-32 rounded mb-2" style="background: var(--bc-icon-bg)"></div>
+                <div class="h-3 w-48 rounded" style="background: var(--bc-icon-bg)"></div>
               </div>
             </div>
           </div>
@@ -134,7 +129,7 @@
           class="min-h-[40vh] flex flex-col items-center justify-center text-center"
         >
           <svg
-            class="w-12 h-12 mb-4"
+            class="w-10 h-10 mb-4"
             style="color: var(--mobile-text-disabled)"
             fill="none"
             stroke="currentColor"
@@ -166,11 +161,15 @@
 
       <!-- ==================== 项目详情：运行列表 ==================== -->
       <template v-else>
-        <div class="flex items-center gap-2 pt-3 min-w-0">
+        <div class="flex items-baseline gap-2 pt-3 min-w-0">
           <span class="section-head__label">{{ t('project.run.title') }}</span>
-          <span class="group-row-sub font-mono">{{ runs.length }}</span>
+          <span class="font-mono text-[var(--font-size-sm)]" style="color: var(--mobile-text-muted)">{{ runs.length }}</span>
           <span class="flex-1"></span>
-          <span v-if="currentProject.activeRuns > 0" class="status-badge badge-emerald">
+          <span
+            v-if="currentProject.activeRuns > 0"
+            class="flex items-center gap-1.5 text-[var(--font-size-sm)]"
+            style="color: var(--mobile-text-secondary)"
+          >
             <span class="status-dot dot-emerald" aria-hidden="true"></span>
             {{ t('project.run.activeCount', { n: currentProject.activeRuns }) }}
           </span>
@@ -199,11 +198,11 @@
           <div
             v-for="i in 2"
             :key="i"
-            class="rounded-xl border p-4 animate-pulse"
+            class="rounded-[var(--bc-radius-card)] border p-4"
             :style="{ background: 'var(--mobile-bg-card)', borderColor: 'var(--mobile-border)' }"
           >
-            <div class="h-4 w-40 rounded mb-2" style="background: var(--mobile-chip-zinc-bg)"></div>
-            <div class="h-3 w-24 rounded" style="background: var(--mobile-chip-zinc-bg)"></div>
+            <div class="h-3.5 w-40 rounded mb-2" style="background: var(--bc-icon-bg)"></div>
+            <div class="h-3 w-24 rounded" style="background: var(--bc-icon-bg)"></div>
           </div>
         </div>
 
@@ -219,7 +218,7 @@
           class="min-h-[30vh] flex flex-col items-center justify-center text-center"
         >
           <svg
-            class="w-12 h-12 mb-4"
+            class="w-10 h-10 mb-4"
             style="color: var(--mobile-text-disabled)"
             fill="none"
             stroke="currentColor"
@@ -294,7 +293,6 @@ import RunRow from './components/RunRow.vue'
 import { envLabel, type AgentEntry, type ProjectView, type RunView } from './types'
 import { readStoredDisplaySettings } from '../terminal/displaySettings'
 import { computeDeviceDefaultGridSize } from '../terminal/utils/metrics'
-import './projects.css'
 
 const props = withDefaults(defineProps<{ active?: boolean }>(), { active: true })
 const emit = defineEmits<{
@@ -558,12 +556,13 @@ defineExpose({ canGoBack, goBack: handleBack })
 </script>
 
 <style scoped>
-/* 详情分组标题（原 SessionsSection 的 scoped 样式已随旧 UI 退役，此处自持） */
+/* 详情分组标题（原 SessionsSection 的 scoped 样式已随旧 UI 退役，此处自持）。
+   与设置页 / 连接页的分组标题同一档：小字 + 中等字重 + muted，不靠粗体撑层级 */
 .section-head__label {
   display: block;
-  font-size: var(--font-size-base);
-  font-weight: 600;
-  color: var(--mobile-text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  color: var(--mobile-text-muted);
 }
 
 .page-icon-btn {
@@ -572,11 +571,11 @@ defineExpose({ canGoBack, goBack: handleBack })
   justify-content: center;
   width: 2.75rem;
   height: 2.75rem;
-  border-radius: 0.75rem;
+  border-radius: var(--bc-radius-control);
   color: var(--mobile-text-secondary);
   transition:
-    background-color 0.15s ease,
-    opacity 0.15s ease;
+    background-color var(--bc-dur-fast) var(--bc-ease),
+    opacity var(--bc-dur-fast) var(--bc-ease);
 }
 
 .page-icon-btn:active {
@@ -603,13 +602,13 @@ defineExpose({ canGoBack, goBack: handleBack })
   justify-content: center;
   gap: 0.5rem;
   width: 100%;
-  height: 2.75rem;
-  border-radius: 0.75rem;
+  height: 3rem;
+  border-radius: var(--bc-radius-control);
   font-size: var(--font-size-base);
-  font-weight: 600;
+  font-weight: 500;
   background: var(--mobile-accent);
   color: var(--mobile-text-on-accent);
-  transition: opacity 0.15s ease;
+  transition: opacity var(--bc-dur-fast) var(--bc-ease);
 }
 
 .new-run-btn:disabled {
@@ -641,10 +640,11 @@ defineExpose({ canGoBack, goBack: handleBack })
 .project-retry {
   height: 2.5rem;
   padding: 0 1rem;
-  border-radius: 0.75rem;
+  border-radius: var(--bc-radius-control);
   font-size: var(--font-size-base);
-  color: var(--mobile-accent);
-  background: var(--mobile-accent-muted);
+  color: var(--mobile-text-primary);
+  background: var(--mobile-bg-card);
+  border: 1px solid var(--mobile-border);
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -208,7 +208,7 @@
 ### F-12 移动端任务与设置（核心，真机）
 
 - [ ] **S-12-01** 任务页：预设任务常驻编辑、AI 模板、项目 + Agent 目标、可重复设置。期望：编辑保存；模板可套用；目标持久化。
-- [ ] **S-12-02** 将预设任务执行到目标运行。期望：有目标时只列同项目 + Agent 的运行；无活跃运行时给提示。
+- [ ] **S-12-02** 将预设任务执行到目标。期望：执行入口先开「选择执行目标」弹层——有目标时只列同项目 + Agent 的运行；无运行时不拦（空列表 + 启动新会话入口）；选运行中的会话 → 确认后直发终端；选「启动新会话并执行」（仅已绑定项目 × Agent 的预设；不可重复已用过的预设禁用）→ 起运行 + 入队 + 开自动执行，回执「已启动新会话，任务已入队」；起运行失败报错且不入队。
 - [ ] **S-12-03** 定时任务：创建表单（项目 + Agent）与状态列表。期望：创建成功；到点由桌面自动拉起运行；状态与桌面一致。
 - [ ] **S-12-04** 任务记录：状态筛选、下拉刷新、加载更多。期望：筛选生效；分页加载；空态明确。
 - [ ] **S-12-05** 检查移动端是否出现「自动任务队列面板」入口。期望：源码无可见入口（§4）；不把不可达面板记为缺陷。
@@ -251,7 +251,7 @@
 > 判据来自 `docs/design/nat-traversal/spec.md` §4（不变量）与 §7（P1 出口）。
 > 「内网直连 / 外网中继」是**每对端**模式，不是全局开关；加密始终强制，页面上没有开关。
 > 桌面锚点：`pairing-tunnel-status` / `pairing-tunnel-encryption` / `relay-settings-section` / `relay-current-peer-id`；
-> 移动锚点：`mobile-tunnel-mode(-connected)` / `mobile-tunnel-encryption(-connected)` / `mobile-tunnel-try-wan(-connected)` / `mobile-tunnel-wan-off(-connected)`。
+> 移动锚点：`mobile-tunnel-mode(-connected)` / `mobile-tunnel-encryption(-connected)` / `mobile-tunnel-try-wan(-connected)` / `mobile-tunnel-wan-off(-connected)` / `mobile-relay-targets` / `mobile-relay-connect-<i>`。
 
 - [ ] **S-16-01** 桌面设置页「中转服务器」卡片导入 relay：分别用 `print-addrs --json`、裸 multiaddr、二维码文本三种形态粘贴（`relay-import-submit`）。期望：`relay-current-peer-id` 显示 PeerId、`relay-current-fingerprint` 指纹与服务器侧一致；协议版本 / PeerId 非法时显性报错且不落库。「检测连通性」若入口仍禁用，记 `⏭` 并写明「待宿主 relay RTT 投影」，不得按通过计。
 - [ ] **S-16-02** 同网段（手机与桌面同一 Wi-Fi）：桌面生成 QR v2 / 复制连接串 → 手机扫码或粘贴 → 移动状态栏 `mobile-tunnel-mode-connected` 为「内网直连」。期望：桌面 `pairing-tunnel-status` 同步「内网直连」；本场景不产生中继数据流量（relay 侧字节增量保持 0）。
@@ -264,6 +264,7 @@
 - [ ] **S-16-09** 路由权限边界（对等面）：经隧道已匹配对端调 `task-status` / `session-mode`。期望：可达；调 `run-*` 四条桥接路由（run-start 等）一律 403。
 - [ ] **S-16-10** 加密强制：抽查桌面设置与移动设置，链路加密无「关闭」项（桌面为只读徽标）。期望：无明文回退；制造链加密失败（旧客户端 / 缺链路身份）时显性提示 `encryption-required` / `encryption-unsupported`，连接失败而不是降级。
 - [ ] **S-16-11** 断链语义：杀 relay 或断蜂窝。期望：移动显性 `relay-unreachable` / `peer-offline`，桌面离线显性 `peer-offline`；不出现「静默 30s 超时后才报错」。恢复网络后重连回到自动判定（不残留手动外网状态）。
+- [ ] **S-16-12** 免重发二维码的跨网重连（2026-11-11）：完成一次 QR v2 配对后彻底退出移动 App 并重启；桌面端只保持 BedCode 主界面运行（不打开「设备配对」页；重启桌面应用后也不打开该页）。手机仅开蜂窝，进入连接页「远程连接（中继）」列表（`mobile-relay-targets`）→ 点该设备（`mobile-relay-connect-0`）。期望：状态栏「外网中继」、存量凭据静默换新、无需重新配对；连接历史不新增 `127.0.0.1:*` 条目。未配置 relay / 桌面未运行时显性报错，不静默降级。
 
 ---
 

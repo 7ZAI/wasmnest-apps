@@ -1,7 +1,7 @@
 <template>
   <button
     type="button"
-    class="project-card w-full text-left rounded-xl border p-4 transition-colors active:opacity-80"
+    class="project-card w-full text-left rounded-[var(--bc-radius-card)] border p-4 transition-colors active:opacity-80"
     :style="{
       background: 'var(--mobile-bg-card)',
       borderColor: 'var(--mobile-border)',
@@ -11,8 +11,8 @@
     @click="$emit('open', project)"
   >
     <div class="flex items-center gap-3 min-w-0">
-      <span class="config-icon chip-cyan" aria-hidden="true">
-        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <span class="bc-icon-box" aria-hidden="true">
+        <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path
             stroke-linecap="round"
             stroke-linejoin="round"
@@ -25,9 +25,11 @@
       <div class="flex-1 min-w-0">
         <div class="flex items-center gap-2 min-w-0">
           <span class="group-row-title truncate">{{ project.name }}</span>
+          <!-- 活跃运行数：绿点 + 数字。只有「正在跑」这一个事实带颜色 -->
           <span
             v-if="project.activeRuns > 0"
-            class="status-badge badge-emerald shrink-0"
+            class="flex items-center gap-1 shrink-0 font-mono text-[var(--font-size-sm)]"
+            style="color: var(--mobile-text-secondary)"
             role="status"
             :title="t('project.card.activeRuns', { n: project.activeRuns })"
             :aria-label="t('project.card.activeRuns', { n: project.activeRuns })"
@@ -35,7 +37,7 @@
             <span class="status-dot dot-emerald" aria-hidden="true"></span>
             {{ project.activeRuns }}
           </span>
-          <span class="env-badge shrink-0" :class="envChipClass(project.environment)">
+          <span class="bc-chip shrink-0">
             {{ envLabel(project.environment) }}
           </span>
         </div>
@@ -50,11 +52,11 @@
         viewBox="0 0 24 24"
         aria-hidden="true"
       >
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M9 5l7 7-7 7" />
       </svg>
     </div>
 
-    <div class="project-meta mt-3 flex items-center gap-3 flex-wrap min-w-0">
+    <div class="project-meta mt-3 flex items-center gap-x-3 gap-y-1 flex-wrap min-w-0">
       <span class="flex items-center gap-1 min-w-0">
         <span class="project-meta-label">{{ t('project.card.lastActivity') }}</span>
         <span class="project-meta-value font-mono truncate">{{ activityText }}</span>
@@ -80,7 +82,7 @@
  */
 import { computed } from 'vue'
 import { useHostPage } from '../../host/useHostPage'
-import { envChipClass, envLabel, relativeTimeSpec, type ProjectView } from '../types'
+import { envLabel, relativeTimeSpec, type ProjectView } from '../types'
 
 const props = defineProps<{
   project: ProjectView
@@ -111,16 +113,5 @@ const activityText = computed(() => {
 .project-meta-value {
   color: var(--mobile-text-secondary);
   font-size: var(--font-size-sm);
-}
-
-.env-badge {
-  display: inline-flex;
-  align-items: center;
-  padding: 0.15rem 0.45rem;
-  border-radius: 999px;
-  font-size: var(--font-size-sm);
-  font-weight: 600;
-  line-height: 1.2;
-  letter-spacing: 0.02em;
 }
 </style>

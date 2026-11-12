@@ -313,3 +313,61 @@ export function parseConnectResult(result: unknown): TunnelProxyTarget {
   }
   return { handle, address, port }
 }
+
+/**
+ * 是否本机回环地址
+ *
+ * 隧道本地代理按不变量 1 只绑 `127.0.0.1`（偶发 `localhost` / `::1` 写法），
+ * 因此「回环目标」= 「本次连接经隧道代理」的等价判据。
+ */
+export function isLoopbackAddress(address: string): boolean {
+  const host = (address ?? '').trim().toLowerCase()
+  if (!host) return false
+  if (host === 'localhost' || host === '::1' || host === '[::1]') return true
+  return /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host)
+}
+
+/**
+ * 连接成功后是否写入连接历史
+ *
+ * 经隧道的连接里 `connectDevice` 的 address/port 是**本次新建的回环代理**
+ * （端口随机，句柄关闭即失效）。把它写进历史，下次点击必然连到一个死端口，
+ * 且每次重连都多一条垃圾记录 —— 历史只记可重放的设备寻址（LAN `host:port`，
+ * 由扫码/连接串路径按原始地址写入），不记传输层代理。
+ */
+export function shouldRecordHistory(address: string): boolean {
+  return !isLoopbackAddress(address)
+}
+
+/**
+ * peer 节点 id → 列表短展示（末 8 位；短 id 原样返回）
+ *
+ * 对端记录按 nodeId 索引，`deviceName` 在 QR 载荷里恒为 `Desktop`——多台桌面时
+ * 只能靠 nodeId 尾部区分。这里不改变存储值，只做展示。
+ */
+export function shortNodeId(nodeId: string): string {
+  const trimmed = (nodeId ?? '').trim()
+  return trimmed.length > 12 ? `…${trimmed.slice(-8)}` : trimmed
+}
+
+/**
+ * 可经中继重连的对端记录（`tunnel-status.targets` → 连接页列表）
+ *
+ * 只留具备拨号条件的记录：有 relay 候选且逻辑端口非 0。没有 relay 候选的记录
+ * （只用过 LAN 的旧配对）不展示——点了必然 `wan-disabled`，等于骗点击；这类设备
+ * 要扫码 / 连接串重新配对一次才会获得 relay 候选。按最近使用倒序。
+ */
+export function relayTargetsOf(status: TunnelStatus | null | undefined): PeerTarget[] {
+  const targets = status?.targets
+  if (!Array.isArray(targets)) return []
+  return targets
+    .filter(
+      (target) =>
+        !!target &&
+        target.port > 0 &&
+        Array.isArray(target.relayAddrs) &&
+        target.relayAddrs.length > 0,
+    )
+    .slice()
+    .sort((a, b) => (b.updatedAtMs ?? 0) - (a.updatedAtMs ?? 0))
+}

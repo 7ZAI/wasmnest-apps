@@ -33,7 +33,12 @@ defineEmits<{
   select: [item: QuickBarItem]
 }>()
 
-/** 根据 category 返回 quick bar 按钮的样式类 */
+/**
+ * 根据 category 返回 quick bar 按钮的样式类
+ *
+ * 只有 enter / del 带自己的外观规则；arrow / shortcut / custom 落在 `.quick-bar-btn`
+ * 的基础键帽上（类名保留为分类钩子，便于选择器与后续扩展，不再各配一套配色）。
+ */
 function quickBarClass(category: string): string {
   const map: Record<string, string> = {
     enter: 'quick-bar-enter',
@@ -69,78 +74,57 @@ function quickBarClass(category: string): string {
   width: 0;
 }
 
+/* 键帽：终端里的物理按键。等宽字 + 中性底 + 发丝边，
+   按下只改变底色（不缩放、不调亮度）——手指按住时键帽不该在手底下「跳」。 */
 .quick-bar-btn {
   height: var(--quickbar-btn-h);
   padding: 0 0.5rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: var(--quickbar-font);
   font-weight: 500;
-  border-radius: 0.375rem;
+  border-radius: 8px;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease,
+    color 120ms ease;
   white-space: nowrap;
   flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid;
+  border: 1px solid var(--mobile-border);
+  background: var(--mobile-bg-elevated);
+  color: var(--mobile-text-secondary);
   /* 父容器 RTL 布局，按钮文本保持 LTR */
   direction: ltr;
 }
 
-.quick-bar-shortcut {
-  background: var(--mobile-shortcut-bg);
-  border-color: var(--mobile-shortcut-border);
-  color: var(--mobile-shortcut-color);
+.quick-bar-btn:active {
+  background: var(--mobile-group-row-active);
+  color: var(--mobile-text-primary);
 }
 
-.quick-bar-shortcut:active {
-  transform: scale(0.93);
-  background: var(--mobile-shortcut-active-bg);
-}
-
-.quick-bar-custom {
-  background: var(--mobile-custom-cmd-bg);
-  border-color: var(--mobile-custom-cmd-border);
-  color: var(--mobile-custom-cmd-color);
-}
-
-.quick-bar-custom:active {
-  transform: scale(0.93);
-  background: var(--mobile-custom-cmd-active-bg);
-}
-
+/* 五类键帽只保留两种重点：Enter 是主操作（accent），Del 是毁坏性操作（红字）。
+   箭头 / 快捷键 / 自定义命令共用中性键帽——终端里最常按的恰恰是最不该上色的那排。 */
 .quick-bar-enter {
-  background: var(--mobile-confirm-bg);
-  border-color: var(--mobile-confirm-border);
-  color: var(--mobile-confirm-color);
+  color: var(--mobile-accent);
+  border-color: color-mix(in srgb, var(--mobile-accent) 35%, transparent);
+  background: var(--mobile-accent-muted);
 }
 
 .quick-bar-enter:active {
-  transform: scale(0.93);
-  background: var(--mobile-confirm-bg);
-  filter: brightness(1.2);
+  background: var(--mobile-accent-secondary);
+  color: var(--mobile-accent);
 }
 
 .quick-bar-del {
-  background: var(--mobile-danger-bg);
-  border-color: var(--mobile-danger-border);
-  color: var(--mobile-danger-color);
+  color: var(--mobile-error);
 }
 
 .quick-bar-del:active {
-  transform: scale(0.93);
-  background: var(--mobile-danger-bg);
-  filter: brightness(1.2);
-}
-
-.quick-bar-arrow {
-  background: var(--mobile-arrow-bg);
-  border-color: var(--mobile-arrow-border);
-  color: var(--mobile-arrow-color);
-}
-
-.quick-bar-arrow:active {
-  transform: scale(0.93);
-  background: var(--mobile-arrow-active-bg);
+  color: var(--mobile-error);
+  border-color: color-mix(in srgb, var(--mobile-error) 35%, transparent);
+  background: var(--mobile-group-row-active);
 }
 </style>

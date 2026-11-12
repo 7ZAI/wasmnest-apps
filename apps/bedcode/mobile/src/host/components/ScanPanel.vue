@@ -2,7 +2,7 @@
   <div class="h-full w-full flex flex-col pt-2" style="background: var(--mobile-bg-primary)">
     <!-- 相机预览（扫描整合进连接页：取景器占满内容区，停止扫描由父页「二维码连接」按钮切换） -->
     <div
-      class="relative flex-1 min-h-[52vh] rounded-xl overflow-hidden"
+      class="relative flex-1 min-h-[52vh] rounded-[var(--bc-radius-card)] overflow-hidden"
       style="background: #000"
       data-testid="mobile-scan-panel"
     >
@@ -73,13 +73,13 @@
           </div>
           <!-- 提示区固定高度：久扫不出时第二行出现，取景框不随文字出现而跳动 -->
           <div class="mt-10 h-10 flex flex-col items-center gap-1">
-            <p class="text-sm" style="color: var(--mobile-text-secondary)">
+            <p class="text-[var(--font-size-base)]" style="color: var(--mobile-text-secondary)">
               {{ t('hub.scanHint') }}
             </p>
             <!-- 非阻断提示：相机常驻扫描，连续 10s 无结果才出现（见 ../scan/scanHint） -->
             <p
               v-if="hintVisible"
-              class="text-xs text-center px-6"
+              class="text-[var(--font-size-sm)] text-center px-6"
               style="color: var(--mobile-text-muted)"
               data-testid="mobile-scan-slow-hint"
             >
@@ -111,7 +111,7 @@
               d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"
             />
           </svg>
-          <span class="text-xs mt-1">{{ t('hub.scanTorch') }}</span>
+          <span class="text-[var(--font-size-xs)] mt-1">{{ t('hub.scanTorch') }}</span>
         </button>
         <button
           class="toolbar-btn pointer-events-auto"
@@ -127,7 +127,7 @@
               d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
             />
           </svg>
-          <span class="text-xs mt-1">{{ t('hub.scanAlbum') }}</span>
+          <span class="text-[var(--font-size-xs)] mt-1">{{ t('hub.scanAlbum') }}</span>
         </button>
       </div>
 
@@ -157,25 +157,47 @@
             d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"
           />
         </svg>
-        <p class="text-lg mb-2 text-center" style="color: var(--mobile-chip-red)">
+        <!-- 失败标题用正文色：语义色只给图标（状态标记），整句标红在暗背景上读不动，
+             也会把「相机权限没开」这类可修复提示说得像崩溃 -->
+        <p
+          class="text-[var(--font-size-lg)] mb-2 text-center"
+          style="color: var(--mobile-text-primary)"
+        >
           {{ t('hub.scanFailedTitle') }}
         </p>
-        <p class="text-sm text-center mb-2" style="color: var(--mobile-text-secondary)">{{ errorMessage }}</p>
+        <p class="text-[var(--font-size-base)] text-center mb-2" style="color: var(--mobile-text-secondary)">
+          {{ errorMessage }}
+        </p>
         <!-- 相机权限降级提示：引导去系统设置授权 -->
-        <p v-if="isCameraError" class="text-xs text-center mb-6" style="color: var(--mobile-text-muted)">
+        <p
+          v-if="isCameraError"
+          class="text-[var(--font-size-sm)] text-center mb-6"
+          style="color: var(--mobile-text-muted)"
+        >
           {{ t('hub.scanCameraPermissionHint') }}
         </p>
+        <!-- 出口只有两个：返回是中性，重试是唯一主操作（实底 accent） -->
         <div class="flex gap-3">
           <button
-            class="px-4 py-2.5 rounded-xl text-sm font-medium transition-colors active:opacity-80"
-            style="background: var(--mobile-group-bg); border: 1px solid var(--mobile-group-border); color: var(--mobile-text-secondary)"
+            class="px-4 py-2.5 text-[var(--font-size-base)] font-medium transition-colors active:opacity-80"
+            style="
+              border-radius: var(--bc-radius-control);
+              background: var(--mobile-group-bg);
+              border: 1px solid var(--mobile-group-border);
+              color: var(--mobile-text-secondary);
+            "
             @click="$emit('close')"
           >
             {{ t('hub.scanBack') }}
           </button>
           <button
-            class="px-4 py-2.5 rounded-xl text-sm font-medium transition-colors active:opacity-80"
-            style="background: color-mix(in srgb, var(--mobile-accent) 10%, transparent); color: var(--mobile-accent); border: 1px solid color-mix(in srgb, var(--mobile-accent) 30%, transparent)"
+            class="px-4 py-2.5 text-[var(--font-size-base)] font-medium transition-colors active:opacity-80"
+            style="
+              border-radius: var(--bc-radius-control);
+              background: var(--mobile-accent);
+              border: 1px solid var(--mobile-accent);
+              color: var(--mobile-text-on-accent);
+            "
             @click="retry"
           >
             {{ t('hub.scanRescan') }}
@@ -471,7 +493,7 @@ onUnmounted(() => {
   min-width: 4rem;
   min-height: 2.75rem;
   padding: 0.375rem 0.75rem;
-  border-radius: 0.75rem;
+  border-radius: var(--bc-radius-control);
   border: none;
   background: transparent;
   color: rgba(255, 255, 255, 0.85);

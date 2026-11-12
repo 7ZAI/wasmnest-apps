@@ -16,7 +16,8 @@
  * | C-P1 | registerMessages ×2 | zh-CN / en 两份文案都注册 | 2 次调用，locale 各一 |
  * | C-P2 | 注册顺序 | 文案必须在运行面 setup 前就位 | 文案调用早于槽位 |
  * | C-P3 | 退役面 | 本域**不再**注册运行面（票 2026-10-10） | registerSurface 零调用 |
- * | C-P4 | registerSlot | 有存活会话时注册首页槽位 id='host-sessions'、order=10 | 入参形状 |
+ * | C-P4 | registerSlot | 有存活会话时注册首页槽位 id='host-sessions'、order=10、带 onPress 入口意图 | 入参形状 |
+ * | C-P4b | 槽位入口意图 | 点击直达「最近活跃的存活会话」；无存活会话不给意图 | onPress() 的 key / sessionId |
  * | C-P5 | 槽位生命周期 | 无存活会话不注册；会话出现补注册；最后一个存活会话结束即回收 | 注册 / 回收次数 |
  * | C-P6 | dispose | 观测器停止 + 槽位回收一次（重复 dispose 不重复回收） | dispose 1 次 |
  * | C-P7 | i18n 双语同步 | zh-CN 与 en 的 hub 键集合完全一致 | 键路径数组相等 |
@@ -119,6 +120,8 @@ describe('C-P4 槽位注册', () => {
       id: 'host-sessions',
       component: expect.anything(),
       order: 10,
+      // 卡片点击直达会话（C-P4b 钉具体目标）
+      onPress: expect.any(Function),
     })
   })
 
@@ -128,6 +131,40 @@ describe('C-P4 槽位注册', () => {
     activateHostPageDomain(fake.context)
 
     expect(fake.registerSlot).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('C-P4b 槽位入口意图：点击直达最近活跃会话', () => {
+  type SlotWithPress = { onPress: () => { key: string; payload?: unknown } | null }
+  const slotOf = (fake: ReturnType<typeof createFakeContext>): SlotWithPress =>
+    fake.registerSlot.mock.calls[0][0] as SlotWithPress
+
+  it('should_targetLatestActiveSession_when_clicked', () => {
+    installShared([
+      { id: 'old', status: 'running', startedAt: '2026-11-11T00:00:00Z' },
+      { id: 'new', status: 'waitingInput', startedAt: '2026-11-11T02:00:00Z' },
+      { id: 'dead', status: 'stopped', startedAt: '2026-11-11T03:00:00Z' },
+    ])
+    const fake = createFakeContext()
+    activateHostPageDomain(fake.context)
+
+    expect(slotOf(fake).onPress()).toEqual({
+      key: 'open-session',
+      payload: { sessionId: 'new' },
+    })
+  })
+
+  it('should_computeIntentAtPressTime_when_sessionsChangeLater', () => {
+    const sessions = installShared([
+      { id: 'a', status: 'running', startedAt: '2026-11-11T00:00:00Z' },
+    ])
+    const fake = createFakeContext()
+    activateHostPageDomain(fake.context)
+
+    sessions.value.push({ id: 'b', status: 'running', startedAt: '2026-11-11T01:00:00Z' })
+
+    // 入口按点击时刻现算（登记时不冻结目标）
+    expect(slotOf(fake).onPress()).toEqual({ key: 'open-session', payload: { sessionId: 'b' } })
   })
 })
 

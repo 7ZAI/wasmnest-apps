@@ -5,28 +5,26 @@
     </p>
 
     <!-- ==================== 业务设置分组 ==================== -->
-    <section v-for="group in SETTING_GROUPS" :key="group.id" class="flex flex-col gap-1.5">
-      <h2 class="text-xs px-1" :style="{ color: 'var(--mobile-text-secondary)' }">
-        {{ t(group.titleKey) }}
-      </h2>
+    <section v-for="group in SETTING_GROUPS" :key="group.id" class="flex flex-col gap-2">
+      <h2 class="settings-group-title px-1">{{ t(group.titleKey) }}</h2>
       <div
-        class="rounded-xl overflow-hidden"
+        class="rounded-[var(--bc-radius-card)] overflow-hidden"
         :style="{ background: 'var(--mobile-bg-card)', border: '1px solid var(--mobile-border)' }"
       >
         <div
           v-for="(item, index) in group.items"
           :key="item.key"
-          class="flex items-center justify-between gap-3 px-3 min-h-[48px] py-2"
+          class="flex items-center justify-between gap-3 px-4 min-h-[52px] py-2.5"
           :style="index > 0 ? { borderTop: '1px solid var(--mobile-group-border)' } : {}"
         >
           <!-- 标签列：选项多到一行放不下时（主色色板 5 档）纵向堆叠，说明文字才不会被挤没 -->
           <div class="flex-1 min-w-0">
-            <div class="text-sm" :style="{ color: 'var(--mobile-text-primary)' }">
+            <div class="text-[var(--font-size-base)]" :style="{ color: 'var(--mobile-text-primary)' }">
               {{ t(item.labelKey) }}
             </div>
             <div
               v-if="item.hintKey"
-              class="text-[var(--font-size-xs)] mt-0.5"
+              class="settings-hint mt-1"
               :style="{ color: 'var(--mobile-text-muted)' }"
             >
               {{ t(item.hintKey) }}
@@ -68,7 +66,7 @@
                 v-for="opt in item.options ?? []"
                 :key="opt.value"
                 type="button"
-                class="flex flex-col items-center gap-1 min-w-[56px] px-2 pt-2 pb-1.5 rounded-lg transition-colors focus-visible:ring-2 focus-visible:ring-[var(--mobile-accent)] active:opacity-80"
+                class="flex flex-col items-center gap-1.5 min-w-[56px] px-2 pt-2 pb-1.5 rounded-[var(--bc-radius-control)] transition-colors focus-visible:ring-2 focus-visible:ring-[var(--mobile-accent)] active:opacity-80"
                 :aria-pressed="ctrl.values[item.key] === opt.value"
                 :data-palette-option="opt.value"
                 :disabled="ctrl.saving.value"
@@ -94,7 +92,7 @@
                   </svg>
                 </span>
                 <span
-                  class="text-[11px] leading-none whitespace-nowrap"
+                  class="text-[var(--font-size-sm)] leading-none whitespace-nowrap"
                   :style="{ color: ctrl.values[item.key] === opt.value ? 'var(--mobile-text-primary)' : 'var(--mobile-text-secondary)' }"
                 >
                   {{ t(opt.labelKey) }}
@@ -106,7 +104,7 @@
                 v-for="opt in item.options ?? []"
                 :key="opt.value"
                 type="button"
-                class="min-h-[32px] px-3 rounded-lg text-xs transition-colors"
+                class="min-h-[36px] px-3 rounded-[var(--bc-radius-control)] text-[var(--font-size-sm)] transition-colors"
                 :aria-pressed="ctrl.values[item.key] === opt.value"
                 :style="segmentStyle(ctrl.values[item.key] === opt.value)"
                 :disabled="ctrl.saving.value"
@@ -123,7 +121,7 @@
     <!-- ==================== 重置 ==================== -->
     <button
       type="button"
-      class="min-h-[48px] rounded-xl text-sm font-medium transition-colors active:opacity-80"
+      class="min-h-[52px] rounded-[var(--bc-radius-card)] text-[var(--font-size-base)] font-medium transition-colors active:opacity-80"
       :style="{ background: 'var(--mobile-bg-card)', border: '1px solid var(--mobile-border)', color: 'var(--mobile-error)' }"
       :disabled="ctrl.saving.value"
       @click="onReset"
@@ -244,3 +242,18 @@ if (import.meta.env.DEV) {
   }
 }
 </script>
+
+<style scoped>
+/* 分组标题：走与应用其它分组头同一档（小字 / 中等字重 / muted），
+   不用 all-caps + 字距，也不靠加粗来分层 */
+.settings-group-title {
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  color: var(--mobile-text-muted);
+}
+
+.settings-hint {
+  font-size: var(--font-size-sm);
+  line-height: 1.45;
+}
+</style>

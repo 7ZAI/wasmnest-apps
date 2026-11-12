@@ -5,12 +5,12 @@
         type="checkbox"
         :checked="modelValue"
         :disabled="disabled"
-        class="sr-only"
+        class="peer sr-only"
         @change="$emit('update:modelValue', !modelValue)"
       />
       <!-- 开关样式与桌面端 SettingsView 对齐：方形墨色轨道 + 方形滑块 -->
       <div
-        class="w-10 h-5 rounded-[4px] border transition-colors"
+        class="w-10 h-5 rounded-[4px] border transition-colors peer-focus-visible:ring-2 peer-focus-visible:ring-[var(--mobile-accent)]"
         :class="[
           modelValue
             ? 'bg-[var(--mobile-accent)] border-[var(--mobile-accent)]'
@@ -27,7 +27,9 @@
         ]"
       ></div>
     </div>
-    <span v-if="label" class="text-sm text-[var(--mobile-text-secondary)]">{{ label }}</span>
+    <span v-if="label" class="text-[var(--font-size-base)] text-[var(--mobile-text-secondary)]">{{
+      label
+    }}</span>
   </label>
 </template>
 

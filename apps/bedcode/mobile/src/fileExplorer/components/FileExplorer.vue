@@ -639,7 +639,7 @@ watch(
 }
 
 .code-md-preview :deep(h1) {
-  font-size: clamp(1.25rem, 1.375rem + (100cqw - 360px) / 840 * 2, 1.5rem);
+  font-size: var(--font-size-2xl);
   font-weight: 700;
   color: var(--mobile-text-primary);
   margin: 0 0 0.75rem;
@@ -647,10 +647,11 @@ watch(
   border-bottom: 1px solid var(--mobile-border);
 }
 
+/* 标题层级靠字号与字重，不靠色相：h2 与 h1 同色，只在档位上低一阶 */
 .code-md-preview :deep(h2) {
   font-size: var(--font-size-xl);
   font-weight: 600;
-  color: var(--mobile-accent);
+  color: var(--mobile-text-primary);
   margin: 1.25rem 0 0.5rem;
   padding-bottom: 0.25rem;
   border-bottom: 1px solid var(--mobile-border);

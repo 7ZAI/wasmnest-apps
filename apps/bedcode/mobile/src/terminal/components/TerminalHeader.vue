@@ -196,6 +196,9 @@ function emitAction(key: string) {
   text-overflow: ellipsis;
 }
 
+/* 工具按钮：幽灵态（无底无边），激活才给 accent 底。
+   原先四颗按钮每颗都自带 elevated 底 + 发丝边，页头一排四个方块，
+   比下面的终端内容还重。 */
 .tool-btn,
 .task-btn,
 .folder-btn,
@@ -203,22 +206,25 @@ function emitAction(key: string) {
   min-width: 2.75rem;
   min-height: 2.75rem;
   padding: 0.5rem;
-  border-radius: 0.5rem;
-  background: var(--mobile-bg-elevated);
-  border: 1px solid var(--mobile-border);
+  border-radius: var(--bc-radius-control);
+  background: transparent;
+  border: none;
   color: var(--mobile-text-secondary);
   cursor: pointer;
-  transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease, opacity 0.2s ease, transform 0.2s ease;
+  transition:
+    background-color var(--bc-dur-fast) var(--bc-ease),
+    color var(--bc-dur-fast) var(--bc-ease);
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
-.tool-btn:hover,
-.task-btn:hover,
-.folder-btn:hover,
-.overflow-btn:hover {
-  border-color: color-mix(in srgb, var(--mobile-accent) 30%, transparent);
+.tool-btn:active,
+.task-btn:active,
+.folder-btn:active,
+.overflow-btn:active {
+  background: var(--mobile-group-row-active);
+  color: var(--mobile-text-primary);
 }
 
 .task-btn {
@@ -227,7 +233,6 @@ function emitAction(key: string) {
 
 .folder-btn.active {
   color: var(--mobile-accent);
-  border-color: var(--mobile-border-active);
   background: var(--mobile-accent-muted);
 }
 
@@ -237,7 +242,6 @@ function emitAction(key: string) {
 
 .overflow-btn.active {
   color: var(--mobile-accent);
-  border-color: var(--mobile-border-active);
   background: var(--mobile-accent-muted);
 }
 
@@ -248,11 +252,11 @@ function emitAction(key: string) {
   /* 自适应宽度：手机窄屏 ~10.5rem，平板放大到 ~13rem，文字永不换行 */
   min-width: clamp(10.5rem, 10.5rem + (100vw - 360px) / 800 * 40, 13rem);
   max-width: min(80vw, 16rem);
-  background: var(--mobile-bg-secondary);
+  background: var(--mobile-bg-elevated);
   border: 1px solid var(--mobile-border);
-  border-radius: 0.75rem;
+  border-radius: var(--bc-radius-card);
   padding: 0.375rem;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+  box-shadow: var(--bc-overlay-shadow);
   z-index: 30;
 }
 
@@ -303,14 +307,12 @@ function emitAction(key: string) {
 .selection-mode-badge {
   flex-shrink: 0;
   padding: 0.125rem 0.5rem;
-  border-radius: 0.25rem;
-  background: color-mix(in srgb, var(--mobile-accent) 20%, transparent);
+  border-radius: 6px;
+  background: var(--mobile-accent-muted);
   color: var(--mobile-accent);
   font-size: var(--font-size-sm);
   font-weight: 500;
-  letter-spacing: 0.02em;
   white-space: nowrap;
-  border: 1px solid color-mix(in srgb, var(--mobile-accent) 30%, transparent);
 }
 
 .mode-badge-enter-active,

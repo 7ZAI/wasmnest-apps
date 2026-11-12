@@ -10,14 +10,19 @@ import {
   applyModeEvent,
   buildTunnelView,
   errorCodeOf,
+  isLoopbackAddress,
   modeLabelKey,
   modeTone,
   parseConnectResult,
   parseModeEvent,
   reasonLabelKey,
+  relayTargetsOf,
+  shortNodeId,
   shouldOfferManualWan,
+  shouldRecordHistory,
   tunnelConnectArgs,
   tunnelErrorKey,
+  type PeerTarget,
   type TunnelStatus,
 } from '../tunnel'
 
@@ -216,5 +221,69 @@ describe('connect result normalization', () => {
     expect(() => parseConnectResult({ handle: 'h', address: '127.0.0.1' })).toThrow()
     expect(() => parseConnectResult({ address: '127.0.0.1', port: 1 })).toThrow()
     expect(() => parseConnectResult(null)).toThrow()
+  })
+})
+
+describe('connection history write guard', () => {
+  it('recognizes loopback spellings used by the local proxy', () => {
+    expect(isLoopbackAddress('127.0.0.1')).toBe(true)
+    expect(isLoopbackAddress(' 127.1.2.3 ')).toBe(true)
+    expect(isLoopbackAddress('localhost')).toBe(true)
+    expect(isLoopbackAddress('::1')).toBe(true)
+    expect(isLoopbackAddress('[::1]')).toBe(true)
+  })
+
+  it('treats real device addresses as recordable', () => {
+    expect(isLoopbackAddress('192.168.1.9')).toBe(false)
+    expect(isLoopbackAddress('10.0.0.7')).toBe(false)
+    expect(isLoopbackAddress('desktop.local')).toBe(false)
+    expect(isLoopbackAddress('127.0.0.1.example')).toBe(false)
+    expect(isLoopbackAddress('')).toBe(false)
+  })
+
+  it('never records the tunnel proxy (dead on next tap, one junk row per reconnect)', () => {
+    expect(shouldRecordHistory('127.0.0.1')).toBe(false)
+    expect(shouldRecordHistory('localhost')).toBe(false)
+    expect(shouldRecordHistory('192.168.1.9')).toBe(true)
+  })
+})
+
+describe('relay reconnect targets', () => {
+  function target(overrides: Partial<PeerTarget> = {}): PeerTarget {
+    return {
+      nodeId: 'peer-1',
+      deviceName: 'Desktop',
+      relayAddrs: ['/ip4/203.0.113.9/tcp/4001/p2p/relay/p2p-circuit/p2p/peer-1'],
+      port: 8765,
+      lastMode: 'wan-active',
+      lastReason: 'cellular',
+      updatedAtMs: 1,
+      ...overrides,
+    }
+  }
+
+  it('lists only targets with relay candidates and a logical port, newest first', () => {
+    const snapshot = status({
+      targets: [
+        target({ nodeId: 'old', updatedAtMs: 10 }),
+        target({ nodeId: 'no-relay', relayAddrs: [], updatedAtMs: 30 }),
+        target({ nodeId: 'no-port', port: 0, updatedAtMs: 20 }),
+        target({ nodeId: 'new', updatedAtMs: 40 }),
+      ],
+    })
+
+    expect(relayTargetsOf(snapshot).map((item) => item.nodeId)).toEqual(['new', 'old'])
+  })
+
+  it('treats missing status / targets as empty (no fabricated entries)', () => {
+    expect(relayTargetsOf(null)).toEqual([])
+    expect(relayTargetsOf(undefined)).toEqual([])
+    expect(relayTargetsOf({} as TunnelStatus)).toEqual([])
+  })
+
+  it('shortens long node ids for display, keeps short ones verbatim', () => {
+    expect(shortNodeId('12D3KooWabcdefghijklmnop')).toBe('…ijklmnop')
+    expect(shortNodeId('peer-1')).toBe('peer-1')
+    expect(shortNodeId('')).toBe('')
   })
 })

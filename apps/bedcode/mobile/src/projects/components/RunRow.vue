@@ -13,18 +13,22 @@
       :aria-label="run.active ? `${t('project.run.open')} ${run.title || run.name}` : undefined"
       @click="onOpen"
     >
-      <span class="icon-chip" :class="runStatusChipClass(run.status)" aria-hidden="true">
-        <span class="run-dot" :class="{ 'run-dot--pulse': isPulsing }"></span>
+      <!-- 状态列：一个 8px 点。整块列表只有一个东西带颜色，就是它 -->
+      <span class="run-state" aria-hidden="true">
+        <span
+          class="run-dot"
+          :class="{ 'run-dot--pulse': isPulsing }"
+          :style="{ background: runStatusDotColor(run.status) }"
+        />
       </span>
 
       <span class="flex-1 min-w-0 block">
-        <span class="flex items-center gap-2 min-w-0">
-          <span class="group-row-title truncate">{{ run.title || run.name }}</span>
-          <span class="status-badge shrink-0" :class="runStatusBadgeClass(run.status)">
+        <span class="group-row-title truncate block">{{ run.title || run.name }}</span>
+        <!-- 副行是机器事实：状态名 + agent + 相对时间，全部同档小字 -->
+        <span class="run-meta mt-0.5 flex items-center gap-2 min-w-0">
+          <span class="status-text shrink-0" :style="{ color: statusTextColor }">
             {{ t(runStatusLabelKey(run.status)) }}
           </span>
-        </span>
-        <span class="group-row-sub mt-0.5 flex items-center gap-2 min-w-0">
           <span class="font-mono truncate">{{ run.agentId || '—' }}</span>
           <span class="shrink-0 font-mono">{{ relativeText }}</span>
         </span>
@@ -34,7 +38,7 @@
     <button
       v-if="run.active"
       type="button"
-      class="run-stop shrink-0 flex items-center justify-center rounded-lg active:opacity-80 transition-colors"
+      class="run-stop shrink-0 flex items-center justify-center active:opacity-80 transition-colors"
       :title="t('project.run.stop')"
       :aria-label="t('project.run.stop')"
       @click="$emit('stop', run)"
@@ -54,14 +58,16 @@
  * - 终态运行：store 已过滤（`liveRuns`），一般不会出现在列表；组件仍保留降透明度 /
  *   不可打开的形态，兜住会话事件刷新前的过渡帧。
  * - 语义结构：外层只是布局行，主区是真 `<button>`，停止按钮是并列按钮——避免嵌套交互。
- * - 状态只用现有 `icon-chip` / `status-badge` 语言；点用 currentColor，不新增色板。
+ *
+ * 2026-11-11 unslop：去掉「彩色图标底 + 彩色状态胶囊」两层色块，改成
+ * 左列一个状态点 + 副行一句状态文字。两处同时上色时，颜色既不是状态色也不是
+ * 分类色，只是装饰；现在绿 = 在跑、琥珀 = 等输入、红 = 出错、灰 = 过渡 / 终态。
  */
 import { computed } from 'vue'
 import { useHostPage } from '../../host/useHostPage'
 import {
   relativeTimeSpec,
-  runStatusBadgeClass,
-  runStatusChipClass,
+  runStatusDotColor,
   runStatusLabelKey,
   type RunView,
 } from '../types'
@@ -83,6 +89,13 @@ const isPulsing = computed(
   () => props.run.status === 'starting' || props.run.status === 'stopping',
 )
 
+/** 状态文字跟随状态点：只有需要人注意的两个态上色，其余取次文字色 */
+const statusTextColor = computed(() => {
+  if (props.run.status === 'waitingInput') return 'var(--mobile-warning)'
+  if (props.run.status === 'error') return 'var(--mobile-error)'
+  return 'var(--mobile-text-secondary)'
+})
+
 const relativeText = computed(() => {
   const spec = relativeTimeSpec(props.run.updatedAt, props.now)
   return spec ? t(spec.key, spec.params) : '--'
@@ -96,7 +109,7 @@ function onOpen(): void {
 
 <style scoped>
 .run-row {
-  transition: background-color 0.15s ease;
+  transition: background-color var(--bc-dur-fast) var(--bc-ease);
 }
 
 .run-row--active:active {
@@ -121,11 +134,19 @@ function onOpen(): void {
   opacity: 0.8;
 }
 
+/* 状态列：固定宽度，四行点对齐成一列（标题 / 副行都从这里开始） */
+.run-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 8px;
+  flex-shrink: 0;
+}
+
 .run-dot {
   width: 8px;
   height: 8px;
   border-radius: 999px;
-  background: currentColor;
 }
 
 .run-dot--pulse {
@@ -142,12 +163,27 @@ function onOpen(): void {
   }
 }
 
+.run-meta {
+  font-size: var(--font-size-sm);
+  color: var(--mobile-text-muted);
+}
+
+.status-text {
+  font-weight: 500;
+}
+
 .run-stop {
   width: 2.75rem;
   height: 2.75rem;
-  background: color-mix(in srgb, var(--mobile-chip-red) 16%, transparent);
-  color: var(--mobile-chip-red);
-  border: 1px solid color-mix(in srgb, var(--mobile-chip-red) 35%, transparent);
+  border-radius: var(--bc-radius-control);
+  color: var(--mobile-text-muted);
+  border: 1px solid var(--mobile-border);
+  background: transparent;
+}
+
+.run-stop:active {
+  color: var(--mobile-error);
+  border-color: color-mix(in srgb, var(--mobile-error) 35%, transparent);
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -58,7 +58,7 @@
         @select="applyCompletion"
       />
 
-      <div class="input-box" :class="{ 'input-box--expanded': isInputFocused }">
+      <div class="input-box">
         <!-- 输入框：占满整行宽度；显示高度只随内容换行数变化，聚焦不变高 -->
         <textarea
           ref="inputRef"
@@ -542,23 +542,19 @@ onMounted(() => {
   flex-direction: column;
   background: var(--mobile-input-bg);
   border: 1px solid var(--mobile-input-border);
-  border-radius: 1rem;
+  border-radius: var(--bc-radius-card);
   padding: 0.5rem 0.625rem 0.375rem;
   transition:
-    border-color 0.2s ease,
-    box-shadow 0.2s ease,
-    border-radius 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    border-color var(--bc-dur-fast) var(--bc-ease),
+    box-shadow var(--bc-dur-fast) var(--bc-ease);
   min-height: 2.5rem;
 }
 
+/* 聚焦只用一条 accent 边 + 一圈极淡外环；圆角不随焦点变化
+   （原先聚焦时圆角从 16 收到 14，视觉上像输入框「缩了一下」） */
 .input-box:focus-within {
   border-color: var(--mobile-accent);
   box-shadow: 0 0 0 2px var(--mobile-accent-muted);
-}
-
-/* 聚焦时输入框圆角微调 */
-.input-box--expanded {
-  border-radius: 0.875rem;
 }
 
 /* 操作按钮行：左对齐 toggle，右对齐执行按钮（点按执行 / 长按发送 双操作） */
@@ -573,18 +569,21 @@ onMounted(() => {
   flex: 1;
 }
 
-/* 操作按钮：圆角矩形 + clamp 流式尺寸，与快捷键面板按钮同风格（触控目标 ≥ 44px） */
+/* 操作按钮：圆角方块（与全应用控件同一档圆角），clamp 流式尺寸，触控目标 ≥ 44px */
 .inline-btn {
   width: clamp(2.75rem, 9vw, 3rem);
   height: clamp(2.75rem, 9vw, 3rem);
   display: flex;
   align-items: center;
   justify-content: center;
-  /* 圆形按钮：宽高相等 + 50% 圆角 */
-  border-radius: 50%;
+  border-radius: var(--bc-radius-control);
   border: 1px solid;
   cursor: pointer;
-  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease, opacity 0.15s ease, transform 0.15s ease;
+  transition:
+    background-color var(--bc-dur-fast) var(--bc-ease),
+    color var(--bc-dur-fast) var(--bc-ease),
+    border-color var(--bc-dur-fast) var(--bc-ease),
+    opacity var(--bc-dur-fast) var(--bc-ease);
   flex-shrink: 0;
   padding: 0;
   /* 长按双操作防系统手势干扰：禁用长按呼出菜单/文本选择，消除双击缩放延迟 */
@@ -600,8 +599,8 @@ onMounted(() => {
 }
 
 .toggle-btn:active {
-  transform: scale(0.93);
-  background: var(--mobile-bg-secondary);
+  background: var(--mobile-group-row-active);
+  color: var(--mobile-text-primary);
 }
 
 .toggle-active {
@@ -661,11 +660,6 @@ onMounted(() => {
   color: var(--mobile-text-on-accent);
 }
 
-.execute-btn.mode-send:active:not(.is-disabled) {
-  background: var(--mobile-accent);
-  filter: brightness(1.15);
-}
-
 .execute-btn {
   /* 黑底白图标：终端「执行」语义（用户指定，跨主题稳定） */
   background: #0a0a0f;
@@ -673,10 +667,10 @@ onMounted(() => {
   color: #ffffff;
 }
 
-.execute-btn:active:not(.is-disabled) {
-  transform: scale(0.93);
-  background: #0a0a0f;
-  filter: brightness(1.3);
+/* 按下只降透明度：不缩放、不调亮度（filter 会把图标边缘一起推亮，按钮像在闪） */
+.execute-btn:active:not(.is-disabled),
+.execute-btn.mode-send:active:not(.is-disabled) {
+  opacity: 0.82;
 }
 
 /* 置灰态（无内容/会话不可用）：短按动作已门控，长按切换仍可用，
@@ -701,12 +695,13 @@ onMounted(() => {
 }
 
 .dialog-box {
-  background: var(--mobile-bg-secondary);
+  background: var(--mobile-bg-card);
   border: 1px solid var(--mobile-border);
-  border-radius: 1rem;
+  border-radius: var(--bc-radius-card);
   padding: 1.25rem;
   width: 100%;
   max-width: clamp(16rem, 20rem, 24rem);
+  box-shadow: var(--bc-overlay-shadow);
 }
 
 .dialog-title {
@@ -721,13 +716,13 @@ onMounted(() => {
   width: 100%;
   background: var(--mobile-input-bg);
   border: 1px solid var(--mobile-input-border);
-  border-radius: 0.75rem;
+  border-radius: var(--bc-radius-control);
   padding: 0.625rem 0.875rem;
   color: var(--mobile-text-primary);
   font-size: var(--font-size-base);
   outline: none;
-  transition: border-color 0.2s ease;
-  font-family: 'Courier New', monospace;
+  transition: border-color var(--bc-dur-fast) var(--bc-ease);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   box-sizing: border-box;
 }
 
@@ -747,29 +742,29 @@ onMounted(() => {
 
 .dialog-btn {
   flex: 1;
-  height: clamp(2rem, 2.25rem, 2.75rem);
-  border-radius: 0.75rem;
+  height: clamp(2.25rem, 2.5rem, 2.75rem);
+  border-radius: var(--bc-radius-control);
   border: 1px solid;
   font-size: var(--font-size-base);
   font-weight: 500;
   cursor: pointer;
-  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease, opacity 0.15s ease, transform 0.15s ease;
+  transition:
+    background-color var(--bc-dur-fast) var(--bc-ease),
+    color var(--bc-dur-fast) var(--bc-ease),
+    border-color var(--bc-dur-fast) var(--bc-ease),
+    opacity var(--bc-dur-fast) var(--bc-ease);
 }
 
 .dialog-btn.cancel {
-  background: var(--mobile-bg-elevated);
+  background: var(--mobile-bg-primary);
   border-color: var(--mobile-border);
-  color: var(--mobile-text-muted);
-}
-
-.dialog-btn.cancel:hover {
-  background: var(--mobile-bg-secondary);
+  color: var(--mobile-text-secondary);
 }
 
 .dialog-btn.confirm {
-  background: var(--mobile-confirm-bg);
-  border-color: var(--mobile-confirm-border);
-  color: var(--mobile-confirm-color);
+  background: var(--mobile-accent);
+  border-color: var(--mobile-accent);
+  color: var(--mobile-text-on-accent);
 }
 
 .dialog-btn.confirm:disabled {

@@ -184,7 +184,7 @@ describe('项目列表', () => {
     expect(cards[0].text()).toContain('Linux')
     expect(cards[1].text()).toContain('支付重构')
     expect(cards[1].text()).toContain('WSL2')
-    expect(cards[1].find('.status-badge').text()).toContain('2')
+    expect(cards[1].find('[role="status"]').text()).toContain('2')
     wrapper.unmount()
   })
 

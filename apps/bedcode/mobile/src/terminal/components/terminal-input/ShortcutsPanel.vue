@@ -307,7 +307,9 @@ watch(
   border-bottom: 1px solid var(--mobile-border);
   padding: 0.5rem 0.75rem 0.375rem;
   background: var(--mobile-bg-secondary);
-  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.15);
+  /* 面板是输入条向上延伸的一层，不是浮在内容上的弹层：投影跟随应用口径
+     （深色无投影、浅色一层小投影），分层靠 surface step + 发丝边 */
+  box-shadow: var(--bc-overlay-shadow);
   z-index: 30;
   max-width: 100vw;
   overflow: visible;
@@ -395,7 +397,9 @@ watch(
   height: 0.375rem;
   border-radius: 9999px;
   background: var(--mobile-border);
-  transition: all 0.3s ease;
+  transition:
+    width var(--bc-dur-base) var(--bc-ease),
+    background-color var(--bc-dur-base) var(--bc-ease);
   cursor: pointer;
 }
 
@@ -442,6 +446,8 @@ watch(
   gap: 0.375rem;
 }
 
+/* 键帽：终端里的物理按键。等宽字 + 平色底 + 发丝边（与 QuickBar 同一套），
+   按下只换底色——手指按住时键帽不在手底下缩放 / 提亮。 */
 .shortcut-btn {
   height: var(--shortcut-btn-h);
   padding: 0 0.5rem;
@@ -450,18 +456,21 @@ watch(
   background: var(--mobile-shortcut-bg);
   border: 1px solid var(--mobile-shortcut-border);
   color: var(--mobile-shortcut-color);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: var(--shortcut-font);
   font-weight: 500;
-  border-radius: 0.5rem;
+  border-radius: 8px;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition:
+    background-color var(--bc-dur-fast) var(--bc-ease),
+    border-color var(--bc-dur-fast) var(--bc-ease),
+    color var(--bc-dur-fast) var(--bc-ease);
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
 .shortcut-btn:active {
-  transform: scale(0.95);
   background: var(--mobile-shortcut-active-bg);
 }
 
@@ -480,17 +489,23 @@ watch(
 .action-btn {
   width: var(--action-btn-w);
   height: var(--shortcut-btn-h);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: var(--shortcut-font);
-  font-weight: 600;
-  border-radius: 0.5rem;
+  font-weight: 500;
+  border-radius: 8px;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition:
+    background-color var(--bc-dur-fast) var(--bc-ease),
+    border-color var(--bc-dur-fast) var(--bc-ease),
+    color var(--bc-dur-fast) var(--bc-ease);
   display: flex;
   align-items: center;
   justify-content: center;
   border: 1px solid;
 }
 
+/* 只有 Enter / Del 两颗键帽带语义色：Enter 是主操作（success），Del 是毁坏性
+   操作（error 只上文字与边）。按下加深同色底，不用 brightness 滤镜。 */
 .action-btn--enter {
   background: var(--mobile-confirm-bg);
   border-color: var(--mobile-confirm-border);
@@ -498,8 +513,7 @@ watch(
 }
 
 .action-btn--enter:active {
-  transform: scale(0.95);
-  filter: brightness(1.2);
+  background: color-mix(in srgb, var(--mobile-success) 30%, transparent);
 }
 
 .action-btn--del {
@@ -509,8 +523,7 @@ watch(
 }
 
 .action-btn--del:active {
-  transform: scale(0.95);
-  filter: brightness(1.2);
+  background: color-mix(in srgb, var(--mobile-error) 26%, transparent);
 }
 
 /* 右侧：方向键，固定宽度 */
@@ -540,16 +553,18 @@ watch(
   background: var(--mobile-arrow-bg);
   border: 1px solid var(--mobile-arrow-border);
   color: var(--mobile-arrow-color);
-  border-radius: 0.5rem;
+  border-radius: 8px;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition:
+    background-color var(--bc-dur-fast) var(--bc-ease),
+    border-color var(--bc-dur-fast) var(--bc-ease),
+    color var(--bc-dur-fast) var(--bc-ease);
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
 .arrow-btn:active {
-  transform: scale(0.9);
   background: var(--mobile-arrow-active-bg);
 }
 
@@ -582,18 +597,22 @@ watch(
 }
 
 .custom-cmd-btn {
-  padding: 0 0.5rem;
   white-space: nowrap;
   min-width: var(--shortcut-min-w);
   height: var(--shortcut-btn-h);
   background: var(--mobile-custom-cmd-bg);
   border: 1px solid var(--mobile-custom-cmd-border);
   color: var(--mobile-custom-cmd-color);
+  /* 命令就是代码：等宽字（含空格与斜杠的差异一眼可辨） */
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: var(--shortcut-font);
   font-weight: 500;
-  border-radius: 0.5rem;
+  border-radius: 8px;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition:
+    background-color var(--bc-dur-fast) var(--bc-ease),
+    border-color var(--bc-dur-fast) var(--bc-ease),
+    color var(--bc-dur-fast) var(--bc-ease);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -603,7 +622,6 @@ watch(
 }
 
 .custom-cmd-btn:active {
-  transform: scale(0.95);
   background: var(--mobile-custom-cmd-active-bg);
 }
 
@@ -614,51 +632,42 @@ watch(
   max-width: 100%;
 }
 
-/* 编辑模式下按钮抖动提示 */
+/* 编辑模式只换边色：整排命令染红会让「可删」看起来像「已出错」，
+   真正的删除信号由每颗键帽角上的删除徽章承担 */
 .custom-cmd-btn.editing {
-  animation: wiggle 0.3s ease-in-out;
-  border-color: var(--mobile-danger-border);
-  background: var(--mobile-danger-bg);
-  color: var(--mobile-danger-color);
+  border-color: color-mix(in srgb, var(--mobile-error) 35%, transparent);
 }
 
-@keyframes wiggle {
-  0%,
-  100% {
-    transform: rotate(0deg);
-  }
-  25% {
-    transform: rotate(-2deg);
-  }
-  75% {
-    transform: rotate(2deg);
-  }
-}
-
+/* 删除徽章：中性底 + 红字（与 Del 键帽同口径，危险色只上文字） */
 .cmd-delete-btn {
   position: absolute;
-  top: -0.25rem;
-  right: -0.25rem;
+  top: 0;
+  right: 0;
   width: 1rem;
   height: 1rem;
-  background: var(--mobile-danger-solid-bg);
+  background: var(--mobile-bg-elevated);
   border: none;
-  border-radius: 9999px;
-  color: white;
+  border-left: 1px solid var(--mobile-border);
+  border-bottom: 1px solid var(--mobile-border);
+  border-radius: 0 8px 0 6px;
+  color: var(--mobile-error);
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
   padding: 0;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
 }
 
 /* 删除徽章过渡动画 */
 .delete-badge-enter-active {
-  transition: all 0.2s ease-out;
+  transition:
+    opacity var(--bc-dur-base) var(--bc-ease),
+    transform var(--bc-dur-base) var(--bc-ease);
 }
 .delete-badge-leave-active {
-  transition: all 0.15s ease-in;
+  transition:
+    opacity var(--bc-dur-fast) var(--bc-ease),
+    transform var(--bc-dur-fast) var(--bc-ease);
 }
 .delete-badge-enter-from,
 .delete-badge-leave-to {
@@ -674,7 +683,6 @@ watch(
 }
 
 .edit-toggle-btn:active {
-  transform: scale(0.95);
   background: var(--mobile-edit-cmd-active-bg);
 }
 
@@ -686,7 +694,6 @@ watch(
 }
 
 .add-cmd-btn:active {
-  transform: scale(0.95);
   background: var(--mobile-add-cmd-active-bg);
 }
 </style>
