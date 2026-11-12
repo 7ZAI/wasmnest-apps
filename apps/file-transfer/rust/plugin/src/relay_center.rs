@@ -80,6 +80,8 @@ impl RelayCenter for WasmRelayCenter {
 pub(crate) enum RelaySource {
     Center,
     Cache,
+    /// 邀请导入的地址（`relay_origin = invite`）：中心明确未配置时允许生效
+    Invite,
 }
 
 impl RelaySource {
@@ -87,6 +89,7 @@ impl RelaySource {
         match self {
             Self::Center => "center",
             Self::Cache => "cache",
+            Self::Invite => "invite",
         }
     }
 }
@@ -107,6 +110,15 @@ impl RelayView {
         Self {
             addrs: cache.to_vec(),
             source: RelaySource::Cache,
+            error,
+        }
+    }
+
+    /// 邀请导入的地址（用户显式动作，来源与手动缓存区分开，便于界面提示）
+    fn from_invite(cache: &[String], error: Option<String>) -> Self {
+        Self {
+            addrs: cache.to_vec(),
+            source: RelaySource::Invite,
             error,
         }
     }
@@ -140,14 +152,27 @@ pub(crate) fn parse_center_relay(view: &Value) -> Result<Vec<String>, String> {
     normalize_relay_addrs(&addrs)
 }
 
-/// 中心优先、缓存兜底。中心「明确未配置」= 空（不复活缓存）。
-pub(crate) fn resolve(center: &dyn RelayCenter, cache: &[String]) -> RelayView {
+/// 中心优先、缓存兜底。中心「明确未配置」= 空（不复活手动缓存）。
+///
+/// 唯一例外是 `origin = invite`：邀请导入是显式用户动作，中心为空 / 不可用时
+/// 允许使用邀请带来的缓存地址（否则「按邀请加入」在桌面上永远无效）。中心已
+/// 配置时仍中心优先——冲突留给界面提示，不在这里静默覆盖。
+pub(crate) fn resolve(center: &dyn RelayCenter, cache: &[String], origin: &str) -> RelayView {
+    let invite = origin == "invite" && !cache.is_empty();
     match center.relay_config().and_then(|v| parse_center_relay(&v)) {
-        Ok(addrs) => RelayView {
+        Ok(addrs) if !addrs.is_empty() => RelayView {
             addrs,
             source: RelaySource::Center,
             error: None,
         },
+        // 中心明确未配置（或配置为空表）：邀请缓存可以生效，手动缓存不复活
+        Ok(_) if invite => RelayView::from_invite(cache, None),
+        Ok(_) => RelayView {
+            addrs: Vec::new(),
+            source: RelaySource::Center,
+            error: None,
+        },
+        Err(e) if invite => RelayView::from_invite(cache, Some(e)),
         Err(e) => RelayView::from_cache(cache, Some(e)),
     }
 }
@@ -155,21 +180,26 @@ pub(crate) fn resolve(center: &dyn RelayCenter, cache: &[String]) -> RelayView {
 /// 按端解析生效 relay 地址：桌面读中心（失败回退缓存），移动直接用本地缓存。
 ///
 /// 单产物双端共用：`activate` 与 `get-my-device` 都经这里，避免两处口径漂移。
-pub(crate) fn effective(platform: Platform, cache: &[String]) -> RelayView {
+pub(crate) fn effective(platform: Platform, cache: &[String], origin: &str) -> RelayView {
     match platform {
-        Platform::Desktop => center_relay_view(cache),
+        Platform::Desktop => center_relay_view(cache, origin),
+        // 移动端没有配置中心：邀请来源只影响提示文案，地址直接用本地缓存
+        Platform::Mobile if origin == "invite" => RelayView::from_invite(cache, None),
         Platform::Mobile => RelayView::from_cache(cache, None),
     }
 }
 
 /// 桌面：中心优先、缓存兜底。native 构建（cargo test）不触达互调，只用缓存。
 #[cfg(target_arch = "wasm32")]
-fn center_relay_view(cache: &[String]) -> RelayView {
-    resolve(&WasmRelayCenter, cache)
+fn center_relay_view(cache: &[String], origin: &str) -> RelayView {
+    resolve(&WasmRelayCenter, cache, origin)
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn center_relay_view(cache: &[String]) -> RelayView {
+fn center_relay_view(cache: &[String], origin: &str) -> RelayView {
+    if origin == "invite" {
+        return RelayView::from_invite(cache, None);
+    }
     RelayView::from_cache(cache, None)
 }
 
@@ -231,16 +261,53 @@ mod tests {
             "configured": true,
             "config": { "relayAddrs": [relay_addr()] }
         })));
-        let view = resolve(&center, &["/ip4/198.51.100.7/tcp/4001/p2p/old".to_string()]);
+        let view = resolve(
+            &center,
+            &["/ip4/198.51.100.7/tcp/4001/p2p/old".to_string()],
+            "",
+        );
         assert_eq!(view.source, RelaySource::Center);
         assert_eq!(view.addrs, vec![relay_addr()]);
         assert!(view.error.is_none());
     }
 
     #[test]
-    fn resolve_does_not_resurrect_cache_when_center_is_empty() {
+    fn resolve_does_not_resurrect_manual_cache_when_center_is_empty() {
         let center = Fake(Ok(json!({ "configured": false, "config": null })));
-        let view = resolve(&center, &[relay_addr().to_string()]);
+        let view = resolve(&center, &[relay_addr().to_string()], "");
+        assert_eq!(view.source, RelaySource::Center);
+        assert!(view.addrs.is_empty());
+        assert!(view.error.is_none());
+    }
+
+    #[test]
+    fn resolve_uses_invite_cache_when_center_is_empty() {
+        let center = Fake(Ok(json!({ "configured": false, "config": null })));
+        let view = resolve(&center, &[relay_addr().to_string()], "invite");
+        assert_eq!(view.source, RelaySource::Invite);
+        assert_eq!(view.addrs, vec![relay_addr()]);
+        assert!(view.error.is_none());
+    }
+
+    #[test]
+    fn resolve_keeps_center_over_invite_cache() {
+        let center = Fake(Ok(
+            json!({ "configured": true, "config": { "relayAddrs": [relay_addr()] } }),
+        ));
+        let view = resolve(
+            &center,
+            &["/ip4/198.51.100.7/tcp/4001/p2p/invite".to_string()],
+            "invite",
+        );
+        assert_eq!(view.source, RelaySource::Center);
+        assert_eq!(view.addrs, vec![relay_addr()]);
+        assert!(view.error.is_none());
+    }
+
+    #[test]
+    fn resolve_invite_with_empty_cache_falls_back_to_center_semantics() {
+        let center = Fake(Ok(json!({ "configured": false, "config": null })));
+        let view = resolve(&center, &[], "invite");
         assert_eq!(view.source, RelaySource::Center);
         assert!(view.addrs.is_empty());
         assert!(view.error.is_none());
@@ -249,8 +316,17 @@ mod tests {
     #[test]
     fn resolve_falls_back_to_cache_on_center_failure() {
         let center = Fake(Err("api-call: timeout".to_string()));
-        let view = resolve(&center, &[relay_addr().to_string()]);
+        let view = resolve(&center, &[relay_addr().to_string()], "");
         assert_eq!(view.source, RelaySource::Cache);
+        assert_eq!(view.addrs, vec![relay_addr()]);
+        assert_eq!(view.error.as_deref(), Some("api-call: timeout"));
+    }
+
+    #[test]
+    fn resolve_marks_invite_cache_with_center_error_on_failure() {
+        let center = Fake(Err("api-call: timeout".to_string()));
+        let view = resolve(&center, &[relay_addr().to_string()], "invite");
+        assert_eq!(view.source, RelaySource::Invite);
         assert_eq!(view.addrs, vec![relay_addr()]);
         assert_eq!(view.error.as_deref(), Some("api-call: timeout"));
     }
@@ -260,7 +336,7 @@ mod tests {
         let center = Fake(Ok(
             json!({ "configured": true, "config": { "relayAddrs": "x" } }),
         ));
-        let view = resolve(&center, &[relay_addr().to_string()]);
+        let view = resolve(&center, &[relay_addr().to_string()], "");
         assert_eq!(view.source, RelaySource::Cache);
         assert_eq!(view.addrs, vec![relay_addr()]);
         assert!(view.error.is_some());

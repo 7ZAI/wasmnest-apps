@@ -89,8 +89,10 @@ export interface MyDeviceInfo {
   capabilities: HostCapabilities
   /** relay 端点（桌面 = 配置中心真源；移动 = 本机缓存；不是当前生效预留） */
   relayAddrs: string[]
+  /** 中继会合空间码（空 = 同一中继所有设备可见；双端必须一致） */
+  relayRoom?: string
   /** relay 地址来源：center = 「内网穿透」配置中心；cache = 本机缓存兜底 */
-  relaySource?: 'center' | 'cache'
+  relaySource?: 'center' | 'cache' | 'invite'
   /** 读取配置中心的错误（仅降级时非空；fail-visible，不吞） */
   relayError?: string | null
   nodeId?: string

@@ -17,12 +17,14 @@ import BatchRequestDialog from './BatchRequestDialog.vue'
 import ConfirmDialog from './ConfirmDialog.vue'
 import AddRemoteDeviceDialog from './AddRemoteDeviceDialog.vue'
 import MyDeviceDialog from './MyDeviceDialog.vue'
+import type { ConnectionInvite } from '../utils/pairingLink'
 import { useTasks } from '../composables/useTasks'
 import { useReceiving } from '../composables/useReceiving'
 import { useRemoteFs } from '../composables/useRemoteFs'
 import { useSettings } from '../composables/useSettings'
 import { usePeerDevices } from '../composables/usePeerDevices'
 import { hasRelayCandidate } from '../composables/deviceState'
+import { prepareDeviceSend } from '../composables/sendToDevice'
 import { useBatchPrompt } from '../composables/useBatchPrompt'
 import { toast } from 'vue-sonner'
 
@@ -173,6 +175,9 @@ const showAddRemote = ref(false)
 /** 「我的设备」（T21）：本机连接串 / 外网接入 */
 const showMyDevice = ref(false)
 
+/** 当前经中继可见的设备数（邀请确认页展示「当前空间 N 台」） */
+const relayDeviceCount = computed(() => deviceRows.value.filter((row) => row.relay).length)
+
 function handleAddRemote(link: Parameters<typeof addRemotePeer>[0]): void {
   const added = addRemotePeer(link)
   showAddRemote.value = false
@@ -188,6 +193,17 @@ function handleAddRemote(link: Parameters<typeof addRemotePeer>[0]): void {
   )
 }
 
+/**
+ * 邀请导入成功（T23）：relay + 空间码已由弹层写入；这里只刷新发现并提示。
+ * 不写信任、不自动连接——邀请是发现范围，不是授权。
+ */
+async function handleInviteJoined(invite: ConnectionInvite): Promise<void> {
+  showAddRemote.value = false
+  await refreshDevices()
+  const name = invite.name || t('transfer.invite.unnamed')
+  toast.success(t('transfer.invite.joined', { name }))
+}
+
 function handleRemoveRemote(nodeId: string): void {
   removeRemotePeer(nodeId)
 }
@@ -199,6 +215,22 @@ function handleRetryWan(nodeId: string): void {
 /** 仅经中继（T20）：跳过 LAN 候选，失败不回退（用户显式意图） */
 function handleRetryRelayOnly(nodeId: string): void {
   void connectDevice(nodeId, { relayOnly: true })
+}
+
+/**
+ * 设备行直达发送（T23）：未连接先连、再显式切活跃，最后才弹文件选择器。
+ *
+ * 顺序是刻意的：连接失败不弹选择器（用户不会白选一堆文件）；`connect` 内部
+ * 的 `ensureActiveFallback` 可能把活跃对端留给旧设备，所以必须显式 `switchPeer`。
+ */
+async function handleSendToDevice(nodeId: string): Promise<void> {
+  const device = deviceRows.value.find((row) => row.nodeId === nodeId)
+  const prepared = await prepareDeviceSend(nodeId, device, {
+    connect: connectDevice,
+    switchPeer,
+  })
+  if (!prepared.ok) return
+  await handleUpload()
 }
 
 /**
@@ -444,6 +476,7 @@ function handleClearHistoryConfirm(): void {
             @add-remote="showAddRemote = true"
             @my-device="showMyDevice = true"
             @remove-remote="handleRemoveRemote"
+            @send="handleSendToDevice"
             @scan="handleScanDevices"
           />
         </Transition>
@@ -667,7 +700,9 @@ function handleClearHistoryConfirm(): void {
     <!-- 添加远程设备（T12）：粘贴连接串 → 设备缓存（配对条目跨重启保留） -->
     <AddRemoteDeviceDialog
       v-if="showAddRemote"
+      :relay-device-count="relayDeviceCount"
       @add="handleAddRemote"
+      @joined="handleInviteJoined"
       @close="showAddRemote = false"
     />
 

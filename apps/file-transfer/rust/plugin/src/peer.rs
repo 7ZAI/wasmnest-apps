@@ -24,7 +24,7 @@ use std::sync::Mutex;
 use std::sync::OnceLock;
 use wasmnest_file_transfer_core::dial as core_dial;
 use wasmnest_plugin_api::host::{
-    HostEvents, HostLog, HostPeer, HostPlatform, HostPluginDatabase, HostStorage,
+    HostBus, HostEvents, HostLog, HostPeer, HostPlatform, HostPluginDatabase, HostStorage,
 };
 use wasmnest_plugin_api::wasm_host::WasmHost;
 
@@ -1848,7 +1848,7 @@ fn host_capabilities() -> serde_json::Value {
 pub(crate) fn get_my_device(h: &WasmHost) -> Result<serde_json::Value> {
     let s = settings_store::load_or_migrate(h)?;
     let platform = platform::current();
-    let relay = relay_center::effective(platform, &s.relay_addrs);
+    let relay = relay_center::effective(platform, &s.relay_addrs, &s.relay_origin);
     // 打开「我的设备」即收敛一次预留：桌面地址真源在配置中心，中心可能刚改过，
     // 本命令是唯一保证「显示的地址 = 正在生效的预留」的交互点（幂等；失败只留痕）
     apply_relay_reservation(h, platform, &s);
@@ -1860,6 +1860,8 @@ pub(crate) fn get_my_device(h: &WasmHost) -> Result<serde_json::Value> {
         "reason": serde_json::Value::Null,
         "capabilities": host_capabilities(),
         "relayAddrs": relay.addrs,
+        "relayRoom": s.relay_room,
+        "relayOrigin": s.relay_origin,
         "relaySource": relay.source.as_str(),
         "relayError": relay.error,
         "nodeId": info.node_id,
@@ -1871,6 +1873,22 @@ pub(crate) fn get_my_device(h: &WasmHost) -> Result<serde_json::Value> {
 
 /// 设置读面（`relay_addrs` 是**本机 KV 缓存**，不是真源：桌面端真源在「内网穿透」
 /// 配置中心，只经 `get-my-device` 带出来源；本命令保留缓存形状供设置往返 / 移动端使用）。
+/// 把空间码原文交给宿主（宿主 SHA-256 派生房间键；中继看不到明文）。
+///
+/// 总线消息是**本地**通道；失败只留痕——房间码丢失的后果是「跨网设备不出现」，
+/// 由下一次 activate / 刷新重发，不让设置保存失败。
+/// `enabled = None` = 只同步空间码，保留宿主当前的会合开关（刷新路径用；
+/// 避免为了重发一个字符串去跨插件读配置中心）。
+pub(crate) fn publish_relay_room(h: &WasmHost, room: &str, enabled: Option<bool>) {
+    let mut payload = serde_json::json!({ "room": room });
+    if let Some(enabled) = enabled {
+        payload["enabled"] = serde_json::Value::Bool(enabled);
+    }
+    if let Err(e) = h.bus_publish("peer:relay-room", &payload) {
+        h.log_warn(&format!("relay room publish failed (non-fatal): {e}"));
+    }
+}
+
 /// 把当前生效的 relay 配置推给宿主（幂等 reconcile；失败只记日志，不翻命令失败）。
 ///
 /// 地址口径与 `get-my-device` 同源（`relay_center::effective`）：桌面读配置中心，
@@ -1880,10 +1898,19 @@ pub(crate) fn apply_relay_reservation(
     platform: Platform,
     s: &settings_store::TransferSettings,
 ) {
+    // 房间码与预留相互独立：即使宿主不支持预留（旧宿主），也把房间码交给它，
+    // 避免「设置了空间码但发现永远走默认房间」的静默错配。enabled 跟随**本插件
+    // 生效的** relay 配置：没有 relay 地址 / 关掉 allowWan 时不得因为共享节点上
+    // 还有别人的预留就替本应用对外登记。
+    let view = relay_center::effective(platform, &s.relay_addrs, &s.relay_origin);
+    publish_relay_room(
+        h,
+        &s.relay_room,
+        Some(s.allow_wan && !view.addrs.is_empty()),
+    );
     if !HOST_RELAY_RESERVATION_SUPPORTED {
         return;
     }
-    let view = relay_center::effective(platform, &s.relay_addrs);
     // 中心不可用且缓存为空 = 不知道真实配置：保留现状，不用「未知」去拆掉可能仍在生效的
     // 预留；但用户显式关闭 allowWan 时仍必须释放（否则「仅内网」开关不生效）
     if s.allow_wan
@@ -1923,6 +1950,8 @@ pub(crate) fn get_settings(h: &WasmHost) -> Result<serde_json::Value> {
             "allow_wan": s.allow_wan,
             "relay_max_bytes_per_task": s.relay_max_bytes_per_task,
             "relay_addrs": s.relay_addrs,
+            "relay_room": s.relay_room,
+            "relay_origin": s.relay_origin,
             "capabilities": host_capabilities(),
         })),
         Platform::Mobile => {
@@ -1955,6 +1984,8 @@ pub(crate) fn get_settings(h: &WasmHost) -> Result<serde_json::Value> {
                 "allow_wan": s.allow_wan,
                 "relay_max_bytes_per_task": s.relay_max_bytes_per_task,
                 "relay_addrs": s.relay_addrs,
+                "relay_room": s.relay_room,
+                "relay_origin": s.relay_origin,
                 "capabilities": host_capabilities(),
             }))
         }
@@ -2004,12 +2035,32 @@ pub(crate) fn set_settings(h: &WasmHost, args: &serde_json::Value) -> Result<ser
             anyhow::anyhow!("relayMaxBytesPerTask must be a non-negative integer")
         })?;
     }
+    // T23：relay 来源。邀请导入显式置 `invite`；用户手动改地址且未声明来源时清空，
+    // 避免「手动填的地址」被当成邀请缓存而在中心清空后继续生效。
+    let mut origin_explicit = false;
+    if let Some(v) = args.get("relayOrigin") {
+        let raw = v
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("relayOrigin must be a string"))?;
+        s.relay_origin = settings_store::normalize_relay_origin(raw).map_err(anyhow::Error::msg)?;
+        origin_explicit = true;
+    }
     // T21：外网接入 relay 端点（只保存；宿主 configure-relay 就绪后由 activate 推送）。
     // 非法地址整批拒绝并点名，不静默丢弃（否则设置页显示已保存、实际没有入口）。
     if let Some(v) = args.get("relayAddrs") {
         let raw: Vec<String> = serde_json::from_value(v.clone())
             .map_err(|e| anyhow::anyhow!("relayAddrs must be a string array: {e}"))?;
         s.relay_addrs = settings_store::normalize_relay_addrs(&raw).map_err(anyhow::Error::msg)?;
+        if !origin_explicit {
+            s.relay_origin.clear();
+        }
+    }
+    // 空间码：空 = relay-wide；非空两端必须一致（只发哈希给中继，见宿主会合表）
+    if let Some(v) = args.get("relayRoom") {
+        let raw = v
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("relayRoom must be a string"))?;
+        s.relay_room = settings_store::normalize_relay_room(raw).map_err(anyhow::Error::msg)?;
     }
     settings_store::save_and_push(h, &s)?;
     // T21：设置变更（relayAddrs / allowWan）立即收敛预留，不等下次激活

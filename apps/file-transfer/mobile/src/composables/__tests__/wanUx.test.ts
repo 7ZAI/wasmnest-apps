@@ -12,6 +12,7 @@ import {
   dialFailureFromError,
   dialFailureFromResult,
   normalizeTransport,
+  parseRelayDevicesPayload,
 } from '../deviceState'
 import { usePeerDevices } from '../usePeerDevices'
 
@@ -233,5 +234,117 @@ describe('T20 · 连接编排（composable）', () => {
     peers.addRemotePeer({ nodeId: NODE_REMOTE, addrs: [], ticket: null, deviceName: '' })
     expect(await peers.connect(NODE_REMOTE)).toBe('no-endpoint')
     expect(calls.some((c) => c.id === 'file-transfer.dial-peer')).toBe(false)
+  })
+})
+
+
+describe('跨 NAT 中继发现（composable）', () => {
+  const CIRCUIT = '/ip4/203.0.113.9/tcp/4001/p2p/12D3KooWRelay/p2p-circuit/p2p/12D3KooWTarget'
+  const relayDevice = (nodeId = NODE_REMOTE) => ({
+    nodeId,
+    peerId: '12D3KooWTarget',
+    deviceName: 'Phone',
+    addrs: [CIRCUIT],
+    lastSeenMs: Date.now(),
+  })
+
+  it('中继快照并入列表；连接纯中继设备走 relayOnly', async () => {
+    const { peers, calls, emit, flush } = setup()
+    peers.start()
+    await flush()
+
+    emit('plugin:file-transfer:relay-devices', { devices: [relayDevice()] })
+    await flush()
+
+    const row = peers.rows.value.find((r) => r.nodeId === NODE_REMOTE)!
+    expect(row.relay).toBe(true)
+    expect(row.paired).toBe(false)
+    expect(row.wanAvailable).toBe(true)
+
+    expect(await peers.connect(NODE_REMOTE)).toBe('connected')
+    const dial = calls.filter((c) => c.id === 'file-transfer.dial-peer').pop()!
+    expect(dial.args.relayOnly).toBe(true)
+    expect(dial.args.wan).toBe(true)
+    expect(dial.args.endpoint.addrs).toEqual([CIRCUIT])
+  })
+
+  it('中继快照消失：纯中继行移除，已配对行保留', async () => {
+    const { peers, emit, flush } = setup()
+    peers.start()
+    await flush()
+
+    const pairedId = 'a'.repeat(64)
+    peers.addRemotePeer({ nodeId: pairedId, addrs: [CIRCUIT], ticket: null, deviceName: '' })
+    emit('plugin:file-transfer:relay-devices', {
+      devices: [relayDevice(), relayDevice(pairedId)],
+    })
+    await flush()
+    expect(peers.rows.value).toHaveLength(2)
+
+    emit('plugin:file-transfer:relay-devices', { devices: [] })
+    await flush()
+    expect(peers.rows.value.map((r) => r.nodeId)).toEqual([pairedId])
+    // 行因 paired 保留，但中继徽标必须如实消失（中继快照已不含它）
+    expect(peers.rows.value[0]!.relay).toBe(false)
+  })
+
+  it('上次经中继的设备再次出现在中继快照时自动重连（只尝试一次）', async () => {
+    const { peers, calls, emit, flush } = setup()
+    peers.start()
+    await flush()
+    peers.addRemotePeer({
+      nodeId: NODE_REMOTE,
+      addrs: [LAN, RELAY],
+      ticket: null,
+      deviceName: '',
+    })
+    emit('plugin:file-transfer:connection-changed', {
+      nodeId: NODE_REMOTE,
+      connected: true,
+      transport: 'wan-relay',
+    })
+    emit('plugin:file-transfer:connection-changed', { nodeId: NODE_REMOTE, connected: false })
+    await flush()
+
+    emit('plugin:file-transfer:relay-devices', { devices: [relayDevice()] })
+    await flush()
+    const dials = calls.filter((c) => c.id === 'file-transfer.dial-peer')
+    expect(dials).toHaveLength(1)
+    expect(dials[0]!.args.wan).toBe(true)
+
+    // 同一会话内再收到快照不重复自动拨号
+    emit('plugin:file-transfer:relay-devices', { devices: [relayDevice()] })
+    await flush()
+    expect(calls.filter((c) => c.id === 'file-transfer.dial-peer')).toHaveLength(1)
+  })
+
+  it('已配对设备当前只经中继可见：连接带 wan，但仍先试 LAN 候选', async () => {
+    const { peers, calls, emit, flush } = setup()
+    peers.start()
+    await flush()
+    peers.addRemotePeer({
+      nodeId: NODE_REMOTE,
+      addrs: [LAN],
+      ticket: null,
+      deviceName: '',
+    })
+    emit('plugin:file-transfer:relay-devices', { devices: [relayDevice()] })
+    await flush()
+
+    await peers.connect(NODE_REMOTE)
+    const dial = calls.filter((c) => c.id === 'file-transfer.dial-peer').pop()!
+    expect(dial.args.wan).toBe(true)
+    expect(dial.args.relayOnly).toBeUndefined()
+    expect(dial.args.endpoint.addrs).toEqual(expect.arrayContaining([LAN, CIRCUIT]))
+  })
+
+  it('纯函数：中继载荷只收合法 nodeId + circuit 候选', () => {
+    expect(parseRelayDevicesPayload({ devices: [relayDevice()] })).toHaveLength(1)
+    expect(parseRelayDevicesPayload({ devices: [{ ...relayDevice(), nodeId: 'x' }] })).toEqual([])
+    expect(
+      parseRelayDevicesPayload({
+        devices: [{ ...relayDevice(), addrs: ['/ip4/1.2.3.4/tcp/1'] }],
+      }),
+    ).toEqual([])
   })
 })

@@ -5,7 +5,15 @@
  * 非法入参显性失败，避免两端在「我的设备」/「添加远程设备」之间漂移。
  */
 import { describe, it, expect } from 'vitest'
-import { buildRemotePeerLink, parseRemotePeerLink, relayCandidatesOf } from '../pairingLink'
+import {
+  JOIN_URI_PREFIX,
+  buildConnectionInvite,
+  buildRemotePeerLink,
+  isConnectionInvite,
+  parseConnectionInvite,
+  parseRemotePeerLink,
+  relayCandidatesOf,
+} from '../pairingLink'
 
 const NODE_ID = 'b'.repeat(64)
 const LAN = '/ip4/192.168.1.7/tcp/47613'
@@ -44,5 +52,48 @@ describe('buildRemotePeerLink（v3）', () => {
       ok: false,
       reason: 'malformed',
     })
+  })
+})
+
+describe('ConnectionInvite（v4，T23）', () => {
+  const RELAY_ENDPOINT = '/ip4/203.0.113.9/tcp/4001/p2p/12D3KooWRelay'
+
+  it('should_roundTripRoomRelayAndName', () => {
+    const text = buildConnectionInvite({
+      room: 'nest-7f3a2c91',
+      relay: [RELAY_ENDPOINT, RELAY_ENDPOINT],
+      name: '手机',
+    })
+    expect(text.startsWith(JOIN_URI_PREFIX)).toBe(true)
+    expect(parseConnectionInvite(text)).toEqual({
+      ok: true,
+      invite: { room: 'nest-7f3a2c91', relay: [RELAY_ENDPOINT], name: '手机' },
+    })
+  })
+
+  it('should_rejectBadInviteWithDistinctReasons', () => {
+    expect(parseConnectionInvite('wasmnest://join/%%%')).toEqual({
+      ok: false,
+      reason: 'malformed',
+    })
+    expect(
+      parseConnectionInvite(
+        `${JOIN_URI_PREFIX}${btoa(JSON.stringify({ v: 4, relay: [RELAY_ENDPOINT] }))}`,
+      ),
+    ).toEqual({ ok: false, reason: 'missing-room' })
+    expect(
+      parseConnectionInvite(
+        `${JOIN_URI_PREFIX}${btoa(JSON.stringify({ v: 4, room: 'nest', relay: [] }))}`,
+      ),
+    ).toEqual({ ok: false, reason: 'address-invalid' })
+  })
+
+  it('should_splitInviteFromDeviceLinkByPrefix', () => {
+    expect(
+      isConnectionInvite(
+        buildConnectionInvite({ room: 'nest', relay: [RELAY_ENDPOINT], name: '' }),
+      ),
+    ).toBe(true)
+    expect(isConnectionInvite(buildRemotePeerLink({ nodeId: NODE_ID, addrs: [LAN] }))).toBe(false)
   })
 })

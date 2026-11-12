@@ -106,6 +106,10 @@ function handleDeny(): void {
       <p class="ft-consent-body">
         {{ t('transfer.consent.body', { name: displayName }) }}
       </p>
+      <!-- T23：接受即写入宿主信任表；文案必须说清，不靠用户猜 -->
+      <p class="ft-consent-hint" data-testid="ft-consent-trust-hint">
+        {{ t('transfer.consent.trustHint') }}
+      </p>
       <!-- 无名设备身份提示：宁可多一分核对，不可误信陌生节点 -->
       <p v-if="!request.deviceName" class="ft-consent-hint">
         {{ t('transfer.consent.namelessHint') }}

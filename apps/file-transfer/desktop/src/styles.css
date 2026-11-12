@@ -210,6 +210,20 @@
   text-align: center;
 }
 
+.ft-dev-empty p {
+  margin: 0;
+}
+
+.ft-dev-empty p + p {
+  margin-top: 6px;
+}
+
+.ft-dev-empty-hint {
+  font-size: var(--font-size-tag);
+  line-height: 1.5;
+  opacity: 0.85;
+}
+
 .ft-dev-list {
   max-height: 300px;
   overflow-y: auto;

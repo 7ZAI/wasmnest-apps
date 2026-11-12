@@ -17,8 +17,10 @@ import {
   dialFailureFromError,
   dialFailureFromResult,
   isWithinRestoreWindow,
+  mergeRelayDevices,
   normalizeTransport,
   parseFoundPayload,
+  parseRelayDevicesPayload,
   sweepStaleDevices,
   type DeviceRow,
   type DialFailure,
@@ -59,6 +61,8 @@ interface SnapshotEntry {
   paired?: boolean
   /** T20：上次连接成功时的传输形态（未知 / 旧快照缺省 = 不恢复） */
   lastTransport?: unknown
+  /** 中继会合发现（跨 NAT；重启后先按「最近可见」展示，等中继快照刷新） */
+  relay?: boolean
 }
 
 interface ConnectionPayload {
@@ -96,6 +100,8 @@ function createPeerDevices(context: PluginContext) {
   const activePeerId = ref('') as Ref<string>
 
   let started = false
+  /** 本次会话已尝试自动重连的中继设备（防重连风暴；用户手动断开后不再自动连） */
+  const autoConnectAttempted = new Set<string>()
   let disposables: Disposable[] = []
   let saveTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -242,6 +248,7 @@ function createPeerDevices(context: PluginContext) {
         // 上次传输形态是重连策略输入（T20：重启后免再点「尝试外网」）
         addrs: d.addrs ?? [],
         paired: d.paired === true,
+        ...(d.relay === true ? { relay: true } : {}),
         ...(d.lastTransport ? { lastTransport: d.lastTransport } : {}),
       }))
       context.commands.execute('file-transfer.save-device-snapshot', { devices: entries }).catch(
@@ -271,6 +278,35 @@ function createPeerDevices(context: PluginContext) {
     if (next.length !== devices.value.length) {
       devices.value = next
       scheduleSnapshotSave()
+    }
+  }
+
+  /**
+   * 中继会合快照（跨 NAT）：全量替换 relay 发现面。
+   *
+   * 与 mDNS 事件共用同一设备缓存，按 nodeId 归并——同一台设备既在局域网又被
+   * 中继看见时只显示一行，LAN 候选与 circuit 候选合并（连接时 LAN 优先）。
+   * 中继快照中消失的纯中继条目会被移除（宿主 25s 心跳续期；中继离线不保留
+   * 陈旧 circuit）。
+   */
+  function handleRelayDevices(payload: unknown): void {
+    const snapshot = parseRelayDevicesPayload(payload)
+    devices.value = mergeRelayDevices(
+      devices.value,
+      snapshot,
+      Date.now(),
+      connectedIds.value,
+    )
+    scheduleSnapshotSave()
+    // 只对「上次确实经中继连过」的设备自动重连；新设备仍需用户点一下 + 对端
+    // 首连确认（自动连陌生设备 = 静默扩大信任面，不做）
+    for (const device of snapshot) {
+      const known = devices.value.find((d) => d.nodeId === device.nodeId)
+      if (!known || known.lastTransport !== 'wan-relay') continue
+      if (autoConnectAttempted.has(device.nodeId)) continue
+      if (connectedIds.value.has(device.nodeId) || connectingIds.value.has(device.nodeId)) continue
+      autoConnectAttempted.add(device.nodeId)
+      void connect(device.nodeId, { wan: true })
     }
   }
 
@@ -373,10 +409,26 @@ function createPeerDevices(context: PluginContext) {
     }
     if (connectingIds.value.has(nodeId) || connectedIds.value.has(nodeId)) return null
 
-    const relayOnly = opts?.relayOnly === true
+    // 纯中继发现的设备没有 LAN 证据（addr/port/instanceName 全空）：直接走
+    // relay-only，避免拿上一网络的陈旧 LAN 候选先吃超时。同网设备若同时被
+    // mDNS 发现，仍保留 LAN 优先。
+    const hasLanCandidate = (device.addrs ?? []).some((a) => !a.includes('/p2p-circuit'))
+    const pureRelay =
+      device.relay === true &&
+      !device.instanceName &&
+      !device.addr &&
+      (device.port ?? 0) === 0 &&
+      !hasLanCandidate
+    const relayOnly = opts?.relayOnly === true || pureRelay
+    // 当前仍在中继快照里、且没有实时 mDNS 证据（instanceName）= 设备现在只经
+    // 中继可见：即使缓存里还留着上一网络的 LAN 地址，也要把 relay 纳入候选
+    // （LAN 仍先试，失败后走 relay，而不是停在 lan-unreachable）。
+    const relayVisible = device.relay === true && !device.instanceName
     // 上次经中继成功 ⇒ 本次默认把 relay 纳入候选（有 LAN 候选时 LAN 仍先试）；
     // 「仅经中继」是更强的显式意图，优先
-    const wan = relayOnly || (opts?.wan ?? device.lastTransport === 'wan-relay')
+    const wan =
+      relayOnly ||
+      (opts?.wan ?? (device.lastTransport === 'wan-relay' || relayVisible))
 
     connectingIds.value = withId(connectingIds.value, nodeId)
     clearDialError(nodeId)
@@ -489,10 +541,12 @@ function createPeerDevices(context: PluginContext) {
   function start(): void {
     if (started) return
     started = true
+    autoConnectAttempted.clear()
     disposables = [
       context.events.on('plugin:file-transfer:mdns-found', handleFound),
       context.events.on('plugin:file-transfer:mdns-lost', handleLost),
       context.events.on('plugin:file-transfer:connection-changed', handleConnectionChanged),
+      context.events.on('plugin:file-transfer:relay-devices', handleRelayDevices),
     ]
     void (async () => {
       try {
@@ -517,6 +571,7 @@ function createPeerDevices(context: PluginContext) {
                   ...(d.instanceName ? { instanceName: d.instanceName } : {}),
                   ...(Array.isArray(d.addrs) && d.addrs.length ? { addrs: d.addrs } : {}),
                   ...(d.paired === true ? { paired: true } : {}),
+                  ...(d.relay === true ? { relay: true } : {}),
                   ...(lastTransport ? { lastTransport } : {}),
                   lastSeenMs: d.lastSeenMs ?? 0,
                   restored: true,

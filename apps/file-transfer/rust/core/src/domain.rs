@@ -87,6 +87,11 @@ pub struct DeviceSnapshotEntry {
     /// 候选（LAN 仍优先）。旧快照缺字段 ⇒ None（行为与引入前一致）。
     #[serde(default)]
     pub last_transport: Option<String>,
+    /// 中继会合发现（跨 NAT；重启后仍标「中继」，等下一次宿主快照刷新）。
+    ///
+    /// 旧快照缺字段 ⇒ false（行为与引入前一致）。
+    #[serde(default)]
+    pub relay: bool,
 }
 
 #[cfg(test)]

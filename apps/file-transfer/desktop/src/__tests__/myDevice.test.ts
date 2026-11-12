@@ -127,3 +127,34 @@ describe('useMyDevice — relay 地址来源', () => {
     expect(my.info.value.relayError).toBe('api-call: timeout')
   })
 })
+
+
+describe('useMyDevice — 空间码', () => {
+  it('should_saveRoomAndReload', async () => {
+    let room = ''
+    const { context, calls } = makeContext((command, args) => {
+      if (command === 'file-transfer.set-settings') {
+        room = String((args as Record<string, unknown>)?.relayRoom ?? '')
+        return { ok: true }
+      }
+      return {
+        supported: true,
+        capabilities: { nodeInfo: true, relayReservation: true },
+        relayAddrs: [RELAY_ENDPOINT],
+        relayRoom: room,
+        relayState: 'relay-reserved',
+        nodeId: NODE_ID,
+        addrs: [LAN],
+      }
+    })
+    const my = useMyDevice(context)
+    await my.load()
+    await my.saveRelayRoom('home_1')
+
+    expect(calls.find((c) => c.id === 'file-transfer.set-settings')!.args).toEqual({
+      relayRoom: 'home_1',
+    })
+    expect(my.info.value.relayRoom).toBe('home_1')
+    expect(my.roomSaved.value).toBe(true)
+  })
+})

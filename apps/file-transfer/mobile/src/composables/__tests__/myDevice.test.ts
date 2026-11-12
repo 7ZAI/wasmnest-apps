@@ -74,3 +74,26 @@ describe('useMyDevice（移动端）', () => {
     expect(my.relayError.value).toBe('save-failed')
   })
 })
+
+
+describe('useMyDevice — 空间码', () => {
+  it('should_sendRoomTogetherWithRelayAddrs', async () => {
+    const { context, calls } = makeContext((command) =>
+      command === 'file-transfer.set-settings'
+        ? { ok: true }
+        : {
+            supported: false,
+            capabilities: { nodeInfo: false, relayReservation: false },
+            relayAddrs: [RELAY_ENDPOINT],
+            relayRoom: '',
+          },
+    )
+    const my = useMyDevice(context)
+    await my.load()
+    await my.saveRelayAddrs([RELAY_ENDPOINT], 'home_1')
+
+    const call = calls.find((c) => c.id === 'file-transfer.set-settings')!
+    expect(call.args).toEqual({ relayAddrs: [RELAY_ENDPOINT], relayRoom: 'home_1' })
+    expect(my.info.value.relayRoom).toBe('home_1')
+  })
+})
