@@ -18,6 +18,17 @@
         "id": "monitor.snapshot",
         "title": "Monitor: Runtime Metrics Snapshot"
       }
+    ],
+    "assistantTools": [
+      {
+        "id": "monitor.runtime-snapshot",
+        "title": "读取运行指标",
+        "description": "读取所有已加载 wasm 应用的运行时指标快照（只读，不含会话/文件/凭据内容）",
+        "command": "monitor.snapshot",
+        "argsSchema": { "type": "object", "properties": {}, "additionalProperties": false },
+        "risk": "read",
+        "output": "json"
+      }
     ]
   }
 }
