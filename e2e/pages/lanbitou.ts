@@ -5,8 +5,13 @@
  * spec 里只写「用户做了什么 + 看得见什么」（docs/E2E.md 分层纪律）。
  */
 
-/** 应用显示名（= lanbitou/desktop/plugin.json `name`） */
-export const APP_NAME = 'Lanbitou'
+/**
+ * 应用显示名（= lanbitou/desktop/plugin.json `name`）
+ *
+ * 宿主主屏逐字显示清单 `name`，不做本地化映射（`SERVICE_NAME_KEYS` 只覆盖
+ * auth-center / monitor）——改名后这里必须同步，否则 `clickAppCard` 永远等不到卡片。
+ */
+export const APP_NAME = '烂笔头'
 
 /** 编辑容器（笔记面与归档只读面共用同一个 testid，同屏只会有一个） */
 export const EDITOR = 'editor'

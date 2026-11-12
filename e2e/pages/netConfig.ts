@@ -6,11 +6,16 @@
  * 业务 WAN 注册表。
  */
 
-/** 应用显示名（= plugin.json `name`） */
-export const APP_NAME = 'Network Config'
+/**
+ * 应用显示名（= plugin.json `name`）
+ *
+ * 服务宫格逐字显示清单 `name`（net-config 不在宿主 `SERVICE_NAME_KEYS` 里，
+ * 没有 zh-CN / en 两套本地化名），改名后这里与 `SYS_ENTRY_NAMES` 必须同步。
+ */
+export const APP_NAME = '内网穿透'
 
-/** 主屏服务宫格显示名（宿主本地化：zh-CN「网络配置」/ en「Network Config」） */
-export const SYS_ENTRY_NAMES = ['网络配置', 'Network Config', '网络配置中心'] as const
+/** 主屏服务宫格可接受的显示名（当前清单名 + 历史名，兼容未重装旧产物） */
+export const SYS_ENTRY_NAMES = ['内网穿透', '网络配置', 'Network Config', '网络配置中心'] as const
 
 export const PAGE = 'net-config-page'
 export const REFRESH = 'net-config-refresh'
