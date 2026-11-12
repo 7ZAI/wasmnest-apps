@@ -166,39 +166,6 @@ impl<H: HostPluginDatabase + ?Sized> RootsStore for DesktopPorts<'_, H> {
     }
 }
 
-/// 测试夹具共用：应用 `save_roots` 的事务批（只认 `shared_roots` 的整删 +
-/// 单条多值插入）。语句形状一变就 panic——表结构/语句形状变动即被测红。
-#[cfg(test)]
-pub(crate) fn apply_shared_roots_batch(rows: &mut Vec<serde_json::Value>, sqls: &[String]) {
-    let mut next: Option<Vec<serde_json::Value>> = None;
-    for sql in sqls {
-        if sql.trim() == "DELETE FROM shared_roots" {
-            next = Some(Vec::new());
-            continue;
-        }
-        let Some((head, values)) = sql.split_once(" VALUES ") else {
-            continue;
-        };
-        if !head.contains("INSERT INTO shared_roots") {
-            continue;
-        }
-        let list = next
-            .as_mut()
-            .expect("shared_roots 事务批必须先 DELETE 再 INSERT");
-        for tuple in values.split("), (") {
-            let tuple = tuple.trim().trim_start_matches('(').trim_end_matches(')');
-            let mut fields = tuple.split(", ");
-            list.push(serde_json::json!({
-                "id": fields.next().unwrap_or("").trim_matches('\''),
-                "name": fields.next().unwrap_or("").trim_matches('\''),
-                "path": fields.next().unwrap_or("").trim_matches('\''),
-            }));
-        }
-    }
-    if let Some(list) = next {
-        *rows = list;
-    }
-}
 
 /// 差异面③：桌面推送载荷字段名 = `path`（移动 = `safTreeUri`）
 impl<H: ?Sized> RootWireCodec for DesktopPorts<'_, H> {
@@ -381,6 +348,40 @@ impl<H: ?Sized> PluginProfile for DesktopPorts<'_, H> {
 
     fn supports_custom_download_dir(&self) -> bool {
         true
+    }
+}
+
+/// 测试夹具共用：应用 `save_roots` 的事务批（只认 `shared_roots` 的整删 +
+/// 单条多值插入）。语句形状一变就 panic——表结构/语句形状变动即被测红。
+#[cfg(test)]
+pub(crate) fn apply_shared_roots_batch(rows: &mut Vec<serde_json::Value>, sqls: &[String]) {
+    let mut next: Option<Vec<serde_json::Value>> = None;
+    for sql in sqls {
+        if sql.trim() == "DELETE FROM shared_roots" {
+            next = Some(Vec::new());
+            continue;
+        }
+        let Some((head, values)) = sql.split_once(" VALUES ") else {
+            continue;
+        };
+        if !head.contains("INSERT INTO shared_roots") {
+            continue;
+        }
+        let list = next
+            .as_mut()
+            .expect("shared_roots 事务批必须先 DELETE 再 INSERT");
+        for tuple in values.split("), (") {
+            let tuple = tuple.trim().trim_start_matches('(').trim_end_matches(')');
+            let mut fields = tuple.split(", ");
+            list.push(serde_json::json!({
+                "id": fields.next().unwrap_or("").trim_matches('\''),
+                "name": fields.next().unwrap_or("").trim_matches('\''),
+                "path": fields.next().unwrap_or("").trim_matches('\''),
+            }));
+        }
+    }
+    if let Some(list) = next {
+        *rows = list;
     }
 }
 
