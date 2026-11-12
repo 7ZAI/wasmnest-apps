@@ -21,11 +21,13 @@ import {
   normalizeTransport,
   parseFoundPayload,
   parseRelayDevicesPayload,
+  parseRelayDiscoveryPayload,
   sweepStaleDevices,
   type DeviceRow,
   type DialFailure,
   type DiscoveredDevice,
   type DialStatus,
+  type RelayDiscovery,
   type TransportKind,
 } from './deviceState'
 import type { RemotePeerLink } from '../utils/pairingLink'
@@ -98,6 +100,8 @@ function createPeerDevices(context: PluginContext) {
   const transports = ref<Record<string, TransportKind>>({})
   /** 活跃对端 id（'' = 未选择；仅已连接节点可成为活跃对端） */
   const activePeerId = ref('') as Ref<string>
+  /** 中继发现状态（宿主 envelope 增量字段；旧宿主为 null） */
+  const relayDiscovery = ref<RelayDiscovery | null>(null) as Ref<RelayDiscovery | null>
 
   let started = false
   /** 本次会话已尝试自动重连的中继设备（防重连风暴；用户手动断开后不再自动连） */
@@ -251,11 +255,11 @@ function createPeerDevices(context: PluginContext) {
         ...(d.relay === true ? { relay: true } : {}),
         ...(d.lastTransport ? { lastTransport: d.lastTransport } : {}),
       }))
-      context.commands.execute('file-transfer.save-device-snapshot', { devices: entries }).catch(
-        (e: unknown) => {
+      context.commands
+        .execute('file-transfer.save-device-snapshot', { devices: entries })
+        .catch((e: unknown) => {
           console.error('[File Transfer] save-device-snapshot failed:', e)
-        },
-      )
+        })
     }, SNAPSHOT_SAVE_DEBOUNCE_MS)
   }
 
@@ -290,13 +294,9 @@ function createPeerDevices(context: PluginContext) {
    * 陈旧 circuit）。
    */
   function handleRelayDevices(payload: unknown): void {
+    relayDiscovery.value = parseRelayDiscoveryPayload(payload)
     const snapshot = parseRelayDevicesPayload(payload)
-    devices.value = mergeRelayDevices(
-      devices.value,
-      snapshot,
-      Date.now(),
-      connectedIds.value,
-    )
+    devices.value = mergeRelayDevices(devices.value, snapshot, Date.now(), connectedIds.value)
     scheduleSnapshotSave()
     // 只对「上次确实经中继连过」的设备自动重连；新设备仍需用户点一下 + 对端
     // 首连确认（自动连陌生设备 = 静默扩大信任面，不做）
@@ -426,9 +426,7 @@ function createPeerDevices(context: PluginContext) {
     const relayVisible = device.relay === true && !device.instanceName
     // 上次经中继成功 ⇒ 本次默认把 relay 纳入候选（有 LAN 候选时 LAN 仍先试）；
     // 「仅经中继」是更强的显式意图，优先
-    const wan =
-      relayOnly ||
-      (opts?.wan ?? (device.lastTransport === 'wan-relay' || relayVisible))
+    const wan = relayOnly || (opts?.wan ?? (device.lastTransport === 'wan-relay' || relayVisible))
 
     connectingIds.value = withId(connectingIds.value, nodeId)
     clearDialError(nodeId)
@@ -598,6 +596,7 @@ function createPeerDevices(context: PluginContext) {
   }
 
   return {
+    relayDiscovery,
     devices,
     rows,
     peers,

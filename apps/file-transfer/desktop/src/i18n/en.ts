@@ -288,6 +288,48 @@ const en: MessageSchema = {
     'This host version cannot establish a relay reservation yet; the config will take effect after a host upgrade.',
   'transfer.myDevice.refresh': 'Refresh',
   'transfer.myDevice.close': 'Done',
+  'transfer.relayCard.conflict.title': 'Global relay differs from the invite',
+  'transfer.relayCard.conflict.body':
+    'Auto-discovery will not work. Switch Network to the invited relay, or ask the other side to use yours.',
+  'transfer.relayCard.unconfigured.title': 'Cross-network not configured',
+  'transfer.relayCard.unconfigured.body':
+    'A relay is required. Paste an invite, or set up your own relay.',
+  'transfer.relayCard.connecting.title': 'Connecting to the relay…',
+  'transfer.relayCard.connecting.body':
+    'The first connection may take a few seconds; devices in the same space will appear automatically.',
+  'transfer.relayCard.lost.title': 'Relay unreachable',
+  'transfer.relayCard.lost.body': 'Check the relay address, network and relay process, then retry.',
+  'transfer.relayCard.disabled.title': 'Relay disabled',
+  'transfer.relayCard.disabled.body':
+    'Check the “allow relay” switch or the relay address; when off, only LAN is used.',
+  'transfer.relayCard.unsupported.title': 'Relay does not support discovery',
+  'transfer.relayCard.unsupported.body':
+    'This relay version does not handle rendezvous queries; upgrade it and retry.',
+  'transfer.relayCard.denied.title': 'Relay rejected this device',
+  'transfer.relayCard.denied.body':
+    'Allowlist mode requires enrollment first; check the relay configuration.',
+  'transfer.relayCard.error.title': 'Discovery query failed',
+  'transfer.relayCard.error.body': '{detail}',
+  'transfer.relayCard.unavailable.title': 'Relay not ready',
+  'transfer.relayCard.unavailable.body':
+    'It will retry once the relay reservation is ready; you can also refresh manually.',
+  'transfer.relayCard.readyEmpty.title': 'Ready, no devices in this space yet',
+  'transfer.relayCard.readyEmpty.body':
+    'Make sure the other side has the app open and both use the same space code.',
+  'transfer.relayCard.ready.title': '{count} devices online in this space',
+  'transfer.relayCard.ready.body': 'Updated {seconds}s ago; send files directly from a device row.',
+  'transfer.relayCard.pending.title': 'Checking discovery status',
+  'transfer.relayCard.pending.body':
+    'Refresh to query again; older hosts may not report discovery status.',
+  'transfer.relayCard.roomHint': 'No space code: every device on this relay is visible.',
+  'transfer.relayCard.stale': 'Status may be stale; refresh to retry.',
+  'transfer.relayCard.actionPaste': 'Paste invite',
+  'transfer.relayCard.actionInvite': 'Generate invite',
+  'transfer.relayCard.actionRefresh': 'Refresh',
+  'transfer.relayCard.actionCenter': 'Open Network',
+  'transfer.relayCard.actionSettings': 'Open settings',
+  'transfer.relayCard.openCenterUnavailable':
+    'This host cannot navigate; open Network from the sidebar.',
   'transfer.invite.title': 'Invite a device',
   'transfer.invite.hint':
     'Bundle the relay and space code into one invite; the other side scans or pastes it once to discover you.',

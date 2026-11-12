@@ -15,7 +15,12 @@
  */
 import { computed, inject, ref, type Ref } from 'vue'
 import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-mobile'
-import type { DeviceRow, DialFailureCode } from '../composables/deviceState'
+import type {
+  DeviceRow,
+  DialFailureCode,
+  RelayCardAction,
+  RelayCardModel,
+} from '../composables/deviceState'
 import {
   isConnectionInvite,
   parseConnectionInvite,
@@ -39,6 +44,8 @@ const props = defineProps<{
   t: Translate
   /** 当前经中继可见的设备数（邀请确认页展示「当前空间 N 台」） */
   relayDeviceCount?: number
+  /** 跨网状态卡模型（P0-2；父级经 deriveRelayCard 产出） */
+  relayCard?: RelayCardModel | null
 }>()
 
 const emit = defineEmits<{
@@ -252,6 +259,42 @@ function onInviteScanned(invite: ConnectionInvite): void {
   void invites.loadCurrent()
 }
 
+// ==================== 状态卡 ====================
+
+/** 状态卡操作 → 文案 key（none 不渲染） */
+const RELAY_ACTION_KEYS: Record<RelayCardAction, string> = {
+  'paste-invite': 'transfer.relayCard.actionPaste',
+  'generate-invite': 'transfer.relayCard.actionInvite',
+  refresh: 'transfer.relayCard.actionRefresh',
+  'open-center': 'transfer.relayCard.actionCenter',
+  'open-settings': 'transfer.relayCard.actionSettings',
+  none: '',
+}
+
+/**
+ * 移动端没有配置中心：open-center / open-settings 都落到「我的设备」弹层
+ * （relay 地址与空间码都在那里编辑），不跳宿主设置页。
+ */
+function handleRelayAction(action: RelayCardAction): void {
+  switch (action) {
+    case 'paste-invite':
+      openAddRemote()
+      break
+    case 'generate-invite':
+      myOpen.value = true
+      break
+    case 'refresh':
+      emit('scan')
+      break
+    case 'open-center':
+    case 'open-settings':
+      myOpen.value = true
+      break
+    default:
+      break
+  }
+}
+
 // ==================== 行内文案 ====================
 
 /** 传输形态文案（宿主 transport 词表；未知形态不渲染） */
@@ -340,6 +383,62 @@ function metaText(row: DeviceRow): string {
       @invite="onInviteScanned"
       @close="scanOpen = false"
     />
+
+    <!-- 跨网状态卡（P0-2）：任何状态都有一个明确下一步；空态之上也可见 -->
+    <div
+      v-if="props.relayCard"
+      class="fv2-relay-card"
+      :class="`fv2-relay-card--${props.relayCard.tone}`"
+      data-testid="mobile-relay-card"
+    >
+      <div class="fv2-relay-card-head">
+        <span class="fv2-relay-card-title" data-testid="mobile-relay-card-title">
+          {{ t(props.relayCard.title) }}
+        </span>
+        <span
+          v-if="props.relayCard.count > 0"
+          class="fv2-relay-card-count"
+          data-testid="mobile-relay-card-count"
+        >
+          {{ props.relayCard.count }}
+        </span>
+      </div>
+      <p class="fv2-relay-card-body" data-testid="mobile-relay-card-body">
+        {{ t(props.relayCard.body, props.relayCard.params) }}
+      </p>
+      <p
+        v-if="props.relayCard.stale"
+        class="fv2-relay-card-stale"
+        data-testid="mobile-relay-card-stale"
+      >
+        {{ t('transfer.relayCard.stale') }}
+      </p>
+      <p
+        v-if="props.relayCard.roomHint"
+        class="fv2-relay-card-hint"
+        data-testid="mobile-relay-card-room-hint"
+      >
+        {{ t('transfer.relayCard.roomHint') }}
+      </p>
+      <div class="fv2-relay-card-actions">
+        <button
+          v-if="props.relayCard.primary !== 'none'"
+          class="fv2-btn-primary"
+          data-testid="mobile-relay-card-primary"
+          @click="handleRelayAction(props.relayCard.primary)"
+        >
+          {{ t(RELAY_ACTION_KEYS[props.relayCard.primary]) }}
+        </button>
+        <button
+          v-if="props.relayCard.secondary !== 'none'"
+          class="fv2-btn-text"
+          data-testid="mobile-relay-card-secondary"
+          @click="handleRelayAction(props.relayCard.secondary)"
+        >
+          {{ t(RELAY_ACTION_KEYS[props.relayCard.secondary]) }}
+        </button>
+      </div>
+    </div>
 
     <!-- 空态：雷达占主视觉，扫描 / 添加两个出口都在这里（不渲染状态带，避免重复标题） -->
     <div v-if="rows.length === 0" class="fv2-discover fv2-discover--empty">
@@ -738,3 +837,57 @@ function metaText(row: DeviceRow): string {
     </div>
   </div>
 </template>
+
+<style scoped>
+.fv2-relay-card {
+  margin: 8px 12px 4px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border-color, #3a3f47);
+  background: var(--surface-secondary, rgba(255, 255, 255, 0.03));
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.fv2-relay-card--progress {
+  border-color: rgba(120, 170, 255, 0.45);
+}
+.fv2-relay-card--warn {
+  border-color: rgba(255, 190, 90, 0.5);
+}
+.fv2-relay-card--ok {
+  border-color: rgba(90, 200, 140, 0.5);
+}
+.fv2-relay-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.fv2-relay-card-title {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+.fv2-relay-card-count {
+  margin-left: auto;
+  font-size: 0.78rem;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: rgba(90, 200, 140, 0.18);
+}
+.fv2-relay-card-body,
+.fv2-relay-card-stale,
+.fv2-relay-card-hint {
+  margin: 0;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  color: var(--text-secondary, #a4a9b3);
+}
+.fv2-relay-card-stale {
+  color: var(--warning, #e5b567);
+}
+.fv2-relay-card-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+</style>

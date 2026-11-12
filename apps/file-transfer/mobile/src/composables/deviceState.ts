@@ -441,3 +441,189 @@ export function deriveDeviceRows(input: DeviceStateInput): DeviceRow[] {
     }
   })
 }
+
+/** 宿主发现状态词表（`peer:relay-devices.status`） */
+export type RelayDiscoveryStatus =
+  'ok' | 'disabled' | 'relay-unavailable' | 'unsupported' | 'denied' | 'error'
+
+const RELAY_DISCOVERY_STATUSES: readonly RelayDiscoveryStatus[] = [
+  'ok',
+  'disabled',
+  'relay-unavailable',
+  'unsupported',
+  'denied',
+  'error',
+]
+
+/** 错误摘要展示上限（完整内容只在日志 / 控制台） */
+const RELAY_ERROR_DISPLAY_MAX = 120
+
+/** 状态卡「可能过期」阈值（宿主持久 25s 心跳；超过两个心跳即可疑） */
+export const RELAY_CARD_STALE_MS = 60_000
+
+/** 中继发现状态（宿主 envelope 的增量字段；旧宿主返回 null） */
+export interface RelayDiscovery {
+  status: RelayDiscoveryStatus
+  /** 失败 token / 截断原文（ok / disabled 时为 null） */
+  error: string | null
+  /** 当前使用的中继端点（未配置为空串） */
+  relay: string
+  /** 宿主发布时刻（Unix 毫秒；0 = 宿主未给） */
+  updatedAtMs: number
+  /** 本次快照里的设备数 */
+  count: number
+}
+
+function truncateDisplay(text: string, maxChars: number): string {
+  const chars = Array.from(text)
+  return chars.length > maxChars ? `${chars.slice(0, maxChars).join('')}…` : text
+}
+
+/**
+ * 解析宿主发现状态（纯函数）。
+ *
+ * 旧宿主只发 `{ devices }`：返回 null，状态卡降级为「按 relayState 展示」，
+ * 不把缺失字段猜成 ok。`error` 只保留 ≤120 字符，完整内容进日志。
+ */
+export function parseRelayDiscoveryPayload(payload: unknown): RelayDiscovery | null {
+  if (!payload || typeof payload !== 'object') return null
+  const rec = payload as Record<string, unknown>
+  const status =
+    typeof rec.status === 'string' &&
+    (RELAY_DISCOVERY_STATUSES as readonly string[]).includes(rec.status)
+      ? (rec.status as RelayDiscoveryStatus)
+      : null
+  if (!status) return null
+  const rawError = typeof rec.error === 'string' ? rec.error.trim() : ''
+  const updatedAtMs =
+    typeof rec.updatedAtMs === 'number' && Number.isFinite(rec.updatedAtMs) ? rec.updatedAtMs : 0
+  return {
+    status,
+    error: rawError === '' ? null : truncateDisplay(rawError, RELAY_ERROR_DISPLAY_MAX),
+    relay: typeof rec.relay === 'string' ? rec.relay.trim() : '',
+    updatedAtMs,
+    count: Array.isArray(rec.devices) ? rec.devices.length : 0,
+  }
+}
+
+/** 状态卡主 / 次操作 token（组件映射到 i18n 文案与本地入口） */
+export type RelayCardAction =
+  'paste-invite' | 'generate-invite' | 'refresh' | 'open-center' | 'open-settings' | 'none'
+
+/** 状态卡渲染模型（纯函数产出；组件只做文案与按钮映射） */
+export interface RelayCardModel {
+  tone: 'neutral' | 'progress' | 'warn' | 'ok'
+  /** 标题 i18n key */
+  title: string
+  /** 说明 i18n key */
+  body: string
+  /** 说明参数（count / detail / seconds） */
+  params?: Record<string, string | number>
+  primary: RelayCardAction
+  secondary: RelayCardAction
+  /** 宿主状态超过阈值未更新（提示刷新，不假装实时） */
+  stale: boolean
+  /** 空间码为空：同一中继设备互相可见 */
+  roomHint: boolean
+  count: number
+}
+
+export interface RelayCardInput {
+  relayAddrs: readonly string[]
+  relayRoom: string
+  /** get-my-device 的 relayState（relay-idle / connecting / reserved / lost） */
+  relayState?: string
+  /** 宿主发现 envelope（旧宿主为 null） */
+  discovery: RelayDiscovery | null
+  /** 中心已配置且与邀请缓存不一致（由调用方判定） */
+  conflict?: boolean
+  nowMs: number
+}
+
+function relayCard(
+  tone: RelayCardModel['tone'],
+  key: string,
+  primary: RelayCardAction,
+  secondary: RelayCardAction,
+  extra: Partial<RelayCardModel> = {},
+): RelayCardModel {
+  return {
+    tone,
+    title: `transfer.relayCard.${key}.title`,
+    body: `transfer.relayCard.${key}.body`,
+    primary,
+    secondary,
+    stale: false,
+    roomHint: false,
+    count: 0,
+    ...extra,
+  }
+}
+
+/**
+ * 跨网状态卡模型（纯函数）。
+ *
+ * 优先级：中心冲突 > 未配置中继 > 中继连接态 > 宿主发现状态 > 旧宿主降级。
+ * 每个分支都给一个明确主操作（没有「什么都没有」的空态）。
+ */
+export function deriveRelayCard(input: RelayCardInput): RelayCardModel {
+  const addrs = input.relayAddrs ?? []
+  const discovery = input.discovery
+  const roomHint = input.relayRoom.trim() === ''
+  const stale =
+    discovery !== null &&
+    discovery.updatedAtMs > 0 &&
+    input.nowMs - discovery.updatedAtMs > RELAY_CARD_STALE_MS
+  const ageSeconds =
+    discovery && discovery.updatedAtMs > 0
+      ? Math.max(0, Math.floor((input.nowMs - discovery.updatedAtMs) / 1000))
+      : 0
+  const base = { stale, roomHint }
+
+  if (input.conflict) {
+    return relayCard('warn', 'conflict', 'open-center', 'none', base)
+  }
+  if (addrs.length === 0) {
+    return relayCard('warn', 'unconfigured', 'paste-invite', 'open-center', base)
+  }
+
+  // 预留过程态比发现快照更早/更准：刚配置时发现还是 relay-unavailable
+  switch (input.relayState) {
+    case 'relay-connecting':
+      return relayCard('progress', 'connecting', 'refresh', 'none', base)
+    case 'relay-lost':
+      return relayCard('warn', 'lost', 'refresh', 'open-center', base)
+    case 'relay-idle':
+      return relayCard('warn', 'disabled', 'open-settings', 'none', base)
+  }
+
+  switch (discovery?.status) {
+    case 'disabled':
+      return relayCard('warn', 'disabled', 'open-settings', 'none', base)
+    case 'relay-unavailable':
+      return relayCard('progress', 'unavailable', 'refresh', 'none', base)
+    case 'unsupported':
+      return relayCard('warn', 'unsupported', 'refresh', 'none', base)
+    case 'denied':
+      return relayCard('warn', 'denied', 'refresh', 'none', base)
+    case 'error':
+      return relayCard('warn', 'error', 'refresh', 'none', {
+        ...base,
+        params: { detail: discovery.error ?? '' },
+      })
+    case 'ok':
+      return discovery.count > 0
+        ? relayCard('ok', 'ready', 'generate-invite', 'refresh', {
+            ...base,
+            count: discovery.count,
+            params: { count: discovery.count, seconds: ageSeconds },
+          })
+        : relayCard('neutral', 'readyEmpty', 'generate-invite', 'refresh', base)
+  }
+
+  // 旧宿主：没有 envelope；relay-reserved 时按「已就绪，等待设备」降级
+  if (input.relayState === 'relay-reserved') {
+    return relayCard('neutral', 'pending', 'generate-invite', 'refresh', base)
+  }
+  return relayCard('neutral', 'pending', 'refresh', 'paste-invite', base)
+}

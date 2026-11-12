@@ -3,7 +3,7 @@
 - **落仓**：`7ZAI/wasmnest-apps`（应用面为主）；状态事件与换网唤醒涉及 `7ZAI/wasmnest-lib`
 - **标签**：`kind:feature`
 - **阶段**：T22 之后的体验切片
-- **状态**：**部分实施（2026-11-12）**：P0-1（邀请 v4）与 P0-3（设备行直达发送）已落地；P0-2（状态卡 + 宿主 envelope）待 `wasmnest-lib` 扩展与宿主运行时重打
+- **状态**：**P0 已实施（2026-11-12）**：P0-1（邀请 v4）、P0-2（状态卡 + 宿主 envelope）、P0-3（设备行直达发送）均已落地；真实跨 NAT 验收待重打 relay + 宿主运行时
 - **依赖**：T22（中继会合发现）、T21（我的设备 / relay 预留）、T20（WAN UX）、T18（net-config）
 - **设计依据**：2026-11-12 用户反馈（「扫码无效」「复制连接串怎么给对方」「双端都配置中继」）+ T22 实施记录
 - **真源 issue**：待提交（按 `docs/agents/issue-tracker.md`；`gh` 可用后补链接）
@@ -582,28 +582,30 @@ async function handleSendToDevice(nodeId: string): Promise<void> {
 
 **已落地**
 
-| 切片                 | 落点                                                                                                                                                                                                                                                                                                                                                |
-| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| P0-1a 邀请编解码     | 双端 `utils/pairingLink.ts`：`buildConnectionInvite` / `parseConnectionInvite` / `isConnectionInvite` / `sameRelaySet`；`wasmnest://join/<base64url>`，未知版本 / 缺空间码 / circuit 目标 / 未指定地址分别拒绝；展示名去控制字符并截断 64；`relayMeta` 缺 peerId / 指纹时整块丢弃                                                                   |
-| P0-1b 来源优先级     | `rust/core/settings.rs` 新增 `relay_origin` + `normalize_relay_origin`；`relay_center::resolve` 增 `origin`：中心已配置 → 中心；中心为空 + invite → 邀请缓存；中心为空 + 手动缓存 → 空；中心失败 + invite → 邀请缓存 + `relayError`。`get-my-device` / `get-settings` 带 `relayOrigin`；手动改 `relayAddrs` 且未声明来源时清空 origin               |
-| P0-1c 生成 / 导入 UI | 双端 `composables/useConnectionInvite.ts`（生成即补空间码 `nest-<8hex>`、轮换、导入 `relayOrigin=invite`、中心冲突判定）；桌面「我的设备」邀请二维码 / 复制 / 轮换；移动「我的设备」邀请文本 / 复制 / 系统分享 / 轮换；双端添加弹层先出确认页（名称 / 中继 / 空间码前缀 / 当前设备数 / 离开空间 / 中心冲突，桌面可跳「内网穿透」）；移动扫码识别 v4 |
-| P0-3 直达发送        | 双端设备行「发送文件」；`prepareDeviceSend` 纯函数保证「未连接先连、成功才切活跃、失败不弹选择器」；桌面复用 `handleUpload`（含中继提示），移动复用 `uploadFile`（发送成功后切传输页）                                                                                                                                                              |
-| P0 文案              | 桌面首连确认改为「接受并信任」+ 信任表提示；连接中文案补「对方可能需要在弹窗中确认」；桌面顶栏改为「发送到当前设备」                                                                                                                                                                                                                                |
+| 切片                 | 落点                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| P0-1a 邀请编解码     | 双端 `utils/pairingLink.ts`：`buildConnectionInvite` / `parseConnectionInvite` / `isConnectionInvite` / `sameRelaySet`；`wasmnest://join/<base64url>`，未知版本 / 缺空间码 / circuit 目标 / 未指定地址分别拒绝；展示名去控制字符并截断 64；`relayMeta` 缺 peerId / 指纹时整块丢弃                                                                                                                                                                                                      |
+| P0-1b 来源优先级     | `rust/core/settings.rs` 新增 `relay_origin` + `normalize_relay_origin`；`relay_center::resolve` 增 `origin`：中心已配置 → 中心；中心为空 + invite → 邀请缓存；中心为空 + 手动缓存 → 空；中心失败 + invite → 邀请缓存 + `relayError`。`get-my-device` / `get-settings` 带 `relayOrigin`；手动改 `relayAddrs` 且未声明来源时清空 origin                                                                                                                                                  |
+| P0-1c 生成 / 导入 UI | 双端 `composables/useConnectionInvite.ts`（生成即补空间码 `nest-<8hex>`、轮换、导入 `relayOrigin=invite`、中心冲突判定）；桌面「我的设备」邀请二维码 / 复制 / 轮换；移动「我的设备」邀请文本 / 复制 / 系统分享 / 轮换；双端添加弹层先出确认页（名称 / 中继 / 空间码前缀 / 当前设备数 / 离开空间 / 中心冲突，桌面可跳「内网穿透」）；移动扫码识别 v4                                                                                                                                    |
+| P0-3 直达发送        | 双端设备行「发送文件」；`prepareDeviceSend` 纯函数保证「未连接先连、成功才切活跃、失败不弹选择器」；桌面复用 `handleUpload`（含中继提示），移动复用 `uploadFile`（发送成功后切传输页）                                                                                                                                                                                                                                                                                                 |
+| P0 文案              | 桌面首连确认改为「接受并信任」+ 信任表提示；连接中文案补「对方可能需要在弹窗中确认」；桌面顶栏改为「发送到当前设备」                                                                                                                                                                                                                                                                                                                                                                   |
+| P0-2 状态卡          | 宿主 `RelaySnapshot` 增 `status / error / relay / updatedAtMs`；`disabled / relay-unavailable / unsupported / denied / error / ok` 六态，失败保留上一份 devices，按 `devices+status+error+relay` 去重（不含时间戳）。前端 `parseRelayDiscoveryPayload` + `deriveRelayCard` 纯函数；双端 `useRelayStatus` 读 `get-my-device`（含新增 `relayCacheAddrs`）+ envelope；桌面 `PeerDevicesPanel` / 移动 `DevicesTab` 顶部状态卡（每态一个主操作 + 次操作），旧宿主降级为按 `relayState` 展示 |
 
 **未做 / 偏差**
 
-- **P0-2 未做**：宿主 `RelaySnapshot` 的 `status / error / relay / updatedAtMs` 与前端状态卡需要先改 `wasmnest-lib` 的 `relay_rendezvous.rs`，并用新 lib 重打宿主运行时；本轮只动应用仓，避免在 T22 在途改动上叠加跨仓改动。
 - **桌面 `relayMeta` 生成未接线**：`net-config.relay-adopt` 属 P1；P0 邀请只带 relay + room。编解码与 `relayMeta` 校验已就绪，后续接线不需要改线格式。
+- **升级前置**：状态卡依赖新宿主运行时（`wasmnest-lib` 的 envelope）。已安装的旧宿主只发 `{devices}`，前端按旧宿主降级（不报错）；要看到状态卡需用新 lib 重打并部署宿主运行时与 relay。
 - P1（离线宽限 / 别名 / 换网唤醒 / 剪贴板自动检测）与 P2 未做。
 
 **验证（实跑）**
 
 | 命令                                                                           | 结果                                                                                            |
 | ------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------- |
-| `apps/file-transfer/desktop pnpm run test:run`                                 | 16 files / 141 tests 全绿                                                                       |
-| `apps/file-transfer/mobile pnpm run test:run`                                  | 11 files / 92 tests 全绿                                                                        |
+| `apps/file-transfer/desktop pnpm run test:run`                                 | 17 files / 153 tests 全绿                                                                       |
+| `apps/file-transfer/mobile pnpm run test:run`                                  | 12 files / 102 tests 全绿                                                                       |
 | `cargo test --manifest-path apps/file-transfer/rust/core/Cargo.toml`           | 98 passed                                                                                       |
 | `cargo test --manifest-path apps/file-transfer/rust/plugin/Cargo.toml`         | 128 passed                                                                                      |
+| `cargo test -p wasmnest-server-peer-net --features relay`（lib 仓）            | 332 passed                                                                                      |
 | `apps/file-transfer/desktop pnpm run build:rust`                               | wasm + componentize 成功（含新 Rust 字段）                                                      |
 | `apps/file-transfer/desktop pnpm run build:frontend` / `mobile pnpm run build` | 成功                                                                                            |
 | `pnpm exec vue-tsc --noEmit`（desktop）                                        | 仅既有 `sdk-componentize.test.ts` 缺 `@types/node` 报错（与本票无关）                           |
@@ -611,4 +613,4 @@ async function handleSendToDevice(nodeId: string): Promise<void> {
 | `pnpm run lint`（仓根）                                                        | 0 error / 42 warning（既有）                                                                    |
 | E2E / 真机                                                                     | 未跑：宿主运行时版本与 app 期望不一致（既有环境阻塞），跨 NAT 验收还需先重打 relay 与宿主运行时 |
 
-**工作树说明**：本轮与 T22 的在途改动同在工作树（当前 `uat` 分支，内容与 `dev` 一致），尚未提交；提交前需按发布纪律决定 T22 / T23 的拆分。
+**提交**：P0-1 / P0-3 已随 `b41d9a30`（uat）提交，lib 侧 T22 随 `75e3851`（uat）提交；P0-2 在本提交（应用仓 + lib 仓 `relay_rendezvous` envelope）。

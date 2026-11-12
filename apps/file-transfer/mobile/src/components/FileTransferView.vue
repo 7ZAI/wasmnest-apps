@@ -33,6 +33,7 @@ import { isNeedsAllFilesAccess, promptAllFilesAccess } from '../composables/useA
 import { usePeerDevices } from '../composables/usePeerDevices'
 import { hasRelayCandidate } from '../composables/deviceState'
 import { prepareDeviceSend } from '../composables/sendToDevice'
+import { useRelayStatus } from '../composables/useRelayStatus'
 import type { ConnectionInvite, RemotePeerLink } from '../utils/pairingLink'
 import { useRemoteFs } from '../composables/useRemoteFs'
 import { useSettings } from '../composables/useSettings'
@@ -52,6 +53,8 @@ const t = (key: string, params?: Record<string, any>) => context.i18n.t(key, par
 
 const tasks = useTasks(context)
 const devices = usePeerDevices(context)
+/** 跨网状态卡（P0-2）：relay 现状 + 宿主发现 envelope */
+const { card: relayCard, load: loadRelayStatus } = useRelayStatus(context, devices.relayDiscovery)
 const fs = useRemoteFs(context)
 const settings = useSettings(context)
 
@@ -233,6 +236,7 @@ function handleAddRemote(link: RemotePeerLink): void {
 /** 邀请导入成功（T23）：relay + 空间码已写入；只刷新发现并提示，不写信任 */
 async function handleInviteJoined(invite: ConnectionInvite): Promise<void> {
   await devices.refresh()
+  await loadRelayStatus()
   const name = invite.name || t('transfer.invite.unnamed')
   context.dialogs.showToast(t('transfer.invite.joined', { name }), 'success')
 }
@@ -509,6 +513,7 @@ onUnmounted(() => {
           :scanning="deviceScanning"
           :t="t"
           :relay-device-count="relayDeviceCount"
+          :relay-card="relayCard"
           @connect="handleDeviceConnect"
           @retry-wan="handleDeviceRetryWan"
           @retry-relay-only="handleDeviceRetryRelayOnly"
