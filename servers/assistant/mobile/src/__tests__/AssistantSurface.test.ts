@@ -1,8 +1,8 @@
 /**
- * Nest 移动运行面包装单测（票 05 骨架最小用例）
+ * Nest 移动运行面包装单测（票 07 保险库）
  *
- * 覆盖壳装配与命令接线：挂载后自动执行 `assistant.ping`（经宿主
- * commands.execute），占位页显性呈现链路状态；失败路径点名原因。
+ * 覆盖壳装配与命令接线：挂载后自动执行 `assistant.vault-status`（经宿主
+ * commands.execute），保险库视图显性呈现状态；失败路径点名原因。
  */
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
@@ -54,32 +54,28 @@ function mountSurface(execute: (command: string, ...args: unknown[]) => Promise<
   return wrapper
 }
 
-describe('AssistantSurface（移动运行面接线 · 票 05 骨架）', () => {
-  it('挂载后自动 ping：渲染占位页并显性呈现连通结果', async () => {
-    const execute = vi.fn(async () => ({ ok: true, appId: ASSISTANT_PLUGIN_ID }))
+describe('AssistantSurface（移动运行面接线 · 票 07 保险库）', () => {
+  it('挂载后自动查保险库状态：渲染视图并显性呈现状态', async () => {
+    const execute = vi.fn(async () => ({ exists: true, unlocked: true }))
     const wrapper = mountSurface(execute)
 
     await flushPromises()
 
-    expect(execute).toHaveBeenCalledWith('assistant.ping')
-    expect(wrapper.find('[data-testid="nest-placeholder"]').exists()).toBe(true)
-    const stateEl = wrapper.find('[data-testid="nest-placeholder-state"]')
-    expect(stateEl.text()).toContain('命令链路已连通')
-    const resultEl = wrapper.find('[data-testid="nest-placeholder-result"]')
-    expect(resultEl.text()).toContain(ASSISTANT_PLUGIN_ID)
+    expect(execute).toHaveBeenCalledWith('assistant.vault-status', undefined)
+    expect(wrapper.find('[data-testid="nest-vault"]').exists()).toBe(true)
+    const statusEl = wrapper.find('[data-testid="nest-vault-status"]')
+    expect(statusEl.text()).toContain('已解锁')
   })
 
-  it('ping 失败：显性报错状态，点名原因', async () => {
+  it('状态查询失败：显性报错，点名原因', async () => {
     const execute = vi.fn(async () => {
-      throw new Error('tool.not_declared')
+      throw new Error('vault missing')
     })
     const wrapper = mountSurface(execute)
 
     await flushPromises()
 
-    const stateEl = wrapper.find('[data-testid="nest-placeholder-state"]')
-    expect(stateEl.text()).toContain('命令链路验证失败')
-    const errorEl = wrapper.find('[data-testid="nest-placeholder-error"]')
-    expect(errorEl.text()).toContain('tool.not_declared')
+    const errorEl = wrapper.find('[data-testid="nest-vault-error"]')
+    expect(errorEl.text()).toContain('vault missing')
   })
 })

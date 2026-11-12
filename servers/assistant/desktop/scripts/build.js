@@ -1,16 +1,14 @@
 /**
- * Nest 助手统一构建脚本（双端单产物，票 05 骨架）
+ * Nest 助手统一构建脚本（双端单产物，票 07 数据底座）
  *
- * 串联：vite build → cargo 构建（wasm32-unknown-unknown，共享 crate）→ 组件化 →
- * 复制产物到本仓默认产物目录 `.build/plugins`（与桌面 app 同构）。
+ * 串联：vite build → cargo 构建（wasm32-wasip3，共享 crate）→ 复制产物到
+ * 本仓默认产物目录 `.build/plugins`（与桌面 app 同构）。
  *
- * **工具链口径（单产物，沿用 file-transfer）**：本插件是双端共享产物源，
- * 共享 crate 住应用级 `rust/plugin/`（`../rust/plugin/Cargo.toml`，移动端经
- * `package.json` 的 `wasmnest.sharedRustManifest` 指同一份），与桌面其余 wasm
- * 应用的 wasm32-wasip3 直出 Component 不同——用 wasm32-unknown-unknown +
- * 组件化工具（随桌面 SDK 发布的 `tools/componentize`，经包名定位，见
- * `scripts/sdk-componentize.mjs`；G2 构建链不引平台仓源码），与移动端构建
- * 同一编码路径。
+ * **工具链口径（桌面端）**：桌面 wasm app 统一 wasm32-wasip3——cdylib 直出
+ * Component，免组件化编码步骤（与移动端 wasm32-unknown-unknown + 组件化
+ * 不同）。共享 crate 住应用级 `rust/plugin/`（`../rust/plugin/Cargo.toml`，
+ * 移动端经 `package.json` 的 `wasmnest.sharedRustManifest` 指同一份），
+ * 双端各自按本端 target 构建同一源码。
  */
 
 import { execSync } from 'child_process'
@@ -19,8 +17,7 @@ import { tmpdir } from 'os'
 import { resolve, dirname, basename, join, sep } from 'path'
 import { fileURLToPath } from 'url'
 import { startPluginWatch } from '@binblink/wasmnest-plugin-sdk-desktop/bin/plugin-watch.js'
-import { WASM_TARGET_DIR } from '../../../../scripts/plugin-wasm-config.mjs'
-import { componentizeManifestForBuild } from './sdk-componentize.mjs'
+import { WASM_TARGET, WASM_TARGET_DIR, wasip3CargoEnv } from '../../../../scripts/plugin-wasm-config.mjs'
 import { injectWasmHash } from '@binblink/wasmnest-plugin-sdk-desktop/bin/wasm-hash.js'
 
 const __filename = fileURLToPath(import.meta.url)
@@ -30,13 +27,6 @@ const ROOT = resolve(__dirname, '..')
 const DEFAULT_PLUGINS_DIR = join('.build', 'plugins')
 const PLUGIN_ID = 'com.wasmnest.assistant'
 const RUST_LIB_NAME = 'wasmnest_plugin_assistant'
-
-// 单产物工具链：unknown-unknown + 组件化（非 wasip3 直出；见文件头口径）
-const WASM_TARGET = 'wasm32-unknown-unknown'
-// 每次构建物化到本 app 可写目录（node_modules 内是 pnpm 只读仓库，cargo 要写 lock）
-const COMPONENTIZE_MANIFEST = componentizeManifestForBuild({
-  destDir: resolve(ROOT, '.build', 'componentize'),
-})
 
 // 插件调试模式：WASMNEST_PLUGIN_DEBUG=1 → wasm 以 debug profile 构建（保留
 // DWARF，宿主开启 backtrace 行号栈用）；release 构建忽略
@@ -92,27 +82,20 @@ function buildFrontend() {
 }
 
 function buildRust() {
-  console.log('\n[build] ====== Building Rust backend (WASM, unknown-unknown) ======')
-  // 单产物工具链：core module 产出后经仓库级组件化工具编码为 Component
-  // （等价 wasm-tools component new；产物字节形态 00 61 73 6d 0d 00 01 00）
+  console.log('\n[build] ====== Building Rust backend (WASM, wasm32-wasip3) ======')
+  // 桌面端 wasm32-wasip3：cdylib 直出 Component（产物字节形态 00 61 73 6d 0d 00 01 00），
+  // 免组件化编码步骤（与移动端 unknown-unknown + 组件化不同）。
   run(
     // 双端同构 crate 住应用级 rust 层（`servers/assistant/rust/plugin`，非本端目录下）
     `cargo build --target ${WASM_TARGET} --target-dir ${WASM_TARGET_DIR} --no-default-features --features wasm --manifest-path ../rust/plugin/Cargo.toml${DEBUG_MODE ? '' : ' --release'}`,
+    // 注入 pinned nightly（wasm32-wasip3 预编译 std 的唯一来源，与 monitor 同口径）
+    { env: wasip3CargoEnv() },
   )
   const modulePath = resolve(ROOT, WASM_PROFILE_DIR, `${RUST_LIB_NAME}.wasm`)
   if (!existsSync(modulePath)) {
-    console.error(`[build] ERROR: core module not found at ${modulePath}`)
+    console.error(`[build] ERROR: wasm artifact not found at ${modulePath}`)
     process.exit(1)
   }
-  console.log('\n[build] ====== Componentizing WASM (Component Model) ======')
-  // 原地组件化（-o 覆盖输入）：工具幂等，已是组件时直通
-  run(
-    // --target-dir 复用应用仓共享 target（工具是宿主机 native bin，与 wasm 产物同桶无害）。
-    // 不加 --locked：仓内 .cargo/config.toml 的 [patch]（CI 的跨仓检出 / link-platform-sdk
-    // 的本地 patch）会让 SDK 带来的 Cargo.lock 需要重写，--locked 只会把构建打死；
-    // 工具依赖本身钉死在 `wit-component = "=0.256.0"`，编码行为不随依赖漂移。
-    `cargo run --release --manifest-path "${COMPONENTIZE_MANIFEST}" --target-dir ${WASM_TARGET_DIR} -- "${modulePath}" -o "${modulePath}"`,
-  )
 }
 
 function copyArtifacts(opts = {}) {

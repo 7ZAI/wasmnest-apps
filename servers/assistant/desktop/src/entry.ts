@@ -11,13 +11,8 @@
  * 随票 07–14 在共享核（`../shared/`）上续接。
  */
 import { createApp, type App as VueApp } from 'vue'
-import PlaceholderView from '@nest-shared/components/PlaceholderView.vue'
+import VaultView from '@nest-shared/components/VaultView.vue'
 import i18n, { MESSAGE_NAMESPACE } from './i18n'
-import {
-  ASSISTANT_PING_COMMAND,
-  type AssistantPingResult,
-  type PlaceholderPingState,
-} from '@nest-shared/types'
 import './style.css'
 
 // ==================== 挂载契约（宿主 useAppMount 同形声明） ====================
@@ -60,24 +55,6 @@ export interface AppMountHandle {
   setTheme?(theme: string): void
 }
 
-/** 占位页状态文案（i18n key 映射，带 app 命名空间前缀） */
-function stateLabel(state: PlaceholderPingState): string {
-  const key =
-    state.status === 'ok'
-      ? 'assistant.state.ok'
-      : state.status === 'error'
-        ? 'assistant.state.error'
-        : state.status === 'running'
-          ? 'assistant.state.running'
-          : 'assistant.state.idle'
-  return i18n.global.t(`${MESSAGE_NAMESPACE}.${key}`)
-}
-
-/** ping 结果行文案 */
-function resultLabel(result: AssistantPingResult): string {
-  return i18n.global.t(`${MESSAGE_NAMESPACE}.assistant.result`, { appId: result.appId })
-}
-
 let vueApp: VueApp | null = null
 
 export async function mountApp(root: HTMLElement, env: AppMountEnv): Promise<AppMountHandle> {
@@ -85,12 +62,10 @@ export async function mountApp(root: HTMLElement, env: AppMountEnv): Promise<App
     i18n.global.locale.value = env.locale
   }
 
-  const app = createApp(PlaceholderView, {
-    title: i18n.global.t(`${MESSAGE_NAMESPACE}.assistant.title`),
-    subtitle: i18n.global.t(`${MESSAGE_NAMESPACE}.assistant.subtitle`),
-    stateLabel,
-    resultLabel,
-    ping: () => env.appInvoke<AssistantPingResult>(ASSISTANT_PING_COMMAND),
+  const app = createApp(VaultView, {
+    invoke: <T = unknown>(command: string, args?: Record<string, unknown>) =>
+      env.appInvoke<T>(command, args),
+    t: (key: string) => i18n.global.t(`${MESSAGE_NAMESPACE}.${key}`),
   })
   app.use(i18n)
   app.mount(root)

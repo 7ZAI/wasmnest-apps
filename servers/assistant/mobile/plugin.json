@@ -23,6 +23,94 @@
       {
         "id": "assistant.ping",
         "title": "Assistant: Ping"
+      },
+      {
+        "id": "assistant.vault-status",
+        "title": "Assistant: Vault Status"
+      },
+      {
+        "id": "assistant.vault-init",
+        "title": "Assistant: Vault Init"
+      },
+      {
+        "id": "assistant.vault-unlock",
+        "title": "Assistant: Vault Unlock"
+      },
+      {
+        "id": "assistant.vault-lock",
+        "title": "Assistant: Vault Lock"
+      },
+      {
+        "id": "assistant.vault-change-password",
+        "title": "Assistant: Vault Change Password"
+      },
+      {
+        "id": "assistant.memory-list",
+        "title": "Assistant: Memory List"
+      },
+      {
+        "id": "assistant.memory-upsert",
+        "title": "Assistant: Memory Upsert"
+      },
+      {
+        "id": "assistant.memory-delete",
+        "title": "Assistant: Memory Delete"
+      },
+      {
+        "id": "assistant.audit-list",
+        "title": "Assistant: Audit List"
+      },
+      {
+        "id": "assistant.providers-list",
+        "title": "Assistant: Providers List"
+      },
+      {
+        "id": "assistant.providers-upsert",
+        "title": "Assistant: Providers Upsert"
+      },
+      {
+        "id": "assistant.providers-set-default",
+        "title": "Assistant: Providers Set Default"
+      },
+      {
+        "id": "assistant.settings-get",
+        "title": "Assistant: Settings Get"
+      },
+      {
+        "id": "assistant.settings-set",
+        "title": "Assistant: Settings Set"
+      },
+      {
+        "id": "assistant.conversations-list",
+        "title": "Assistant: Conversations List"
+      },
+      {
+        "id": "assistant.conversations-create",
+        "title": "Assistant: Conversations Create"
+      },
+      {
+        "id": "assistant.conversations-rename",
+        "title": "Assistant: Conversations Rename"
+      },
+      {
+        "id": "assistant.conversations-archive",
+        "title": "Assistant: Conversations Archive"
+      },
+      {
+        "id": "assistant.messages-append",
+        "title": "Assistant: Messages Append"
+      },
+      {
+        "id": "assistant.messages-list",
+        "title": "Assistant: Messages List"
+      },
+      {
+        "id": "assistant.export",
+        "title": "Assistant: Export"
+      },
+      {
+        "id": "assistant.clear-data",
+        "title": "Assistant: Clear Data"
       }
     ],
     "globalEntries": [

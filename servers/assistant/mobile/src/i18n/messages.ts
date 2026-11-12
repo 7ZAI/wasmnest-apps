@@ -23,4 +23,23 @@ export type MessageSchema = {
 
   // ping 结果行
   'assistant.result': string
+
+  // ==================== 保险库（票 07） ====================
+  'assistant.vault.title': string
+  'assistant.vault.subtitle': string
+  'assistant.vault.unlocked': string
+  'assistant.vault.locked': string
+  'assistant.vault.loading': string
+  'assistant.vault.setupDesc': string
+  'assistant.vault.password': string
+  'assistant.vault.passwordConfirm': string
+  'assistant.vault.setup': string
+  'assistant.vault.unlockDesc': string
+  'assistant.vault.unlock': string
+  'assistant.vault.lock': string
+  'assistant.vault.changePassword': string
+  'assistant.vault.currentPassword': string
+  'assistant.vault.newPassword': string
+  'assistant.vault.passwordTooShort': string
+  'assistant.vault.passwordMismatch': string
 }

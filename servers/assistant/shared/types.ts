@@ -41,3 +41,55 @@ export type PlaceholderPingState =
   | { status: 'running' }
   | { status: 'ok'; result: AssistantPingResult }
   | { status: 'error'; message: string }
+
+// ==================== 票 07：保险库与命令面 ====================
+
+/** 保险库状态查询命令 */
+export const VAULT_STATUS_COMMAND = 'assistant.vault-status'
+/** 保险库首次设置命令 */
+export const VAULT_INIT_COMMAND = 'assistant.vault-init'
+/** 保险库解锁命令 */
+export const VAULT_UNLOCK_COMMAND = 'assistant.vault-unlock'
+/** 保险库锁定命令 */
+export const VAULT_LOCK_COMMAND = 'assistant.vault-lock'
+/** 保险库改口令命令 */
+export const VAULT_CHANGE_PASSWORD_COMMAND = 'assistant.vault-change-password'
+
+/** 保险库状态（`assistant.vault-status` 返回） */
+export interface VaultStatus {
+  /** 保险库是否已建立（是否完成首次设置） */
+  exists: boolean
+  /** 当前是否已解锁（会话密钥在 Rust 进程内存） */
+  unlocked: boolean
+  /** 建立时间（未建立时缺省） */
+  createdAt?: string
+}
+
+/** 保险库操作结果（init / unlock / lock / change-password 通用返回） */
+export interface VaultOpResult {
+  ok: boolean
+  unlocked: boolean
+}
+
+/** 保险库首次设置入参（salt / verifierNonce 由前端 crypto.getRandomValues 生成） */
+export interface VaultInitInput {
+  password: string
+  /** Argon2id 内存档（KiB）；缺省桌面 64 MiB，移动可降档 */
+  m?: number
+  /** 时间档；缺省 3 */
+  t?: number
+  /** 并行度；缺省 1 */
+  p?: number
+}
+
+/** 改口令入参（newSalt / newVerifierNonce 由前端生成） */
+export interface VaultChangePasswordInput {
+  oldPassword: string
+  newPassword: string
+}
+
+/** 命令调用抽象（桌面 appInvoke / 移动 commands.execute 同形） */
+export type AssistantInvoke = <T = unknown>(
+  command: string,
+  args?: Record<string, unknown>,
+) => Promise<T>

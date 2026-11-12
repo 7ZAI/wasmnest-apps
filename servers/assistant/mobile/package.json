@@ -5,7 +5,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "wasmnest-plugin build",
+    "build": "node ../../../../wasmnest/wasmnest-mobile/scripts/plugin-build.js --plugin com.wasmnest.assistant",
     "package": "wasmnest-plugin package",
     "dev": "wasmnest-plugin dev",
     "test:run": "vitest run",
