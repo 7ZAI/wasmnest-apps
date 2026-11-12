@@ -246,5 +246,32 @@ export interface ChatMessage {
 export const ASSISTANT_CONVERSATIONS_LIST_COMMAND = 'assistant.conversations-list'
 export const ASSISTANT_CONVERSATIONS_CREATE_COMMAND = 'assistant.conversations-create'
 export const ASSISTANT_CONVERSATIONS_RENAME_COMMAND = 'assistant.conversations-rename'
+/** 归档 / 恢复会话（票 09；默认陪伴会话受 Rust 侧守卫保护，不可归档） */
+export const ASSISTANT_CONVERSATIONS_ARCHIVE_COMMAND = 'assistant.conversations-archive'
 export const ASSISTANT_MESSAGES_LIST_COMMAND = 'assistant.messages-list'
 export const ASSISTANT_MESSAGES_APPEND_COMMAND = 'assistant.messages-append'
+/** 消息计数命令（票 09：摘要阈值判定依据，只读轻量查询） */
+export const ASSISTANT_MESSAGES_COUNT_COMMAND = 'assistant.messages-count'
+/** 设置读取命令（值可为 null） */
+export const ASSISTANT_SETTINGS_GET_COMMAND = 'assistant.settings-get'
+
+// ==================== 多会话（票 09 / spec §5.3、§5.7） ====================
+
+/**
+ * 默认长期陪伴会话 id（固定值，Rust 侧归档守卫同值）。
+ *
+ * 该会话随激活幂等建立（Rust `activate` + 前端 `ensureDefaultCompanion` 双保险），
+ * 不可归档；是「记忆跨会话共享」的默认落点（spec D15）。
+ */
+export const DEFAULT_COMPANION_ID = 'nest-companion'
+
+/** 冷启动上下文恢复：加载最近 N 条消息（缺省 20，票内记录默认值） */
+export const CONTEXT_LIMIT_SETTING = 'conversation.contextLimit'
+export const DEFAULT_CONTEXT_LIMIT = 20
+
+/**
+ * 冷启动上下文恢复：消息总数超过阈值时依赖会话摘要补上下文
+ * （缺省 40，票内记录默认值）。摘要的生成归票 12，本票只留注入钩子。
+ */
+export const SUMMARY_THRESHOLD_SETTING = 'conversation.summaryThreshold'
+export const DEFAULT_SUMMARY_THRESHOLD = 40

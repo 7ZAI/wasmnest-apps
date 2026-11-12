@@ -12,6 +12,28 @@
 
 ## 变更记录
 
+### 0.0.1（2026-11-12）— 票 09：多会话
+
+- **默认陪伴会话**：固定 id `nest-companion`，Rust 激活时幂等建立（前端
+  `ensureDefaultCompanion` 双保险核对，脏数据自愈）；`conversations-archive`
+  带守卫——默认陪伴会话**归档点名拒绝**（恢复放行，留自愈出口），不静默。
+- **多会话管理**：新建任务会话（`kind = task`）、切换、改名（用户可改）、
+  归档 / 恢复；归档会话不进默认列表，侧栏归档区可查可恢复；首条用户消息
+  自动命名（只认创建期默认标题字面量，不误改用户自设标题）。
+- **冷启动上下文恢复**：按最近 N 条消息重建 transcript（N 可配，
+  `conversation.contextLimit`，**默认 20**）；总消息数超过摘要阈值
+  （`conversation.summaryThreshold`，**默认 40**）时才请求会话摘要补上下文
+  ——摘要生成归票 12，本票留 `resolveSummary` 钩子；跨会话共享记忆读钩子
+  `resolveMemoryContext` 同留接口，注入归票 14。摘要 / 记忆只入 transcript，
+  不进 UI 消息流。
+- **命令面**：新增 `assistant.messages-count`（只读计数，摘要阈值判定用，
+  双端清单同步声明）；`conversations-archive` 命令接入守卫。
+- **界面**：侧栏会话列表（陪伴会话 🔒 保护标记、活跃会话改名、归档 ✕）、
+  可折叠归档区（恢复）；i18n zh-CN / en 同步。
+- **测试**：Rust 归档守卫单测（拒绝 / 恢复 / 前缀相似不误伤）；桌面 vitest
+  覆盖默认陪伴建立与自愈、归档 / 恢复 / 改名、最近 N 条加载、摘要阈值门控、
+  transcript 注入顺序、创建期标题判据。
+
 ### 0.0.1（2026-11-12）— 票 08：对话主链路（OpenAI 兼容 + 流式会话页）
 
 - **对话流**：`assistant.chat-stream` 命令——前端构建 OpenAI 兼容请求，Rust

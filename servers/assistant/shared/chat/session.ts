@@ -1,5 +1,5 @@
 /**
- * Nest 对话会话编排（票 08 / spec §3.2、§5.2、§5.3）
+ * Nest 对话会话编排（票 08 / 票 09 多会话 / spec §3.2、§5.2、§5.3）
  *
  * 双端同构的共享核：把 pi Agent、插件私有库（会话 / 消息密文落库）、
  * 宿主流事件、UI 消息卡四者接起来。端侧只提供 `invoke` / `subscribe`
@@ -13,6 +13,11 @@
  *    成功 / 中止 → 助手消息落库；错误 → 错误卡可重试（不落库空消息）；
  * 5. 重试 = 移除失败的助手消息后 `agent.continue()`（不重放任何副作用，
  *    M1 无工具，副作用面为零）。
+ *
+ * 多会话（票 09）：默认长期陪伴会话（`DEFAULT_COMPANION_ID`，不可归档）+
+ * 若干任务会话；冷启动按「最近 N 条 + 摘要」恢复上下文（N 与摘要阈值可配，
+ * 默认值见 types.ts 常量，票内记录）；`resolveSummary` / `resolveMemoryContext`
+ * 为上下文补全钩子，本票只留接口，注入实现归票 12 / 14。
  */
 import { Agent } from '@earendil-works/pi-agent-core'
 import type { AgentEvent } from '@earendil-works/pi-agent-core'
@@ -21,13 +26,21 @@ import { createNestAgent } from '../agent/agent'
 import { buildSystemPrompt, type PromptLang } from '../prompt/system'
 import { randomHex, NONCE_BYTES } from '../vault'
 import {
+  ASSISTANT_CONVERSATIONS_ARCHIVE_COMMAND,
   ASSISTANT_CONVERSATIONS_CREATE_COMMAND,
   ASSISTANT_CONVERSATIONS_LIST_COMMAND,
   ASSISTANT_CONVERSATIONS_RENAME_COMMAND,
   ASSISTANT_MESSAGES_APPEND_COMMAND,
+  ASSISTANT_MESSAGES_COUNT_COMMAND,
   ASSISTANT_MESSAGES_LIST_COMMAND,
   ASSISTANT_PROVIDERS_LIST_COMMAND,
+  ASSISTANT_SETTINGS_GET_COMMAND,
   ASSISTANT_VAULT_GET_SECRET_COMMAND,
+  CONTEXT_LIMIT_SETTING,
+  DEFAULT_COMPANION_ID,
+  DEFAULT_CONTEXT_LIMIT,
+  DEFAULT_SUMMARY_THRESHOLD,
+  SUMMARY_THRESHOLD_SETTING,
   VAULT_STATUS_COMMAND,
   providerSecretKey,
   type AssistantInvoke,
@@ -50,6 +63,16 @@ export interface ChatSessionDeps {
   subscribe: (event: string, handler: (payload: unknown) => void) => () => void
   lang: PromptLang
   log?: (level: 'info' | 'warn' | 'error', message: string) => void
+  /**
+   * 会话摘要钩子（票 09 留接口，生成归票 12）：返回该会话的摘要文本，
+   * 冷启动恢复上下文时置于最近 N 条消息之前；返回 null / 未提供则不用。
+   */
+  resolveSummary?: (conversationId: string) => Promise<string | null>
+  /**
+   * 跨会话共享记忆读取钩子（票 09 留接口，注入归票 14）：返回共享记忆
+   * 的上下文文本，置于 transcript 最前；返回 null / 未提供则不用。
+   */
+  resolveMemoryContext?: () => Promise<string | null>
 }
 
 /** 本地生成的临时消息 id（未落库的流式卡） */
@@ -59,16 +82,25 @@ function localId(prefix: string): string {
 
 export class NestChatSession {
   conversations: ConversationRecord[] = []
+  /** 已归档会话（不进默认列表，可查可恢复；票 09） */
+  archivedConversations: ConversationRecord[] = []
   currentId: string | null = null
   messages: ChatMessage[] = []
   streaming = false
   providers: ProviderRecord[] = []
+
+  /** 下一条消息的序号（已加载历史之后；诊断 / 测试用） */
+  get nextSeq(): number {
+    return this.lastSeq + 1
+  }
 
   private agent: Agent | null = null
   private agentProviderId: string | null = null
   private lastSeq = 0
   private unsubscribeAgent: (() => void) | null = null
   private streamingMsgId: string | null = null
+  /** 当前会话的摘要文本（仅入 transcript，不进 UI 消息流；票 09） */
+  private summaryText: string | null = null
   private deps: ChatSessionDeps
 
   constructor(deps: ChatSessionDeps) {
@@ -117,20 +149,82 @@ export class NestChatSession {
     }
   }
 
-  // ==================== 会话管理 ====================
+  // ==================== 会话管理（票 09 多会话） ====================
 
+  /** 读设置值（无值返回 null；失败不静默，交由调用方点名） */
+  async getSetting(key: string): Promise<string | null> {
+    const res = await this.deps.invoke<{ value: string | null }>(ASSISTANT_SETTINGS_GET_COMMAND, {
+      key,
+    })
+    return res?.value ?? null
+  }
+
+  /** 冷启动上下文恢复的最近消息条数（可配，默认 DEFAULT_CONTEXT_LIMIT，票内记录） */
+  async contextLimit(): Promise<number> {
+    const raw = await this.getSetting(CONTEXT_LIMIT_SETTING)
+    const n = raw ? Number.parseInt(raw, 10) : Number.NaN
+    return Number.isFinite(n) && n > 0 ? n : DEFAULT_CONTEXT_LIMIT
+  }
+
+  /** 摘要注入阈值（可配，默认 DEFAULT_SUMMARY_THRESHOLD，票内记录）：总消息数超过它才需要摘要补上下文 */
+  async summaryThreshold(): Promise<number> {
+    const raw = await this.getSetting(SUMMARY_THRESHOLD_SETTING)
+    const n = raw ? Number.parseInt(raw, 10) : Number.NaN
+    return Number.isFinite(n) && n > 0 ? n : DEFAULT_SUMMARY_THRESHOLD
+  }
+
+  /** 会话消息总数（只读计数；摘要阈值判定用） */
+  async messagesCount(conversationId: string): Promise<number> {
+    const res = await this.deps.invoke<{ count: number }>(ASSISTANT_MESSAGES_COUNT_COMMAND, {
+      conversationId,
+    })
+    return res?.count ?? 0
+  }
+
+  /**
+   * 默认长期陪伴会话存在性双保险（票 09）：Rust 激活时已幂等建立；
+   * 前端在列表刷新后核对，缺失则按固定 id 补建（数据被清空等场景）。
+   */
+  async ensureDefaultCompanion(): Promise<void> {
+    const all = await this.deps.invoke<{ conversations: ConversationRecord[] }>(
+      ASSISTANT_CONVERSATIONS_LIST_COMMAND,
+    )
+    const list = all?.conversations ?? []
+    const existing = list.find((c) => c.id === DEFAULT_COMPANION_ID)
+    if (existing) {
+      if (existing.archived) {
+        // 自愈：守卫之外的脏数据（如手工改库）恢复为未归档
+        await this.archiveConversation(DEFAULT_COMPANION_ID, false)
+      }
+      return
+    }
+    await this.deps.invoke(ASSISTANT_CONVERSATIONS_CREATE_COMMAND, {
+      id: DEFAULT_COMPANION_ID,
+      kind: 'companion',
+      title: '长期陪伴',
+      ts: Date.now().toString(),
+    })
+    this.log('info', `[nest] 默认陪伴会话已建立（${DEFAULT_COMPANION_ID}）`)
+  }
+
+  /** 刷新会话列表：活跃列表与归档列表一次查询分出（归档不进默认列表） */
   async refreshConversations(): Promise<ConversationRecord[]> {
     const res = await this.deps.invoke<{ conversations: ConversationRecord[] }>(
       ASSISTANT_CONVERSATIONS_LIST_COMMAND,
     )
-    this.conversations = (res?.conversations ?? []).filter((c) => !c.archived)
+    const all = res?.conversations ?? []
+    this.conversations = all.filter((c) => !c.archived)
+    this.archivedConversations = all.filter((c) => c.archived)
     return this.conversations
   }
 
-  async createConversation(kind: 'companion' | 'task' = 'companion'): Promise<string> {
+  async createConversation(
+    kind: 'companion' | 'task' = 'companion',
+    title?: string,
+  ): Promise<string> {
     const res = await this.deps.invoke<{ id: string }>(ASSISTANT_CONVERSATIONS_CREATE_COMMAND, {
       kind,
-      title: kind === 'task' ? 'Task' : 'New conversation',
+      title: title ?? (kind === 'task' ? 'Task' : 'New conversation'),
       ts: Date.now().toString(),
     })
     const id = res?.id
@@ -139,27 +233,56 @@ export class NestChatSession {
     return id
   }
 
-  /** 打开会话：加载历史消息并重建 agent transcript */
+  /** 改名（用户可改标题；首条消息自动命名另见 send） */
+  async renameConversation(id: string, title: string): Promise<void> {
+    await this.deps.invoke(ASSISTANT_CONVERSATIONS_RENAME_COMMAND, { id, title })
+    await this.refreshConversations()
+  }
+
+  /** 归档 / 恢复（默认陪伴会话的守卫在 Rust 侧，拒绝错误原样上交不静默） */
+  async archiveConversation(id: string, archived = true): Promise<void> {
+    await this.deps.invoke(ASSISTANT_CONVERSATIONS_ARCHIVE_COMMAND, { id, archived })
+    await this.refreshConversations()
+  }
+
+  /** 打开会话：加载最近 N 条 + 摘要恢复上下文并重建 agent transcript */
   async openConversation(id: string): Promise<void> {
     if (this.streaming) this.stop()
     this.currentId = id
     this.messages = []
     this.lastSeq = 0
+    this.summaryText = null
     const conv = await this.deps.invoke<{ conversations: ConversationRecord[] }>(
       ASSISTANT_CONVERSATIONS_LIST_COMMAND,
     )
     const record = (conv?.conversations ?? []).find((c) => c.id === id)
     if (!record) throw new Error(`会话不存在：${id}`)
 
+    // 冷启动上下文恢复：最近 N 条（N 可配，默认见 DEFAULT_CONTEXT_LIMIT）
+    const limit = await this.contextLimit()
     const res = await this.deps.invoke<{ messages: MessageRecord[] }>(
       ASSISTANT_MESSAGES_LIST_COMMAND,
-      { conversationId: id, limit: 100 },
+      { conversationId: id, limit },
     )
     const records = res?.messages ?? []
     for (const m of records) {
       this.messages.push(toChatMessage(m))
       if (m.seq > this.lastSeq) this.lastSeq = m.seq
     }
+
+    // 摘要钩子（票 09 留接口）：总消息数超过阈值才请求摘要；
+    // 摘要文本只入 transcript，不进 UI 消息流
+    const total = await this.messagesCount(id)
+    if (this.deps.resolveSummary && total > (await this.summaryThreshold())) {
+      try {
+        this.summaryText = await this.deps.resolveSummary(id)
+      } catch (e) {
+        // 摘要缺失不阻断看历史，点名后继续（fail-visible 降级）
+        this.log('warn', `[nest] 会话摘要读取失败，按无摘要恢复：${errMsg(e)}`)
+        this.summaryText = null
+      }
+    }
+
     await this.refreshConversations()
     try {
       await this.ensureAgent()
@@ -184,9 +307,22 @@ export class NestChatSession {
       return this.agent
     }
     this.teardownAgent()
-    const transcript = this.messages
-      .filter((m) => m.status === 'done' || m.status === 'aborted')
-      .map((m) => toPiMessage(m, provider))
+    // 跨会话共享记忆钩子（票 09 留接口，注入归票 14）：异步预取，缺失不阻断
+    let memoryContext: string | null = null
+    if (this.deps.resolveMemoryContext) {
+      try {
+        memoryContext = await this.deps.resolveMemoryContext()
+      } catch (e) {
+        this.log('warn', `[nest] 共享记忆读取失败，本会话不注入：${errMsg(e)}`)
+        memoryContext = null
+      }
+    }
+    const transcript = buildTranscriptMessages(
+      this.messages.filter((m) => m.status === 'done' || m.status === 'aborted'),
+      provider,
+      this.summaryText,
+      memoryContext,
+    )
     const agent = createNestAgent({
       invoke: this.deps.invoke,
       subscribe: this.deps.subscribe,
@@ -334,9 +470,9 @@ export class NestChatSession {
     this.lastSeq += 1
     await this.appendMessage(convId, 'user', content, {})
 
-    // 首个用户消息自动标题
+    // 首个用户消息自动标题（仅创建期默认标题可被替换）
     const conv = this.conversations.find((c) => c.id === convId)
-    if (conv && (conv.title === 'New conversation' || conv.title === 'Task')) {
+    if (conv && isCreationTitle(conv.title)) {
       await this.deps.invoke(ASSISTANT_CONVERSATIONS_RENAME_COMMAND, {
         id: convId,
         title: content.slice(0, 20),
@@ -413,6 +549,17 @@ export class NestChatSession {
 
 // ==================== 映射 ====================
 
+/**
+ * 创建会话时的默认标题字面量（双语言）；首条用户消息到达时据此自动命名。
+ * 标题是落库数据，自动命名只认这些创建期字面量，避免误改用户自设标题。
+ */
+const CREATION_TITLE_LITERALS = ['新会话', 'New conversation', '任务', 'Task']
+
+/** 是否为创建期默认标题（可被首条用户消息替换） */
+export function isCreationTitle(title: string): boolean {
+  return CREATION_TITLE_LITERALS.includes(title)
+}
+
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e)
 }
@@ -426,6 +573,42 @@ function toChatMessage(m: MessageRecord): ChatMessage {
     model: typeof m.meta?.model === 'string' ? m.meta.model : undefined,
     createdAt: m.createdAt,
   }
+}
+
+/**
+ * 冷启动 transcript 构建（票 09；导出供单测直接覆盖）
+ *
+ * 顺序：跨会话共享记忆（钩子）→ 会话摘要 → 最近 N 条消息。
+ * 记忆 / 摘要都以 user 角色的上下文块置前，模型自然把其当作背景而非新输入。
+ */
+export function buildTranscriptMessages(
+  messages: ChatMessage[],
+  provider: ProviderRecord,
+  summary: string | null,
+  memoryContext: string | null,
+): Message[] {
+  const out: Message[] = []
+  if (memoryContext) {
+    out.push({
+      role: 'user',
+      content: `【长期记忆】以下是跨会话共享的记忆背景，供参考：
+${memoryContext}`,
+      timestamp: Date.now(),
+    })
+  }
+  if (summary) {
+    out.push({
+      role: 'user',
+      content: `【会话摘要】以下是本会话较早内容的摘要，用于延续上下文：
+${summary}`,
+      timestamp: Date.now(),
+    })
+  }
+  for (const m of messages) {
+    if (m.status !== 'done' && m.status !== 'aborted') continue
+    out.push(toPiMessage(m, provider))
+  }
+  return out
 }
 
 /** 落库消息 → pi 消息（重建 transcript；M1 无工具，纯文本往返） */

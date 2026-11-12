@@ -53,6 +53,13 @@ export type MessageSchema = {
   'assistant.chat.error': string
   'assistant.chat.stopped': string
   'assistant.chat.newConversation': string
+  'assistant.chat.newTask': string,
+  'assistant.chat.taskTitle': string,
+  'assistant.chat.defaultCompanion': string,
+  'assistant.chat.archived': string,
+  'assistant.chat.archive': string,
+  'assistant.chat.restore': string,
+  'assistant.chat.rename': string,
 
   // ==================== 设置（票 08） ====================
   'assistant.settings.title': string

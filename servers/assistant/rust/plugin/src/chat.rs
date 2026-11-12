@@ -41,7 +41,10 @@ pub fn validate_chat_stream_request(stream_id: &str, request: &Value) -> Result<
     if request.get("stream").and_then(|v| v.as_bool()) != Some(true) {
         return Err("chat-stream: 请求缺 stream: true".to_string());
     }
-    let stream_event = request.get("streamEvent").and_then(|v| v.as_str()).unwrap_or("");
+    let stream_event = request
+        .get("streamEvent")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
     if stream_event.is_empty() {
         return Err("chat-stream: 请求缺 streamEvent".to_string());
     }
@@ -99,16 +102,24 @@ mod tests {
     fn missing_fields_are_named() {
         // 缺 method
         let no_method = json!({ "url": "u", "stream": true, "streamEvent": "e" });
-        assert!(validate_chat_stream_request("s1", &no_method).unwrap_err().contains("method"));
+        assert!(validate_chat_stream_request("s1", &no_method)
+            .unwrap_err()
+            .contains("method"));
         // 缺 url
         let no_url = json!({ "method": "POST", "stream": true, "streamEvent": "e" });
-        assert!(validate_chat_stream_request("s1", &no_url).unwrap_err().contains("url"));
+        assert!(validate_chat_stream_request("s1", &no_url)
+            .unwrap_err()
+            .contains("url"));
         // 缺 stream
         let no_stream = json!({ "method": "POST", "url": "u", "streamEvent": "e" });
-        assert!(validate_chat_stream_request("s1", &no_stream).unwrap_err().contains("stream"));
+        assert!(validate_chat_stream_request("s1", &no_stream)
+            .unwrap_err()
+            .contains("stream"));
         // 缺 streamEvent
         let no_event = json!({ "method": "POST", "url": "u", "stream": true });
-        assert!(validate_chat_stream_request("s1", &no_event).unwrap_err().contains("streamEvent"));
+        assert!(validate_chat_stream_request("s1", &no_event)
+            .unwrap_err()
+            .contains("streamEvent"));
     }
 
     #[test]

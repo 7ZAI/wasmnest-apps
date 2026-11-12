@@ -44,6 +44,13 @@ const zhCN: MessageSchema = {
   'assistant.chat.error': '请求失败',
   'assistant.chat.stopped': '已停止生成',
   'assistant.chat.newConversation': '新会话',
+  'assistant.chat.newTask': '新建任务',
+  'assistant.chat.taskTitle': '任务',
+  'assistant.chat.defaultCompanion': '默认陪伴会话（不可归档）',
+  'assistant.chat.archived': '已归档',
+  'assistant.chat.archive': '归档',
+  'assistant.chat.restore': '恢复',
+  'assistant.chat.rename': '改名',
 
   // ==================== 设置（票 08） ====================
   'assistant.settings.title': '设置',

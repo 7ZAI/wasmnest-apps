@@ -44,6 +44,13 @@ const en: MessageSchema = {
   'assistant.chat.error': 'Request failed',
   'assistant.chat.stopped': 'Generation stopped',
   'assistant.chat.newConversation': 'New conversation',
+  'assistant.chat.newTask': 'New task',
+  'assistant.chat.taskTitle': 'Task',
+  'assistant.chat.defaultCompanion': 'Default companion conversation (cannot be archived)',
+  'assistant.chat.archived': 'Archived',
+  'assistant.chat.archive': 'Archive',
+  'assistant.chat.restore': 'Restore',
+  'assistant.chat.rename': 'Rename',
 
   // ==================== Settings (ticket 08) ====================
   'assistant.settings.title': 'Settings',

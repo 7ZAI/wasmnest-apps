@@ -1,6 +1,6 @@
 //! Nest 助手插件（WASM，双端同构共享 crate · 票 08 对话主链路）
 //!
-//! 命令面（spec 附录 A + 票 07/08）：
+//! 命令面（spec 附录 A + 票 07/08/09）：
 //! - 保险库：`assistant.vault-status / init / unlock / lock / change-password`
 //! - 保险库密钥槽：`assistant.vault-set-secret / get-secret / delete-secret`（票 08，
 //!   密钥明文只经解锁后的会话密钥解密，落库为 AEAD 密文）
@@ -10,7 +10,8 @@
 //! - 审计：`assistant.audit-list`
 //! - 供应商：`assistant.providers-list / upsert / set-default`
 //! - 设置：`assistant.settings-get / set`
-//! - 会话 / 消息：`assistant.conversations-*` / `assistant.messages-*`
+//! - 会话 / 消息：`assistant.conversations-*` / `assistant.messages-*`（票 09：
+//!   默认陪伴会话激活时幂等建立且不可归档；`conversations-archive` 带守卫）
 //! - 导出 / 清空：`assistant.export` / `assistant.clear-data`
 //!
 //! 失败语义（spec §2.4）：未知命令、未解锁读密文、缺随机数 / 时间戳等一律
@@ -23,7 +24,10 @@
 //! 纯逻辑（vault 密码学 / store 映射 / 参数提取 / ping），不链接 wasm 宿主。
 //! native 构建下 wasm 专用代码为死代码，按 wasm crate 惯例条件放行（wasm 构建仍全量告警）。
 
-#![cfg_attr(not(target_arch = "wasm32"), allow(dead_code, unused_imports, unused_variables))]
+#![cfg_attr(
+    not(target_arch = "wasm32"),
+    allow(dead_code, unused_imports, unused_variables)
+)]
 
 use serde_json::{json, Value};
 
@@ -38,11 +42,30 @@ mod store;
 mod vault;
 
 #[cfg_attr(not(target_arch = "wasm32"), allow(unused_imports))]
-use crate::store::{Conversation, Message, MemoryFact, Provider, Store};
+use crate::store::{Conversation, MemoryFact, Message, Provider, Store};
 #[cfg_attr(not(target_arch = "wasm32"), allow(unused_imports))]
 use crate::vault::{KdfParams, Vault};
 
 const PLUGIN_ID: &str = "com.wasmnest.assistant";
+
+/// 默认长期陪伴会话 id（票 09，与共享核 `DEFAULT_COMPANION_ID` 同值）。
+/// 该会话随激活幂等建立，是「记忆跨会话共享」的默认落点（spec D15），不可归档。
+pub const DEFAULT_COMPANION_ID: &str = "nest-companion";
+
+/// 默认陪伴会话的初始标题（落库数据；用户可在界面改名）
+const DEFAULT_COMPANION_TITLE: &str = "长期陪伴";
+
+/// 归档守卫（票 09）：默认陪伴会话**不可归档**（点名拒绝，不静默）；
+/// 恢复（archived=false）不在守卫范围——守卫外的脏数据需要自愈出口。
+///
+/// 纯函数：native 单测直接覆盖（wasm 命令经此放行）。
+fn archive_guard(id: &str, archived: bool) -> Result<(), String> {
+    if archived && id == DEFAULT_COMPANION_ID {
+        Err("默认陪伴会话不可归档或删除".to_string())
+    } else {
+        Ok(())
+    }
+}
 
 struct AssistantPlugin;
 
@@ -59,6 +82,8 @@ impl WasmPlugin for AssistantPlugin {
         {
             // 激活即建表 + 迁移（幂等）；失败显性报错（fail-visible，不半迁移）
             WasmHost.ensure_schema().map_err(anyhow::Error::msg)?;
+            // 票 09：默认长期陪伴会话幂等建立（固定 id；已存在但被归档的脏数据自愈）
+            ensure_default_companion().map_err(anyhow::Error::msg)?;
         }
         WasmHost.log_info("Nest assistant activated (data foundation ready)");
         Ok(())
@@ -139,6 +164,8 @@ impl WasmPlugin for AssistantPlugin {
             "assistant.messages-append" => cmd_messages_append(&args),
             #[cfg(target_arch = "wasm32")]
             "assistant.messages-list" => cmd_messages_list(&args),
+            #[cfg(target_arch = "wasm32")]
+            "assistant.messages-count" => cmd_messages_count(&args),
 
             // ==================== 导出 / 清空 ====================
             #[cfg(target_arch = "wasm32")]
@@ -153,6 +180,30 @@ impl WasmPlugin for AssistantPlugin {
 }
 
 wasmnest_plugin_api::wasm_entry!(AssistantPlugin);
+
+// ==================== 默认陪伴会话（票 09 · wasm） ====================
+
+/// 激活时幂等建立默认陪伴会话：不存在则建；存在但被归档（守卫外的脏数据）则恢复。
+/// 时间戳用 "0"：该会话是稳定锚点，不参与活跃排序（消息落库时 touch 刷新）。
+#[cfg(target_arch = "wasm32")]
+fn ensure_default_companion() -> Result<(), String> {
+    let store = &WasmHost as &dyn Store;
+    match store.get_conversation(DEFAULT_COMPANION_ID)? {
+        Some(c) if c.archived => store.archive_conversation(DEFAULT_COMPANION_ID, false)?,
+        Some(_) => {}
+        None => {
+            store.create_conversation(&Conversation {
+                id: DEFAULT_COMPANION_ID.to_string(),
+                title: DEFAULT_COMPANION_TITLE.to_string(),
+                kind: "companion".to_string(),
+                created_at: "0".to_string(),
+                updated_at: "0".to_string(),
+                archived: false,
+            })?;
+        }
+    }
+    Ok(())
+}
 
 // ==================== 参数提取 ====================
 
@@ -254,8 +305,12 @@ fn cmd_vault_change_password(args: &Value) -> Result<Value, String> {
     let new_password = arg_str(args, "newPassword")?;
     let new_salt = arg_str(args, "newSalt")?;
     let new_verifier_nonce = arg_str(args, "newVerifierNonce")?;
-    let (new_meta, old_key, new_key) = Vault::from_meta(meta)
-        .change_password(&old_password, &new_password, &new_salt, &new_verifier_nonce)?;
+    let (new_meta, old_key, new_key) = Vault::from_meta(meta).change_password(
+        &old_password,
+        &new_password,
+        &new_salt,
+        &new_verifier_nonce,
+    )?;
     // 单事务重加密全部内容密文（复用原 nonce 换新密钥）
     store.reencrypt_all(&old_key, &new_key)?;
     store.put_vault_meta(&new_meta)?;
@@ -498,6 +553,7 @@ fn cmd_conversations_archive(args: &Value) -> Result<Value, String> {
     let store = &WasmHost as &dyn Store;
     let id = arg_str(args, "id")?;
     let archived = arg_bool(args, "archived", true);
+    archive_guard(&id, archived)?;
     store.archive_conversation(&id, archived)?;
     Ok(json!({ "ok": true, "id": id, "archived": archived }))
 }
@@ -558,6 +614,13 @@ fn cmd_messages_list(args: &Value) -> Result<Value, String> {
     Ok(json!({ "messages": out }))
 }
 
+#[cfg(target_arch = "wasm32")]
+fn cmd_messages_count(args: &Value) -> Result<Value, String> {
+    let store = &WasmHost as &dyn Store;
+    let conversation_id = arg_str(args, "conversationId")?;
+    Ok(json!({ "count": store.count_messages(&conversation_id)? }))
+}
+
 // ==================== 导出 / 清空（wasm） ====================
 
 #[cfg(target_arch = "wasm32")]
@@ -578,8 +641,8 @@ mod tests {
     /// ping 回显插件身份（双端同源，可与其它应用区分）
     #[test]
     fn ping_echoes_plugin_identity() {
-        let result = AssistantPlugin::invoke_command("assistant.ping", json!({}))
-            .expect("ping 必须成功");
+        let result =
+            AssistantPlugin::invoke_command("assistant.ping", json!({})).expect("ping 必须成功");
         assert_eq!(result["ok"], json!(true));
         assert_eq!(result["appId"], json!(PLUGIN_ID));
     }
@@ -600,5 +663,21 @@ mod tests {
         assert_eq!(arg_i64(&args, "a", 9), 1);
         assert_eq!(arg_i64(&args, "missing", 9), 9);
         assert!(arg_opt_str(&args, "missing").is_none());
+    }
+
+    /// 票 09：默认陪伴会话归档守卫——归档点名拒绝，恢复放行（自愈出口），其它会话不受限
+    #[test]
+    fn archive_guard_protects_default_companion() {
+        let err = archive_guard(DEFAULT_COMPANION_ID, true).expect_err("默认陪伴会话必须拒绝归档");
+        assert!(err.contains("默认陪伴会话"), "拒绝须点名原因: {err}");
+        assert!(
+            archive_guard(DEFAULT_COMPANION_ID, false).is_ok(),
+            "恢复不在守卫范围"
+        );
+        assert!(archive_guard("conv-1", true).is_ok());
+        assert!(
+            archive_guard("nest-companion-x", true).is_ok(),
+            "只守卫精确 id，不误伤前缀相似 id"
+        );
     }
 }

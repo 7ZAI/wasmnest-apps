@@ -126,6 +126,10 @@
         "title": "Assistant: Messages List"
       },
       {
+        "id": "assistant.messages-count",
+        "title": "Assistant: Messages Count"
+      },
+      {
         "id": "assistant.export",
         "title": "Assistant: Export"
       },

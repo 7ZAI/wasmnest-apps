@@ -45,7 +45,11 @@ pub struct KdfParams {
 impl Default for KdfParams {
     fn default() -> Self {
         // 桌面默认档（spec §5.8）；移动前端 init 时显式降档传入
-        Self { m: 64 * 1024, t: 3, p: 1 }
+        Self {
+            m: 64 * 1024,
+            t: 3,
+            p: 1,
+        }
     }
 }
 
@@ -67,8 +71,7 @@ pub struct VaultMeta {
 impl VaultMeta {
     /// 解析 params_json 为 KdfParams
     pub fn params(&self) -> Result<KdfParams, String> {
-        serde_json::from_str(&self.params_json)
-            .map_err(|e| format!("保险库参数解析失败: {e}"))
+        serde_json::from_str(&self.params_json).map_err(|e| format!("保险库参数解析失败: {e}"))
     }
 }
 
@@ -105,10 +108,17 @@ pub fn clear_session_key() {
 // ==================== 密码学原语 ====================
 
 /// Argon2id 派生会话密钥
-pub fn derive_key(password: &str, salt_hex: &str, params: &KdfParams) -> Result<[u8; KEY_LEN], String> {
+pub fn derive_key(
+    password: &str,
+    salt_hex: &str,
+    params: &KdfParams,
+) -> Result<[u8; KEY_LEN], String> {
     let salt = hex::decode(salt_hex).map_err(|e| format!("salt 非合法 hex: {e}"))?;
     if salt.len() != SALT_LEN {
-        return Err(format!("salt 长度须为 {SALT_LEN} 字节，实际 {}", salt.len()));
+        return Err(format!(
+            "salt 长度须为 {SALT_LEN} 字节，实际 {}",
+            salt.len()
+        ));
     }
     let argon = Argon2::new(
         Algorithm::Argon2id,
@@ -132,12 +142,21 @@ pub fn encrypt(
 ) -> Result<String, String> {
     let nonce_bytes = hex::decode(nonce_hex).map_err(|e| format!("nonce 非合法 hex: {e}"))?;
     if nonce_bytes.len() != NONCE_LEN {
-        return Err(format!("nonce 长度须为 {NONCE_LEN} 字节，实际 {}", nonce_bytes.len()));
+        return Err(format!(
+            "nonce 长度须为 {NONCE_LEN} 字节，实际 {}",
+            nonce_bytes.len()
+        ));
     }
     let cipher = XChaCha20Poly1305::new_from_slice(key).map_err(|e| format!("密钥非法: {e}"))?;
     let nonce = XNonce::from_slice(&nonce_bytes);
     let ct = cipher
-        .encrypt(nonce, Payload { msg: plaintext, aad })
+        .encrypt(
+            nonce,
+            Payload {
+                msg: plaintext,
+                aad,
+            },
+        )
         .map_err(|e| format!("AEAD 加密失败: {e}"))?;
     let mut blob = Vec::with_capacity(NONCE_LEN + ct.len());
     blob.extend_from_slice(&nonce_bytes);
@@ -192,7 +211,8 @@ impl Vault {
         let meta = VaultMeta {
             kdf: "argon2id".to_string(),
             salt_hex: salt_hex.to_string(),
-            params_json: serde_json::to_string(&params).map_err(|e| format!("参数序列化失败: {e}"))?,
+            params_json: serde_json::to_string(&params)
+                .map_err(|e| format!("参数序列化失败: {e}"))?,
             verifier_enc_hex: verifier_enc,
             created_at: created_at.to_string(),
         };
@@ -251,8 +271,12 @@ impl Vault {
         // 2. 派生新密钥（新 salt，参数沿用）
         let new_key = derive_key(new_password, new_salt_hex, &old_params)?;
         // 3. 新校验值密文
-        let new_verifier_enc =
-            encrypt(&new_key, new_verifier_nonce_hex, VERIFIER_PLAINTEXT, VERIFIER_AAD)?;
+        let new_verifier_enc = encrypt(
+            &new_key,
+            new_verifier_nonce_hex,
+            VERIFIER_PLAINTEXT,
+            VERIFIER_AAD,
+        )?;
         // 4. 新元数据
         let new_meta = VaultMeta {
             kdf: self.meta.kdf.clone(),
@@ -282,7 +306,11 @@ mod tests {
 
     fn fast_params() -> KdfParams {
         // 单测用极小档，跑得快
-        KdfParams { m: 8 * 1024, t: 1, p: 1 }
+        KdfParams {
+            m: 8 * 1024,
+            t: 1,
+            p: 1,
+        }
     }
 
     #[test]
@@ -300,7 +328,9 @@ mod tests {
         assert!(!is_unlocked(), "错误口令不得解锁");
 
         // 正确口令解锁
-        Vault::from_meta(meta.clone()).unlock("pw1").expect("正确口令解锁");
+        Vault::from_meta(meta.clone())
+            .unlock("pw1")
+            .expect("正确口令解锁");
         assert!(is_unlocked());
 
         // 锁定后会话清空
@@ -332,17 +362,24 @@ mod tests {
         let old_key = derive_key("old", TEST_SALT, &fast_params()).unwrap();
         let blob = encrypt(&old_key, TEST_NONCE, b"secret", b"assistant:memory:m1").unwrap();
 
-        let (new_meta, old_k, new_k) =
-            vault.change_password("old", "new", TEST_SALT, TEST_NONCE).unwrap();
+        let (new_meta, old_k, new_k) = vault
+            .change_password("old", "new", TEST_SALT, TEST_NONCE)
+            .unwrap();
         assert_ne!(old_k, new_k, "新旧密钥必须不同");
         // 旧密钥仍能解旧密文（重加密前）
-        assert_eq!(decrypt(&old_k, &blob, b"assistant:memory:m1").unwrap(), b"secret");
+        assert_eq!(
+            decrypt(&old_k, &blob, b"assistant:memory:m1").unwrap(),
+            b"secret"
+        );
         // 新密钥解新校验值
         let v = Vault::from_meta(new_meta.clone());
         v.unlock("new").expect("新口令解锁");
         // 新密钥解内容密文（store 重加密后形态：复用 nonce 换新密钥）
         let reenc = encrypt(&new_k, TEST_NONCE, b"secret", b"assistant:memory:m1").unwrap();
-        assert_eq!(decrypt(&new_k, &reenc, b"assistant:memory:m1").unwrap(), b"secret");
+        assert_eq!(
+            decrypt(&new_k, &reenc, b"assistant:memory:m1").unwrap(),
+            b"secret"
+        );
         // 旧口令不再可用
         assert!(Vault::from_meta(new_meta).unlock("old").is_err());
     }

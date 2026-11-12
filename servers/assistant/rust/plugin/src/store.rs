@@ -197,6 +197,7 @@ pub trait Store {
     fn append_message(&self, m: &Message) -> Result<(), String>;
     /// 最近 N 条（按 seq 倒序取，返回正序）
     fn list_messages(&self, conversation_id: &str, limit: i64) -> Result<Vec<Message>, String>;
+    fn count_messages(&self, conversation_id: &str) -> Result<i64, String>;
 
     // ---- 记忆 ----
     /// 按 scope / status 过滤（空串 = 不过滤）
@@ -229,8 +230,12 @@ pub trait Store {
 
     // ---- 导出 / 清空 ----
     /// 导出 JSON（会话 + 已确认记忆明文由调用方先解密后传入；密钥不导出）
-    fn export_all(&self, conversations: &[Conversation], memory: &[MemoryFact], audit: &[AuditEntry])
-        -> Result<serde_json::Value, String>;
+    fn export_all(
+        &self,
+        conversations: &[Conversation],
+        memory: &[MemoryFact],
+        audit: &[AuditEntry],
+    ) -> Result<serde_json::Value, String>;
     /// 清空全部业务表（保险库元数据保留；vacuum 视宿主能力）
     fn clear_all(&self) -> Result<(), String>;
 
@@ -376,8 +381,10 @@ mod wasm_impl {
 
         fn vault_meta(&self) -> Result<Option<VaultMeta>, String> {
             let rows = self
-                .plugin_db_query("SELECT kdf, salt, params_json, verifier_enc, created_at \
-                    FROM assistant_vault_meta WHERE id = 1")
+                .plugin_db_query(
+                    "SELECT kdf, salt, params_json, verifier_enc, created_at \
+                    FROM assistant_vault_meta WHERE id = 1",
+                )
                 .map_err(|e| format!("读保险库元数据失败: {e}"))?;
             match rows {
                 Some(v) => {
@@ -403,7 +410,13 @@ mod wasm_impl {
                 "INSERT OR REPLACE INTO assistant_vault_meta \
                     (id, kdf, salt, params_json, verifier_enc, created_at) \
                     VALUES (1, ?1, ?2, ?3, ?4, ?5)",
-                &sql_params![meta.kdf, meta.salt_hex, meta.params_json, meta.verifier_enc_hex, meta.created_at],
+                &sql_params![
+                    meta.kdf,
+                    meta.salt_hex,
+                    meta.params_json,
+                    meta.verifier_enc_hex,
+                    meta.created_at
+                ],
             )
             .map_err(|e| format!("写保险库元数据失败: {e}"))?;
             Ok(())
@@ -441,7 +454,14 @@ mod wasm_impl {
                 "INSERT OR REPLACE INTO assistant_conversations \
                     (id, title, kind, created_at, updated_at, archived) \
                     VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                &sql_params![c.id, c.title, c.kind, c.created_at, c.updated_at, c.archived as i64],
+                &sql_params![
+                    c.id,
+                    c.title,
+                    c.kind,
+                    c.created_at,
+                    c.updated_at,
+                    c.archived as i64
+                ],
             )
             .map_err(|e| format!("建会话失败: {e}"))?;
             Ok(())
@@ -479,7 +499,15 @@ mod wasm_impl {
                 "INSERT OR REPLACE INTO assistant_messages \
                     (id, conversation_id, seq, role, content_enc, meta_json, created_at) \
                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-                &sql_params![m.id, m.conversation_id, m.seq, m.role, m.content_enc, m.meta_json, m.created_at],
+                &sql_params![
+                    m.id,
+                    m.conversation_id,
+                    m.seq,
+                    m.role,
+                    m.content_enc,
+                    m.meta_json,
+                    m.created_at
+                ],
             )
             .map_err(|e| format!("写消息失败: {e}"))?;
             Ok(())
@@ -496,6 +524,29 @@ mod wasm_impl {
             let mut msgs = map_rows(rows, row_to_message)?;
             msgs.reverse();
             Ok(msgs)
+        }
+
+        /// 消息计数（票 09：摘要阈值判定依据；只读轻量查询，不解密内容）
+        fn count_messages(&self, conversation_id: &str) -> Result<i64, String> {
+            let rows = self
+                .plugin_db_query_params(
+                    "SELECT COUNT(*) AS n FROM assistant_messages WHERE conversation_id = ?1",
+                    &sql_params![conversation_id],
+                )
+                .map_err(|e| format!("消息计数查询失败: {e}"))?;
+            match rows {
+                Some(v) => {
+                    let arr = v.as_array().ok_or("消息计数结果非数组")?;
+                    if arr.is_empty() {
+                        return Ok(0);
+                    }
+                    arr[0]
+                        .get("n")
+                        .and_then(|x| x.as_i64())
+                        .ok_or_else(|| "消息计数结果缺少 n 字段".to_string())
+                }
+                None => Ok(0),
+            }
         }
 
         fn list_memory(&self, scope: &str, status: &str) -> Result<Vec<MemoryFact>, String> {
@@ -524,8 +575,16 @@ mod wasm_impl {
                     source_message_id, status, created_at, updated_at) \
                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
                 &sql_params![
-                    f.id, f.scope, f.scope_ref, f.key, f.value_enc,
-                    f.source_conversation_id, f.source_message_id, f.status, f.created_at, f.updated_at
+                    f.id,
+                    f.scope,
+                    f.scope_ref,
+                    f.key,
+                    f.value_enc,
+                    f.source_conversation_id,
+                    f.source_message_id,
+                    f.status,
+                    f.created_at,
+                    f.updated_at
                 ],
             )
             .map_err(|e| format!("写记忆失败: {e}"))?;
@@ -584,7 +643,15 @@ mod wasm_impl {
                 "INSERT OR REPLACE INTO assistant_providers \
                     (id, name, api_style, base_url, model, extra_json, is_default) \
                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-                &sql_params![p.id, p.name, p.api_style, p.base_url, p.model, p.extra_json, p.is_default as i64],
+                &sql_params![
+                    p.id,
+                    p.name,
+                    p.api_style,
+                    p.base_url,
+                    p.model,
+                    p.extra_json,
+                    p.is_default as i64
+                ],
             )
             .map_err(|e| format!("写供应商失败: {e}"))?;
             Ok(())
@@ -594,7 +661,10 @@ mod wasm_impl {
             // 单事务：清旧默认 + 设新默认
             let sqls = vec![
                 "UPDATE assistant_providers SET is_default = 0".to_string(),
-                format!("UPDATE assistant_providers SET is_default = 1 WHERE id = '{}'", id),
+                format!(
+                    "UPDATE assistant_providers SET is_default = 1 WHERE id = '{}'",
+                    id
+                ),
             ];
             self.plugin_db_execute_batch(&sqls)
                 .map_err(|e| format!("设默认供应商失败: {e}"))?;
@@ -647,8 +717,16 @@ mod wasm_impl {
                     result_digest, user_visible) \
                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
                 &sql_params![
-                    a.id, a.ts, a.tool_id, a.app_id, a.command, a.risk, a.decision,
-                    a.args_digest, a.result_digest, a.user_visible as i64
+                    a.id,
+                    a.ts,
+                    a.tool_id,
+                    a.app_id,
+                    a.command,
+                    a.risk,
+                    a.decision,
+                    a.args_digest,
+                    a.result_digest,
+                    a.user_visible as i64
                 ],
             )
             .map_err(|e| format!("写审计失败: {e}"))?;
@@ -755,7 +833,9 @@ mod wasm_impl {
             use crate::vault;
             // 1. 消息正文
             let msg_rows = self
-                .plugin_db_query("SELECT id, conversation_id, seq, content_enc FROM assistant_messages")
+                .plugin_db_query(
+                    "SELECT id, conversation_id, seq, content_enc FROM assistant_messages",
+                )
                 .map_err(|e| format!("读消息密文失败: {e}"))?;
             let msg_arr = msg_rows
                 .unwrap_or_else(|| serde_json::json!([]))
@@ -852,7 +932,8 @@ mod tests {
         assert!(!SCHEMA.is_empty());
         for stmt in SCHEMA {
             assert!(
-                stmt.contains("CREATE TABLE IF NOT EXISTS") || stmt.contains("CREATE INDEX IF NOT EXISTS"),
+                stmt.contains("CREATE TABLE IF NOT EXISTS")
+                    || stmt.contains("CREATE INDEX IF NOT EXISTS"),
                 "schema 语句须为幂等建表/建索引: {stmt}"
             );
         }
@@ -867,10 +948,7 @@ mod tests {
             "assistant_audit",
             "assistant_secrets",
         ] {
-            assert!(
-                SCHEMA.iter().any(|s| s.contains(name)),
-                "缺表 {name}"
-            );
+            assert!(SCHEMA.iter().any(|s| s.contains(name)), "缺表 {name}");
         }
     }
 
@@ -921,7 +999,13 @@ mod tests {
 
     #[test]
     fn rows_helper_handles_empty_and_non_array() {
-        assert!(map_rows::<Conversation, _>(None, row_to_conversation).unwrap().is_empty());
-        assert!(map_rows::<Conversation, _>(Some(serde_json::json!("not-array")), row_to_conversation).is_err());
+        assert!(map_rows::<Conversation, _>(None, row_to_conversation)
+            .unwrap()
+            .is_empty());
+        assert!(map_rows::<Conversation, _>(
+            Some(serde_json::json!("not-array")),
+            row_to_conversation
+        )
+        .is_err());
     }
 }
