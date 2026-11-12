@@ -11,6 +11,7 @@
 | 写或改前端（桌面挂载包 / 移动壳运行面 / i18n / 样式 / 红线 / 测试） | **`docs/FRONTEND.md`** |
 | 写或改 Rust 后端（crate / 命令面 / 权限 / 构建目标 / 日志错误 / 测试） | **`docs/BACKEND.md`** |
 | 做桌面端 E2E（真实宿主内脚本点界面 / 加测试锚点 / 判据纪律） | **`docs/E2E.md`** |
+| 开发 / 修改 wasm 应用（双端指南 / plugin.json / 权限 / 契约 / 红线清单） | **`docs/wasm-app-dev/`**（`wasm-app-dev-desktop.md` + `wasm-app-dev-guide.md` + `wasm-app-dev-mobile.md` + `wasm-app-development-checklist.md`） |
 | 判断优先级、安全红线、提交与完成定义 | 本文件 |
 | 通用规范：git 提交 / 注释命名 / 测试与验证 / 版本号管理 / issue 管理（四仓共享真源） | **`../wasmnest/docs/public/`**（`git.md` / `commenting.md` / `testing.md` / `versioning.md` / `issues.md`） |
 

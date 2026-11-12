@@ -90,7 +90,7 @@ wasmnest-apps/
 ├─ .cargo/config.toml              共享 target-dir（target/wasm-apps）+ jobs=4 + sccache
 ├─ .husky/pre-commit               暂存前端文件 eslint --quiet（error 阻断）
 ├─ eslint.config.js                前端资源访问红线（双端共用一份）
-└─ docs/                           CODE-MAP.md / FRONTEND.md / BACKEND.md / E2E.md / CI.md
+└─ docs/                           CODE-MAP.md / FRONTEND.md / BACKEND.md / E2E.md / CI.md / wasm-app-dev/（wasm 应用开发指南：桌面主指南 + 桌面 API 参考 + 移动指南 + 红线清单，2026-11-11 自平台仓迁入并按现行代码核对）
                                    / verification/（按 app 的端到端功能验证模板与报告口径）
 ```
 
