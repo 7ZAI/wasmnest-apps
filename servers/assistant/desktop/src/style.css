@@ -1,0 +1,23 @@
+/* Nest 助手基础样式（独立挂载包 · 票 05 骨架）
+ *
+ * Tailwind 工具类由本工程自编译；设计 token（var(--bg-page) 等）由宿主文档根
+ * 提供（app 只在宿主窗口内运行）；暗色模式跟随宿主 <html class="dark">。
+ *
+ * 本文件不写 :root token 兜底：挂载包 CSS 由 JS 在宿主 style.css 之后注入，
+ * 同特异性的 :root 会覆盖宿主的浅色 --bg-page（一挂载应用整窗变暗）。
+ *
+ * 骨架阶段的占位页样式在共享组件 `shared/components/PlaceholderView.vue`
+ * 内以 scoped 样式自持（双端同一份）；后续界面样式随共享核续接。
+ */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ==================== 页面基底 ==================== */
+
+.nest-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}

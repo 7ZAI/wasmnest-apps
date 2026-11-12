@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "title": "file-transfer 增加断点续传",
+  "goal": "在不改变现有协议的前提下支持断点续传，并补齐测试",
+  "maxParallel": 2,
+  "nodes": [
+    {
+      "key": "n1",
+      "title": "实现断点续传",
+      "role": "coder",
+      "agentId": "pi",
+      "prompt": "在 file-transfer 的传输层实现断点续传，并补齐单元测试。",
+      "dependsOn": [],
+      "writeScope": ["apps/file-transfer/desktop/src/", "apps/file-transfer/desktop/rust/"],
+      "acceptance": {
+        "type": "command",
+        "command": ["pnpm", "run", "test:run"],
+        "cwd": "apps/file-transfer/desktop",
+        "timeoutSec": 900
+      },
+      "maxAttempts": 2
+    },
+    {
+      "key": "n2",
+      "title": "独立评审",
+      "role": "reviewer",
+      "agentId": "opencode",
+      "prompt": "只读评审 n1 的 diff，输出 PASS/FAIL 与理由。",
+      "dependsOn": ["n1"],
+      "writeScope": [],
+      "acceptance": { "type": "verdict" },
+      "maxAttempts": 1
+    }
+  ]
+}

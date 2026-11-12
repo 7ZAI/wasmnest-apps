@@ -1,0 +1,190 @@
+/**
+ * 插件设置 — host-peer 契约版
+ *
+ * 共享目录由宿主持久化（SharedDirDto：id/name/kind/path），添加 = 系统
+ * 多目录选择器（一次可加多个）→ host mount-local；下载目录经 pick-download-dir
+ * （系统选择器 + set_download_dir）；接收策略/超时经 set-settings。
+ */
+import { ref, computed, type Ref } from 'vue'
+import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-desktop'
+import type { Settings } from '../types'
+
+/** 宿主 SharedDirDto → 前端条目（保留 id 供移除寻址、path 供完整路径展示） */
+export interface RootItem {
+  id: string
+  name: string
+  path: string
+}
+
+export function useSettings(context: PluginContext) {
+  const settings = ref<Settings>({
+    downloadDir: '',
+    concurrency: 3,
+    receivingPolicy: 'ask',
+    approvalTimeoutSec: 60,
+    encryption: true,
+    allowWan: true,
+    relayMaxBytesPerTask: 0,
+    relayAddrs: [],
+  }) as Ref<Settings>
+  /** roots 带条目 id（宿主 DTO），与 Settings.roots（展示名列表）并行维护 */
+  const rootItems = ref<RootItem[]>([]) as Ref<RootItem[]>
+  const loading = ref(false)
+  /** 设置加载失败（get-settings 抛错时置位；SettingsPanel 渲染错误提示 + 重试） */
+  const loadError = ref(false)
+
+  /** 拉取设置并归一化 */
+  async function load(): Promise<void> {
+    loading.value = true
+    try {
+      const r = await context.commands.execute('file-transfer.get-settings', {})
+      if (r) {
+        // policyMode / encryption_enabled 为兼容旧版后端的死 fallback（当前只返 snake_case）
+        const policy = r.policy_mode ?? r.policyMode ?? 'ask'
+        const normalized =
+          policy === 'always_accept' ? 'accept' : policy === 'always_deny' ? 'reject' : 'ask'
+        const rawRoots = Array.isArray(r.roots) ? r.roots : []
+        rootItems.value = rawRoots.map((x: any) => {
+          const name = (x?.name ?? x?.path ?? x?.id ?? '') as string
+          // path 为展示真源（完整路径）；旧数据缺 path 时退化用 name
+          const path = typeof x?.path === 'string' && x.path ? x.path : name
+          return { id: x?.id ?? '', name, path }
+        })
+        settings.value = {
+          ...settings.value,
+          downloadDir: typeof r.download_dir === 'string' ? r.download_dir : (r.downloadDir ?? ''),
+          receivingPolicy: normalized as Settings['receivingPolicy'],
+          approvalTimeoutSec:
+            typeof r.ask_timeout_sec === 'number'
+              ? r.ask_timeout_sec
+              : (typeof r.askTimeoutSec === 'number' ? r.askTimeoutSec : 60),
+          // 加密固定开启（穿透方案不变量 12）：旧后端若返 false 也不采信，UI 不提供关闭
+          encryption: true,
+          concurrency:
+            typeof r.concurrency === 'number' ? Math.min(8, Math.max(1, Math.round(r.concurrency))) : 3,
+          // 中继开关缺省开；旧后端不返该字段时按开处理（只关中继，不关加密）
+          allowWan: r.allow_wan !== false && r.allowWan !== false,
+          relayMaxBytesPerTask:
+            typeof r.relay_max_bytes_per_task === 'number'
+              ? Math.max(0, Math.round(r.relay_max_bytes_per_task))
+              : 0,
+          // T21：外网接入 relay 端点（后端已校验；前端只做形状过滤）
+          relayAddrs: Array.isArray(r.relay_addrs)
+            ? r.relay_addrs.filter((x: unknown): x is string => typeof x === 'string')
+            : [],
+        }
+      }
+      loadError.value = false
+    } catch (e) {
+      loadError.value = true
+      console.error('[File Transfer] get-settings failed:', e)
+    } finally {
+      loading.value = false
+    }
+  }
+
+  /** 设置接收策略（即时保存） */
+  async function setReceivingPolicy(policy: Settings['receivingPolicy']): Promise<void> {
+    await context.commands.execute('file-transfer.set-settings', {
+      receivingPolicy: policy,
+      approvalTimeoutSec: settings.value.approvalTimeoutSec,
+    })
+    settings.value = { ...settings.value, receivingPolicy: policy }
+  }
+
+  /** 设置同意超时（10–600 钳制；仅 ask 策略生效） */
+  async function setApprovalTimeoutSec(secs: number): Promise<void> {
+    const clamped = Math.min(600, Math.max(10, Math.round(secs)))
+    await context.commands.execute('file-transfer.set-settings', {
+      receivingPolicy: settings.value.receivingPolicy,
+      approvalTimeoutSec: clamped,
+    })
+    settings.value = { ...settings.value, approvalTimeoutSec: clamped }
+  }
+
+  /** 设置发送方向并发上限（1–8 钳制；随下次发送载荷脉冲推送宿主闸门） */
+  async function setConcurrency(n: number): Promise<void> {
+    const clamped = Math.min(8, Math.max(1, Math.round(n)))
+    if (clamped === settings.value.concurrency) return
+    await context.commands.execute('file-transfer.set-settings', { concurrency: clamped })
+    settings.value = { ...settings.value, concurrency: clamped }
+  }
+
+  /** 设置是否允许中继（T12：只控制拨号候选，不碰加密——不变量 12） */
+  async function setAllowWan(allow: boolean): Promise<void> {
+    if (allow === settings.value.allowWan) return
+    await context.commands.execute('file-transfer.set-settings', { allowWan: allow })
+    settings.value = { ...settings.value, allowWan: allow }
+  }
+
+  /** 设置中继提示阈值（字节；0 = 每次发送都提示；负值/非数按 0 收敛） */
+  async function setRelayMaxBytes(bytes: number): Promise<void> {
+    const clamped = Math.max(0, Math.round(Number.isFinite(bytes) ? bytes : 0))
+    if (clamped === settings.value.relayMaxBytesPerTask) return
+    await context.commands.execute('file-transfer.set-settings', {
+      relayMaxBytesPerTask: clamped,
+    })
+    settings.value = { ...settings.value, relayMaxBytesPerTask: clamped }
+  }
+
+  /** 添加共享目录（系统多目录选择器，一次可添加多个 → 注册表 + set-shared-roots；
+   * 用户取消返回空数组；兼容旧单条 {id,name,path} 契约） */
+  async function addRoot(): Promise<string[]> {
+    try {
+      const r = await context.commands.execute('file-transfer.mount-local', {})
+      await load()
+      if (Array.isArray(r?.added)) {
+        return r.added
+          .map((x: any) => (typeof x?.path === 'string' ? x.path : ''))
+          .filter(Boolean)
+      }
+      return typeof r?.path === 'string' && r.path ? [r.path] : []
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      if (!msg.includes('cancelled')) console.error('[File Transfer] mount-local failed:', e)
+      return []
+    }
+  }
+
+  /** 移除共享目录（按条目 id） */
+  async function removeRoot(id: string): Promise<void> {
+    await context.commands.execute('file-transfer.update-roots', { remove: id })
+    rootItems.value = rootItems.value.filter((r) => r.id !== id)
+  }
+
+  /** 选择下载目录（插件命令内含系统选择器 + 持久化；取消返回 null） */
+  async function pickDownloadDir(): Promise<string | null> {
+    try {
+      const result = await context.commands.execute('file-transfer.pick-download-dir', {})
+      if (result?.cancelled) return null
+      if (result?.path) {
+        settings.value = { ...settings.value, downloadDir: result.path }
+        return result.path as string
+      }
+      return null
+    } catch (e) {
+      console.error('[File Transfer] pick-download-dir failed:', e)
+      return null
+    }
+  }
+
+  /** 是否已配置共享目录（空态判断用） */
+  const hasRoots = computed(() => rootItems.value.length > 0)
+
+  return {
+    settings,
+    rootItems,
+    loading,
+    loadError,
+    hasRoots,
+    load,
+    addRoot,
+    removeRoot,
+    pickDownloadDir,
+    setReceivingPolicy,
+    setApprovalTimeoutSec,
+    setConcurrency,
+    setAllowWan,
+    setRelayMaxBytes,
+  }
+}

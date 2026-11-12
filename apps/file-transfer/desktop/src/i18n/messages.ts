@@ -1,0 +1,297 @@
+/**
+ * File Transfer 插件 i18n 消息类型（唯一 key 来源）
+ *
+ * zh-CN 与 en 两个语言文件都必须实现该类型：
+ * 新增/遗漏 key 在编译期即报错，保证两个语言文件的 key 永远同步。
+ * 所有 key 以 `transfer.` 域命名，注册时经插件 ID 前缀隔离为
+ * `com.wasmnest.file-transfer.transfer.*`。
+ * 用 type 别名而非 interface：TS 给类型别名隐式索引签名，使 MessageSchema
+ * 可直接赋给 `Record<string, unknown>`（registerMessages 入参）。
+ */
+
+export type MessageSchema = {
+  // ==================== 侧边栏 ====================
+  'transfer.sidebar.title': string
+
+  // ==================== 对端 pill ====================
+  'transfer.peer.online': string
+  'transfer.peer.offline': string
+  'transfer.peer.notSharing': string
+  'transfer.peer.unpaired': string
+  'transfer.peer.noSharedRoots': string
+  'transfer.peer.unknown': string
+  'transfer.peer.switchTitle': string
+
+  // ==================== 附近设备面板 ====================
+  'transfer.devices.title': string
+  'transfer.devices.subtitle': string
+  'transfer.devices.empty': string
+  'transfer.devices.online': string
+  'transfer.devices.recentSeen': string
+  'transfer.devices.connected': string
+  'transfer.devices.connecting': string
+  'transfer.devices.capNone': string
+  'transfer.devices.activeCurrent': string
+  'transfer.devices.setActive': string
+  'transfer.devices.connect': string
+  'transfer.devices.disconnect': string
+  'transfer.devices.denied': string
+  'transfer.devices.unreachable': string
+  'transfer.devices.trustHint': string
+  /** 探索发现：重新扫描同网节点（面板头部按钮） */
+  'transfer.devices.scan': string
+  'transfer.devices.scanning': string
+  // T12：中继 / 远程设备（连接串导入、传输形态、手动尝试外网）
+  'transfer.devices.addRemote': string
+  'transfer.devices.myDevice': string
+  'transfer.devices.remote': string
+  'transfer.devices.removeRemote': string
+  'transfer.devices.tryWan': string
+  'transfer.devices.tryWanHint': string
+  'transfer.devices.transportLan': string
+  'transfer.devices.transportWan': string
+  // T20：上次传输形态 / 跨网能力徽标 / 分类失败出路
+  'transfer.devices.lastTransportLan': string
+  'transfer.devices.lastTransportWan': string
+  'transfer.devices.hasRelay': string
+  'transfer.devices.lanOnly': string
+  'transfer.devices.relayOnly': string
+  'transfer.devices.relayOnlyHint': string
+  'transfer.devices.errorNoEndpoint': string
+  'transfer.devices.errorRelayDisabled': string
+  'transfer.devices.errorRelayUnreachable': string
+  'transfer.devices.errorTimeout': string
+  /** 未识别失败：`{detail}` 为命令原文，原样展示（fail-visible） */
+  'transfer.devices.errorUnknown': string
+
+  // ==================== 顶栏 ====================
+  'transfer.topbar.sendToPhone': string
+  'transfer.topbar.downloadSelected': string
+  'transfer.topbar.refresh': string
+  'transfer.topbar.settings': string
+  'transfer.topbar.closeSettings': string
+
+  // ==================== 目录表格 ====================
+  'transfer.table.name': string
+  'transfer.table.size': string
+  'transfer.table.modified': string
+  'transfer.table.empty': string
+  'transfer.table.loading': string
+  'transfer.breadcrumb.home': string
+
+  // ==================== 任务状态 ====================
+  'transfer.task.state.queued': string
+  'transfer.task.state.awaitingPeer': string
+  'transfer.task.awaitingPeerHint': string
+  'transfer.task.state.transferring': string
+  'transfer.task.state.paused': string
+  'transfer.task.state.resumable': string
+  'transfer.task.state.completed': string
+  'transfer.task.state.failed': string
+  'transfer.task.state.rejected': string
+  'transfer.task.state.interrupted': string
+  'transfer.task.state.cancelled': string
+  'transfer.task.pause': string
+  'transfer.task.resume': string
+  'transfer.task.cancel': string
+  'transfer.task.cancelledToast': string
+  'transfer.task.remove': string
+  'transfer.task.retry': string
+  'transfer.task.resumeAll': string
+  'transfer.task.download': string
+  'transfer.task.upload': string
+  'transfer.task.empty': string
+  'transfer.task.receivingEmpty': string
+  'transfer.task.waitingApproval': string
+  'transfer.task.receiving': string
+  'transfer.task.openDir': string
+
+  // ==================== intent 驱动（v2.1） ====================
+  'transfer.task.waitingReply': string
+  'transfer.task.peerOffline': string
+
+  // ==================== 队列面板 ====================
+  'transfer.queue.title': string
+  'transfer.queue.count': string
+  'transfer.queue.close': string
+
+  // ==================== 队列分类 tabs（v2） ====================
+  'transfer.queue.all': string
+  'transfer.queue.sending': string
+  'transfer.queue.receiving': string
+  'transfer.queue.history': string
+
+  // ==================== 批量请求应答（v2） ====================
+  'transfer.request.title': string
+  'transfer.request.body': string
+  'transfer.request.countdown': string
+  'transfer.request.acceptAll': string
+  'transfer.request.rejectAll': string
+  'transfer.toast.receiving': string
+
+  // ==================== 首连确认（spec 决策 6） ====================
+  'transfer.consent.title': string
+  'transfer.consent.body': string
+  'transfer.consent.namelessHint': string
+  'transfer.consent.fingerprintLabel': string
+  'transfer.consent.copy': string
+  'transfer.consent.copied': string
+  'transfer.consent.copyHint': string
+  'transfer.consent.countdown': string
+  'transfer.consent.accept': string
+  'transfer.consent.deny': string
+  'transfer.consent.close': string
+
+  // ==================== 可信对端管理（spec 决策 8） ====================
+  'transfer.trusted.title': string
+  'transfer.trusted.loading': string
+  'transfer.trusted.empty': string
+  'transfer.trusted.loadFailed': string
+  'transfer.trusted.retry': string
+  'transfer.trusted.addedAt': string
+  'transfer.trusted.revoke': string
+  'transfer.trusted.cancel': string
+  'transfer.trusted.revokeTitle': string
+  'transfer.trusted.revokeBody': string
+  'transfer.trusted.revokeFailed': string
+
+  // ==================== 队列汇总 ====================
+  'transfer.summary.active': string
+  'transfer.summary.queued': string
+  'transfer.summary.failed': string
+  'transfer.summary.rejected': string
+  'transfer.summary.speed': string
+
+  // ==================== 设置 ====================
+  'transfer.settings.sharedRoots': string
+  'transfer.settings.addRoot': string
+  'transfer.settings.removeRoot': string
+  'transfer.settings.noRoots': string
+  'transfer.settings.downloadDir': string
+  'transfer.settings.noDownloadDir': string
+  'transfer.settings.chooseDir': string
+  'transfer.settings.concurrency': string
+  'transfer.settings.concurrencyHint': string
+  'transfer.settings.encryptionNotice': string
+  'transfer.settings.concurrencyMinus': string
+  'transfer.settings.concurrencyPlus': string
+  'transfer.settings.receivingPolicy': string
+  'transfer.settings.receivingPolicyAsk': string
+  'transfer.settings.receivingPolicyAccept': string
+  'transfer.settings.receivingPolicyReject': string
+  'transfer.settings.receivingPolicyHint': string
+  'transfer.settings.approvalTimeout': string
+  'transfer.settings.encryption': string
+  'transfer.settings.encryptionAlwaysOn': string
+  'transfer.settings.encryptionHint': string
+  // T12：中继开关与提示阈值（关的是中继，不是加密）
+  'transfer.settings.relay': string
+  'transfer.settings.relayOn': string
+  'transfer.settings.relayOff': string
+  'transfer.settings.relayHint': string
+  'transfer.settings.relayThreshold': string
+  'transfer.settings.relayThresholdHint': string
+
+  // ==================== 中继发送提示（T12） ====================
+  'transfer.relayHint.title': string
+  'transfer.relayHint.body': string
+  'transfer.relayHint.confirm': string
+  'transfer.relayHint.cancel': string
+
+  // ==================== 添加远程设备（T12） ====================
+  'transfer.remote.title': string
+  'transfer.remote.hint': string
+  'transfer.remote.placeholder': string
+  'transfer.remote.cancel': string
+  'transfer.remote.confirm': string
+  'transfer.remote.added': string
+  'transfer.remote.sourceHint': string
+  'transfer.remote.addedWithRelay': string
+  'transfer.remote.addedLanOnly': string
+  'transfer.remote.errorMalformed': string
+  'transfer.remote.errorIncomplete': string
+  'transfer.remote.errorAddressInvalid': string
+
+  // ==================== 我的设备（T21，file-transfer 独立化） ====================
+  'transfer.myDevice.title': string
+  'transfer.myDevice.loading': string
+  'transfer.myDevice.loadFailed': string
+  'transfer.myDevice.unsupportedTitle': string
+  'transfer.myDevice.unsupportedBody': string
+  'transfer.myDevice.deviceName': string
+  'transfer.myDevice.unnamed': string
+  'transfer.myDevice.fingerprint': string
+  'transfer.myDevice.relayState': string
+  'transfer.myDevice.relayIdle': string
+  'transfer.myDevice.relayConnecting': string
+  'transfer.myDevice.relayReserved': string
+  'transfer.myDevice.relayLost': string
+  'transfer.myDevice.relayUnknown': string
+  'transfer.myDevice.addresses': string
+  'transfer.myDevice.linkLabel': string
+  'transfer.myDevice.qrHint': string
+  'transfer.myDevice.linkHint': string
+  'transfer.myDevice.linkUnavailable': string
+  'transfer.myDevice.copy': string
+  'transfer.myDevice.copied': string
+  'transfer.myDevice.copyFailed': string
+  'transfer.myDevice.relayTitle': string
+  'transfer.myDevice.relayHint': string
+  'transfer.myDevice.relayCenterEmpty': string
+  'transfer.myDevice.relaySourceCache': string
+  'transfer.myDevice.relayCenterError': string
+  'transfer.myDevice.relayOpenCenter': string
+  'transfer.myDevice.relayOpenUnavailable': string
+  'transfer.myDevice.relayUnsupported': string
+  'transfer.myDevice.refresh': string
+  'transfer.myDevice.close': string
+
+  // ==================== 错误（spec §10 + v2 拒绝原因） ====================
+  'transfer.error.duplicateName': string
+  'transfer.error.remoteChanged': string
+  'transfer.error.dirUnavailable': string
+  'transfer.error.rejectedByUser': string
+  'transfer.error.noResponse': string
+  'transfer.error.policyDenied': string
+  // ADR 0030 业务错误码（guest bail_with_code!，完整 key =
+  // com.wasmnest.file-transfer.transfer.error.queueFull）：发送入队被拒的原因文案
+  'transfer.error.queueFull': string
+  // 发送失败兜底（前端 resolvePluginErrorText 的 fallbackKey）
+  'transfer.error.sendFailed': string
+
+  // ==================== 传输历史（v2） ====================
+  'transfer.history.title': string
+  'transfer.history.clear': string
+  'transfer.history.clearConfirmTitle': string
+  'transfer.history.clearConfirmBody': string
+  'transfer.history.empty': string
+  'transfer.history.openFolder': string
+  'transfer.history.results.completed': string
+  'transfer.history.results.failed': string
+  'transfer.history.results.rejected': string
+  'transfer.history.results.cancelled': string
+
+  // ==================== 空态 ====================
+  'transfer.empty.noRoots': string
+  'transfer.empty.noRootsHint': string
+  'transfer.empty.noPeer': string
+  'transfer.empty.noPeerHint': string
+  'transfer.empty.noDownloadDir': string
+  'transfer.empty.noDownloadDirHint': string
+
+  // ==================== 剩余时间 ====================
+  'transfer.eta.seconds': string
+  'transfer.eta.minutes': string
+  'transfer.eta.hours': string
+
+  // ==================== 多任务卡片预览面（mountPreview · 2026-10-20） ====================
+  'transfer.preview.peersTitle': string
+  'transfer.preview.noPeers': string
+  'transfer.preview.morePeers': string
+  'transfer.preview.tasksTitle': string
+  'transfer.preview.moreTasks': string
+
+  // ==================== 全局通知（宿主 useGlobalNotifications 承接的对等连接） ====================
+  'transfer.notification.peerConnected': string
+  'transfer.notification.peerDisconnected': string
+}

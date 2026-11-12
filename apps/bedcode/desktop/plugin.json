@@ -1,0 +1,564 @@
+{
+  "id": "com.wasmnest.bedcode",
+  "name": "BedCode",
+  "version": "0.0.1",
+  "platform": "desktop",
+  "update": { "provider": "github-release" },
+  "description": "BedCode 终端会话中心：会话配置与生命周期编排、任务队列与 Agent 集成。\n认证 / 配对 / 信任域已迁至 com.wasmnest.auth-center（issue #6）：设备配对、连接历史与就位状态在 BedCode 页面上保留，数据经互调消费认证中心；BedCode 不再注册为认证中心。\n使用：侧边栏入口为「设备配对 / 项目 / 终端会话 / Agent 管理 / Agent 任务」；项目（目录 + 执行环境）是桌面一级容器，项目内可直接选 agent 启动运行；会话创建时自动安装项目桥接扩展（事件上行 + 命令下行 + 任务状态同步）；终端工具栏按钮打开任务队列弹窗；设置页贡献分组管理配对码 TTL、QR 有效期与 hooks。",
+  "author": "WasmNest",
+  "main": "index.js",
+  "type": "business-app",
+  "pluginType": "full",
+  "backgroundTransport": true,
+  "rustLibrary": "bedcode_plugin_terminal_session",
+  "icon": "icon.svg",
+  "permissions": [
+    "app:path",
+    "auth",
+    "broadcast",
+    "connection:read",
+    "fs:pick",
+    "fs:read",
+    "fs:write",
+    "network:http",
+    "peer",
+    "process:run",
+    "pty:io",
+    "pty:spawn",
+    "session:read",
+    "storage",
+    "task:run",
+    "terminal:input",
+    "timer:schedule",
+    "tunnel:serve",
+    "ui:input",
+    "ui:settings",
+    "ui:sidebar",
+    "ws:server"
+  ],
+  "dependencies": [
+    "host-pty"
+  ],
+  "ptyQuota": 8,
+  "api": [
+    "com.wasmnest.bedcode.pairing-code-generate",
+    "com.wasmnest.bedcode.pairing-code-status",
+    "com.wasmnest.bedcode.pairing-code-verify",
+    "com.wasmnest.bedcode.pairing-code-clear",
+    "com.wasmnest.bedcode.qr-code-generate",
+    "com.wasmnest.bedcode.qr-code-status",
+    "com.wasmnest.bedcode.qr-code-verify",
+    "com.wasmnest.bedcode.qr-code-clear",
+    "com.wasmnest.bedcode.trust-list",
+    "com.wasmnest.bedcode.trust-revoke",
+    "com.wasmnest.bedcode.consent-decide",
+    "com.wasmnest.bedcode.config-list",
+    "com.wasmnest.bedcode.config-upsert",
+    "com.wasmnest.bedcode.config-delete",
+    "com.wasmnest.bedcode.quick-actions-import",
+    "com.wasmnest.bedcode.auth-records-import",
+    "com.wasmnest.bedcode.devices-list",
+    "com.wasmnest.bedcode.history-list",
+    "com.wasmnest.bedcode.connection-touch",
+    "com.wasmnest.bedcode.connection-close",
+    "com.wasmnest.bedcode.auth-grant",
+    "com.wasmnest.bedcode.session-create",
+    "com.wasmnest.bedcode.session-restart",
+    "com.wasmnest.bedcode.session-remove",
+    "com.wasmnest.bedcode.session-rename",
+    "com.wasmnest.bedcode.session-resize",
+    "com.wasmnest.bedcode.annotate",
+    "com.wasmnest.bedcode.devices-connect-list",
+    "com.wasmnest.bedcode.session-list",
+    "com.wasmnest.bedcode.session-get",
+    "com.wasmnest.bedcode.session-close",
+    "com.wasmnest.bedcode.session-input",
+    "com.wasmnest.bedcode.session-history",
+    "com.wasmnest.bedcode.session-ws-control"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "id": "session.status",
+        "title": "Session Center Status"
+      },
+      {
+        "id": "session.task.scheduler-tick",
+        "title": "Task scheduler tick (host timer)"
+      },
+      {
+        "id": "session.task.cleanup-project-hooks",
+        "title": "Cleanup project hooks"
+      },
+      {
+        "id": "session.task.get-status",
+        "title": "Get task status"
+      },
+      {
+        "id": "session.task.history-list",
+        "title": "List task history"
+      },
+      {
+        "id": "session.task.history-stats",
+        "title": "Task history statistics"
+      },
+      {
+        "id": "session.task.log-session",
+        "title": "Read task session transcript"
+      },
+      {
+        "id": "session.task.running-sessions",
+        "title": "List running sessions"
+      },
+      {
+        "id": "session.task.set-platform",
+        "title": "Set host platform"
+      },
+      {
+        "id": "session.task.set-auto-mode",
+        "title": "Set auto mode"
+      },
+      {
+        "id": "session.task.session-settings",
+        "title": "Get session settings"
+      },
+      {
+        "id": "session.task.supported-agents",
+        "title": "List supported agents"
+      },
+      {
+        "id": "session.task.session-configs",
+        "title": "List session configs with agent support"
+      },
+      {
+        "id": "session.task.targets",
+        "title": "List task targets (project × agent)"
+      },
+      {
+        "id": "session.task.preset-list",
+        "title": "List preset tasks"
+      },
+      {
+        "id": "session.task.preset-create",
+        "title": "Create preset task"
+      },
+      {
+        "id": "session.task.preset-delete",
+        "title": "Delete preset task"
+      },
+      {
+        "id": "session.task.preset-update",
+        "title": "Update preset task"
+      },
+      {
+        "id": "session.task.preset-enqueue",
+        "title": "Enqueue preset task"
+      },
+      {
+        "id": "session.task.queue-list",
+        "title": "List task queue"
+      },
+      {
+        "id": "session.task.queue-add",
+        "title": "Add task to queue"
+      },
+      {
+        "id": "session.task.queue-cancel",
+        "title": "Cancel queue task"
+      },
+      {
+        "id": "session.task.queue-remove",
+        "title": "Remove queue task"
+      },
+      {
+        "id": "session.task.queue-clear",
+        "title": "Clear task queue"
+      },
+      {
+        "id": "session.task.queue-update",
+        "title": "Update queue task prompt"
+      },
+      {
+        "id": "session.task.queue-reorder",
+        "title": "Reorder task queue"
+      },
+      {
+        "id": "session.task.scheduled-list",
+        "title": "List scheduled jobs"
+      },
+      {
+        "id": "session.task.scheduled-create",
+        "title": "Create scheduled job"
+      },
+      {
+        "id": "session.task.scheduled-delete",
+        "title": "Delete scheduled job"
+      },
+      {
+        "id": "session.task.scheduled-reset",
+        "title": "Reset scheduled job"
+      },
+      {
+        "id": "session.relay.config",
+        "title": "Read relay config from network centre"
+      },
+      {
+        "id": "session.relay.migration",
+        "title": "Read relay migration status"
+      },
+      {
+        "id": "project.create",
+        "title": "Project: Create"
+      },
+      {
+        "id": "project.file-content",
+        "title": "Project: File Content"
+      },
+      {
+        "id": "project.file-tree",
+        "title": "Project: File Tree"
+      },
+      {
+        "id": "project.get",
+        "title": "Project: Get"
+      },
+      {
+        "id": "project.git-log",
+        "title": "Project: Git Log"
+      },
+      {
+        "id": "project.list",
+        "title": "Project: List"
+      },
+      {
+        "id": "project.open",
+        "title": "Project: Open"
+      },
+      {
+        "id": "project.pick-dir",
+        "title": "Project: Pick Directory"
+      },
+      {
+        "id": "project.remove",
+        "title": "Project: Remove"
+      },
+      {
+        "id": "project.rename",
+        "title": "Project: Rename"
+      },
+      {
+        "id": "run.agent.options",
+        "title": "Run: Agent Control Options"
+      },
+      {
+        "id": "run.agent.set",
+        "title": "Run: Set Model / Thinking Level"
+      },
+      {
+        "id": "run.events",
+        "title": "Run: Events"
+      },
+      {
+        "id": "run.list",
+        "title": "Run: List"
+      },
+      {
+        "id": "run.send",
+        "title": "Run: Send Message"
+      },
+      {
+        "id": "run.start",
+        "title": "Run: Start"
+      },
+      {
+        "id": "agent.add-custom-source",
+        "title": "AddCustomSource"
+      },
+      {
+        "id": "agent.add-usage-source",
+        "title": "Agent Hub: Add Usage Source"
+      },
+      {
+        "id": "agent.add-usage-source-path",
+        "title": "Add usage source path"
+      },
+      {
+        "id": "agent.apply-mirror",
+        "title": "Agent Hub: Apply Registry Persistently"
+      },
+      {
+        "id": "agent.apply-provider",
+        "title": "Agent Hub: Apply Provider Preset to CLI"
+      },
+      {
+        "id": "agent.bootstrap-env",
+        "title": "Agent Hub: Install Node.js Runtime"
+      },
+      {
+        "id": "agent.cancel-bootstrap",
+        "title": "Agent Hub: Cancel Node.js Bootstrap"
+      },
+      {
+        "id": "agent.cancel-run",
+        "title": "Agent Hub: Cancel Running Install"
+      },
+      {
+        "id": "agent.check-updates",
+        "title": "Agent Hub: Check CLI Updates"
+      },
+      {
+        "id": "agent.clear-usage-data",
+        "title": "Agent Hub: Clear Usage Data"
+      },
+      {
+        "id": "agent.delete-preset",
+        "title": "Agent Hub: Delete Provider Preset"
+      },
+      {
+        "id": "agent.describe-install",
+        "title": "Agent Hub: Describe Install Command"
+      },
+      {
+        "id": "agent.detect",
+        "title": "Agent Hub: Detect CLIs"
+      },
+      {
+        "id": "agent.distribute-skill",
+        "title": "Agent Hub: Distribute Skill"
+      },
+      {
+        "id": "agent.fetch-models",
+        "title": "Agent Hub: Fetch Provider Model List"
+      },
+      {
+        "id": "agent.get-bootstrap-state",
+        "title": "Agent Hub: Get Node Bootstrap State"
+      },
+      {
+        "id": "agent.get-install-state",
+        "title": "Agent Hub: Get Install State"
+      },
+      {
+        "id": "agent.get-providers-state",
+        "title": "Agent Hub: Get Providers State"
+      },
+      {
+        "id": "agent.get-resume-command",
+        "title": "Agent Hub: Build Session Resume Command"
+      },
+      {
+        "id": "agent.get-run-output",
+        "title": "Agent Hub: Get Run Output"
+      },
+      {
+        "id": "agent.get-skills-state",
+        "title": "Agent Hub: Get Skills State"
+      },
+      {
+        "id": "agent.get-state",
+        "title": "Agent Hub: Get State"
+      },
+      {
+        "id": "agent.get-usage-state",
+        "title": "Agent Hub: Get Usage State"
+      },
+      {
+        "id": "agent.get-usage-stats",
+        "title": "Agent Hub: Get Usage Stats"
+      },
+      {
+        "id": "agent.import-presets",
+        "title": "Import provider presets from agent-hub export"
+      },
+      {
+        "id": "agent.import-providers",
+        "title": "Agent Hub: Import Providers from CLIs"
+      },
+      {
+        "id": "agent.import-skill",
+        "title": "Agent Hub: Import Skill from Local Directory"
+      },
+      {
+        "id": "agent.install",
+        "title": "Agent Hub: Install / Update CLI"
+      },
+      {
+        "id": "agent.install-github-skill",
+        "title": "Agent Hub: Install Skill from GitHub"
+      },
+      {
+        "id": "agent.list-agents",
+        "title": "Agent Hub: List Agents"
+      },
+      {
+        "id": "agent.list-usage-sessions",
+        "title": "Agent Hub: List Usage Sessions"
+      },
+      {
+        "id": "agent.list-usage-sources",
+        "title": "Agent Hub: List Usage Sources"
+      },
+      {
+        "id": "agent.pick-source-dir",
+        "title": "Agent Hub: Pick Log Source Directory"
+      },
+      {
+        "id": "agent.read-skill",
+        "title": "Agent Hub: Read Skill"
+      },
+      {
+        "id": "agent.read-usage-session",
+        "title": "Agent Hub: Read Usage Session"
+      },
+      {
+        "id": "agent.remove-custom-source",
+        "title": "RemoveCustomSource"
+      },
+      {
+        "id": "agent.remove-env",
+        "title": "Agent Hub: Remove Node.js Runtime"
+      },
+      {
+        "id": "agent.remove-usage-source",
+        "title": "Agent Hub: Remove Usage Source"
+      },
+      {
+        "id": "agent.remove-usage-source-path",
+        "title": "Remove usage source path"
+      },
+      {
+        "id": "agent.request-auth",
+        "title": "Agent Hub: Request Directory Authorization"
+      },
+      {
+        "id": "agent.restore-npmrc",
+        "title": "Agent Hub: Restore npmrc Backup"
+      },
+      {
+        "id": "agent.save-preset",
+        "title": "Agent Hub: Save Provider Preset"
+      },
+      {
+        "id": "agent.save-skill",
+        "title": "Agent Hub: Save Skill"
+      },
+      {
+        "id": "agent.scan-skills",
+        "title": "Agent Hub: Scan Skills"
+      },
+      {
+        "id": "agent.scan-usage",
+        "title": "Agent Hub: Scan Usage Sessions"
+      },
+      {
+        "id": "agent.speed-test",
+        "title": "Agent Hub: Speed Test Registries"
+      },
+      {
+        "id": "agent.uninstall",
+        "title": "Agent Hub: Uninstall CLI"
+      },
+      {
+        "id": "agent.profile.list",
+        "title": "Agent Pool: List"
+      },
+      {
+        "id": "agent.profile.create",
+        "title": "Agent Pool: Create"
+      },
+      {
+        "id": "agent.profile.update",
+        "title": "Agent Pool: Update"
+      },
+      {
+        "id": "agent.profile.delete",
+        "title": "Agent Pool: Delete"
+      },
+      {
+        "id": "agent.profile.options",
+        "title": "Agent Pool: CLI Models & Thinking Levels"
+      },
+      {
+        "id": "orchestration.meta",
+        "title": "Orchestration: Vocabulary & Agents"
+      },
+      {
+        "id": "orchestration.list",
+        "title": "Orchestration: List"
+      },
+      {
+        "id": "orchestration.get",
+        "title": "Orchestration: Get"
+      },
+      {
+        "id": "orchestration.create",
+        "title": "Orchestration: Create"
+      },
+      {
+        "id": "orchestration.plan",
+        "title": "Orchestration: Generate Plan"
+      },
+      {
+        "id": "orchestration.update-plan",
+        "title": "Orchestration: Update Plan"
+      },
+      {
+        "id": "orchestration.approve",
+        "title": "Orchestration: Approve Plan"
+      },
+      {
+        "id": "orchestration.start",
+        "title": "Orchestration: Start"
+      },
+      {
+        "id": "orchestration.pause",
+        "title": "Orchestration: Pause"
+      },
+      {
+        "id": "orchestration.resume",
+        "title": "Orchestration: Resume"
+      },
+      {
+        "id": "orchestration.cancel",
+        "title": "Orchestration: Cancel"
+      },
+      {
+        "id": "orchestration.retry-node",
+        "title": "Orchestration: Retry Node"
+      },
+      {
+        "id": "orchestration.skip-node",
+        "title": "Orchestration: Skip Node"
+      },
+      {
+        "id": "orchestration.events",
+        "title": "Orchestration: Events"
+      },
+      {
+        "id": "session.orchestration.tick",
+        "title": "Orchestration scheduler tick (host timer)"
+      }
+    ],
+    "wsEndpoints": [
+      {
+        "path": "session-control",
+        "auth": "jwt"
+      },
+      {
+        "path": "terminal",
+        "auth": "jwt"
+      }
+    ],
+    "lifecycle": {
+      "onStartup": false,
+      "onShutdown": false
+    },
+    "provides": [
+      "task:status-changed",
+      "session:mode-changed",
+      "task:queue-changed",
+      "task:scheduled-changed",
+      "task:preset-changed"
+    ]
+  }
+}

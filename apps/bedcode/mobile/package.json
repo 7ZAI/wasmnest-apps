@@ -1,0 +1,41 @@
+{
+  "name": "@wasmnest/plugin-bedcode-mobile",
+  "version": "0.0.1",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "wasmnest-plugin build",
+    "package": "wasmnest-plugin package",
+    "dev": "wasmnest-plugin dev",
+    "test": "vitest",
+    "test:run": "vitest run"
+  },
+  "dependencies": {
+    "@binblink/wasmnest-plugin-sdk-mobile": "file:../../../../wasmnest/wasmnest-mobile/packages/plugin-sdk-mobile",
+    "@shikijs/langs": "^4.2.0",
+    "@shikijs/themes": "^4.2.0",
+    "@vuepic/vue-datepicker": "^9.0.3",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/addon-unicode11": "^0.9.0",
+    "@xterm/addon-web-links": "^0.12.0",
+    "@xterm/addon-webgl": "^0.19.0",
+    "@xterm/xterm": "^6.0.0",
+    "html5-qrcode": "^2.3.8",
+    "marked": "^18.0.5",
+    "shiki": "^4.2.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^6.0.0",
+    "vite": "^8.0.0",
+    "vue": "^3.4.0",
+    "vue-i18n": "^9.0.0",
+    "vue-tsc": "^2.0.6",
+    "pinia": "^2.1.7",
+    "typescript": "^5.0.0",
+    "terser": "^5.0.0",
+    "vitest": "^3.2.7",
+    "happy-dom": "^13.6.0",
+    "@vue/test-utils": "^2.4.5"
+  }
+}

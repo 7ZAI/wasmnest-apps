@@ -1,0 +1,617 @@
+<script setup lang="ts">
+/**
+ * SettingsSection — 文件传输设置区 (Mobile) — host-peer 契约版
+ *
+ * 共享目录：条目由宿主持久化（SAF 树授权），添加 = 弹系统目录树选择器；
+ * 免授权特殊条目「app 私有下载目录」由宿主派生注入（builtin，不可移除）。
+ * 下载目录只读展示（固定 MediaStore/Downloads）；接收策略 ask/accept/reject
+ * 经宿主 set_receive_policy 写入。
+ *
+ * 同时注册为宿主 SettingsSection（registerSettingsSection），并作为插件内设置页复用。
+ *
+ * 样式完全复用宿主 settings-group / settings-row / settings-section-title /
+ * settings-label / settings-desc 设计语言，字号统一 clamp() 流式缩放。
+ */
+import { ref, inject, watch } from 'vue'
+import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-mobile'
+import type { useSettings } from '../composables/useSettings'
+import { isNeedsAllFilesAccess, promptAllFilesAccess } from '../composables/useAllFilesAccess'
+import { KIND_PRIVATE_DOWNLOADS } from '../types'
+import type { ReceivingPolicy } from '../types'
+import TrustedPeersSection from './TrustedPeersSection.vue'
+import AppUpdateSection from '@binblink/wasmnest-plugin-sdk-mobile/ui/app-update'
+import manifest from '../../plugin.json'
+
+type SettingsApi = ReturnType<typeof useSettings>
+
+const props = defineProps<{
+  settingsApi: SettingsApi
+  t: (key: string, params?: Record<string, any>) => string
+}>()
+
+/** 宿主经 PluginViewHost provide 的插件上下文（选择器与 Toast 用） */
+const context = inject<PluginContext>('pluginContext')
+
+const t = props.t
+
+/** 打开下载目录：核对文件是否落盘；未授予「所有文件访问」时宿主自动降级镜像视图 */
+const openingDir = ref(false)
+
+async function handleOpenDownloadDir(): Promise<void> {
+  if (!context || openingDir.value) return
+  openingDir.value = true
+  try {
+    await context.system.openDownloadDir()
+  } catch (e) {
+    if (isNeedsAllFilesAccess(e)) {
+      promptAllFilesAccess(context)
+      return
+    }
+    console.error('[File Transfer] open download dir failed:', e)
+    context.dialogs.showToast(t('transfer.settings.openDownloadDirFailed'), 'error')
+  } finally {
+    openingDir.value = false
+  }
+}
+
+/** 系统目录树选择器添加共享目录中 */
+const picking = ref(false)
+
+/** 系统目录树选择器选共享目录（取消/失败 toast 提示） */
+async function handlePickRoot(): Promise<void> {
+  if (!context || picking.value) return
+  picking.value = true
+  try {
+    const result = await props.settingsApi.addRoot()
+    if (result === 'failed') {
+      context.dialogs.showToast(t('transfer.settings.pickFailed'), 'error')
+    } else if (result === 'unsupported') {
+      context.dialogs.showToast(t('transfer.settings.pickUnsupported'), 'error')
+    }
+    // ok / cancelled（用户取消）静默
+  } catch {
+    context.dialogs.showToast(t('transfer.settings.pickFailed'), 'error')
+  } finally {
+    picking.value = false
+  }
+}
+
+/** 移除共享目录（免授权特殊条目不可移除） */
+async function handleRemoveRoot(id: string): Promise<void> {
+  await props.settingsApi.removeRoot(id)
+}
+
+// ==================== 接收策略 ====================
+
+/** 接收策略选项（自绘 segmented，禁原生 select） */
+const POLICY_OPTIONS: { value: ReceivingPolicy; labelKey: string }[] = [
+  { value: 'ask', labelKey: 'transfer.settings.receivingPolicyAsk' },
+  { value: 'accept', labelKey: 'transfer.settings.receivingPolicyAccept' },
+  { value: 'reject', labelKey: 'transfer.settings.receivingPolicyReject' },
+]
+
+/** 切换接收策略（本地生效，发送方不感知） */
+async function handleSetPolicy(policy: ReceivingPolicy): Promise<void> {
+  const ok = await props.settingsApi.setReceivingPolicy(policy)
+  if (ok && context) {
+    context.dialogs.showToast(t('transfer.settings.saved'), 'success')
+  }
+}
+
+// ==================== 发送加密（固定开启，无关闭开关） ====================
+
+/** 并发上限（1–8，spec §7）；步进钳制后即时保存 */
+async function stepConcurrency(delta: number): Promise<void> {
+  const cur = props.settingsApi.settings.value.concurrency ?? 3
+  const next = Math.min(8, Math.max(1, cur + delta))
+  if (next === cur) return
+  const ok = await props.settingsApi.setConcurrency(next)
+  if (ok && context) {
+    context.dialogs.showToast(t('transfer.settings.saved'), 'success')
+  }
+}
+
+/** 同意超时输入（秒，10–600；仅 ask 策略显示）。原生数字输入外观完全自绘 */
+const timeoutInput = ref('')
+
+function syncTimeoutInput(): void {
+  timeoutInput.value = String(props.settingsApi.settings.value.approvalTimeoutSec ?? 60)
+}
+
+async function commitTimeout(): Promise<void> {
+  const n = Number(timeoutInput.value)
+  if (Number.isFinite(n)) {
+    await props.settingsApi.setApprovalTimeout(n)
+  }
+  syncTimeoutInput()
+}
+
+/** 超时步进（±10s，clamp 10–600） */
+async function stepTimeout(delta: number): Promise<void> {
+  const cur = props.settingsApi.settings.value.approvalTimeoutSec ?? 60
+  const next = Math.min(Math.max(cur + delta, 10), 600)
+  await props.settingsApi.setApprovalTimeout(next)
+  syncTimeoutInput()
+}
+
+// 初始即同步当前值：此前仅 focus/commit/step 时同步，首帧数值框空白（评审 P0）
+syncTimeoutInput()
+watch(() => props.settingsApi.settings.value.approvalTimeoutSec, syncTimeoutInput)
+
+// ==================== 中继（T12）：开关 + 提示阈值 ====================
+
+/** 阈值上限（MB）：100 GB（存储面是字节；0 = 每次都提示） */
+const RELAY_THRESHOLD_MAX_MB = 102_400
+
+/** 中继提示阈值输入（UI 单位 MB；存储面字节） */
+const relayThresholdInput = ref('')
+
+function syncRelayThreshold(): void {
+  const bytes = props.settingsApi.settings.value.relayMaxBytesPerTask ?? 0
+  relayThresholdInput.value = String(Math.max(0, Math.round(bytes / (1024 * 1024))))
+}
+
+async function commitRelayThreshold(): Promise<void> {
+  const n = Number(relayThresholdInput.value)
+  if (Number.isFinite(n)) {
+    const mb = Math.min(RELAY_THRESHOLD_MAX_MB, Math.max(0, Math.round(n)))
+    await props.settingsApi.setRelayMaxBytes(mb * 1024 * 1024)
+  }
+  syncRelayThreshold()
+}
+
+syncRelayThreshold()
+watch(() => props.settingsApi.settings.value.relayMaxBytesPerTask, syncRelayThreshold)
+</script>
+
+<template>
+  <!-- container-type：.ft-touch-btn 的 cqw 流式高度以本区宽度为基准 -->
+  <div class="ft-settings px-4 py-4 pb-8 space-y-6">
+    <!-- ==================== 共享目录 ==================== -->
+    <section class="space-y-3">
+      <h2 class="settings-section-title">{{ t('transfer.settings.sharedRoots') }}</h2>
+
+      <!-- 系统目录树选择器：通栏主按钮（图标 + 文案，44px+ 触控目标） -->
+      <button
+        class="fv2-btn-primary w-full ft-settings-btn"
+        :disabled="picking"
+        @click="handlePickRoot()"
+      >
+        <svg class="w-4 h-4 flex-shrink-0" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+        </svg>
+        {{ picking ? t('transfer.settings.picking') : t('transfer.settings.pickRoot') }}
+      </button>
+
+      <!-- 目录列表 -->
+      <div v-if="(settingsApi?.settings.value.roots.length ?? 0) === 0" class="settings-desc py-1">
+        {{ t('transfer.settings.noRoots') }}
+      </div>
+      <div v-else class="settings-group">
+        <div
+          v-for="root in settingsApi?.settings.value.roots ?? []"
+          :key="root.id"
+          class="settings-row"
+        >
+          <div class="flex items-center gap-2 flex-1 min-w-0">
+            <svg class="w-4 h-4 flex-shrink-0 text-[var(--ft-accent-text)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+            </svg>
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center gap-1.5 min-w-0">
+                <span class="settings-label truncate" :title="root.name">{{ root.name }}</span>
+                <span v-if="root.kind === KIND_PRIVATE_DOWNLOADS" class="ft-free-badge flex-shrink-0">
+                  {{ t('transfer.settings.freeBadge') }}
+                </span>
+              </div>
+              <p class="ft-root-uri truncate" :title="root.id">{{ root.id }}</p>
+            </div>
+          </div>
+          <div class="flex items-center gap-1.5 flex-shrink-0">
+            <button
+              v-if="root.kind !== KIND_PRIVATE_DOWNLOADS"
+              class="flex-shrink-0 ft-settings-remove-btn"
+              @click="handleRemoveRoot(root.id)"
+            >
+              {{ t('transfer.settings.removeRoot') }}
+            </button>
+          </div>
+        </div>
+      </div>
+      <p class="settings-desc ft-settings-hint">{{ t('transfer.settings.specialEntryHint') }}</p>
+    </section>
+
+    <!-- ==================== 下载目录（只读，未配置时展示默认落盘地址） ==================== -->
+    <section class="space-y-2">
+      <h2 class="settings-section-title">{{ t('transfer.settings.downloadDir') }}</h2>
+      <div class="settings-group">
+        <div class="settings-row">
+          <div class="flex items-center gap-2 flex-1 min-w-0">
+            <svg class="w-4 h-4 flex-shrink-0 text-[var(--ft-text-muted)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+            </svg>
+            <span class="settings-value flex-1 min-w-0 truncate" :class="{ 'ft-settings-unset': !(settingsApi?.settings.value.downloadDir) }">
+              {{ settingsApi?.settings.value.downloadDir || t('transfer.settings.noDownloadDir') }}
+            </span>
+          </div>
+          <!-- 打开下载目录：核对文件是否落盘（未授权自动降级镜像视图） -->
+          <button
+            class="flex-shrink-0 ft-settings-open-btn"
+            :disabled="openingDir"
+            @click="handleOpenDownloadDir"
+          >
+            {{ openingDir ? t('transfer.settings.openDownloadDirOpening') : t('transfer.settings.openDownloadDir') }}
+          </button>
+        </div>
+      </div>
+      <p class="settings-desc ft-settings-hint">{{ t('transfer.settings.downloadDirHint') }}</p>
+    </section>
+
+    <!-- ==================== 接收策略 ==================== -->
+    <section class="space-y-2">
+      <h2 class="settings-section-title">{{ t('transfer.settings.receivingPolicy') }}</h2>
+      <div class="settings-group">
+        <div class="settings-row ft-policy-row">
+          <div class="min-w-0 flex-1">
+            <div class="settings-label">{{ t('transfer.settings.receivingPolicy') }}</div>
+            <div class="settings-desc">{{ t('transfer.settings.receivingPolicyHint') }}</div>
+          </div>
+          <!-- 自绘分段控件（禁原生 select）：ask/accept/reject 三档 -->
+          <div class="ft-segmented flex-shrink-0" role="radiogroup">
+            <button
+              v-for="opt in POLICY_OPTIONS"
+              :key="opt.value"
+              role="radio"
+              :aria-checked="(settingsApi?.settings.value.receivingPolicy ?? 'ask') === opt.value"
+              class="ft-segmented-item"
+              :class="{ 'ft-segmented-item--active': (settingsApi?.settings.value.receivingPolicy ?? 'ask') === opt.value }"
+              @click="handleSetPolicy(opt.value)"
+            >
+              {{ t(opt.labelKey) }}
+            </button>
+          </div>
+        </div>
+
+        <!-- 同意超时（仅 ask 策略显示）：自绘数字输入（禁原生 input 外观） -->
+        <div v-if="(settingsApi?.settings.value.receivingPolicy ?? 'ask') === 'ask'" class="settings-row">
+          <div class="min-w-0 flex-1">
+            <div class="settings-label">{{ t('transfer.settings.approvalTimeout') }}</div>
+            <div class="settings-desc">10–600</div>
+          </div>
+          <div class="flex items-center gap-2 flex-shrink-0">
+            <button class="ft-step-btn" @click="stepTimeout(-10)">−</button>
+            <input
+              v-model="timeoutInput"
+              class="ft-timeout-input"
+              type="number"
+              min="10"
+              max="600"
+              inputmode="numeric"
+              @focus="syncTimeoutInput()"
+              @blur="commitTimeout()"
+              @keyup.enter="($event.target as HTMLInputElement).blur()"
+            />
+            <button class="ft-step-btn" @click="stepTimeout(10)">+</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== 发送加密 ==================== -->
+    <section class="space-y-2">
+      <h2 class="settings-section-title">{{ t('transfer.settings.encryption') }}</h2>
+      <div class="settings-group">
+        <div class="settings-row ft-policy-row">
+          <div class="min-w-0 flex-1">
+            <div class="settings-label">{{ t('transfer.settings.encryption') }}</div>
+            <div class="settings-desc">{{ t('transfer.settings.encryptionHint') }}</div>
+          </div>
+          <!-- 只读档位：加密固定开启（穿透方案不变量 12），无关闭开关 -->
+          <div class="ft-segmented flex-shrink-0">
+            <span
+              class="ft-segmented-item ft-segmented-item--active ft-segmented-item--static"
+              role="status"
+              data-testid="ft-encryption-required"
+            >
+              {{ t('transfer.settings.encryptionAlwaysOn') }}
+            </span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== 中继（T12）：关的是「经 relay 拨号」，不是加密 ==================== -->
+    <section class="space-y-2">
+      <h2 class="settings-section-title">{{ t('transfer.settings.relay') }}</h2>
+      <div class="settings-group">
+        <div class="settings-row ft-policy-row">
+          <div class="min-w-0 flex-1">
+            <div class="settings-label">{{ t('transfer.settings.relay') }}</div>
+            <div class="settings-desc">{{ t('transfer.settings.relayHint') }}</div>
+          </div>
+          <div class="ft-segmented flex-shrink-0">
+            <button
+              class="ft-segmented-item"
+              :class="{ 'ft-segmented-item--active': settingsApi?.settings.value.allowWan !== false }"
+              role="tab"
+              :aria-checked="settingsApi?.settings.value.allowWan !== false"
+              data-testid="ft-relay-on"
+              @click="settingsApi?.setAllowWan(true)"
+            >
+              {{ t('transfer.settings.relayOn') }}
+            </button>
+            <button
+              class="ft-segmented-item"
+              :class="{ 'ft-segmented-item--active': settingsApi?.settings.value.allowWan === false }"
+              role="tab"
+              :aria-checked="settingsApi?.settings.value.allowWan === false"
+              data-testid="ft-relay-off"
+              @click="settingsApi?.setAllowWan(false)"
+            >
+              {{ t('transfer.settings.relayOff') }}
+            </button>
+          </div>
+        </div>
+        <div class="settings-row">
+          <div class="min-w-0 flex-1">
+            <div class="settings-label">{{ t('transfer.settings.relayThreshold') }}</div>
+            <div class="settings-desc">{{ t('transfer.settings.relayThresholdHint') }}</div>
+          </div>
+          <div class="flex items-center gap-2 flex-shrink-0">
+            <input
+              v-model="relayThresholdInput"
+              class="ft-timeout-input"
+              type="number"
+              min="0"
+              :max="RELAY_THRESHOLD_MAX_MB"
+              inputmode="numeric"
+              data-testid="ft-relay-threshold-input"
+              @focus="syncRelayThreshold()"
+              @blur="commitRelayThreshold()"
+              @keyup.enter="($event.target as HTMLInputElement).blur()"
+            />
+            <span class="settings-desc">MB</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== 发送并发上限 ==================== -->
+    <section class="space-y-2">
+      <h2 class="settings-section-title">{{ t('transfer.settings.concurrency') }}</h2>
+      <div class="settings-group">
+        <div class="settings-row">
+          <div class="min-w-0 flex-1">
+            <div class="settings-label">{{ t('transfer.settings.concurrencyHint') }}</div>
+            <div class="settings-desc">1–8</div>
+          </div>
+          <div class="flex items-center gap-2 flex-shrink-0">
+            <button class="ft-step-btn" @click="stepConcurrency(-1)">−</button>
+            <span class="ft-step-value" aria-live="polite">
+              {{ settingsApi?.settings.value.concurrency ?? 3 }}
+            </span>
+            <button class="ft-step-btn" @click="stepConcurrency(1)">+</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== 可信对端管理（spec 决策 8） ==================== -->
+    <!-- 独立分区，列表/撤销自包含 -->
+    <TrustedPeersSection />
+
+    <!-- ==================== 版本更新（SDK 默认实现） ====================
+         固定放在最后；版本号随包内联，检查前也能看到 -->
+    <AppUpdateSection :current-version="manifest.version" />
+  </div>
+</template>
+
+<style scoped>
+/* 查询容器：.ft-touch-btn 的 cqw 流式高度以本区自身宽度为基准 */
+.ft-settings {
+  container-type: inline-size;
+}
+
+/* 设置区次级说明文字（字号走宿主流式 token：跟随系统字体缩放档位，
+   不再用裸 clamp——那会让设置里的「字体大小」对本页无效） */
+.ft-settings-hint {
+  font-size: var(--font-size-sm);
+  color: var(--ft-text-muted);
+}
+
+/* 设置按钮流式字号 */
+.ft-settings-btn {
+  font-size: var(--font-size-base);
+  font-weight: 500;
+}
+
+/* 共享目录条目 URI（次级信息行） */
+.ft-root-uri {
+  margin-top: 0.125rem;
+  font-size: var(--font-size-xs);
+  color: var(--ft-text-muted);
+}
+
+/* 免授权特殊条目徽标 */
+.ft-free-badge {
+  padding: 0.125rem 0.5rem;
+  border-radius: 9999px;
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+  background: var(--ft-bg-tertiary);
+  border: 1px solid var(--ft-border);
+  color: var(--ft-text-secondary);
+}
+
+/* 下载目录「打开」按钮：行内右侧次级按钮（44px 触控目标） */
+.ft-settings-open-btn {
+  min-height: 2.75rem;
+  padding: 0.5rem 0.875rem;
+  border-radius: 0.5rem;
+  font-size: var(--font-size-sm);
+  color: var(--ft-accent-text);
+  border: 1px solid var(--ft-border);
+  background: var(--ft-bg-elevated);
+  transition: opacity 0.15s ease, transform 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ft-settings-open-btn:active {
+  opacity: 0.8;
+  transform: scale(0.96);
+}
+
+.ft-settings-open-btn:disabled {
+  opacity: 0.5;
+}
+
+/* 删除按钮（44px 触控目标） */
+.ft-settings-remove-btn {
+  min-height: 2.75rem;
+  padding: 0.25rem 0.625rem;
+  border-radius: 0.5rem;
+  font-size: var(--font-size-sm);
+  color: var(--ft-error);
+  border: 1px solid var(--ft-error-muted);
+  background: transparent;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.ft-settings-remove-btn:active {
+  opacity: 0.8;
+  transform: scale(0.96);
+}
+
+/* 步进按钮（并发数）：44px 触控目标 */
+.ft-step-btn {
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 0.625rem;
+  border: 1px solid var(--ft-border);
+  background: var(--ft-bg-elevated);
+  color: var(--ft-text-primary);
+  font-size: var(--font-size-xl);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.ft-step-btn:active {
+  opacity: 0.8;
+  transform: scale(0.92);
+}
+
+/* 步进数值：独立 chip 背景，避免「孤儿数字」感 */
+.ft-step-value {
+  width: 2.5rem;
+  height: 2.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.625rem;
+  background: var(--ft-bg-tertiary);
+  text-align: center;
+  font-size: var(--font-size-xl);
+  font-weight: 600;
+  color: var(--ft-text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 下载目录未设置：占位 chip 样式，明确「尚未配置」而非可编辑输入 */
+.ft-settings-unset {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.25rem 0.625rem;
+  border-radius: 0.5rem;
+  background: var(--ft-bg-tertiary);
+  font-size: var(--font-size-sm);
+  color: var(--ft-text-muted);
+}
+
+/* 接收策略行：分段控件与说明同行（窄屏允许换行） */
+.ft-policy-row {
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+/* 自绘分段控件（禁原生 select）：胶囊容器 + 激活项 accent tint */
+.ft-segmented {
+  display: inline-flex;
+  padding: 0.1875rem;
+  border-radius: 0.625rem;
+  background: var(--ft-bg-tertiary);
+  gap: 0.1875rem;
+}
+
+.ft-segmented-item {
+  min-height: 2.75rem;
+  padding: 0 0.75rem;
+  border-radius: 0.5rem;
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  color: var(--ft-text-secondary);
+  background: transparent;
+  transition: background-color 0.15s ease, color 0.15s ease, transform 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+  white-space: nowrap;
+}
+
+.ft-segmented-item:active {
+  opacity: 0.8;
+  transform: scale(0.96);
+}
+
+.ft-segmented-item--active {
+  /* 选中项用主操作渐变实底 + 墨字：轨道是 --ft-bg-tertiary，此档若也用背景 token
+     （原 --ft-bg-elevated 与它在深色档同为 #14232e）实际只有文字染青这一档差异，
+     真机上几乎读不出「现在是哪一档」。渐变 + 墨字 + 轻微外发光一眼可辨，
+     且与主按钮同源（--ft-grad-*）不引入新色。 */
+  background-image: linear-gradient(135deg, var(--ft-grad-from), var(--ft-grad-to));
+  color: var(--ft-grad-ink);
+  font-weight: 700;
+  box-shadow: 0 8px 18px -12px var(--ft-glow);
+}
+
+/* 只读档位（固定加密）：是状态而不是选择，改淡青底 + 描边——
+   与可点的选中项区分，又不至于弱化成一行普通说明文字 */
+.ft-segmented-item--static {
+  cursor: default;
+  background-image: none;
+  background-color: var(--ft-accent-muted);
+  color: var(--ft-accent-text);
+  font-weight: 600;
+  box-shadow: inset 0 0 0 1px var(--ft-border-strong);
+}
+
+/* 同意超时数字输入：完全自绘外观（token 边框/圆角/字号，无系统控件观感）。
+   appearance 用标准属性：Tauri v2 的 Android System WebView 为 Chromium 84+，
+   无需 -webkit-/-moz- 前缀（旧前缀还会被 stylelint property-no-vendor-prefix 拦） */
+.ft-timeout-input {
+  width: 4.5rem;
+  height: 2.75rem;
+  border-radius: 0.625rem;
+  border: 1px solid var(--ft-border);
+  background: var(--ft-bg-elevated);
+  color: var(--ft-text-primary);
+  text-align: center;
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  transition: border-color 0.15s ease;
+  appearance: none;
+}
+
+.ft-timeout-input:focus {
+  outline: none;
+  border-color: var(--ft-accent-text);
+}
+
+.ft-timeout-input::-webkit-outer-spin-button,
+.ft-timeout-input::-webkit-inner-spin-button {
+  appearance: none;
+  margin: 0;
+}
+</style>

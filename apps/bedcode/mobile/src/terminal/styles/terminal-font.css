@@ -1,0 +1,39 @@
+/**
+ * 终端字体声明（移动端，随应用包内置）
+ *
+ * 为什么随包带字体：终端「行尾凹凸 / 符号紧贴或覆盖文字 / TUI 色块摆动」的根因是
+ * 字形回退——系统等宽字体（Android 默认 Droid Sans Mono）只覆盖基础拉丁，箭头
+ * （↑ ↓ ← →）、制表符（─ │ ╔ ═）、几何/块元素等落到系统符号/比例字体回退，
+ * 其 advance 与字怀不受终端网格约束，于是符号紧贴甚至压住相邻文字；中文则落到
+ * 1em 的比例 CJK 字体，1em ≠ 2×0.6em，误差逐字符累积成行尾凹凸。根治要
+ * 「CJK 严格 2 格 + 终端符号全覆盖」的等宽字体，Android/国产 ROM 都不预装，故随包内置。
+ *
+ * 选型：更纱黑体 Sarasa Mono SC（拉丁 Iosevka 0.5em + 思源黑体 CJK 1em，箭头/
+ * 制表符/块元素/几何图形 0.5em 单格；OFL-1.1 可随包分发，子集规则同平台仓
+ * wasmnest-mobile/scripts/build-terminal-font.mjs：GB2312 6763 汉字 + 制表符/
+ * 块元素/标点/数学/箭头/技术符号/假名/全半角，10635 码位 ≈ 1.05MB）。
+ * 子集外的汉字落回系统 CJK 字体，其 advance 恒为 1em = 2×0.5em，仍满足
+ * 「CJK = 2 格」，不会重新引入漂移；子集外的符号同理落回系统字体（与未内置前的
+ * 表现一致，仅限极生僻符号）。
+ *
+ * 产物来源：与本文件同目录 ../assets/fonts/SarasaMonoSC-Terminal-Regular.woff2
+ * （自平台仓同名产物复制，md5 d05684b678be0b389afe3951fa12c908）。构建期经
+ * vite.config.ts 的 assetsInlineLimit 强制内联为 data URL——本应用的 CSS 全部走
+ * `?inline` 运行时 <style> 注入，url() 指向独立文件时按宿主文档 base 解析，
+ * 在宿主 WebView 里不可达；data URL 是唯一随包自洽的引用方式（dev-shell 同样受益）。
+ *
+ * 加载面：activate.ts 激活终端域时注入本声明，woff2 解码在终端首次测量前由
+ * ensureTerminalFontLoaded（utils/metrics.ts）显式驱动，保证「测量度量 = 渲染度量」。
+ */
+
+/* 字体族名与 FONT_FAMILY（utils/metrics.ts）必须一致，改一处要改两处 */
+@font-face {
+  font-family: 'Sarasa Mono SC';
+  src: url('../assets/fonts/SarasaMonoSC-Terminal-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  /* swap 而非 block：字体解码失败/设备异常时不留 3s 文字不可见空窗，
+     而是先按 fallback 度量渲染（终端首帧 fit 收敛循环会兜底重排） */
+  font-display: swap;
+  /* 许可证随字体入库于 ../assets/fonts/LICENSE-Sarasa-Gothic.txt（OFL 第 2 条） */
+}

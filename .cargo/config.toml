@@ -1,0 +1,66 @@
+# ==================== wasm 应用共享 target 目录 ====================
+# 应用仓无根 workspace：`apps/<slug>/<end>/rust`（end = desktop|mobile）各自是独立
+# workspace，cargo 默认把产物写进**各自 crate 根的 `rust/target/`**，于是各应用共用的
+# 依赖（SDK `wasmnest-plugin-api` / `wasmnest-plugin-api-mobile`、proc-macro、wit-bindgen、
+# serde…）被每个 app 重复编译并重复占盘（拆分前实测 4 个桌面应用合计 5.8G）。
+#
+# 本文件让「cwd 在应用仓内」的一切 cargo 调用（各 app `scripts/build.js` 的显式
+# `--target-dir`、手工 `cd apps/<slug>/<end>/rust && cargo build/test`、以及 clippy /
+# rust-analyzer 之类的工具链探针）都落到同一目录 `<appsRoot>/target/wasm-apps`。
+#
+# 路径基准：cargo 的 config 相对路径按**本 `.cargo` 目录的父目录**（= 应用仓根）解析，
+# 故这里写 `target/wasm-apps`；路径真源是 `scripts/plugin-wasm-config.mjs` 的
+# `WASM_TARGET_DIR`（各 app build.js 用它拼产物路径并显式传 `--target-dir`；两处注释
+# 互相指认）。改这里后必须核验：
+#   cd apps/<slug>/<end>/rust && cargo metadata --no-deps --format-version 1
+# 其 `target_directory` 应为 `<appsRoot>/target/wasm-apps`。
+#
+# 与平台仓的目录**刻意分开**：宿主 target、测试夹具 target（`target/fixtures`）属于
+# 平台仓，`cargo clean` / 体积阈值各管各的；夹具 crate 的 `[profile.release]`
+# （opt-level="s" / lto=true）也与 wasm 应用（cargo 默认 profile）不同，同目录会为同一份
+# 依赖图产出两份产物。
+[build]
+target-dir = "target/wasm-apps"
+
+# ==================== 编译资源限制（防 CPU 满载 / 防 OOM） ====================
+# 依据：开发机 16 核 / 13GiB 内存 / 23GiB swap；cargo 默认 jobs = 逻辑核心数（16），而
+# 本项目依赖图含 wasmtime / wit-bindgen 等较大 crate，并发过高会 OOM kill rustc（历史
+# 事故：移动端 Android 全量构建 `memory allocation ... failed` 后级联大量
+# `can't find crate` 假错误，极易误判为依赖不兼容）。
+#
+# 经验公式：jobs = min(核心数, floor(可用内存GiB / 1.5))；本机（16 核 / 可用 ~6GiB）= 4。
+# 覆盖方式（优先级：环境变量 > 本机 ~/.cargo/config.toml > 本文件）：
+#   CARGO_BUILD_JOBS=3 pnpm run build          # 同时开着模拟器等最重场景
+#   ~/.cargo/config.toml 写 [build] jobs = 8   # 大内存机器提速
+# 动态自适应由平台仓 `scripts/adaptive-run.mjs` 注入 CARGO_BUILD_JOBS，本文件静态兜底。
+jobs = 4
+
+# ==================== sccache 编译缓存（全仓统一前置） ====================
+# 多个 app 各自独立 workspace，同一份依赖图会被多桶重复编译；sccache 按 rustc 调用内容
+# 哈希缓存编译产物、独立于 target 目录，因此删 target / cargo clean 后依赖不再全量重编。
+#
+# ⚠ 与增量编译：sccache 只在命令行确实带 `-C incremental` 时跳过该次编译，而 cargo 只对
+# 工作区成员（本地 path crate）传该参数，registry 依赖（最贵的那批）不带——默认配置下
+# 依赖本来就全进缓存。**绝不要设 `CARGO_INCREMENTAL=1`**：sccache 0.18 检测到会直接拒绝
+# 执行（`incremental compilation is prohibited`），一切 cargo 命令成批失败。
+#
+# 安装（显性失败设计：未安装时 cargo 报「找不到 sccache」，不会静默降级）：
+#   Linux/macOS: 从 mozilla/sccache GitHub release 下载二进制放 ~/.cargo/bin/sccache
+#   Windows:     scoop install sccache 或下载 sccache.exe 放入 PATH
+#   CI:          使用 mozilla/sccache-action（本文件强制 rustc-wrapper，CI 必须安装）。
+#
+# bare 名经 PATH 解析；不写相对路径，避免 config 相对路径基准的歧义。
+rustc-wrapper = "sccache"
+
+# ==================== sccache 缓存上限 ====================
+# 30GiB 覆盖全仓主要工作集（多 profile 的压缩产物）；磁盘紧张时降回 8~10GiB。
+# 注意 sccache 0.18 的 SCCACHE_CACHE_SIZE 只认纯字节数字（带 GiB 后缀会解析失败并静默
+# 回退 10GiB 默认），故写 30GiB = 32212254720 字节。force=false 保留 CI 的外部值。
+[env]
+SCCACHE_CACHE_SIZE = { value = "32212254720", force = false }
+
+# ==================== 链接加速（仅 Windows MSVC 目标） ====================
+# 优先使用 rustup 自带 rust-lld（零外部依赖）；若本机装有独立 LLVM 并把
+# <LLVM>\bin 加入 PATH，可改为 "lld-link" 使用最新版。
+[target.x86_64-pc-windows-msvc]
+linker = "rust-lld"

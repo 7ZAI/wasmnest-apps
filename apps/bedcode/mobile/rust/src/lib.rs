@@ -1,0 +1,324 @@
+//! WasmNest Plugin (WASM, Mobile) — 远程终端控制端（票 12）
+//!
+//! 应用显示名 BedCode、目录 `wasm-apps/bedcode/`，插件 id 与 crate 名仍是
+//! `com.wasmnest.bedcode` / `bedcode_plugin_terminal_session`（宿主按 id 寻址，不受改名影响）。
+//!
+//! 终端订阅协议客户端从宿主 `terminal_link.rs`（1,363 行，已退役）整体迁入
+//! 本插件：subscribe / ack / ring_resync / special-key 翻译（keys.rs）/
+//! 重连编排随迁。协议事实源 = 桌面插件 `ws_terminal.rs`（wire 形状零变化）。
+//!
+//! ## 职责划分（ADR 0022 判据）
+//!
+//! - **插件（本 crate）**：协议状态机——fresh subscribe 门控、本地计数与
+//!   ack 节流、ring_resync 重锚、session_missing 三振、输入计划（文本 +
+//!   特殊键共存、失败上抛）、状态事件发射（`terminal-state` /
+//!   `terminal-resync`，载荷形状与退役前逐字段一致）。
+//! - **宿主（传输面，本 crate 不感知实现）**：WS 连接生命周期
+//!   （`host-websocket` 客户端域）、首消息认证代发（`jwt-auth`——token 不落
+//!   插件，C4）、连接级心跳、断线自动重连（R1：退避重建 + `ws:open` 新句柄，
+//!   本插件按新句柄重新订阅）、输出字节窄转发（`host-terminal-stream`）。
+//!
+//! ## 数据通路（C3 性能红线）
+//!
+//! 输出字节全程零 JSON：桌面 → `ws:message` 二进制信封（`on_message_binary`）
+//! → 门控 → `terminal_stream_forward_output`（`list<u8>`）→ 宿主页面 Channel
+//! （Raw 字节）→ 前端。控制帧（subscribed / ring_resync / session_stopped /
+//! error）是低频 JSON，走 `emit_event`。
+//!
+//! ## 生命周期
+//!
+//! - 进入终端页 → `bedcode.subscribe`：建连（宿主代发 auth）→ 发
+//!   subscribe 帧 → fresh subscribe 回放环窗口，收 `subscribed` 即 live。
+//! - 离开终端页 → `bedcode.unsubscribe`：对句柄 `close`（宿主取消
+//!   自动重连）——不得后台常拉。
+//! - 意外断开 → 宿主自动重连 → `ws:open`（新句柄）→ 本插件重新订阅并按
+//!   重订阅语义发 `terminal-resync`（重播与已在屏内容不重叠）。
+
+use wasmnest_plugin_api_mobile::host::ws::{
+    ws_event_topic, ws_message_topic, WS_CLOSE, WS_ERROR, WS_OPEN, WS_RECONNECT_SCHEDULED,
+};
+use wasmnest_plugin_api_mobile::host::{HostBus, HostConnection, HostLog, HostWs};
+use wasmnest_plugin_api_mobile::types::PluginManifest;
+use wasmnest_plugin_api_mobile::wasm_host::WasmHost;
+use wasmnest_plugin_api_mobile::{BusMessage, WasmPlugin};
+
+mod auth;
+mod commands;
+mod keys;
+mod link;
+mod project;
+mod protocol;
+mod session;
+mod tunnel;
+
+pub(crate) use link::LINK_MANAGER;
+
+/// 取静态互斥锁；中毒时恢复内部值（与桌面插件 `lock_or_recover` 同口径）。
+///
+/// 中毒只可能来自「持锁期间 panic」，而 wasm 里 panic 已经 trap 掉整个插件实例：
+/// `.expect("link manager lock")` 不会让调用方拿到可处理的错误，只会把一次回调
+/// 失败升级成同一结局。链路表每条目（session → LinkState）互相独立，恢复后继续
+/// 用不产生跨条目不变量。
+pub(crate) fn lock_or_recover<T>(mutex: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// 插件 id（D6 选项 A：与桌面 `com.wasmnest.bedcode` 同名——两端同
+/// id 职责不同，本端是远程终端控制端，契约独立不因同名互相约束，C8）
+pub(crate) const PLUGIN_ID: &str = "com.wasmnest.bedcode";
+
+/// 终端端点路径（桌面 manifest `contributes.wsEndpoints` 声明；URL = 主连接
+/// 目标 + 本路径，见 commands::build_terminal_url）
+pub(crate) const TERMINAL_WS_PATH: &str = "/ws/plugin/com.wasmnest.bedcode/terminal";
+
+/// ws 状态事件 topic（属主私有）：`<plugin-id>:ws:open|error|close|reconnect-scheduled`
+fn ws_topic(event: &str) -> String {
+    ws_event_topic(event, PLUGIN_ID)
+}
+
+/// ws 下行帧 topic（属主私有二进制）：`<plugin-id>:ws:message`
+fn ws_frame_topic() -> String {
+    ws_message_topic(PLUGIN_ID)
+}
+
+/// 宿主隧道/传输事件 topic（T09）：全局词表，插件按 `bus` 权限订阅
+///
+/// 语义归属宿主能力域（`wasmnest-server-peer-net` 的 `bus_topic_for`）：
+/// `peer:mode` 模式变更 / `peer:transport` 传输路径 / `tunnel:state` 通道生命周期 /
+/// `tunnel:error` 通道错误。本插件只转发与持久化，不自行推断模式。
+const TUNNEL_TOPICS: [&str; 4] = [
+    "peer:mode",
+    "peer:transport",
+    "tunnel:state",
+    "tunnel:error",
+];
+
+fn host() -> WasmHost {
+    WasmHost
+}
+
+pub(crate) struct TerminalSessionPlugin;
+
+impl WasmPlugin for TerminalSessionPlugin {
+    const ID: &'static str = PLUGIN_ID;
+
+    fn manifest() -> PluginManifest {
+        serde_json::from_str(include_str!("../../plugin.json"))
+            .expect("plugin.json must be valid PluginManifest")
+    }
+
+    fn activate() -> anyhow::Result<()> {
+        let h = host();
+        h.log_info("WasmNest plugin activating (remote-terminal-consumer, mobile)");
+        // 认证状态对账（票 14 阶段 B）：事件不重放，激活期以引擎事实为准
+        auth::log_auth_state(&h);
+        // 订阅必须在 activate 期完成（宿主不缓冲不重放，晚订阅静默丢）：
+        // 3 个 JSON 状态事件 + 1 个二进制帧 topic（ws 消费须同时持 bus 权限位）
+        for topic in [
+            ws_topic(WS_OPEN).as_str(),
+            ws_topic(WS_ERROR).as_str(),
+            ws_topic(WS_CLOSE).as_str(),
+            ws_topic(WS_RECONNECT_SCHEDULED).as_str(),
+        ] {
+            h.bus_subscribe(topic)?;
+        }
+        h.bus_subscribe_binary(&ws_frame_topic())?;
+        // 隧道/传输事件（T09）：不订阅就收不到模式变换（宿主不重放，晚订阅静默丢），
+        // 前端重启后能用 `host-tunnel.status` 对账，但事件驱动的「切换轻提示」需要在线
+        for topic in TUNNEL_TOPICS {
+            h.bus_subscribe(topic)?;
+        }
+        Ok(())
+    }
+
+    fn deactivate() -> anyhow::Result<()> {
+        let h = host();
+        h.log_info("WasmNest plugin deactivating (closing all terminal links)");
+        // 关闭全部终端连接（显式 close = 宿主取消自动重连，purge 兜底不泄漏）
+        for handle in lock_or_recover(&LINK_MANAGER).drain_handles() {
+            if let Err(e) = h.ws_close(&handle, "{}") {
+                h.log_info(&format!(
+                    "deactivate: ws_close {handle} failed (non-fatal): {e}"
+                ));
+            }
+        }
+        for topic in [
+            ws_topic(WS_OPEN).as_str(),
+            ws_topic(WS_ERROR).as_str(),
+            ws_topic(WS_CLOSE).as_str(),
+            ws_topic(WS_RECONNECT_SCHEDULED).as_str(),
+        ] {
+            let _ = h.bus_unsubscribe(topic);
+        }
+        let _ = h.bus_unsubscribe(&ws_frame_topic());
+        // 隧道句柄必须在插件降级前全关：否则本地回环 listener 会泄漏成孤儿端口，
+        // 宿主自动重连会一直拨一个没人接的本机端口（不变量 1：只绑 127.0.0.1，但不泄漏）
+        let closed = tunnel::close_all_via(&h);
+        if closed > 0 {
+            h.log_info(&format!("deactivate: closed {closed} tunnel handle(s)"));
+        }
+        for topic in TUNNEL_TOPICS {
+            let _ = h.bus_unsubscribe(topic);
+        }
+        Ok(())
+    }
+
+    fn invoke_command(name: &str, args: serde_json::Value) -> anyhow::Result<serde_json::Value> {
+        commands::dispatch(name, &args)
+    }
+
+    /// ws 状态事件（JSON）：连接事实 → 协议状态机推进 + 状态事件转发前端。
+    /// topic 是属主私有投递，只处理本插件的 ws:*
+    fn on_bus_message(msg: &BusMessage) -> anyhow::Result<()> {
+        let payload = msg.payload.clone();
+        if msg.topic == ws_topic(WS_OPEN) {
+            // 连接建立：重连成功事件带 `reconnectedFrom`（旧句柄）→ 恢复该
+            // 会话订阅；首连的 open（无该字段）由 subscribe 同步路径处理，
+            // 孤儿重连句柄在 link 层显式关闭止损
+            if let Some(handle) = payload.get("handle").and_then(|v| v.as_str()) {
+                let reconnected_from = payload.get("reconnectedFrom").and_then(|v| v.as_str());
+                link::LinkManager::on_ws_open(&host(), handle, reconnected_from);
+            }
+            return Ok(());
+        }
+        if msg.topic == ws_topic(WS_CLOSE) {
+            // 断开事实：清句柄（宿主 auto-reconnect 接管重建）；已显式停止
+            // 的链路保持 stopped 不被重连复活
+            if let Some(handle) = payload.get("handle").and_then(|v| v.as_str()) {
+                link::LinkManager::on_ws_close(&host(), handle);
+            }
+            return Ok(());
+        }
+        if msg.topic == ws_topic(WS_RECONNECT_SCHEDULED) {
+            // 宿主退避排期 → 透传前端倒计时（载荷形状与退役前
+            // terminal_link 的 reconnect_scheduled detail 一致）
+            if let Some(handle) = payload.get("handle").and_then(|v| v.as_str()) {
+                let retry_in_ms = payload
+                    .get("retryInMs")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0);
+                link::LinkManager::on_reconnect_scheduled(&host(), handle, retry_in_ms);
+            }
+            return Ok(());
+        }
+        if msg.topic == ws_topic(WS_ERROR) {
+            // 连接错误：留痕即可（断开事实由 close 事件承载，错误不改变状态机）
+            let message = payload
+                .get("message")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            host().log_warn(&format!("ws error on terminal link: {message}"));
+            return Ok(());
+        }
+        if TUNNEL_TOPICS.contains(&msg.topic.as_str()) {
+            tunnel::on_bus_event(&host(), &msg.topic, &payload);
+            return Ok(());
+        }
+        Ok(())
+    }
+
+    /// ws 下行帧（二进制信封）：文本帧 = 控制协议（subscribed / ring_resync /
+    /// session_stopped / error），二进制帧 = 终端输出裸字节 → 窄转发
+    fn on_message_binary(msg: &BusMessage) -> anyhow::Result<()> {
+        if msg.topic != ws_frame_topic() {
+            return Ok(());
+        }
+        let Some(bytes) = msg.payload_binary.as_deref() else {
+            return Ok(());
+        };
+        let frame = match wasmnest_plugin_api_mobile::host::ws::parse_ws_frame(bytes) {
+            Ok(f) => f,
+            Err(e) => {
+                host().log_warn(&format!("ws frame parse failed: {e}"));
+                return Ok(());
+            }
+        };
+        link::LinkManager::on_ws_frame(&host(), frame.handle, frame.kind, frame.payload);
+        Ok(())
+    }
+
+    fn on_shutdown() -> anyhow::Result<()> {
+        host().log_info("WasmNest plugin shut down (remote-terminal-consumer, mobile)");
+        Ok(())
+    }
+}
+
+/// 连接目标（`host-connection.primary-target` 解析产物，供命令层拼端点 URL）
+pub(crate) struct PrimaryTarget {
+    pub(crate) address: String,
+    pub(crate) port: u16,
+}
+
+/// 解析主连接目标（纯函数，native 可测）
+///
+/// 字段缺失 / 空串 / 端口越界都不得静默降级成默认值：早期实现用
+/// `unwrap_or_default()` + `as u16` 拼出 `ws://:0/ws/plugin/...`（或 70000 →
+/// 4464），把错误推到下游 `ws_connect`，报出来的东西与真正原因无关。
+pub(crate) fn parse_primary_target(v: &serde_json::Value) -> anyhow::Result<PrimaryTarget> {
+    let address = v
+        .get("address")
+        .and_then(|a| a.as_str())
+        .map(str::trim)
+        .filter(|a| !a.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("primary-target: missing address"))?;
+    let port = v
+        .get("port")
+        .and_then(|p| p.as_u64())
+        .and_then(|p| u16::try_from(p).ok())
+        .filter(|p| *p != 0)
+        .ok_or_else(|| anyhow::anyhow!("primary-target: invalid port"))?;
+    Ok(PrimaryTarget {
+        address: address.to_string(),
+        port,
+    })
+}
+
+/// 读主连接目标（引擎事实，票 13 复用同一原语）；未配置 / 形状非法 → 显性错误
+pub(crate) fn read_primary_target() -> anyhow::Result<PrimaryTarget> {
+    let json = host().connection_primary_target()?;
+    let v: serde_json::Value = serde_json::from_str(&json)
+        .map_err(|e| anyhow::anyhow!("primary-target: invalid json: {e}"))?;
+    parse_primary_target(&v)
+}
+
+wasmnest_plugin_api_mobile::wasm_entry!(TerminalSessionPlugin);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 主连接目标是「拼端点 URL 的输入」：缺字段 / 越界端口必须显性失败
+    ///
+    /// 降级后果（S2）：`ws://:0/ws/plugin/...` 或 70000 → 4464，错误在下游
+    /// `ws_connect` 才爆，与真正原因无关。
+    #[test]
+    fn primary_target_parsing_is_fail_visible() {
+        let ok = parse_primary_target(&serde_json::json!({
+            "address": " 192.168.1.9 ", "port": 8765
+        }))
+        .expect("合法形状");
+        assert_eq!(ok.address, "192.168.1.9", "地址去首尾空白");
+        assert_eq!(ok.port, 8765);
+        assert_eq!(
+            parse_primary_target(&serde_json::json!({"address": "h", "port": 65535}))
+                .expect("上界合法")
+                .port,
+            65535
+        );
+
+        for bad in [
+            serde_json::json!({ "port": 8765 }),
+            serde_json::json!({ "address": "   ", "port": 8765 }),
+            serde_json::json!({ "address": "h" }),
+            serde_json::json!({ "address": "h", "port": 0 }),
+            serde_json::json!({ "address": "h", "port": 65_536 }),
+            // 70000 曾 `as u16` 静默截成 4464
+            serde_json::json!({ "address": "h", "port": 70_000 }),
+        ] {
+            assert!(
+                parse_primary_target(&bad).is_err(),
+                "非法主连接目标必须显性失败: {bad}"
+            );
+        }
+    }
+}

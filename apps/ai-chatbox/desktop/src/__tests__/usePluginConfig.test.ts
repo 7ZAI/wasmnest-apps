@@ -1,0 +1,184 @@
+/**
+ * usePluginConfig 单测（接缝 3）：storage 配置读取 + 默认值合并 + 非法值回退
+ *
+ * 设置页保存的值可能缺项（旧版本无配置 / 手动改动 storage），
+ * 读取侧必须逐字段归一化；坏数据不得流入请求构建。
+ */
+import { describe, it, expect } from 'vitest'
+import { createMockContext } from './mockContext'
+import { usePluginConfig } from '../composables/usePluginConfig'
+import { DEFAULT_PLUGIN_CONFIG } from '../types'
+
+function setup() {
+  const mock = createMockContext()
+  const pluginConfig = usePluginConfig(mock.context)
+  return { mock, pluginConfig }
+}
+
+describe('usePluginConfig', () => {
+  it('storage 无配置：全部默认值（thinkingMode default / effort high / showReasoning true / 行距 1.6）', async () => {
+    const { pluginConfig } = setup()
+    await pluginConfig.loadConfig()
+    expect(pluginConfig.config.value).toEqual(DEFAULT_PLUGIN_CONFIG)
+  })
+
+  it('已存配置缺项：按默认值补齐（设置页只保存改动过的字段）', async () => {
+    const { mock, pluginConfig } = setup()
+    mock.storageMap.set('config', { thinkingMode: 'enabled' })
+    await pluginConfig.loadConfig()
+    expect(pluginConfig.config.value).toEqual({
+      thinkingMode: 'enabled',
+      reasoningEffort: 'high',
+      showReasoning: true,
+      codeLineHeight: 1.6,
+      codeFontSize: 13,
+      codeTheme: 'auto',
+      rateLimitMaxRetries: 3,
+      rateLimitInitialDelayMs: 1000,
+      rateLimitMaxDelayMs: 30000,
+    })
+  })
+
+  it('全量配置读回：原样生效（旧版行距枚举映射为数字；已删除的文件访问字段被忽略）', async () => {
+    const { mock, pluginConfig } = setup()
+    mock.storageMap.set('config', {
+      thinkingMode: 'disabled',
+      reasoningEffort: 'max',
+      showReasoning: false,
+      codeLineHeight: 'relaxed',
+      codeFontSize: 15,
+      codeTheme: 'github-dark',
+    })
+    await pluginConfig.loadConfig()
+    expect(pluginConfig.config.value).toEqual({
+      thinkingMode: 'disabled',
+      reasoningEffort: 'max',
+      showReasoning: false,
+      codeLineHeight: 1.8,
+      codeFontSize: 15,
+      codeTheme: 'github-dark',
+      rateLimitMaxRetries: 3,
+      rateLimitInitialDelayMs: 1000,
+      rateLimitMaxDelayMs: 30000,
+    })
+  })
+
+  it('非法枚举值 / 类型不符：回退默认（坏数据不流入请求构建）', async () => {
+    const { mock, pluginConfig } = setup()
+    mock.storageMap.set('config', {
+      thinkingMode: 'bogus',
+      reasoningEffort: 42,
+      showReasoning: 'yes',
+      codeLineHeight: 'huge',
+      codeFontSize: 99,
+      codeTheme: 'blue',
+    })
+    await pluginConfig.loadConfig()
+    expect(pluginConfig.config.value).toEqual(DEFAULT_PLUGIN_CONFIG)
+  })
+
+  it('行距数字夹取：超出 [0.5, 2] 范围与多余小数位归一化', async () => {
+    const { mock, pluginConfig } = setup()
+    mock.storageMap.set('config', {
+      thinkingMode: 'default',
+      reasoningEffort: 'high',
+      showReasoning: true,
+      codeLineHeight: 3.2,
+      codeFontSize: 13,
+      codeTheme: 'auto',
+    })
+    await pluginConfig.loadConfig()
+    expect(pluginConfig.config.value.codeLineHeight).toBe(2)
+
+    mock.storageMap.set('config', {
+      thinkingMode: 'default',
+      reasoningEffort: 'high',
+      showReasoning: true,
+      codeLineHeight: 0.2,
+      codeFontSize: 13,
+      codeTheme: 'auto',
+    })
+    await pluginConfig.loadConfig()
+    expect(pluginConfig.config.value.codeLineHeight).toBe(0.5)
+
+    mock.storageMap.set('config', {
+      thinkingMode: 'default',
+      reasoningEffort: 'high',
+      showReasoning: true,
+      codeLineHeight: 1.55,
+      codeFontSize: 13,
+      codeTheme: 'auto',
+    })
+    await pluginConfig.loadConfig()
+    expect(pluginConfig.config.value.codeLineHeight).toBe(1.6)
+  })
+
+  it('限流重试参数夹取：非整数取整、超出范围回退边界、非法值回退默认', async () => {
+    const { mock, pluginConfig } = setup()
+    mock.storageMap.set('config', {
+      thinkingMode: 'default',
+      reasoningEffort: 'high',
+      showReasoning: true,
+      rateLimitMaxRetries: 5.6,
+      rateLimitInitialDelayMs: 50,
+      rateLimitMaxDelayMs: 999999,
+    })
+    await pluginConfig.loadConfig()
+    expect(pluginConfig.config.value.rateLimitMaxRetries).toBe(6)
+    expect(pluginConfig.config.value.rateLimitInitialDelayMs).toBe(100)
+    expect(pluginConfig.config.value.rateLimitMaxDelayMs).toBe(300000)
+
+    mock.storageMap.set('config', {
+      thinkingMode: 'default',
+      reasoningEffort: 'high',
+      showReasoning: true,
+      rateLimitMaxRetries: 'many',
+      rateLimitInitialDelayMs: null,
+      rateLimitMaxDelayMs: -5,
+    })
+    await pluginConfig.loadConfig()
+    expect(pluginConfig.config.value.rateLimitMaxRetries).toBe(3)
+    expect(pluginConfig.config.value.rateLimitInitialDelayMs).toBe(1000)
+    expect(pluginConfig.config.value.rateLimitMaxDelayMs).toBe(1000)
+  })
+
+  it('storage 读取抛错：保持默认值不抛错（配置缺失不阻断聊天）', async () => {
+    const mock = createMockContext({
+      commands: {},
+    })
+    mock.context.storage.get = async () => {
+      throw new Error('storage unavailable')
+    }
+    const pluginConfig = usePluginConfig(mock.context)
+    await expect(pluginConfig.loadConfig()).resolves.toBeUndefined()
+    expect(pluginConfig.config.value).toEqual(DEFAULT_PLUGIN_CONFIG)
+  })
+
+  it('未加载时即为默认值（请求构建永远拿得到合法配置）', () => {
+    const { pluginConfig } = setup()
+    expect(pluginConfig.config.value).toEqual(DEFAULT_PLUGIN_CONFIG)
+  })
+
+  it('saveConfig：整表写入 storage key `config` 并立即生效（会话内无需重读）', async () => {
+    const { mock, pluginConfig } = setup()
+    const next = {
+      ...DEFAULT_PLUGIN_CONFIG,
+      thinkingMode: 'enabled' as const,
+      codeTheme: 'dracula' as const,
+      rateLimitMaxRetries: 7,
+    }
+    await pluginConfig.saveConfig(next)
+    expect(pluginConfig.config.value).toEqual(next)
+    expect(mock.storageMap.get('config')).toEqual(next)
+  })
+
+  it('saveConfig 持久化抛错：保留会话内已生效值不抛错（仅持久化丢失）', async () => {
+    const { mock, pluginConfig } = setup()
+    mock.context.storage.set = async () => {
+      throw new Error('storage unavailable')
+    }
+    const next = { ...DEFAULT_PLUGIN_CONFIG, showReasoning: false }
+    await expect(pluginConfig.saveConfig(next)).resolves.toBeUndefined()
+    expect(pluginConfig.config.value).toEqual(next)
+  })
+})

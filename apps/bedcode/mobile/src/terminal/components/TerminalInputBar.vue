@@ -1,0 +1,774 @@
+<template>
+  <div class="terminal-input-bar z-10" :style="inputBarStyle" data-testid="mobile-terminal-input-bar">
+    <!-- 快捷键面板（覆盖层 + 轮播 + 页码点）：高度经 height 事件同步给终端偏移 -->
+    <ShortcutsPanel
+      :visible="showShortcutsPanel"
+      :is-landscape="props.isLandscape"
+      :custom-commands="customCommands"
+      @update:visible="setShortcutsPanelVisible"
+      @shortcut="handleShortcutClick"
+      @command="handlePanelCommand"
+      @delete="deleteCustomCommand"
+      @add="openAddCommandDialog"
+      @height="handleShortcutsPanelHeight"
+    />
+
+    <!-- 添加自定义命令弹窗 -->
+    <Teleport to="body">
+      <div
+        v-if="showAddDialog"
+        class="dialog-overlay mobile-ui"
+        data-bedcode-surface
+        @click.self="showAddDialog = false"
+      >
+        <div class="dialog-box">
+          <div class="dialog-title">{{ t('input.commandTitle') }}</div>
+          <input
+            ref="cmdInputRef"
+            v-model="newCommand"
+            class="dialog-input"
+            :placeholder="t('input.commandPlaceholder')"
+            @keyup.enter="addCustomCommand"
+          />
+          <div class="dialog-actions">
+            <button class="dialog-btn cancel" @click="showAddDialog = false">
+              {{ t('common.button.cancel') }}
+            </button>
+            <button
+              class="dialog-btn confirm"
+              :disabled="!newCommand.trim()"
+              @click="addCustomCommand"
+            >
+              {{ t('common.button.confirm') }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
+    <!-- 快捷键条 - 常驻显示最常用的快捷键和自定义命令 -->
+    <QuickBar :items="quickBarItems" @select="handleQuickBarClick" />
+
+    <!-- 输入区域 -->
+    <div class="input-area">
+      <!-- `/` 命令补全弹层 -->
+      <CompletionPanel
+        :visible="showCompletion"
+        :items="completionItems"
+        @select="applyCompletion"
+      />
+
+      <div class="input-box">
+        <!-- 输入框：占满整行宽度；显示高度只随内容换行数变化，聚焦不变高 -->
+        <textarea
+          ref="inputRef"
+          v-model="inputText"
+          class="input-field"
+          data-testid="mobile-terminal-input"
+          :placeholder="placeholder"
+          :disabled="disabled"
+          rows="1"
+          @focus="handleFocus"
+          @blur="handleBlur"
+        ></textarea>
+
+        <!-- 操作按钮行：输入框下方，不挤占输入宽度 -->
+        <div class="action-row">
+          <div class="action-row-spacer"></div>
+
+          <button
+            class="inline-btn toggle-btn"
+            :class="showShortcutsPanel ? 'toggle-active' : 'toggle-inactive'"
+            @mousedown.prevent="toggleShortcuts"
+          >
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"
+              />
+            </svg>
+          </button>
+
+          <button
+            class="inline-btn execute-btn"
+            :class="{ 'mode-send': sendMode, 'is-disabled': !canSubmit }"
+            :aria-disabled="!canSubmit"
+            data-testid="mobile-terminal-send"
+            :aria-label="sendMode ? t('input.sendHint') : t('input.executeHint')"
+            @pointerdown="onExecutePointerDown"
+            @pointermove="onExecutePointerMove"
+            @pointerup="onExecutePointerUp"
+            @pointercancel="onExecutePointerCancel"
+            @contextmenu.prevent
+          >
+            <!-- 纸飞机：水平朝右（执行语义）/ 垂直朝上（发送语义），由长按切换的
+                 常驻功能模式决定，样式随模式保持不变 -->
+            <svg class="execute-icon w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
+            </svg>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script setup lang="ts">
+/**
+ * 终端输入条（issue #19 结构重构后的容器）
+ *
+ * 拆分边界：
+ * - `ShortcutsPanel`：面板遮罩 / 轮播 / 快捷键页 / 命令页（含编辑态）与手势；
+ * - `QuickBar`：常驻快捷键条（纯展示 + select 事件）；
+ * - `CompletionPanel`：`/` 补全弹层；
+ * - `useExecuteButton`：执行/发送长按切模式状态机；
+ * - 本组件只保留输入框、动作行、添加命令弹窗与跨组件编排（记账、emit、持久化）。
+ */
+import { ref, computed, inject, onMounted, nextTick, watch } from 'vue'
+import { getMobileApi } from '@binblink/wasmnest-plugin-sdk-mobile'
+import { logger, storage, t, toast } from '../host'
+import type { Ref } from 'vue'
+import { useInputAssistantStore, type QuickCommand } from '../inputAssistant'
+import type { QuickBarItem } from '../inputAssistant'
+import { filterPresetCommands, getAllPresetCommandTexts } from '../config/agentPresets'
+import { useExecuteButton } from '../composables/useExecuteButton'
+import ShortcutsPanel from './terminal-input/ShortcutsPanel.vue'
+import QuickBar from './terminal-input/QuickBar.vue'
+import CompletionPanel from './terminal-input/CompletionPanel.vue'
+
+// ==================== Props ====================
+
+const props = withDefaults(
+  defineProps<{
+    disabled?: boolean
+    isConnected?: boolean
+    placeholder?: string
+    isLandscape?: boolean
+    /** 侧栏「插入引用」待填入的路径（消费后 emit ref-consumed） */
+    pendingRef?: string | null
+  }>(),
+  {
+    disabled: false,
+    isConnected: false,
+    placeholder: '',
+    isLandscape: false,
+    pendingRef: null,
+  },
+)
+
+// ==================== Emits ====================
+
+const emit = defineEmits<{
+  submit: [text: string]
+  execute: [text: string]
+  specialKey: [key: string]
+  /** 快捷键面板展开/收起时通知终端，传入面板高度用于偏移 */
+  shortcutsPanelToggle: [height: number]
+  /** pendingRef 已被填入输入框，通知父组件复位 */
+  refConsumed: []
+}>()
+
+// ==================== Safe Area ====================
+
+const safeArea = inject<Ref<{ top: number; bottom: number; navigationBar: number }>>('safeArea')
+
+const inputBarStyle = computed(() => {
+  const jsBottom = safeArea?.value?.navigationBar || safeArea?.value?.bottom || 0
+  return {
+    paddingBottom: `${jsBottom}px`,
+  }
+})
+
+// ==================== State ====================
+
+const assistStore = useInputAssistantStore()
+
+const inputRef = ref<HTMLTextAreaElement | null>(null)
+const inputText = ref('')
+const showShortcutsPanel = ref(false)
+const isInputFocused = ref(false)
+const showAddDialog = ref(false)
+const newCommand = ref('')
+const cmdInputRef = ref<HTMLInputElement | null>(null)
+
+// ==================== `/` 命令补全 ====================
+// 与 agent 内部补全同构（前缀匹配），但数据来自本地预设（agentPresets），零延迟；
+// 候选为四套 Agent CLI 预设命令的合集（去重），generic 会话同样可用
+
+const completionItems = computed(() => {
+  if (!inputText.value.startsWith('/')) return []
+  return filterPresetCommands(getAllPresetCommandTexts(), inputText.value)
+})
+
+/** 点选后关闭弹层（对齐 agent 内部补全行为）；下次输入时自动恢复 */
+const completionDismissed = ref(false)
+
+// 两个 watcher，两种 flush（各管各的时序）：
+// ① sync —— applyCompletion 写入后同步复位 completionDismissed，保证点选必然
+// 关闭弹层（若改 post，watcher 晚于 applyCompletion 的置位执行，会把
+// 置位覆盖回 false → 点选后弹层重新出现，实测回归）。此 watcher 不读 DOM。
+watch(
+  inputText,
+  () => {
+    completionDismissed.value = false
+    // 用户开始打字时收起快捷键面板，避免补全弹层与面板重叠遮挡
+    if (showShortcutsPanel.value) {
+      showShortcutsPanel.value = false
+    }
+  },
+  { flush: 'sync' },
+)
+
+// ② post —— 高度跟随换行数。不能用 @input 事件驱动：v-model 的 input
+// 监听器注册晚于 @input（指令 created 钩子在 props 之后），事件处理器里读到
+// 的是上一次的 value——换行增高永远滞后一个输入事件（连按回车时表现为不增高）。
+// watch 在 ref 更新后触发，含软键盘输入/IME 提交/程序化填充全部路径。
+// flush: 'post'（而非 sync）：adjustTextareaHeight 读的是 textarea.scrollHeight，
+// 即 DOM 里的实际 value——程序化清空（发送/执行后 inputText=''）时 render
+// effect 写入新 value 还在调度队列里，sync watcher 先跑会读到旧多行内容，
+// 高度停留在多行不回单行（实测 bug）。post watcher 在 render effect 之后跑，
+// DOM 永远是最新值；输入路径 DOM 值本就先于事件更新，同一帧内无视觉滞后
+watch(
+  inputText,
+  () => {
+    adjustTextareaHeight()
+  },
+  { flush: 'post' },
+)
+
+const showCompletion = computed(
+  () => isInputFocused.value && !completionDismissed.value && completionItems.value.length > 0,
+)
+
+/** 点选补全项：整体填充输入框并保持焦点，由用户决定补全/发送 */
+function applyCompletion(command: string) {
+  inputText.value = command
+  // 覆盖 inputText watcher 的复位：点选后弹层关闭，等下一次真实输入再出现
+  completionDismissed.value = true
+  nextTick(() => {
+    adjustTextareaHeight()
+    inputRef.value?.focus()
+  })
+}
+
+// ==================== Pending Ref ====================
+
+// 侧栏「插入引用」：把 @路径 填入输入框（已有内容时补空格分隔）并聚焦，便于继续输入
+watch(
+  () => props.pendingRef,
+  (path) => {
+    if (!path) return
+    const refText = `@${path}`
+    const text = inputText.value
+    inputText.value = text && !text.endsWith(' ') ? `${text} ${refText}` : `${text}${refText}`
+    emit('refConsumed')
+    nextTick(() => {
+      adjustTextareaHeight()
+      inputRef.value?.focus()
+    })
+  },
+)
+
+// ==================== Custom Commands ====================
+
+const customCommands = ref<QuickCommand[]>([])
+
+/** 面板命令 = 命令预设（builtin，在前） + 用户自定义命令 */
+const displayCommands = computed(() => [...assistStore.presetCommands, ...customCommands.value])
+
+// 从插件私有 storage 持久化加载自定义命令
+// （票 15：原宿主 settings DB 键 `custom_commands` 由一次性迁移搬入插件 storage）
+async function loadCustomCommands() {
+  try {
+    const stored = await storage.get<Partial<QuickCommand>[]>('custom_commands')
+    if (stored) {
+      customCommands.value = stored.map((c) => ({
+        id: c.id || Date.now().toString(),
+        command: c.command || '',
+        // 旧数据无 mode/builtin：默认执行模式、非内置
+        mode: c.mode || 'execute',
+        builtin: c.builtin ?? false,
+      }))
+    }
+  } catch {
+    // 首次加载或存储不可用，使用空列表
+    customCommands.value = []
+  }
+}
+
+// 持久化保存自定义命令
+async function saveCustomCommands() {
+  try {
+    await storage.set('custom_commands', customCommands.value)
+  } catch (e) {
+    logger.error('[TerminalInputBar] Failed to save custom commands:', e)
+  }
+}
+
+function openAddCommandDialog() {
+  showAddDialog.value = true
+}
+
+function addCustomCommand() {
+  const cmd = newCommand.value.trim()
+  if (!cmd) return
+  customCommands.value.push({
+    id: Date.now().toString(),
+    command: cmd,
+    mode: 'execute',
+    builtin: false,
+  })
+  saveCustomCommands()
+  newCommand.value = ''
+  showAddDialog.value = false
+}
+
+function deleteCustomCommand(id: string) {
+  customCommands.value = customCommands.value.filter((c) => c.id !== id)
+  saveCustomCommands()
+}
+
+function handlePanelCommand(cmd: QuickCommand) {
+  assistStore.recordCustomCommand(cmd.id)
+  // 发送模式（skills 类补全场景）：文本不带回车发到终端输入行；否则执行（文本 + Enter）
+  if (cmd.mode === 'send') {
+    emit('submit', cmd.command)
+  } else {
+    emit('execute', cmd.command)
+  }
+}
+
+// ==================== Computed ====================
+
+const canSubmit = computed(() => {
+  return inputText.value.trim().length > 0 && !props.disabled
+})
+
+// ==================== Execute Button（长按切模式 / 短按触发）====================
+
+/** 移动端本地设置（宿主只读投影：vibrate / maxOpenTerminals 等） */
+const mobileSettings = getMobileApi().mobileSettings
+
+const {
+  sendMode,
+  onPointerDown: onExecutePointerDown,
+  onPointerMove: onExecutePointerMove,
+  onPointerUp: onExecutePointerUp,
+  onPointerCancel: onExecutePointerCancel,
+} = useExecuteButton({
+  canSubmit: () => canSubmit.value,
+  vibrate: () => Boolean(mobileSettings.value.vibrate),
+  onShortPress: (send) => {
+    if (send) handleSubmit()
+    else handleExecute()
+  },
+  onModeChange: (send) => {
+    // 长按切换只有振动 + 图标旋转，缺少可读反馈；补一条瞬时 toast
+    toast.info(t(send ? 'input.modeSwitchedToSend' : 'input.modeSwitchedToExecute'))
+  },
+})
+
+// ==================== Methods ====================
+
+function setShortcutsPanelVisible(visible: boolean) {
+  showShortcutsPanel.value = visible
+}
+
+function handleShortcutsPanelHeight(height: number) {
+  emit('shortcutsPanelToggle', height)
+}
+
+function toggleShortcuts() {
+  // 横屏高度有限，面板不渲染：提示用户而非静默无响应
+  if (props.isLandscape) {
+    toast.warning(t('input.shortcutsLandscapeUnavailable'))
+    return
+  }
+  showShortcutsPanel.value = !showShortcutsPanel.value
+  if (showShortcutsPanel.value) {
+    // 面板渲染前确认命令列表构成（预设 + 自定义），排查第二页缺失问题
+    logger.log(
+      '[TerminalInputBar] 面板打开：displayCommands =',
+      displayCommands.value.length,
+      '（预设',
+      assistStore.presetCommands.length,
+      '+ 自定义',
+      customCommands.value.length,
+      '）',
+      displayCommands.value.slice(0, 3).map((c) => c.command),
+    )
+  }
+}
+
+function handleSubmit() {
+  const text = inputText.value.trim()
+  if (!text) return
+  emit('submit', text)
+  inputText.value = ''
+}
+
+function handleExecute() {
+  const text = inputText.value.trim()
+  if (!text) return
+  emit('execute', text)
+  inputText.value = ''
+}
+
+function handleShortcutClick(code: string) {
+  assistStore.recordShortcut(code)
+  emit('specialKey', code)
+}
+
+// ==================== Quick Bar ====================
+
+/// 快捷键条项目：合并快捷键和快捷命令，按使用频次排序
+const quickBarItems = computed(() => assistStore.getQuickBarItems(displayCommands.value))
+
+/// 快捷键条按钮点击处理
+function handleQuickBarClick(item: QuickBarItem) {
+  if (item.type === 'shortcut') {
+    assistStore.recordShortcut(item.key)
+    emit('specialKey', item.key)
+  } else {
+    // 快捷命令：找到对应命令项，按模式分发（发送 = 不带回车，执行 = 文本 + Enter）
+    const cmd = displayCommands.value.find((c) => c.id === item.key)
+    if (cmd) {
+      assistStore.recordCustomCommand(cmd.id)
+      if (cmd.mode === 'send') {
+        emit('submit', cmd.command)
+      } else {
+        emit('execute', cmd.command)
+      }
+    }
+  }
+}
+
+function handleFocus() {
+  isInputFocused.value = true
+}
+
+function handleBlur() {
+  isInputFocused.value = false
+}
+
+/**
+ * 输入框显示高度跟随「可视行数」（1~6 行，超出内部滚动）：
+ * 显式换行与超宽软折行都计入——先重置 height:auto 让 scrollHeight 反映
+ * 真实内容高度，再按行高换算行数（round 抵消 scrollHeight 的整数舍入，
+ * 否则 2 行内容 53px/26.46px 会被 ceil 成 3 行）。聚焦不变高；发送/清空
+ * 后回落单行。终端区随输入条变高同步收缩（flex + ResizeObserver 重新 fit）
+ */
+function adjustTextareaHeight() {
+  const textarea = inputRef.value
+  if (!textarea) return
+  const lineHeight = parseFloat(getComputedStyle(textarea).lineHeight) || 21
+  textarea.style.height = 'auto'
+  const visualLines = Math.round(textarea.scrollHeight / lineHeight)
+  const newHeight = Math.min(Math.max(visualLines, 1), 6) * lineHeight
+  textarea.style.height = `${newHeight}px`
+  // 超过最大行数时滚动到底部（光标所在行保持可见）
+  textarea.scrollTop = textarea.scrollHeight
+}
+
+// ==================== Expose（键盘收起时父组件退出编辑态） ====================
+// Android 返回键/下拉手势收起系统键盘时，WebView 的 textarea 仍保有焦点
+// （输入光标常驻、命令补全弹层不收起），由 TerminalView 检测到键盘偏移
+// 归零后调用 blurInput() 主动退出编辑态；
+// isFocused() 供父组件判断输入框是否仍处于编辑态
+
+/** 判断输入框是否处于编辑态（聚焦中） */
+function isFocused(): boolean {
+  return isInputFocused.value
+}
+
+/** 主动 blur 输入框：光标消失、命令补全弹层关闭（显示高度只随内容换行数，不受焦点影响） */
+function blurInput() {
+  inputRef.value?.blur()
+}
+
+defineExpose({
+  blurInput,
+  isFocused,
+})
+
+// 弹窗打开时自动聚焦输入框
+watch(showAddDialog, (val) => {
+  if (val) {
+    nextTick(() => {
+      cmdInputRef.value?.focus()
+    })
+  }
+})
+
+// ==================== Lifecycle ====================
+
+onMounted(() => {
+  loadCustomCommands()
+})
+</script>
+
+<style scoped>
+.terminal-input-bar {
+  flex-shrink: 0;
+  background: var(--mobile-bg-secondary);
+  backdrop-filter: blur(20px);
+  border-top: 1px solid var(--mobile-border);
+  /* 顶部内边距收紧到 0.25rem：终端区（面板收起时）与输入框上沿间距最小化 */
+  padding: 0.25rem 1rem 0.5rem;
+  position: relative;
+  /* paddingBottom 由 JS 动态设置（导航栏安全区域），不使用 CSS transition
+   * padding 动画触发布局重排，与终端 xterm 重影问题同理 */
+  /* 响应式快捷键尺寸：使用 clamp + vw 实现自适应 */
+  --shortcut-btn-h: clamp(1.8rem, 7vw, 2.2rem);
+  --shortcut-font: clamp(0.65rem, 2.6vw, 0.8rem);
+  --quickbar-btn-h: clamp(1.8rem, 7vw, 2.2rem);
+  --quickbar-font: clamp(0.65rem, 2.6vw, 0.8rem);
+  --action-btn-w: clamp(2.75rem, 10vw, 3.25rem);
+  --shortcut-min-w: clamp(2.25rem, 8.5vw, 2.75rem);
+}
+
+.input-area {
+  display: flex;
+  align-items: flex-end;
+  position: relative;
+  z-index: 40;
+}
+
+.input-box {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: var(--mobile-input-bg);
+  border: 1px solid var(--mobile-input-border);
+  border-radius: var(--bc-radius-card);
+  padding: 0.5rem 0.625rem 0.375rem;
+  transition:
+    border-color var(--bc-dur-fast) var(--bc-ease),
+    box-shadow var(--bc-dur-fast) var(--bc-ease);
+  min-height: 2.5rem;
+}
+
+/* 聚焦只用一条 accent 边 + 一圈极淡外环；圆角不随焦点变化
+   （原先聚焦时圆角从 16 收到 14，视觉上像输入框「缩了一下」） */
+.input-box:focus-within {
+  border-color: var(--mobile-accent);
+  box-shadow: 0 0 0 2px var(--mobile-accent-muted);
+}
+
+/* 操作按钮行：左对齐 toggle，右对齐执行按钮（点按执行 / 长按发送 双操作） */
+.action-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding-top: 0.375rem;
+}
+
+.action-row-spacer {
+  flex: 1;
+}
+
+/* 操作按钮：圆角方块（与全应用控件同一档圆角），clamp 流式尺寸，触控目标 ≥ 44px */
+.inline-btn {
+  width: clamp(2.75rem, 9vw, 3rem);
+  height: clamp(2.75rem, 9vw, 3rem);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--bc-radius-control);
+  border: 1px solid;
+  cursor: pointer;
+  transition:
+    background-color var(--bc-dur-fast) var(--bc-ease),
+    color var(--bc-dur-fast) var(--bc-ease),
+    border-color var(--bc-dur-fast) var(--bc-ease),
+    opacity var(--bc-dur-fast) var(--bc-ease);
+  flex-shrink: 0;
+  padding: 0;
+  /* 长按双操作防系统手势干扰：禁用长按呼出菜单/文本选择，消除双击缩放延迟 */
+  -webkit-touch-callout: none;
+  user-select: none;
+  touch-action: manipulation;
+}
+
+.toggle-btn {
+  background: var(--mobile-bg-elevated);
+  border-color: var(--mobile-border);
+  color: var(--mobile-text-muted);
+}
+
+.toggle-btn:active {
+  background: var(--mobile-group-row-active);
+  color: var(--mobile-text-primary);
+}
+
+.toggle-active {
+  color: var(--mobile-accent);
+  border-color: var(--mobile-border-active);
+  background: var(--mobile-accent-muted);
+}
+
+.toggle-inactive {
+  color: var(--mobile-text-muted);
+}
+
+.input-field {
+  width: 100%;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--mobile-text-primary);
+  font-size: var(--font-size-base);
+  font-family: inherit;
+  resize: none;
+  line-height: 1.5;
+  min-height: 1.5rem;
+  /* 高度由 JS 按内容换行数设置（adjustTextareaHeight），仅换行/清空时变化 */
+  transition: height 0.15s ease;
+  /* 6 行最大高度，超过后滚动 */
+  max-height: calc(1.5em * 6);
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+
+.input-field::-webkit-scrollbar {
+  display: none;
+  width: 0;
+}
+
+.input-field::placeholder {
+  color: var(--mobile-input-placeholder);
+}
+
+/* 纸飞机图标：朝向区分常驻功能模式（点按执行 = 水平朝右，点按发送 = 垂直朝上）。
+ * 模式由长按切换并一直保持，转向动画仅在切换瞬间播放一次 */
+.execute-icon {
+  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.execute-btn.mode-send .execute-icon {
+  transform: rotate(-90deg);
+}
+
+/* 发送模式：accent 底色与执行模式（黑底）形成稳定视觉区分；
+ * 文字用对比 token（accent 色跨主题反转，禁止写死白/黑）。
+ * 置灰态仅靠 opacity 叠加降饱和，不覆盖模式底色 */
+.execute-btn.mode-send {
+  background: var(--mobile-accent);
+  border-color: var(--mobile-accent);
+  color: var(--mobile-text-on-accent);
+}
+
+.execute-btn {
+  /* 黑底白图标：终端「执行」语义（用户指定，跨主题稳定） */
+  background: #0a0a0f;
+  border-color: #0a0a0f;
+  color: #ffffff;
+}
+
+/* 按下只降透明度：不缩放、不调亮度（filter 会把图标边缘一起推亮，按钮像在闪） */
+.execute-btn:active:not(.is-disabled),
+.execute-btn.mode-send:active:not(.is-disabled) {
+  opacity: 0.82;
+}
+
+/* 置灰态（无内容/会话不可用）：短按动作已门控，长按切换仍可用，
+ * 仅视觉降透明度提示不可提交；不用原生 disabled 属性——
+ * disabled 按钮不派发 pointer 事件，会连带禁掉长按切换 */
+.execute-btn.is-disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ==================== Add Dialog ==================== */
+
+.dialog-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  padding: 1.5rem;
+}
+
+.dialog-box {
+  background: var(--mobile-bg-card);
+  border: 1px solid var(--mobile-border);
+  border-radius: var(--bc-radius-card);
+  padding: 1.25rem;
+  width: 100%;
+  max-width: clamp(16rem, 20rem, 24rem);
+  box-shadow: var(--bc-overlay-shadow);
+}
+
+.dialog-title {
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  color: var(--mobile-text-primary);
+  margin-bottom: 1rem;
+  text-align: center;
+}
+
+.dialog-input {
+  width: 100%;
+  background: var(--mobile-input-bg);
+  border: 1px solid var(--mobile-input-border);
+  border-radius: var(--bc-radius-control);
+  padding: 0.625rem 0.875rem;
+  color: var(--mobile-text-primary);
+  font-size: var(--font-size-base);
+  outline: none;
+  transition: border-color var(--bc-dur-fast) var(--bc-ease);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  box-sizing: border-box;
+}
+
+.dialog-input:focus {
+  border-color: var(--mobile-accent);
+}
+
+.dialog-input::placeholder {
+  color: var(--mobile-input-placeholder);
+}
+
+.dialog-actions {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.dialog-btn {
+  flex: 1;
+  height: clamp(2.25rem, 2.5rem, 2.75rem);
+  border-radius: var(--bc-radius-control);
+  border: 1px solid;
+  font-size: var(--font-size-base);
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background-color var(--bc-dur-fast) var(--bc-ease),
+    color var(--bc-dur-fast) var(--bc-ease),
+    border-color var(--bc-dur-fast) var(--bc-ease),
+    opacity var(--bc-dur-fast) var(--bc-ease);
+}
+
+.dialog-btn.cancel {
+  background: var(--mobile-bg-primary);
+  border-color: var(--mobile-border);
+  color: var(--mobile-text-secondary);
+}
+
+.dialog-btn.confirm {
+  background: var(--mobile-accent);
+  border-color: var(--mobile-accent);
+  color: var(--mobile-text-on-accent);
+}
+
+.dialog-btn.confirm:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+</style>

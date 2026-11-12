@@ -1,0 +1,156 @@
+/**
+ * 应用页签面板停靠过渡（票 2026-10-10：全量 UI 下沉 —— app 域页签容器）
+ *
+ * 形态：页签式切页，**同屏只允许一页可见**。非当前页完全停在屏外一侧
+ * （translateX(±100%)）并 visibility: hidden，由容器 overflow 裁切。
+ *
+ * 为什么不做半屏叠放：面板自身没有背景，半屏停靠时相邻页会从当前页背后透出来，
+ * 表现为「页面重叠 / 两页同时可见」；且停靠面板还会溢出容器压到头部与导航上。
+ * 与任务页三面板的停靠同一形态（task/toolbox.css::att-tab-panel-*）：
+ * 非当前页隐藏 + 位移过渡，只保留仅 GPU 合成属性。
+ *
+ * 面板常驻挂载——切页不重挂载，滚动位置与事件订阅得以保留
+ * （与旧宿主 MobileSwipeContainer 的常驻语义一致）。
+ */
+
+.app-tab-panel {
+  position: absolute;
+  inset: 0;
+  /* 默认停在右侧屏外并隐藏；visibility 延迟到位移结束再翻，动画走完才移出命中区 */
+  transform: translateX(100%);
+  visibility: hidden;
+  transition:
+    transform 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+    visibility 0s linear 0.3s;
+}
+
+/* 当前页：立即可见，滑入与显示同步进行 */
+.app-tab-panel--active {
+  transform: translateX(0);
+  visibility: visible;
+  z-index: 1;
+  pointer-events: auto;
+  transition-delay: 0s;
+}
+
+/* 停靠位：已过页停左侧、未到页停右侧（切页的入 / 出场起点） */
+.app-tab-panel--left {
+  transform: translateX(-100%);
+  z-index: 0;
+  pointer-events: none;
+}
+
+.app-tab-panel--right {
+  transform: translateX(100%);
+  z-index: 0;
+  pointer-events: none;
+}
+
+/* 尊重系统减弱动效偏好：停靠仍在位，只去掉滑动 */
+@media (prefers-reduced-motion: reduce) {
+  .app-tab-panel,
+  .app-tab-panel--active {
+    transition-duration: 0s;
+    transition-delay: 0s;
+  }
+}
+
+/* ==================== 弹层 z 层级（#18 单一来源） ==================== */
+/* 终端页内局部层级（不入 token，随组件就近维护）：25 header / 29 溢出菜单背板 /
+   30 溢出菜单 / 40 输入条；sheet 嵌套层（如代码查看设置 130）经组件 zIndex prop
+   显式覆盖。 */
+:root {
+  /* 50 = 居中确认弹窗（ConfirmDialog） */
+  --mobile-z-modal: 50;
+  /* 100 = bottom sheet（设置 / 配置 / 帮助） */
+  --mobile-z-sheet: 100;
+}
+
+/* ==================== 应用自有形制（2026-11-11 unslop） ====================
+ * 宿主 token 只给颜色与字号；「圆角几档 / 图标底怎么铺 / 弹层要不要阴影」是
+ * 本应用的外观裁决，收在这里一份，避免每个组件各写一套（审计时同一屏出现过
+ * 0.375 / 0.625 / 0.75 / 1 / 1.25rem 五档圆角与 8 处 shadow-xl）。
+ *
+ * 口径：
+ *   · 圆角三档：面板（group-card 由宿主 1rem 承担）/ 卡片 12 / 控件 10；
+ *     状态胶囊才用全圆角。
+ *   · 图标底一律中性（文字色的 6% 底），颜色只留给真正的状态点；
+ *   · 深色下弹层不做投影，靠 surface step + 发丝边分层；浅色保留一层小投影。
+ */
+[data-bedcode-surface] {
+  --bc-radius-card: 12px;
+  --bc-radius-control: 10px;
+  --bc-radius-sheet: 16px;
+  --bc-icon-bg: color-mix(in srgb, var(--mobile-text-primary) 6%, transparent);
+  --bc-icon-fg: var(--mobile-text-secondary);
+  --bc-quiet-bg: color-mix(in srgb, var(--mobile-text-primary) 5%, transparent);
+  --bc-quiet-fg: var(--mobile-text-secondary);
+  --bc-overlay-shadow: none;
+  --bc-ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --bc-dur-fast: 140ms;
+  --bc-dur-base: 200ms;
+
+  /* 快捷键面板键帽：宿主那套 `--mobile-*-bg` 是 135° 双档透明渐变，一屏十来个
+     键帽会显出塑料高光（与已平色化的 QuickBar 不在同一个世界）。只在应用作用域
+     把它们压成同色平色：语义色只留在文字 / 边框上，底只做「按得下去」的层次。
+     值全部由主题 token 派生，深浅两档自动跟随，浅色档只把中性键帽抬一档。 */
+  --mobile-shortcut-bg: color-mix(in srgb, var(--mobile-text-primary) 8%, transparent);
+  --mobile-shortcut-active-bg: color-mix(in srgb, var(--mobile-text-primary) 16%, transparent);
+  --mobile-custom-cmd-bg: color-mix(in srgb, var(--mobile-text-primary) 8%, transparent);
+  --mobile-custom-cmd-active-bg: color-mix(in srgb, var(--mobile-text-primary) 16%, transparent);
+  --mobile-add-cmd-bg: color-mix(in srgb, var(--mobile-text-primary) 8%, transparent);
+  --mobile-add-cmd-active-bg: color-mix(in srgb, var(--mobile-text-primary) 16%, transparent);
+  --mobile-arrow-bg: color-mix(in srgb, var(--mobile-warning) 10%, transparent);
+  --mobile-arrow-active-bg: color-mix(in srgb, var(--mobile-warning) 20%, transparent);
+  --mobile-edit-cmd-bg: color-mix(in srgb, var(--mobile-warning) 10%, transparent);
+  --mobile-edit-cmd-active-bg: color-mix(in srgb, var(--mobile-warning) 20%, transparent);
+  --mobile-confirm-bg: color-mix(in srgb, var(--mobile-success) 18%, transparent);
+  --mobile-danger-bg: color-mix(in srgb, var(--mobile-error) 14%, transparent);
+  /* 实底危险按钮不是键帽：保持实底（原值 90% 透明只是渐变口径的遗留） */
+  --mobile-danger-solid-bg: var(--mobile-error);
+}
+
+html:not(.dark) [data-bedcode-surface] {
+  --bc-icon-bg: color-mix(in srgb, var(--mobile-text-primary) 5%, transparent);
+  --bc-quiet-bg: color-mix(in srgb, var(--mobile-text-primary) 4%, transparent);
+  --bc-overlay-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  /* 浅色底上 8% 墨色压成的键帽偏淡（近白面抬高对比才看得出按键范围） */
+  --mobile-shortcut-bg: color-mix(in srgb, var(--mobile-text-primary) 10%, transparent);
+  --mobile-shortcut-active-bg: color-mix(in srgb, var(--mobile-text-primary) 18%, transparent);
+  --mobile-custom-cmd-bg: color-mix(in srgb, var(--mobile-text-primary) 10%, transparent);
+  --mobile-custom-cmd-active-bg: color-mix(in srgb, var(--mobile-text-primary) 18%, transparent);
+  --mobile-add-cmd-bg: color-mix(in srgb, var(--mobile-text-primary) 10%, transparent);
+  --mobile-add-cmd-active-bg: color-mix(in srgb, var(--mobile-text-primary) 18%, transparent);
+}
+
+/* 图标底：行首图标统一这一块（不随分类换色） */
+.bc-icon-box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--bc-radius-control);
+  background: var(--bc-icon-bg);
+  color: var(--bc-icon-fg);
+}
+
+/* 中性小标签：环境名 / 计数 / 次要元信息（不是状态，不该抢颜色） */
+.bc-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: var(--bc-quiet-bg);
+  color: var(--bc-quiet-fg);
+  font-size: var(--font-size-sm);
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+/* 弹层面板：统一分层方式（深色无投影） */
+.bc-overlay-panel {
+  box-shadow: var(--bc-overlay-shadow);
+}

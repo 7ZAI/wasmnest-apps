@@ -1,0 +1,97 @@
+/**
+ * 设置分组（业务面静态表；设置归属修正 2026-10-19）
+ *
+ * 宿主系统页（/sys/settings）只承载**平台分组**（壳外观深浅色 / 系统 / 日志 /
+ * 授权 / 关于）；本 app 设置页承载**业务分组**：
+ * - 外观（主题色板）——各 wasm-app 的样式主题独立，宿主不提供色板；
+ * - 配对设置 / 会话设置（原经设置分组贡献面注册的 app 业务面）；
+ * - 链路加密——只读展示宿主下限（整机策略归宿主设置页，应用不能写；
+ *   应用的安全要求改为端点注册时声明 `encryption`）。
+ *
+ * 分组标题：分组只渲染正文（旧扩展点约定：外壳与标题由宿主统一渲染），
+ * 本表为它们携带 titleKey（app 域相对 key），由设置页经 `useAppI18n()`
+ * 补命名空间后统一包外壳。
+ */
+
+import { computed, type ComputedRef } from 'vue'
+import AppearanceSettingsSection from '@/components/AppearanceSettingsSection.vue'
+import AppUpdateSettingsSection from '@/components/AppUpdateSettingsSection.vue'
+import LinkCryptoSettingsSection from '@/components/LinkCryptoSettingsSection.vue'
+import PairingSettingsSection from '@/components/PairingSettingsSection.vue'
+import RelayMovedSection from '@/components/RelayMovedSection.vue'
+import SessionSettingsSection from '@/components/SessionSettingsSection.vue'
+
+/** 业务分组排序槽位（沿用旧贡献面槽位：外观 100 / 配对 200 / 中转服务器 250 / 链路加密 300 / 会话 400） */
+export const SECTION_ORDERS = {
+  appearance: 100,
+  pairing: 200,
+  relay: 250,
+  linkCrypto: 300,
+  session: 400,
+  appUpdate: 500,
+} as const
+
+/** 设置分组条目（与宿主 useSettingsSections 同形状，app 侧自持） */
+export interface SettingsSectionEntry {
+  key: string
+  order: number
+  component: any
+  props: Record<string, unknown>
+  titleKey?: string
+}
+
+/** 设置分组静态表（单一事实源：应用业务四分组） */
+export const settingsSections: Omit<SettingsSectionEntry, 'props'>[] = [
+  {
+    key: 'appearance',
+    order: SECTION_ORDERS.appearance,
+    component: AppearanceSettingsSection,
+    titleKey: 'appearance.settings.title',
+  },
+  {
+    key: 'pairing',
+    order: SECTION_ORDERS.pairing,
+    component: PairingSettingsSection,
+    titleKey: 'pairing.settings.title',
+  },
+  {
+    // T18：可编辑卡片已迁入网络配置中心；本分组保留只读入口（不复制编辑器）
+    key: 'relay',
+    order: SECTION_ORDERS.relay,
+    component: RelayMovedSection,
+    titleKey: 'relay.title',
+  },
+  {
+    key: 'linkCrypto',
+    order: SECTION_ORDERS.linkCrypto,
+    component: LinkCryptoSettingsSection,
+    titleKey: 'linkCrypto.title',
+  },
+  {
+    key: 'session',
+    order: SECTION_ORDERS.session,
+    component: SessionSettingsSection,
+    titleKey: 'session.settings.title',
+  },
+  {
+    key: 'appUpdate',
+    order: SECTION_ORDERS.appUpdate,
+    component: AppUpdateSettingsSection,
+    titleKey: 'settings.appUpdate.title',
+  },
+]
+
+/**
+ * 设置分组静态表 composable（编排层传入 props，分组列表 computed 挂响应式依赖；
+ * 业务分组无共享状态需求，props 恒空）
+ */
+export function useSettingsSections(
+  _sharedState?: () => Record<string, unknown>,
+): ComputedRef<SettingsSectionEntry[]> {
+  return computed(() =>
+    settingsSections
+      .slice()
+      .sort((a, b) => a.order - b.order)
+      .map((s) => ({ ...s, props: {} })),
+  )
+}

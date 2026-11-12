@@ -1,0 +1,32 @@
+{
+  "name": "@wasmnest/plugin-ai-chatbox-mobile",
+  "version": "0.0.1",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "wasmnest-plugin build",
+    "package": "wasmnest-plugin package",
+    "dev": "wasmnest-plugin dev",
+    "test:run": "vitest run",
+    "test": "vitest"
+  },
+  "dependencies": {
+    "@binblink/wasmnest-plugin-sdk-mobile": "file:../../../../wasmnest/wasmnest-mobile/packages/plugin-sdk-mobile"
+  },
+  "devDependencies": {
+    "@shikijs/langs": "^4.2.0",
+    "@shikijs/themes": "^4.2.0",
+    "@vitejs/plugin-vue": "^6.0.0",
+    "dompurify": "^3.4.13",
+    "marked": "^18.0.9",
+    "shiki": "^4.2.0",
+    "terser": "^5.0.0",
+    "typescript": "^5.0.0",
+    "vite": "^8.0.0",
+    "vitest": "^3.2.7",
+    "vue": "^3.4.0",
+    "vue-i18n": "^9.0.0",
+    "happy-dom": "^13.6.0"
+  }
+}
