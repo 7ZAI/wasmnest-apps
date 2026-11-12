@@ -319,7 +319,7 @@ const en: MessageSchema = {
   'task.queueTitle': 'Pending Queue ({count})',
   'task.emptyHistory': 'No task records yet',
   'task.emptyHistoryHint': 'Tasks are recorded automatically after a run starts',
-  'task.tabsCurrent': 'Current Tasks',
+  'task.tabsCurrent': 'Auto Tasks',
   'task.tabsRecords': 'Task Log',
   'task.tabsScheduled': 'Scheduled Jobs',
   'task.tabsStats': 'Statistics',

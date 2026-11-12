@@ -549,6 +549,19 @@
   border-top: 1px solid var(--border);
 }
 
+/* 动作行右槽：卸载（或其不可用原因）靠右，与左侧「启动会话」拉成两端。
+   只有右侧动作存在时 auto margin 也把它压在行尾，不破坏原单行布局。 */
+.ah-cli-foot-end {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.ah-cli-foot-end > .ah-cli-error {
+  margin-top: 0;
+}
+
 /* 品牌图标 chip：四家都用各自品牌色低透明度派生底色（claude / pi / codex / opencode）。
    品牌底色是**标识**而非语义/数据色，宿主 token 目录里没有对应项，
    故在此以 rgba 写死并在下方集中一处维护；它们只出现在 34px 图标底上，
@@ -664,6 +677,24 @@
 .ah-btn-warn {
   border-color: var(--color-warning);
   color: var(--ah-text-warning);
+}
+
+/* 概览卡片「卸载」：破坏性动作常驻红色，不能等 hover 才看得出。
+   前景用 --ah-text-danger（纯 --color-danger 当文字在浅色主题只有 2.19:1）。 */
+.ah-btn-danger {
+  border-color: var(--color-danger);
+  color: var(--ah-text-danger);
+}
+
+.ah-btn-danger:hover:not(:disabled) {
+  background: var(--color-danger-light);
+}
+
+/* 两击确认态：在常驻红之上加底色，覆盖通用 .ah-btn-warn 的黄色警示 */
+.ah-btn-danger.ah-btn-warn {
+  border-color: var(--color-danger);
+  color: var(--ah-text-danger);
+  background: var(--color-danger-light);
 }
 
 /* ==================== 测速候选源表格 + 自定义源（多源选择，票 03 扩展） ==================== */

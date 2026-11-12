@@ -24,6 +24,8 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { mount, flushPromises } from '@vue/test-utils'
 import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-desktop'
 import TaskQueueModal from '../components/TaskQueueModal.vue'
@@ -374,6 +376,24 @@ describe('TaskHistoryView（侧边栏任务历史）', () => {
     wrapper.unmount()
   })
 
+  it('H1-1 页签顺序：自动任务 → 定时任务 → 任务日志 → 统计', async () => {
+    const wrapper = mountComponent(TaskHistoryView)
+    await flushPromises()
+    const ids = wrapper
+      .findAll('[data-testid^="tasks-tab-"]')
+      .map((b) => b.attributes('data-testid'))
+    expect(ids).toEqual([
+      'tasks-tab-current',
+      'tasks-tab-scheduled',
+      'tasks-tab-records',
+      'tasks-tab-stats',
+    ])
+    // 首页签文案由 i18n 真源钉住（测试里 i18n 桩直返 key，读不到中文）
+    const zh = readFileSync(resolve(process.cwd(), 'src/i18n/zh-CN.ts'), 'utf8')
+    expect(zh).toMatch(/'task\.tabsCurrent': '自动任务'/)
+    wrapper.unmount()
+  })
+
   it('H2 列表与统计共用同一份筛选条件，列表另带分页参数', async () => {
     const wrapper = mountComponent(TaskHistoryView)
     await flushPromises()
@@ -481,6 +501,71 @@ describe('TaskHistoryView（侧边栏任务历史）', () => {
     ])
     // 保存后刷新任务队列区
     expect(commandsTo('session.task.config-queues-list').length).toBeGreaterThanOrEqual(2)
+    wrapper.unmount()
+  })
+
+  it('H0 创建任务输入项只有一层边框（textarea 无自带描边，容器接管焦点色）', async () => {
+    const wrapper = mountComponent(TaskHistoryView)
+    await flushPromises()
+    const box = wrapper.get('[data-testid="task-create-prompt"]')
+    expect(box.classes()).toContain('border-0')
+    expect(box.classes()).not.toContain('focus:border-[var(--color-primary)]')
+    expect(box.element.parentElement?.className).toContain('focus-within:border-')
+    wrapper.unmount()
+  })
+
+  it('H7-1 未执行任务可删除：队列 id / 会话 id 各自命中，删除后两区都刷新', async () => {
+    execute.mockImplementation(async (command: string, args?: unknown) => {
+      if (command === 'session.task.running-sessions') {
+        const base = (await defaultExecute(command, args)) as {
+          sessions: Record<string, unknown>[]
+        }
+        return { sessions: base.sessions.map((s) => ({ ...s, queue_count: 1 })) }
+      }
+      if (command === 'session.task.queue-list') {
+        return {
+          tasks: [
+            { id: 'st1', prompt: '会话队列任务', position: 1, status: 'pending', created_at: '' },
+          ],
+          active_task: null,
+          session_id: (args as { session_id: string }).session_id,
+        }
+      }
+      return defaultExecute(command, args)
+    })
+    const wrapper = mountComponent(TaskHistoryView)
+    await flushPromises()
+
+    let removeBtns = wrapper.findAll('[data-testid="queue-task-remove"]')
+    expect(removeBtns, '任务队列与执行任务区都应提供删除').toHaveLength(2)
+    await removeBtns[0].trigger('click')
+    await flushPromises()
+    expect(commandsTo('session.task.queue-remove')).toEqual([
+      ['session.task.queue-remove', { session_id: 'q1', task_id: 'qt1' }],
+    ])
+    expect(commandsTo('session.task.config-queues-list').length).toBeGreaterThanOrEqual(2)
+    expect(commandsTo('session.task.running-sessions').length).toBeGreaterThanOrEqual(2)
+
+    removeBtns = wrapper.findAll('[data-testid="queue-task-remove"]')
+    await removeBtns[1].trigger('click')
+    await flushPromises()
+    expect(commandsTo('session.task.queue-remove')[1]).toEqual([
+      'session.task.queue-remove',
+      { session_id: SESSION_ID, task_id: 'st1' },
+    ])
+    wrapper.unmount()
+  })
+
+  it('H7-2 删除失败：顶部错误条显性提示，不静默回退', async () => {
+    execute.mockImplementation(async (command: string, args?: unknown) => {
+      if (command === 'session.task.queue-remove') throw new Error('remove failed')
+      return defaultExecute(command, args)
+    })
+    const wrapper = mountComponent(TaskHistoryView)
+    await flushPromises()
+    await wrapper.get('[data-testid="queue-task-remove"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="task-remove-error"]').text()).toBe('task.removeFailed')
     wrapper.unmount()
   })
 

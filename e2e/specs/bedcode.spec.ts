@@ -416,7 +416,8 @@ describe('BedCode（桌面端 · 宿主内挂载）', () => {
   it('Agent 任务：四个页签互斥切换，目标面板跟随出现', async () => {
     await click('nav-tasks')
     await waitFor('tasks-view')
-    const tabs = ['current', 'records', 'scheduled', 'stats'] as const
+    // 与界面页签顺序一致：自动任务 → 定时任务 → 任务日志 → 统计
+    const tabs = ['current', 'scheduled', 'records', 'stats'] as const
     let previousPanel: string | null = null
     for (const key of tabs) {
       await click(`tasks-tab-${key}`)

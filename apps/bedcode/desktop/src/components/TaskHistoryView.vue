@@ -192,6 +192,8 @@ const presetError = ref('')
 // Tab1 任务队列（按配置分组的未绑定会话批次）
 const configQueues = ref<ConfigQueue[]>([])
 const configQueueError = ref('')
+/** 未执行任务删除失败：顶部统一错误条（任务队列区与执行任务区都可能触发） */
+const taskRemoveError = ref('')
 // 预设入队目标（预设未绑定项目/agent 时的回退选择）
 const presetProjectId = ref('')
 const presetAgentId = ref('')
@@ -267,6 +269,15 @@ const textareaCls =
   'w-full px-2 py-1.5 rounded-[6px] border border-[var(--border-input)] bg-[var(--bg-input)] ' +
   'text-xs text-[var(--text-primary)] outline-none focus:border-[var(--color-primary)] transition-colors duration-200 ' +
   'resize-none overflow-y-auto leading-5 max-h-[200px]'
+
+/**
+ * 创建任务输入框：边框由外层容器统一提供，自身不再带 border / 焦点描边。
+ * 输入框自带 border + focus 彩色边框时会与容器描边叠成两层彩色线，
+ * 这里只保留容器的单层边框（focus-within 时变主题色）。
+ */
+const borderlessTextareaCls =
+  'block w-full px-2 py-1.5 rounded-[6px] border-0 bg-transparent ' +
+  'text-xs text-[var(--text-primary)] outline-none resize-none overflow-y-auto leading-5 max-h-[200px]'
 
 // 10 行上限（与 textareaCls 的 max-h-[200px] 保持一致）
 const TEXTAREA_MAX_HEIGHT = 200
@@ -404,14 +415,15 @@ const renderedJobItems = computed<RenderedJobItem[]>(() => {
   return items
 })
 
+/** 页签顺序（用户口径）：自动任务 → 定时任务 → 任务日志 → 统计 */
 const tabs: { key: TabKey; label: string }[] = [
   { key: 'current', label: t('task.tabsCurrent') },
-  { key: 'records', label: t('task.tabsRecords') },
   { key: 'scheduled', label: t('task.tabsScheduled') },
+  { key: 'records', label: t('task.tabsRecords') },
   { key: 'stats', label: t('task.tabsStats') },
 ]
 
-// ==================== 当前任务（Tab1） ====================
+// ==================== 自动任务（Tab1，key=current） ====================
 
 // 执行中的任务（in_progress / asking / retrying）
 const activeTasks = computed(() =>
@@ -782,6 +794,26 @@ async function saveEditTask() {
 function cancelEditTask() {
   editingTaskId.value = ''
   editingTaskScope.value = ''
+}
+
+/**
+ * 删除未执行任务（scope = 配置队列 id / 会话 id，与行内编辑同一占位键口径）。
+ * 后端 `queue-remove` 复用 task_queue 状态机，删除后重排 position；刷新两个
+ * 队列区（ready 批次 + 运行中会话队列），失败走顶部统一错误条，不静默回退。
+ */
+async function removeQueueTask(scopeKey: string, item: QueueItem) {
+  taskRemoveError.value = ''
+  try {
+    await context.commands.execute('session.task.queue-remove', {
+      session_id: scopeKey,
+      task_id: item.id,
+    })
+    if (editingTaskId.value === item.id && editingTaskScope.value === scopeKey) cancelEditTask()
+    await Promise.all([loadConfigQueues(), loadRunningSessions()])
+  } catch (e) {
+    console.error('[Session Center/task] Failed to remove queue task:', e)
+    taskRemoveError.value = t('task.removeFailed')
+  }
 }
 
 async function deletePreset(presetId: string) {
@@ -1457,6 +1489,13 @@ function onConfigQueueLiveChanged() {
         >
           <!-- 滚动内容：创建任务 / 当前任务 / 执行任务 -->
           <div class="flex-1 overflow-y-auto px-4 py-3 space-y-4 min-h-0">
+            <p
+              v-if="taskRemoveError"
+              class="text-xs text-[var(--color-danger-ink)] break-words"
+              data-testid="task-remove-error"
+            >
+              {{ taskRemoveError }}
+            </p>
             <!-- 创建新任务 -->
             <div class="rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-3 space-y-2">
               <h3 class="text-xs font-semibold text-[var(--text-primary)]">
@@ -1491,15 +1530,21 @@ function onConfigQueueLiveChanged() {
                 </div>
               </div>
               <div class="flex items-end gap-1.5">
-                <textarea
-                  :ref="(el) => (createPromptEl = el as HTMLTextAreaElement | null)"
-                  v-model="createPrompt"
-                  rows="1"
-                  :class="textareaCls"
-                  :placeholder="t('task.createTaskPromptPlaceholder')"
-                  @input="autosizeTextarea($event.target)"
-                  @keydown="submitOnEnter(createTask)($event)"
-                />
+                <!-- 输入内容：整项只有容器这一层边框，focus-within 才染主题色 -->
+                <div
+                  class="flex-1 min-w-0 rounded-[6px] border border-[var(--border-input)] bg-[var(--bg-input)] transition-colors duration-200 focus-within:border-[var(--color-primary)]"
+                >
+                  <textarea
+                    :ref="(el) => (createPromptEl = el as HTMLTextAreaElement | null)"
+                    v-model="createPrompt"
+                    rows="1"
+                    :class="borderlessTextareaCls"
+                    data-testid="task-create-prompt"
+                    :placeholder="t('task.createTaskPromptPlaceholder')"
+                    @input="autosizeTextarea($event.target)"
+                    @keydown="submitOnEnter(createTask)($event)"
+                  />
+                </div>
                 <button
                   class="flex-shrink-0 h-8 px-3 rounded-[6px] bg-[var(--color-primary)] text-[var(--color-primary-contrast)] text-xs font-medium transition-opacity duration-200 hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
                   :disabled="creatingTask || !createPrompt.trim()"
@@ -1717,6 +1762,26 @@ function onConfigQueueLiveChanged() {
                               stroke-linejoin="round"
                               stroke-width="2"
                               d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"
+                            />
+                          </svg>
+                        </button>
+                        <button
+                          class="flex-shrink-0 w-6 h-6 rounded-[6px] flex items-center justify-center text-[var(--text-tertiary)] hover:text-[var(--color-danger-ink)] hover:bg-[var(--color-danger-light)] transition-colors duration-200"
+                          :title="t('task.delete')"
+                          data-testid="queue-task-remove"
+                          @click="removeQueueTask(q.id, item)"
+                        >
+                          <svg
+                            class="w-3.5 h-3.5"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              stroke-linecap="round"
+                              stroke-linejoin="round"
+                              stroke-width="2"
+                              d="M6 18L18 6M6 6l12 12"
                             />
                           </svg>
                         </button>
@@ -2166,6 +2231,26 @@ function onConfigQueueLiveChanged() {
                               stroke-linejoin="round"
                               stroke-width="2"
                               d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"
+                            />
+                          </svg>
+                        </button>
+                        <button
+                          class="flex-shrink-0 w-6 h-6 rounded-[6px] flex items-center justify-center text-[var(--text-tertiary)] hover:text-[var(--color-danger-ink)] hover:bg-[var(--color-danger-light)] transition-colors duration-200"
+                          :title="t('task.delete')"
+                          data-testid="queue-task-remove"
+                          @click="removeQueueTask(s.session_id, item)"
+                        >
+                          <svg
+                            class="w-3.5 h-3.5"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              stroke-linecap="round"
+                              stroke-linejoin="round"
+                              stroke-width="2"
+                              d="M6 18L18 6M6 6l12 12"
                             />
                           </svg>
                         </button>

@@ -139,3 +139,23 @@ export function useTunnelStatus(env: TunnelStatusEnv | null | undefined): Tunnel
     refresh: () => run('session.tunnel.status'),
   }
 }
+
+/**
+ * 启动期隧道入口预热（幂等，失败不抛）
+ *
+ * 由桌面 `App.vue` 挂载时调用：桌面用户不需要先打开「设备配对」页，移动端也能
+ * 在任意网络经中继重连（`prepare` = 写通道配置 + 暴露本机 HTTP 面）。
+ *
+ * 失败只返回原因（由调用方落日志），不阻断界面初始渲染：隧道未就绪时 LAN 入口
+ * 仍可用，之后打开「设备配对」页会再次 `prepare` 重试。
+ *
+ * @returns 失败原因；null = 成功或没有命令面（dev-shell）
+ */
+export async function warmUpTunnelIngress(
+  env: TunnelStatusEnv | null | undefined,
+): Promise<string | null> {
+  if (!env) return null
+  const tunnel = useTunnelStatus(env)
+  await tunnel.prepare()
+  return tunnel.error.value
+}

@@ -185,9 +185,10 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <!-- 启动会话（闭环入口）：已装即可一键拉起运行该 agent 的终端会话 -->
-    <div v-if="props.info?.installed" class="ah-cli-foot">
+    <!-- 动作行：启动会话在左、卸载（危险动作）在右，同一行两端分离 -->
+    <div v-if="props.info?.installed || uninstallReason !== 'hidden'" class="ah-cli-foot">
       <button
+        v-if="props.info?.installed"
         type="button"
         class="ah-btn ah-btn-primary ah-btn-sm"
         :disabled="busy || uninstalling"
@@ -196,24 +197,24 @@ onUnmounted(() => {
       >
         {{ t('hub.launch.open') }}
       </button>
-    </div>
 
-    <!-- 卸载动作：仅已装；两击确认防误触；busy/双安装/未知安装方式/缺 node 不可用 -->
-    <div v-if="uninstallReason !== 'hidden'" class="ah-cli-foot">
-      <span v-if="uninstallReasonLabel" class="ah-cli-error">{{ uninstallReasonLabel }}</span>
-      <button
-        v-else
-        type="button"
-        class="ah-btn ah-btn-ghost ah-btn-sm"
-        :class="{ 'ah-btn-warn': armed }"
-        :disabled="busy || uninstalling"
-        :data-testid="`cli-uninstall-${cliId}`"
-        @click="onUninstall"
-      >
-        {{ uninstalling
-          ? t('hub.card.uninstallRunning')
-          : armed ? t('hub.card.uninstallConfirm') : t('hub.card.uninstall') }}
-      </button>
+      <!-- 卸载动作：仅已装；两击确认防误触；busy/双安装/未知安装方式/缺 node 不可用 -->
+      <span v-if="uninstallReason !== 'hidden'" class="ah-cli-foot-end">
+        <span v-if="uninstallReasonLabel" class="ah-cli-error">{{ uninstallReasonLabel }}</span>
+        <button
+          v-else
+          type="button"
+          class="ah-btn ah-btn-ghost ah-btn-danger ah-btn-sm"
+          :class="{ 'ah-btn-warn': armed }"
+          :disabled="busy || uninstalling"
+          :data-testid="`cli-uninstall-${cliId}`"
+          @click="onUninstall"
+        >
+          {{ uninstalling
+            ? t('hub.card.uninstallRunning')
+            : armed ? t('hub.card.uninstallConfirm') : t('hub.card.uninstall') }}
+        </button>
+      </span>
     </div>
     <div v-if="uninstallFailed" class="ah-cli-error">{{ uninstallFailed }}</div>
   </div>

@@ -3451,6 +3451,22 @@ describe('A8 CliCard：卸载动作（两击确认与不可用原因）', () => 
       vi.useRealTimers()
     }
   })
+
+  it('A8-7 布局：启动会话与卸载同一行（左 / 右），卸载常驻危险色', async () => {
+    const w = mountComponent(CliCard, { cliId: 'pi', info, nodeReady: true })
+    await flushPromises()
+    const feet = w.findAll('.ah-cli-foot')
+    expect(feet, '两个动作共用一个脚部行，不再各占一行').toHaveLength(1)
+    const buttons = feet[0].findAll('button')
+    expect(buttons.map((b) => b.attributes('data-testid'))).toEqual([
+      'cli-launch-pi',
+      'cli-uninstall-pi',
+    ])
+    // 右槽 .ah-cli-foot-end 由 CSS 的 margin-left: auto 推到行尾
+    expect(feet[0].find('.ah-cli-foot-end').exists()).toBe(true)
+    expect(buttons[1].classes()).toContain('ah-btn-danger')
+    w.unmount()
+  })
 })
 
 // ==================== A9 概览：卸载事件上抛与失败信号下传 ====================

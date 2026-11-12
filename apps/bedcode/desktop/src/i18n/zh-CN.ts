@@ -312,7 +312,7 @@ const zhCN: MessageSchema = {
   'task.queueTitle': '待执行队列 ({count})',
   'task.emptyHistory': '暂无任务记录',
   'task.emptyHistoryHint': '启动运行后任务将自动记录',
-  'task.tabsCurrent': '当前任务',
+  'task.tabsCurrent': '自动任务',
   'task.tabsRecords': '任务日志',
   'task.tabsScheduled': '定时任务',
   'task.tabsStats': '统计',

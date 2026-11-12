@@ -34,6 +34,8 @@ import TaskQueueModal from '@/components/TaskQueueModal.vue'
 import AppLayout from '@/components/AppLayout.vue'
 import { useKeyboardShortcuts } from '@/composables/useKeyboardShortcuts'
 import { loadAppPalette, useAppPalette } from '@/composables/useAppPalette'
+import { warmUpTunnelIngress } from '@/composables/useTunnelStatus'
+import { logger } from '@/utils/frontendLogger'
 
 const route = useRoute()
 const router = useRouter()
@@ -66,6 +68,12 @@ onMounted(() => {
       set: (key, value) => context.storage.set(key, value),
     })
   }
+
+  // 远程接入（T09/T18）：应用一挂载就准备隧道入口（幂等）。桌面用户不必先打开
+  // 「设备配对」页，移动端也能在任意网络经中继重连；失败只落日志，不阻断首屏。
+  void warmUpTunnelIngress(context).then((error) => {
+    if (error) logger.warn(`[tunnel] startup warm-up failed: ${error}`)
+  })
 })
 
 onUnmounted(() => {
