@@ -2,7 +2,7 @@
 
 > **状态**：draft（2026-11-07，基于评审修订版方案拆分，待方案复审通过后生效）
 > **设计真源**：[`nat-traversal.md`](../nat-traversal.md)（2026-11-07 评审修订，待复审）。本文不复制机制细节，只定义**范围、契约、实施顺序、tickets 与验收**；机制判据以设计文档对应章节为准。
-> **Tickets**：[`tickets/`](tickets/) 下 T01–T17，本地编号。`gh` 当前未认证（token 失效），**尚未提交 GitHub Issues**；认证恢复后按各 ticket 头部「落仓」逐条提交，并把本地编号替换为 `owner/repo#n`。
+> **Tickets**：[`tickets/`](tickets/) 下 T01–T20，本地编号。`gh` 当前未认证（token 失效），**尚未提交 GitHub Issues**；认证恢复后按各 ticket 头部「落仓」逐条提交，并把本地编号替换为 `owner/repo#n`。
 
 ---
 
@@ -163,10 +163,23 @@ Android dev / 真机目验与双端 E2E（`host-runtime.lock.json` 的 `artifact
 | [T14](tickets/T14-relay-settings-card.md) | P2 | wasmnest-apps | 桌面「中转服务器」卡片（已裁定落点 bedcode 设置页） | T13 |
 | [T15](tickets/T15-p2-acceptance.md) | P2 | wasmnest-apps | P2 验收：1GB 跨 NAT + 一键 relay 全流程 | T12、T13、T14 |
 | [T18](tickets/T18-net-config-service.md) | P2 | wasmnest-apps | 穿透配置中心（服务型 wasm）：统一设置 + 业务注册 | T14（迁移来源）、T06 |
+| [T19](tickets/T19-relay-probe.md) | P2 | wasmnest-lib + wasmnest + wasmnest-apps | relay 连通性探测（`host-tunnel.probe-relay` + 中心接线） | T06、T13、T18 |
+| [T20](tickets/T20-file-transfer-wan-ux.md) | P2 | wasmnest-apps（P1 需 wasmnest-lib + wasmnest） | file-transfer 跨网连接体验：记住中继路径 / 一键仅中继 / 来源提示；P1 补 peer 侧 relay 契约与自有链接 | T12、T11、T06；P1 另需 T02/T05 |
 | [T16](tickets/T16-p3-direct-upgrade.md) | P3 | wasmnest-lib | 直连升级评估（QUIC/DCUtR/TCP 打洞/UPnP） | T15 |
 | [T17](tickets/T17-lan-exposure-authnone.md) | 独立 | wasmnest-apps | 存量 LAN 暴露：三条 auth:none 路由收紧评估 | — |
 
 **实施进度（2026-11-08 追加 9，T11：多地址拨号）**：T11 已收口（能力仓 `8e21f9a` / 平台仓 `816e828b` / 应用仓测试替身 `f0c0ff2a`）——`dial-peer-addrs` 契约（方案 B，旧 `dial-peer` 不动）、逐候选 3s 短超时按调用方顺序拨号、会话句柄记忆全部候选、数据面 send/browse/pull 与 resume 去发现缓存重拨、`transport` 进拨号结果与 `peer-connected` 事件；peer-net 提交面 247/248/248、双端宿主 `cargo check` 与 file-transfer 双端 wasm 构建绿（移动 `--frontend-only` 为 SDK `dist` 环境缺口）。详见 [T11](tickets/T11-dial-peer-addrs.md)。
+
+**实施进度（2026-11-10，T19：relay 连通性探测）**：spec 已写（[T19](tickets/T19-relay-probe.md)），**未开工**。核查结论：`wasmnest:tunnel@0.0.1` 无 probe 原语；`configure` 单独调用不触发 reservation（`recount` 的 `desired` 只数 expose 规则 + `inbound_wan`）；T06 `59a523ec` 不在平台 `v0.0.1` 与 `host-runtime.lock`（`sourceCommit 21c84dd`）里，发布宿主需重打。服务器侧已验证既有 relay：`doctor` 6 通过 / 2 警告 / 0 失败；真实客户端 `relay-transport` 的 `--ignored` 用例对 `113.45.43.60:4001` 预留 + `/p2p-circuit` 拨号 + 64 KiB 往返 **1.14s 通过**；关端口负向用例 10.01s 失败；服务端计数 5→6（reservation/circuit）、12→14（连接）。
+
+**实施进度（2026-11-10 追加 12，全票复核 + 应用侧收口）**：按本 spec 与 T01–T19 逐条复核「未实施 / 可实施」，本轮只落地**应用仓可独立完成且不触碰跨仓契约**的部分：
+
+- T09 真缺陷（新增 §5 记录）：手动「尝试外网」成功后会把**回环代理地址**（`127.0.0.1:<每次随机端口>`）写进连接历史，点开必连死端口且每次重连多一条垃圾条目。新增 `isLoopbackAddress` / `shouldRecordHistory` 纯函数 + 历史写入点守卫（扫码/连接串仍按原始 `host:port` 记录），`handleTryWan` 去掉 `targets[0]` 跨对端兜底（改为 `hub.tunnelErrorNoPeerRecord` 显性失败）。实跑 `vitest run src/host/__tests__/tunnel.test.ts` **20 passed**。
+- 改名一致性（在途 `plugin.json` 的 `name` 改动）：宿主主屏逐字显示清单 `name`（net-config / lanbitou 均不在 `SERVICE_NAME_KEYS`），原 `e2e/pages/{netConfig,lanbitou}.ts` 的 `APP_NAME` / `SYS_ENTRY_NAMES` 指向旧名会让 `clickAppCard` / `openSystemApp` 永远等不到卡片 —— 已同步（net-config 同时保留旧名兼容未重装产物）。
+- 验证模板缺口：`docs/verification/` 约定「每个 app 一份」（README §1），T18 新增的 net-config 此前缺失；已补 [`net-config.md`](../verification/net-config.md)（10 个功能域 + 已知缺口，含「探测占位归 T19」「WAN 注册表目前只有 BedCode 生效」两条诚实项）并登记索引。
+- T14 验收项 22 按代码真源复核勾选（地址真源 → 中心 `relayAddrs` → `session.tunnel.prepare` → 宿主通道配置）。
+
+**剩余项全部有明确阻塞，本轮不动**：T19（契约+平台+应用三层，需先裁定 §9 两项并重打 SDK/宿主；平台仓 / 能力仓工作树另有在途改动）、T10/T15/T16（真机跨网 + 1GB 中继 + 直连评估，环境不具备）、T01 真机与 PoC 报告、T06 四项（移动前台服务 / Android `ConnectivityManager` / 换网触发 / `check:manifest` 的 tag 项）、T04/T10 移动侧链加密锁（平台仓面）、T03 的窗口生命周期接线（平台仓面）、T14/T18 的 E2E（`host-runtime.lock.json` 的 `artifacts` 仍为空）、T09 连接历史/mDNS 按 nodeId 重连（平台历史投影不含 nodeId；跨网重连已由移动端持久化对端列表覆盖，见 T09 §6）。
 
 ## 6. 待裁定项（设计 §9.2）与默认执行口径
 

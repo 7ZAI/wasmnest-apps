@@ -241,7 +241,8 @@
 ### 5. 后续
 
 - T06 落地 relay 拨号原语后，把 `net-config-probe-button` 接到宿主探测命令（身份与
-  RTT 展示结构已就位）。
+  RTT 展示结构已就位）。**已开票：[T19](T19-relay-probe.md)**（2026-11-10；T06 已有
+  `host-tunnel`，但仍无探测原语，T19 补 `probe-relay` + `tunnel:probe`）。
 - T12/T11 接入方读中心 `relay-config`（`relayAddrs`）时，按 §4.9 并集去重；本中心
   不代任何业务暴露 / 连接。
 

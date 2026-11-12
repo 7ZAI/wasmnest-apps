@@ -19,7 +19,7 @@
 - [x] 「生成部署命令 / 下载 compose」：输出 T13 交付物对应的文本（docker run / compose / install.sh），不含任何服务器凭据。
 - [x] 「导入 relay 地址」：粘贴 `print-addrs` JSON / multiaddr / 二维码三形态；校验协议版本与 PeerId 格式；非法输入 fail-visible。（二维码内容即 JSON 文本；桌面无摄像头，扫码结果粘贴导入）
 - [ ] 「检测连通性」：用 peer 引擎拨 relay，显示 PeerId 指纹与 RTT；失败给可操作原因（端口/防火墙/DNS/版本）。**阻塞：宿主 SDK 尚无 relay/tunnel 面（T06）**；当前按钮显性禁用并给服务器侧 `doctor` 出路，不伪造可用。
-- [ ] 导入的地址进入应用 relay 配置（`relayAddrs`），供 §4.9 模式判定与拨号使用。**已落盘**；实际拨号/模式判定消费方在 T06/T07/T12，待接线。
+- [x] 导入的地址进入应用 relay 配置（`relayAddrs`），供 §4.9 模式判定与拨号使用。（**2026-11-10 复核勾选**：卡片已按 T18 迁入网络配置中心，地址真源为 `network.relay.relayAddrs`；消费面 = BedCode 桌面 `src/composables/useTunnelStatus.ts` 取中心配置 → `session.tunnel.prepare` 显式带 `relayAddrs` → `tunnel.rs` 写宿主通道配置（T07）；file-transfer 侧走 T12 的多地址拨号，不经本卡片）
 - [ ] app `test:run` + 根 lint 绿；真实宿主目验；交互面 `data-testid` 锚点同步。（单测 / 根 lint 已绿；真实宿主与 E2E 被宿主运行时缺产物阻塞，见验证）
 
 ## 相关契约与锁
