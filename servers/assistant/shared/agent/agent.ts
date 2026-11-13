@@ -12,7 +12,7 @@
  * 工具装配（`AgentTool` + 风险确认）在票 13 接入，本工厂预留 `tools` 参数。
  */
 import { Agent } from '@earendil-works/pi-agent-core'
-import type { AgentTool } from '@earendil-works/pi-agent-core'
+import type { AgentTool, BeforeToolCallContext, BeforeToolCallResult } from '@earendil-works/pi-agent-core'
 import type { Message, Model } from '@earendil-works/pi-ai'
 import { createStreamFn, type StreamFnDeps } from './stream-fn'
 import type { ProviderRecord } from '../types'
@@ -40,6 +40,8 @@ export interface NestAgentDeps extends StreamFnDeps {
   provider: ProviderRecord
   /** 工具（票 13 接入；M1 传空数组） */
   tools?: AgentTool<any>[]
+  /** 工具调用前置钩子（票 13：四档风险 + 确认 + 急停） */
+  beforeToolCall?: (context: BeforeToolCallContext, signal?: AbortSignal) => Promise<BeforeToolCallResult | undefined>
 }
 
 /**
@@ -55,8 +57,10 @@ export function createNestAgent(deps: NestAgentDeps): Agent {
       systemPrompt: deps.systemPrompt,
       model,
       messages: [],
+      tools: deps.tools ?? [],
     },
     streamFn: createStreamFn(deps),
+    beforeToolCall: deps.beforeToolCall,
     convertToLlm: (messages: Array<Message | unknown>): Message[] => {
       // 本应用 transcript 即 pi 标准消息；custom 消息（未来 UI 通知类）在此过滤
       return messages.filter((m): m is Message => isPiMessage(m))

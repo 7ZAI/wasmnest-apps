@@ -42,7 +42,7 @@ mod store;
 mod vault;
 
 #[cfg_attr(not(target_arch = "wasm32"), allow(unused_imports))]
-use crate::store::{Conversation, MemoryFact, Message, Provider, Store};
+use crate::store::{AuditEntry, Conversation, MemoryFact, Message, Provider, Store};
 #[cfg_attr(not(target_arch = "wasm32"), allow(unused_imports))]
 use crate::vault::{KdfParams, Vault};
 
@@ -130,10 +130,18 @@ impl WasmPlugin for AssistantPlugin {
             "assistant.memory-upsert" => cmd_memory_upsert(&args),
             #[cfg(target_arch = "wasm32")]
             "assistant.memory-delete" => cmd_memory_delete(&args),
+            #[cfg(target_arch = "wasm32")]
+            "assistant.memory-set-status" => cmd_memory_set_status(&args),
+            #[cfg(target_arch = "wasm32")]
+            "assistant.memory-clear" => cmd_memory_clear(&args),
 
             // ==================== 审计 ====================
             #[cfg(target_arch = "wasm32")]
             "assistant.audit-list" => cmd_audit_list(&args),
+            #[cfg(target_arch = "wasm32")]
+            "assistant.audit-record" => cmd_audit_record(&args),
+            #[cfg(target_arch = "wasm32")]
+            "assistant.audit-clear" => cmd_audit_clear(),
 
             // ==================== 供应商 ====================
             #[cfg(target_arch = "wasm32")]
@@ -434,6 +442,63 @@ fn cmd_memory_delete(args: &Value) -> Result<Value, String> {
     let id = arg_str(args, "id")?;
     let deleted = store.delete_memory(&id)?;
     Ok(json!({ "ok": true, "deleted": deleted }))
+}
+
+/// 收件箱状态流转（票 12）：确认 / 拒绝只改 status 列，其余字段原样保留
+///（拒绝过的条目不会被后续提取复活——复活 = 重新 upsert 新行，本命令不动旧行）。
+#[cfg(target_arch = "wasm32")]
+fn cmd_memory_set_status(args: &Value) -> Result<Value, String> {
+    let store = &WasmHost as &dyn Store;
+    let id = arg_str(args, "id")?;
+    let status = arg_str(args, "status")?;
+    if !matches!(status.as_str(), "pending" | "confirmed" | "rejected") {
+        return Err(format!("非法记忆状态: {status}（只允许 pending / confirmed / rejected）"));
+    }
+    let n = store.set_memory_status(&id, &status)?;
+    Ok(json!({ "ok": true, "id": id, "status": status, "updated": n > 0 }))
+}
+
+/// 清空记忆（票 12）：scope 缺省 / '*' = 全部；否则清指定 scope。
+/// 前端负责"清空全部记忆"的二次确认，命令层只做执行与计数。
+#[cfg(target_arch = "wasm32")]
+fn cmd_memory_clear(args: &Value) -> Result<Value, String> {
+    let store = &WasmHost as &dyn Store;
+    let scope = arg_opt_str(args, "scope").unwrap_or_default();
+    let deleted = if scope.is_empty() || scope == "*" {
+        store.clear_memory_all()?
+    } else {
+        store.clear_memory_scope(&scope)?
+    };
+    Ok(json!({ "ok": true, "deleted": deleted, "scope": scope }))
+}
+
+/// 写一行审计（票 13）：只收摘要字段，不落参数 / 结果原文（spec §5.6、§6 日志红线）。
+/// ts 由前端传入（与消息落库同口径，wasm 侧不引入时间源）。
+#[cfg(target_arch = "wasm32")]
+fn cmd_audit_record(args: &Value) -> Result<Value, String> {
+    let store = &WasmHost as &dyn Store;
+    let entry = AuditEntry {
+        id: next_id(store, "aud")?,
+        ts: arg_str(args, "ts")?,
+        tool_id: arg_str(args, "toolId")?,
+        app_id: arg_opt_str(args, "appId"),
+        command: arg_str(args, "command")?,
+        risk: arg_str(args, "risk")?,
+        decision: arg_str(args, "decision")?,
+        args_digest: arg_opt_str(args, "argsDigest"),
+        result_digest: arg_opt_str(args, "resultDigest"),
+        user_visible: arg_bool(args, "userVisible", true),
+    };
+    store.record_audit(&entry)?;
+    Ok(json!({ "ok": true, "id": entry.id }))
+}
+
+/// 清空审计（票 13：用户可在设置里清空；只清审计表，不碰会话 / 记忆 / 密钥）
+#[cfg(target_arch = "wasm32")]
+fn cmd_audit_clear() -> Result<Value, String> {
+    let store = &WasmHost as &dyn Store;
+    store.clear_audit()?;
+    Ok(json!({ "ok": true }))
 }
 
 // ==================== 审计命令（wasm） ====================

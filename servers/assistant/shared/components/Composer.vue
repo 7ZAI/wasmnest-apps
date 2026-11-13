@@ -15,7 +15,7 @@ const props = defineProps<{
   t: (key: string) => string
 }>()
 
-const emit = defineEmits<{ send: [text: string]; stop: [] }>()
+const emit = defineEmits<{ send: [text: string]; stop: []; stopAndLock: [] }>()
 
 const text = ref('')
 
@@ -58,6 +58,15 @@ function onKeydown(e: KeyboardEvent): void {
         @click="emit('stop')"
       >
         {{ t('assistant.chat.stop') }}
+      </button>
+      <button
+        v-if="streaming"
+        type="button"
+        class="nest-composer__stop-lock"
+        data-testid="nest-composer-stop-lock"
+        @click="emit('stopAndLock')"
+      >
+        {{ t('assistant.tool.stopAndLock') }}
       </button>
       <button
         v-else
@@ -134,5 +143,11 @@ function onKeydown(e: KeyboardEvent): void {
 .nest-composer__stop {
   background: var(--nest-error, #c0392b);
   color: #fff;
+}
+
+.nest-composer__stop-lock {
+  background: transparent;
+  border: 1px solid var(--nest-error, #c0392b);
+  color: var(--nest-error-text, #f0b4ae);
 }
 </style>

@@ -18,17 +18,25 @@ import MessageList from './MessageList.vue'
 import Composer from './Composer.vue'
 import ProviderSettings from './ProviderSettings.vue'
 import VaultView from './VaultView.vue'
+import FirstRunNotice from './FirstRunNotice.vue'
+import MemoryView from './MemoryView.vue'
+import ToolCards from './ToolCards.vue'
+import AuditView from './AuditView.vue'
 import { ChatPreconditionError, NestChatSession } from '../chat/session'
 import { NONCE_BYTES, randomHex, vaultLock, vaultStatus } from '../vault'
 import {
   ASSISTANT_PROVIDERS_DELETE_COMMAND,
   ASSISTANT_PROVIDERS_SET_DEFAULT_COMMAND,
   ASSISTANT_PROVIDERS_UPSERT_COMMAND,
+  ASSISTANT_SETTINGS_GET_COMMAND,
+  ASSISTANT_SETTINGS_SET_COMMAND,
   ASSISTANT_VAULT_DELETE_SECRET_COMMAND,
   ASSISTANT_VAULT_SET_SECRET_COMMAND,
   DEFAULT_COMPANION_ID,
+  FIRST_RUN_NOTICE_SETTING,
   providerSecretKey,
   type AssistantInvoke,
+  type AppInvokeBridge,
   type ProviderRecord,
 } from '../types'
 
@@ -42,6 +50,8 @@ const props = defineProps<{
    * 缺省 = Rust 侧默认（桌面档）；移动入口显式降档。
    */
   kdfParams?: { m?: number; t?: number; p?: number }
+  /** 应用调用桥（宿主按 apps:control 注入；未注入 = 无应用工具能力） */
+  apps?: AppInvokeBridge | null
 }>()
 
 const vaultReady = ref(false)
@@ -55,6 +65,12 @@ const archivedConversations = ref<Array<{ id: string; title: string; updatedAt: 
 const showArchived = ref(false)
 const renamingId = ref<string | null>(null)
 const renameDraft = ref('')
+/** 首次使用非人声明（票 11）：未阅时在消息区顶部展示，阅后写设置不再弹 */
+const noticeVisible = ref(false)
+/** 记忆管理页（票 12）覆盖开关 */
+const showMemory = ref(false)
+/** 审计页（票 13）覆盖开关 */
+const showAudit = ref(false)
 
 let session: NestChatSession | null = null
 
@@ -108,11 +124,14 @@ async function initChat(): Promise<void> {
       invoke: props.invoke,
       subscribe: props.subscribe,
       lang: props.lang,
+      apps: props.apps ?? null,
       log: (level, msg) => console[level === 'error' ? 'error' : 'warn'](`[nest] ${msg}`),
     }),
   ) as NestChatSession
   // 消息数组包响应式代理：流式增量（session 内部就地修改）可驱动 UI
   session.messages = reactive(session.messages)
+  // 工具卡片同口径（票 13）：运行时就地修改，响应式包装持续有效
+  session.toolCards = reactive(session.toolCards)
   sessionEpoch.value += 1
   try {
     await session.refreshProviders()
@@ -127,8 +146,38 @@ async function initChat(): Promise<void> {
     if (latest) {
       await session.openConversation(latest.id)
     }
+    // 票 11：首次使用非人声明（设置读取失败不静默跳过，按未阅处理）
+    await checkFirstRunNotice()
   } catch (e) {
     composerError.value = e instanceof Error ? e.message : String(e)
+  }
+}
+
+/**
+ * 首次使用声明检查（票 11）：设置值 != '1' 即展示。
+ * 声明是产品定位的强制告知（spec §2.1），读取失败按未阅处理，不静默跳过。
+ */
+async function checkFirstRunNotice(): Promise<void> {
+  try {
+    const res = await props.invoke<{ value: string | null }>(ASSISTANT_SETTINGS_GET_COMMAND, {
+      key: FIRST_RUN_NOTICE_SETTING,
+    })
+    noticeVisible.value = res?.value !== '1'
+  } catch {
+    noticeVisible.value = true
+  }
+}
+
+/** 阅后写标记并隐藏（写失败也隐藏当前卡片，下次挂载会重新检查并点名） */
+async function dismissFirstRunNotice(): Promise<void> {
+  noticeVisible.value = false
+  try {
+    await props.invoke(ASSISTANT_SETTINGS_SET_COMMAND, {
+      key: FIRST_RUN_NOTICE_SETTING,
+      value: '1',
+    })
+  } catch (e) {
+    console.warn('[nest] 首次使用声明标记写入失败：', e)
   }
 }
 
@@ -143,6 +192,9 @@ function disposeSession(): void {
   showArchived.value = false
   renamingId.value = null
   renameDraft.value = ''
+  noticeVisible.value = false
+  showMemory.value = false
+  showAudit.value = false
 }
 
 function syncConversations(): void {
@@ -191,6 +243,23 @@ async function onSend(text: string): Promise<void> {
 
 function onStop(): void {
   session?.stop()
+}
+
+/** 停止并锁定保险库（票 13 急停增强）：先停生成与在途确认，再锁库落门 */
+async function onStopAndLock(): Promise<void> {
+  session?.stop()
+  showSettings.value = false
+  try {
+    await vaultLock(props.invoke)
+  } catch {
+    // 锁定失败也重查状态，不假装已锁
+  }
+  await checkVault()
+}
+
+/** UI 回工具确认决定（批准 / 拒绝） */
+function onToolConfirm(id: string, decision: 'approve' | 'reject'): void {
+  session?.resolveToolConfirmation(id, decision)
 }
 
 async function onRetry(): Promise<void> {
@@ -401,6 +470,19 @@ onBeforeUnmount(() => {
 
     <template v-else>
       <div class="nest-chat__body" data-testid="nest-chat">
+        <!-- 记忆管理页（票 12）：覆盖式浮层，关闭回对话 -->
+        <MemoryView
+          v-if="showMemory"
+          :invoke="invoke"
+          :t="t"
+          @close="showMemory = false"
+        />
+        <AuditView
+          v-if="showAudit"
+          :invoke="invoke"
+          :t="t"
+          @close="showAudit = false"
+        />
         <!-- 会话列表侧栏 -->
         <aside v-if="!showSettings" class="nest-chat__sidebar" data-testid="nest-sidebar">
           <button type="button" class="nest-chat__new" data-testid="nest-new-conversation" @click="onNewConversation">
@@ -485,17 +567,70 @@ onBeforeUnmount(() => {
           <button type="button" class="nest-chat__settings-btn" data-testid="nest-open-settings" @click="showSettings = true">
             ⚙ {{ t('assistant.settings.title') }}
           </button>
+          <button
+            type="button"
+            class="nest-chat__settings-btn"
+            data-testid="nest-open-memory"
+            @click="showMemory = true"
+          >
+            🧠 {{ t('assistant.memory.title') }}
+          </button>
+          <button
+            type="button"
+            class="nest-chat__settings-btn"
+            data-testid="nest-open-audit"
+            @click="showAudit = true"
+          >
+            📋 {{ t('assistant.audit.title') }}
+          </button>
         </aside>
 
-        <!-- 主区：消息流 + 输入区 -->
+        <!-- 主区：消息流 + 工具卡片 + 输入区 -->
         <main class="nest-chat__main">
+          <FirstRunNotice
+            v-if="noticeVisible"
+            :title="t('assistant.notice.title')"
+            :body="t('assistant.notice.body')"
+            :dismiss-label="t('assistant.notice.dismiss')"
+            @dismiss="dismissFirstRunNotice"
+          />
           <MessageList :messages="messages" :streaming="streaming" :t="t" @retry="onRetry" />
+          <!-- 票 14：提取失败提示（不静默） -->
+          <div
+            v-if="session?.memoryNotice"
+            class="nest-memory-notice"
+            data-testid="nest-memory-notice"
+          >
+            {{ t('assistant.memory.notice') }}
+          </div>
+          <!-- 票 14：本轮注入记忆清单（可展开，用户能看到实际发出的内容） -->
+          <details
+            v-if="(session?.currentMemoryFacts ?? []).length > 0"
+            class="nest-inject"
+            data-testid="nest-memory-inject"
+          >
+            <summary>
+              {{ t('assistant.memory.injectTitle') }}（{{ (session?.currentMemoryFacts ?? []).length }}）
+            </summary>
+            <ul class="nest-inject__list">
+              <li v-for="f in session?.currentMemoryFacts ?? []" :key="f.id" class="nest-inject__item">
+                <strong>{{ f.key }}</strong>：{{ f.value }}
+              </li>
+            </ul>
+            <p class="nest-inject__hint">{{ t('assistant.memory.injectHint') }}</p>
+          </details>
+          <ToolCards
+            :cards="session?.toolCards ?? []"
+            :t="t"
+            @confirm="onToolConfirm"
+          />
           <Composer
             :streaming="streaming"
             :error-message="composerError"
             :t="t"
             @send="onSend"
             @stop="onStop"
+            @stop-and-lock="onStopAndLock"
           />
         </main>
 
@@ -529,6 +664,7 @@ onBeforeUnmount(() => {
   flex: 1;
   display: flex;
   min-height: 0;
+  position: relative;
 }
 
 .nest-chat__sidebar {
@@ -670,5 +806,48 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   min-width: 0;
+}
+
+/* 票 14：记忆注入清单与提取提示 */
+.nest-memory-notice {
+  margin: 8px 16px 0;
+  padding: 8px 12px;
+  border: 1px solid #d97706;
+  border-radius: 8px;
+  color: #fbbf24;
+  font-size: 12px;
+}
+
+.nest-inject {
+  margin: 8px 16px 0;
+  border: 1px solid var(--nest-border, #3a4150);
+  border-radius: 8px;
+  background: var(--nest-surface-2, #2a2f3a);
+  font-size: 12px;
+}
+
+.nest-inject summary {
+  cursor: pointer;
+  padding: 8px 12px;
+  color: var(--nest-muted, #8a8f98);
+}
+
+.nest-inject__list {
+  list-style: none;
+  margin: 0;
+  padding: 0 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.nest-inject__item {
+  color: var(--nest-text, #e8eaf0);
+  word-break: break-word;
+}
+
+.nest-inject__hint {
+  margin: 6px 12px 10px;
+  color: var(--nest-muted, #6b7280);
 }
 </style>

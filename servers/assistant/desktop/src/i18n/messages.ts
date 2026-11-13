@@ -87,4 +87,77 @@ export type MessageSchema = {
   'assistant.settings.noProviders': string
   'assistant.settings.fieldsRequired': string
   'assistant.settings.privacyHint': string
+
+
+  // ==================== 记忆管理（票 12） ====================
+  'assistant.memory.title': string
+  'assistant.memory.subtitle': string
+  'assistant.memory.memorySwitch': string
+  'assistant.memory.extractSwitch': string
+  'assistant.memory.switchHint': string
+  'assistant.memory.tabConfirmed': string
+  'assistant.memory.tabPending': string
+  'assistant.memory.tabRejected': string
+  'assistant.memory.filterAll': string
+  'assistant.memory.scopeGlobal': string
+  'assistant.memory.scopeApp': string
+  'assistant.memory.scopeConversation': string
+  'assistant.memory.filterApp': string
+  'assistant.memory.inboxHint': string
+  'assistant.memory.key': string
+  'assistant.memory.save': string
+  'assistant.memory.confirm': string
+  'assistant.memory.reject': string
+  'assistant.memory.rejectedHint': string
+  'assistant.memory.delete': string
+  'assistant.memory.edit': string
+  'assistant.memory.source': string
+  'assistant.memory.sourceUnknown': string
+  'assistant.memory.empty': string
+  'assistant.memory.clearAll': string
+  'assistant.memory.clearConfirm': string
+  'assistant.memory.clearDone': string
+  'assistant.memory.enabledOn': string
+  'assistant.memory.enabledOff': string
+  'assistant.memory.savedHint': string
+
+  // ==================== 工具运行时（票 13） ====================
+  'assistant.tool.running': string
+  'assistant.tool.awaiting': string
+  'assistant.tool.done': string
+  'assistant.tool.error': string
+  'assistant.tool.rejected': string
+  'assistant.tool.stopped': string
+  'assistant.tool.args': string
+  'assistant.tool.result': string
+  'assistant.tool.confirmPrompt': string
+  'assistant.tool.confirmAgain': string
+  'assistant.tool.impact': string
+  'assistant.tool.confirm': string
+  'assistant.tool.reject': string
+  'assistant.tool.stopAndLock': string
+  'assistant.tool.risk.read': string
+  'assistant.tool.risk.ui': string
+  'assistant.tool.risk.write': string
+  'assistant.tool.risk.danger': string
+
+  // ==================== 审计（票 13） ====================
+  'assistant.audit.title': string
+  'assistant.audit.subtitle': string
+  'assistant.audit.command': string
+  'assistant.audit.risk': string
+  'assistant.audit.decisionAllowed': string
+  'assistant.audit.decisionDenied': string
+  'assistant.audit.empty': string
+  'assistant.audit.clear': string
+  'assistant.audit.clearConfirm': string
+  'assistant.audit.clearDone': string
+'assistant.memory.injectTitle': string
+  'assistant.memory.injectHint': string
+  'assistant.memory.notice': string
+  // 首次使用非人声明（spec §5.5；locale 已有文案，schema 必须同步，
+  // 否则 vue-tsc 在 i18n 字面量上报缺失键）
+  'assistant.notice.title': string
+  'assistant.notice.body': string
+  'assistant.notice.dismiss': string
 }

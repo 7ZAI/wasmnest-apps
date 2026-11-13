@@ -11,6 +11,18 @@ use serde::{Deserialize, Serialize};
 
 use crate::vault::VaultMeta;
 
+/// 当前时间戳（epoch 毫秒字符串，与前端传入的 ts 口径一致）。
+///
+/// wasm32-unknown-unknown 下 `SystemTime` 可用（基于运行时时钟），
+/// 用于服务端自己产生的 updated_at（如状态流转）。
+pub fn ts_now() -> String {
+    let ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    ms.to_string()
+}
+
 /// 当前 schema 版本（新增迁移须递增并在下方追加步骤）
 pub const SCHEMA_VERSION: i32 = 2;
 
@@ -225,6 +237,10 @@ pub trait Store {
     fn clear_memory_scope(&self, scope: &str) -> Result<u64, String>;
     /// 清空全部记忆（"清空全部记忆" 的全局动作，二次确认由前端把关）
     fn clear_memory_all(&self) -> Result<u64, String>;
+    /// 更新记忆状态（收件箱确认 / 拒绝；只动 status 列）
+    fn set_memory_status(&self, id: &str, status: &str) -> Result<u64, String>;
+    /// 清空审计表（票 13：设置页可清空）
+    fn clear_audit(&self) -> Result<u64, String>;
 
     // ---- 供应商 ----
     fn list_providers(&self) -> Result<Vec<Provider>, String>;
@@ -665,6 +681,23 @@ mod wasm_impl {
             let n = self
                 .plugin_db_execute("DELETE FROM assistant_memory_facts")
                 .map_err(|e| format!("清空全部记忆失败: {e}"))?;
+            Ok(n as u64)
+        }
+
+        fn set_memory_status(&self, id: &str, status: &str) -> Result<u64, String> {
+            let n = self
+                .plugin_db_execute_params(
+                    "UPDATE assistant_memory_facts SET status = ?1, updated_at = ?2 WHERE id = ?3",
+                    &sql_params![status, ts_now(), id],
+                )
+                .map_err(|e| format!("更新记忆状态失败: {e}"))?;
+            Ok(n as u64)
+        }
+
+        fn clear_audit(&self) -> Result<u64, String> {
+            let n = self
+                .plugin_db_execute("DELETE FROM assistant_audit")
+                .map_err(|e| format!("清空审计失败: {e}"))?;
             Ok(n as u64)
         }
 

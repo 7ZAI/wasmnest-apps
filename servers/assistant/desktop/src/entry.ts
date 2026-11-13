@@ -13,6 +13,7 @@
 import { createApp, type App as VueApp } from 'vue'
 import { listen } from '@tauri-apps/api/event'
 import ChatView from '@nest-shared/components/ChatView.vue'
+import type { AppInvokeBridge } from '@nest-shared/types'
 import i18n, { MESSAGE_NAMESPACE } from './i18n'
 import './style.css'
 
@@ -47,6 +48,8 @@ export interface AppMountEnv {
   platform?: string
   initialRoute: string
   onEvent?: (type: string, payload: unknown) => void
+  /** 应用调用桥（宿主按 apps:control 注入；未注入 = 无应用工具能力） */
+  apps?: AppInvokeBridge | null
 }
 
 export interface AppMountHandle {
@@ -103,6 +106,7 @@ export async function mountApp(root: HTMLElement, env: AppMountEnv): Promise<App
     subscribe: createDesktopSubscribe(log),
     t: (key: string) => i18n.global.t(`${MESSAGE_NAMESPACE}.${key}`),
     lang: env.locale === 'en' ? 'en' : 'zh-CN',
+    apps: env.apps ?? null,
   })
   app.use(i18n)
   app.mount(root)

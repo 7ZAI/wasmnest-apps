@@ -12,6 +12,77 @@
 
 ## 变更记录
 
+### 0.0.1（2026-11-13）— 票 15：应用工具接入（app.list / app.open / app.invoke.\<toolId\> / monitor.snapshot / system.info）
+
+- **工具目录**：`shared/tools/app-tools.ts`。`app.list`（read）列应用与声明工具；`app.open`（ui）
+  打开 / 切应用（卡片显示「正在打开」）；`app.invoke.<toolId>` 按桥目录快照动态构建——
+  工具名、`parameters`（直接用声明方 argsSchema）、风险全部跟随目标应用声明（助手策略只升不降）；
+  `monitor.snapshot`（read）调 monitor 声明的快照命令；`system.info`（read）本地平台 / 语言。
+- **目录刷新**：`NestChatSession.refreshAppTools()` 在 agent 构建前拉桥快照重建 `app.invoke.*`；
+  桥缺失 / 拉取失败只保留基础件（app.list 等执行时显性报错），不静默。
+- **桥错误分流**：未声明命令（`tool.not_declared`）/ 未运行（`app.not_running`）/ 打开失败
+  （`app.open_failed`）一律变成 `isError: true` 的 toolResult 交回模型，点名缺什么、给出路；
+  执行失败也落审计行（用户已批准的调用，结果摘要记录失败原因）。
+- **移动桥缺失降级**：桥未注入时 app 类工具仍注册但执行显性报错（点名缺 `apps:control` / 宿主不支持），
+  该路径有单测（不静默）。
+- **工具结果不入长期记忆**：每轮提取只从用户消息取（提取提示词明令禁止提取应用返回内容），
+  app 作用域记忆不参与注入（票 14 口径）。
+- **测试**：`app-tools.test.ts`（17 例）：目录构建 / 风险跟随 / 桥缺失降级 / 桥拒绝分流 / 运行时集成。
+
+### 0.0.1（2026-11-13）— 票 14：记忆工具与记忆注入
+
+- **记忆工具**（`shared/tools/memory-tools.ts`）：`memory.remember`（write，需确认）写 pending 收件箱
+  （带来源会话 / 消息）；`memory.recall`（read）按 scope / 关键词取已确认事实，无命中点名；
+  `memory.forget`（danger，二次确认）按 id 删除或按 scope 清空。
+- **注入**（`shared/memory/extract.ts` + session）：每轮按 token 预算（默认 800）在已确认事实里取舍
+  ——global 优先、关键词命中提权、最近使用排序；app 作用域不注入（应用数据只作临时上下文）。
+  UI 可展开「本次会带上这些记忆」清单（`nest-memory-inject`），用户能看到实际发出的内容。
+- **每轮轻量提取**：`agent_end` 后在前台触发一次（默认开、可关，`memory.extractEnabled`）；
+  只从用户消息提取，结果进 pending 收件箱；失败不阻断对话，UI 显示「本轮未提取记忆」（不静默吞错）。
+- **会话摘要**：票 09 留的 `resolveSummary` 钩子落地内置实现——超阈值时生成摘要、落库
+  （`conversation.summary:<id>`）、随会话保留，只入 transcript 不进 UI 消息流。
+- **端到端串测**：说「记住我不吃香菜」→ 收件箱 → 确认 → 新会话召回 → 删除后不召回（有可复跑用例）。
+- **测试**：`memory-extract.test.ts`（解析 / 预算选择 / token 估算）、`memory-tools.test.ts`（工具行为 + 端到端串）。
+
+### 0.0.1（2026-11-13）— 票 13：工具运行时与确认 UX
+
+- **运行时**（`shared/tools/runtime.ts` + `risk.ts` + `types.ts`）：声明式工具目录装配成 pi
+  `AgentTool`（`parameters` 直接用声明方 JSON Schema；`execute` 走本地执行器或 `apps.invoke` 桥）。
+- **四档风险实测**（真实 pi 循环驱动，非 UI mock）：`read` 自动；`ui` 自动 + 可见卡；`write` 暂停等
+  内联批准；`danger` 二次确认（第二次展示影响范围）。风险只升不降（`elevateRisk`：应用声明 + 助手策略）。
+- **拒绝 / 失败不中断**：被 block 的调用由 pi 合成 `isError` toolResult；执行失败返回 `isError: true`，
+  模型能看懂失败原因，循环继续。
+- **急停**：常驻「停止」+「停止并锁定保险库」；`abortPending` 把在途确认按拒绝结算——停止后队列中
+  未执行的工具不再执行。
+- **审计**：每次调用一行（tool / app / command / risk / decision / 参数与结果摘要 sha256+长度），
+  **不落参数与结果原文**（spec §6 日志红线）；新增 Rust 命令 `assistant.audit-record` / `assistant.audit-clear`，
+  设置内审计页可查看 / 清空（二次确认）。
+- **核心工具**：`time.now`（read）先行落地（票面要求用它加测试 write / danger 工具证明四档与急停）。
+- **测试**：`tool-runtime.test.ts`（13 例，真实 Agent 循环）：四档、拒绝、急停、风险升档、未声明工具、
+  审计摘要红线。
+
+### 0.0.1（2026-11-13）— 票 12：记忆存储与管理面
+
+- **Rust 命令面**：新增 `assistant.memory-clear`（scope 缺省 / `*` = 全部）、`assistant.memory-set-status`
+  （收件箱确认 / 拒绝只改 status 列，拒绝过的条目不会被后续提取复活）、`assistant.audit-clear`。
+  `store` 增 `clear_memory_all` / `set_memory_status` / `clear_audit` 与 `ts_now()` 辅助。
+- **管理页**（`shared/components/MemoryView.vue`，侧栏入口）：三视图（已确认 / 待确认 / 已拒绝）；
+  逐条编辑、删除（「忘记这条」立即删）、按应用 / 作用域过滤；收件箱逐条确认 / 拒绝；
+  「清空全部记忆」二次确认；记忆总开关与每轮提取开关（关闭后不再写入 / 检索，数据保留）。
+- **来源追溯**：每条记忆带来源会话 / 消息与时间（`MemoryFact` 既有列，管理页展示）。
+- **未解锁不可见**：记忆正文为 AEAD 密文，Rust 命令未解锁显性报错（沿用票 07 口径）。
+- **测试**：`memory-manager.test.ts`（11 例）：三态分类 / 确认只走 set-status / 清空 / 开关默认值 / 摘要存取键。
+
+### 0.0.1（2026-11-13）— 票 11：人格与首次使用
+
+- **提示词**：边界文案改为语义描述（禁语不以原样出现在提示词里，避免被模型照抄示例）；
+  导出 `FORBIDDEN_PHRASES` 清单供可复跑检查。
+- **可复跑用例**（`prompt.test.ts`，17 例）：八条骨架按序齐全（双语）、身份条款明确非人、
+  危机协议要素（共情 + 询问安全 + 紧急 / 危机资源 + 不诊断）、禁语不原样出现、隐私条款、
+  工具纪律、模式自适应、中英互不混入、首次使用声明文案非人表述。
+- **首次使用声明**：`FirstRunNotice.vue`——进入对话后未阅时展示非人声明（系统助手、不是人、
+  不替代真实关系与专业帮助），阅后写 `firstRun.noticeShown` 设置不再弹出；读取失败按未阅处理（不静默跳过）。
+
 ### 0.0.1（2026-11-13）— 票 10：Anthropic + Gemini 适配
 
 - **三家方言并存**：`ProviderApiStyle = openai-compatible | anthropic | gemini`；

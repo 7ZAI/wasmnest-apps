@@ -156,6 +156,104 @@ export type ChatStreamEventPayload =
   | { done: true; error?: undefined }
   | { error: string; done: true }
 
+// ==================== 应用调用桥（spec §4.2；共享核最小形状） ====================
+
+/**
+ * 应用调用桥最小形状（与平台 SDK 的 `AppControlAPI` 同构）。
+ *
+ * 共享核不依赖平台 SDK 类型：宿主注入的桥对象结构上满足本形状即可
+ *（D3 双端同构，端差异只在注入点）。只有 manifest 持有 `apps:control`
+ * 权限时宿主才注入，未注入 = 无应用工具能力（显性降级，不静默）。
+ */
+export interface AppInvokeBridge {
+  list(): Promise<AssistantAppDescriptor[]>
+  invoke<T = unknown>(appId: string, command: string, args?: unknown): Promise<T>
+  open(appId: string): Promise<void>
+}
+
+/** 桥返回的应用描述符（宿主 list() 形状，spec §4.2.1） */
+export interface AssistantAppDescriptor {
+  id: string
+  name: string
+  version: string
+  kind: string
+  state: string
+  tools: Array<{
+    id: string
+    title: string
+    description: string
+    /** 目标应用自己的命令 id */
+    command: string
+    argsSchema: Record<string, unknown>
+    risk: 'read' | 'ui' | 'write' | 'danger'
+    output?: 'text' | 'json'
+  }>
+}
+
+// ==================== 工具运行时（票 13） ====================
+
+// ==================== 记忆（票 07 数据底座 / 票 12 管理面 / spec §5.3、§5.4） ====================
+
+export const ASSISTANT_MEMORY_LIST_COMMAND = 'assistant.memory-list'
+export const ASSISTANT_MEMORY_UPSERT_COMMAND = 'assistant.memory-upsert'
+export const ASSISTANT_MEMORY_DELETE_COMMAND = 'assistant.memory-delete'
+/** 收件箱状态流转（票 12）：确认 / 拒绝只改 status，其余字段不动 */
+export const ASSISTANT_MEMORY_SET_STATUS_COMMAND = 'assistant.memory-set-status'
+/** 清空记忆（票 12）：scope 缺省 / '*' = 全部（前端二次确认后调用） */
+export const ASSISTANT_MEMORY_CLEAR_COMMAND = 'assistant.memory-clear'
+
+/** 记忆作用域（spec §5.3） */
+export type MemoryScope = 'global' | 'app' | 'conversation'
+/** 记忆状态：待确认收件箱 / 已确认 / 已拒绝（spec §5.4） */
+export type MemoryStatus = 'pending' | 'confirmed' | 'rejected'
+
+/** 记忆事实（`assistant_memory_facts` 表；value 已解密，仅在保险库解锁后可见） */
+export interface MemoryFact {
+  id: string
+  scope: MemoryScope
+  /** scope = app 时的目标应用 id；conversation 时的会话 id */
+  scopeRef: string | null
+  key: string
+  value: string
+  /** 来源追溯（spec §5.4：每条记忆可查到从哪来） */
+  sourceConversationId: string | null
+  sourceMessageId: string | null
+  status: MemoryStatus
+  createdAt: string
+  updatedAt: string
+}
+
+/** 记忆开关（票 12）：关闭后不再写入、不再参与检索，已有数据保留 */
+export const MEMORY_ENABLED_SETTING = 'memory.enabled'
+/** 每轮记忆提取开关（票 14：默认开、可关；关闭记忆总开关时提取自然不发生） */
+export const MEMORY_EXTRACT_SETTING = 'memory.extractEnabled'
+
+/** 会话摘要的设置存储键（票 09 留接口、票 12 定存储：摘要随会话保存，不进 UI 消息流） */
+export function conversationSummaryKey(conversationId: string): string {
+  return `conversation.summary:${conversationId}`
+}
+
+// ==================== 审计（票 07 表 / 票 13 写入，spec §5.6） ====================
+
+export const ASSISTANT_AUDIT_LIST_COMMAND = 'assistant.audit-list'
+export const ASSISTANT_AUDIT_RECORD_COMMAND = 'assistant.audit-record'
+/** 清空审计（票 13：设置里可查看 / 导出 / 清空；只清审计表） */
+export const ASSISTANT_AUDIT_CLEAR_COMMAND = 'assistant.audit-clear'
+
+/** 审计条目（`assistant_audit` 表；只存摘要，不存参数 / 结果原文，spec §6 日志红线） */
+export interface AuditEntry {
+  id: string
+  ts: string
+  toolId: string
+  appId: string | null
+  command: string
+  risk: string
+  decision: string
+  argsDigest: string | null
+  resultDigest: string | null
+  userVisible: boolean
+}
+
 // ==================== 供应商（provider 记录 + 密钥槽） ====================
 
 /**
@@ -257,6 +355,13 @@ export const ASSISTANT_MESSAGES_APPEND_COMMAND = 'assistant.messages-append'
 export const ASSISTANT_MESSAGES_COUNT_COMMAND = 'assistant.messages-count'
 /** 设置读取命令（值可为 null） */
 export const ASSISTANT_SETTINGS_GET_COMMAND = 'assistant.settings-get'
+/** 设置写入命令 */
+export const ASSISTANT_SETTINGS_SET_COMMAND = 'assistant.settings-set'
+
+// ==================== 首次使用非人声明（票 11） ====================
+
+/** 首次使用声明的已阅标记设置键（值 '1' = 已阅，不再弹出） */
+export const FIRST_RUN_NOTICE_SETTING = 'firstRun.noticeShown'
 
 // ==================== 多会话（票 09 / spec §5.3、§5.7） ====================
 

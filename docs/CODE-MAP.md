@@ -108,8 +108,11 @@ wasmnest-apps/
 | bedcode（显示名 BedCode） | `com.wasmnest.bedcode` | desktop + mobile | `entry.ts` / `index.ts` | 双端 `full` | `bedcode_plugin_terminal_session`（两端同名） | `bedcode-plugin-terminal-session` @ `desktop/rust`；`bedcode_plugin_terminal_session` @ `mobile/rust` |
 | file-transfer | `com.wasmnest.file-transfer` | desktop + mobile（`platform: "both"`） | `entry.ts` / `index.ts` | 双端 `full` | `wasmnest_plugin_file_transfer`（两端同名） | 单产物 `wasmnest-plugin-file-transfer` @ `apps/file-transfer/rust/plugin`；共享核 `wasmnest-file-transfer-core` @ `apps/file-transfer/rust/core` |
 | monitor（**`servers/` 分组**） | `com.wasmnest.monitor` | desktop + mobile | `entry.ts` / `index.ts` | 双端 `full` | `wasmnest_plugin_monitor`（两端同名） | `wasmnest-plugin-monitor` @ `servers/monitor/desktop/rust`；`wasmnest_plugin_monitor` @ `servers/monitor/mobile/rust` |
+| assistant（Nest，**`servers/` 分组**，M1） | `com.wasmnest.assistant` | desktop + mobile | `entry.ts` / `index.ts` | 双端 `full` | `wasmnest_plugin_assistant`（双端单产物） | 共享 crate `wasmnest-plugin-assistant` @ `servers/assistant/rust/plugin`（sharedRustManifest 模式，同 file-transfer 口径）；TS 共享核 @ `servers/assistant/shared/` |
 | auth-center（**`servers/` 分组**） | `com.wasmnest.auth-center` | desktop | `servers/auth-center/desktop/src/entry.ts` | `full` | `wasmnest_plugin_auth_center` | `wasmnest-plugin-auth-center` @ `servers/auth-center/desktop/rust` |
 | net-config（**`servers/` 分组**，T18） | `com.wasmnest.net-config` | desktop | `servers/net-config/desktop/src/entry.ts` | `full` | `wasmnest_plugin_net_config` | `wasmnest-plugin-net-config` @ `servers/net-config/desktop/rust` |
+
+> **assistant（Nest）现状（M1，2026-11-13）**：系统级个人助手，独立于 BedCode。双端单产物（共享 Rust crate）+ TS 共享核（`shared/`：agent 循环、provider 适配、记忆、工具目录、共享 UI 组件）。宿主只提供两个通用机制（应用调用桥 `AppControlAPI` + 全局入口），AI 语义全部在应用内。M1 交付：对话流式（OpenAI 兼容 / Anthropic / Gemini，BYOK 保险库）、多会话、人格、记忆（收件箱 + 注入 + 每轮提取）、工具运行时（四档风险确认 + 审计）、应用工具（app.list / app.open / app.invoke.* / monitor.snapshot / system.info / time.now / memory.*）。设计真源 = 平台仓 `.scratch/2026-11-11-personal-assistant/spec.md`，票单 = 同目录 `issues/`。
 
 > **auth-center 现状（issue #6，已注册接管）**：六域全部就位——
 > `rust/src/{pairing,policy,trust,consent,auth_records,auth_http}`（用例自 bedcode 逐字

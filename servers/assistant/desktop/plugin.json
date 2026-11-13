@@ -74,6 +74,10 @@
         "title": "Assistant: Memory Delete"
       },
       {
+        "id": "assistant.memory-set-status",
+        "title": "Assistant: Memory Set Status"
+      },
+      {
         "id": "assistant.audit-list",
         "title": "Assistant: Audit List"
       },
@@ -136,6 +140,18 @@
       {
         "id": "assistant.clear-data",
         "title": "Assistant: Clear Data"
+      },
+      {
+        "id": "assistant.memory-clear",
+        "title": "Assistant: Memory Clear"
+      },
+      {
+        "id": "assistant.audit-record",
+        "title": "Assistant: Audit Record"
+      },
+      {
+        "id": "assistant.audit-clear",
+        "title": "Assistant: Audit Clear"
       }
     ],
     "globalEntries": [

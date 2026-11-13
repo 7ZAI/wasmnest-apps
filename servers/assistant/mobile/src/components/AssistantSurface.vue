@@ -20,8 +20,9 @@ import type { AssistantInvoke } from '@nest-shared/types'
 const NAMESPACE = 'com.wasmnest.assistant'
 
 const { t: rawT, locale } = useI18n()
-/** 域内 key → 全命名空间 key 翻译 */
-const t = (key: string): string => rawT(`${NAMESPACE}.${key}`)
+/** 域内 key → 全命名空间 key 翻译（透传插值参数，供计数等文案使用） */
+const t = (key: string, params?: Record<string, unknown>): string =>
+  rawT(`${NAMESPACE}.${key}`, params ?? {})
 
 const context = inject<PluginContext>('pluginContext')!
 
@@ -51,5 +52,6 @@ const mobileKdfParams = { m: 32 * 1024, t: 3, p: 1 }
     :t="t"
     :lang="lang"
     :kdf-params="mobileKdfParams"
+    :apps="context.apps ?? null"
   />
 </template>
