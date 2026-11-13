@@ -8,7 +8,7 @@
  * 纯展示 + 表单组件：命令调用由父级（ChatView）经 emit 上交。
  */
 import { computed, reactive, ref } from 'vue'
-import type { ProviderRecord } from '@nest-shared/types'
+import type { ProviderApiStyle, ProviderRecord } from '@nest-shared/types'
 
 const props = defineProps<{
   providers: ProviderRecord[]
@@ -25,7 +25,7 @@ const emit = defineEmits<{
   close: []
 }>()
 
-const form = reactive({ id: '', name: '', baseUrl: '', model: '', apiKey: '' })
+const form = reactive({ id: '', name: '', apiStyle: 'openai-compatible' as ProviderApiStyle, baseUrl: '', model: '', apiKey: '' })
 const editingId = ref<string | null>(null)
 const error = ref('')
 
@@ -35,6 +35,7 @@ function startEdit(p: ProviderRecord): void {
   editingId.value = p.id
   form.id = p.id
   form.name = p.name
+  form.apiStyle = p.apiStyle
   form.baseUrl = p.baseUrl
   form.model = p.model
   form.apiKey = ''
@@ -45,6 +46,7 @@ function resetForm(): void {
   editingId.value = null
   form.id = ''
   form.name = ''
+  form.apiStyle = 'openai-compatible'
   form.baseUrl = ''
   form.model = ''
   form.apiKey = ''
@@ -60,7 +62,7 @@ function save(): void {
   emit('upsert', {
     id,
     name: form.name.trim(),
-    apiStyle: 'openai-compatible',
+    apiStyle: form.apiStyle,
     baseUrl: form.baseUrl.trim(),
     model: form.model.trim(),
     isDefault: props.providers.length === 0,
@@ -129,6 +131,14 @@ function remove(p: ProviderRecord): void {
     <!-- 新增 / 编辑表单 -->
     <form class="nest-settings__form" @submit.prevent="save">
       <h4>{{ isEditing ? t('assistant.settings.editProvider') : t('assistant.settings.addProvider') }}</h4>
+      <label class="nest-settings__field">
+        <span>{{ t('assistant.settings.apiStyle') }}</span>
+        <select v-model="form.apiStyle" data-testid="nest-provider-apistyle">
+          <option value="openai-compatible">{{ t('assistant.settings.styleOpenai') }}</option>
+          <option value="anthropic">{{ t('assistant.settings.styleAnthropic') }}</option>
+          <option value="gemini">{{ t('assistant.settings.styleGemini') }}</option>
+        </select>
+      </label>
       <label class="nest-settings__field">
         <span>{{ t('assistant.settings.name') }}</span>
         <input v-model="form.name" data-testid="nest-provider-name" :disabled="isEditing" />

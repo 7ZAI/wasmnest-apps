@@ -18,16 +18,15 @@
  */
 import { createAssistantMessageEventStream } from '@earendil-works/pi-ai/utils/event-stream'
 import type { StreamFn } from '@earendil-works/pi-agent-core'
-import type {
-  AssistantMessage,
-  AssistantMessageEvent,
-  AssistantMessageEventStream,
-  Model,
-  SimpleStreamOptions,
-} from '@earendil-works/pi-ai'
+import type { AssistantMessage, AssistantMessageEvent, AssistantMessageEventStream, Message, Model, SimpleStreamOptions } from '@earendil-works/pi-ai'
 import { SseParser } from '../providers/sse'
+import { StreamMapError } from '../providers/stream-error'
 import {
-  OpenAICompatStreamError,
+  AnthropicStreamMapper,
+  buildAnthropicMessagesRequest,
+} from '../providers/anthropic'
+import { GeminiStreamMapper, buildGeminiStreamRequest } from '../providers/gemini'
+import {
   OpenAICompatStreamMapper,
   buildOpenAICompatChatRequest,
 } from '../providers/openai-compat'
@@ -37,8 +36,36 @@ import {
   newStreamId,
   type AssistantInvoke,
   type ChatStreamEventPayload,
+  type ChatStreamRequest,
   type ProviderApiStyle,
 } from '../types'
+
+/**
+ * 流映射器统一接口（票 10）：三家方言映射器同形，StreamFn 不感知方言。
+ * `handleData` 的 `event` 参数为 SSE `event:` 字段（Anthropic 用，其余忽略）。
+ */
+export interface StreamMapper {
+  handleData(data: string, event?: string): AssistantMessageEvent[]
+  finish(fallbackReason: 'stop' | 'length' | 'toolUse'): AssistantMessageEvent
+}
+
+/** 按方言构建流映射器（与请求构建同一分派口径） */
+export function createStreamMapper(
+  apiStyle: ProviderApiStyle,
+  provider: string,
+  model: string,
+): StreamMapper {
+  switch (apiStyle) {
+    case 'openai-compatible':
+      return new OpenAICompatStreamMapper(provider, model)
+    case 'anthropic':
+      return new AnthropicStreamMapper(provider, model)
+    case 'gemini':
+      return new GeminiStreamMapper(provider, model)
+    default:
+      throw new Error(`不支持的 provider 方言：${String(apiStyle)}`)
+  }
+}
 
 /** 零用量（provider 未回报 usage 时的兜底，不伪造计费） */
 function zeroUsage(): AssistantMessage['usage'] {
@@ -127,7 +154,7 @@ export function createStreamFn(deps: StreamFnDeps): StreamFn {
     }
 
     /** 正常收尾（done 事件 + end） */
-    const finishDone = (mapper: OpenAICompatStreamMapper) => {
+    const finishDone = (mapper: StreamMapper) => {
       if (finished) return
       finished = true
       unsubscribe?.()
@@ -201,7 +228,7 @@ export function createStreamFn(deps: StreamFnDeps): StreamFn {
 
       // 4. 订阅宿主流事件，逐 chunk 解析推送
       const parser = new SseParser()
-      const mapper = new OpenAICompatStreamMapper(model.provider, ctx.model)
+      const mapper = createStreamMapper(ctx.apiStyle, model.provider, ctx.model)
 
       unsubscribe = deps.subscribe(eventChannel, (payload) => {
         if (finished) return
@@ -219,7 +246,7 @@ export function createStreamFn(deps: StreamFnDeps): StreamFn {
             fail('error', evt.error)
           } else {
             // 宿主干净断流：残留缓冲尽力解析后收尾
-            for (const e of parser.flush()) dispatchData(e.data)
+            for (const e of parser.flush()) dispatchSse(e)
             if (finished) return
             finishDone(mapper)
           }
@@ -230,12 +257,16 @@ export function createStreamFn(deps: StreamFnDeps): StreamFn {
           return
         }
         for (const sse of parser.push(evt.chunk)) {
-          if (!dispatchData(sse.data)) return // dispatchData 内 fail 后 finished=true
+          if (!dispatchSse(sse)) return // dispatchSse 内 fail 后 finished=true
         }
       })
 
+      /** 处理一条完整 SSE 事件；返回 false 表示已终止（finished） */
+      const dispatchSse = (sse: { data: string; event?: string }): boolean =>
+        dispatchData(sse.data, sse.event)
+
       /** 处理一条 SSE data 行；返回 false 表示已终止（finished） */
-      const dispatchData = (data: string): boolean => {
+      const dispatchData = (data: string, event?: string): boolean => {
         if (finished) return false
         if (data === '') return true // 无数据行的事件：忽略
         try {
@@ -243,11 +274,11 @@ export function createStreamFn(deps: StreamFnDeps): StreamFn {
             finishDone(mapper)
             return false
           }
-          const events = mapper.handleData(data)
+          const events = mapper.handleData(data, event)
           for (const e of events) stream.push(e)
           return true
         } catch (e) {
-          if (e instanceof OpenAICompatStreamError) {
+          if (e instanceof StreamMapError) {
             fail('error', e.message)
           } else {
             fail('error', `流数据解析失败：${errMsg(e)}`)
@@ -266,22 +297,41 @@ export function createStreamFn(deps: StreamFnDeps): StreamFn {
   }
 }
 
-/** 按方言分派请求构建（M1：OpenAI 兼容；票 10 在此扩 Anthropic / Gemini） */
-function buildProviderRequest(opts: {
+/**
+ * 按方言分派请求构建（票 08 OpenAI 兼容；票 10 扩 Anthropic / Gemini）。
+ * 导出供单测直接覆盖三家分派（不依赖 StreamFn 全链路）。
+ */
+export function buildProviderRequest(opts: {
   apiStyle: ProviderApiStyle
   apiKey: string
   baseUrl: string
   model: string
   messages: unknown[]
   streamEvent: string
-}): ReturnType<typeof buildOpenAICompatChatRequest> {
+}): ChatStreamRequest {
   switch (opts.apiStyle) {
     case 'openai-compatible':
       return buildOpenAICompatChatRequest({
         apiKey: opts.apiKey,
         baseUrl: opts.baseUrl,
         model: opts.model,
-        messages: opts.messages as Parameters<typeof buildOpenAICompatChatRequest>[0]['messages'],
+        messages: opts.messages as Message[],
+        streamEvent: opts.streamEvent,
+      })
+    case 'anthropic':
+      return buildAnthropicMessagesRequest({
+        apiKey: opts.apiKey,
+        baseUrl: opts.baseUrl,
+        model: opts.model,
+        messages: opts.messages as Message[],
+        streamEvent: opts.streamEvent,
+      })
+    case 'gemini':
+      return buildGeminiStreamRequest({
+        apiKey: opts.apiKey,
+        baseUrl: opts.baseUrl,
+        model: opts.model,
+        messages: opts.messages as Message[],
         streamEvent: opts.streamEvent,
       })
     default:

@@ -65,6 +65,10 @@ export type MessageSchema = {
   'assistant.settings.title': string
   'assistant.settings.close': string
   'assistant.settings.providers': string
+  'assistant.settings.apiStyle': string,
+  'assistant.settings.styleOpenai': string,
+  'assistant.settings.styleAnthropic': string,
+  'assistant.settings.styleGemini': string,
   'assistant.settings.addProvider': string
   'assistant.settings.editProvider': string
   'assistant.settings.edit': string

@@ -24,6 +24,7 @@ import type { AgentEvent } from '@earendil-works/pi-agent-core'
 import type { AssistantMessage, Message, TextContent } from '@earendil-works/pi-ai'
 import { createNestAgent } from '../agent/agent'
 import { buildSystemPrompt, type PromptLang } from '../prompt/system'
+import { apiStyleToPiApi } from '../providers/styles'
 import { randomHex, NONCE_BYTES } from '../vault'
 import {
   ASSISTANT_CONVERSATIONS_ARCHIVE_COMMAND,
@@ -620,7 +621,7 @@ function toPiMessage(m: ChatMessage, provider: ProviderRecord): Message {
   return {
     role: 'assistant',
     content,
-    api: 'openai-completions',
+    api: apiStyleToPiApi(provider.apiStyle),
     provider: provider.id,
     model: provider.model,
     usage: {

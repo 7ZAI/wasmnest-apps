@@ -19,6 +19,7 @@ import type {
   ToolCall,
 } from '@earendil-works/pi-ai'
 import type { ChatStreamRequest } from '../types'
+import { StreamMapError } from './stream-error'
 
 /** OpenAI 兼容 chat/completions 请求体（流式） */
 export interface OpenAICompatChatBody {
@@ -147,8 +148,11 @@ export function buildOpenAICompatChatRequest(opts: {
 
 // ==================== 流映射（SSE data → pi 事件） ====================
 
-/** 流映射失败（非法 JSON / 形状不符）：由 StreamFn 编码为协议 error 事件 */
-export class OpenAICompatStreamError extends Error {
+/**
+ * 流映射失败（非法 JSON / 形状不符）：由 StreamFn 编码为协议 error 事件。
+ * 继承共享基类 [`StreamMapError`]，StreamFn 三家方言统一捕获。
+ */
+export class OpenAICompatStreamError extends StreamMapError {
   constructor(message: string) {
     super(message)
     this.name = 'OpenAICompatStreamError'

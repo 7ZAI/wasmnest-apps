@@ -8,7 +8,7 @@
  */
 import { describe, it, expect, vi } from 'vitest'
 import type { AssistantMessageEvent, TranscriptContext } from '@earendil-works/pi-ai'
-import { createStreamFn, type StreamFnDeps } from '@nest-shared/agent/stream-fn'
+import { buildProviderRequest, createStreamMapper, createStreamFn, type StreamFnDeps } from '@nest-shared/agent/stream-fn'
 import type { RequestContext } from '@nest-shared/agent/stream-fn'
 import type { AssistantInvoke } from '@nest-shared/types'
 
@@ -178,5 +178,104 @@ describe('createStreamFn（票 08 不抛异常契约）', () => {
     expect(args.streamId).toBeTruthy()
     expect(args.request.stream).toBe(true)
     expect(args.request.streamEvent).toBe(`assistant:stream:${args.streamId}`)
+  })
+})
+
+describe('票 10：三家方言分派与统一契约', () => {
+  const messages = [{ role: 'user', content: 'hi', timestamp: 0 }] as never
+
+  it('buildProviderRequest：OpenAI 兼容 / Anthropic / Gemini 各自请求形状', () => {
+    const openai = buildProviderRequest({
+      apiStyle: 'openai-compatible',
+      apiKey: 'k1',
+      baseUrl: 'https://api.example.com/v1',
+      model: 'm1',
+      messages,
+      streamEvent: 'assistant:stream:s1',
+    })
+    expect(openai.url).toBe('https://api.example.com/v1/chat/completions')
+    expect(openai.headers).toMatchObject({ Authorization: 'Bearer k1' })
+
+    const anthropic = buildProviderRequest({
+      apiStyle: 'anthropic',
+      apiKey: 'k2',
+      baseUrl: 'https://api.anthropic.com',
+      model: 'claude-test',
+      messages,
+      streamEvent: 'assistant:stream:s1',
+    })
+    expect(anthropic.url).toBe('https://api.anthropic.com/v1/messages')
+    expect(anthropic.headers).toMatchObject({ 'x-api-key': 'k2', 'anthropic-version': '2023-06-01' })
+    const anthropicBody = JSON.parse(anthropic.body ?? '{}')
+    expect(anthropicBody).toMatchObject({ model: 'claude-test', stream: true, max_tokens: 8192 })
+
+    const gemini = buildProviderRequest({
+      apiStyle: 'gemini',
+      apiKey: 'k3',
+      baseUrl: 'https://generativelanguage.googleapis.com',
+      model: 'gemini-2.0-flash',
+      messages,
+      streamEvent: 'assistant:stream:s1',
+    })
+    expect(gemini.url).toBe(
+      'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:streamGenerateContent?alt=sse',
+    )
+    expect(gemini.headers).toMatchObject({ 'x-goog-api-key': 'k3' })
+  })
+
+  it('createStreamMapper：三家方言映射器同形接口', () => {
+    const anthropic = createStreamMapper('anthropic', 'p-anthropic', 'claude-test')
+    const events = anthropic.handleData(
+      JSON.stringify({ type: 'message_start', message: {} }),
+      'message_start',
+    )
+    expect(events[0]?.type).toBe('start')
+
+    const gemini = createStreamMapper('gemini', 'p-gemini', 'gemini-test')
+    const gEvents = gemini.handleData(
+      JSON.stringify({ candidates: [{ content: { parts: [{ text: 'x' }] } }] }),
+    )
+    expect(gEvents.some((e) => e.type === 'text_delta')).toBe(true)
+
+    const openai = createStreamMapper('openai-compatible', 'p1', 'm1')
+    const oEvents = openai.handleData(JSON.stringify({ choices: [{ delta: { content: 'x' } }] }))
+    expect(oEvents.some((e) => e.type === 'text_delta')).toBe(true)
+  })
+
+  it('StreamFn 全链路：Anthropic event: 字段透传到映射器，文本事件与 done 一致', async () => {
+    const anthropicCtx: RequestContext = {
+      apiStyle: 'anthropic',
+      apiKey: 'sk-ant-test',
+      baseUrl: 'https://api.anthropic.com',
+      model: 'claude-test',
+    }
+    const { deps, handlers } = makeDeps({
+      resolveRequestContext: vi.fn(async () => anthropicCtx),
+    })
+    const { pump } = await start(deps)
+
+    handlers[0].handler({
+      chunk:
+        'event: message_start\ndata: {"type":"message_start","message":{"id":"m1"}}\n\n' +
+        'event: content_block_start\ndata: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}\n\n' +
+        'event: content_block_delta\ndata: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"三家"}}\n\n',
+      done: false,
+    })
+    handlers[0].handler({
+      chunk:
+        'event: content_block_delta\ndata: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"同契约"}}\n\n',
+      done: false,
+    })
+    handlers[0].handler({ done: true })
+
+    const events = await pump
+    expect(events[0].type).toBe('start')
+    const text = events.filter((e) => e.type === 'text_delta').map((e) => (e as { delta: string }).delta)
+    expect(text).toEqual(['三家', '同契约'])
+    const last = events[events.length - 1]
+    expect(last.type).toBe('done')
+    if (last.type === 'done') {
+      expect(last.message).toMatchObject({ api: 'anthropic-messages', provider: 'p1', model: 'claude-test' })
+    }
   })
 })

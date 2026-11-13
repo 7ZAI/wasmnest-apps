@@ -12,6 +12,36 @@
 
 ## 变更记录
 
+### 0.0.1（2026-11-13）— 票 10：Anthropic + Gemini 适配
+
+- **三家方言并存**：`ProviderApiStyle = openai-compatible | anthropic | gemini`；
+  设置页新增接口方言选择，请求构造与 SSE 事件映射落在 `shared/providers/`
+  （`anthropic.ts` / `gemini.ts`，与 OpenAI 兼容路径同形协议、自实现，
+  不引用其它应用源码，spec §5.2 / D17）。
+- **同一 StreamFn 契约**：新增统一 `StreamMapper` 接口与 `createStreamMapper`
+  工厂；`buildProviderRequest` 按方言分派（导出供单测）。三家共用同一错误
+  编码——映射错误统一走 `StreamMapError` 基类（各方言子类保留语境），
+  StreamFn 不感知方言，**UI 无供应商分支**。
+- **Anthropic（Messages API）**：`x-api-key` + `anthropic-version` 头；
+  system 提取为顶层参数；连续同角色消息合并（协议要求交替）；
+  tool_use / tool_result 块映射；SSE `event:` 字段事件类型
+  （message_start / content_block_* / message_delta / message_stop，
+  ping 忽略、error 事件点名抛出）；stop_reason 映射
+  （end_turn→stop / max_tokens→length / tool_use→toolUse）。
+- **Gemini（streamGenerateContent?alt=sse）**：`x-goog-api-key` 头；
+  systemInstruction 顶层参数；assistant → `model` 角色；functionCall /
+  functionResponse 块映射；每条 data 为响应 JSON：文本 / 思考
+  （thought 标记）/ 函数调用 part 映射到同一事件形状；finishReason
+  （STOP / MAX_TOKENS / TOOL_CALLS）与 usageMetadata 入协议。
+- **重建 transcript 的 api 字段**随方言映射（`providers/styles.ts`：
+  openai-compatible→openai-completions / anthropic→anthropic-messages /
+  gemini→google-generative-ai）。
+- **无 node: 依赖**：provider 适配为纯 TS（JSON 处理），不引入 pi-ai 的
+  Node 入口（spec 风险 #1 口径不变）；依赖版本不变（pi 包精确钉 1.5.0）。
+- **测试**：新增 `anthropic.test.ts` / `gemini.test.ts`（请求形状、消息映射、
+  SSE 事件映射、与 SseParser 的分片边界集成——半包 / 多事件一包 / 心跳 /
+  错误事件）；`stream-fn.test.ts` 扩三家分派与 Anthropic 全链路 event 透传。
+
 ### 0.0.1（2026-11-12）— 票 09：多会话
 
 - **默认陪伴会话**：固定 id `nest-companion`，Rust 激活时幂等建立（前端

@@ -158,8 +158,11 @@ export type ChatStreamEventPayload =
 
 // ==================== 供应商（provider 记录 + 密钥槽） ====================
 
-/** provider 请求方言（M1：OpenAI 兼容，含自定义 baseURL / 本地端点；D17） */
-export type ProviderApiStyle = 'openai-compatible'
+/**
+ * provider 请求方言（D17：OpenAI 兼容（含自定义 baseURL / 本地端点）+
+ * Anthropic + Gemini；票 10 起三家并存，UI 无供应商分支）
+ */
+export type ProviderApiStyle = 'openai-compatible' | 'anthropic' | 'gemini'
 
 /** provider 记录（`assistant_providers` 表；**不存密钥**，密钥在保险库密钥槽） */
 export interface ProviderRecord {
