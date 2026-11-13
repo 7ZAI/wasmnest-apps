@@ -16,9 +16,11 @@ pub const SCHEMA_VERSION: i32 = 2;
 
 // ==================== 表结构 ====================
 
-/// 建表语句（逐条执行——`plugin_db_execute` 是单语句版）
+/// 全量建表语句（逐条执行——`plugin_db_execute` 是单语句版）
+///
+/// 顺序即版本顺序：`[..V1_STATEMENTS]` 是 v1 基线，`[V1_STATEMENTS..]` 是 v2 增量。
+/// `schema_version` 表**不在此列**（它由 `ensure_schema` 单独建立，否则读版本时表还不存在）。
 pub const SCHEMA: &[&str] = &[
-    "CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)",
     "CREATE TABLE IF NOT EXISTS assistant_conversations (\
         id TEXT PRIMARY KEY, \
         title TEXT NOT NULL, \
@@ -90,6 +92,21 @@ pub const SCHEMA: &[&str] = &[
         nonce TEXT NOT NULL, \
         updated_at TEXT NOT NULL)",
 ];
+
+/// v1 基线语句数（SCHEMA 前缀 = v1；其余为后续版本增量）
+const V1_STATEMENTS: usize = 11;
+
+/// 顺序迁移：下标 `i` 的语句组把 schema 从版本 `i` 升到 `i + 1`。
+///
+/// 每步由 `ensure_schema` 与版本号更新同批提交（宿主 batch 保证事务语义），
+/// 失败即整体回滚并点名版本，不做半迁移（spec §5.3）。
+/// 新增版本 = `SCHEMA_VERSION + 1` + 在 `SCHEMA` 末尾追建表语句（`V1_STATEMENTS` 不动）。
+///
+/// 用函数而非 `const`：切片下标在常量求值里还不是稳定能力（E0658），
+/// 且迁移只在激活时走一次，`Vec` 分配可忽略。
+fn migrations() -> Vec<&'static [&'static str]> {
+    vec![&SCHEMA[..V1_STATEMENTS], &SCHEMA[V1_STATEMENTS..]]
+}
 
 // ==================== 模型 ====================
 
@@ -206,6 +223,8 @@ pub trait Store {
     fn delete_memory(&self, id: &str) -> Result<bool, String>;
     /// 清空指定 scope 的全部记忆（forget 的 scope 级清空）
     fn clear_memory_scope(&self, scope: &str) -> Result<u64, String>;
+    /// 清空全部记忆（"清空全部记忆" 的全局动作，二次确认由前端把关）
+    fn clear_memory_all(&self) -> Result<u64, String>;
 
     // ---- 供应商 ----
     fn list_providers(&self) -> Result<Vec<Provider>, String>;
@@ -348,18 +367,40 @@ mod wasm_impl {
 
     impl Store for WasmHost {
         fn ensure_schema(&self) -> Result<(), String> {
-            // 1. 建表（幂等）
-            for stmt in SCHEMA {
-                self.plugin_db_execute(stmt)
-                    .map_err(|e| format!("建表失败: {e}"))?;
+            // 0. 版本表本身不属于任何迁移版本：先幂等建出来，否则读不到版本
+            self.plugin_db_execute(
+                "CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)",
+            )
+            .map_err(|e| format!("建版本表失败: {e}"))?;
+
+            let current = self.schema_version()?;
+            if current > SCHEMA_VERSION {
+                // 降级保护：旧应用打开新库时必须停手，不能把版本号写小
+                return Err(format!(
+                    "数据库版本 {current} 高于本应用支持的 {SCHEMA_VERSION}：请升级应用（未做任何迁移）"
+                ));
             }
-            // 2. 迁移：schema_version 缺行或低于当前版本 → 顺序补齐后登记
-            // v1 = 初始 schema；v2 = 新增 assistant_secrets 表（票 08，
-            // 建表在上方幂等执行，此处仅登记版本）
-            self.plugin_db_execute("DELETE FROM schema_version")
-                .map_err(|e| format!("迁移清理失败: {e}"))?;
-            self.plugin_db_execute("INSERT INTO schema_version(version) VALUES (2)")
-                .map_err(|e| format!("迁移登记失败: {e}"))?;
+
+            // 顺序迁移：v_current → v_current+1（每步语句与版本号同批提交）
+            let steps_all = migrations();
+            let mut version = current;
+            while version < SCHEMA_VERSION {
+                let steps = steps_all.get(version as usize).copied().ok_or_else(|| {
+                    format!(
+                        "缺少 v{version}→v{} 的迁移步骤（migrations() 未登记）",
+                        version + 1
+                    )
+                })?;
+                let mut sqls: Vec<String> = steps.iter().map(|stmt| (*stmt).to_string()).collect();
+                sqls.push("DELETE FROM schema_version".to_string());
+                sqls.push(format!(
+                    "INSERT INTO schema_version(version) VALUES ({})",
+                    version + 1
+                ));
+                self.plugin_db_execute_batch(&sqls)
+                    .map_err(|e| format!("迁移 v{version}→v{} 失败（未提交）: {e}", version + 1))?;
+                version += 1;
+            }
             Ok(())
         }
 
@@ -367,16 +408,25 @@ mod wasm_impl {
             let rows = self
                 .plugin_db_query("SELECT version FROM schema_version")
                 .map_err(|e| format!("读 schema_version 失败: {e}"))?;
-            match rows {
+            // 空表 / null 结果 = 尚未登记任何版本（首次建库），按 0 处理；
+            // 只有「有行但缺 version 列」才是真正的结构异常（不静默当作 0，
+            // 否则残缺表会被当成新库重新迁移）。
+            let array = match rows {
+                None => return Ok(0),
+                Some(v) if v.is_null() => return Ok(0),
                 Some(v) => v
                     .as_array()
-                    .and_then(|a| a.first())
-                    .and_then(|r| r.get("version"))
-                    .and_then(|x| x.as_i64())
-                    .map(|x| x as i32)
-                    .ok_or_else(|| "schema_version 行缺 version 列".to_string()),
-                None => Ok(0),
+                    .ok_or_else(|| format!("schema_version 查询结果不是数组: {v}"))?
+                    .clone(),
+            };
+            if array.is_empty() {
+                return Ok(0);
             }
+            array[0]
+                .get("version")
+                .and_then(|x| x.as_i64())
+                .map(|x| x as i32)
+                .ok_or_else(|| "schema_version 行缺 version 列".to_string())
         }
 
         fn vault_meta(&self) -> Result<Option<VaultMeta>, String> {
@@ -608,6 +658,13 @@ mod wasm_impl {
                     &sql_params![scope],
                 )
                 .map_err(|e| format!("清空记忆 scope 失败: {e}"))?;
+            Ok(n as u64)
+        }
+
+        fn clear_memory_all(&self) -> Result<u64, String> {
+            let n = self
+                .plugin_db_execute("DELETE FROM assistant_memory_facts")
+                .map_err(|e| format!("清空全部记忆失败: {e}"))?;
             Ok(n as u64)
         }
 
@@ -950,6 +1007,37 @@ mod tests {
         ] {
             assert!(SCHEMA.iter().any(|s| s.contains(name)), "缺表 {name}");
         }
+    }
+
+    #[test]
+    fn migrations_cover_declared_schema_version() {
+        // 版本号与迁移步骤数必须一一对应（少一步 = 老库升不上来，多一步 = 无人执行）
+        let steps_all = migrations();
+        assert_eq!(steps_all.len() as i32, SCHEMA_VERSION);
+        for (i, steps) in steps_all.iter().enumerate() {
+            assert!(!steps.is_empty(), "v{i}→v{} 迁移步骤为空", i + 1);
+            for stmt in *steps {
+                assert!(
+                    stmt.contains("CREATE TABLE IF NOT EXISTS")
+                        || stmt.contains("CREATE INDEX IF NOT EXISTS"),
+                    "迁移语句须幂等: {stmt}"
+                );
+            }
+        }
+        // v1 = 业务基线（无密钥槽）；v2 = 保险库密钥槽
+        let v1 = steps_all[0];
+        let v2 = steps_all[1];
+        assert!(
+            !v1.iter().any(|s| s.contains("assistant_secrets")),
+            "v1 不得包含 v2 才引入的表"
+        );
+        assert!(
+            v2.iter().any(|s| s.contains("assistant_secrets")),
+            "v2 必须引入 assistant_secrets"
+        );
+        // 全量 SCHEMA = 所有迁移步骤展开（新增版本时两处一起改）
+        let flattened: usize = steps_all.iter().map(|s| s.len()).sum();
+        assert_eq!(flattened, SCHEMA.len());
     }
 
     #[test]

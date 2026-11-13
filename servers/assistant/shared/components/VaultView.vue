@@ -28,6 +28,11 @@ const props = defineProps<{
   invoke: AssistantInvoke
   /** 翻译函数（各端 i18n 绑定；key 为域内 key，端侧加命名空间前缀） */
   t: (key: string) => string
+  /**
+   * 建库时的 Argon2id 档位（spec §5.8）：缺省走 Rust 默认（桌面 m=64 MiB / t=3 / p=1），
+   * 移动入口显式降档（低端机 64 MiB 派生会明显卡顿）。
+   */
+  kdfParams?: { m?: number; t?: number; p?: number }
 }>()
 
 /** 保险库状态变化（init / unlock / lock / 改口令成功后）：供父级门控感知 */
@@ -76,7 +81,10 @@ async function doInit() {
   loading.value = true
   error.value = ''
   try {
-    await vaultInit(props.invoke, { password: setupPassword.value })
+    await vaultInit(props.invoke, {
+      password: setupPassword.value,
+      ...(props.kdfParams ?? {}),
+    })
     setupPassword.value = ''
     setupPassword2.value = ''
     await refresh()

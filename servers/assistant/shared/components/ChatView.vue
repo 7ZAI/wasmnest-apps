@@ -12,7 +12,7 @@
  * 票 09 多会话：侧栏 = 新建任务 + 活跃会话（默认陪伴会话带保护标记、不可归档）
  * + 可折叠归档区（可查可恢复）+ 活跃会话改名。
  */
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, shallowReactive } from 'vue'
 import { reactive } from 'vue'
 import MessageList from './MessageList.vue'
 import Composer from './Composer.vue'
@@ -37,6 +37,11 @@ const props = defineProps<{
   subscribe: (event: string, handler: (payload: unknown) => void) => () => void
   t: (key: string) => string
   lang: 'zh-CN' | 'en'
+  /**
+   * 建库时的 Argon2id 档位（spec §5.8：桌面 m=64 MiB，移动 m=32 MiB 起步）。
+   * 缺省 = Rust 侧默认（桌面档）；移动入口显式降档。
+   */
+  kdfParams?: { m?: number; t?: number; p?: number }
 }>()
 
 const vaultReady = ref(false)
@@ -53,8 +58,21 @@ const renameDraft = ref('')
 
 let session: NestChatSession | null = null
 
-const streaming = computed(() => session?.streaming ?? false)
-const messages = computed(() => session?.messages ?? [])
+/**
+ * session 引用版本号：`session` 是普通 let 绑定，computed 不会因它被重新赋值而
+ * 失效。每次建 / 拆 session 时 +1，让下面两个 computed 重新求值（会话重开后
+ * 仍能跟上新的响应式对象）。
+ */
+const sessionEpoch = ref(0)
+
+const streaming = computed(() => {
+  void sessionEpoch.value
+  return session?.streaming ?? false
+})
+const messages = computed(() => {
+  void sessionEpoch.value
+  return session?.messages ?? []
+})
 
 /** 保险库门检查：已建库且已解锁才进对话 */
 async function checkVault(): Promise<void> {
@@ -64,8 +82,10 @@ async function checkVault(): Promise<void> {
     if (st?.exists && st?.unlocked) {
       vaultReady.value = true
       await initChat()
+      resetIdleTimer()
     } else {
       vaultReady.value = false
+      clearIdleTimer()
       disposeSession()
     }
   } catch (e) {
@@ -79,14 +99,21 @@ async function checkVault(): Promise<void> {
 
 async function initChat(): Promise<void> {
   if (session) return
-  session = new NestChatSession({
-    invoke: props.invoke,
-    subscribe: props.subscribe,
-    lang: props.lang,
-    log: (level, msg) => console[level === 'error' ? 'error' : 'warn'](`[nest] ${msg}`),
-  })
+  // shallowReactive（不是 reactive）：只跟踪 session 自身的字段（streaming /
+  // messages / conversations …），不深代理内部的 pi Agent 与 provider 记录——
+  // 普通对象上的字段变更不产生依赖，`computed(() => session.streaming)` 会永远
+  // 停在初值（停止按钮 / 流式态失效）。
+  session = shallowReactive(
+    new NestChatSession({
+      invoke: props.invoke,
+      subscribe: props.subscribe,
+      lang: props.lang,
+      log: (level, msg) => console[level === 'error' ? 'error' : 'warn'](`[nest] ${msg}`),
+    }),
+  ) as NestChatSession
   // 消息数组包响应式代理：流式增量（session 内部就地修改）可驱动 UI
   session.messages = reactive(session.messages)
+  sessionEpoch.value += 1
   try {
     await session.refreshProviders()
     providers.value = [...session.providers]
@@ -108,6 +135,7 @@ async function initChat(): Promise<void> {
 function disposeSession(): void {
   session?.dispose()
   session = null
+  sessionEpoch.value += 1
   providers.value = []
   keySet.value = {}
   conversations.value = []
@@ -309,11 +337,59 @@ async function onLockVault(): Promise<void> {
   await checkVault()
 }
 
+// ==================== 空闲自动锁定（spec §5.8） ====================
+
+/** 无操作多久自动锁保险库（默认 15 分钟；spec §5.8 的可配置项留到设置页） */
+const IDLE_LOCK_MS = 15 * 60 * 1000
+let idleTimer: ReturnType<typeof setTimeout> | null = null
+
+/** 用户有操作 → 重置空闲计时（已有会话但已锁定时不重复排） */
+function resetIdleTimer(): void {
+  if (idleTimer) clearTimeout(idleTimer)
+  idleTimer = setTimeout(() => {
+    idleTimer = null
+    void onIdleLock()
+  }, IDLE_LOCK_MS)
+}
+
+function clearIdleTimer(): void {
+  if (idleTimer) {
+    clearTimeout(idleTimer)
+    idleTimer = null
+  }
+}
+
+/** 空闲到期：锁保险库并落回解锁门（生成中则顺延，不打断正在进行的回答） */
+async function onIdleLock(): Promise<void> {
+  if (!vaultReady.value) return
+  if (streaming.value) {
+    // 模型还在输出：用户没操作但要保住这次回答，问题下次空闲再锁
+    resetIdleTimer()
+    return
+  }
+  showSettings.value = false
+  try {
+    await vaultLock(props.invoke)
+  } catch {
+    // 锁定失败也重查状态，不假装已锁
+  }
+  await checkVault()
+}
+
+/** 任何键盘 / 指针操作都算「有操作」（capture：被应用内元素 stopPropagation 也收得到） */
+const IDLE_EVENTS = ['pointerdown', 'keydown', 'wheel', 'touchstart'] as const
+function onUserActivity(): void {
+  if (vaultReady.value) resetIdleTimer()
+}
+
 onMounted(() => {
   void checkVault()
+  for (const evt of IDLE_EVENTS) window.addEventListener(evt, onUserActivity, { capture: true })
 })
 
 onBeforeUnmount(() => {
+  clearIdleTimer()
+  for (const evt of IDLE_EVENTS) window.removeEventListener(evt, onUserActivity, { capture: true })
   disposeSession()
 })
 </script>
@@ -321,7 +397,7 @@ onBeforeUnmount(() => {
 <template>
   <div class="nest-chat">
     <!-- 保险库门：未建库 / 未解锁先走 VaultView（票 07） -->
-    <VaultView v-if="!vaultReady" :invoke="invoke" :t="t" @changed="checkVault" />
+    <VaultView v-if="!vaultReady" :invoke="invoke" :t="t" :kdf-params="kdfParams" @changed="checkVault" />
 
     <template v-else>
       <div class="nest-chat__body" data-testid="nest-chat">

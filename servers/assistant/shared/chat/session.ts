@@ -128,26 +128,25 @@ export class NestChatSession {
   }
 
   async vaultUnlocked(): Promise<boolean> {
-    try {
-      const st = await this.deps.invoke<{ exists: boolean; unlocked: boolean }>(
-        VAULT_STATUS_COMMAND,
-      )
-      return Boolean(st?.exists && st?.unlocked)
-    } catch {
-      return false
-    }
+    // 不吞错：状态查询失败（未建库 / 通道异常）必须向上点名，
+    // 否则会被下游伪装成「没有可用的 provider」（spec §2.4）
+    const st = await this.deps.invoke<{ exists: boolean; unlocked: boolean }>(
+      VAULT_STATUS_COMMAND,
+    )
+    return Boolean(st?.exists && st?.unlocked)
   }
 
-  /** 取 provider 密钥（按需从保险库解密；未设置 / 未解锁返回 null） */
+  /**
+   * 取 provider 密钥（按需从保险库解密）。
+   *
+   * 返回 null 只表示「保险库已解锁但没有这条密钥」；未解锁 / 通道失败一律抛出，
+   * 由调用方按实际原因点名（不把「锁着」误报成「没设置」）。
+   */
   async getProviderKey(providerId: string): Promise<string | null> {
-    try {
-      const res = await this.deps.invoke<{ value: string }>(ASSISTANT_VAULT_GET_SECRET_COMMAND, {
-        key: providerSecretKey(providerId),
-      })
-      return res?.value ?? null
-    } catch {
-      return null
-    }
+    const res = await this.deps.invoke<{ value: string }>(ASSISTANT_VAULT_GET_SECRET_COMMAND, {
+      key: providerSecretKey(providerId),
+    })
+    return res?.value ?? null
   }
 
   // ==================== 会话管理（票 09 多会话） ====================
@@ -249,8 +248,13 @@ export class NestChatSession {
   /** 打开会话：加载最近 N 条 + 摘要恢复上下文并重建 agent transcript */
   async openConversation(id: string): Promise<void> {
     if (this.streaming) this.stop()
+    // 切会话必须换 agent：agent 的 transcript 属于上一个会话，复用会把旧会话
+    // 上下文带进新会话（票 09 多会话隔离；spec §5.2「重建时按最近 N 条恢复」）。
+    this.teardownAgent()
     this.currentId = id
-    this.messages = []
+    // 就地清空而不是换数组：消息数组被端侧包了 reactive 代理，换数组会让
+    // 已建立的响应式绑定指向旧数组（切会话后历史 / 流式增量不刷新）。
+    this.messages.splice(0, this.messages.length)
     this.lastSeq = 0
     this.summaryText = null
     const conv = await this.deps.invoke<{ conversations: ConversationRecord[] }>(

@@ -36,8 +36,20 @@ const subscribe = (event: string, handler: (payload: unknown) => void): (() => v
 }
 
 const lang = computed<'zh-CN' | 'en'>(() => (locale.value === 'en' ? 'en' : 'zh-CN'))
+
+/**
+ * 移动端 KDF 降档（spec §5.8：桌面 m=64 MiB，移动 m=32 MiB 起步）。
+ * 参数随保险库元数据落库，解锁沿用建档时的档位，不随后续端侧变化漂移。
+ */
+const mobileKdfParams = { m: 32 * 1024, t: 3, p: 1 }
 </script>
 
 <template>
-  <ChatView :invoke="invoke" :subscribe="subscribe" :t="t" :lang="lang" />
+  <ChatView
+    :invoke="invoke"
+    :subscribe="subscribe"
+    :t="t"
+    :lang="lang"
+    :kdf-params="mobileKdfParams"
+  />
 </template>

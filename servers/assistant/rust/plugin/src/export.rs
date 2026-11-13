@@ -24,7 +24,10 @@ pub fn export_json(store: &dyn Store) -> Result<Value, String> {
     let mut memory_out = Vec::with_capacity(memory.len());
     for f in &memory {
         let aad = vault::content_aad("memory", &f.id);
-        let value = hex::encode(vault::decrypt(&key, &f.value_enc, &aad)?);
+        // 导出的是**明文**（spec §5.3）：解密后按 UTF-8 交给 JSON 序列化，
+        // 不做 hex 二次包装——否则用户拿到的是一串十六进制，等于没导出内容。
+        let value = String::from_utf8(vault::decrypt(&key, &f.value_enc, &aad)?)
+            .map_err(|e| format!("记忆值不是合法 UTF-8: {e}"))?;
         memory_out.push(serde_json::json!({
             "id": f.id,
             "scope": f.scope,
