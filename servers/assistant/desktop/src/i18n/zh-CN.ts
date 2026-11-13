@@ -78,6 +78,43 @@ const zhCN: MessageSchema = {
   'assistant.settings.noProviders': '还没有供应商，添加一个后才能对话。',
   'assistant.settings.fieldsRequired': '名称、接口地址与模型都不能为空',
   'assistant.settings.privacyHint': '会话内容会发送给你选择的供应商；密钥只存本地保险库，不会上传。',
+
+  'assistant.chat.stopAndLock': '停止并锁定',
+  'assistant.chat.stopAndLockHint': '停止生成并立即锁定保险库',
+
+  // ==================== 工具运行时（票 13） ====================
+  'assistant.tools.risk.read': '只读',
+  'assistant.tools.risk.ui': '界面操作',
+  'assistant.tools.risk.write': '写入（需确认）',
+  'assistant.tools.risk.danger': '危险（二次确认）',
+  'assistant.tools.card.pending': '等待确认…',
+  'assistant.tools.card.running': '执行中…',
+  'assistant.tools.card.ok': '完成',
+  'assistant.tools.card.error': '执行失败',
+  'assistant.tools.card.blocked': '未执行',
+  'assistant.tools.card.opening': '正在打开 / 切换…',
+  'assistant.tools.confirm.title': '工具请求：是否允许执行？',
+  'assistant.tools.confirm.dangerTitle': '危险操作二次确认',
+  'assistant.tools.confirm.tool': '工具',
+  'assistant.tools.confirm.app': '目标应用',
+  'assistant.tools.confirm.risk': '风险',
+  'assistant.tools.confirm.raised': '（已由助手策略提档）',
+  'assistant.tools.confirm.args': '参数摘要',
+  'assistant.tools.confirm.reject': '拒绝',
+  'assistant.tools.confirm.approve': '批准',
+  'assistant.tools.confirm.cancel': '取消',
+  'assistant.tools.confirm.confirmDanger': '确认执行',
+
+  // ==================== 工具审计（票 13） ====================
+  'assistant.audit.title': '工具审计',
+  'assistant.audit.refresh': '刷新',
+  'assistant.audit.export': '导出',
+  'assistant.audit.clear': '清空',
+  'assistant.audit.clearConfirm': '再点一次清空',
+  'assistant.audit.loading': '读取中…',
+  'assistant.audit.empty': '还没有工具调用记录',
+  'assistant.audit.testTools': '启用测试工具（write / danger）',
+  'assistant.audit.testToolsHint': '仅用于验收：向模型暴露 test.echo（write）与 test.danger（danger）。test.danger 只回显参数，不会真的删除或修改数据。开关在重新打开 Nest 后生效。',
 }
 
 export default zhCN

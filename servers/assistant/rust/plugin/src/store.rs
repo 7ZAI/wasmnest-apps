@@ -240,6 +240,8 @@ pub trait Store {
     // ---- 审计 ----
     fn record_audit(&self, a: &AuditEntry) -> Result<(), String>;
     fn list_audit(&self, limit: i64) -> Result<Vec<AuditEntry>, String>;
+    /// 清空审计（设置页「清空」；返回删除行数，spec §5.9）
+    fn clear_audit(&self) -> Result<u64, String>;
 
     // ---- 保险库密钥槽（票 08） ----
     fn put_secret(&self, s: &Secret) -> Result<(), String>;
@@ -798,6 +800,13 @@ mod wasm_impl {
                 )
                 .map_err(|e| format!("取审计失败: {e}"))?;
             map_rows(rows, row_to_audit)
+        }
+
+        fn clear_audit(&self) -> Result<u64, String> {
+            let n = self
+                .plugin_db_execute("DELETE FROM assistant_audit")
+                .map_err(|e| format!("清空审计失败: {e}"))?;
+            Ok(n as u64)
         }
 
         fn put_secret(&self, s: &Secret) -> Result<(), String> {

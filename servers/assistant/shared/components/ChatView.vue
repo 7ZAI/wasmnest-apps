@@ -18,7 +18,10 @@ import MessageList from './MessageList.vue'
 import Composer from './Composer.vue'
 import ProviderSettings from './ProviderSettings.vue'
 import VaultView from './VaultView.vue'
+import ToolCallList from './ToolCallList.vue'
+import ToolConfirmDialog from './ToolConfirmDialog.vue'
 import { ChatPreconditionError, NestChatSession } from '../chat/session'
+import { TOOL_TEST_TOOLS_SETTING } from '../tools/audit'
 import { NONCE_BYTES, randomHex, vaultLock, vaultStatus } from '../vault'
 import {
   ASSISTANT_PROVIDERS_DELETE_COMMAND,
@@ -27,6 +30,7 @@ import {
   ASSISTANT_VAULT_DELETE_SECRET_COMMAND,
   ASSISTANT_VAULT_SET_SECRET_COMMAND,
   DEFAULT_COMPANION_ID,
+  ASSISTANT_SETTINGS_GET_COMMAND,
   providerSecretKey,
   type AssistantInvoke,
   type ProviderRecord,
@@ -73,6 +77,16 @@ const messages = computed(() => {
   void sessionEpoch.value
   return session?.messages ?? []
 })
+/** 工具卡（票 13）：与 messages 同口径跟 session 换代 */
+const toolCards = computed(() => {
+  void sessionEpoch.value
+  return session?.toolCards ?? []
+})
+/** 待确认的工具调用（null = 无；danger 先后两次） */
+const toolConfirm = computed(() => {
+  void sessionEpoch.value
+  return session?.toolConfirm ?? null
+})
 
 /** 保险库门检查：已建库且已解锁才进对话 */
 async function checkVault(): Promise<void> {
@@ -99,6 +113,17 @@ async function checkVault(): Promise<void> {
 
 async function initChat(): Promise<void> {
   if (session) return
+  // 测试工具开关（票 13 验收：write / danger 档真执行，不是 UI mock）
+  let enableTestTools = false
+  try {
+    const res = await props.invoke<{ value: string | null }>(ASSISTANT_SETTINGS_GET_COMMAND, {
+      key: TOOL_TEST_TOOLS_SETTING,
+    })
+    enableTestTools = res?.value === '1'
+  } catch (e) {
+    // 读设置失败不阻断对话，但点名（不静默当作关闭）
+    console.warn('[nest] 测试工具开关读取失败，按关闭处理：', e)
+  }
   // shallowReactive（不是 reactive）：只跟踪 session 自身的字段（streaming /
   // messages / conversations …），不深代理内部的 pi Agent 与 provider 记录——
   // 普通对象上的字段变更不产生依赖，`computed(() => session.streaming)` 会永远
@@ -108,11 +133,14 @@ async function initChat(): Promise<void> {
       invoke: props.invoke,
       subscribe: props.subscribe,
       lang: props.lang,
+      enableTestTools,
       log: (level, msg) => console[level === 'error' ? 'error' : 'warn'](`[nest] ${msg}`),
     }),
   ) as NestChatSession
   // 消息数组包响应式代理：流式增量（session 内部就地修改）可驱动 UI
   session.messages = reactive(session.messages)
+  // 工具卡同理：运行时按 toolCallId 原地更新对象，包代理后才能刷新 UI
+  session.toolCards = reactive(session.toolCards)
   sessionEpoch.value += 1
   try {
     await session.refreshProviders()
@@ -191,6 +219,26 @@ async function onSend(text: string): Promise<void> {
 
 function onStop(): void {
   session?.stop()
+}
+
+/** 「停止并锁定保险库」：停止后立即锁库，并重查状态落回解锁门（spec §5.9） */
+async function onStopAndLock(): Promise<void> {
+  try {
+    await session?.stopAndLockVault()
+  } catch (e) {
+    composerError.value = e instanceof Error ? e.message : String(e)
+  }
+  showSettings.value = false
+  await checkVault()
+}
+
+/** 工具确认（danger 会先后两次，每次都走同一对回调） */
+function onApproveTool(): void {
+  session?.resolveToolConfirm(true)
+}
+
+function onRejectTool(): void {
+  session?.resolveToolConfirm(false)
 }
 
 async function onRetry(): Promise<void> {
@@ -490,12 +538,14 @@ onBeforeUnmount(() => {
         <!-- 主区：消息流 + 输入区 -->
         <main class="nest-chat__main">
           <MessageList :messages="messages" :streaming="streaming" :t="t" @retry="onRetry" />
+          <ToolCallList :cards="toolCards" :t="t" />
           <Composer
             :streaming="streaming"
             :error-message="composerError"
             :t="t"
             @send="onSend"
             @stop="onStop"
+            @stop-lock="onStopAndLock"
           />
         </main>
 
@@ -505,6 +555,7 @@ onBeforeUnmount(() => {
           :providers="providers"
           :key-set="keySet"
           :t="t"
+          :invoke="invoke"
           @upsert="onUpsertProvider"
           @delete="onDeleteProvider"
           @set-default="onSetDefault"
@@ -513,6 +564,14 @@ onBeforeUnmount(() => {
         />
       </div>
     </template>
+
+    <!-- 工具确认卡（票 13）：覆盖在主区之上，不阻塞消息流渲染 -->
+    <ToolConfirmDialog
+      :request="toolConfirm"
+      :t="t"
+      @approve="onApproveTool"
+      @reject="onRejectTool"
+    />
   </div>
 </template>
 

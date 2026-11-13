@@ -7,7 +7,8 @@
 //! - 对话流：`assistant.chat-stream`（票 08：校验 streamEvent 与 streamId 精确
 //!   匹配后 raw 流式透传宿主，方言知识在前端共享核）
 //! - 记忆：`assistant.memory-list / upsert / delete`
-//! - 审计：`assistant.audit-list`
+//! - 审计：`assistant.audit-list / record / clear`（票 13：工具运行时写入；
+//!   每次调用一行摘要，并向宿主 HostLog 打同名 audit 事件）
 //! - 供应商：`assistant.providers-list / upsert / set-default`
 //! - 设置：`assistant.settings-get / set`
 //! - 会话 / 消息：`assistant.conversations-*` / `assistant.messages-*`（票 09：
@@ -42,7 +43,7 @@ mod store;
 mod vault;
 
 #[cfg_attr(not(target_arch = "wasm32"), allow(unused_imports))]
-use crate::store::{Conversation, MemoryFact, Message, Provider, Store};
+use crate::store::{AuditEntry, Conversation, MemoryFact, Message, Provider, Store};
 #[cfg_attr(not(target_arch = "wasm32"), allow(unused_imports))]
 use crate::vault::{KdfParams, Vault};
 
@@ -134,6 +135,10 @@ impl WasmPlugin for AssistantPlugin {
             // ==================== 审计 ====================
             #[cfg(target_arch = "wasm32")]
             "assistant.audit-list" => cmd_audit_list(&args),
+            #[cfg(target_arch = "wasm32")]
+            "assistant.audit-record" => cmd_audit_record(&args),
+            #[cfg(target_arch = "wasm32")]
+            "assistant.audit-clear" => cmd_audit_clear(),
 
             // ==================== 供应商 ====================
             #[cfg(target_arch = "wasm32")]
@@ -444,6 +449,62 @@ fn cmd_audit_list(args: &Value) -> Result<Value, String> {
     let limit = arg_i64(args, "limit", 100);
     let entries = store.list_audit(limit)?;
     Ok(json!({ "entries": entries }))
+}
+
+/// 写一行审计（票 13）：只收摘要字段，不落参数 / 结果原文（spec §5.6、§6）。
+/// ts 由前端传入（与消息落库同口径，wasm 侧不引入时间源）。
+#[cfg(target_arch = "wasm32")]
+fn cmd_audit_record(args: &Value) -> Result<Value, String> {
+    let store = &WasmHost as &dyn Store;
+    let risk = arg_str(args, "risk")?;
+    if !matches!(risk.as_str(), "read" | "ui" | "write" | "danger") {
+        return Err(format!(
+            "非法风险档: {risk}（只允许 read / ui / write / danger）"
+        ));
+    }
+    let decision = arg_str(args, "decision")?;
+    if !matches!(
+        decision.as_str(),
+        "auto" | "approved" | "rejected" | "stopped" | "error"
+    ) {
+        return Err(format!(
+            "非法审计决策: {decision}（只允许 auto / approved / rejected / stopped / error）"
+        ));
+    }
+    let entry = AuditEntry {
+        id: next_id(store, "aud")?,
+        ts: arg_str(args, "ts")?,
+        tool_id: arg_str(args, "toolId")?,
+        app_id: arg_opt_str(args, "appId"),
+        command: arg_str(args, "command")?,
+        risk,
+        decision,
+        args_digest: arg_opt_str(args, "argsDigest"),
+        result_digest: arg_opt_str(args, "resultDigest"),
+        user_visible: arg_bool(args, "userVisible", true),
+    };
+    store.record_audit(&entry)?;
+    // 宿主 tracing 同名 audit 事件：字段与平台 `apps:control` 桥的审计行同形，
+    // 排障时两侧可互相关联（只记摘要，不记参数 / 结果原文）。
+    WasmHost.log_info(&format!(
+        "audit caller={PLUGIN_ID} target={} tool={} command={} risk={} decision={} args={} result={}",
+        entry.app_id.as_deref().unwrap_or("-"),
+        entry.tool_id,
+        entry.command,
+        entry.risk,
+        entry.decision,
+        entry.args_digest.as_deref().unwrap_or("-"),
+        entry.result_digest.as_deref().unwrap_or("-"),
+    ));
+    Ok(json!({ "ok": true, "id": entry.id }))
+}
+
+/// 清空审计（设置页二次确认后调用）；返回删除行数。
+#[cfg(target_arch = "wasm32")]
+fn cmd_audit_clear() -> Result<Value, String> {
+    let store = &WasmHost as &dyn Store;
+    let deleted = store.clear_audit()?;
+    Ok(json!({ "ok": true, "deleted": deleted }))
 }
 
 // ==================== 供应商命令（wasm） ====================

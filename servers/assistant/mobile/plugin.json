@@ -78,6 +78,14 @@
         "title": "Assistant: Audit List"
       },
       {
+        "id": "assistant.audit-record",
+        "title": "Assistant: Audit Record"
+      },
+      {
+        "id": "assistant.audit-clear",
+        "title": "Assistant: Audit Clear"
+      },
+      {
         "id": "assistant.providers-list",
         "title": "Assistant: Providers List"
       },

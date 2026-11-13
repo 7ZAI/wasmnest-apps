@@ -78,6 +78,43 @@ const en: MessageSchema = {
   'assistant.settings.noProviders': 'No provider yet — add one before chatting.',
   'assistant.settings.fieldsRequired': 'Name, base URL and model are all required',
   'assistant.settings.privacyHint': 'Conversations are sent to your chosen provider. Keys stay in the local vault and are never uploaded.',
+
+  'assistant.chat.stopAndLock': 'Stop & lock',
+  'assistant.chat.stopAndLockHint': 'Stop generating and lock the vault immediately',
+
+  // ==================== Tool runtime (ticket 13) ====================
+  'assistant.tools.risk.read': 'Read',
+  'assistant.tools.risk.ui': 'UI',
+  'assistant.tools.risk.write': 'Write (confirm)',
+  'assistant.tools.risk.danger': 'Danger (double confirm)',
+  'assistant.tools.card.pending': 'Awaiting approval…',
+  'assistant.tools.card.running': 'Running…',
+  'assistant.tools.card.ok': 'Done',
+  'assistant.tools.card.error': 'Failed',
+  'assistant.tools.card.blocked': 'Not executed',
+  'assistant.tools.card.opening': 'Opening / switching…',
+  'assistant.tools.confirm.title': 'Tool request: allow this call?',
+  'assistant.tools.confirm.dangerTitle': 'Confirm dangerous action (step 2)',
+  'assistant.tools.confirm.tool': 'Tool',
+  'assistant.tools.confirm.app': 'Target app',
+  'assistant.tools.confirm.risk': 'Risk',
+  'assistant.tools.confirm.raised': '(raised by assistant policy)',
+  'assistant.tools.confirm.args': 'Args digest',
+  'assistant.tools.confirm.reject': 'Reject',
+  'assistant.tools.confirm.approve': 'Approve',
+  'assistant.tools.confirm.cancel': 'Cancel',
+  'assistant.tools.confirm.confirmDanger': 'Confirm',
+
+  // ==================== Tool audit (ticket 13) ====================
+  'assistant.audit.title': 'Tool audit',
+  'assistant.audit.refresh': 'Refresh',
+  'assistant.audit.export': 'Export',
+  'assistant.audit.clear': 'Clear',
+  'assistant.audit.clearConfirm': 'Click again to clear',
+  'assistant.audit.loading': 'Loading…',
+  'assistant.audit.empty': 'No tool calls yet',
+  'assistant.audit.testTools': 'Enable test tools (write / danger)',
+  'assistant.audit.testToolsHint': 'Verification only: exposes test.echo (write) and test.danger (danger) to the model. test.danger only echoes its argument and never deletes or modifies data. Takes effect after Nest is reopened.',
 }
 
 export default en

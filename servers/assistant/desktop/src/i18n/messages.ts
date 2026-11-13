@@ -86,5 +86,42 @@ export type MessageSchema = {
   'assistant.settings.default': string
   'assistant.settings.noProviders': string
   'assistant.settings.fieldsRequired': string
-  'assistant.settings.privacyHint': string
+  'assistant.settings.privacyHint': string,
+
+  'assistant.chat.stopAndLock': string
+  'assistant.chat.stopAndLockHint': string
+
+  // ==================== 工具运行时（票 13） ====================
+  'assistant.tools.risk.read': string
+  'assistant.tools.risk.ui': string
+  'assistant.tools.risk.write': string
+  'assistant.tools.risk.danger': string
+  'assistant.tools.card.pending': string
+  'assistant.tools.card.running': string
+  'assistant.tools.card.ok': string
+  'assistant.tools.card.error': string
+  'assistant.tools.card.blocked': string
+  'assistant.tools.card.opening': string
+  'assistant.tools.confirm.title': string
+  'assistant.tools.confirm.dangerTitle': string
+  'assistant.tools.confirm.tool': string
+  'assistant.tools.confirm.app': string
+  'assistant.tools.confirm.risk': string
+  'assistant.tools.confirm.raised': string
+  'assistant.tools.confirm.args': string
+  'assistant.tools.confirm.reject': string
+  'assistant.tools.confirm.approve': string
+  'assistant.tools.confirm.cancel': string
+  'assistant.tools.confirm.confirmDanger': string
+
+  // ==================== 工具审计（票 13） ====================
+  'assistant.audit.title': string
+  'assistant.audit.refresh': string
+  'assistant.audit.export': string
+  'assistant.audit.clear': string
+  'assistant.audit.clearConfirm': string
+  'assistant.audit.loading': string
+  'assistant.audit.empty': string
+  'assistant.audit.testTools': string
+  'assistant.audit.testToolsHint': string
 }

@@ -89,7 +89,9 @@ function makeSession(): NestChatSession {
 
 /** 取内部 agent（private 只影响编译期；本用例需要检查 transcript 内容） */
 function agentOf(session: NestChatSession): {
-  state: { messages: Array<{ role: string; content: unknown }> }
+  state: {
+    messages: Array<{ role: string; content: unknown; toolsAdded?: Array<{ name: string }> }>
+  }
 } | null {
   return (session as unknown as { agent: ReturnType<typeof agentOf> }).agent
 }
@@ -107,6 +109,10 @@ describe('票 09 修复：会话切换', () => {
     const agentA = agentOf(session)
     expect(agentA, '打开会话后应重建 agent').not.toBeNull()
     expect(transcriptText(session)).toContain('A 会话的消息')
+    // 票 13：system 消息（含工具声明）必须置顶；赋 state.messages 会把它丢掉
+    const head = agentA?.state.messages[0]
+    expect(head?.role).toBe('system')
+    expect(head?.toolsAdded?.map((tool) => tool.name)).toContain('time.now')
 
     await session.openConversation('b')
     const agentB = agentOf(session)

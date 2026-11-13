@@ -25,7 +25,10 @@ import type { AssistantMessage, Message, TextContent } from '@earendil-works/pi-
 import { createNestAgent } from '../agent/agent'
 import { buildSystemPrompt, type PromptLang } from '../prompt/system'
 import { apiStyleToPiApi } from '../providers/styles'
-import { randomHex, NONCE_BYTES } from '../vault'
+import { createToolRuntime, type ToolRuntime } from '../tools/runtime'
+import { builtinTools, testTools } from '../tools/builtin'
+import type { ToolCallCard, ToolConfirmRequest, ToolPolicy } from '../tools/types'
+import { randomHex, NONCE_BYTES, vaultLock } from '../vault'
 import {
   ASSISTANT_CONVERSATIONS_ARCHIVE_COMMAND,
   ASSISTANT_CONVERSATIONS_CREATE_COMMAND,
@@ -74,6 +77,10 @@ export interface ChatSessionDeps {
    * 的上下文文本，置于 transcript 最前；返回 null / 未提供则不用。
    */
   resolveMemoryContext?: () => Promise<string | null>
+  /** 工具风险策略（票 13：应用声明之外只升不降） */
+  toolPolicy?: ToolPolicy
+  /** 是否把 `test.echo` / `test.danger` 注册给模型（默认关；验收 / 调试用） */
+  enableTestTools?: boolean
 }
 
 /** 本地生成的临时消息 id（未落库的流式卡） */
@@ -87,6 +94,10 @@ export class NestChatSession {
   archivedConversations: ConversationRecord[] = []
   currentId: string | null = null
   messages: ChatMessage[] = []
+  /** 工具卡（票 13；按 toolCallId 原地更新，不换数组身份） */
+  toolCards: ToolCallCard[] = []
+  /** 等待用户确认的工具调用（null = 没有待确认卡；danger 会先后来两次） */
+  toolConfirm: ToolConfirmRequest | null = null
   streaming = false
   providers: ProviderRecord[] = []
 
@@ -97,9 +108,13 @@ export class NestChatSession {
 
   private agent: Agent | null = null
   private agentProviderId: string | null = null
+  /** 工具运行时（与 agent 同生命周期；票 13） */
+  private toolRuntime: ToolRuntime | null = null
   private lastSeq = 0
   private unsubscribeAgent: (() => void) | null = null
   private streamingMsgId: string | null = null
+  /** 待确认 Promise 的解决器（急停 / 切会话时先拒掉） */
+  private resolveConfirm: ((approved: boolean) => void) | null = null
   /** 当前会话的摘要文本（仅入 transcript，不进 UI 消息流；票 09） */
   private summaryText: string | null = null
   private deps: ChatSessionDeps
@@ -255,6 +270,8 @@ export class NestChatSession {
     // 就地清空而不是换数组：消息数组被端侧包了 reactive 代理，换数组会让
     // 已建立的响应式绑定指向旧数组（切会话后历史 / 流式增量不刷新）。
     this.messages.splice(0, this.messages.length)
+    // 工具卡也属于当前会话的运行面：切会话后旧卡不得残留（票 13）
+    this.toolCards.splice(0, this.toolCards.length)
     this.lastSeq = 0
     this.summaryText = null
     const conv = await this.deps.invoke<{ conversations: ConversationRecord[] }>(
@@ -328,12 +345,29 @@ export class NestChatSession {
       this.summaryText,
       memoryContext,
     )
+    // 工具运行时与 agent 同生命周期（票 13）：确认 / 工具卡 / 审计都从这里进
+    const runtime = createToolRuntime(
+      [...builtinTools(), ...(this.deps.enableTestTools ? testTools() : [])],
+      {
+        invoke: this.deps.invoke,
+        policy: this.deps.toolPolicy,
+        confirm: (req) => this.requestToolConfirm(req),
+        onCard: (card) => this.upsertToolCard(card),
+        onAuditError: (msg) => this.log('warn', `[nest] 审计写入失败：${msg}`),
+        log: (l, msg) => this.log(l, msg),
+      },
+    )
+    this.toolRuntime = runtime
     const agent = createNestAgent({
       invoke: this.deps.invoke,
       subscribe: this.deps.subscribe,
       systemPrompt: buildSystemPrompt(this.deps.lang),
       provider,
       log: (l, msg) => this.log(l, msg),
+      history: transcript,
+      tools: runtime.tools,
+      beforeToolCall: runtime.beforeToolCall,
+      afterToolCall: runtime.afterToolCall,
       resolveRequestContext: async (model) => {
         const p = this.providers.find((x) => x.id === model.provider)
         if (!p) return null
@@ -342,10 +376,8 @@ export class NestChatSession {
         return { apiStyle: p.apiStyle, apiKey: key, baseUrl: p.baseUrl, model: p.model }
       },
     })
-    // 用历史消息重建 transcript（initialState.messages 赋值会拷贝数组）
-    if (transcript.length > 0) {
-      agent.state.messages = transcript
-    }
+    // 历史已经作为 initialState.messages 传进 Agent（system + 工具声明置顶），
+    // 这里**不能**再赋 `agent.state.messages`：那会把含 toolsAdded 的 system 消息丢掉。
     this.subscribeAgent(agent)
     this.agent = agent
     this.agentProviderId = provider.id
@@ -360,6 +392,10 @@ export class NestChatSession {
   }
 
   private teardownAgent(): void {
+    // 旧 agent 的运行时一并失效：拒绝等待中的确认，后续工具不再执行（票 13）
+    this.toolRuntime?.halt()
+    this.toolRuntime = null
+    this.resolveToolConfirm(false)
     this.unsubscribeAgent?.()
     this.unsubscribeAgent = null
     this.agent = null
@@ -485,16 +521,56 @@ export class NestChatSession {
       await this.refreshConversations()
     }
 
-    // 起 agent 并发送
+    // 起 agent 并发送（reset：新的一轮恢复工具闸门，上轮的急停不跨轮）
     const agent = await this.ensureAgent()
+    this.toolRuntime?.reset()
     await agent.prompt(content)
   }
 
-  /** 停止当前生成（agent.abort；StreamFn 编码 aborted） */
+  /**
+   * 停止当前生成（agent.abort；StreamFn 编码 aborted）。
+   *
+   * 先 halt 工具运行时：排队中 / 等确认的工具一律 block（不再执行），
+   * 再 abort 流；顺序颠倒会让确认回调先返回再被 halt 追尾。
+   */
   stop(): void {
+    this.toolRuntime?.halt()
+    this.resolveToolConfirm(false)
     if (this.agent && this.streaming) {
       this.log('warn', '[nest] 用户停止生成（宿主可能仍在后台读取流）')
       this.agent.abort()
+    }
+  }
+
+  /** 「停止并锁定保险库」（spec §5.9）：停止生成后立即锁库；锁失败原样上交 */
+  async stopAndLockVault(): Promise<void> {
+    this.stop()
+    await vaultLock(this.deps.invoke)
+  }
+
+  /** 工具确认 UI 回调：把确认请求挂到响应式字段，等 `resolveToolConfirm` */
+  private requestToolConfirm(request: ToolConfirmRequest): Promise<boolean> {
+    return new Promise<boolean>((resolve) => {
+      this.resolveConfirm = resolve
+      this.toolConfirm = request
+    })
+  }
+
+  /** UI 侧批准 / 拒绝（danger 两次确认也走这里；每次只对应一个请求） */
+  resolveToolConfirm(approved: boolean): void {
+    const resolve = this.resolveConfirm
+    this.resolveConfirm = null
+    this.toolConfirm = null
+    resolve?.(approved)
+  }
+
+  /** 工具卡按 toolCallId 原地 upsert（不换数组 / 不换对象，响应式绑定不断） */
+  private upsertToolCard(card: ToolCallCard): void {
+    const existing = this.toolCards.find((c) => c.toolCallId === card.toolCallId)
+    if (existing) {
+      Object.assign(existing, card)
+    } else {
+      this.toolCards.push(card)
     }
   }
 
@@ -514,11 +590,14 @@ export class NestChatSession {
       this.agent.state.messages = msgs.slice(0, idx)
     }
     this.log('info', '[nest] 用户手动重试（不重放已发生的副作用）')
+    this.toolRuntime?.reset()
     await this.agent.continue()
   }
 
   /** 销毁（切换会话 / 卸载） */
   dispose(): void {
+    this.toolRuntime?.halt()
+    this.resolveToolConfirm(false)
     if (this.streaming) this.stop()
     this.teardownAgent()
   }

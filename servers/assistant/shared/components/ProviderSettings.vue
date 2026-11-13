@@ -8,13 +8,16 @@
  * 纯展示 + 表单组件：命令调用由父级（ChatView）经 emit 上交。
  */
 import { computed, reactive, ref } from 'vue'
-import type { ProviderApiStyle, ProviderRecord } from '@nest-shared/types'
+import AuditView from './AuditView.vue'
+import type { AssistantInvoke, ProviderApiStyle, ProviderRecord } from '@nest-shared/types'
 
 const props = defineProps<{
   providers: ProviderRecord[]
   /** providerId → 是否已设密钥（父级维护，不回显密钥内容） */
   keySet: Record<string, boolean>
   t: (key: string) => string
+  /** 审计面板的命令面（票 13；设置页内嵌查看 / 导出 / 清空） */
+  invoke: AssistantInvoke
 }>()
 
 const emit = defineEmits<{
@@ -171,6 +174,9 @@ function remove(p: ProviderRecord): void {
       </div>
       <p class="nest-settings__hint">{{ t('assistant.settings.privacyHint') }}</p>
     </form>
+
+    <!-- 工具审计（票 13）：查看 / 导出 / 清空；测试工具开关用于验收四档与急停 -->
+    <AuditView :invoke="invoke" :t="t" />
   </section>
 </template>
 
