@@ -39,6 +39,12 @@ describe('formatTokens', () => {
     expect(formatTokens(1_050_000)).toBe('1.1M')
   })
 
+  it('十亿级用 B 不用 G（行业统计单位）', () => {
+    expect(formatTokens(1_500_000_000)).toBe('1.5B')
+    expect(formatTokens(2_000_000_000)).toBe('2.0B')
+    expect(formatTokens(1_200_000_000_000)).toBe('1.2T')
+  })
+
   it('非零小量不产生假零', () => {
     // 40 tokens → 0.04k → 向上进位为 0.1k（显示 0k 与源数据矛盾）
     expect(formatTokens(40)).toBe('40') // 千以下原样
