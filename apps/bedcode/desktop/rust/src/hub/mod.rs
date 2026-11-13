@@ -233,6 +233,7 @@ pub(crate) fn invoke_command(
         "agent.distribute-skill" => skills::distribute(&h, &args),
         "agent.install-github-skill" => skills::install_github(&h, &args),
         "agent.import-skill" => skills::import_local(&h, &args),
+        "agent.search-skills" => skills::search(&h, &args),
         // ==================== 供应商统一管理 ====================
         "agent.get-providers-state" => providers::get_state(&h),
         "agent.save-preset" => providers::save_preset(&h, &args),

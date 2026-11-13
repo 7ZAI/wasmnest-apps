@@ -983,6 +983,77 @@
   flex-wrap: wrap;
 }
 
+/* 搜索行（§搜索）：输入框复用 .ah-input，右侧是模式分段 */
+.ah-sk-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+/* 本地 / 联网 分段：底槽 + 选中项上色（与 .ah-tab 同一语义） */
+.ah-sk-search-modes {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--radius-button);
+  background: var(--bg-hover);
+  flex-shrink: 0;
+}
+
+.ah-sk-mode-btn {
+  height: 26px;
+  padding: 0 10px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--ah-text-data);
+  font-family: inherit;
+  font-size: var(--font-size-tag);
+  /* 字重恒定：选中不改字重，避免分段栏随选中项宽度变化（同 .ah-tab） */
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color 0.15s,
+    color 0.15s;
+}
+
+.ah-sk-mode-btn:hover {
+  background: var(--bg-hover);
+}
+
+.ah-sk-mode-btn.active {
+  background: var(--color-primary);
+  color: var(--color-primary-contrast);
+}
+
+.ah-sk-mode-btn:focus-visible {
+  outline: 2px solid var(--text-primary);
+  outline-offset: -2px;
+}
+
+.ah-sk-mode-btn.active:focus-visible {
+  outline-color: var(--color-primary-contrast);
+}
+
+.ah-sk-search-hint {
+  margin-top: 6px;
+}
+
+/* 联网结果头行：命中条数 + 近似合并提示 */
+.ah-sk-search-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 8px 0 2px;
+  color: var(--ah-text-data);
+  font-size: var(--font-size-tag);
+}
+
 /* GitHub 安装表单 */
 .ah-sk-github-row {
   display: flex;

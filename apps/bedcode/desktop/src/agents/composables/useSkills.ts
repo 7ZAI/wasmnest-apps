@@ -8,6 +8,8 @@
  *   GitHub 安装为同步命令（多次 host-http 往返），本地瞬态遮罩
  * - 编辑流：read-skill 装载 → 前端 diff 预览 → save-skill（冲突时 guest
  *   返回磁盘现状，由编辑器组件呈现冲突 UI）
+ * - 联网搜索：skills.sh API（精确查询 + 逐词近似合并），同步命令，结果由
+ *   组件持有（不进域状态——搜索是视图态，不应被事件回流覆盖）
  */
 import { onMounted, onUnmounted, ref } from 'vue'
 import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-desktop'
@@ -15,6 +17,7 @@ import type {
   GithubInstallResult,
   ImportSkillResult,
   SkillDetail,
+  SkillSearchResponse,
   SkillsDomainState,
 } from '../types'
 
@@ -100,18 +103,47 @@ export function useSkills(context: PluginContext) {
     }
   }
 
-  /** GitHub 安装（overwrite 用于同名 skill 的覆盖确认重试） */
-  async function installGithub(url: string, overwrite = false): Promise<GithubInstallResult | null> {
+  /**
+   * GitHub 安装（overwrite 用于同名 skill 的覆盖确认重试）
+   *
+   * `skill` = 只装仓库里的某一个 skill（联网搜索结果安装：skills.sh 结果是
+   * `owner/repo@skill`，不是仓库 URL；guest 按 skill 名定位目录）。
+   */
+  async function installGithub(
+    url: string,
+    overwrite = false,
+    skill?: string,
+  ): Promise<GithubInstallResult | null> {
     if (githubBusy.value) return null
     githubBusy.value = true
     try {
-      const data = await context.commands.execute('agent.install-github-skill', { url, overwrite })
+      const data = await context.commands.execute('agent.install-github-skill', {
+        url,
+        overwrite,
+        ...(skill ? { skill } : {}),
+      })
       return (data ?? null) as GithubInstallResult | null
     } catch (e) {
       console.error('[Agent Hub] install-github-skill failed', e)
       return null
     } finally {
       githubBusy.value = false
+    }
+  }
+
+  /**
+   * skills.sh 联网搜索（同步命令：精确查询 + 逐词近似合并，1–4 次 host-http）
+   *
+   * 返回 null 只代表命令本身失败（宿主管道/权限）；网络不可达由返回体的
+   * `error` 字段表达，前端据此给出可见提示而非空结果。
+   */
+  async function searchRemote(query: string): Promise<SkillSearchResponse | null> {
+    try {
+      const data = await context.commands.execute('agent.search-skills', { query })
+      return (data ?? null) as SkillSearchResponse | null
+    } catch (e) {
+      console.error('[Agent Hub] search-skills failed', e)
+      return null
     }
   }
 
@@ -151,6 +183,7 @@ export function useSkills(context: PluginContext) {
     saveSkill,
     distribute,
     installGithub,
+    searchRemote,
     importLocal,
   }
 }

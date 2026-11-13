@@ -37,7 +37,7 @@ import AgentHubView from '../../agents/components/AgentHubView.vue'
 import NodeBootstrapDialog from '../../agents/components/NodeBootstrapDialog.vue'
 import NodeRemoveDialog from '../../agents/components/NodeRemoveDialog.vue'
 import { CODE_NODE_MISSING } from '../../agents/composables/useInstall'
-import type { AdapterErrorCode, ProviderPreset, ProvidersDomainState, UsageSessionDetail, UsageSessionRow, UsageSource } from '../../agents/types'
+import type { AdapterErrorCode, ProviderPreset, ProvidersDomainState, SkillEntry, SkillSearchHit, UsageSessionDetail, UsageSessionRow, UsageSource } from '../../agents/types'
 import type { UseProvidersReturn } from '../../agents/composables/useProviders'
 import type { CliSessionState, StatsDays, UseUsageReturn } from '../../agents/composables/useUsage'
 import { AGENT_HUB } from './helpers/contrast'
@@ -2566,6 +2566,245 @@ describe('A5 SkillsTab：GitHub / 本地导入 覆盖确认', () => {
     await w.get('[data-testid="import-local"]').trigger('click')
     await flushPromises()
     expect(w.text()).toContain('hub.skill.import.authDenied')
+    w.unmount()
+  })
+})
+
+// ==================== A7 SkillsTab：本地 / 联网搜索 ====================
+
+describe('A7 SkillsTab：本地过滤与 skills.sh 联网搜索', () => {
+  function skillEntry(over: Partial<SkillEntry> = {}): SkillEntry {
+    return {
+      dir: 'code-review',
+      path: '/home/u/.agents/skills/code-review',
+      name: 'code-review',
+      description: 'Review a diff against repo standards',
+      allowedTools: null,
+      files: [],
+      hash: 'h',
+      error: null,
+      distribution: {},
+      ...over,
+    }
+  }
+
+  function searchHit(over: Partial<SkillSearchHit> = {}): SkillSearchHit {
+    return {
+      id: 'vercel-labs/agent-skills/vercel-react-best-practices',
+      name: 'vercel-react-best-practices',
+      source: 'vercel-labs/agent-skills',
+      skillId: 'vercel-react-best-practices',
+      installs: 893_012,
+      install: 'vercel-labs/agent-skills@vercel-react-best-practices',
+      url: 'https://skills.sh/vercel-labs/agent-skills/vercel-react-best-practices',
+      ...over,
+    }
+  }
+
+  function skillsStub(skills: SkillEntry[], over: Partial<UseSkillsReturn> = {}): UseSkillsReturn {
+    return {
+      state: ref({
+        status: 'ready',
+        libraryRoot: '/home/u/.agents/skills',
+        skills,
+        import: { last: null },
+        github: { last: null },
+      }),
+      scanning: ref(false),
+      importing: ref(false),
+      busy: ref(false),
+      githubBusy: ref(false),
+      distributing: ref(null),
+      scan: vi.fn(),
+      importLocal: vi.fn(),
+      installGithub: vi.fn(),
+      searchRemote: vi.fn(),
+      distribute: vi.fn(),
+      ...over,
+    } as unknown as UseSkillsReturn
+  }
+
+  const library = [
+    skillEntry({ dir: 'react-review', name: 'react-review', description: 'PR review helper' }),
+    skillEntry({ dir: 'changelog', name: 'changelog', description: 'changelog generator' }),
+  ]
+
+  it('本地模式：输入即按多词 AND 过滤，计数与无命中空态同步', async () => {
+    const w = mountComponent(SkillsTab, { detection: { authGranted: true }, skills: skillsStub(library) })
+    await flushPromises()
+    expect(w.findAll('[data-testid^="skill-row-"]')).toHaveLength(2)
+    expect(w.text()).toContain('hub.skill.search.localHint(n=2,total=2)')
+
+    await w.get('[data-testid="skill-search-input"]').setValue('react review')
+    await flushPromises()
+    expect(w.findAll('[data-testid^="skill-row-"]')).toHaveLength(1)
+    expect(w.text()).toContain('hub.skill.search.localHint(n=1,total=2)')
+
+    await w.get('[data-testid="skill-search-input"]').setValue('nothing-matches')
+    await flushPromises()
+    expect(w.findAll('[data-testid^="skill-row-"]')).toHaveLength(0)
+    expect(w.find('[data-testid="skill-search-no-match"]').exists()).toBe(true)
+    w.unmount()
+  })
+
+  it('本地模式不发联网命令（切到联网才搜索）', async () => {
+    const searchRemote = vi.fn()
+    const w = mountComponent(SkillsTab, {
+      detection: { authGranted: true },
+      skills: skillsStub(library, { searchRemote }),
+    })
+    await flushPromises()
+    await w.get('[data-testid="skill-search-input"]').setValue('react')
+    await flushPromises()
+    expect(searchRemote).not.toHaveBeenCalled()
+    expect(w.find('[data-testid="search-remote-go"]').exists()).toBe(false)
+    w.unmount()
+  })
+
+  it('联网搜索：渲染可信度 / 安装命令 / 详情链接，安装携 skill 名（只装命中的那个）', async () => {
+    const searchRemote = vi.fn().mockResolvedValue({
+      query: 'react',
+      results: [searchHit()],
+      exactCount: 1,
+      fallback: false,
+      error: null,
+    })
+    const installGithub = vi.fn().mockResolvedValue({ installed: ['react-best-practices'], skippedFiles: 0 })
+    const w = mountComponent(SkillsTab, {
+      detection: { authGranted: true },
+      skills: skillsStub(library, { searchRemote, installGithub }),
+    })
+    await flushPromises()
+    await w.get('[data-testid="search-mode-remote"]').trigger('click')
+    await w.get('[data-testid="skill-search-input"]').setValue('react')
+    await w.get('[data-testid="search-remote-go"]').trigger('click')
+    await flushPromises()
+
+    expect(searchRemote).toHaveBeenCalledWith('react')
+    const row = w.get('[data-testid="search-result-vercel-labs/agent-skills/vercel-react-best-practices"]')
+    expect(row.text()).toContain('npx skills add vercel-labs/agent-skills@vercel-react-best-practices')
+    expect(row.text()).toContain('https://skills.sh/vercel-labs/agent-skills/vercel-react-best-practices')
+    expect(row.text()).toContain('hub.skill.search.installs(n=893k)')
+    expect(row.text()).toContain('hub.skill.search.trustHigh')
+    expect(row.text()).toContain('hub.skill.search.official')
+    // 精确命中时不给「近似结果」标签
+    expect(w.find('[data-testid="search-fallback"]').exists()).toBe(false)
+
+    await w.get('[data-testid="search-install-vercel-labs/agent-skills/vercel-react-best-practices"]').trigger('click')
+    await flushPromises()
+    expect(installGithub).toHaveBeenCalledWith(
+      'https://github.com/vercel-labs/agent-skills',
+      false,
+      'vercel-react-best-practices',
+    )
+    w.unmount()
+  })
+
+  it('联网安装同名冲突：出现确认条，确认后 overwrite=true 重试同一 skill', async () => {
+    const searchRemote = vi.fn().mockResolvedValue({
+      query: 'react',
+      results: [searchHit()],
+      exactCount: 1,
+      fallback: false,
+      error: null,
+    })
+    const installGithub = vi
+      .fn()
+      .mockResolvedValueOnce({ installed: false, exists: ['react-best-practices'] })
+      .mockResolvedValueOnce({ installed: true, names: ['react-best-practices'], skippedFiles: 0 })
+    const w = mountComponent(SkillsTab, {
+      detection: { authGranted: true },
+      skills: skillsStub(library, { searchRemote, installGithub }),
+    })
+    await flushPromises()
+    await w.get('[data-testid="search-mode-remote"]').trigger('click')
+    await w.get('[data-testid="skill-search-input"]').setValue('react')
+    await w.get('[data-testid="search-remote-go"]').trigger('click')
+    await flushPromises()
+
+    await w.get('[data-testid="search-install-vercel-labs/agent-skills/vercel-react-best-practices"]').trigger('click')
+    await flushPromises()
+    expect(w.find('[data-testid="registry-confirm"]').exists()).toBe(true)
+
+    await w.get('[data-testid="registry-confirm"] .ah-btn-ghost').trigger('click')
+    await flushPromises()
+    expect(installGithub).toHaveBeenNthCalledWith(
+      2,
+      'https://github.com/vercel-labs/agent-skills',
+      true,
+      'vercel-react-best-practices',
+    )
+    expect(w.find('[data-testid="registry-confirm"]').exists()).toBe(false)
+    w.unmount()
+  })
+
+  it('联网搜索失败：把 guest 的 error 透出，不渲染空结果表', async () => {
+    const searchRemote = vi.fn().mockResolvedValue({
+      query: 'react',
+      results: [],
+      exactCount: 0,
+      fallback: false,
+      error: 'skills.sh returned HTTP 503',
+    })
+    const w = mountComponent(SkillsTab, {
+      detection: { authGranted: true },
+      skills: skillsStub(library, { searchRemote }),
+    })
+    await flushPromises()
+    await w.get('[data-testid="search-mode-remote"]').trigger('click')
+    await w.get('[data-testid="skill-search-input"]').setValue('react')
+    await w.get('[data-testid="search-remote-go"]').trigger('click')
+    await flushPromises()
+
+    expect(w.find('[data-testid="search-error"]').exists()).toBe(true)
+    expect(w.text()).toContain('skills.sh returned HTTP 503')
+    expect(w.find('[data-testid="search-results"]').exists()).toBe(false)
+    w.unmount()
+  })
+
+  it('联网结果为空时给可行动的空态（不是空白）', async () => {
+    const searchRemote = vi.fn().mockResolvedValue({
+      query: 'quux',
+      results: [],
+      exactCount: 0,
+      fallback: false,
+      error: null,
+    })
+    const w = mountComponent(SkillsTab, {
+      detection: { authGranted: true },
+      skills: skillsStub(library, { searchRemote }),
+    })
+    await flushPromises()
+    await w.get('[data-testid="search-mode-remote"]').trigger('click')
+    await w.get('[data-testid="skill-search-input"]').setValue('quux')
+    await w.get('[data-testid="search-remote-go"]').trigger('click')
+    await flushPromises()
+
+    expect(w.find('[data-testid="search-empty"]').exists()).toBe(true)
+    expect(w.text()).toContain('hub.skill.search.remoteEmpty(q=quux)')
+    w.unmount()
+  })
+
+  it('未授权时安装按钮置灰（写盘动作依赖目录授权）', async () => {
+    const searchRemote = vi.fn().mockResolvedValue({
+      query: 'react',
+      results: [searchHit()],
+      exactCount: 1,
+      fallback: false,
+      error: null,
+    })
+    const w = mountComponent(SkillsTab, {
+      detection: { authGranted: false },
+      skills: skillsStub(library, { searchRemote }),
+    })
+    await flushPromises()
+    await w.get('[data-testid="search-mode-remote"]').trigger('click')
+    await w.get('[data-testid="skill-search-input"]').setValue('react')
+    await w.get('[data-testid="search-remote-go"]').trigger('click')
+    await flushPromises()
+
+    const btn = w.get('[data-testid="search-install-vercel-labs/agent-skills/vercel-react-best-practices"]')
+    expect(btn.attributes('disabled')).toBeDefined()
     w.unmount()
   })
 })

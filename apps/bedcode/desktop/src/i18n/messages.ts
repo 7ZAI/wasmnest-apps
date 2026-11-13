@@ -843,6 +843,36 @@ export type MessageSchema = {
   'hub.skill.github.unreachable': string
   'hub.skill.github.failed': string
 
+  // ==================== Skills · 搜索（本地 / skills.sh 联网） ====================
+  'hub.skill.search.placeholder': string
+  'hub.skill.search.local': string
+  'hub.skill.search.remote': string
+  'hub.skill.search.modeLabel': string
+  // 参数：n（命中）/ total（库内总数）
+  'hub.skill.search.localHint': string
+  'hub.skill.search.remoteHint': string
+  'hub.skill.search.action': string
+  'hub.skill.search.searching': string
+  'hub.skill.search.failed': string
+  'hub.skill.search.installFailed': string
+  'hub.skill.search.remoteIdle': string
+  // 参数：q（查询串）
+  'hub.skill.search.remoteEmpty': string
+  'hub.skill.search.remoteEmptyHint': string
+  // 参数：n（条数）/ q（查询串）
+  'hub.skill.search.count': string
+  'hub.skill.search.fallback': string
+  // 参数：q（查询串）
+  'hub.skill.search.noMatch': string
+  'hub.skill.search.noMatchHint': string
+  // 参数：n（安装量缩写）
+  'hub.skill.search.installs': string
+  'hub.skill.search.trustHigh': string
+  'hub.skill.search.trustMid': string
+  'hub.skill.search.trustLow': string
+  'hub.skill.search.official': string
+  'hub.skill.search.install': string
+
   // ==================== Skills · 本地导入（票据 04） ====================
   'hub.skill.import.action': string
   'hub.skill.import.exists': string

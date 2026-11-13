@@ -291,6 +291,8 @@ describe('C1 工程身份五处一致', () => {
       'agent.save-skill',
       'agent.scan-skills',
       'agent.scan-usage',
+      // skills.sh 联网搜索（Skills 分区搜索行）
+      'agent.search-skills',
       'agent.speed-test',
       'agent.uninstall',
       // Agent 编排（v1）：命令面 + 宿主定时器回调（manifest_gen 以 invoke_command

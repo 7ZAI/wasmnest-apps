@@ -451,6 +451,10 @@
         "title": "Agent Hub: Scan Usage Sessions"
       },
       {
+        "id": "agent.search-skills",
+        "title": "Agent Hub: Search Skills (skills.sh)"
+      },
+      {
         "id": "agent.speed-test",
         "title": "Agent Hub: Speed Test Registries"
       },

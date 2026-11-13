@@ -876,6 +876,32 @@ const zhCN: MessageSchema = {
   'hub.skill.github.unreachable': 'GitHub 不可达：请检查网络，或配置代理/镜像后重试。',
   'hub.skill.github.failed': '安装失败',
 
+  // ==================== Skills · 搜索（本地 / skills.sh 联网） ====================
+  'hub.skill.search.placeholder': '搜索 skill（名称 / 描述 / 关键词）',
+  'hub.skill.search.local': '本地',
+  'hub.skill.search.remote': '联网',
+  'hub.skill.search.modeLabel': '搜索范围',
+  'hub.skill.search.localHint': '规范库内匹配 {n} / {total}；输入即筛。',
+  'hub.skill.search.remoteHint':
+    '联网搜索走 skills.sh（与 npx skills find 同一数据源）：安装量 ≥1K 优先信任，<100 谨慎，官方来源更可靠。',
+  'hub.skill.search.action': '联网搜索',
+  'hub.skill.search.searching': '搜索中…',
+  'hub.skill.search.failed': '搜索失败：skills.sh 不可达或响应异常。',
+  'hub.skill.search.installFailed': '安装失败',
+  'hub.skill.search.remoteIdle': '输入关键词后开始联网搜索',
+  'hub.skill.search.remoteEmpty': '没有找到与「{q}」相关的 skill',
+  'hub.skill.search.remoteEmptyHint': '换个说法或缩短关键词再试；也可以直接用 GitHub 链接安装，或导入本地目录。',
+  'hub.skill.search.count': '「{q}」命中 {n} 个 skill',
+  'hub.skill.search.fallback': '含按词拆分的近似结果',
+  'hub.skill.search.noMatch': '规范库内没有匹配「{q}」的 skill',
+  'hub.skill.search.noMatchHint': '清空关键词查看全部；或切到联网搜索去 skills.sh 找现成的。',
+  'hub.skill.search.installs': '{n} 安装',
+  'hub.skill.search.trustHigh': '高采用',
+  'hub.skill.search.trustMid': '中等采用',
+  'hub.skill.search.trustLow': '低采用',
+  'hub.skill.search.official': '官方来源',
+  'hub.skill.search.install': '安装',
+
   // ==================== Skills · 本地导入（票据 04） ====================
   'hub.skill.import.action': '导入本地目录',
   'hub.skill.import.exists': '「{name}」已存在，确认覆盖导入？',

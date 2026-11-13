@@ -914,6 +914,32 @@ const en: MessageSchema = {
     'GitHub unreachable: check your network, or configure a proxy/mirror and retry.',
   'hub.skill.github.failed': 'Install failed',
 
+  // ==================== Skills · search (local / skills.sh) ====================
+  'hub.skill.search.placeholder': 'Search skills (name / description / keyword)',
+  'hub.skill.search.local': 'Local',
+  'hub.skill.search.remote': 'Online',
+  'hub.skill.search.modeLabel': 'Search scope',
+  'hub.skill.search.localHint': '{n} of {total} matched in the library; typing filters instantly.',
+  'hub.skill.search.remoteHint':
+    'Online search uses skills.sh (same source as `npx skills find`): prefer 1K+ installs, be cautious below 100, official sources are more trustworthy.',
+  'hub.skill.search.action': 'Search online',
+  'hub.skill.search.searching': 'Searching…',
+  'hub.skill.search.failed': 'Search failed: skills.sh unreachable or returned an invalid response.',
+  'hub.skill.search.installFailed': 'Install failed',
+  'hub.skill.search.remoteIdle': 'Type keywords, then search online',
+  'hub.skill.search.remoteEmpty': 'No skills found for "{q}"',
+  'hub.skill.search.remoteEmptyHint': 'Try different or shorter keywords; you can also install from a GitHub URL or import a local directory.',
+  'hub.skill.search.count': '{n} skills matched "{q}"',
+  'hub.skill.search.fallback': 'includes per-term fallback matches',
+  'hub.skill.search.noMatch': 'No skill in the library matches "{q}"',
+  'hub.skill.search.noMatchHint': 'Clear the query to see everything, or switch to online search on skills.sh.',
+  'hub.skill.search.installs': '{n} installs',
+  'hub.skill.search.trustHigh': 'widely used',
+  'hub.skill.search.trustMid': 'moderately used',
+  'hub.skill.search.trustLow': 'low adoption',
+  'hub.skill.search.official': 'official source',
+  'hub.skill.search.install': 'Install',
+
   // ==================== Skills · local import (ticket 04) ====================
   'hub.skill.import.action': 'Import local directory',
   'hub.skill.import.exists': '"{name}" already exists. Overwrite?',

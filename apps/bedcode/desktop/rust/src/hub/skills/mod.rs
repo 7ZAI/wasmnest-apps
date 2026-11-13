@@ -15,6 +15,7 @@
 //! - [`scan`]：规范库扫描（枚举 → 逐 skill 采集 → 分发比对）
 //! - [`editor`]：读 / 保存 / 分发命令
 //! - [`github`]：GitHub 安装（URL 解析 → trees API → raw 下载）
+//! - [`search`]：skills.sh 联网搜索（精确查询 + 逐词近似合并）
 //! - [`import`]：本地目录导入（pick-folders + 授权 → 枚举 → fs_copy）
 //! - 本模块：域状态（host-storage `skills` 键，读-改-写 + 全量推送）+ 命令入口
 //!
@@ -100,6 +101,7 @@ mod github;
 mod import;
 mod listing;
 mod scan;
+mod search;
 
 /// 命令入口面（lib.rs 路由）
 pub(crate) use editor::{distribute, read_skill, save_skill};
@@ -107,6 +109,7 @@ pub(crate) use github::install_github;
 pub(crate) use import::import_local;
 pub(crate) use listing::parse_listing;
 pub(crate) use scan::scan;
+pub(crate) use search::search;
 
 use super::{host, pending, HOME};
 use serde_json::{json, Value};
