@@ -42,6 +42,12 @@ export interface NestAgentDeps extends StreamFnDeps {
   tools?: AgentTool<any>[]
   /** 工具调用前置钩子（票 13：四档风险 + 确认 + 急停） */
   beforeToolCall?: (context: BeforeToolCallContext, signal?: AbortSignal) => Promise<BeforeToolCallResult | undefined>
+  /**
+   * 恢复的历史消息（不含 system）：作为 initialState.messages 传入，让 pi 把
+   * system + 工具声明置顶。**不要**再赋 `agent.state.messages`——那会把含
+   * toolsAdded 的首条 system 消息丢掉，模型再也看不到工具（票 13 实测缺陷）。
+   */
+  history?: Message[]
 }
 
 /**
@@ -56,7 +62,7 @@ export function createNestAgent(deps: NestAgentDeps): Agent {
     initialState: {
       systemPrompt: deps.systemPrompt,
       model,
-      messages: [],
+      messages: deps.history ?? [],
       tools: deps.tools ?? [],
     },
     streamFn: createStreamFn(deps),

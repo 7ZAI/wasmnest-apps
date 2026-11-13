@@ -426,6 +426,7 @@ export class NestChatSession {
       log: (l, msg) => this.log(l, msg),
       tools: this.runtime?.tools ?? [],
       beforeToolCall: this.runtime?.beforeToolCall,
+      history: transcript,
       resolveRequestContext: async (model) => {
         const p = this.providers.find((x) => x.id === model.provider)
         if (!p) return null
@@ -434,10 +435,6 @@ export class NestChatSession {
         return { apiStyle: p.apiStyle, apiKey: key, baseUrl: p.baseUrl, model: p.model }
       },
     })
-    // 用历史消息重建 transcript（initialState.messages 赋值会拷贝数组）
-    if (transcript.length > 0) {
-      agent.state.messages = transcript
-    }
     this.subscribeAgent(agent)
     this.agent = agent
     this.agentProviderId = provider.id
