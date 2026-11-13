@@ -60,7 +60,13 @@ const rows = computed<SkillRow[]>(() =>
   (state.value?.skills ?? []).map((entry) => ({
     entry,
     tags: targetIds.value
-      .filter((t) => entry.distribution[t]?.status !== 'none')
+      // 只认已分发 / 落后两种状态：持久化状态可能先于注册表变更（新增目标尚无
+      // 该字段），缺字段不能当成「有标签」——旧写法 `!== 'none'` 会把 undefined
+      // 也放进来，随后读 `.status` 直接崩整个页签。
+      .filter((t) => {
+        const status = entry.distribution[t]?.status
+        return status === 'distributed' || status === 'stale'
+      })
       .map((t) => ({
         target: t,
         status: entry.distribution[t].status as 'distributed' | 'stale',
