@@ -74,7 +74,6 @@ const preset = (overrides: Partial<PresetTask> = {}): PresetTask => ({
   content: '跑一遍单测',
   createdAt: '2026-10-27T08:00:00Z',
   updatedAt: '2026-10-27T08:00:00Z',
-  repeatable: true,
   status: 'executing',
   pendingTaskId: 'q1',
   pendingSessionId: 'sess-old',

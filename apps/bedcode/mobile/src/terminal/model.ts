@@ -13,8 +13,6 @@ export interface PresetTask {
   content: string
   createdAt: string
   updatedAt: string
-  /** 可重复：true 不受执行历史限制可反复入队；false 一旦执行过即锁定 */
-  repeatable: boolean
   /** 执行状态（本地记录，入队即视为已执行） */
   status: PresetTaskStatus
   /** 入队时记录的队列项 id，用于完成广播/移除事件匹配 */

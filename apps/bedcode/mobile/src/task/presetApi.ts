@@ -16,7 +16,7 @@ import type { PresetTask } from '../terminal/model'
 export interface PresetTaskStore {
   tasks: Ref<PresetTask[]>
   load(): Promise<void>
-  addTask(input: { content: string; repeatable?: boolean }): Promise<void>
+  addTask(input: { content: string }): Promise<void>
   updateTask(task: PresetTask): Promise<void>
   deleteTask(id: string): Promise<void>
   sendTask(task: PresetTask, sessionId: string): Promise<void>

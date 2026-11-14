@@ -22,7 +22,6 @@ const TASK: PresetTask = {
   content: '跑一遍单测',
   createdAt: '2026-10-27T08:00:00Z',
   updatedAt: '2026-10-27T08:00:00Z',
-  repeatable: true,
   status: 'unused',
   pendingTaskId: null,
   pendingSessionId: null,

@@ -3,7 +3,7 @@
     <div ref="contentScrollRef" class="att-scroll">
       <div class="att-scroll-inner">
         <!-- 编辑区域（常驻页面顶部，还原旧宿主 PresetTasksView 形态）：任务内容 + AI 模板 +
-             工程目录选择 + 可重复属性 + 添加/保存按钮，添加/编辑都不走弹窗 -->
+             工程目录选择 + 添加/保存按钮，添加/编辑都不走弹窗 -->
         <div class="group-card p-4 space-y-3">
           <div class="flex items-center justify-between">
             <label class="group-row-sub">{{
@@ -138,9 +138,6 @@
             @input="autosizeTextarea"
             @keydown="submitOnEnter(handleAdd)"
           ></textarea>
-
-          <!-- 可重复/不可重复属性（创建时设置；编辑时可改，改属性不重置执行状态） -->
-          <RepeatableToggle v-model="draftRepeatable" />
 
           <!-- 添加 / 保存：卡片里的主操作，实底 accent（原先用主色 10% 底 + 主色字，
                和上面两个选择器几乎同权重，一屏里找不出该点哪个） -->
@@ -405,7 +402,7 @@
  * 任务域的首个页签，页头由 app 域统一出，故去掉旧页头与返回，标题语义由任务页承担。
  *
  * 与弹窗版实现（`TaskEditDialog`）的关键差异：**新增 / 编辑不弹窗**——编辑表单
- * （任务内容 + AI 模板 + 工程目录 + 可重复属性 + 添加/保存按钮）常驻页面顶部，
+ * （任务内容 + AI 模板 + 工程目录 + 添加/保存按钮）常驻页面顶部，
  * 语义与交互对齐旧宿主 PresetTasksView；文件浏览 / 删除确认 / 执行目标选择 / 执行确认
  * 仍走弹层（与旧页一致，弹层是「选择或确认」而非「录入」）。
  * 执行目标弹层同时提供「运行中的会话」与「启动新会话」两条路：后者先经
@@ -430,7 +427,6 @@ import { readStoredDisplaySettings } from '../../terminal/displaySettings'
 import { computeDeviceDefaultGridSize } from '../../terminal/utils/metrics'
 import type { PresetTask } from '../../terminal/model'
 import PresetTaskCard from './PresetTaskCard.vue'
-import RepeatableToggle from '../../terminal/components/RepeatableToggle.vue'
 // issue #24：FileExplorer 自宿主提供组件（wasmnestHostComponents provide/inject）迁入本 app
 // fileExplorer 域，改为直接 import；挂载契约（props / events）不变
 import FileExplorer from '../../fileExplorer/components/FileExplorer.vue'
@@ -569,8 +565,6 @@ const AI_TEMPLATE = '目标：\n上下文：\n约束：\n完成条件：'
 const contentScrollRef = ref<HTMLDivElement | null>(null)
 const contentTextarea = ref<HTMLTextAreaElement | null>(null)
 const draftContent = ref('')
-/** 可重复/不可重复属性（默认可重复：与旧数据行为一致） */
-const draftRepeatable = ref(true)
 /** 非空时为编辑模式：内容来自对应任务，点击按钮保存修改 */
 const editingTask = ref<PresetTask | null>(null)
 
@@ -618,10 +612,10 @@ async function handleAdd(): Promise<void> {
   const target = draftTarget()
 
   if (editingTask.value) {
-    await updateTask({ ...editingTask.value, content, repeatable: draftRepeatable.value })
+    await updateTask({ ...editingTask.value, content })
     setPresetTarget(editingTask.value.id, target)
   } else {
-    await addTask({ content, repeatable: draftRepeatable.value })
+    await addTask({ content })
     // 宿主 addTask 同步 push 到 tasks；新任务即最后一条，用它写目标
     const created = tasks.value[tasks.value.length - 1]
     if (created) setPresetTarget(created.id, target)
@@ -629,7 +623,6 @@ async function handleAdd(): Promise<void> {
 
   draftContent.value = ''
   editingTask.value = null
-  draftRepeatable.value = true
   nextTick(() => {
     autosizeTextarea()
     contentTextarea.value?.focus()
@@ -640,7 +633,6 @@ async function handleAdd(): Promise<void> {
 function openEditTask(task: PresetTask): void {
   editingTask.value = task
   draftContent.value = task.content
-  draftRepeatable.value = task.repeatable
   const target = getPresetTarget(task.id)
   selectedProjectId.value = target?.projectId ?? ''
   selectedAgentId.value = target?.agentId ?? ''
@@ -727,7 +719,7 @@ const pendingStartTarget = computed(() =>
   pendingTask.value ? getPresetTarget(pendingTask.value.id) : null,
 )
 const pendingStartTargetLabel = computed(() => formatTarget(pendingStartTarget.value))
-/** 新会话路径是**真入队**：不可入队（执行中 / 不可重复已用过）的预设不得再排 */
+/** 新会话路径是**真入队**：执行中的预设不得再排 */
 const canEnqueueTask = computed(() => (pendingTask.value ? canEnqueue(pendingTask.value) : false))
 
 /**

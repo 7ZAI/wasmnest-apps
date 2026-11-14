@@ -78,7 +78,7 @@ const zhCN: Record<string, string> = {
   'preset.selectTargetHint': '选一个运行中的会话，或为该预设启动新会话',
   'preset.startNewSession': '启动新会话并执行',
   'preset.startNewSessionNeedsTarget': '该预设未绑定项目 / Agent，无法启动新会话',
-  'preset.startNewSessionLocked': '该预设正在执行或不可重复，不能再入队',
+  'preset.startNewSessionLocked': '该预设正在执行，不能再入队',
   'preset.startAndExecute': '启动并执行',
   'preset.willStartNewSession': '将启动新会话并把指令入队，由任务调度自动下发',
   'preset.newSessionStarted': '已启动新会话，任务已入队',
@@ -245,7 +245,7 @@ const en: Record<string, string> = {
   'preset.selectTargetHint': 'Pick a running session, or start a new one for this preset',
   'preset.startNewSession': 'Start a new session and run',
   'preset.startNewSessionNeedsTarget': 'Bind a project / agent first to start a new session',
-  'preset.startNewSessionLocked': 'This preset is running or non-repeatable — cannot enqueue again',
+  'preset.startNewSessionLocked': 'This preset is running — cannot enqueue again',
   'preset.startAndExecute': 'Start and run',
   'preset.willStartNewSession':
     'A new session will start and the command will be queued, then dispatched by the task scheduler',
