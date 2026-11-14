@@ -1312,7 +1312,7 @@ const zhCN: MessageSchema = {
 
   // 确认与提示
   'project.confirm.removeTitle': '移除项目',
-  'project.confirm.removeMsg': '移除「{name}」及其运行记录？磁盘上的文件不会被删除。',
+  'project.confirm.removeMsg': '移除「{name}」及其运行记录、该目录下的启动配置？磁盘上的文件不会被删除。',
   'project.toast.created': '项目已创建',
   'project.toast.existed': '该目录已有项目，已带你过去',
   'project.toast.renamed': '项目已重命名',

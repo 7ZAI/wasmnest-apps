@@ -2379,7 +2379,8 @@ impl WasmPlugin for SessionPlugin {
                 project::rename_via_host(id, name).map_err(anyhow::Error::msg)
             }
 
-            // 移除项目 {id} → {removed, runsRemoved}；有活跃运行时拒绝（不静默 kill）
+            // 移除项目 {id} → {removed, runsRemoved, configsRemoved}；连带清该目录启动配置
+            // 以免激活期迁移重建项目；有活跃运行时拒绝（不静默 kill）
             "project.remove" => {
                 let id = args
                     .get("id")

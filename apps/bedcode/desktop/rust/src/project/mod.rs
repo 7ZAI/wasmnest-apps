@@ -32,6 +32,8 @@ use wasmnest_plugin_api::sql_params;
 use wasmnest_plugin_api::wasm_host::WasmHost;
 
 #[cfg(target_arch = "wasm32")]
+use crate::config::store::ConfigStore;
+#[cfg(target_arch = "wasm32")]
 use store::ProjectStore;
 
 /// 运行扩展列（容器迁移补到 `runs` 上；顺序即 DDL 顺序）
@@ -271,24 +273,42 @@ pub fn rename_via_host(_id: &str, _name: &str) -> Result<serde_json::Value, Stri
     Err("project store unavailable outside wasm runtime".to_string())
 }
 
-/// 移除项目（不动磁盘文件）：先校验无活跃运行，再级联删除运行与注解
+/// 移除项目（不动磁盘文件）：校验无活跃运行后，先清启动配置，再级联删运行与项目行
 ///
 /// 拒绝而非静默 kill：用户正在跑的 agent 被后台杀掉比「删除失败，请先停止运行」
-/// 坏得多。返回 `{removed, runsRemoved}`。
+/// 坏得多。
+///
+/// **顺序判据**：启动配置必须先清。激活期 [`migrate`] 从 `session_configs` 按目录
+/// 重建缺失项目，项目行已删而配置还在就会在下次启动以新 id 复活。配置面降级
+/// （表不存在）时没有重建来源，跳过清理是安全的，但不能把 `all()` 的报错吞掉
+/// 伪装成「没有配置」。返回 `{removed, runsRemoved, configsRemoved}`。
 #[cfg(target_arch = "wasm32")]
 pub fn remove_via_host(id: &str) -> Result<serde_json::Value, String> {
-    if ProjectStore::get(&WasmHost, id)?.is_none() {
-        return Err(format!("project not found: {id}"));
-    }
+    let project =
+        ProjectStore::get(&WasmHost, id)?.ok_or_else(|| format!("project not found: {id}"))?;
     let active = crate::session::active_runs_of_project_via_host(id)?;
     if active > 0 {
         return Err(format!(
             "project has {active} active run(s); stop them before removing the project"
         ));
     }
+    let configs_removed = if WasmHost.config_table_exists()? {
+        let configs = ConfigStore::all(&WasmHost)?;
+        let ids = ops::config_ids_for_project(&configs, &project);
+        for config_id in &ids {
+            ConfigStore::remove(&WasmHost, config_id)?;
+        }
+        ids.len()
+    } else {
+        0
+    };
     let runs_removed = crate::session::remove_runs_of_project_via_host(id)?;
     let removed = ProjectStore::remove(&WasmHost, id)?;
-    Ok(serde_json::json!({ "removed": removed, "runsRemoved": runs_removed }))
+    Ok(serde_json::json!({
+        "removed": removed,
+        "runsRemoved": runs_removed,
+        "configsRemoved": configs_removed
+    }))
 }
 
 #[cfg(not(target_arch = "wasm32"))]

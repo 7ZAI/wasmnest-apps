@@ -12,6 +12,7 @@
 //! 唯一索引比较的是 [`project_key`] 的归一化形态。两者不同时以归一化形态判重。
 
 use super::model::{Project, ProjectDraft, ProjectKey, ProjectStats, VALID_ENVIRONMENTS};
+use crate::config::model::SessionConfig;
 
 /// 目录归一化：去首尾空白 + 去末尾分隔符（根目录保留）
 ///
@@ -188,6 +189,19 @@ pub fn find_duplicate<'a>(projects: &'a [Project], key: &ProjectKey) -> Option<&
         .find(|p| &project_key(&p.environment, &p.working_dir) == key)
 }
 
+/// 项目移除时要一并清掉的启动配置 id（按 [`project_key`] 判定归属）
+///
+/// 不清会让下次激活的容器迁移从 `session_configs` 按同一目录把项目以新 id
+/// 重建出来；归一化与 Windows 大小写折叠都复用 [`project_key`]，与迁移同一判据。
+pub fn config_ids_for_project<'a>(configs: &'a [SessionConfig], project: &Project) -> Vec<&'a str> {
+    let key = project_key(&project.environment, &project.working_dir);
+    configs
+        .iter()
+        .filter(|config| project_key(&config.environment, &config.working_dir) == key)
+        .map(|config| config.id.as_str())
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -204,6 +218,55 @@ mod tests {
             updated_at: "2026-10-01T00:00:00Z".to_string(),
             last_opened_at: None,
         }
+    }
+
+    fn config(id: &str, env: &str, dir: &str) -> SessionConfig {
+        SessionConfig {
+            id: id.to_string(),
+            name: id.to_string(),
+            environment: env.to_string(),
+            wsl_distro: None,
+            working_dir: dir.to_string(),
+            command: "pi".to_string(),
+            auto_start: false,
+            created_at: "2026-10-01T00:00:00Z".to_string(),
+            updated_at: "2026-10-01T00:00:00Z".to_string(),
+        }
+    }
+
+    /// 移除项目要清掉该目录下所有 agent 的启动配置（否则迁移会按目录重建项目）
+    #[test]
+    fn config_ids_for_project_covers_every_agent_in_same_folder() {
+        let project = project("p1", "linux", "/srv/app", "App");
+        let configs = vec![
+            config("c1", "linux", "/srv/app"),
+            config("c2", "linux", "  /srv/app/  "),
+            config("c3", "wsl2", "/srv/app"),
+            config("c4", "linux", "/srv/app-2"),
+        ];
+        assert_eq!(
+            config_ids_for_project(&configs, &project),
+            vec!["c1", "c2"],
+            "只看同环境同目录；末尾分隔符与空白按 project_key 归一"
+        );
+    }
+
+    /// 大小写语义跟随 project_key：Windows 折叠，posix 敏感
+    #[test]
+    fn config_ids_for_project_uses_project_key_semantics() {
+        let windows = project("p1", "windows", "C:\\Work", "Work");
+        let configs = vec![
+            config("c1", "WINDOWS", "c:\\work\\"),
+            config("c2", "windows", "C:\\Work2"),
+        ];
+        assert_eq!(config_ids_for_project(&configs, &windows), vec!["c1"]);
+
+        let linux = project("p2", "linux", "/srv/App", "App");
+        let configs = vec![config("c3", "linux", "/srv/app")];
+        assert!(
+            config_ids_for_project(&configs, &linux).is_empty(),
+            "posix 大小写敏感，不得误删别的目录的配置"
+        );
     }
 
     /// 末尾分隔符与空白被折掉，根目录与盘根保留

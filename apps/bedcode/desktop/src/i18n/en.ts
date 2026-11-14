@@ -1365,7 +1365,7 @@ const en: MessageSchema = {
   // Confirmations & toasts
   'project.confirm.removeTitle': 'Remove project',
   'project.confirm.removeMsg':
-    'Remove "{name}" and its run history? Files on disk are left untouched.',
+    'Remove "{name}", its run history, and the launch configs for this folder? Files on disk are left untouched.',
   'project.toast.created': 'Project created',
   'project.toast.existed': 'That folder already had a project — opened it',
   'project.toast.renamed': 'Project renamed',
