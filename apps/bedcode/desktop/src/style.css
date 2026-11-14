@@ -283,3 +283,41 @@
   --shadow-card-hover: 0 4px 16px rgba(0, 0, 0, 0.4);
   --shadow-input-focus: 0 0 0 3px rgba(185, 166, 247, 0.15);
 }
+
+/* ==================== 页面过渡：整页切换压成瞬时（2026-11-13） ====================
+ *
+ * 背景：宿主 src/style.css 提供全端页面过渡体系（`.page-*` + `.page-swap`，
+ * 缺省 slide-up：整页 10px 上移 + 220ms 交叉淡入，出场层
+ * `position:absolute` + `will-change: opacity, transform`）。那套动效适合低频的
+ * 整视图跳转，不适配工作台的高频切换：左栏菜单换页、分区换 tab 时，整块内容
+ * 每次都要从下方 10px 滑入，并在两百多毫秒里做一次双向透明度交叉——读起来就是
+ * 「整片右侧区域抖一下 + 闪一下」；出场层还会把整页提升成合成层，WebKitGTK 上
+ * 频繁创建/销毁整页图层会进一步放大闪烁。
+ *
+ * 处置：本应用按「工作台」语义把整页切换压成瞬时——同帧替换、无位移、无透明度
+ * 过渡、不提升合成层。页面内部的小动效（按钮/tab 底色、弹窗、列表 hover）不受
+ * 影响，它们走各自的 --motion-* token。
+ *
+ * 范围与优先级：只覆盖 `.desktop-ui`（AppLayout 根，含所有普通路由页面与其中的
+ * 分区过渡容器）内的过渡类，特异性比宿主的单类选择器高一档，不依赖「挂载包 CSS
+ * 后注入」这一顺序假设；bareWindow 路由（终端独立窗口）没有整页过渡，不受影响。
+ * 宿主过渡体系仍是全端真源：将来要恢复整页动效，删掉本节即可。
+ *
+ * 为什么保留宿主 `.page-leave-active` 的绝对定位不动：leave 虽然瞬时，Vue 的
+ * 过渡收尾仍会跨一帧；旧页只有脱流才不被算进布局，改回 static 会在那一帧里叠出
+ * 双份高度，反而制造一次抖动。
+ */
+.desktop-ui .page-swap .page-enter-active,
+.desktop-ui .page-swap .page-leave-active {
+  transition: none;
+  will-change: auto;
+}
+
+/* 带 effect 变体的宿主规则是 `html[data-page-fx='…'] .page-enter-from`（0,2,1），
+   这里经 `.page-swap` 再抬一档到 0,3,0：即使将来把 data-page-fx 接上，本应用的
+   瞬时策略也不会被效果变体里的位移/缩放重新盖回来。 */
+.desktop-ui .page-swap .page-enter-from,
+.desktop-ui .page-swap .page-leave-to {
+  opacity: 1;
+  transform: none;
+}

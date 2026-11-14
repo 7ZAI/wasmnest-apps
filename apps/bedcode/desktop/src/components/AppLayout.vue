@@ -13,8 +13,11 @@
         <!-- Sidebar -->
         <Sidebar />
 
-        <!-- Main Content：过渡容器必须带 page-swap（页面过渡体系的定位上下文，
-             效果变体与时长 token 见 style.css「页面过渡动效」节） -->
+        <!-- Main Content：过渡容器必须带 page-swap（出场层的绝对定位上下文；
+             子分区的过渡容器与 .ah-view 的高度链也依赖这个类）。
+             **整页过渡在本应用已压成瞬时**（src/style.css「页面过渡：整页切换压成
+             瞬时」）：菜单切页 / 分区切 tab 不再有 10px 位移与 220ms 淡入淡出——
+             工作台里这类切换是高频动作，那套动效读起来就是整块区域抖一下 + 闪一下。 -->
         <main class="page-swap flex-1 overflow-hidden bg-page">
           <router-view v-slot="{ Component }">
             <!-- 不加 mode="out-in"：out-in 在「旧页退场完成」与「新页入场挂载」之间会
