@@ -87,6 +87,28 @@ fn line_tracker() -> &'static input_line::SubmittedLineTracker {
     LINE_TRACKER.get_or_init(input_line::SubmittedLineTracker::new)
 }
 
+/// 特殊键中只有 Enter 是「提交」语义，需喂给提交行重建器让任务域建任务行。
+///
+/// 其余组合键（Ctrl+C、方向键、Shift+Enter 等）是控制键或行内换行，直写不观察；
+/// 与 [`crate::keys::special_key_to_pty_bytes`] 的 `enter` = `\r` 对应。移动端常把
+/// 内容与 Enter 拆成两次写入，只有把回车字节喂回重建器，任务域才能看到提交行，
+/// `task_history` 才会有记录（2026-11-13 回归）。
+#[must_use]
+pub fn is_submit_key(combo: &str) -> bool {
+    combo == "enter"
+}
+
+/// 普通输入写入：提交行观察 → 任务域分发 → PTY 直写
+#[cfg(target_arch = "wasm32")]
+fn observe_and_write(session_id: &str, pty_id: &str, data: &str) -> Result<(), String> {
+    for line in line_tracker().feed(session_id, data) {
+        crate::task::state::handle_submitted_input(&WasmHost, session_id, &line);
+    }
+    WasmHost
+        .pty_write(pty_id, data.as_bytes())
+        .map_err(|e| format!("host pty write failed: {}", e.message))
+}
+
 /// 是否有未提交草稿（PTY 斜杠命令注入前的闸门）：有草稿时宁可显性拒绝，
 /// 也不把 `/model …` 拼进用户输入行后当 prompt 提交。
 #[cfg(target_arch = "wasm32")]
@@ -734,9 +756,11 @@ fn drain_pending_stop(session_id: &str) -> Option<String> {
 /// - 写入后的状态恒 `Running`（P1-b 起会话创建即 Running，无需迁移）。
 ///
 /// 特殊键（票 06 下沉）：`special_key` 为按键组合串（如 `"ctrl+c"`）时，
-/// 本插件自译（[`crate::keys`]）成 ANSI/ASCII 转义字节后**直写**——绕过提交行
-/// 重建与任务域观察（用户裁定统一直写语义：Ctrl+C 就是 `\x03` 直接进 pty），
-/// 宿主不再消费按键组合类型。`data` 仅在普通输入时使用。
+/// 本插件自译（[`crate::keys`]）成 ANSI/ASCII 转义字节后**直写**——除 Enter 外
+/// 绕过提交行重建与任务域观察（用户裁定统一直写语义：Ctrl+C 就是 `\x03` 直接进 pty），
+/// 宿主不再消费按键组合类型。Enter 是提交键，额外把 `\r` 喂给重建器，让任务域
+/// 观察到「用户刚提交的那一行」（见 [`is_submit_key`]）。提交键与 `data` 同来时
+/// 先按普通输入写，不丢内容；其余控制键维持直写语义。
 #[cfg(target_arch = "wasm32")]
 pub fn input_via_pty(
     session_id: &str,
@@ -752,22 +776,27 @@ pub fn input_via_pty(
     let Some(pty_id) = record.pty_id.as_deref() else {
         return Err(format!("会话缺少 PTY 句柄，无法写入：{session_id}"));
     };
-    // 特殊键：本插件自译自写（绕过提交行重建与任务域观察）；未知名/不支持显式报错
+    // 特殊键：自译自写；Enter 额外触发提交行观察，其余键仍绕过（见模块文档）
     if let Some(combo) = special_key {
         let bytes = crate::keys::special_key_to_pty_bytes(combo)
             .ok_or_else(|| format!("unsupported special key: {combo}"))?;
+        // Enter 的回车字节要喂回重建器：HTTP / WS 通道常把内容与 Enter 拆成
+        // 两次写入，第一次的 data 已在缓冲里，这次的 \r 让它成为完整提交行 →
+        // 任务域建 task_history 行。空提交产出空行，由 handle_submitted_input 过滤。
+        if is_submit_key(combo) {
+            // data 与 Enter 同来时（未拆分的通道）按普通输入先写，避免丢内容
+            if !data.is_empty() {
+                observe_and_write(session_id, pty_id, data)?;
+            }
+            for line in line_tracker().feed(session_id, "\r") {
+                crate::task::state::handle_submitted_input(&WasmHost, session_id, &line);
+            }
+        }
         return WasmHost
             .pty_write(pty_id, &bytes)
             .map_err(|e| format!("host pty write failed: {}", e.message));
     }
-    // 普通输入：提交行重建 → 任务域分发 → 直写
-    let submitted = line_tracker().feed(session_id, data);
-    for line in submitted {
-        crate::task::state::handle_submitted_input(&WasmHost, session_id, &line);
-    }
-    WasmHost
-        .pty_write(pty_id, data.as_bytes())
-        .map_err(|e| format!("host pty write failed: {}", e.message))
+    observe_and_write(session_id, pty_id, data)
 }
 
 // ==================== pty:exit 事件 → 终态收尾（唯一 SessionStopped 广播点） ====================
@@ -977,3 +1006,53 @@ pub fn input_via_pty(
 
 #[cfg(not(target_arch = "wasm32"))]
 pub fn on_pty_exit(_pty_id: &str, _reason: &str, _exit_code: Option<i32>) {}
+
+// ==================== 回归锁（移动端执行键不建任务行） ====================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_enter_counts_as_submit_key() {
+        assert!(is_submit_key("enter"), "Enter 必须触发任务行创建");
+        for key in [
+            "ctrl+c",
+            "ctrl_c",
+            "shift+enter",
+            "backspace",
+            "escape",
+            "tab",
+            "up",
+            "",
+        ] {
+            assert!(!is_submit_key(key), "{key} 是控制键，不得触发提交行观察");
+        }
+    }
+
+    /// Enter 特殊键必须把提交符喂给提交行重建器并交给任务域，否则移动端
+    /// 「预设执行 / 输入栏执行」只写一个回车字节、不产生提交行，task_history
+    /// 永远缺这一行（任务日志为空）。wasm-only 函数体在 native 测试里编译不到，
+    /// 故锁接线形状而非运行结果。
+    #[test]
+    fn enter_special_key_must_observe_submitted_line() {
+        // 只锁生产代码：测试模块里的字面量本身也会被 include_str! 读进来
+        let source = include_str!("mod.rs");
+        let production = source
+            .split("// ==================== 回归锁")
+            .next()
+            .expect("生产代码段缺失");
+        let guard = production
+            .find("if is_submit_key(combo)")
+            .expect("特殊键分支必须按提交键判定，不能一律直写");
+        let window = &production[guard..guard + 400];
+        assert!(
+            window.contains("handle_submitted_input"),
+            "提交键必须把提交行交给任务域，否则 task_history 不建行"
+        );
+        assert!(
+            window.contains("line_tracker().feed"),
+            "提交键必须把回车字节喂给提交行重建器"
+        );
+    }
+}

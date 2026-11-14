@@ -328,8 +328,9 @@ pub trait SessionApi {
     fn session_close(draft: serde_json::Value) -> Result<serde_json::Value, String>;
 
     /// 写入输入：`{sessionId, data?, specialKey?}`；`specialKey`（字符串，非空）时
-    /// 绕过提交行重建直接写字节（对齐内核 `send_special_key` 的不对称，由
-    /// `keys.rs` 自译自写），默认走提交行重建 + 任务域观察。
+    /// 除 Enter 外绕过提交行重建直接写字节（对齐内核 `send_special_key` 的不对称，
+    /// 由 `keys.rs` 自译自写），Enter 仍把回车字节喂给重建器以建任务行；
+    /// 默认走提交行重建 + 任务域观察。
     ///
     /// 注：wire 字段是 `specialKey`（组合串），不是布尔 `special`——旧文档宣称
     /// 布尔形，按文档发的 `special: true` 会被静默忽略（走 commit-line 重建，
@@ -676,7 +677,8 @@ fn session_get_view(draft: &serde_json::Value) -> Result<Option<serde_json::Valu
 ///
 /// 互调 api（`session-input`）与插件命令面（`session.input`）共用同一实现：
 /// 缺 `sessionId` 显性报错；`data` 缺省为空串；票 06 起特殊键以组合串
-/// （`specialKey`）下发、由本插件 `keys.rs` 自译自写并**绕过提交行重建**，
+/// （`specialKey`）下发、由本插件 `keys.rs` 自译自写并**绕过提交行重建**
+/// （Enter 例外：仍喂回车字节给重建器以建任务行，见 `session::is_submit_key`），
 /// 缺省则按普通输入处理（走提交行重建 + 任务域观察）。
 fn session_input_write(draft: &serde_json::Value) -> Result<serde_json::Value, String> {
     let session_id = draft
@@ -1483,7 +1485,8 @@ impl WasmPlugin for SessionPlugin {
             // 插件前端不再有「借宿主通道读写会话」的路径：
             // - 列表 / 单查 → 本插件登记域视图（与互调 api `session-list` / `session-get` 同实现）
             // - 键盘输入 → 本插件写入管线（提交行重建 + 任务域 + `host-pty.write`，
-            //   与互调 api `session-input` 同实现；特殊键走 `specialKey` 直写）
+            //   与互调 api `session-input` 同实现；特殊键走 `specialKey` 直写，
+            //   Enter 仍触发提交行观察）
             // 身份令牌 + 激活门由 `plugin_invoke` 通道保证（迁移路由不放宽门禁）。
             "session.list" => {
                 // `scope: "session"`：终端会话面只列无项目归属的会话。项目运行

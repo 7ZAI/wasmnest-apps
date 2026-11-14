@@ -340,6 +340,21 @@ mod tests {
         assert_eq!(out, vec!["claude fix the bug"]);
     }
 
+    /// 2026-11-13 回归：HTTP / WS 通道把内容与 Enter 拆成两次写入，
+    /// 第二次的回车字节必须把第一次的草稿变成完整提交行。
+    #[test]
+    fn test_split_data_then_enter_submits_pending_line() {
+        let t = SubmittedLineTracker::new();
+        assert!(feed_chunks(&t, "s1", &["跑一遍单测"]).is_empty());
+        assert_eq!(
+            feed_chunks(&t, "s1", &["\r"]),
+            vec!["跑一遍单测"],
+            "拆分写入的 Enter 必须产出完整提交行"
+        );
+        // 空 Enter（用户只按回车）产出空行，由 handle_submitted_input 过滤
+        assert_eq!(feed_chunks(&t, "s1", &["\r"]), vec![String::new()]);
+    }
+
     #[test]
     fn test_accumulate_across_chunks() {
         // xterm onData 按击键块提交，缓冲跨块累积
