@@ -241,7 +241,6 @@ interface RenderedJobItem {
   group: 'active' | 'finished'
   job?: ScheduledJob
 }
-const showForm = ref(false)
 const creatingJob = ref(false)
 const formName = ref('')
 const formProjectId = ref('')
@@ -264,11 +263,12 @@ const controlCls =
 
 // ==================== 自动增高 textarea（任务内容输入统一使用） ====================
 
-// 不含固定高度（controlCls 的 h-8）：高度由内容决定，最多 10 行（200px = 10 × 20px 行高）后内部滚动
+// 任务内容输入框：最小高度 2 行（56px）避免空态过矮；高度由内容决定，最多 10 行（200px）后内部滚动
 const textareaCls =
-  'w-full px-2 py-1.5 rounded-[6px] border border-[var(--border-input)] bg-[var(--bg-input)] ' +
-  'text-xs text-[var(--text-primary)] outline-none focus:border-[var(--color-primary)] transition-colors duration-200 ' +
-  'resize-none overflow-y-auto leading-5 max-h-[200px]'
+  'w-full px-3 py-2 rounded-lg border border-[var(--border-input)] bg-[var(--bg-input)] ' +
+  'text-xs text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] outline-none ' +
+  'focus:border-[var(--color-primary)] focus:ring-1 focus:ring-[var(--color-primary)]/30 ' +
+  'transition-colors duration-200 resize-none overflow-y-auto leading-5 max-h-[200px] min-h-[56px]'
 
 /**
  * 创建任务输入框：边框由外层容器统一提供，自身不再带 border / 焦点描边。
@@ -276,18 +276,21 @@ const textareaCls =
  * 这里只保留容器的单层边框（focus-within 时变主题色）。
  */
 const borderlessTextareaCls =
-  'block w-full px-2 py-1.5 rounded-[6px] border-0 bg-transparent ' +
-  'text-xs text-[var(--text-primary)] outline-none resize-none overflow-y-auto leading-5 max-h-[200px]'
+  'block w-full px-3 py-2 rounded-lg border-0 bg-transparent ' +
+  'text-xs text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] outline-none ' +
+  'resize-none overflow-y-auto leading-5 max-h-[200px] min-h-[56px]'
 
+// 任务内容输入框最小高度（2 行 × 20px，避免空态时输入框过矮）
+const TASK_INPUT_MIN_HEIGHT = 56
 // 10 行上限（与 textareaCls 的 max-h-[200px] 保持一致）
 const TEXTAREA_MAX_HEIGHT = 200
 
-// 高度自适应：先置 auto 再取 scrollHeight，钳制到上限后由 overflow-y 滚动
-function autosizeTextarea(el: unknown) {
+// 高度自适应：先置 auto 再取 scrollHeight，钳制到 [minHeight, 上限] 区间后由 overflow-y 滚动
+function autosizeTextarea(el: unknown, minHeight = 0) {
   const t = el as HTMLTextAreaElement | null
   if (!t) return
   t.style.height = 'auto'
-  t.style.height = `${Math.min(t.scrollHeight, TEXTAREA_MAX_HEIGHT)}px`
+  t.style.height = `${Math.min(Math.max(t.scrollHeight, minHeight), TEXTAREA_MAX_HEIGHT)}px`
 }
 
 // 任务输入键位统一：Enter 提交（IME 组词中的回车不触发），Shift+Enter 换行
@@ -657,9 +660,9 @@ async function createTask() {
     }
     createPrompt.value = ''
     createAsPreset.value = false
-    // 清空后把输入框高度重置回单行
+    // 清空后把输入框高度重置回最小高度
     await nextTick()
-    autosizeTextarea(createPromptEl.value)
+    autosizeTextarea(createPromptEl.value, TASK_INPUT_MIN_HEIGHT)
     // 立即刷新展示（事件广播会兜底刷新，这里先给用户即时反馈）
     await Promise.all([loadTargets(), loadRunningSessions(), loadConfigQueues(), loadPresets()])
   } catch (e) {
@@ -1222,9 +1225,9 @@ async function addPrompt() {
   if (!p) return
   formPrompts.value.push(p)
   newPrompt.value = ''
-  // 清空后把输入框高度重置回单行
+  // 清空后把输入框高度重置回最小高度
   await nextTick()
-  autosizeTextarea(newPromptEl.value)
+  autosizeTextarea(newPromptEl.value, TASK_INPUT_MIN_HEIGHT)
 }
 
 // 删除指定任务卡片
@@ -1251,14 +1254,16 @@ async function submitJob() {
       prompts,
     })
     if (result?.job_id) {
-      // 成功：收起表单并清空，列表刷新即为反馈
+      // 成功：清空表单字段（表单常显不收起），列表刷新即为反馈
       formName.value = ''
       formProjectId.value = ''
       formAgentId.value = ''
       formTriggerAt.value = null
       formPrompts.value = []
       newPrompt.value = ''
-      showForm.value = false
+      // 清空后把「添加任务」输入框高度重置回最小高度
+      await nextTick()
+      autosizeTextarea(newPromptEl.value, TASK_INPUT_MIN_HEIGHT)
       await loadJobs()
     } else {
       errorMessage.value = t('task.scheduledCreateFailed')
@@ -1541,7 +1546,7 @@ function onConfigQueueLiveChanged() {
                     :class="borderlessTextareaCls"
                     data-testid="task-create-prompt"
                     :placeholder="t('task.createTaskPromptPlaceholder')"
-                    @input="autosizeTextarea($event.target)"
+                    @input="autosizeTextarea($event.target, TASK_INPUT_MIN_HEIGHT)"
                     @keydown="submitOnEnter(createTask)($event)"
                   />
                 </div>
@@ -2623,17 +2628,8 @@ function onConfigQueueLiveChanged() {
           class="flex-1 overflow-y-auto px-4 py-3 space-y-3"
           data-testid="tasks-panel-scheduled"
         >
-          <!-- 新建/收起 -->
-          <button
-            class="w-full h-8 rounded-[6px] bg-[var(--color-primary)] text-[var(--color-primary-contrast)] text-xs font-medium transition-opacity duration-200 hover:opacity-90"
-            @click="showForm = !showForm"
-          >
-            {{ showForm ? t('task.cancel') : t('task.scheduledNew') }}
-          </button>
-
-          <!-- 新建表单 -->
+          <!-- 新建定时任务表单：与自动任务「创建新任务」一致，直接展示可填写项，无需点击按钮展开 -->
           <div
-            v-if="showForm"
             class="rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-3 space-y-2.5"
           >
             <div>
@@ -2738,7 +2734,7 @@ function onConfigQueueLiveChanged() {
                   rows="1"
                   :class="textareaCls"
                   :placeholder="t('task.scheduledPromptPlaceholder')"
-                  @input="autosizeTextarea($event.target)"
+                  @input="autosizeTextarea($event.target, TASK_INPUT_MIN_HEIGHT)"
                   @keydown="submitOnEnter(addPrompt)($event)"
                 />
                 <button
