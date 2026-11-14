@@ -838,6 +838,25 @@
   box-shadow: var(--ah-ctl-focus-shadow);
 }
 
+/* 摘掉宿主壳的统一焦点环（2026-11-13 用户反馈：skills 搜索框聚焦时「双层边框」）。
+ *
+ * 宿主 `shell/styles/shell.css` 有一条全局规则
+ * `.shell-root :is(button, a, [tabindex], input, select, textarea, summary):focus-visible`
+ * —— 特异性 0,3,0，**盖过**上面的 `.ah-input:focus { outline: none }`（0,2,0）。
+ * 而应用挂载槽（AppMountSlot）就在 `.shell-root` 里，于是输入框聚焦时在
+ * 「1px 品牌边框 + 3px 柔光环」之外又套一圈 2px 外扩蓝环（WebKitGTK 实测：
+ * `outline: 2px solid rgb(37, 99, 235); outline-offset: 2px`；环色取宿主
+ * `--color-info`，也不跟应用色板走），看起来就是双层边框。
+ *
+ * 插件输入控件已自带明确的焦点态（边框换 primary + 柔光环），故按控件类型逐条摘环。
+ * 选择器带元素名（类型选择器）把特异性抬到 0,3,1：稳定压过壳环，既不依赖 CSS
+ * 注入顺序，也不用 !important（`input` / `select` / `textarea` 都是壳环清单成员）。 */
+.ah-view input.ah-input:focus-visible,
+.ah-view select.ah-input:focus-visible,
+.ah-view textarea.ah-input:focus-visible {
+  outline: none;
+}
+
 .ah-input::placeholder {
   color: var(--ah-ctl-placeholder);
 }

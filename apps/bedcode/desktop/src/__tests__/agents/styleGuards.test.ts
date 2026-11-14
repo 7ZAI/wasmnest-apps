@@ -513,6 +513,30 @@ describe('S13 分段栏宽度与选中态无关', () => {
   })
 })
 
+describe('S15 输入框焦点态不与宿主壳焦点环叠成双层边框', () => {
+  // 回归（2026-11-13 用户反馈：skills 搜索框「双层边框」）：宿主
+  // `shell/styles/shell.css` 的 `.shell-root :is(button, a, [tabindex], input, ...):focus-visible`
+  // 特异性 0,3,0，压过 `.ah-input:focus { outline: none }`（0,2,0）；而应用挂载槽
+  // （AppMountSlot）就在 `.shell-root` 内，于是聚焦时「1px 品牌边框 + 3px 柔光环」
+  // 之外再套一圈 2px 外扩蓝环（WebKitGTK 实测 outline 2px solid rgb(37,99,235)、
+  // offset 2px）。契约：输入控件自带焦点态，按控件类型用 0,3,1 的选择器摘环
+  // ——带元素名抬一档特异性，既不依赖 CSS 注入顺序，也不用 !important。
+  const SHELL_CSS = resolve(PLATFORM_ROOT, 'wasmnest-desktop/src/shell/styles/shell.css')
+
+  it('宿主壳环仍把 input 算在内（壳若改掉这条，摘环规则要回来复看）', () => {
+    expect(readFileSync(SHELL_CSS, 'utf8')).toMatch(
+      /\.shell-root :is\([^)]*input[^)]*\):focus-visible/,
+    )
+  })
+
+  it.each(['input', 'select', 'textarea'])('%s.ah-input 在壳环之上摘掉 outline', (tag) => {
+    const selector = `.ah-view ${tag}.ah-input:focus-visible`
+    const hit = RULES.filter((r) => r.selector === selector)
+    expect(hit.length, `${selector} 缺失：壳环会重新套成双层边框`).toBe(1)
+    expect(hit[0].decls.outline, `${selector} 必须 outline: none`).toBe('none')
+  })
+})
+
 /** 取单类名规则的声明体（用于样式层布局契约断言） */
 function declsOf(selector: string): Record<string, string> {
   const hit = RULES.filter((r) => r.selector === selector)
