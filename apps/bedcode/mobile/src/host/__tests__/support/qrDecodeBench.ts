@@ -115,7 +115,7 @@ function hex(random: () => number, digits: number): string {
   return out.slice(0, digits)
 }
 
-/** 一条 v2 载荷（1~3 条地址：LAN / 多网卡 / relay，覆盖 85~93 模块） */
+/** 一条 v3 载荷（1~3 条地址：LAN / 多网卡 / relay，覆盖 61~77 模块） */
 function makePayload(random: () => number, index: number): { text: string; host: string } {
   const host = `192.168.1.${100 + index}`
   const addrs = [`/ip4/${host}/tcp/${39000 + index}/p2p/${NODE_ID}`]

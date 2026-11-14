@@ -10,7 +10,7 @@
  * 本用例把两端真实代码接起来，证明「桌面画出来的那张图，手机取景后能读出原载荷」：
  *
  * ```text
- * 桌面 pairingPayload.buildQrPayload   → 真实 v2 载荷（LAN + relay multiaddr + 64 hex 票据）
+ * 桌面 pairingPayload.buildQrPayload   → 真实 v3 载荷（LAN + relay 拨号前缀 + 64 hex 票据）
  * 桌面 qrRender.qrMatrix/planQrCanvas  → 与线上画布同参数、同几何的位图（像素级一致）
  *      ↓ 缩放到手机取景框里的大小（取景框尺寸由移动端 scanViewport 决定）
  * 模块采样（模拟扫码器读模块）          → 与桌面矩阵逐模块比对
@@ -398,12 +398,12 @@ function scanDesktopQr(payload: string, dpr = 1) {
 // ==================== 用例 ====================
 
 describe('跨端集成：桌面二维码 → 移动端扫描', () => {
-  it('should_readEveryModuleAndParseV2_when_typicalLanPlusRelayAddresses', () => {
+  it('should_readEveryModuleAndParseV3_when_typicalLanPlusRelayAddresses', () => {
     const payload = payloadOf(PEER)
     const { matrix, capture, moduleErrors, decoded } = scanDesktopQr(payload)
 
-    // 画布按实际模块数放大：85 模块 + 静区 → 每模块 4 CSS px（旧实现 192px 时 ~2.2）
-    expect(matrix.size).toBeGreaterThanOrEqual(85)
+    // 画布按实际模块数放大：v3 双地址 73 模块 + 静区 → 每模块 4 CSS px（v2 为 85 模块）
+    expect(matrix.size).toBe(73)
     expect(capture.frame).toBeGreaterThanOrEqual(300)
     expect(capture.pxPerModule).toBeGreaterThanOrEqual(3.5)
 
@@ -434,8 +434,8 @@ describe('跨端集成：桌面二维码 → 移动端扫描', () => {
     if (parsed.ok) expect(parsed.payload.peer).toEqual(PEER)
   })
 
-  it('should_readEveryModuleAndParseV2_when_threeAddressesMakeQrDenser', () => {
-    // 多网卡 + relay：模块数上到 93，桌面画布按「每模块 ≥4px」自动放大
+  it('should_readEveryModuleAndParseV3_when_threeAddressesMakeQrDenser', () => {
+    // 多网卡 + relay：v3 三地址 77 模块（v2 同载荷 93），桌面画布按「每模块 ≥4px」放大
     const densePeer: PairingPeerInfo = {
       ...PEER,
       addrs: [
@@ -446,7 +446,7 @@ describe('跨端集成：桌面二维码 → 移动端扫描', () => {
     }
     const payload = payloadOf(densePeer)
     const { matrix, capture, moduleErrors, decoded } = scanDesktopQr(payload)
-    expect(matrix.size).toBeGreaterThan(85)
+    expect(matrix.size).toBe(77)
     expect(capture.pxPerModule).toBeGreaterThanOrEqual(3.5)
     expect(moduleErrors).toBe(0)
 
@@ -493,11 +493,20 @@ describe('跨端集成：桌面二维码 → 移动端扫描', () => {
     })
   })
 
-  it('should_loseModules_when_oldFixed192Canvas', () => {
-    // 回归对照：旧实现固定 192px 画布（85 模块 → 2.16px/模块），同一取景下模块边界
-    // 已经糊掉——这正是「无法识别」的直接证据（旧端点解码失败还是空的，界面无反馈）。
-    const payload = payloadOf(PEER)
-    const matrix = qrMatrix(payload)
+  it('should_loseModules_when_oldFixed192CanvasAndV2Payload', () => {
+    // 回归对照：旧实现固定 192px 画布 + v2 载荷（85 模块 → 2.06px/模块），同一取景下
+    // 模块边界糊成一团——这正是「无法识别」的直接证据。
+    //
+    // 刻意固定用 v2 载荷：v3 压缩后是 73 模块（192px 下 2.37px/模块，本模拟刚好能读），
+    // 但这只是余量变好，不改变「画布必须按实际模块数 × ≥4px 计算」的设计（见 qrRender.ts）。
+    const v2Payload = JSON.stringify({
+      v: 2,
+      host: '192.168.1.100',
+      port: 8765,
+      token: TOKEN,
+      peer: PEER,
+    })
+    const matrix = qrMatrix(v2Payload)
     const legacySize = 192
     const legacyCell = legacySize / (matrix.size + QR_QUIET_ZONE_MODULES * 2)
     expect(legacyCell).toBeLessThan(3)

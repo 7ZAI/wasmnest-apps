@@ -55,7 +55,7 @@ export interface LocalNetworkInfo {
   addresses: string[]
 }
 
-/** QR 连接信息（扫码载荷三要素 + 剩余秒 + 可选 peer v2 扩展） */
+/** QR 连接信息（扫码载荷三要素 + 剩余秒 + 可选 peer 隧道扩展） */
 export interface QrConnectionInfo {
   host: string
   port: number
@@ -77,6 +77,9 @@ export interface QrConnectionInfo {
 
 /** 插件存储键：用户选择的对外 IP（宿主 `AppConfig.network.qr_host` 的插件侧承接） */
 const QR_HOST_STORAGE_KEY = 'pairing.qrHost'
+
+/** QR 载荷模式：局域网（v1 三要素）/ 外网（含隧道 peer 的 v3 紧凑载荷） */
+export type QrMode = 'lan' | 'wan'
 
 /** 轮换结果（`kid` = 代次标识，**不含任何密钥材料**——凭据红线） */
 export interface RotateKeyResult {
@@ -119,13 +122,18 @@ export function useDeviceCenter(context: PluginContext) {
   const qrData = ref<QrConnectionInfo | null>(null)
   const qrRemainingSeconds = ref(0)
   const isQrLoading = ref(false)
-  /** 载荷组装失败原因（peer 信息残缺 / 地址不可拨号）；null = 无错误 */
-  const qrError = ref<PairingPayloadErrorReason | null>(null)
+  /**
+   * 外网（隧道）载荷组装失败原因（peer 信息残缺 / 地址不可拨号）；null = 无错误
+   *
+   * 只作用于「外网」侧：局域网载荷（v1 三要素）与 peer 无关，不受其影响
+   * （peer 故障不得连坐局域网出码——修复「隧道地址不可拨号 → 完全无法生成二维码」）。
+   */
+  const qrWanError = ref<PairingPayloadErrorReason | null>(null)
   /**
    * 隧道 `peer` 生产失败原因（T08）
    *
-   * 与 `qrError` 分开：`qrError` = 载荷残缺导致**不能出码**（阻断）；
-   * `qrPeerError` = 隧道不可用导致**退回 v1**（可继续扫，只是仅内网可达）。
+   * 与 `qrWanError` 分开：`qrWanError` = peer **存在**但残缺导致外网载荷组装失败；
+   * `qrPeerError` = 后端**没产出** peer（隧道不可用，外网码不存在，载荷退回 v1）。
    */
   const qrPeerError = computed(() => qrData.value?.peerError ?? null)
   /** T18：QR 载荷里的中继降级原因（不能是死字段） */
@@ -133,6 +141,22 @@ export function useDeviceCenter(context: PluginContext) {
   /** T18：业务注册表关闭外网 → 二维码只含 LAN 地址 */
   const qrWanDisabled = computed(() => qrData.value?.wanDisabledByPolicy === true)
   const hasQr = computed(() => qrData.value !== null && qrRemainingSeconds.value > 0)
+  /**
+   * 外网 Tab 可出码：存在隧道 `peer` 且 v3 载荷可完整组装。
+   *
+   * peer 缺省时载荷虽能按 v1 组装，但那不是「内网穿透」码——外网 Tab 不出码，
+   * 只展示原因（`qrPeerError` 未产出 / `qrWanError` 组装失败）。
+   */
+  const hasWanQr = computed(() => {
+    const data = qrData.value
+    if (!data?.peer) return false
+    try {
+      buildQrPayload(data)
+      return true
+    } catch {
+      return false
+    }
+  })
 
   // ==================== 设备列表 ====================
   const devices = ref<PairedDeviceInfo[]>([])
@@ -283,26 +307,35 @@ export function useDeviceCenter(context: PluginContext) {
   }
 
   /**
-   * 接受一份 QR 连接信息：先验证载荷可组装，再落状态。
+   * 接受一份 QR 连接信息：先验证局域网载荷可组装，再按外网能力记录失败原因。
    *
-   * `peer` 存在但残缺时**不落状态、不启动倒计时**——界面展示显性错误，
-   * 禁止静默退回 v1（那会把配对降级成明文 LAN 入口，不变量 6/9）。
+   * 局域网载荷（v1 三要素）与 `peer` 无关——三要素在就落状态、起倒计时；
+   * 外网载荷（v3 含 `peer`）组装失败只记录 `qrWanError`，**不阻断**出码：
+   * peer 故障时用户仍可用局域网码，外网侧的显性提示由界面承担（不静默、不假装）。
    */
   function applyQrInfo(info: QrConnectionInfo | null): boolean {
     if (!info) {
       qrData.value = null
-      qrError.value = null
+      qrWanError.value = null
       return false
     }
     try {
-      buildQrPayload(info)
+      buildQrPayload({ ...info, peer: null })
     } catch (e) {
       qrData.value = null
-      qrError.value = e instanceof PairingPayloadError ? e.reason : 'peer-incomplete'
+      qrWanError.value = e instanceof PairingPayloadError ? e.reason : 'peer-incomplete'
       return false
     }
+    // 外网载荷：peer 存在但残缺 / 不可拨 → 只记录原因，局域网码照常出
+    qrWanError.value = null
+    if (info.peer) {
+      try {
+        buildQrPayload(info)
+      } catch (e) {
+        qrWanError.value = e instanceof PairingPayloadError ? e.reason : 'peer-incomplete'
+      }
+    }
     qrData.value = info
-    qrError.value = null
     qrRemainingSeconds.value = info.remainingSecs
     startQrCountdown()
     return true
@@ -329,7 +362,7 @@ export function useDeviceCenter(context: PluginContext) {
     if (info && info.token) {
       return applyQrInfo(info)
     }
-    qrError.value = null
+    qrWanError.value = null
     return false
   }
 
@@ -338,33 +371,37 @@ export function useDeviceCenter(context: PluginContext) {
     stopQrCountdown()
     qrData.value = null
     qrRemainingSeconds.value = 0
-    qrError.value = null
+    qrWanError.value = null
     await context.commands.execute('session.qr.clear', {})
   }
 
-  /** 扫码载荷（v1 = host/port/token；宿主提供 peer 时自动升 v2） */
-  function qrPayload(): string | null {
+  /**
+   * 扫码载荷（按模式）：
+   * - `lan`：v1 三要素 `{host, port, token}`（与 peer 无关，始终可组装）；
+   * - `wan`：含 `peer` 的 v3 紧凑隧道载荷（peer 残缺 / 不可拨时返回 null）。
+   */
+  function qrPayload(mode: QrMode = 'lan'): string | null {
     const data = qrData.value
     if (!data) return null
     try {
-      return buildQrPayload(data)
+      return buildQrPayload(mode === 'wan' ? data : { ...data, peer: null })
     } catch {
-      // generateQr / restoreQr 已置 qrError；这里不再重复报错，避免渲染期抛异常
+      // generateQr / restoreQr 已置 qrWanError；这里不再重复报错，避免渲染期抛异常
       return null
     }
   }
 
   /**
-   * 连接串形态（无摄像头场景；与 QR 同一载荷、同一校验）
+   * 连接串形态（无摄像头场景；与 QR 同一载荷、同一校验，按模式取）
    *
    * 与 {@link qrPayload} 同口径：组装失败返回 null，不在调用点抛异常
-   * （`qrError` 已由 applyQrInfo 置位，界面走显性错误文案）。
+   * （`qrWanError` 已由 applyQrInfo 置位，界面走显性错误文案）。
    */
-  function qrPairUri(): string | null {
+  function qrPairUri(mode: QrMode = 'lan'): string | null {
     const data = qrData.value
     if (!data) return null
     try {
-      return buildPairUri(data)
+      return buildPairUri(mode === 'wan' ? data : { ...data, peer: null })
     } catch {
       return null
     }
@@ -504,11 +541,12 @@ export function useDeviceCenter(context: PluginContext) {
     qrData: qrData as Ref<QrConnectionInfo | null>,
     qrRemainingSeconds,
     isQrLoading,
-    qrError: qrError as Ref<PairingPayloadErrorReason | null>,
+    qrWanError: qrWanError as Ref<PairingPayloadErrorReason | null>,
     qrPeerError,
     qrRelayError,
     qrWanDisabled,
     hasQr: hasQr as ComputedRef<boolean>,
+    hasWanQr,
     generateQr,
     restoreQr,
     clearQr,

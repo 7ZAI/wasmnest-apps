@@ -174,7 +174,11 @@ const en: MessageSchema = {
   'pairing.code.generateFailedNoCode': 'Failed to generate pairing code: no valid code received',
 
   'pairing.qr.title': 'QR Code Connection',
+  'pairing.qr.tabLan': 'LAN',
+  'pairing.qr.tabWan': 'WAN',
   'pairing.qr.generate': 'Generate QR Code',
+  'pairing.qr.generateWan': 'Generate WAN QR Code',
+  'pairing.qr.generateFailed': 'Failed to generate QR code',
   'pairing.qr.hint': 'Scan the QR code with the BedCode mobile app',
   'pairing.qr.singleUse': 'Each QR code can bind only one device',
   'pairing.qr.placeholder': 'Tap the button below to generate a QR code',

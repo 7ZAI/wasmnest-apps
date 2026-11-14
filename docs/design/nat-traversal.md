@@ -343,6 +343,20 @@ docker compose up -d
 - 移动端拿到 QR 后：按 §4.9 先试 LAN 地址，明确不在内网才试 relay；`host:port` 只作为旧版回退。
 - 旧版移动端只认 `host/port/token`，走 LAN HTTP——**兼容承诺仅对已支持 link-crypto 的旧客户端成立**：桌面固定 `required` 后，不具备链加密能力的旧客户端会显性失败（§9.1 风险 9），不存在明文回退。
 
+#### QR v3（2026-11-13：v2 的紧凑编码，语义不变）
+
+v2 的典型载荷（LAN + relay 两条地址、真实 64 hex 票据）是 479 字符 / 85 模块；按「每模块 ≥4 CSS px」的画布下限必须画到 356px，密集时更宽。v3 只删掉移动端可推导的重复（**不改变任何信任/拨号语义**）：
+
+```json
+{"v":3,"h":"192.168.1.5","p":8765,"t":"…32 hex…","n":"…nodeId…","a":["@","/ip4/203.0.113.10/tcp/4001/p2p/…relayPeerId…/p2p-circuit"],"tk":"…票据…"}
+```
+
+- 字段名缩写：`host→h`、`port→p`、`token→t`、`peer.nodeId→n`、`addrs→a`、`ticket→tk`；
+- `n` 全载荷只出现一次：`a` 存**拨号前缀**（完整 multiaddr 去掉尾部 `/p2p/<nodeId>`），解析侧拼回；relay 前缀保留 `/p2p/<relayId>/p2p-circuit`（拨号必需）；
+- 与 `h:p` **逐字相同**的那条 LAN 前缀记为 `"@"`（不按地址类型推测；`h` 非 IPv4 时不产生该占位）。
+
+实测（ECC M）：双地址 314 字符 / 69 模块 / 画布 292px；仅 LAN 216 字符 / 61 模块 / 260px；多网卡三地址 73 模块。组装侧 `apps/bedcode/desktop/src/utils/pairingPayload.ts`，解析侧 `apps/bedcode/mobile/src/host/qr.ts`（同时保留 v1/v2 解析，旧桌面/回滚可用）；尺寸回归锁在两端测试与 `scanIntegration`。`peer` 仍只承载一次性 token 与一次性票据，不含长期密钥（不变量 13）。
+
 #### 连接串（file-transfer / 无摄像头场景）
 
 把同样的 `peer` 信息编码成 `wasmnest://pair/<base64url(json)>` 或纯 JSON 文本，桌面「添加远程设备」/移动「扫码或粘贴」共用一套解析。连接串里**不放长期密钥**，只放 nodeId + relay addrs + 一次性票据。

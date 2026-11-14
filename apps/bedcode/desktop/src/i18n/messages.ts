@@ -186,7 +186,11 @@ export type MessageSchema = {
 
   // ==================== QR 卡 ====================
   'pairing.qr.title': string
+  'pairing.qr.tabLan': string
+  'pairing.qr.tabWan': string
   'pairing.qr.generate': string
+  'pairing.qr.generateWan': string
+  'pairing.qr.generateFailed': string
   'pairing.qr.hint': string
   'pairing.qr.singleUse': string
   'pairing.qr.placeholder': string

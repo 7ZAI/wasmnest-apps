@@ -172,7 +172,11 @@ const zhCN: MessageSchema = {
   'pairing.code.generateFailedNoCode': '生成配对码失败：未收到有效配对码',
 
   'pairing.qr.title': 'QR 码连接',
+  'pairing.qr.tabLan': '局域网',
+  'pairing.qr.tabWan': '外网',
   'pairing.qr.generate': '生成二维码',
+  'pairing.qr.generateWan': '生成外网二维码',
+  'pairing.qr.generateFailed': '生成二维码失败',
   'pairing.qr.hint': '使用移动端 BedCode 扫描二维码',
   'pairing.qr.singleUse': '每个二维码只能绑定一个设备',
   'pairing.qr.placeholder': '点击下方按钮生成二维码',
