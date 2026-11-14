@@ -1316,6 +1316,7 @@ export type MessageSchema = {
 
   // 运行
   'project.run.title': string
+  'project.run.noProject': string
   'project.run.new': string
   'project.run.empty': string
   'project.run.emptyHint': string
@@ -1344,6 +1345,10 @@ export type MessageSchema = {
   'project.terminal.tileEmpty': string
   'project.terminal.tileEmptyHint': string
   'project.terminal.tileHidden': string
+  // 拼屏范围：本项目 / 全部项目（跨项目并线）
+  'project.terminal.scope': string
+  'project.terminal.scopeProject': string
+  'project.terminal.scopeAll': string
 
   // 运行内 agent 控制（模型 / 思考等级下拉）
   'project.agent.modelNone': string

@@ -1396,6 +1396,7 @@ const en: MessageSchema = {
 
   // Runs
   'project.run.title': 'Runs',
+  'project.run.noProject': 'No project',
   'project.run.new': 'New Run',
   'project.run.empty': 'No runs yet',
   'project.run.emptyHint':
@@ -1430,6 +1431,10 @@ const en: MessageSchema = {
     'Tile view only shows live runs — start one on the left, or select a run to switch back to single view',
   'project.terminal.tileHidden':
     '{n} more live run(s) not tiled — click a run on the left to swap it in',
+  // Tile scope: this project / all projects (cross-project parallel view)
+  'project.terminal.scope': 'Tile scope',
+  'project.terminal.scopeProject': 'This project',
+  'project.terminal.scopeAll': 'All projects',
 
   // In-run agent control (model / thinking level dropdowns)
   'project.agent.modelNone': 'no model reported',

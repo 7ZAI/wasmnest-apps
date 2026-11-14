@@ -1343,6 +1343,7 @@ const zhCN: MessageSchema = {
 
   // 运行
   'project.run.title': '运行',
+  'project.run.noProject': '未归属项目',
   'project.run.new': '新建运行',
   'project.run.empty': '还没有运行',
   'project.run.emptyHint': '选一个 agent 启动：每次启动产生一条运行，可在同一项目里并发多条',
@@ -1372,6 +1373,10 @@ const zhCN: MessageSchema = {
   'project.terminal.tileEmpty': '没有存活运行',
   'project.terminal.tileEmptyHint': '拼屏只铺存活运行；先在左栏新建运行，或选中一条运行切回单屏',
   'project.terminal.tileHidden': '还有 {n} 条存活运行未铺开，点左栏运行可换入',
+  // 拼屏范围：本项目 / 全部项目（跨项目并线）
+  'project.terminal.scope': '拼屏范围',
+  'project.terminal.scopeProject': '本项目',
+  'project.terminal.scopeAll': '全部项目',
 
   // 运行内 agent 控制（模型 / 思考等级下拉）
   'project.agent.modelNone': '未上报模型',
