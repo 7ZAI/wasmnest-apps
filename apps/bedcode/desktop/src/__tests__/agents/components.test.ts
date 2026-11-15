@@ -3541,14 +3541,14 @@ describe('A7-4 SessionLogsTab：来源形态与扫描计数口径', () => {
 
 /**
  * A8 概览卡片卸载动作的行为契约（本次新增）：
- *  - A8-1 正例：已装 + 可自动卸载 → 卸载按钮，两击确认后才 emit uninstall(cli)
+ *  - A8-1 正例：已装 + 可自动卸载 → 卸载按钮，开确认弹窗，确认后才 emit uninstall(cli)
  *  - A8-2 反例：未安装 / 检测中 / 失败 → 不渲染卸载动作
  *  - A8-3 反例：双安装 / 未知安装方式 / npm-global 缺 node → 不给按钮，提示手动
  *  - A8-4 边界：busy（任意在途 run）与 uninstalling（本卡卸载中）→ 禁用/文案
  *  - A8-5 反例：卸载失败信号 → 友好 i18n 失败文案
- *  - A8-6 边界：armed 4s 超时自动复位（防误触的第二道保险）
+ *  - A8-6 边界：弹窗可取消关闭（取消/遮罩不发命令）
  */
-describe('A8 CliCard：卸载动作（两击确认与不可用原因）', () => {
+describe('A8 CliCard：卸载动作（确认弹窗与不可用原因）', () => {
   const info = {
     installed: true,
     version: '1.0',
@@ -3559,21 +3559,28 @@ describe('A8 CliCard：卸载动作（两击确认与不可用原因）', () => 
     error: null,
   }
 
-  it('A8-1 正例：已装 npm-global + node → 两击确认后 emit uninstall(cli)', async () => {
+  it('A8-1 正例：已装 npm-global + node → 开确认弹窗，确认后 emit uninstall(cli)', async () => {
     const w = mountComponent(CliCard, { cliId: 'pi', info, nodeReady: true })
     await flushPromises()
     const btn = w.get('[data-testid="cli-uninstall-pi"]')
     expect(btn.text()).toBe('hub.card.uninstall')
 
+    // 点击只打开弹窗，不发命令；标题/正文带 Agent 名
     await btn.trigger('click')
     await flushPromises()
-    // 第一击只 arm：按钮变确认文案，不发命令
-    expect(btn.text()).toBe('hub.card.uninstallConfirm')
+    expect(w.get('[data-testid="uninstall-dialog"]').exists()).toBe(true)
+    expect(w.get('[data-testid="uninstall-dialog-title"]').text()).toBe(
+      'hub.card.uninstallDialogTitle(name=Pi)',
+    )
+    expect(w.get('[data-testid="uninstall-body"]').text()).toBe(
+      'hub.card.uninstallDialogBody(name=Pi)',
+    )
     expect(w.emitted('uninstall')).toBeUndefined()
 
-    await btn.trigger('click')
+    await w.get('[data-testid="uninstall-confirm"]').trigger('click')
     await flushPromises()
     expect(w.emitted('uninstall')?.[0]).toEqual(['pi'])
+    expect(w.find('[data-testid="uninstall-dialog"]').exists()).toBe(false)
     w.unmount()
   })
 
@@ -3674,21 +3681,18 @@ describe('A8 CliCard：卸载动作（两击确认与不可用原因）', () => 
     w.unmount()
   })
 
-  it('A8-6 边界：armed 超时自动复位（4s 后按钮回到「卸载」）', async () => {
-    vi.useFakeTimers()
-    try {
-      const w = mountComponent(CliCard, { cliId: 'pi', info, nodeReady: true })
-      await flushPromises()
-      const btn = w.get('[data-testid="cli-uninstall-pi"]')
-      await btn.trigger('click')
-      expect(btn.text()).toBe('hub.card.uninstallConfirm')
-      vi.advanceTimersByTime(4000)
-      await flushPromises()
-      expect(btn.text()).toBe('hub.card.uninstall')
-      w.unmount()
-    } finally {
-      vi.useRealTimers()
-    }
+  it('A8-6 边界：弹窗取消 → 关闭且不发命令', async () => {
+    const w = mountComponent(CliCard, { cliId: 'pi', info, nodeReady: true })
+    await flushPromises()
+    await w.get('[data-testid="cli-uninstall-pi"]').trigger('click')
+    await flushPromises()
+    expect(w.get('[data-testid="uninstall-dialog"]').exists()).toBe(true)
+
+    await w.get('[data-testid="uninstall-cancel"]').trigger('click')
+    await flushPromises()
+    expect(w.find('[data-testid="uninstall-dialog"]').exists()).toBe(false)
+    expect(w.emitted('uninstall')).toBeUndefined()
+    w.unmount()
   })
 
   it('A8-7 布局：启动会话与卸载同一行（左 / 右），卸载常驻危险色', async () => {
@@ -3712,7 +3716,7 @@ describe('A8 CliCard：卸载动作（两击确认与不可用原因）', () => 
 
 /**
  * A9 OverviewTab 的卸载接线：
- *  - 卡片两击确认后 emit uninstall(cli) 上抛给父层
+ *  - 卡片确认弹窗确认后 emit uninstall(cli) 上抛给父层
  *  - uninstallFailed 信号下传对应卡片（其余卡片不误显示）
  */
 describe('A9 OverviewTab：卸载事件上抛', () => {
@@ -3741,14 +3745,14 @@ describe('A9 OverviewTab：卸载事件上抛', () => {
     })
   }
 
-  it('正例：卡片两击确认后 emit uninstall(cli)', async () => {
+  it('正例：卡片确认弹窗确认后 emit uninstall(cli)', async () => {
     const w = mountOverview()
     await flushPromises()
-    const btn = w.get('[data-testid="cli-uninstall-pi"]')
-    await btn.trigger('click')
+    await w.get('[data-testid="cli-uninstall-pi"]').trigger('click')
     await flushPromises()
+    // 弹窗打开未确认：不发命令
     expect(w.emitted('uninstall')).toBeUndefined()
-    await btn.trigger('click')
+    await w.get('[data-testid="uninstall-confirm"]').trigger('click')
     await flushPromises()
     expect(w.emitted('uninstall')?.[0]).toEqual(['pi'])
     w.unmount()

@@ -675,7 +675,8 @@ export type MessageSchema = {
   'hub.card.method.unknown': string
   // ==================== 概览 · CLI 卸载（概览卡片动作） ====================
   'hub.card.uninstall': string
-  'hub.card.uninstallConfirm': string
+  'hub.card.uninstallDialogTitle': string
+  'hub.card.uninstallDialogBody': string
   'hub.card.uninstallRunning': string
   'hub.card.uninstallHintDual': string
   'hub.card.uninstallHintMethod': string

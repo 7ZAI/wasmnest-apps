@@ -746,9 +746,11 @@ const en: MessageSchema = {
   'hub.card.method.standalone': 'standalone',
   'hub.card.method.unknown': '—',
 
-  // Overview · CLI uninstall (two-click confirm + unavailability reasons + failure)
+  // Overview · CLI uninstall (confirm dialog + unavailability reasons + failure)
   'hub.card.uninstall': 'Uninstall',
-  'hub.card.uninstallConfirm': 'Confirm uninstall?',
+  'hub.card.uninstallDialogTitle': 'Uninstall {name}?',
+  'hub.card.uninstallDialogBody':
+    '{name} will be removed from this machine. This action cannot be undone; you can reinstall it later if needed.',
   'hub.card.uninstallRunning': 'Uninstalling…',
   'hub.card.uninstallHintDual': 'Multiple installs detected; uninstall manually',
   'hub.card.uninstallHintMethod': 'Unknown install method; uninstall manually',

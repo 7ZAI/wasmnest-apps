@@ -716,9 +716,10 @@ const zhCN: MessageSchema = {
   'hub.card.method.standalone': 'standalone',
   'hub.card.method.unknown': '—',
 
-  // 概览 · CLI 卸载（两击确认 + 不可用原因 + 失败提示）
+  // 概览 · CLI 卸载（确认弹窗 + 不可用原因 + 失败提示）
   'hub.card.uninstall': '卸载',
-  'hub.card.uninstallConfirm': '确认卸载？',
+  'hub.card.uninstallDialogTitle': '卸载 {name}？',
+  'hub.card.uninstallDialogBody': '将从此机器移除 {name}。此操作不可撤销，如有需要可稍后重新安装。',
   'hub.card.uninstallRunning': '卸载中…',
   'hub.card.uninstallHintDual': '检测到多处安装，请手动卸载',
   'hub.card.uninstallHintMethod': '安装方式未知，请手动卸载',
