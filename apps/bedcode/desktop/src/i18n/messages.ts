@@ -898,6 +898,8 @@ export type MessageSchema = {
   'hub.skill.editor.conflict': string
   'hub.skill.editor.overwriteMine': string
   'hub.skill.editor.reload': string
+  'hub.skill.editor.loadFailed': string
+  'hub.skill.editor.retry': string
 
   // ==================== 供应商管理（票据 05） ====================
   'hub.pv.secure': string

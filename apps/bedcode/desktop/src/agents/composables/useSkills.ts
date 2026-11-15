@@ -13,6 +13,7 @@
  */
 import { onMounted, onUnmounted, ref } from 'vue'
 import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-desktop'
+import { logger } from '@/utils/frontendLogger'
 import type {
   GithubInstallResult,
   ImportSkillResult,
@@ -58,13 +59,19 @@ export function useSkills(context: PluginContext) {
     }
   }
 
-  /** 读取 skill 的 SKILL.md（编辑器装载） */
+  /**
+   * 读取 skill 的 SKILL.md（编辑器装载）
+   *
+   * 失败必须落前端日志（`logger.error` → 宿主 `report_frontend_log`，release 下也落盘）：
+   * 编辑器把 `null` 呈现为「读取失败，请重试（详情见应用日志）」，而 raw console
+   * 在生产构建里不进日志文件——排查时会拿不到真正原因（2026-11-15 实机排查教训）。
+   */
   async function readSkill(dir: string): Promise<SkillDetail | null> {
     try {
       const data = await context.commands.execute('agent.read-skill', { dir })
       return (data ?? null) as SkillDetail | null
     } catch (e) {
-      console.error('[Agent Hub] read-skill failed', dir, e)
+      logger.error('[Agent Hub] read-skill failed', dir, e)
       return null
     }
   }

@@ -927,6 +927,8 @@ const zhCN: MessageSchema = {
   'hub.skill.editor.conflict': '文件在装载后被外部修改，请选择覆盖或放弃',
   'hub.skill.editor.overwriteMine': '以我的版本覆盖',
   'hub.skill.editor.reload': '从磁盘重读',
+  'hub.skill.editor.loadFailed': '读取 SKILL.md 失败，请重试（详情见应用日志）',
+  'hub.skill.editor.retry': '重试',
 
   // ==================== 供应商管理（票据 05） ====================
   'hub.pv.secure':

@@ -35,6 +35,12 @@ const detail = ref<SkillDetail | null>(null)
 const draft = ref('')
 /** 加载中 */
 const loading = ref(false)
+/**
+ * 装载失败（read-skill 返回 null / 抛错）：显性提示 + 重试入口。
+ * 不给这个态时 `detail` 为 null，模板整块不渲染，用户只看到标题栏 + 保存按钮，
+ * 分不清「命令失败」与「没内容」（2026-11-15 实机排查教训）。
+ */
+const loadError = ref(false)
 /** 保存中（等待 guest 命令返回） */
 const saving = ref(false)
 /** diff 预览态（保存两击确认的第一击） */
@@ -50,13 +56,20 @@ async function load(dir: string) {
   previewing.value = false
   conflictCurrent.value = null
   detail.value = null
+  loadError.value = false
   try {
     const d = await props.skills.readSkill(dir)
     detail.value = d
     draft.value = d?.content ?? ''
+    loadError.value = d === null
   } finally {
     loading.value = false
   }
+}
+
+/** 失败态重试：重新走一次装载（成功则直接进入编辑态） */
+function retryLoad() {
+  if (props.dir) void load(props.dir)
 }
 
 watch(
@@ -160,6 +173,19 @@ async function reloadFromDisk() {
     </div>
 
     <div v-if="loading" class="ah-sk-loading">{{ t('hub.card.detecting') }}</div>
+    <!-- 装载失败：显性提示 + 重试（无此态时模板整块不渲染，只剩标题栏，失败被读成「空白」） -->
+    <div v-else-if="loadError" class="ah-banner" data-testid="skill-load-error">
+      <span class="ah-banner-ic">⚠</span>
+      <span class="ah-banner-text">{{ t('hub.skill.editor.loadFailed') }}</span>
+      <button
+        type="button"
+        class="ah-btn ah-btn-ghost ah-btn-sm"
+        data-testid="skill-load-retry"
+        @click="retryLoad"
+      >
+        {{ t('hub.skill.editor.retry') }}
+      </button>
+    </div>
     <template v-else-if="detail">
       <div class="ah-sk-meta">
         <span class="ah-env-row"><span class="ah-env-label">name</span><span class="ah-env-value ah-mono">{{ detail.name }}</span></span>

@@ -713,3 +713,46 @@ describe('S11 会话日志高度链不断（详情页任务记录不再塌成一
     expect(declsOf('.ah-lg-raw')['overflow-y']).toBe('auto')
   })
 })
+
+// ==================== S15 SKILL.md 编辑器高度链（2026-11-15 实机回归） ====================
+
+/**
+ * 点「编辑」后正文整块消失：只剩标题栏与底部按钮，SKILL.md 内容不可见。
+ *
+ * 成因与 S11 同型：编辑态根 `.ah-sk--editing` 的父级是分区过渡容器 `.page-swap`
+ * （普通块盒，不是 flex 容器），`flex: 1` 在这里空转 → `.ah-sk` 退回内容高 →
+ * 下游 `.ah-sk-editor-body { flex: 1 1 0; min-height: 0 }` 的基数为 0 且无剩余
+ * 空间可分配，被压成 0 高（WebKitGTK 实测：body / MarkdownEditor 均 0 高，
+ * textarea 只剩 6px，正文不可见）。
+ *
+ * 契约：高度锚点用 `height: 100%`（对上 `.page-swap` 这个已确定高度的块盒），
+ * 不再写 `flex`；`.ah-sk-editor-body` 保留 `flex: 1 1 0` + `min-height: 0`，
+ * 才能从已确定的父高度里真正分到空间。
+ */
+describe('S15 SKILL.md 编辑器高度链不断（点编辑后正文不再整块消失）', () => {
+  it('第 1 跳：.ah-sk--editing 用 height 锚定 .page-swap，不用 flex（父级是块盒）', () => {
+    const sk = declsOf('.ah-sk--editing')
+    expect(sk['height'], '缺 height: 100% → .ah-sk 退回内容高，编辑器主体塌成 0').toBe('100%')
+    expect(
+      sk['flex'],
+      '.ah-sk--editing 的 flex 是空转声明（父级 .page-swap 为块盒），写回去会静默回到本 bug',
+    ).toBeUndefined()
+  })
+
+  it('第 2 跳：编辑器根占满 .ah-sk 剩余高度，且允许被压缩', () => {
+    const editor = declsOf('.ah-sk-editor')
+    expect(editor['flex'], '缺 flex: 1 → 拿不到 .ah-sk 的剩余高度').toBe('1')
+    expect(editor['min-height'], '缺 min-height: 0 → 自动最小尺寸挡压缩').toBe('0')
+  })
+
+  it('第 3 跳：正文容器是 flex 列里的可增长项（flex-basis 0 + min-height 0）', () => {
+    const body = declsOf('.ah-sk-editor-body')
+    expect(body['flex'], '缺 flex: 1 1 0 → 正文容器退回内容高，MarkdownEditor 高度失锚').toBe(
+      '1 1 0',
+    )
+    expect(body['min-height'], '缺 min-height: 0 → 自动最小尺寸挡压缩').toBe('0')
+    expect(body.display, '正文容器必须是 flex 列，MarkdownEditor 的 height: 100% 才成立').toBe(
+      'flex',
+    )
+  })
+})

@@ -967,6 +967,8 @@ const en: MessageSchema = {
     'The file was changed externally after loading; choose overwrite or reload',
   'hub.skill.editor.overwriteMine': 'Save my version',
   'hub.skill.editor.reload': 'Reload from disk',
+  'hub.skill.editor.loadFailed': 'Failed to read SKILL.md; retry (details in app logs)',
+  'hub.skill.editor.retry': 'Retry',
 
   // ==================== Provider management (ticket 05) ====================
   'hub.pv.secure':

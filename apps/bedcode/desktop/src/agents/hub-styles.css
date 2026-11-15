@@ -988,9 +988,15 @@
   gap: 14px;
 }
 
-/* 编辑态撑满：仅编辑 SKILL.md 时压缩到视口剩余高度（列表态不拉伸，内容流高度回归原行为） */
+/* 编辑态撑满：仅编辑 SKILL.md 时压缩到视口剩余高度（列表态不拉伸，内容流高度回归原行为）。
+   高度锚点必须是 `height: 100%` 而不是 `flex: 1`：父级是分区过渡容器 `.page-swap`
+   （宿主全局类，普通块盒，不是 flex 容器），`flex: 1` 在这里空转——`.ah-sk` 退回内容高后，
+   下游 `.ah-sk-editor-body { flex: 1 1 0; min-height: 0 }` 的 flex-basis 0 拿不到可分配
+   高度，编辑器主体被压成 0 高（实机：点「编辑」后只剩标题栏与保存按钮，SKILL.md 内容
+   不可见）。父级高度由 `.ah-view > .page-swap { flex: 1 }` 确定，`height: 100%` 才对得上
+   （与 `.ah-lg` 同一条修法）。护栏：styleGuards.test.ts S15。 */
 .ah-sk--editing {
-  flex: 1;
+  height: 100%;
   min-height: 0;
 }
 
