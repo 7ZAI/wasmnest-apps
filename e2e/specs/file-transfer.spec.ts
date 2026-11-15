@@ -38,9 +38,21 @@ describe('File Transfer（桌面端 · 宿主内挂载）', () => {
 
   it('主界面渲染：顶栏动作就位', async () => {
     expectEqual(await visible('ft-view'), true, '主界面可见')
-    for (const id of ['ft-peer-switch', 'ft-queue', 'ft-settings']) {
+    for (const id of ['ft-peer-switch', 'ft-queue', 'ft-my-device-open', 'ft-settings']) {
       expectEqual(await exists(id), true, `顶栏动作 ${id} 存在`)
     }
+  })
+
+  it('我的设备：二维码弹窗可打开可关闭', async () => {
+    expectEqual(await exists('ft-my-device'), false, '初始无我的设备弹窗')
+
+    await click('ft-my-device-open')
+    await waitFor('ft-my-device')
+    expectEqual(await visible('ft-my-device'), true, '我的设备弹窗已打开')
+
+    await click('ft-my-device-close')
+    await waitGone('ft-my-device')
+    expectEqual(await exists('ft-my-device'), false, '我的设备弹窗已关闭')
   })
 
   it('附近设备面板可展开可收起', async () => {
@@ -78,6 +90,7 @@ describe('File Transfer（桌面端 · 宿主内挂载）', () => {
     await waitGone('ft-settings-panel')
     expectEqual(await exists('ft-settings-panel'), false, '设置面板已关闭')
   })
+
 
   it('刷新动作：按钮禁用态与对端在线态一致', async () => {
     const online = (await attr('ft-peer-status', 'data-online')) === 'true'

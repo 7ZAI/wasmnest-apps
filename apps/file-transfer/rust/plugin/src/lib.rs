@@ -493,6 +493,13 @@ impl WasmPlugin for FileTransferPlugin {
             // T21：「我的设备」——本机身份 / 可拨地址 / relay 状态。宿主
             // `host-peer.node-info` 未就绪时显性 unsupported（不伪造链接）。
             "file-transfer.get-my-device" => peer::get_my_device(&h),
+            // 穿透配置导入（扫码 qr / 内网同步 sync）：只写 relay 地址 / 空间码 /
+            // 来源，不动接收策略与中继开关（T12 语义隔离）
+            "file-transfer.import-relay-config" => peer::import_relay_config(&h, &args),
+            // 从已连接的可信设备同步穿透配置（只读快照；不改对端）
+            "file-transfer.sync-peer-relay-config" => {
+                peer::sync_peer_relay_config(&h, &args, active_node())
+            }
             // 接收落点选择（桌面形态）：移动端固定 MediaStore.Downloads，
             // 命令显性报错（与退役前移动端行为逐字一致）
             "file-transfer.pick-download-dir" => {

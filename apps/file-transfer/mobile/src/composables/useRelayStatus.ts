@@ -3,7 +3,7 @@
  *
  * 读 `get-my-device` 的 relay 现状 + 宿主 `peer:relay-devices` envelope，
  * 经 `deriveRelayCard` 纯函数产出卡片模型。命令只在挂载 / 手动刷新 /
- * 邀请导入后读取；发现状态本身由事件驱动。30s 心跳只刷新「状态是否过期」，
+ * 配置导入后读取；发现状态本身由事件驱动。30s 心跳只刷新「状态是否过期」，
  * 不重发命令。
  */
 import { computed, onMounted, onUnmounted, ref, type Ref } from 'vue'
@@ -11,12 +11,23 @@ import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-mobile'
 import { deriveRelayCard, type RelayCardModel, type RelayDiscovery } from './deviceState'
 import { sameRelaySet } from '../utils/pairingLink'
 
+/** relay 来源词表（未知值不猜，按「无来源」处理） */
+const RELAY_SOURCES = ['center', 'cache', 'invite', 'qr', 'sync'] as const
+
+function normalizeRelaySource(
+  value: unknown,
+): 'center' | 'cache' | 'invite' | 'qr' | 'sync' | null {
+  return typeof value === 'string' && (RELAY_SOURCES as readonly string[]).includes(value)
+    ? (value as 'center' | 'cache' | 'invite' | 'qr' | 'sync')
+    : null
+}
+
 export function useRelayStatus(context: PluginContext, discovery: Ref<RelayDiscovery | null>) {
   const relayAddrs = ref<string[]>([])
   const relayCacheAddrs = ref<string[]>([])
   const relayRoom = ref('')
   const relayState = ref<string | undefined>(undefined)
-  const relaySource = ref<'center' | 'cache' | 'invite' | null>(null)
+  const relaySource = ref<'center' | 'cache' | 'invite' | 'qr' | 'sync' | null>(null)
   const relayOrigin = ref('')
   const nowMs = ref(Date.now())
   let timer: ReturnType<typeof setInterval> | null = null
@@ -33,21 +44,18 @@ export function useRelayStatus(context: PluginContext, discovery: Ref<RelayDisco
         : []
       relayRoom.value = typeof r?.relayRoom === 'string' ? r.relayRoom : ''
       relayState.value = typeof r?.relayState === 'string' ? r.relayState : undefined
-      relaySource.value =
-        r?.relaySource === 'center' || r?.relaySource === 'cache' || r?.relaySource === 'invite'
-          ? r.relaySource
-          : null
+      relaySource.value = normalizeRelaySource(r?.relaySource)
       relayOrigin.value = typeof r?.relayOrigin === 'string' ? r.relayOrigin : ''
     } catch (e) {
       console.error('[File Transfer] load relay status failed:', e)
     }
   }
 
-  /** 中心已配置且与邀请缓存不同：自动发现不会工作（P0 中心优先） */
+  /** 中心已配置且与缓存不一致：自动发现不会工作（P0 中心优先） */
   const conflict = computed(
     () =>
       relaySource.value === 'center' &&
-      relayOrigin.value === 'invite' &&
+      ['invite', 'qr', 'sync'].includes(relayOrigin.value) &&
       relayCacheAddrs.value.length > 0 &&
       !sameRelaySet(relayAddrs.value, relayCacheAddrs.value),
   )

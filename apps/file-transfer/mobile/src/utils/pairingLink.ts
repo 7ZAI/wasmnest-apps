@@ -1,29 +1,20 @@
 /**
- * 远程设备连接串解析（T12）
+ * 配对载荷工具（file-transfer，移动端）
  *
- * 契约（设计 §4.3 / T12 验收）：
- * - 输入形态二选一：`wasmnest://pair/<base64url(json)>` 连接串，或纯 JSON 文本；
- * - 载荷只承载**连接所需**信息：`nodeId`（宿主已验证的 peer 身份）、`addrs`
- *   （同一节点的多地址，LAN 直连在前、relay 在后）、可选 `ticket`（一次性配对
- *   票据，TTL ≤ 120s）；**不含长期密钥**（不变量 13）；
- * - 兼容三种形态：自持 v3 `{v:3, nodeId, addrs}`、QR v2 包装
- *   `{v:2, host, port, token, peer:{…}}`、扁平 `{nodeId, addrs, …}`（同一套
- *   字段判据，不猜未知版本）。
+ * 设备配对只保留「我的设备二维码」：本端生成、对端扫码导入。粘贴连接串与
+ * v4 邀请已退役；设备发现主路径仍是中继会合 + mDNS。
  *
- * 失败必须显性（返回 reason，由界面给可操作文案）：连接串坏 / 字段缺失 /
- * 地址不可拨号三种分开报，不静默退化成「什么也没发生」。
+ * 本文件承载两类载荷：
+ *
+ * 1. 设备二维码 v3（`wasmnest://pair/`）：nodeId + 可拨地址 + 展示名；
+ * 2. 穿透配置分享 v1（`wasmnest://relay-config/`）：设置页扫码导入，只写本机
+ *    relay 配置，不建立设备信任。
  *
  * 桌面 / 移动端各持一份（与双端同构的既有做法一致，刻意不跨应用耦合
  * 源码）；改动字段口径时两处一起改。
  */
 
-/** 连接串前缀（无摄像头场景粘贴用） */
-export const PAIR_URI_PREFIX = 'wasmnest://pair/'
-
-/** 连接串载荷版本（v3 = file-transfer 自持「我的设备」；v2 = 旧 QR 兼容） */
-export const PAIR_URI_VERSION = 3
-
-/** 解析成功后的远程设备信息 */
+/** 设备二维码解析后的形状（导入后落 paired 缓存） */
 export interface RemotePeerLink {
   /** 宿主已验证的 peer 节点 id（64 位小写 hex） */
   nodeId: string
@@ -31,52 +22,35 @@ export interface RemotePeerLink {
   addrs: string[]
   /** 一次性配对票据（file-transfer 自身不消费，仅保留形状；不落盘） */
   ticket: string | null
-  /** 载荷自带展示名时使用（QR v2 通常没有；空串 = 由界面按短指纹展示） */
+  /** 载荷自带展示名时使用（空串 = 由界面按短指纹展示） */
   deviceName: string
 }
 
-/** 「我的设备」生成连接串的输入（宿主 node-info + 设备展示名） */
+/** 设备二维码前缀（「我的设备」生成，手机扫码导入） */
+export const PAIR_URI_PREFIX = 'wasmnest://pair/'
+
+/** 载荷版本（v3 = 设备连接串） */
+export const PAIR_URI_VERSION = 3
+
+/** 「我的设备」生成二维码载荷的输入 */
 export interface DeviceLinkInput {
   nodeId: string
   addrs: string[]
   deviceName?: string
 }
 
-/** 解析失败原因（决定界面文案） */
+/** 设备二维码解析失败原因（界面按此分文案） */
 export type RemotePeerLinkError = 'malformed' | 'incomplete' | 'address-invalid'
 
-/** 解析结果 */
 export type RemotePeerLinkResult =
   { ok: true; link: RemotePeerLink } | { ok: false; reason: RemotePeerLinkError }
 
-/** 64 位小写 hex（引擎 node_id = 公钥指纹；与 `parseFoundPayload` 同口径） */
+/** 64 位小写 hex（引擎 node_id = 公钥指纹） */
 const NODE_ID_PATTERN = /^[0-9a-f]{64}$/
-
-/** UTF-8 文本 → base64url（与解析端对称；连接串载荷很小，一次编码足够） */
-function encodeBase64UrlUtf8(text: string): string {
-  let binary = ''
-  for (const byte of new TextEncoder().encode(text)) binary += String.fromCharCode(byte)
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
-}
-
-/** base64url → UTF-8 文本；非法编码 / 非 UTF-8 返回 null */
-function decodeBase64UrlUtf8(input: string): string | null {
-  const normalized = input.replace(/-/g, '+').replace(/_/g, '/')
-  const padded = normalized + '='.repeat((4 - (normalized.length % 4)) % 4)
-  try {
-    const binary = atob(padded)
-    const bytes = Uint8Array.from(binary, (ch) => ch.charCodeAt(0))
-    return new TextDecoder('utf-8', { fatal: true }).decode(bytes)
-  } catch {
-    return null
-  }
-}
 
 /**
  * 地址是否可拨号：multiaddr 形态、无空白、不是未指定地址。
- *
- * 刻意**不要求** `/p2p/`：内网直连候选是 `/ip4/<ip>/tcp/<port>`（目标身份由
- * `nodeId` 单独给出）；relay circuit 候选自带 `/p2p-circuit/p2p/<target>`。
+ * 内网直连候选是 `/ip4/<ip>/tcp/<port>`（目标身份由 `nodeId` 给出）。
  */
 function isDialableAddr(addr: string): boolean {
   return (
@@ -87,12 +61,7 @@ function isDialableAddr(addr: string): boolean {
   )
 }
 
-/**
- * 生成 `wasmnest://pair/<base64url>` 连接串（file-transfer 自持「我的设备」）。
- *
- * 入参来自宿主 node-info：nodeId + 可拨 addrs（LAN 在前、relay circuit 在后）。
- * 不合法入参显性抛错——调用方不得把残缺链接展示给用户（解析端同判据拒绝）。
- */
+/** 生成设备二维码载荷；非法入参显性抛错（不得展示坏码） */
 export function buildRemotePeerLink(input: DeviceLinkInput): string {
   const nodeId = (input.nodeId ?? '').trim().toLowerCase()
   if (!NODE_ID_PATTERN.test(nodeId)) {
@@ -115,7 +84,7 @@ export function buildRemotePeerLink(input: DeviceLinkInput): string {
   return `${PAIR_URI_PREFIX}${encodeBase64UrlUtf8(JSON.stringify(payload))}`
 }
 
-/** 解析二维码 / 连接串文本为远程设备信息 */
+/** 解析设备二维码 / 连接串文本 */
 export function parseRemotePeerLink(text: unknown): RemotePeerLinkResult {
   if (typeof text !== 'string' || !text.trim()) return { ok: false, reason: 'malformed' }
   let jsonText = text.trim()
@@ -141,7 +110,7 @@ export function parseRemotePeerLink(text: unknown): RemotePeerLinkResult {
     return { ok: false, reason: 'malformed' }
   }
 
-  // 兼容两种包装：QR v2 的 `peer` 子对象 / 扁平字段
+  // 兼容 v2 包装形态 `{v:2,…,peer}` 与扁平形态
   const peerRaw =
     obj.peer && typeof obj.peer === 'object' && !Array.isArray(obj.peer)
       ? (obj.peer as Record<string, unknown>)
@@ -171,66 +140,31 @@ export function parseRemotePeerLink(text: unknown): RemotePeerLinkResult {
   return { ok: true, link: { nodeId, addrs, ticket, deviceName } }
 }
 
-/** 是否为经 relay 的候选地址（与核内 `dial::is_relay_addr` 同标记） */
-export function isRelayCandidate(addr: string): boolean {
-  return addr.includes('/p2p-circuit')
+/** UTF-8 文本 → base64url（与解析端对称；载荷很小，一次编码足够） */
+function encodeBase64UrlUtf8(text: string): string {
+  let binary = ''
+  for (const byte of new TextEncoder().encode(text)) binary += String.fromCharCode(byte)
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
 }
 
-/** 从候选表里拆出 relay 候选（界面「尝试外网」可用性判据） */
-export function relayCandidatesOf(addrs: readonly string[] | undefined): string[] {
-  return (addrs ?? []).filter((a) => isRelayCandidate(a))
+/** base64url → UTF-8 文本；非法编码 / 非 UTF-8 返回 null */
+function decodeBase64UrlUtf8(input: string): string | null {
+  const normalized = input.replace(/-/g, '+').replace(/_/g, '/')
+  const padded = normalized + '='.repeat((4 - (normalized.length % 4)) % 4)
+  try {
+    const binary = atob(padded)
+    const bytes = Uint8Array.from(binary, (ch) => ch.charCodeAt(0))
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+  } catch {
+    return null
+  }
 }
-
-// ==================== 邀请（v4，T23） ====================
-//
-// v3 设备链接回答「这台设备在哪」（nodeId + 可拨地址）；v4 邀请回答「两端共用
-// 哪台中继 + 哪个空间」，用于跨 NAT 的**首次配置**。两者并存：v3 保留为无法
-// 共用中继时的兜底，入口先按前缀分流，不互相猜语义。
-
-/** 邀请链接前缀 */
-export const JOIN_URI_PREFIX = 'wasmnest://join/'
-
-/** 邀请载荷版本（未知版本拒绝，不猜语义） */
-export const JOIN_URI_VERSION = 4
 
 /** 空间码判据（与核内 `normalize_relay_room` 同口径：1–64 位 `[A-Za-z0-9_-]`） */
 const ROOM_PATTERN = /^[A-Za-z0-9_-]{1,64}$/
 
-/** 展示名上限（仅展示、不参与寻址；超长截断而不是让整张邀请失效） */
+/** 展示名上限（仅展示、不参与寻址；超长截断而不是让整份分享失效） */
 const INVITE_NAME_MAX = 64
-
-/** 中继配置元数据（桌面从网络配置中心带出；仅用于导入后同步全局中继） */
-export interface RelayMeta {
-  /** 中心载荷版本（net-config `version`；缺省 1） */
-  version: number
-  peerId: string
-  peerIdSha256: string
-  /** `open` / `allowlist`；缺失为空串（由接收方 / 中心判） */
-  accessMode: string
-  /** 中继版本；文本导入形态可能没有 */
-  relayVersion: string | null
-  controlProtocol: string
-  /** `json` / `text`（缺省 `json`） */
-  source: string
-}
-
-/** 跨网邀请（v4）：只承载「共用哪台中继 + 哪个空间」，不含 nodeId / 密钥 / 票据 */
-export interface ConnectionInvite {
-  /** 空间码（与核内 `normalize_relay_room` 同判据） */
-  room: string
-  /** relay 端点（至少一条；不得是 circuit 拨号目标） */
-  relay: string[]
-  /** 邀请方展示名（可选，仅确认页展示） */
-  name: string
-  /** 中继元数据（可选；只有桌面从中心生成时才带） */
-  relayMeta?: RelayMeta
-}
-
-/** 解析失败原因（界面按此分文案，不合并成「无效邀请」） */
-export type ConnectionInviteError = 'malformed' | 'missing-room' | 'address-invalid'
-
-export type ConnectionInviteResult =
-  { ok: true; invite: ConnectionInvite } | { ok: false; reason: ConnectionInviteError }
 
 /**
  * relay 端点判据（与核内 `settings::normalize_relay_addrs` 同口径）：
@@ -261,67 +195,118 @@ function normalizeInviteName(raw: unknown): string {
   return cleaned.length > INVITE_NAME_MAX ? cleaned.slice(0, INVITE_NAME_MAX) : cleaned
 }
 
-/**
- * 解析可选 `relayMeta`。缺身份字段（peerId / 指纹）的元数据没有采用价值
- * （中心无法校验），整块丢弃但不拖累邀请本身——relay + room 才是会合必需项。
- */
-function parseRelayMeta(raw: unknown): RelayMeta | undefined {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined
-  const rec = raw as Record<string, unknown>
-  const text = (v: unknown): string => (typeof v === 'string' ? v.trim() : '')
-  const peerId = text(rec.peerId)
-  const peerIdSha256 = text(rec.peerIdSha256)
-  if (!peerId || !peerIdSha256) return undefined
-  return {
-    version: typeof rec.version === 'number' && Number.isFinite(rec.version) ? rec.version : 1,
-    peerId,
-    peerIdSha256,
-    accessMode: text(rec.accessMode),
-    relayVersion: text(rec.relayVersion) || null,
-    controlProtocol: text(rec.controlProtocol),
-    source: text(rec.source) || 'json',
+/** 两组 relay 端点是否等价（顺序无关、忽略空项；中心与缓存冲突判定用） */
+export function sameRelaySet(a: readonly string[], b: readonly string[]): boolean {
+  const left = new Set(a.map((x) => x.trim()).filter(Boolean))
+  const right = new Set(b.map((x) => x.trim()).filter(Boolean))
+  if (left.size !== right.size) return false
+  for (const addr of left) {
+    if (!right.has(addr)) return false
   }
+  return true
 }
 
-/** 生成邀请连接串；非法 room / relay 显性抛错（调用方不得展示坏码） */
-export function buildConnectionInvite(input: ConnectionInvite): string {
-  const room = (input.room ?? '').trim()
-  if (!ROOM_PATTERN.test(room)) {
-    throw new Error('buildConnectionInvite: invalid room')
-  }
-  const relay: string[] = []
-  for (const item of input.relay ?? []) {
+// ==================== 穿透配置分享（v1） ====================
+//
+// 只回答「本机接入外网用哪台中继」（relay 端点 + 空间码 + 对外网策略），
+// 不含 nodeId / 长期密钥 / 票据。扫码导入只写本机 relay 配置，不建立设备
+// 信任——信任仍走首连确认。
+
+/** 穿透配置分享前缀 */
+export const RELAY_CONFIG_URI_PREFIX = 'wasmnest://relay-config/'
+
+/** 载荷版本（未知版本拒绝，不猜语义） */
+export const RELAY_CONFIG_VERSION = 1
+
+/** 载荷 kind（防止把其它 `wasmnest://` 载荷误当配置） */
+export const RELAY_CONFIG_KIND = 'ft-relay-config'
+
+/** 对外网策略（只表达「本机允许经中继拨号」，不是授权） */
+export type RelayWanPolicy = 'allowed' | 'blocked'
+
+/** 穿透配置分享载荷（v1） */
+export interface RelayConfigShare {
+  /** relay 端点（至少一条；不得是 circuit 拨号目标） */
+  relayAddrs: string[]
+  /** 空间码（非空时导入端一并对齐，否则两端可能互相不可见） */
+  room: string
+  /** 生成方是否允许经中继拨号（导入端只展示，不静默改本机开关） */
+  wanPolicy: RelayWanPolicy
+  /** 生成方展示名（可选，仅展示） */
+  deviceName: string
+  /** 生成时刻（Unix 毫秒；0 = 未提供） */
+  generatedAt: number
+}
+
+/** 解析失败原因（界面按此分文案，不合并成「无效配置」） */
+export type RelayConfigShareError =
+  'malformed' | 'version-unsupported' | 'missing-relay' | 'address-invalid'
+
+export type RelayConfigShareResult =
+  { ok: true; share: RelayConfigShare } | { ok: false; reason: RelayConfigShareError }
+
+/** 是否为穿透配置分享文本（入口分流用；只判前缀，不保证一定可解析） */
+export function isRelayConfigShare(text: unknown): boolean {
+  return typeof text === 'string' && text.trim().startsWith(RELAY_CONFIG_URI_PREFIX)
+}
+
+/**
+ * 生成穿透配置分享二维码载荷。
+ *
+ * 非法 room / relay / 策略显性抛错——调用方不得展示坏码（解析端同判据拒绝）。
+ * `generatedAt` 缺省取当前时刻；载荷只用于展示新鲜度，不参与过期判定。
+ */
+export function buildRelayConfigShare(input: {
+  relayAddrs: readonly string[]
+  room?: string
+  wanPolicy?: RelayWanPolicy
+  deviceName?: string
+  generatedAt?: number
+}): string {
+  const relayAddrs: string[] = []
+  for (const item of input.relayAddrs ?? []) {
     const addr = (item ?? '').trim()
     if (!isRelayEndpointAddr(addr)) {
-      throw new Error(`buildConnectionInvite: invalid relay address: ${addr}`)
+      throw new Error(`buildRelayConfigShare: invalid relay address: ${addr}`)
     }
-    if (!relay.includes(addr)) relay.push(addr)
+    if (!relayAddrs.includes(addr)) relayAddrs.push(addr)
   }
-  if (relay.length === 0) {
-    throw new Error('buildConnectionInvite: at least one relay address is required')
+  if (relayAddrs.length === 0) {
+    throw new Error('buildRelayConfigShare: at least one relay address is required')
   }
+  const room = (input.room ?? '').trim()
+  if (room !== '' && !ROOM_PATTERN.test(room)) {
+    throw new Error('buildRelayConfigShare: invalid room')
+  }
+  const wanPolicy: RelayWanPolicy = input.wanPolicy === 'blocked' ? 'blocked' : 'allowed'
   const payload: Record<string, unknown> = {
-    v: JOIN_URI_VERSION,
-    room,
-    relay,
-    name: normalizeInviteName(input.name),
+    v: RELAY_CONFIG_VERSION,
+    kind: RELAY_CONFIG_KIND,
+    relayAddrs,
+    wanPolicy,
+    deviceName: normalizeInviteName(input.deviceName),
+    generatedAt:
+      typeof input.generatedAt === 'number' && Number.isFinite(input.generatedAt)
+        ? Math.max(0, Math.trunc(input.generatedAt))
+        : Date.now(),
   }
-  if (input.relayMeta) payload.relayMeta = { ...input.relayMeta }
-  return `${JOIN_URI_PREFIX}${encodeBase64UrlUtf8(JSON.stringify(payload))}`
+  // 空间码为空时省略（空 = relay-wide，等价语义，不必占二维码容量）
+  if (room !== '') payload.room = room
+  return `${RELAY_CONFIG_URI_PREFIX}${encodeBase64UrlUtf8(JSON.stringify(payload))}`
 }
 
-/** 是否为邀请文本（入口分流用；只判前缀，不保证一定可解析） */
-export function isConnectionInvite(text: unknown): boolean {
-  return typeof text === 'string' && text.trim().startsWith(JOIN_URI_PREFIX)
-}
-
-/** 解析邀请（`wasmnest://join/<base64url>` 或 v4 JSON 文本） */
-export function parseConnectionInvite(text: unknown): ConnectionInviteResult {
+/**
+ * 解析穿透配置分享（`wasmnest://relay-config/<base64url>` 或纯 JSON 文本）。
+ *
+ * 失败必须显性：版本不认 / 载荷不合法 / relay 地址为空或不可拨号分别给 reason，
+ * 不静默保存半份配置。
+ */
+export function parseRelayConfigShare(text: unknown): RelayConfigShareResult {
   if (typeof text !== 'string' || !text.trim()) return { ok: false, reason: 'malformed' }
   let jsonText = text.trim()
   if (jsonText.startsWith('wasmnest://')) {
-    if (!jsonText.startsWith(JOIN_URI_PREFIX)) return { ok: false, reason: 'malformed' }
-    const decoded = decodeBase64UrlUtf8(jsonText.slice(JOIN_URI_PREFIX.length).trim())
+    if (!jsonText.startsWith(RELAY_CONFIG_URI_PREFIX)) return { ok: false, reason: 'malformed' }
+    const decoded = decodeBase64UrlUtf8(jsonText.slice(RELAY_CONFIG_URI_PREFIX.length).trim())
     if (decoded === null) return { ok: false, reason: 'malformed' }
     jsonText = decoded
   }
@@ -336,41 +321,42 @@ export function parseConnectionInvite(text: unknown): ConnectionInviteResult {
     return { ok: false, reason: 'malformed' }
   }
   const obj = raw as Record<string, unknown>
-  // 版本必须精确匹配：v3 是设备链接，v4 才是邀请；未知版本不猜
-  if (obj.v !== JOIN_URI_VERSION) return { ok: false, reason: 'malformed' }
+  if (obj.v !== RELAY_CONFIG_VERSION) return { ok: false, reason: 'version-unsupported' }
+  if (obj.kind !== RELAY_CONFIG_KIND) return { ok: false, reason: 'malformed' }
 
-  const room = typeof obj.room === 'string' ? obj.room.trim() : ''
-  if (!ROOM_PATTERN.test(room)) return { ok: false, reason: 'missing-room' }
-
-  const relayRaw = obj.relay
+  const relayRaw = obj.relayAddrs
   if (!Array.isArray(relayRaw) || relayRaw.length === 0) {
-    return { ok: false, reason: 'address-invalid' }
+    return { ok: false, reason: 'missing-relay' }
   }
-  const relay: string[] = []
+  const relayAddrs: string[] = []
   for (const item of relayRaw) {
     if (typeof item !== 'string') return { ok: false, reason: 'address-invalid' }
     const addr = item.trim()
     if (!isRelayEndpointAddr(addr)) return { ok: false, reason: 'address-invalid' }
-    if (!relay.includes(addr)) relay.push(addr)
+    if (!relayAddrs.includes(addr)) relayAddrs.push(addr)
   }
 
-  const invite: ConnectionInvite = {
-    room,
-    relay,
-    name: normalizeInviteName(obj.name),
-  }
-  const relayMeta = parseRelayMeta(obj.relayMeta)
-  if (relayMeta) invite.relayMeta = relayMeta
-  return { ok: true, invite }
-}
+  const room = typeof obj.room === 'string' ? obj.room.trim() : ''
+  if (room !== '' && !ROOM_PATTERN.test(room)) return { ok: false, reason: 'malformed' }
 
-/** 两组 relay 端点是否等价（顺序无关、忽略空项；确认页冲突判定用） */
-export function sameRelaySet(a: readonly string[], b: readonly string[]): boolean {
-  const left = new Set(a.map((x) => x.trim()).filter(Boolean))
-  const right = new Set(b.map((x) => x.trim()).filter(Boolean))
-  if (left.size !== right.size) return false
-  for (const addr of left) {
-    if (!right.has(addr)) return false
+  const wanPolicy = obj.wanPolicy
+  if (wanPolicy !== 'allowed' && wanPolicy !== 'blocked') {
+    return { ok: false, reason: 'malformed' }
   }
-  return true
+
+  const generatedAt =
+    typeof obj.generatedAt === 'number' && Number.isFinite(obj.generatedAt)
+      ? Math.max(0, Math.trunc(obj.generatedAt))
+      : 0
+
+  return {
+    ok: true,
+    share: {
+      relayAddrs,
+      room,
+      wanPolicy,
+      deviceName: normalizeInviteName(obj.deviceName),
+      generatedAt,
+    },
+  }
 }

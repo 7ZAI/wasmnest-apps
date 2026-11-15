@@ -1,23 +1,22 @@
 <script setup lang="ts">
 /**
- * ScanPanel — 扫码添加远程设备（T12 / P0-4）
+ * ScanPanel — 扫码导入穿透配置（设置页）
  *
  * 相机流与帧循环自持（`../scan/`，与 BedCode 同判据的副本）：每帧按多档解码
- * （原生 BarcodeDetector 优先，ZXing 全尺寸 / 降采样 / ROI 放大），替代旧的
- * html5-qrcode 固定 `qrbox: 250` 单次解码——v3 连接串（LAN + relay circuit）
- * 约 85~95 模块，旧路径在真机上大概率读不出来。
+ * （原生 BarcodeDetector 优先，ZXing 全尺寸 / 降采样 / ROI 放大）。
  *
  * 判据：
- * - 非法码不打断扫描（继续等正确码），且不把二维码原文写日志（可能含一次性票据）；
+ * - 只认穿透配置分享（`wasmnest://relay-config/`）；其它码继续扫，不打断；
+ * - 非法码不打断扫描，且不把二维码原文写日志（可能含配置信息）；
  * - 相机启动失败 / 无权限分开呈现（权限失败给出系统设置出路），不静默留黑屏；
- * - 成功即停扫并上抛 `link`，由父组件落设备缓存（本组件不写存储）；
+ * - 成功即停扫并上抛 `relay-config`，由设置页确认后导入；
  * - 连续 10s 未命中给一条非阻断提示（不停止相机、不改错误态）。
  */
 import { onMounted, onUnmounted, ref } from 'vue'
 import {
-  parseConnectionInvite,
+  parseRelayConfigShare,
   parseRemotePeerLink,
-  type ConnectionInvite,
+  type RelayConfigShare,
   type RemotePeerLink,
 } from '../utils/pairingLink'
 import { useCameraStream } from '../scan/useCameraStream'
@@ -32,11 +31,20 @@ import {
 
 type Translate = (key: string, params?: Record<string, any>) => string
 
-const props = defineProps<{ t: Translate }>()
+const props = defineProps<{
+  t: Translate
+  /**
+   * 扫描目标：
+   * - `device`（缺省）= 设备二维码导入；扫到穿透配置分享时提示去设置导入；
+   * - `relay-config` = 只认穿透配置分享（设置页导入用），其它码继续扫。
+   */
+  mode?: 'device' | 'relay-config'
+}>()
 const emit = defineEmits<{
+  /** 设备二维码（v3）：交给父组件落设备缓存 */
   (e: 'link', link: RemotePeerLink): void
-  /** v4 邀请（T23）：交给父级弹确认页，不直接改本机空间 */
-  (e: 'invite', invite: ConnectionInvite): void
+  /** 穿透配置分享（v1）：交给设置页确认后导入 */
+  (e: 'relay-config', share: RelayConfigShare): void
   (e: 'close'): void
 }>()
 
@@ -104,13 +112,17 @@ function finishScan(): void {
 
 async function handleText(text: string): Promise<void> {
   if (finished) return
-  // 先试 v4 邀请（relay + 空间码），再试 v3 设备链接；未知码继续扫
-  const invite = parseConnectionInvite(text)
-  if (invite.ok) {
+
+  // 穿透配置分享：两种扫描目标都先识别（设置页直接导入；设备流程提示去处）
+  const relayConfig = parseRelayConfigShare(text)
+  if (relayConfig.ok) {
     finishScan()
-    emit('invite', invite.invite)
+    emit('relay-config', relayConfig.share)
     return
   }
+  // 设置页只收穿透配置：其它码继续等正确码
+  if (props.mode === 'relay-config') return
+
   const parsed = parseRemotePeerLink(text)
   if (!parsed.ok) {
     // 非法码继续扫（用户可能对着旧版/无关二维码），原文不回显也不落日志
@@ -146,9 +158,13 @@ onUnmounted(() => {
 <template>
   <div class="ft-scan-overlay" data-testid="mobile-remote-scan">
     <div class="ft-scan-head">
-      <span class="ft-scan-title">{{ props.t('transfer.remote.scanTitle') }}</span>
+      <span class="ft-scan-title">{{
+        props.mode === 'relay-config'
+          ? props.t('transfer.relayConfig.scanTitle')
+          : props.t('transfer.devices.scanTitle')
+      }}</span>
       <button class="fv2-btn-text" data-testid="mobile-scan-close" @click="close()">
-        {{ props.t('transfer.remote.scanClose') }}
+        {{ props.t('transfer.relayConfig.scanClose') }}
       </button>
     </div>
 
@@ -161,28 +177,34 @@ onUnmounted(() => {
       <p class="ft-scan-error-text">
         {{
           error === 'permission'
-            ? props.t('transfer.remote.scanPermission')
-            : props.t('transfer.remote.scanFailed')
+            ? props.t('transfer.relayConfig.scanPermission')
+            : props.t('transfer.relayConfig.scanFailed')
         }}
       </p>
       <div class="flex items-center gap-2">
         <button class="fv2-btn-text" @click="close()">
-          {{ props.t('transfer.remote.scanClose') }}
+          {{ props.t('transfer.relayConfig.scanClose') }}
         </button>
         <button
           class="fv2-btn-text fv2-btn-text--accent"
           data-testid="mobile-scan-retry"
           @click="retry()"
         >
-          {{ props.t('transfer.remote.scanRetry') }}
+          {{ props.t('transfer.relayConfig.scanRetry') }}
         </button>
       </div>
     </div>
 
     <template v-else>
-      <p class="ft-scan-hint">{{ props.t('transfer.remote.scanHint') }}</p>
+      <p class="ft-scan-hint">
+        {{
+          props.mode === 'relay-config'
+            ? props.t('transfer.relayConfig.scanHint')
+            : props.t('transfer.devices.scanHint')
+        }}
+      </p>
       <p v-if="hintVisible" class="ft-scan-hint" data-testid="mobile-scan-slow-hint">
-        {{ props.t('transfer.remote.scanHintSlow') }}
+        {{ props.t('transfer.relayConfig.scanHintSlow') }}
       </p>
     </template>
   </div>

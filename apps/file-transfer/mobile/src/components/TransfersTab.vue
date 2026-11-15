@@ -162,14 +162,15 @@ function taskStateLabel(task: Task): string {
     : t(TASK_STATE_KEYS[task.state])
 }
 
-/** 任务元信息：已传/总大小 + 速率（仅传输中带速率；等待确认时无字节可报） */
+/** 任务元信息：已传/总大小 + 速率（仅传输中且已采样才带速率，避免 0 B/s 误导） */
 function taskMeta(task: Task): string {
   if (isAwaitingPeer(task)) return ''
   const size =
     task.size > 0
       ? `${formatBytes(task.offset, t)} / ${formatBytes(task.size, t)}`
       : formatBytes(task.offset, t)
-  return task.state === 'transferring' ? `${size} · ${formatSpeed(task.rateBps ?? 0, t)}` : size
+  const speed = task.rateBps ?? 0
+  return task.state === 'transferring' && speed > 0 ? `${size} · ${formatSpeed(speed, t)}` : size
 }
 
 /** 卡面进度：等待确认/终态不显示进度条 */
@@ -231,6 +232,16 @@ function hasPaused(tasks: Task[]): boolean {
 }
 
 // ==================== 接收中（ReceivingTask → 卡片） ====================
+
+/** 接收任务元信息：已传/总大小 + 速率（接收快照同样带 rateBps；未采样时不拼 0 B/s） */
+function receivingMeta(task: ReceivingTask): string {
+  const size =
+    task.size > 0
+      ? `${formatBytes(task.offset ?? 0, t)} / ${formatBytes(task.size, t)}`
+      : formatBytes(task.size, t)
+  const speed = task.rateBps ?? 0
+  return task.state === 'transferring' && speed > 0 ? `${size} · ${formatSpeed(speed, t)}` : size
+}
 
 /** 接收中状态文案（running/transferring → 正在接收；paused → 已暂停；终态 → 结果文案） */
 function receivingStateKey(task: ReceivingTask): string {
@@ -476,11 +487,7 @@ function onCardAction(kind: TaskAction['kind'], id: string): void {
             :style="{ '--card-i': Math.min(i, 6) }"
             direction="download"
             :name="basename(task.remotePath)"
-            :meta="
-              task.size > 0
-                ? `${formatBytes(task.offset ?? 0, t)} / ${formatBytes(task.size, t)}`
-                : formatBytes(task.size, t)
-            "
+            :meta="receivingMeta(task)"
             :state-label="t(receivingStateKey(task))"
             :state-class="receivingStateClass(task)"
             :progress="

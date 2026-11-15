@@ -11,7 +11,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-desktop'
 import { useMyDevice } from '../composables/useMyDevice'
-import { parseRemotePeerLink } from '../utils/pairingLink'
 
 const NODE_ID = 'a'.repeat(64)
 const LAN = '/ip4/192.168.1.5/tcp/47613'
@@ -36,7 +35,7 @@ function makeContext(responder: Responder) {
 }
 
 describe('useMyDevice — 宿主能力未就绪', () => {
-  it('should_reportUnsupportedAndNeverFabricateLink', async () => {
+  it('should_reportUnsupportedWithoutFabricatingNodeInfo', async () => {
     const { context } = makeContext(() => ({
       supported: false,
       reason: 'host-unsupported',
@@ -56,7 +55,7 @@ describe('useMyDevice — 宿主能力未就绪', () => {
 })
 
 describe('useMyDevice — 宿主提供 node-info', () => {
-  it('should_buildV3LinkThatParserRoundTrips', async () => {
+  it('should_generateDeviceQrPayloadFromNodeInfo', async () => {
     const { context } = makeContext(() => ({
       supported: true,
       reason: null,
@@ -70,28 +69,12 @@ describe('useMyDevice — 宿主提供 node-info', () => {
     const my = useMyDevice(context)
     await my.load()
 
-    expect(my.canShare.value).toBe(true)
-    const parsed = parseRemotePeerLink(my.link.value)
-    expect(parsed.ok).toBe(true)
-    if (!parsed.ok) return
-    expect(parsed.link.nodeId).toBe(NODE_ID)
-    expect(parsed.link.deviceName).toBe('客厅 NAS')
-    expect(parsed.link.addrs).toHaveLength(2)
-    expect(parsed.link.addrs[0]).toBe(LAN)
-  })
-
-  it('should_notBuildLinkWhenAddrsMissing', async () => {
-    const { context } = makeContext(() => ({
-      supported: true,
-      capabilities: { nodeInfo: true, relayReservation: false },
-      relayAddrs: [],
-      nodeId: NODE_ID,
-      addrs: [],
-    }))
-    const my = useMyDevice(context)
-    await my.load()
     expect(my.info.value.supported).toBe(true)
-    expect(my.canShare.value).toBe(false)
+    expect(my.info.value.nodeId).toBe(NODE_ID)
+    expect(my.info.value.deviceName).toBe('客厅 NAS')
+    expect(my.info.value.relayState).toBe('relay-reserved')
+    expect(my.canShare.value).toBe(true)
+    expect(my.link.value.startsWith('wasmnest://pair/')).toBe(true)
   })
 })
 
@@ -127,7 +110,6 @@ describe('useMyDevice — relay 地址来源', () => {
     expect(my.info.value.relayError).toBe('api-call: timeout')
   })
 })
-
 
 describe('useMyDevice — 空间码', () => {
   it('should_saveRoomAndReload', async () => {

@@ -1,7 +1,7 @@
 /**
  * 「我的设备」（T21）移动端读面契约
  *
- * 宿主未提供 node-info 时不得伪造连接串；relay 端点保存失败不得显示已保存。
+ * 宿主未提供 node-info 时不得伪造设备信息；relay 端点保存失败不得显示已保存。
  */
 import { describe, it, expect, vi } from 'vitest'
 import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-mobile'
@@ -30,7 +30,7 @@ function makeContext(responder: Responder) {
 }
 
 describe('useMyDevice（移动端）', () => {
-  it('should_reportUnsupportedWithoutLink', async () => {
+  it('should_reportUnsupportedWithoutFabricatingNodeInfo', async () => {
     const { context } = makeContext(() => ({
       supported: false,
       reason: 'host-unsupported',
@@ -40,20 +40,26 @@ describe('useMyDevice（移动端）', () => {
     const my = useMyDevice(context)
     await my.load()
     expect(my.info.value.supported).toBe(false)
+    expect(my.info.value.nodeId).toBeUndefined()
+    expect(my.canShare.value).toBe(false)
     expect(my.link.value).toBe('')
     expect(my.info.value.relayAddrs).toEqual([RELAY_ENDPOINT])
   })
 
-  it('should_buildLinkWhenNodeInfoArrives', async () => {
+  it('should_generateDeviceQrPayloadFromNodeInfo', async () => {
     const { context } = makeContext(() => ({
       supported: true,
       capabilities: { nodeInfo: true, relayReservation: false },
       relayAddrs: [],
       nodeId: NODE_ID,
+      deviceName: '手机',
       addrs: [LAN],
     }))
     const my = useMyDevice(context)
     await my.load()
+    expect(my.info.value.supported).toBe(true)
+    expect(my.info.value.nodeId).toBe(NODE_ID)
+    expect(my.info.value.deviceName).toBe('手机')
     expect(my.canShare.value).toBe(true)
     expect(my.link.value.startsWith('wasmnest://pair/')).toBe(true)
   })
@@ -74,7 +80,6 @@ describe('useMyDevice（移动端）', () => {
     expect(my.relayError.value).toBe('save-failed')
   })
 })
-
 
 describe('useMyDevice — 空间码', () => {
   it('should_sendRoomTogetherWithRelayAddrs', async () => {

@@ -151,6 +151,14 @@
         "title": "Get My Device Link"
       },
       {
+        "id": "file-transfer.import-relay-config",
+        "title": "Import Relay Config (QR / LAN sync)"
+      },
+      {
+        "id": "file-transfer.sync-peer-relay-config",
+        "title": "Sync Relay Config from Peer"
+      },
+      {
         "id": "file-transfer.set-settings",
         "title": "Set Settings"
       },

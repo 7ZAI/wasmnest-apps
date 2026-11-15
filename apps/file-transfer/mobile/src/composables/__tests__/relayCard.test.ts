@@ -66,11 +66,11 @@ describe('deriveRelayCard', () => {
     expect(card.primary).toBe('open-center')
   })
 
-  it('should_promptForRelayWhenUnconfigured', () => {
+  it('should_pointToRelaySettingsWhenUnconfigured', () => {
     const card = deriveRelayCard({ ...base, relayAddrs: [], discovery: null })
     expect(card.title).toBe('transfer.relayCard.unconfigured.title')
-    expect(card.primary).toBe('paste-invite')
-    expect(card.secondary).toBe('open-center')
+    expect(card.primary).toBe('open-center')
+    expect(card.secondary).toBe('none')
   })
 
   it('should_useRelayStateWhileReservationIsInProgress', () => {
@@ -134,7 +134,7 @@ describe('deriveRelayCard', () => {
   it('should_degradeForOldHostWithoutEnvelope', () => {
     const reserved = deriveRelayCard({ ...base, relayState: 'relay-reserved', discovery: null })
     expect(reserved.title).toBe('transfer.relayCard.pending.title')
-    expect(reserved.primary).toBe('generate-invite')
+    expect(reserved.primary).toBe('share-config')
 
     const unknown = deriveRelayCard({ ...base, discovery: null })
     expect(unknown.title).toBe('transfer.relayCard.pending.title')

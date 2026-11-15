@@ -387,7 +387,7 @@ function createPeerDevices(context: PluginContext) {
    */
   async function connect(
     nodeId: string,
-    opts?: { wan?: boolean; relayOnly?: boolean },
+    opts?: { wan?: boolean; relayOnly?: boolean; lanOnly?: boolean },
   ): Promise<DialStatus | null> {
     const device = devices.value.find((d) => d.nodeId === nodeId)
     if (!device || !device.fileTransfer) return null
@@ -419,14 +419,18 @@ function createPeerDevices(context: PluginContext) {
       !device.addr &&
       (device.port ?? 0) === 0 &&
       !hasLanCandidate
-    const relayOnly = opts?.relayOnly === true || pureRelay
+    // 显式「内网」入口：只走 LAN，不允许 pureRelay 的隐式升级
+    const lanOnly = opts?.lanOnly === true
+    const relayOnly = !lanOnly && (opts?.relayOnly === true || pureRelay)
     // 当前仍在中继快照里、且没有实时 mDNS 证据（instanceName）= 设备现在只经
     // 中继可见：即使缓存里还留着上一网络的 LAN 地址，也要把 relay 纳入候选
     // （LAN 仍先试，失败后走 relay，而不是停在 lan-unreachable）。
     const relayVisible = device.relay === true && !device.instanceName
     // 上次经中继成功 ⇒ 本次默认把 relay 纳入候选（有 LAN 候选时 LAN 仍先试）；
     // 「仅经中继」是更强的显式意图，优先
-    const wan = relayOnly || (opts?.wan ?? (device.lastTransport === 'wan-relay' || relayVisible))
+    const wan =
+      !lanOnly &&
+      (relayOnly || (opts?.wan ?? (device.lastTransport === 'wan-relay' || relayVisible)))
 
     connectingIds.value = withId(connectingIds.value, nodeId)
     clearDialError(nodeId)

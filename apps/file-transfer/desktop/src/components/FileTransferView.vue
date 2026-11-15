@@ -15,18 +15,16 @@ import SettingsPanel from './SettingsPanel.vue'
 import PeerDevicesPanel from './PeerDevicesPanel.vue'
 import BatchRequestDialog from './BatchRequestDialog.vue'
 import ConfirmDialog from './ConfirmDialog.vue'
-import AddRemoteDeviceDialog from './AddRemoteDeviceDialog.vue'
 import MyDeviceDialog from './MyDeviceDialog.vue'
-import type { ConnectionInvite } from '../utils/pairingLink'
+
 import { useTasks } from '../composables/useTasks'
 import { useReceiving } from '../composables/useReceiving'
 import { useRemoteFs } from '../composables/useRemoteFs'
 import { useSettings } from '../composables/useSettings'
 import { usePeerDevices } from '../composables/usePeerDevices'
-import { hasRelayCandidate, type RelayCardAction } from '../composables/deviceState'
 import { prepareDeviceSend } from '../composables/sendToDevice'
-import { useRelayStatus } from '../composables/useRelayStatus'
 import { useBatchPrompt } from '../composables/useBatchPrompt'
+
 import { toast } from 'vue-sonner'
 
 const context = inject<PluginContext>('pluginContext')!
@@ -37,9 +35,8 @@ const {
   peers,
   peer,
   connectedIds,
-  relayDiscovery,
   connect: connectDevice,
-  addRemotePeer,
+
   removeRemotePeer,
   disconnect: disconnectDevice,
   switchPeer,
@@ -88,15 +85,16 @@ const {
   setAllowWan,
   setRelayMaxBytes,
 } = useSettings(context)
-/** 跨网状态卡（P0-2）：relay 现状 + 宿主发现 envelope */
-const { card: relayCard, load: loadRelayStatus } = useRelayStatus(context, relayDiscovery)
-
 /** 插件自身对等连接：存在任一已建立的对等连接（≠ 宿主主连接） */
 const peerConnected = computed(() => connectedIds.value.size > 0)
 
 const fs = useRemoteFs(context, () => peer.value.id)
 
 const showSettings = ref(false)
+
+/** 「我的设备」二维码（桌面生成，移动端扫码导入） */
+const showMyDevice = ref(false)
+
 
 /** 传输队列面板是否展开 */
 const queueVisible = ref(false)
@@ -174,51 +172,11 @@ async function handleDownload(): Promise<void> {
   }
 }
 
-/** 添加远程设备（T12）：连接串 → 设备缓存（配对条目跨重启保留） */
-const showAddRemote = ref(false)
-
-/** 「我的设备」（T21）：本机连接串 / 外网接入 */
-const showMyDevice = ref(false)
-
-/** 当前经中继可见的设备数（邀请确认页展示「当前空间 N 台」） */
-const relayDeviceCount = computed(() => deviceRows.value.filter((row) => row.relay).length)
-
-function handleAddRemote(link: Parameters<typeof addRemotePeer>[0]): void {
-  const added = addRemotePeer(link)
-  showAddRemote.value = false
-  if (!added) return
-  // T20：添加成功要告诉用户「这份链接能不能跨网」——只含 LAN 地址的条目
-  // 在蜂窝网络下必然失败，提前说清楚比事后报错好
-  toast.success(
-    t(
-      hasRelayCandidate(link.addrs)
-        ? 'transfer.remote.addedWithRelay'
-        : 'transfer.remote.addedLanOnly',
-    ),
-  )
-}
-
-/**
- * 邀请导入成功（T23）：relay + 空间码已由弹层写入；这里只刷新发现并提示。
- * 不写信任、不自动连接——邀请是发现范围，不是授权。
- */
-async function handleInviteJoined(invite: ConnectionInvite): Promise<void> {
-  showAddRemote.value = false
-  await refreshDevices()
-  await loadRelayStatus()
-  const name = invite.name || t('transfer.invite.unnamed')
-  toast.success(t('transfer.invite.joined', { name }))
-}
-
 function handleRemoveRemote(nodeId: string): void {
   removeRemotePeer(nodeId)
 }
 
-function handleRetryWan(nodeId: string): void {
-  void connectDevice(nodeId, { wan: true })
-}
-
-/** 仅经中继（T20）：跳过 LAN 候选，失败不回退（用户显式意图） */
+/** 外网入口（显式）：跳过 LAN 候选，失败不回退（用户显式意图） */
 function handleRetryRelayOnly(nodeId: string): void {
   void connectDevice(nodeId, { relayOnly: true })
 }
@@ -285,34 +243,7 @@ function cancelRelaySend(): void {
 
 /** 顶栏刷新：任务 + 当前目录层级 + 设备缓存清扫 */
 async function handleRefresh(): Promise<void> {
-  await Promise.all([refreshTasks(), fs.refresh(), refreshDevices(), loadRelayStatus()])
-}
-
-/** 状态卡操作：统一在本层落入口（弹层 / 跳转 / 重扫） */
-function handleRelayAction(action: RelayCardAction): void {
-  switch (action) {
-    case 'paste-invite':
-      showAddRemote.value = true
-      break
-    case 'generate-invite':
-      showMyDevice.value = true
-      break
-    case 'refresh':
-      void handleScanDevices()
-      break
-    case 'open-center': {
-      const nav = context as PluginContext & { navigate?: (path: string) => boolean }
-      if (typeof nav.navigate !== 'function' || !nav.navigate('/network')) {
-        toast.error(t('transfer.relayCard.openCenterUnavailable'))
-      }
-      break
-    }
-    case 'open-settings':
-      showSettings.value = true
-      break
-    default:
-      break
-  }
+  await Promise.all([refreshTasks(), fs.refresh(), refreshDevices()])
 }
 
 /** 发送到手机：系统多文件选择器直发活跃对端（失败 → 友好 toast，原文只进日志） */
@@ -353,8 +284,9 @@ const connectedCount = computed(
   () => deviceRows.value.filter((r) => r.status === 'connected').length,
 )
 
+/** 内网入口（显式）：不把上次外网记录隐式带进本次拨号 */
 function handleConnectDevice(nodeId: string): void {
-  void connectDevice(nodeId)
+  void connectDevice(nodeId, { lanOnly: true })
 }
 
 function handleDisconnectDevice(nodeId: string): void {
@@ -403,6 +335,7 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+
   document.removeEventListener('click', handleDocClick, true)
   stopPeer()
   stopTasks()
@@ -500,18 +433,13 @@ function handleClearHistoryConfirm(): void {
             v-if="devPanelOpen"
             :rows="deviceRows"
             :scanning="deviceScanning"
-            :relay-card="relayCard"
             data-testid="ft-peer-panel"
             @connect="handleConnectDevice"
-            @retry-wan="handleRetryWan"
             @retry-relay-only="handleRetryRelayOnly"
             @disconnect="handleDisconnectDevice"
             @set-active="handleSetActiveDevice"
-            @add-remote="showAddRemote = true"
-            @my-device="showMyDevice = true"
             @remove-remote="handleRemoveRemote"
             @send="handleSendToDevice"
-            @relay-action="handleRelayAction"
             @scan="handleScanDevices"
           />
         </Transition>
@@ -574,6 +502,23 @@ function handleClearHistoryConfirm(): void {
           />
         </svg>
         <span class="ft-btn-text">{{ t('transfer.topbar.refresh') }}</span>
+      </button>
+      <!-- 我的设备：展示设备二维码，由手机扫码导入 -->
+      <button
+        class="ft-btn"
+        :title="t('transfer.topbar.myDevice')"
+        data-testid="ft-my-device-open"
+        @click="showMyDevice = true"
+      >
+        <svg class="ft-ico-btn" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="2"
+            d="M4 4h5v5H4zM15 4h5v5h-5zM4 15h5v5H4zM15 15h2v2h-2zM19 19h1v1h-1zM15 19h1v1h-1zM19 15h1v1h-1z"
+          />
+        </svg>
+        <span class="ft-btn-text">{{ t('transfer.topbar.myDevice') }}</span>
       </button>
       <!-- 传输队列开关：面板默认收起，点击展开/收起（带任务数角标） -->
       <button
@@ -732,18 +677,6 @@ function handleClearHistoryConfirm(): void {
       @timeout="prompt.markTimeout()"
     />
 
-    <!-- 添加远程设备（T12）：粘贴连接串 → 设备缓存（配对条目跨重启保留） -->
-    <AddRemoteDeviceDialog
-      v-if="showAddRemote"
-      :relay-device-count="relayDeviceCount"
-      @add="handleAddRemote"
-      @joined="handleInviteJoined"
-      @close="showAddRemote = false"
-    />
-
-    <!-- 我的设备（T21）：本机连接串 + 外网接入；添加设备流程不出现中继 -->
-    <MyDeviceDialog v-if="showMyDevice" @close="showMyDevice = false" />
-
     <!-- 经中继发送提示（§9.2#4：无阈值口径下一次提示，可取消；不改变模式判定） -->
     <ConfirmDialog
       v-if="relayHintOpen"
@@ -820,5 +753,8 @@ function handleClearHistoryConfirm(): void {
         @close="showSettings = false"
       />
     </Transition>
+
+    <!-- 我的设备：设备二维码（桌面生成，移动端扫码导入） -->
+    <MyDeviceDialog v-if="showMyDevice" @close="showMyDevice = false" />
   </div>
 </template>

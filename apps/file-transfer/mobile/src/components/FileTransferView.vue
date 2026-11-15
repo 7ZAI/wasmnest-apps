@@ -31,10 +31,10 @@ import { useSwipeTabs } from '@binblink/wasmnest-plugin-sdk-mobile/ui/swipe-tabs
 import { useTasks } from '../composables/useTasks'
 import { isNeedsAllFilesAccess, promptAllFilesAccess } from '../composables/useAllFilesAccess'
 import { usePeerDevices } from '../composables/usePeerDevices'
-import { hasRelayCandidate } from '../composables/deviceState'
+import type { RemotePeerLink } from '../utils/pairingLink'
 import { prepareDeviceSend } from '../composables/sendToDevice'
 import { useRelayStatus } from '../composables/useRelayStatus'
-import type { ConnectionInvite, RemotePeerLink } from '../utils/pairingLink'
+
 import { useRemoteFs } from '../composables/useRemoteFs'
 import { useSettings } from '../composables/useSettings'
 import { formatBytes, formatSpeed } from '../utils/format'
@@ -54,7 +54,7 @@ const t = (key: string, params?: Record<string, any>) => context.i18n.t(key, par
 const tasks = useTasks(context)
 const devices = usePeerDevices(context)
 /** 跨网状态卡（P0-2）：relay 现状 + 宿主发现 envelope */
-const { card: relayCard, load: loadRelayStatus } = useRelayStatus(context, devices.relayDiscovery)
+const { card: relayCard } = useRelayStatus(context, devices.relayDiscovery)
 const fs = useRemoteFs(context)
 const settings = useSettings(context)
 
@@ -209,40 +209,20 @@ function maybeAutoScan(): void {
 }
 watch(tab, () => maybeAutoScan())
 
+/** 内网入口（显式）：不把上次外网记录隐式带进本次拨号 */
 function handleDeviceConnect(nodeId: string): void {
-  void devices.connect(nodeId)
+  void devices.connect(nodeId, { lanOnly: true })
 }
-/** 手动「尝试外网」：显式请求核内纳入 relay 候选（§4.9 不自动切） */
-function handleDeviceRetryWan(nodeId: string): void {
-  void devices.connect(nodeId, { wan: true })
-}
-/** 仅经中继（T20）：跳过 LAN 候选，失败不回退（用户显式意图） */
+/** 外网入口（显式）：跳过 LAN 候选，失败不回退（用户显式意图） */
 function handleDeviceRetryRelayOnly(nodeId: string): void {
   void devices.connect(nodeId, { relayOnly: true })
 }
-/** 添加远程设备（T12）：连接串 → 设备缓存（paired 条目跨重启保留） */
+
+/** 设备二维码扫码成功：落设备缓存（paired 条目跨重启保留） */
 function handleAddRemote(link: RemotePeerLink): void {
   devices.addRemotePeer(link)
-  // T20：说清这份链接能不能跨网（只含 LAN 地址 ⇒ 蜂窝网络下必然失败）
-  context.dialogs.showToast(
-    t(
-      hasRelayCandidate(link.addrs)
-        ? 'transfer.remote.addedWithRelay'
-        : 'transfer.remote.addedLanOnly',
-    ),
-    'success',
-  )
+  context.dialogs.showToast(t('transfer.remote.added'), 'success')
 }
-/** 邀请导入成功（T23）：relay + 空间码已写入；只刷新发现并提示，不写信任 */
-async function handleInviteJoined(invite: ConnectionInvite): Promise<void> {
-  await devices.refresh()
-  await loadRelayStatus()
-  const name = invite.name || t('transfer.invite.unnamed')
-  context.dialogs.showToast(t('transfer.invite.joined', { name }), 'success')
-}
-
-/** 当前经中继可见的设备数（邀请确认页展示「当前空间 N 台」） */
-const relayDeviceCount = computed(() => devices.rows.value.filter((row) => row.relay).length)
 
 function handleRemoveRemote(nodeId: string): void {
   devices.removeRemotePeer(nodeId)
@@ -421,6 +401,11 @@ const downloadLabel = computed(() =>
   }),
 )
 
+/** 总速率文案：0 = 尚无采样（宿主速率窗口未满 / 暂停），不渲染 0 B/s 以免误读为停转 */
+const totalSpeedLabel = computed(() =>
+  tasks.totalSpeed.value > 0 ? formatSpeed(tasks.totalSpeed.value, t) : '',
+)
+
 const activeLabel = computed(() => {
   const count = activeTasks.value.length
   return count > 0 ? t('transfer.queue.active', { count }) : t('transfer.queue.title')
@@ -512,15 +497,12 @@ onUnmounted(() => {
           :rows="devices.rows.value"
           :scanning="deviceScanning"
           :t="t"
-          :relay-device-count="relayDeviceCount"
           :relay-card="relayCard"
           @connect="handleDeviceConnect"
-          @retry-wan="handleDeviceRetryWan"
           @retry-relay-only="handleDeviceRetryRelayOnly"
           @disconnect="handleDeviceDisconnect"
           @set-active="handleDeviceSetActive"
           @add-remote="handleAddRemote"
-          @invite-joined="handleInviteJoined"
           @remove-remote="handleRemoveRemote"
           @send="handleSendToDevice"
           @scan="handleScanDevices"
@@ -582,7 +564,7 @@ onUnmounted(() => {
       :download-label="downloadLabel"
       :clear-label="t('transfer.table.clearSelection')"
       :active-label="activeLabel"
-      :speed-label="formatSpeed(tasks.totalSpeed.value, t)"
+      :speed-label="totalSpeedLabel"
       :overall-label="t('transfer.v2.active.overall', { percent: overallPercent })"
       :overall-percent="overallPercent"
       :view-queue-label="t('transfer.v2.active.viewQueue')"

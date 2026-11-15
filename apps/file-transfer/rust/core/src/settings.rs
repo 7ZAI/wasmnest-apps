@@ -72,8 +72,17 @@ pub struct TransferSettings {
     /// 只影响「中心明确未配置」时是否允许沿用本地缓存：邀请是显式用户动作，
     /// 允许在中心为空时生效；手动缓存仍按 T21 语义不复活。中心已配置时始终
     /// 中心优先（冲突由前端提示，不在后端静默覆盖）。
+    ///
+    /// 取值：`""`（手动 / 缓存）、`"invite"`（邀请导入）、`"qr"`（扫码导入
+    /// 穿透配置分享）、`"sync"`（内网连接成功后同步获取）。
     #[serde(default)]
     pub relay_origin: String,
+    /// 穿透配置最近一次从外部获取的时间（Unix 毫秒；0 = 从未获取）。
+    ///
+    /// 只服务「配置新鲜度」展示与「是否需要重新同步」判定；不参与寻址与
+    /// 信任。中心直读（`center`）不更新本字段——中心是实时真源，没有同步概念。
+    #[serde(default)]
+    pub relay_synced_at: u64,
 }
 
 fn default_concurrency() -> u8 {
@@ -103,6 +112,7 @@ impl Default for TransferSettings {
             relay_addrs: Vec::new(),
             relay_room: String::new(),
             relay_origin: String::new(),
+            relay_synced_at: 0,
         }
     }
 }
@@ -170,14 +180,89 @@ pub fn normalize_relay_room(raw: &str) -> Result<String, String> {
     Ok(room.to_string())
 }
 
-/// relay 来源校验：只有空串（手动 / 缓存）与 `invite`（邀请导入）两个值。
-/// 未知来源显性报错——静默归成一类会让「中心为空时是否复活缓存」的判定漂移。
+/// relay 来源校验与归一。
+///
+/// 允许值：空串（手动 / 缓存）、`invite`（邀请导入）、`qr`（扫码导入穿透
+/// 配置分享）、`sync`（内网连接成功后同步获取）。未知来源显性报错——静默
+/// 归成一类会让「中心为空时是否复活缓存」的判定漂移。
 pub fn normalize_relay_origin(raw: &str) -> Result<String, String> {
     match raw.trim() {
         "" => Ok(String::new()),
         "invite" => Ok("invite".to_string()),
-        other => Err(format!("relay origin must be empty or `invite`: `{other}`")),
+        "qr" => Ok("qr".to_string()),
+        "sync" => Ok("sync".to_string()),
+        other => Err(format!(
+            "relay origin must be empty, `invite`, `qr` or `sync`: `{other}`"
+        )),
     }
+}
+
+/// 对端穿透配置快照（`wasmnest://relay-config` v1 的引擎侧形态）
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RelayConfigSnapshot {
+    /// relay 端点（已归一化、非空）
+    pub relay_addrs: Vec<String>,
+    /// 空间码（空 = relay-wide）
+    pub room: String,
+    /// `allowed` / `blocked`（对端拨号策略，仅展示，不静默改本机开关）
+    pub wan_policy: String,
+    /// 生成时刻（Unix 毫秒；0 = 未提供）
+    pub generated_at: u64,
+}
+
+/// 解析对端配置快照（双端同构的 `ft-relay-config` v1 线格式）。
+///
+/// 校验与分享载荷同判据：版本 / kind 精确匹配，地址沿用
+/// [`normalize_relay_addrs`]（非空、禁 circuit、禁未指定地址），空间码沿用
+/// [`normalize_relay_room`]。任何不合法整批拒绝并点名——同步是信任设备之间的
+/// 显式动作，**不猜测**对端格式。
+pub fn parse_relay_config_snapshot(raw: &str) -> Result<RelayConfigSnapshot, String> {
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct RawSnapshot {
+        v: u64,
+        #[serde(default)]
+        kind: String,
+        #[serde(default)]
+        relay_addrs: Vec<String>,
+        #[serde(default)]
+        room: String,
+        #[serde(default)]
+        wan_policy: String,
+        #[serde(default)]
+        generated_at: u64,
+    }
+
+    let raw: RawSnapshot = serde_json::from_str(raw)
+        .map_err(|e| format!("relay config snapshot is not valid json: {e}"))?;
+    if raw.v != 1 {
+        return Err(format!(
+            "relay config snapshot version unsupported: {}",
+            raw.v
+        ));
+    }
+    if raw.kind != "ft-relay-config" {
+        return Err(format!(
+            "relay config snapshot kind mismatch: `{}`",
+            raw.kind
+        ));
+    }
+    // 空地址列表 = 对端明确「没有可同步的中继配置」（不是错误，也不清空本机）
+    let relay_addrs = normalize_relay_addrs(&raw.relay_addrs)?;
+    match raw.wan_policy.as_str() {
+        "allowed" | "blocked" => {}
+        other => {
+            return Err(format!(
+                "relay config snapshot wanPolicy must be `allowed` or `blocked`: `{other}`"
+            ))
+        }
+    }
+    Ok(RelayConfigSnapshot {
+        relay_addrs,
+        room: normalize_relay_room(&raw.room)?,
+        wan_policy: raw.wan_policy,
+        generated_at: raw.generated_at,
+    })
 }
 
 /// UI 词表 → 宿主策略词表
@@ -398,6 +483,7 @@ mod tests {
             relay_addrs: Vec::new(),
             relay_room: String::new(),
             relay_origin: String::new(),
+            relay_synced_at: 0,
         };
         save_and_push(&h, &s).unwrap();
         assert_eq!(
@@ -689,15 +775,38 @@ mod tests {
     }
 
     #[test]
-    fn relay_origin_accepts_only_manual_or_invite() {
+    fn relay_origin_accepts_only_known_import_channels() {
         assert_eq!(normalize_relay_origin("").expect("manual"), "");
         assert_eq!(normalize_relay_origin("  ").expect("blank"), "");
         assert_eq!(
             normalize_relay_origin(" invite ").expect("invite"),
             "invite"
         );
+        assert_eq!(normalize_relay_origin("qr").expect("qr"), "qr");
+        assert_eq!(normalize_relay_origin(" sync ").expect("sync"), "sync");
         assert!(normalize_relay_origin("center").is_err());
         assert!(normalize_relay_origin("invite!").is_err());
+    }
+
+    #[test]
+    fn relay_synced_at_roundtrips_and_legacy_storage_defaults_to_zero() {
+        let h = MockPorts::default();
+        h.storage_set(
+            SETTINGS_KEY,
+            &serde_json::json!({"receivingPolicy": "ask", "approvalTimeoutSec": 60}),
+        )
+        .unwrap();
+        assert_eq!(load(&h).unwrap().relay_synced_at, 0, "旧库缺字段按未同步");
+
+        let s = TransferSettings {
+            relay_origin: "qr".into(),
+            relay_synced_at: 1_734_000_000_000,
+            ..Default::default()
+        };
+        save_and_push(&h, &s).unwrap();
+        let back = load(&h).unwrap();
+        assert_eq!(back.relay_origin, "qr");
+        assert_eq!(back.relay_synced_at, 1_734_000_000_000);
     }
 
     #[test]
@@ -712,5 +821,51 @@ mod tests {
         assert!(normalize_relay_room(&"a".repeat(65)).is_err());
         assert!(normalize_relay_room("two words").is_err());
         assert!(normalize_relay_room("斜杠/").is_err());
+    }
+
+    #[test]
+    fn relay_config_snapshot_parses_v1_payload() {
+        let raw = r#"{
+            "v": 1,
+            "kind": "ft-relay-config",
+            "relayAddrs": [" /ip4/203.0.113.9/tcp/4001/p2p/12D3KooWRelay "],
+            "room": " nest-1 ",
+            "wanPolicy": "allowed",
+            "generatedAt": 1734000000000
+        }"#;
+        let snapshot = parse_relay_config_snapshot(raw).expect("parse");
+        assert_eq!(
+            snapshot.relay_addrs,
+            vec!["/ip4/203.0.113.9/tcp/4001/p2p/12D3KooWRelay".to_string()]
+        );
+        assert_eq!(snapshot.room, "nest-1");
+        assert_eq!(snapshot.wan_policy, "allowed");
+        assert_eq!(snapshot.generated_at, 1_734_000_000_000);
+    }
+
+    #[test]
+    fn relay_config_snapshot_accepts_empty_addrs_as_no_config() {
+        let snapshot = parse_relay_config_snapshot(
+            r#"{"v":1,"kind":"ft-relay-config","relayAddrs":[],"wanPolicy":"blocked"}"#,
+        )
+        .expect("empty addrs is a valid no-config marker");
+        assert!(snapshot.relay_addrs.is_empty());
+        assert_eq!(snapshot.room, "");
+    }
+
+    #[test]
+    fn relay_config_snapshot_rejects_unknown_version_kind_and_bad_policy() {
+        for raw in [
+            r#"{"v":2,"kind":"ft-relay-config","relayAddrs":["/ip4/1.2.3.4/tcp/1/p2p/x"],"wanPolicy":"allowed"}"#,
+            r#"{"v":1,"kind":"other","relayAddrs":["/ip4/1.2.3.4/tcp/1/p2p/x"],"wanPolicy":"allowed"}"#,
+            r#"{"v":1,"kind":"ft-relay-config","relayAddrs":["/ip4/1.2.3.4/tcp/1/p2p/x"],"wanPolicy":"maybe"}"#,
+            r#"{"v":1,"kind":"ft-relay-config","relayAddrs":["/ip4/1.2.3.4/tcp/1/p2p/x/p2p-circuit/p2p/y"],"wanPolicy":"allowed"}"#,
+            r#"{"v":1,"kind":"ft-relay-config","relayAddrs":["/ip4/1.2.3.4/tcp/1/p2p/x"],"room":"two words","wanPolicy":"allowed"}"#,
+        ] {
+            assert!(
+                parse_relay_config_snapshot(raw).is_err(),
+                "should reject: {raw}"
+            );
+        }
     }
 }

@@ -19,6 +19,7 @@ import { isNeedsAllFilesAccess, promptAllFilesAccess } from '../composables/useA
 import { KIND_PRIVATE_DOWNLOADS } from '../types'
 import type { ReceivingPolicy } from '../types'
 import TrustedPeersSection from './TrustedPeersSection.vue'
+import RelayConfigSection from './RelayConfigSection.vue'
 import AppUpdateSection from '@binblink/wasmnest-plugin-sdk-mobile/ui/app-update'
 import manifest from '../../plugin.json'
 
@@ -319,6 +320,9 @@ watch(() => props.settingsApi.settings.value.relayMaxBytesPerTask, syncRelayThre
         </div>
       </div>
     </section>
+
+    <!-- ==================== 内网穿透配置（形态改造）：只读 + 扫码导入 ==================== -->
+    <RelayConfigSection />
 
     <!-- ==================== 中继（T12）：关的是「经 relay 拨号」，不是加密 ==================== -->
     <section class="space-y-2">

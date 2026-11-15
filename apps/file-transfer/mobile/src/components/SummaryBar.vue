@@ -66,7 +66,7 @@ defineEmits<{
         <div class="fv2-mini-body">
           <div class="fv2-mini-head">
             <span class="fv2-mini-title">{{ activeLabel }}</span>
-            <span class="fv2-mini-speed flex-shrink-0">{{ speedLabel }}</span>
+            <span v-if="speedLabel" class="fv2-mini-speed flex-shrink-0">{{ speedLabel }}</span>
           </div>
           <div class="fv2-progress fv2-progress--bar">
             <div

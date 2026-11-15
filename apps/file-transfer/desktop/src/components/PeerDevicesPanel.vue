@@ -1,20 +1,16 @@
 <script setup lang="ts">
 /**
- * PeerDevicesPanel — 附近设备面板（自绘，替代旧「在线设备切换下拉」）
+ * PeerDevicesPanel — 探索面板（自绘，替代旧「在线设备切换下拉」）
  *
- * 列出全部发现的 WasmNest 节点：已连接 / 连接中 / 未连接三态可区分，
- * 拨号失败按分类给可操作出路（T20：仅经中继 / 打开中继 / 重新添加）；
- * 已连接设备可断开、可设为当前活跃对端；无传输能力节点可见但不可连接。
- * 纯展示组件：状态由 usePeerDevices 派生的 rows 传入，操作以事件上抛。
+ * 只保留探索发现：列出全部发现的 WasmNest 节点，已连接 / 连接中 / 未连接
+ * 三态可区分；设备行以内网 / 外网两种连接方式区分呈现（连接方式标注 + 分设
+ * 内网、外网入口）。已连接设备可断开、可设为当前活跃对端；无传输能力节点
+ * 可见但不可连接。纯展示组件：状态由 usePeerDevices 派生的 rows 传入，
+ * 操作以事件上抛。
  */
 import { inject } from 'vue'
 import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-desktop'
-import type {
-  DeviceRow,
-  DialFailureCode,
-  RelayCardAction,
-  RelayCardModel,
-} from '../composables/deviceState'
+import type { DeviceRow, DialFailureCode } from '../composables/deviceState'
 
 const context = inject<PluginContext>('pluginContext')!
 const t = (key: string, params?: Record<string, any>) => context.i18n.t(key, params)
@@ -23,30 +19,20 @@ const props = defineProps<{
   rows: DeviceRow[]
   /** 探索发现进行中（扫描按钮转 spinner、防重复点击） */
   scanning?: boolean
-  /** 跨网状态卡模型（P0-2；父级经 deriveRelayCard 产出） */
-  relayCard?: RelayCardModel | null
 }>()
 
 const emit = defineEmits<{
   connect: [nodeId: string]
-  /** 手动「尝试外网」：只在有 relay 候选且用户显式点击时纳入 relay（§4.9） */
-  retryWan: [nodeId: string]
-  /** 仅经中继：跳过 LAN 候选直接拨 relay（T20 §4.2） */
+  /** 外网入口：跳过 LAN 候选直接拨 relay（显式点击，不回退；T20 §4.2） */
   retryRelayOnly: [nodeId: string]
   disconnect: [nodeId: string]
   setActive: [nodeId: string]
-  /** 打开「添加远程设备」连接串输入（T12） */
-  addRemote: []
-  /** 打开「我的设备」：本机连接串 / 外网接入（T21） */
-  myDevice: []
-  /** 移除手动添加的远程设备（T12） */
+  /** 移除历史手动配对的远程设备 */
   removeRemote: [nodeId: string]
   /** 直达发送（T23）：未连接时先连后选文件；已连接时切活跃 + 选文件 */
   send: [nodeId: string]
   /** 探索发现：重新扫描同网节点（父组件负责调 query-peer 并维护 scanning 态） */
   scan: []
-  /** 状态卡操作（粘贴邀请 / 生成邀请 / 刷新 / 打开中心或设置） */
-  relayAction: [action: RelayCardAction]
 }>()
 
 /** 拨号失败分类 → 文案 key（未识别原样展示原文，不猜成因） */
@@ -58,16 +44,6 @@ const DIAL_ERROR_KEYS: Record<DialFailureCode, string> = {
   'lan-unreachable': 'transfer.devices.unreachable',
   timeout: 'transfer.devices.errorTimeout',
   unknown: 'transfer.devices.errorUnknown',
-}
-
-/** 状态卡操作 → 文案 key（none 不渲染） */
-const RELAY_ACTION_KEYS: Record<RelayCardAction, string> = {
-  'paste-invite': 'transfer.relayCard.actionPaste',
-  'generate-invite': 'transfer.relayCard.actionInvite',
-  refresh: 'transfer.relayCard.actionRefresh',
-  'open-center': 'transfer.relayCard.actionCenter',
-  'open-settings': 'transfer.relayCard.actionSettings',
-  none: '',
 }
 
 /** 行内错误文案（unknown 带原文，其余只给分类文案） */
@@ -115,11 +91,11 @@ function dotClass(row: DeviceRow): string {
     <div class="ft-dev-head">
       <span class="ft-dev-title">{{ t('transfer.devices.title') }}</span>
       <span class="ft-dev-subtitle">{{ t('transfer.devices.subtitle') }}</span>
-      <!-- 探索发现：主动重新扫描同网节点；扫描中转 spinner 防重复发起 -->
+      <!-- 统一发现：内网 mDNS + 外网穿透发现一起重查；扫描中转 spinner 防重复发起 -->
       <button
         class="ft-text-btn ft-dev-scan-btn"
         :disabled="props.scanning"
-        :title="t('transfer.devices.scan')"
+        :title="t('transfer.devices.discoverHint')"
         data-testid="ft-peer-scan"
         @click="emit('scan')"
       >
@@ -146,78 +122,8 @@ function dotClass(row: DeviceRow): string {
             d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
           />
         </svg>
-        {{ props.scanning ? t('transfer.devices.scanning') : t('transfer.devices.scan') }}
+        {{ props.scanning ? t('transfer.devices.discovering') : t('transfer.devices.discover') }}
       </button>
-      <!-- 我的设备：生成连接串 / 配置本机外网接入（T21，不依赖其它应用） -->
-      <button
-        class="ft-text-btn ft-dev-scan-btn"
-        :title="t('transfer.devices.myDevice')"
-        data-testid="ft-my-device-open"
-        @click="emit('myDevice')"
-      >
-        {{ t('transfer.devices.myDevice') }}
-      </button>
-      <!-- 添加远程设备：粘贴连接串（无摄像头场景；T12） -->
-      <button
-        class="ft-text-btn ft-dev-scan-btn"
-        :title="t('transfer.devices.addRemote')"
-        data-testid="ft-remote-add"
-        @click="emit('addRemote')"
-      >
-        + {{ t('transfer.devices.addRemote') }}
-      </button>
-    </div>
-
-    <!-- 跨网状态卡（P0-2）：任何状态都有一个明确下一步 -->
-    <div
-      v-if="props.relayCard"
-      class="ft-relay-card"
-      :class="`ft-relay-card--${props.relayCard.tone}`"
-      data-testid="ft-relay-card"
-    >
-      <div class="ft-relay-card-head">
-        <span class="ft-relay-card-title" data-testid="ft-relay-card-title">
-          {{ t(props.relayCard.title) }}
-        </span>
-        <span
-          v-if="props.relayCard.count > 0"
-          class="ft-relay-card-count"
-          data-testid="ft-relay-card-count"
-        >
-          {{ props.relayCard.count }}
-        </span>
-      </div>
-      <p class="ft-relay-card-body" data-testid="ft-relay-card-body">
-        {{ t(props.relayCard.body, props.relayCard.params) }}
-      </p>
-      <p v-if="props.relayCard.stale" class="ft-relay-card-stale" data-testid="ft-relay-card-stale">
-        {{ t('transfer.relayCard.stale') }}
-      </p>
-      <p
-        v-if="props.relayCard.roomHint"
-        class="ft-relay-card-hint"
-        data-testid="ft-relay-card-room-hint"
-      >
-        {{ t('transfer.relayCard.roomHint') }}
-      </p>
-      <div class="ft-relay-card-actions">
-        <button
-          v-if="props.relayCard.primary !== 'none'"
-          class="ft-text-btn ft-text-btn--primary"
-          data-testid="ft-relay-card-primary"
-          @click="emit('relayAction', props.relayCard.primary)"
-        >
-          {{ t(RELAY_ACTION_KEYS[props.relayCard.primary]) }}
-        </button>
-        <button
-          v-if="props.relayCard.secondary !== 'none'"
-          class="ft-text-btn"
-          data-testid="ft-relay-card-secondary"
-          @click="emit('relayAction', props.relayCard.secondary)"
-        >
-          {{ t(RELAY_ACTION_KEYS[props.relayCard.secondary]) }}
-        </button>
-      </div>
     </div>
 
     <!-- 空态：发现缓存无节点 -->
@@ -241,28 +147,37 @@ function dotClass(row: DeviceRow): string {
             <span class="ft-dot" :class="dotClass(row)"></span>
             <span class="ft-dev-name">{{ row.deviceName }}</span>
             <span class="ft-dev-fp">{{ shortFingerprint(row.nodeId) }}</span>
-            <span v-if="row.paired" class="ft-dev-tag" data-testid="ft-dev-remote-tag">
-              {{ t('transfer.devices.remote') }}
-            </span>
-            <span v-if="row.relay" class="ft-dev-tag" data-testid="ft-dev-relay-tag">
-              {{ t('transfer.devices.relayTag') }}
-            </span>
-            <span v-if="row.isActive" class="ft-dev-tag ft-dev-tag--active">
-              {{ t('transfer.devices.activeCurrent') }}
-            </span>
-            <span v-else-if="!row.fileTransfer" class="ft-dev-tag">
-              {{ t('transfer.devices.capNone') }}
-            </span>
-            <!-- T20：跨网能力小徽标（有 relay 候选 = 可跨网，仅内网 = 需重新配对） -->
-            <span
-              v-if="row.fileTransfer"
-              class="ft-dev-tag"
-              :class="{ 'ft-dev-tag--wan': row.wanAvailable }"
-              data-testid="ft-dev-relay-badge"
-            >
-              {{
-                row.wanAvailable ? t('transfer.devices.hasRelay') : t('transfer.devices.lanOnly')
-              }}
+            <!-- 徽标组独立成组：窄面板下整组换行，避免单个徽标横向溢出压到右侧动作按钮 -->
+            <span class="ft-dev-tags">
+              <span v-if="row.paired" class="ft-dev-tag" data-testid="ft-dev-remote-tag">
+                {{ t('transfer.devices.remote') }}
+              </span>
+              <span v-if="row.relay" class="ft-dev-tag" data-testid="ft-dev-relay-tag">
+                {{ t('transfer.devices.relayTag') }}
+              </span>
+              <span v-if="row.isActive" class="ft-dev-tag ft-dev-tag--active">
+                {{ t('transfer.devices.activeCurrent') }}
+              </span>
+              <span v-else-if="!row.fileTransfer" class="ft-dev-tag">
+                {{ t('transfer.devices.capNone') }}
+              </span>
+              <!-- 连接方式标注：内网+外网 / 仅内网 / 仅外网（不把单一通路说成通用可达） -->
+              <span
+                v-if="row.fileTransfer"
+                class="ft-dev-tag"
+                :class="{ 'ft-dev-tag--wan': row.wanAvailable }"
+                data-testid="ft-dev-relay-badge"
+              >
+                {{
+                  row.connectionModes === 'both'
+                    ? t('transfer.devices.modeBoth')
+                    : row.connectionModes === 'lan'
+                      ? t('transfer.devices.modeLanOnly')
+                      : row.connectionModes === 'wan'
+                        ? t('transfer.devices.modeWanOnly')
+                        : t('transfer.devices.modeNone')
+                }}
+              </span>
             </span>
           </div>
           <div class="ft-dev-meta">
@@ -340,35 +255,37 @@ function dotClass(row: DeviceRow): string {
             {{ t('transfer.devices.connecting') }}
           </span>
           <template v-else>
-            <!-- 失败后主入口：「仅经中继」（LAN 失败 + 有 relay 候选；T20 §4.2） -->
-            <button
-              v-if="row.relayOnlyRecommended"
-              class="ft-text-btn ft-text-btn--primary"
-              :disabled="!row.fileTransfer"
-              :title="t('transfer.devices.relayOnlyHint')"
-              data-testid="ft-dev-try-relay-only"
-              @click="emit('retryRelayOnly', row.nodeId)"
+            <!-- 无任何候选：不猜路径，给「等重新发现」的显性说明 -->
+            <span
+              v-if="row.connectionModes === 'none'"
+              class="ft-dev-connecting"
+              data-testid="ft-dev-no-endpoint"
             >
-              {{ t('transfer.devices.relayOnly') }}
-            </button>
-            <!-- 手动「尝试外网」：仅存在 relay 候选时给入口；不自动切换（§4.9） -->
+              {{ t('transfer.devices.modeNoneHint') }}
+            </span>
+            <!-- 内网入口（默认路径；LAN 失败后不自动切外网） -->
             <button
-              v-if="row.wanAvailable"
-              class="ft-text-btn"
-              :disabled="!row.fileTransfer"
-              :title="t('transfer.devices.tryWanHint')"
-              data-testid="ft-dev-try-wan"
-              @click="emit('retryWan', row.nodeId)"
-            >
-              {{ t('transfer.devices.tryWan') }}
-            </button>
-            <button
+              v-if="row.lanAvailable"
               class="ft-text-btn"
               :class="{ 'ft-text-btn--primary': !row.relayOnlyRecommended }"
               :disabled="!row.fileTransfer"
+              :title="t('transfer.devices.connectLanHint')"
+              data-testid="ft-dev-connect-lan"
               @click="emit('connect', row.nodeId)"
             >
-              {{ t('transfer.devices.connect') }}
+              {{ t('transfer.devices.connectLan') }}
+            </button>
+            <!-- 外网入口：显式点击才经中继（relay-only，不回退 LAN） -->
+            <button
+              v-if="row.wanAvailable"
+              class="ft-text-btn"
+              :class="{ 'ft-text-btn--primary': row.relayOnlyRecommended || !row.lanAvailable }"
+              :disabled="!row.fileTransfer"
+              :title="t('transfer.devices.connectWanHint')"
+              data-testid="ft-dev-connect-wan"
+              @click="emit('retryRelayOnly', row.nodeId)"
+            >
+              {{ t('transfer.devices.connectWan') }}
             </button>
           </template>
         </div>
@@ -380,58 +297,6 @@ function dotClass(row: DeviceRow): string {
 </template>
 
 <style scoped>
-.ft-relay-card {
-  margin: 8px 0 10px;
-  padding: 10px 12px;
-  border-radius: 8px;
-  border: 1px solid var(--border-color, #3a3f47);
-  background: var(--surface-secondary, rgba(255, 255, 255, 0.03));
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.ft-relay-card--progress {
-  border-color: rgba(120, 170, 255, 0.45);
-}
-.ft-relay-card--warn {
-  border-color: rgba(255, 190, 90, 0.5);
-}
-.ft-relay-card--ok {
-  border-color: rgba(90, 200, 140, 0.5);
-}
-.ft-relay-card-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.ft-relay-card-title {
-  font-weight: 600;
-  font-size: 0.9rem;
-}
-.ft-relay-card-count {
-  margin-left: auto;
-  font-size: 0.78rem;
-  padding: 0 6px;
-  border-radius: 999px;
-  background: rgba(90, 200, 140, 0.18);
-}
-.ft-relay-card-body,
-.ft-relay-card-stale,
-.ft-relay-card-hint {
-  margin: 0;
-  font-size: 0.8rem;
-  line-height: 1.45;
-  color: var(--text-secondary, #a4a9b3);
-}
-.ft-relay-card-stale {
-  color: var(--warning, #e5b567);
-}
-.ft-relay-card-actions {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
 /* 头部新增「我的设备」后共三个动作；窄面板允许换行，不挤掉标题 */
 .ft-dev-head {
   flex-wrap: wrap;

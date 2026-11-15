@@ -75,13 +75,17 @@ impl RelayCenter for WasmRelayCenter {
     }
 }
 
-/// 地址来源（界面据此区分「中心已配置」与「降级用缓存」）
+/// 地址来源（界面据此区分「中心已配置」与「降级用缓存 / 导入」）
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RelaySource {
     Center,
     Cache,
     /// 邀请导入的地址（`relay_origin = invite`）：中心明确未配置时允许生效
     Invite,
+    /// 扫码导入穿透配置分享（`relay_origin = qr`）
+    Qr,
+    /// 内网连接成功后从已配对设备同步获取（`relay_origin = sync`）
+    Sync,
 }
 
 impl RelaySource {
@@ -90,7 +94,22 @@ impl RelaySource {
             Self::Center => "center",
             Self::Cache => "cache",
             Self::Invite => "invite",
+            Self::Qr => "qr",
+            Self::Sync => "sync",
         }
+    }
+}
+
+/// `relay_origin` → 缓存来源（空 / 未知 = 手动缓存）。
+///
+/// 判定与核内 `normalize_relay_origin` 的合法值同口径：未知值不猜成导入，
+/// 一律按手动缓存处理（写入口已拒绝未知来源，这里只防旧数据）。
+pub(crate) fn origin_source(origin: &str) -> Option<RelaySource> {
+    match origin.trim() {
+        "invite" => Some(RelaySource::Invite),
+        "qr" => Some(RelaySource::Qr),
+        "sync" => Some(RelaySource::Sync),
+        _ => None,
     }
 }
 
@@ -114,11 +133,11 @@ impl RelayView {
         }
     }
 
-    /// 邀请导入的地址（用户显式动作，来源与手动缓存区分开，便于界面提示）
-    fn from_invite(cache: &[String], error: Option<String>) -> Self {
+    /// 导入来源（邀请 / 扫码 / 内网同步）：用户显式动作，来源与手动缓存区分开
+    fn from_source(cache: &[String], source: RelaySource, error: Option<String>) -> Self {
         Self {
             addrs: cache.to_vec(),
-            source: RelaySource::Invite,
+            source,
             error,
         }
     }
@@ -154,26 +173,28 @@ pub(crate) fn parse_center_relay(view: &Value) -> Result<Vec<String>, String> {
 
 /// 中心优先、缓存兜底。中心「明确未配置」= 空（不复活手动缓存）。
 ///
-/// 唯一例外是 `origin = invite`：邀请导入是显式用户动作，中心为空 / 不可用时
-/// 允许使用邀请带来的缓存地址（否则「按邀请加入」在桌面上永远无效）。中心已
-/// 配置时仍中心优先——冲突留给界面提示，不在这里静默覆盖。
+/// 例外是导入来源（`invite` / `qr` / `sync`）：都是显式用户动作（扫码 / 按邀请
+/// 加入 / 已配对设备同步），中心为空 / 不可用时允许使用其缓存地址。中心已配置
+/// 时仍中心优先——冲突留给界面提示，不在这里静默覆盖。
 pub(crate) fn resolve(center: &dyn RelayCenter, cache: &[String], origin: &str) -> RelayView {
-    let invite = origin == "invite" && !cache.is_empty();
+    // 导入来源只在「确实有导入缓存」时生效；空缓存仍按「中心为空 = 仅内网」
+    let imported = origin_source(origin).filter(|_| !cache.is_empty());
     match center.relay_config().and_then(|v| parse_center_relay(&v)) {
         Ok(addrs) if !addrs.is_empty() => RelayView {
             addrs,
             source: RelaySource::Center,
             error: None,
         },
-        // 中心明确未配置（或配置为空表）：邀请缓存可以生效，手动缓存不复活
-        Ok(_) if invite => RelayView::from_invite(cache, None),
-        Ok(_) => RelayView {
-            addrs: Vec::new(),
-            source: RelaySource::Center,
-            error: None,
+        // 中心明确未配置（或配置为空表）：导入缓存可以生效，手动缓存不复活
+        Ok(_) => match imported {
+            Some(source) => RelayView::from_source(cache, source, None),
+            None => RelayView {
+                addrs: Vec::new(),
+                source: RelaySource::Center,
+                error: None,
+            },
         },
-        Err(e) if invite => RelayView::from_invite(cache, Some(e)),
-        Err(e) => RelayView::from_cache(cache, Some(e)),
+        Err(e) => RelayView::from_source(cache, imported.unwrap_or(RelaySource::Cache), Some(e)),
     }
 }
 
@@ -183,8 +204,12 @@ pub(crate) fn resolve(center: &dyn RelayCenter, cache: &[String], origin: &str) 
 pub(crate) fn effective(platform: Platform, cache: &[String], origin: &str) -> RelayView {
     match platform {
         Platform::Desktop => center_relay_view(cache, origin),
-        // 移动端没有配置中心：邀请来源只影响提示文案，地址直接用本地缓存
-        Platform::Mobile if origin == "invite" => RelayView::from_invite(cache, None),
+        // 移动端没有配置中心：导入来源只影响提示 / 溯源，地址直接用本地缓存
+        Platform::Mobile if !cache.is_empty() => RelayView::from_source(
+            cache,
+            origin_source(origin).unwrap_or(RelaySource::Cache),
+            None,
+        ),
         Platform::Mobile => RelayView::from_cache(cache, None),
     }
 }
@@ -197,10 +222,14 @@ fn center_relay_view(cache: &[String], origin: &str) -> RelayView {
 
 #[cfg(not(target_arch = "wasm32"))]
 fn center_relay_view(cache: &[String], origin: &str) -> RelayView {
-    if origin == "invite" {
-        return RelayView::from_invite(cache, None);
+    if cache.is_empty() {
+        return RelayView::from_cache(cache, None);
     }
-    RelayView::from_cache(cache, None)
+    RelayView::from_source(
+        cache,
+        origin_source(origin).unwrap_or(RelaySource::Cache),
+        None,
+    )
 }
 
 #[cfg(test)]
@@ -287,6 +316,31 @@ mod tests {
         assert_eq!(view.source, RelaySource::Invite);
         assert_eq!(view.addrs, vec![relay_addr()]);
         assert!(view.error.is_none());
+    }
+
+    #[test]
+    fn resolve_marks_qr_and_sync_imports() {
+        let center = Fake(Ok(json!({ "configured": false, "config": null })));
+        for (origin, expected) in [("qr", RelaySource::Qr), ("sync", RelaySource::Sync)] {
+            let view = resolve(&center, &[relay_addr().to_string()], origin);
+            assert_eq!(view.source, expected, "origin={origin}");
+            assert_eq!(view.addrs, vec![relay_addr()]);
+            assert!(view.error.is_none());
+        }
+    }
+
+    #[test]
+    fn resolve_unknown_origin_falls_back_to_manual_cache_semantics() {
+        // 旧数据 / 手工写入的未知 origin：不当成导入来源（不复活缓存）
+        let center = Fake(Ok(json!({ "configured": false, "config": null })));
+        let view = resolve(&center, &[relay_addr().to_string()], "legacy");
+        assert_eq!(view.source, RelaySource::Center);
+        assert!(view.addrs.is_empty());
+
+        // 中心不可用时按手动缓存兜底（来源 cache，不冒充导入）
+        let broken = Fake(Err("api-call: timeout".to_string()));
+        let view = resolve(&broken, &[relay_addr().to_string()], "legacy");
+        assert_eq!(view.source, RelaySource::Cache);
     }
 
     #[test]

@@ -1,39 +1,45 @@
 /**
- * 连接串生成 / 解析（T21）— 移动端同判据
+ * 设备二维码（v3）与穿透配置分享（v1）契约测试（移动端）
  *
- * 与桌面端 `src/utils/pairingLink.ts` 各持一份实现；本用例锁住 v3 往返与
- * 非法入参显性失败，避免两端在「我的设备」/「添加远程设备」之间漂移。
+ * 设备配对只保留「我的设备二维码 → 手机扫码导入」；粘贴连接串与邀请已退役。
  */
 import { describe, it, expect } from 'vitest'
 import {
-  JOIN_URI_PREFIX,
-  buildConnectionInvite,
+  PAIR_URI_PREFIX,
+  RELAY_CONFIG_URI_PREFIX,
+  buildRelayConfigShare,
   buildRemotePeerLink,
-  isConnectionInvite,
-  parseConnectionInvite,
+  isRelayConfigShare,
+  parseRelayConfigShare,
   parseRemotePeerLink,
-  relayCandidatesOf,
 } from '../pairingLink'
 
-const NODE_ID = 'b'.repeat(64)
-const LAN = '/ip4/192.168.1.7/tcp/47613'
-const RELAY = `/ip4/203.0.113.9/tcp/4001/p2p/12D3KooWRelay/p2p-circuit/p2p/${NODE_ID}`
+const RELAY = '/ip4/203.0.113.9/tcp/4001/p2p/12D3KooWRelay/p2p-circuit/p2p/12D3KooWTarget'
 
-describe('buildRemotePeerLink（v3）', () => {
+/** UTF-8 → base64url（夹具用；生成端实现见模块） */
+function toBase64Url(text: string): string {
+  let binary = ''
+  for (const byte of new TextEncoder().encode(text)) binary += String.fromCharCode(byte)
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+}
+
+describe('设备二维码（v3）', () => {
+  const NODE_ID = 'b'.repeat(64)
+  const LAN = '/ip4/192.168.1.7/tcp/47613'
+
   it('should_roundTripNodeIdAddrsAndName', () => {
     const text = buildRemotePeerLink({
       nodeId: NODE_ID.toUpperCase(),
       addrs: [LAN, RELAY, LAN],
       deviceName: '手机',
     })
-    expect(text.startsWith('wasmnest://pair/')).toBe(true)
+    expect(text.startsWith(PAIR_URI_PREFIX)).toBe(true)
     const r = parseRemotePeerLink(text)
     expect(r.ok).toBe(true)
     if (!r.ok) return
     expect(r.link.nodeId).toBe(NODE_ID)
     expect(r.link.addrs).toEqual([LAN, RELAY])
     expect(r.link.deviceName).toBe('手机')
-    expect(relayCandidatesOf(r.link.addrs)).toEqual([RELAY])
   })
 
   it('should_rejectInvalidInputInsteadOfBuildingBrokenLink', () => {
@@ -44,56 +50,63 @@ describe('buildRemotePeerLink（v3）', () => {
   })
 
   it('should_rejectUnknownPayloadVersion', () => {
-    const b64 = btoa(JSON.stringify({ v: 4, nodeId: NODE_ID, addrs: [LAN] }))
-      .replace(/\+/g, '-')
-      .replace(/\//g, '_')
-      .replace(/=+$/, '')
-    expect(parseRemotePeerLink(`wasmnest://pair/${b64}`)).toEqual({
+    const b64 = toBase64Url(JSON.stringify({ v: 4, nodeId: NODE_ID, addrs: [LAN] }))
+    expect(parseRemotePeerLink(`${PAIR_URI_PREFIX}${b64}`)).toEqual({
       ok: false,
       reason: 'malformed',
     })
   })
 })
 
-describe('ConnectionInvite（v4，T23）', () => {
+describe('RelayConfigShare（ft-relay-config v1）', () => {
   const RELAY_ENDPOINT = '/ip4/203.0.113.9/tcp/4001/p2p/12D3KooWRelay'
 
-  it('should_roundTripRoomRelayAndName', () => {
-    const text = buildConnectionInvite({
+  it('should_roundTripRelayRoomAndPolicy', () => {
+    const text = buildRelayConfigShare({
+      relayAddrs: [RELAY_ENDPOINT],
       room: 'nest-7f3a2c91',
-      relay: [RELAY_ENDPOINT, RELAY_ENDPOINT],
-      name: '手机',
+      wanPolicy: 'blocked',
+      deviceName: '手机',
+      generatedAt: 1_734_000_000_000,
     })
-    expect(text.startsWith(JOIN_URI_PREFIX)).toBe(true)
-    expect(parseConnectionInvite(text)).toEqual({
+    expect(text.startsWith(RELAY_CONFIG_URI_PREFIX)).toBe(true)
+    expect(isRelayConfigShare(text)).toBe(true)
+    expect(parseRelayConfigShare(text)).toEqual({
       ok: true,
-      invite: { room: 'nest-7f3a2c91', relay: [RELAY_ENDPOINT], name: '手机' },
+      share: {
+        relayAddrs: [RELAY_ENDPOINT],
+        room: 'nest-7f3a2c91',
+        wanPolicy: 'blocked',
+        deviceName: '手机',
+        generatedAt: 1_734_000_000_000,
+      },
     })
   })
 
-  it('should_rejectBadInviteWithDistinctReasons', () => {
-    expect(parseConnectionInvite('wasmnest://join/%%%')).toEqual({
+  it('should_rejectBadPayloadWithDistinctReasons', () => {
+    const b64 = (payload: unknown): string =>
+      `${RELAY_CONFIG_URI_PREFIX}${toBase64Url(JSON.stringify(payload))}`
+    expect(
+      parseRelayConfigShare(b64({ v: 2, kind: 'ft-relay-config', relayAddrs: [RELAY_ENDPOINT] })),
+    ).toEqual({
       ok: false,
-      reason: 'malformed',
+      reason: 'version-unsupported',
+    })
+    expect(parseRelayConfigShare(b64({ v: 1, kind: 'ft-relay-config', relayAddrs: [] }))).toEqual({
+      ok: false,
+      reason: 'missing-relay',
     })
     expect(
-      parseConnectionInvite(
-        `${JOIN_URI_PREFIX}${btoa(JSON.stringify({ v: 4, relay: [RELAY_ENDPOINT] }))}`,
-      ),
-    ).toEqual({ ok: false, reason: 'missing-room' })
-    expect(
-      parseConnectionInvite(
-        `${JOIN_URI_PREFIX}${btoa(JSON.stringify({ v: 4, room: 'nest', relay: [] }))}`,
+      parseRelayConfigShare(
+        b64({ v: 1, kind: 'ft-relay-config', relayAddrs: [RELAY], wanPolicy: 'allowed' }),
       ),
     ).toEqual({ ok: false, reason: 'address-invalid' })
   })
 
-  it('should_splitInviteFromDeviceLinkByPrefix', () => {
-    expect(
-      isConnectionInvite(
-        buildConnectionInvite({ room: 'nest', relay: [RELAY_ENDPOINT], name: '' }),
-      ),
-    ).toBe(true)
-    expect(isConnectionInvite(buildRemotePeerLink({ nodeId: NODE_ID, addrs: [LAN] }))).toBe(false)
+  it('should_notBeConfusedWithOtherPayloadsAndRejectBadBuildInput', () => {
+    expect(isRelayConfigShare('wasmnest://pair/abc')).toBe(false)
+    expect(isRelayConfigShare('wasmnest://join/abc')).toBe(false)
+    expect(() => buildRelayConfigShare({ relayAddrs: [] })).toThrow(/at least one relay/)
+    expect(() => buildRelayConfigShare({ relayAddrs: [RELAY] })).toThrow(/invalid relay address/)
   })
 })

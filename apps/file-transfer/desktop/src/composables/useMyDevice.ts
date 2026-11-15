@@ -3,11 +3,11 @@
  *
  * 数据源 = 插件命令 `get-my-device`：宿主 `host-peer` 提供 nodeId / 可拨地址 /
  * relay 状态时返回 supported，否则显性 unsupported（**不伪造** nodeId / addrs）。
- * relay 地址真源是「内网穿透」配置中心（`com.wasmnest.net-config`），本页桌面端
- * **只读**；中心不可用时后端回退本机缓存并给出 `relayError`。
+ * 本页桌面端**只读**；中心不可用时后端回退本机缓存并给出 `relayError`。
  * 拨号 / 预留仍在宿主。
  *
- * 链接规范见 `utils/pairingLink.ts`（v3，与「添加远程设备」解析端同一判据）。
+ * 本 composable 保留设备/relay 读面、空间码保存，以及「我的设备」二维码载荷；
+ * 粘贴连接串入口已退役。
  */
 import { computed, ref, type Ref } from 'vue'
 import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-desktop'
@@ -19,6 +19,15 @@ const EMPTY_INFO: MyDeviceInfo = {
   reason: 'host-unsupported',
   capabilities: { nodeInfo: false, relayReservation: false },
   relayAddrs: [],
+}
+
+/** relay 来源词表（未知值不猜，按「无来源」处理） */
+const RELAY_SOURCES = ['center', 'cache', 'invite', 'qr', 'sync'] as const
+
+function normalizeRelaySource(value: unknown): MyDeviceInfo['relaySource'] {
+  return typeof value === 'string' && (RELAY_SOURCES as readonly string[]).includes(value)
+    ? (value as MyDeviceInfo['relaySource'])
+    : undefined
 }
 
 export function useMyDevice(context: PluginContext) {
@@ -46,10 +55,13 @@ export function useMyDevice(context: PluginContext) {
           ? r.relayAddrs.filter((x: unknown): x is string => typeof x === 'string')
           : [],
         relayRoom: typeof r?.relayRoom === 'string' ? r.relayRoom : '',
-        relaySource:
-          r?.relaySource === 'center' || r?.relaySource === 'cache' || r?.relaySource === 'invite'
-            ? r.relaySource
-            : undefined,
+        relaySource: normalizeRelaySource(r?.relaySource),
+        relayOrigin: typeof r?.relayOrigin === 'string' ? r.relayOrigin : '',
+        relaySyncedAt:
+          typeof r?.relaySyncedAt === 'number' && Number.isFinite(r.relaySyncedAt)
+            ? Math.max(0, Math.trunc(r.relaySyncedAt))
+            : 0,
+        wanPolicy: r?.wanPolicy === 'blocked' ? 'blocked' : 'allowed',
         relayError: typeof r?.relayError === 'string' ? r.relayError : null,
         nodeId: typeof r?.nodeId === 'string' ? r.nodeId : undefined,
         deviceName: typeof r?.deviceName === 'string' ? r.deviceName : undefined,
@@ -67,8 +79,8 @@ export function useMyDevice(context: PluginContext) {
   }
 
   /**
-   * 可分享连接串。任一前提不满足都返回空串（由界面显性说明原因），
-   * 绝不把残缺链接展示给用户——对端粘贴后才失败是最难归因的形态。
+   * 设备二维码载荷。任一前提不满足都返回空串（由界面显性说明原因），
+   * 绝不把残缺二维码展示给用户。
    */
   const link = computed(() => {
     const data = info.value
@@ -110,18 +122,6 @@ export function useMyDevice(context: PluginContext) {
     }
   }
 
-  /** 复制连接串；剪贴板不可用返回 false（界面给显性失败文案） */
-  async function copyLink(): Promise<boolean> {
-    if (!link.value) return false
-    try {
-      await navigator.clipboard.writeText(link.value)
-      return true
-    } catch (e) {
-      console.error('[File Transfer] copy device link failed:', e)
-      return false
-    }
-  }
-
   return {
     info,
     loading,
@@ -132,7 +132,6 @@ export function useMyDevice(context: PluginContext) {
     roomError,
     roomSaved,
     load,
-    copyLink,
     saveRelayRoom,
   }
 }
