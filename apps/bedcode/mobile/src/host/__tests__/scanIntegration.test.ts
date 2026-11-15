@@ -455,6 +455,32 @@ describe('跨端集成：桌面二维码 → 移动端扫描', () => {
     if (parsed.ok) expect(parsed.payload.peer?.addrs).toEqual(densePeer.addrs)
   })
 
+  it('should_parseFullPeerShape_when_addrTargetDiffersFromNodeId', () => {
+    // 2026-11-14 现场形状：`node.nodeId` 是应用层指纹（64 hex），multiaddr 尾部是
+    // libp2p PeerId。桌面退回 v2 完整地址载荷（v3 前缀折叠依赖两者相等）。
+    const APP_NODE_ID = '56bc2e94ca6a1f119d014c6bd491ef2a7a6fc68f9354c4c9e9c1354446d31e94'
+    const LIBP2P_ID = '12D3KooWSFCWtAtXSKNhNAr7D6iYPnEJFfUjSrUTFJqopHuD4UDx'
+    const realPeer: PairingPeerInfo = {
+      nodeId: APP_NODE_ID,
+      addrs: [
+        `/ip4/192.168.1.100/tcp/39000/p2p/${LIBP2P_ID}`,
+        `/ip4/113.45.43.60/tcp/4001/p2p/${RELAY_ID}/p2p-circuit/p2p/${LIBP2P_ID}`,
+      ],
+      ticket: TICKET,
+    }
+    const payload = payloadOf(realPeer)
+    // 完整地址形状（v2）：nodeId 与地址尾部各自保留，移动端按地址直接拨号
+    expect(JSON.parse(payload).v).toBe(2)
+
+    const { matrix, moduleErrors, decoded } = scanDesktopQr(payload)
+    expect(matrix.size).toBe(85)
+    expect(moduleErrors).toBe(0)
+
+    const parsed = parseQrText(decoded)
+    expect(parsed.ok).toBe(true)
+    if (parsed.ok) expect(parsed.payload.peer).toEqual(realPeer)
+  })
+
   it('should_readEveryModuleAndParseLegacyV1_when_oldDesktopWithoutPeer', () => {
     // v1 载荷（无 peer）：旧桌面仍在跑时不能回归
     const payload = payloadOf(null, '10.0.0.9')

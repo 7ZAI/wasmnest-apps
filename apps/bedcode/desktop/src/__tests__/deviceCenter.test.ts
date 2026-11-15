@@ -27,6 +27,7 @@
  * - C5k QR 页签紧跟标题（同一头部）；外网页有自己的生成按钮，生成前先 prepare 隧道
  * - C5l 外网页生成命令失败：toast + 可见错误（不静默停在占位态）
  * - C5m 外网页 peer 未产出：不出码但原因可见（toast + 提示）
+ * - C5n 真实宿主形状（地址尾部 PeerId ≠ nodeId）：外网 Tab 出 v2 完整载荷，不误报地址不可拨号
  * - C6 在线判定：`device:connected` 事件把设备移入在线区
  * - C7 离线判定：`device:disconnected` 事件把设备移回离线区
  * - C8 设备接入即清除已使用配对码（后端事件驱动状态流转）
@@ -451,6 +452,39 @@ describe('DeviceCenterView（设备与配对页面）', () => {
     const hint = wrapper.find('[data-testid="pairing-qr-peer-error"]')
     expect(hint.exists()).toBe(true)
     expect(hint.text()).toBe('pairing.tunnel.onlyLan')
+  })
+
+  it('C5n 真实宿主形状（地址尾部 PeerId ≠ nodeId）：外网 Tab 出 v2 完整载荷，不报地址不可拨号', async () => {
+    // 2026-11-14 现场：nodeId 是应用层指纹，addrs 尾部是 libp2p PeerId
+    const peer = {
+      nodeId: '56bc2e94ca6a1f119d014c6bd491ef2a7a6fc68f9354c4c9e9c1354446d31e94',
+      addrs: [
+        '/ip4/192.168.1.10/tcp/47613/p2p/12D3KooWSFCWtAtXSKNhNAr7D6iYPnEJFfUjSrUTFJqopHuD4UDx',
+        '/ip4/113.45.43.60/tcp/4001/p2p/12D3KooWBSCkgKRqQWpPhGGC61TfEWno22bcEGXxQvohhPbQBkud/p2p-circuit/p2p/12D3KooWSFCWtAtXSKNhNAr7D6iYPnEJFfUjSrUTFJqopHuD4UDx',
+      ],
+      ticket: 'ticket-once',
+    }
+    execute.mockImplementation(async (command: string) => {
+      if (command === 'session.qr.generate') return { ...seed.qr, peer }
+      return defaultExecute(command)
+    })
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.find('[data-testid="pairing-qr-tab-wan"]').trigger('click')
+    await wrapper.find('[data-testid="pairing-qr-generate-wan"]').trigger('click')
+    await flushPromises()
+
+    // 不再出现「隧道地址不可拨号」的显性失败
+    expect(wrapper.find('[data-testid="pairing-qr-error"]').exists()).toBe(false)
+
+    const QRCode = (await import('qrcode')).default
+    expect(wrapper.find('canvas').exists()).toBe(true)
+    const payload = JSON.parse((QRCode.toCanvas as any).mock.calls.at(-1)[1])
+    // v2 完整地址载荷：nodeId 与地址尾部各自保留原值（移动端按地址直接拨号）
+    expect(payload.v).toBe(2)
+    expect(payload.peer.nodeId).toBe(peer.nodeId)
+    expect(payload.peer.addrs).toEqual(peer.addrs)
   })
 
   it('C5d 路由 KeepAlive 切回（重新激活）时重绘二维码', async () => {
