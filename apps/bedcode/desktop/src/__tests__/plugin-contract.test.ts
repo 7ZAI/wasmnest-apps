@@ -432,8 +432,8 @@ function makeEnv(overrides: Partial<Parameters<typeof createAppContext>[0]> = {}
     appStorageDelete: vi.fn(async () => {}),
     locale: 'zh-CN',
     theme: 'dark',
-    // 宿主传入的应用内路由（默认落地面；终端会话面已停用，主面归项目列表）
-    initialRoute: '/projects',
+    // 宿主传入的应用内路由（默认落地面；用户裁定：初始进入落地「设备配对」）
+    initialRoute: '/pairing',
     ...overrides,
   }
 }
@@ -470,8 +470,10 @@ describe('C3 入口契约（挂载包形态：mountApp + 直连上下文 + 内�
     // 项目（ADR 0003：一级容器）+ 项目工作台（id = 项目 id）
     expect(byName.get('projects')?.path).toBe('/projects')
     expect(byName.get('project-workbench')?.path).toBe('/projects/:id')
-    // 终端会话面已于 2026-11-06 停用（路由整条注释保留以便回滚）
+    // 终端会话面已于 2026-11-06 停用（路由整条注释保留以便回滚）；宿主落地目录
+    // 仍登记 `/sessions`，app 侧显式重定向到落地页（初始进入显示「设备配对」）
     expect(byName.get('sessions')).toBeUndefined()
+    expect(byName.get('sessions-legacy')?.redirect).toBe('/pairing')
     // Agent 管理域（原 agent-hub 并入）
     expect(byName.get('agents')?.path).toBe('/agents')
     // Agent 编排（v1）已于 2026-11-09 停用（用户裁定，先注释不删除）：菜单、路由与
@@ -486,10 +488,11 @@ describe('C3 入口契约（挂载包形态：mountApp + 直连上下文 + 内�
     expect(byName.get('history')?.path).toBe('/history')
     expect(byName.get('terminal-window')?.path).toBe('/terminal-window/:id')
     expect(byName.get('terminal-window')?.meta.bareWindow).toBe(true)
-    // 默认落地 = 应用主面（/sessions 停用后归项目列表；宿主 '/' 壳主屏由宿主路由表承载）
+    // 默认落地 = 设备配对（用户裁定：初始点击进入的首页显示「设备配对」；
+    // 宿主 '/' 壳主屏由宿主路由表承载）
     const root = routes.find((r) => r.path === '/')
-    expect(root?.redirect).toBe('/projects')
-    expect(DEFAULT_ROUTE).toBe('/projects')
+    expect(root?.redirect).toBe('/pairing')
+    expect(DEFAULT_ROUTE).toBe('/pairing')
     // 遗留深链：/settings/authorization 显性重定向到 /settings（授权管理归宿主 /sys/perms）
     expect(byName.get('settings-authorization-legacy')?.redirect).toBe('/settings')
     // not-found 兜底在位（D3 fail-visible）

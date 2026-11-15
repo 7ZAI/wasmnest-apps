@@ -21,7 +21,7 @@
 | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | 应用 / 插件 id | BedCode / `com.wasmnest.bedcode`（Agent 管理域）                                                                                                        |
 | 支持端         | 桌面（`apps/bedcode/desktop`；无移动端）                                                                                                                |
-| 入口           | 宿主 → BedCode → 侧栏「Agent 管理」（`nav-agents` / `/agents`）；应用默认落地 `/sessions`，进入本域后默认「概览」                                    |
+| 入口           | 宿主 → BedCode → 侧栏「Agent 管理」（`nav-agents` / `/agents`）；应用默认落地 `/pairing`（设备配对），进入本域后默认「概览」                               |
 | 分区           | 概览 / 安装与更新 / Skills / 供应商 / 会话日志 / 使用统计（六个；`hub-tab-*`）                                                                        |
 | 权限面         | 随 bedcode 整应用 manifest（21 项，并入时新增 `app:path` / `fs:pick`）；核验以 `apps/bedcode/desktop/plugin.json` 为准，本分册不单列域级权限          |
 | 命令面         | `agent.*`（47 条；路由真源 `rust/src/hub/mod.rs` 的 `invoke_command`，声明见 `plugin.json contributes.commands`）                                     |
@@ -86,7 +86,7 @@
 
 ### F-01 挂载与分区导航（核心）
 
-- [ ] **S-01-01** 从宿主主屏打开 BedCode，确认默认落地终端会话（`/sessions`）；点击侧栏「Agent 管理」（`nav-agents`）。期望：`hub-view` 渲染，默认选中「概览」，`hub-tabs` 可见。
+- [ ] **S-01-01** 从宿主主屏打开 BedCode，确认默认落地「设备配对」（`/pairing`）；点击侧栏「Agent 管理」（`nav-agents`）。期望：`hub-view` 渲染，默认选中「概览」，`hub-tabs` 可见。
 - [ ] **S-01-02** 确认分区标签共六个且顺序为：概览 / 安装与更新 / Skills / 供应商 / 会话日志 / 使用统计（`hub-tab-overview` / `-install` / `-skills` / `-providers` / `-logs` / `-stats`）；默认选中「概览」。
 - [ ] **S-01-03** 依次点击六个分区。期望：每次目标 `panel-*` 可见、`aria-selected` 跟随；前一面板完成退场后不可见。
 - [ ] **S-01-04** 从「Agent 管理」切到其他侧栏项再返回（或退出应用重进）。期望：不残留上一分区打开的弹窗 / 两击确认态；分区选中态按实现（KeepAlive 可能保留）记录实际行为，不把「保留」误记为缺陷。
