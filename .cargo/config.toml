@@ -64,3 +64,13 @@ SCCACHE_CACHE_SIZE = { value = "32212254720", force = false }
 # <LLVM>\bin 加入 PATH，可改为 "lld-link" 使用最新版。
 [target.x86_64-pc-windows-msvc]
 linker = "rust-lld"
+
+# >>> wasmnest-platform-sdk-link（scripts/link-platform-sdk.mjs 写入，unlink 删除） >>>
+[patch.crates-io]
+wasmnest-plugin-api = { path = "/home/binblink/project/tauriProject/WasmNest/wasmnest/wasmnest-desktop/packages/plugin-sdk-desktop/rust" }
+wasmnest-plugin-api-macros = { path = "/home/binblink/project/tauriProject/WasmNest/wasmnest/wasmnest-desktop/packages/plugin-sdk-desktop/rust-macros" }
+wasmnest-server-base = { path = "/home/binblink/project/tauriProject/WasmNest/wasmnest-lib/wasmnest-server-base" }
+wasmnest-server-core = { path = "/home/binblink/project/tauriProject/WasmNest/wasmnest-lib/wasmnest-server-core" }
+wasmnest-server-http = { path = "/home/binblink/project/tauriProject/WasmNest/wasmnest-lib/wasmnest-server-http" }
+wasmnest-server-websocket = { path = "/home/binblink/project/tauriProject/WasmNest/wasmnest-lib/wasmnest-server-websocket" }
+# <<< wasmnest-platform-sdk-link <<<
