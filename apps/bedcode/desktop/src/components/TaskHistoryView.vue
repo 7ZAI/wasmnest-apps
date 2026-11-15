@@ -268,7 +268,7 @@ const textareaCls =
   'w-full px-3 py-2 rounded-lg border border-[var(--border-input)] bg-[var(--bg-input)] ' +
   'text-xs text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] outline-none ' +
   'focus:border-[var(--color-primary)] focus:ring-1 focus:ring-[var(--color-primary)]/30 ' +
-  'transition-colors duration-200 resize-none overflow-y-auto leading-5 max-h-[200px] min-h-[56px]'
+  'transition-colors duration-200 resize-none overflow-x-hidden overflow-y-auto leading-5 max-h-[200px] min-h-[56px]'
 
 /**
  * 创建任务输入框：边框由外层容器统一提供，自身不再带 border / 焦点描边。
@@ -278,7 +278,7 @@ const textareaCls =
 const borderlessTextareaCls =
   'block w-full px-3 py-2 rounded-lg border-0 bg-transparent ' +
   'text-xs text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] outline-none ' +
-  'resize-none overflow-y-auto leading-5 max-h-[200px] min-h-[56px]'
+  'resize-none overflow-x-hidden overflow-y-auto leading-5 max-h-[200px] min-h-[56px]'
 
 // 任务内容输入框最小高度（2 行 × 20px，避免空态时输入框过矮）
 const TASK_INPUT_MIN_HEIGHT = 56
