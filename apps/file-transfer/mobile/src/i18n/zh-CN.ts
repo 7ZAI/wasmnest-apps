@@ -363,10 +363,7 @@ export default {
   'transfer.relayCard.error.body': '{detail}',
   'transfer.relayCard.unavailable.title': '中继未就绪',
   'transfer.relayCard.unavailable.body': '中继预留建立后会自动重试；也可以手动刷新。',
-  'transfer.relayCard.readyEmpty.title': '已就绪，空间内暂无设备',
-  'transfer.relayCard.readyEmpty.body': '确认对方已打开应用，或两端空间码一致。',
-  'transfer.relayCard.ready.title': '空间内 {count} 台设备在线',
-  'transfer.relayCard.ready.body': '上次更新 {seconds} 秒前；可直接在设备行发送文件。',
+
   'transfer.relayCard.pending.title': '正在查询发现状态',
   'transfer.relayCard.pending.body': '主动刷新可立即重查；旧宿主可能不提供发现状态。',
   'transfer.relayCard.roomHint': '未设置空间码：同一中继上的所有设备互相可见。',

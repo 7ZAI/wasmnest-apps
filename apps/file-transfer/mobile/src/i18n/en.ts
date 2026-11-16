@@ -390,11 +390,7 @@ export default {
   'transfer.relayCard.unavailable.title': 'Relay not ready',
   'transfer.relayCard.unavailable.body':
     'It will retry once the relay reservation is ready; you can also refresh manually.',
-  'transfer.relayCard.readyEmpty.title': 'Ready, no devices in this space yet',
-  'transfer.relayCard.readyEmpty.body':
-    'Make sure the other side has the app open and both use the same space code.',
-  'transfer.relayCard.ready.title': '{count} devices online in this space',
-  'transfer.relayCard.ready.body': 'Updated {seconds}s ago; send files directly from a device row.',
+
   'transfer.relayCard.pending.title': 'Checking discovery status',
   'transfer.relayCard.pending.body':
     'Refresh to query again; older hosts may not report discovery status.',

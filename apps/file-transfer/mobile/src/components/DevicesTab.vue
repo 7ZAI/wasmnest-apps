@@ -11,6 +11,7 @@
  * 本页是**纯发现层**（形态改造 2026-11-16）：设备只来自中继自动发现 + mDNS；
  * 「添加远程设备」（扫码 / 粘贴）与「我的设备」入口已从本页下线——身份信息与
  * 穿透配置统一收敛到设置页，发现流里不再混入手工配对与配置管理。
+ * 跨网状态卡只在异常 / 待处置时出现；中继「已就绪」不渲染卡片区域。
  *
  * 纯展示：行状态由 usePeerDevices 派生的 rows 传入，操作以事件上抛。
  */
@@ -177,7 +178,7 @@ function metaText(row: DeviceRow): string {
 
 <template>
   <div class="fv2-page">
-    <!-- 跨网状态卡（P0-2）：任何状态都有一个明确下一步；空态之上也可见 -->
+    <!-- 跨网状态卡（P0-2）：仅异常/处置态渲染；已就绪时不占卡片区域 -->
     <div
       v-if="props.relayCard"
       class="fv2-relay-card"
@@ -187,13 +188,6 @@ function metaText(row: DeviceRow): string {
       <div class="fv2-relay-card-head">
         <span class="fv2-relay-card-title" data-testid="mobile-relay-card-title">
           {{ t(props.relayCard.title) }}
-        </span>
-        <span
-          v-if="props.relayCard.count > 0"
-          class="fv2-relay-card-count"
-          data-testid="mobile-relay-card-count"
-        >
-          {{ props.relayCard.count }}
         </span>
       </div>
       <p class="fv2-relay-card-body" data-testid="mobile-relay-card-body">
@@ -486,9 +480,6 @@ function metaText(row: DeviceRow): string {
 .fv2-relay-card--warn {
   border-color: rgba(255, 190, 90, 0.5);
 }
-.fv2-relay-card--ok {
-  border-color: rgba(90, 200, 140, 0.5);
-}
 .fv2-relay-card-head {
   display: flex;
   align-items: center;
@@ -497,13 +488,6 @@ function metaText(row: DeviceRow): string {
 .fv2-relay-card-title {
   font-weight: 600;
   font-size: 0.9rem;
-}
-.fv2-relay-card-count {
-  margin-left: auto;
-  font-size: 0.78rem;
-  padding: 0 6px;
-  border-radius: 999px;
-  background: rgba(90, 200, 140, 0.18);
 }
 .fv2-relay-card-body,
 .fv2-relay-card-stale,

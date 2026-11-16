@@ -359,10 +359,7 @@ export type MessageSchema = {
   'transfer.relayCard.error.body': string
   'transfer.relayCard.unavailable.title': string
   'transfer.relayCard.unavailable.body': string
-  'transfer.relayCard.readyEmpty.title': string
-  'transfer.relayCard.readyEmpty.body': string
-  'transfer.relayCard.ready.title': string
-  'transfer.relayCard.ready.body': string
+
   'transfer.relayCard.pending.title': string
   'transfer.relayCard.pending.body': string
   'transfer.relayCard.roomHint': string

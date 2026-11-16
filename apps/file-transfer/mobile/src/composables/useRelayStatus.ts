@@ -60,7 +60,7 @@ export function useRelayStatus(context: PluginContext, discovery: Ref<RelayDisco
       !sameRelaySet(relayAddrs.value, relayCacheAddrs.value),
   )
 
-  const card = computed<RelayCardModel>(() =>
+  const card = computed<RelayCardModel | null>(() =>
     deriveRelayCard({
       relayAddrs: relayAddrs.value,
       relayRoom: relayRoom.value,

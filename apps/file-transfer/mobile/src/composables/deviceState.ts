@@ -525,7 +525,7 @@ export type RelayCardAction = 'share-config' | 'refresh' | 'open-center' | 'open
 
 /** 状态卡渲染模型（纯函数产出；组件只做文案与按钮映射） */
 export interface RelayCardModel {
-  tone: 'neutral' | 'progress' | 'warn' | 'ok'
+  tone: 'neutral' | 'progress' | 'warn'
   /** 标题 i18n key */
   title: string
   /** 说明 i18n key */
@@ -538,7 +538,6 @@ export interface RelayCardModel {
   stale: boolean
   /** 空间码为空：同一中继设备互相可见 */
   roomHint: boolean
-  count: number
 }
 
 export interface RelayCardInput {
@@ -568,7 +567,7 @@ function relayCard(
     secondary,
     stale: false,
     roomHint: false,
-    count: 0,
+
     ...extra,
   }
 }
@@ -577,9 +576,10 @@ function relayCard(
  * 跨网状态卡模型（纯函数）。
  *
  * 优先级：中心冲突 > 未配置中继 > 中继连接态 > 宿主发现状态 > 旧宿主降级。
- * 每个分支都给一个明确主操作（没有「什么都没有」的空态）。
+ * 需要用户处置的分支给一个明确主操作；「已就绪」不再占卡片区域（返回 null），
+ * 发现结果由下方设备列表直接呈现。
  */
-export function deriveRelayCard(input: RelayCardInput): RelayCardModel {
+export function deriveRelayCard(input: RelayCardInput): RelayCardModel | null {
   const addrs = input.relayAddrs ?? []
   const discovery = input.discovery
   const roomHint = input.relayRoom.trim() === ''
@@ -587,10 +587,6 @@ export function deriveRelayCard(input: RelayCardInput): RelayCardModel {
     discovery !== null &&
     discovery.updatedAtMs > 0 &&
     input.nowMs - discovery.updatedAtMs > RELAY_CARD_STALE_MS
-  const ageSeconds =
-    discovery && discovery.updatedAtMs > 0
-      ? Math.max(0, Math.floor((input.nowMs - discovery.updatedAtMs) / 1000))
-      : 0
   const base = { stale, roomHint }
 
   if (input.conflict) {
@@ -625,13 +621,8 @@ export function deriveRelayCard(input: RelayCardInput): RelayCardModel {
         params: { detail: discovery.error ?? '' },
       })
     case 'ok':
-      return discovery.count > 0
-        ? relayCard('ok', 'ready', 'share-config', 'refresh', {
-            ...base,
-            count: discovery.count,
-            params: { count: discovery.count, seconds: ageSeconds },
-          })
-        : relayCard('neutral', 'readyEmpty', 'share-config', 'refresh', base)
+      // 就绪态（含空间内暂无设备）不再渲染状态卡区域：下方列表 / 空态文案已表达
+      return null
   }
 
   // 旧宿主：没有 envelope；relay-reserved 时按「已就绪，等待设备」降级
