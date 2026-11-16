@@ -92,6 +92,8 @@
 
 > **通用注释 / 命名规范真源 = `../wasmnest/docs/public/commenting.md`；通用 git 提交规范真源 = `../wasmnest/docs/public/git.md`**（不复制）。本段只保留本仓特有补充：
 
+- **注释禁止引用内部文档章节**（commenting.md §1，硬约束）：注释必须自解释，读者只读代码 + 注释即可理解。以下引用一律禁止，出现即不合格：`§x.y` / `§x`（spec §、ADR §、设计 §、AGENTS §）、`票 NN` / `票据 NN` / `T0X`、`ADR ####` / `ADR-0017`、`issue NN`、`spec v2` / `spec Decision N` 等内部标签。**唯一豁免**：外部标准 RFC 引用（`RFC 6762 §8.3`）与代码路径坐标。引用被禁时改写为直接描述代码逻辑 / 动机，不保留标签名。
+
 - Commit scope 用 app slug（如 `(file-transfer)`）；commit 格式、禁止 AI 标记、--force 禁令、开工自检、在途改动不碰、只提交源码、锁文件只经包管理器变更等**全部通用于 `../wasmnest/docs/public/git.md`**。
 - **git worktree 的 target 共享桶（硬规范，四仓统一）**：本仓在 worktree 里同样按仓根 `.cargo/config.toml` 的 `target-dir = "target/wasm-apps"` 落盘，于是每棵 worktree 各自长出一整套 wasm 构建桶。**新建 / 启用 worktree 后先做这一步再构建**：在平台仓根跑 `pnpm run target:worktrees`（= `wasmnest/scripts/worktree-shared-target.mjs`）——它把该 worktree 的 `target`（含 `target/wasm-apps`）软链到 `<容器根>/target-shared/wasmnest-apps/…`。脚本幂等、构建中的 worktree 自动跳过（勿在活构建里换链）；已有实体目录用 `--migrate`；清理删共享桶内容（删 worktree 里的 `target` 只删链接、不省空间）。规范真源：`../wasmnest/docs/public/git.md` §8。
 - 组件 PascalCase、composable `use` 前缀 camelCase、文件名与导出一致（命名通则见 public/commenting.md §2）。
