@@ -23,6 +23,14 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { ref } from 'vue'
 import { mount } from '@vue/test-utils'
 import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-mobile'
+/** 预设任务真源替身（2026-11-16 下沉后替换应用 store 模块，不再走宿主共享模块） */
+const presetMock = vi.hoisted(() => ({ store: null as any }))
+vi.mock('../presetApi', () => ({
+  usePresetTasks: () => presetMock.store,
+  bindPresetTasks: () => {},
+  unbindPresetTasks: () => {},
+}))
+
 import AutoTaskToolboxView from '../components/AutoTaskToolboxView.vue'
 import type { PresetTask } from '../../terminal/model'
 import {
@@ -98,24 +106,21 @@ function canEnqueueStub(task: PresetTask): boolean {
   return true
 }
 
-/** 预设任务真源替身（形状对齐宿主 usePresetTasks 共享模块） */
+/** 预设任务真源替身（应用自持 store 的消费面） */
 function installPresetTasks(tasks: PresetTask[], calls: PresetCalls) {
-  const shared = ((window as any).__WASMNEST_SHARED__ ??= {})
-  shared.presetTasks = {
-    usePresetTasks: () => ({
-      tasks: ref(tasks),
-      load: vi.fn(async () => {}),
-      addTask: vi.fn(async () => {}),
-      updateTask: vi.fn(async () => {}),
-      deleteTask: vi.fn(async () => {}),
-      executeTask: vi.fn(async (task: PresetTask) => {
-        calls.execute.push(task.id)
-      }),
-      reconcileWithQueue: vi.fn(async () => {}),
-      canEnqueue: vi.fn(canEnqueueStub),
-      markEnqueued: vi.fn((id: string, taskId: string, sessionId: string) => {
-        calls.enqueued.push({ id, taskId, sessionId })
-      }),
+  presetMock.store = {
+    tasks: ref(tasks),
+    load: vi.fn(async () => {}),
+    addTask: vi.fn(async () => {}),
+    updateTask: vi.fn(async () => {}),
+    deleteTask: vi.fn(async () => {}),
+    executeTask: vi.fn(async (task: PresetTask) => {
+      calls.execute.push(task.id)
+    }),
+    reconcileWithQueue: vi.fn(async () => {}),
+    canEnqueue: vi.fn(canEnqueueStub),
+    markEnqueued: vi.fn((id: string, taskId: string, sessionId: string) => {
+      calls.enqueued.push({ id, taskId, sessionId })
     }),
   }
 }
@@ -331,21 +336,18 @@ function installPresetTasksWithCalls(
   tasks: PresetTask[],
   calls: PresetCalls & { added: { content: string }[] },
 ) {
-  const shared = ((window as any).__WASMNEST_SHARED__ ??= {})
-  shared.presetTasks = {
-    usePresetTasks: () => ({
-      tasks: ref(tasks),
-      load: vi.fn(async () => {}),
-      addTask: vi.fn(async (data: { content: string }) => {
-        calls.added.push({ ...data })
-      }),
-      updateTask: vi.fn(async () => {}),
-      deleteTask: vi.fn(async () => {}),
-      executeTask: vi.fn(async () => {}),
-      reconcileWithQueue: vi.fn(async () => {}),
-      canEnqueue: vi.fn(canEnqueueStub),
-      markEnqueued: vi.fn(),
+  presetMock.store = {
+    tasks: ref(tasks),
+    load: vi.fn(async () => {}),
+    addTask: vi.fn(async (data: { content: string }) => {
+      calls.added.push({ ...data })
     }),
+    updateTask: vi.fn(async () => {}),
+    deleteTask: vi.fn(async () => {}),
+    executeTask: vi.fn(async () => {}),
+    reconcileWithQueue: vi.fn(async () => {}),
+    canEnqueue: vi.fn(canEnqueueStub),
+    markEnqueued: vi.fn(),
   }
 }
 

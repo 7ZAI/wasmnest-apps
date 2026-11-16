@@ -9,6 +9,14 @@
  *    `src/task/presetApi.ts`），而不是把共享模块对象当 composable 解构导致
  *    executeTask undefined → 静默失败 toast「发送失败」。
  */
+/** 预设任务真源替身（2026-11-16 下沉后替换应用 store 模块，不再走宿主共享模块） */
+const presetMock = vi.hoisted(() => ({ store: null as any }))
+vi.mock('../../task/presetApi', () => ({
+  usePresetTasks: () => presetMock.store,
+  bindPresetTasks: () => {},
+  unbindPresetTasks: () => {},
+}))
+
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { ref } from 'vue'
@@ -39,22 +47,19 @@ function installPresetHost(): void {
     sendTask: vi.fn(async () => {}),
     executeTask: vi.fn(async () => {}),
   }
-  const shared = ((window as any).__WASMNEST_SHARED__ ??= {})
-  shared.presetTasks = {
-    usePresetTasks: () => ({
-      tasks: ref([TASK]),
-      ...hostPreset,
-      load: vi.fn(async () => {}),
-      addTask: vi.fn(async () => {}),
-      updateTask: vi.fn(async () => {}),
-      deleteTask: vi.fn(async () => {}),
-      reconcileWithQueue: vi.fn(async () => {}),
-      markEnqueued: vi.fn(),
-      markCompletedByTaskId: vi.fn(),
-      markInterruptedByTaskId: vi.fn(),
-      revertToUnusedByTaskId: vi.fn(),
-      canEnqueue: () => true,
-    }),
+  presetMock.store = {
+    tasks: ref([TASK]),
+    ...hostPreset,
+    load: vi.fn(async () => {}),
+    addTask: vi.fn(async () => {}),
+    updateTask: vi.fn(async () => {}),
+    deleteTask: vi.fn(async () => {}),
+    reconcileWithQueue: vi.fn(async () => {}),
+    markEnqueued: vi.fn(),
+    markCompletedByTaskId: vi.fn(),
+    markInterruptedByTaskId: vi.fn(),
+    revertToUnusedByTaskId: vi.fn(),
+    canEnqueue: () => true,
   }
 }
 
@@ -81,7 +86,7 @@ beforeEach(() => {
 afterEach(() => {
   uninstallFakeHost()
   uninstallMockMobileApi()
-  delete (window as any).__WASMNEST_SHARED__?.presetTasks
+  presetMock.store = null
 })
 
 describe('工具栏任务入口', () => {

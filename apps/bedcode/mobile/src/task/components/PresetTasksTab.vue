@@ -409,7 +409,7 @@
  * `bedcode.start-run` 起运行，再把这任务入队并开自动执行（不直写终端，见
  * `startInNewSession` 注释）。
  *
- * 真源经 SDK `getPresetTasks()`（宿主 usePresetTasks 共享模块）读写，本页不持有状态；
+ * 真源经 `presetApi`（应用自持：插件 KV + 本地状态机）读写，本页不持有状态；
  * 与终端任务选择器、任务面板同一份预设任务真源。
  * 未连接时的引导由「toast + 跳转连接页」改为 toast + 向 app 域发 `open-connection`
  * （与会话页的 `@open-connection` 同一通道，页签切换归 app 域）。

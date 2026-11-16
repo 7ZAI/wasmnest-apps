@@ -1,104 +1,189 @@
 /**
- * 预设任务真源取用点（`src/task/presetApi.ts`）形状锁
+ * 预设任务真源（`src/task/presetApi.ts`，应用自持）契约锁
  *
- * 2026-10-27 回归：终端任务面板打不开 / 预设执行失败——根因是调用方把 SDK
- * `getPresetTasks()` 的返回值（共享模块对象 `{ usePresetTasks }`）当成了
- * composable 本身解构，`tasks` / `executeTask` 全是 undefined。本测试用与
- * 宿主一致的真实形状（`{ usePresetTasks }`）钉住取用点：
+ * 2026-11-16 下沉：宿主 `usePresetTasks` 共享模块删除后，真源改为插件私有 KV
+ * （`context.storage`）+ 应用内状态机。本测试钉住：
  *
  * | 契约 | 规则 | 预期 |
  * |---|---|---|
- * | C-PA1 | 共享模块对象只有 usePresetTasks | 直接解构 shared.presetTasks 拿不到 tasks（回归根因） |
- * | C-PA2 | 取用点必须调用 usePresetTasks() | tasks 是 ref、业务函数全部可见 |
- * | C-PA3 | 取用点透传宿主实现 | executeTask / sendTask 的调用参数与宿主收到的一致 |
+ * | C-PA1 | 存储真源 = 插件 KV | load 从 `context.storage` 读，不读宿主共享模块 |
+ * | C-PA2 | 旧宿主 localStorage 一次性迁移 | KV 无数据 + 旧键有数据 → 导入、落 KV、删旧键 |
+ * | C-PA3 | 入队判据去 repeatable | 仅 executing 锁定；completed/interrupted 可再入队 |
+ * | C-PA4 | 执行经 HTTP 直连桌面 | `POST /api/sessions/{id}/input` + specialKey=enter，状态落 completed |
+ * | C-PA5 | 新增即落 KV | addTask 后 KV 里能读到新任务 |
+ * | C-PA6 | 设备擦除标记 | 宿主标记晚于本端记录 → 清空预设任务 |
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { ref, type Ref } from 'vue'
-import { usePresetTasks } from '../presetApi'
+import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-mobile'
 import type { PresetTask } from '../../terminal/model'
 
-const TASK: PresetTask = {
-  id: 'p1',
-  content: '跑一遍单测',
-  createdAt: '2026-10-27T08:00:00Z',
-  updatedAt: '2026-10-27T08:00:00Z',
-  status: 'unused',
-  pendingTaskId: null,
-  pendingSessionId: null,
+const h = vi.hoisted(() => ({ httpRequest: vi.fn() }))
+
+vi.mock('@binblink/wasmnest-plugin-sdk-mobile', () => ({
+  getMobileApi: () => ({ httpRequest: h.httpRequest }),
+}))
+
+import {
+  bindPresetTasks,
+  unbindPresetTasks,
+  usePresetTasks,
+  load,
+  addTask,
+  executeTask,
+  canEnqueue,
+} from '../presetApi'
+
+const STORAGE_KEY = 'preset-tasks'
+const CLEARED_AT_KEY = 'wasmnest.data-cleared-at'
+
+function makeTask(overrides: Partial<PresetTask> = {}): PresetTask {
+  return {
+    id: 'p1',
+    content: '跑一遍单测',
+    createdAt: '2026-11-16T08:00:00Z',
+    updatedAt: '2026-11-16T08:00:00Z',
+    status: 'unused',
+    pendingTaskId: null,
+    pendingSessionId: null,
+    ...overrides,
+  }
 }
 
-let host: {
-  tasks: Ref<PresetTask[]>
-  executeTask: ReturnType<typeof vi.fn>
-  sendTask: ReturnType<typeof vi.fn>
+/** 插件 KV 替身（内存 Map）+ logger 替身 */
+function makeContext() {
+  const map = new Map<string, any>()
+  const context = {
+    storage: {
+      get: vi.fn(async (key: string) => map.get(key)),
+      set: vi.fn(async (key: string, value: any) => {
+        map.set(key, value)
+      }),
+      delete: vi.fn(async (key: string) => {
+        map.delete(key)
+      }),
+    },
+    logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), log: vi.fn() },
+  } as unknown as PluginContext
+  return { context, map }
 }
+
+let map: Map<string, any>
 
 beforeEach(() => {
-  host = {
-    tasks: ref([TASK]),
-    executeTask: vi.fn(async () => {}),
-    sendTask: vi.fn(async () => {}),
-  }
-  const shared = ((window as any).__WASMNEST_SHARED__ ??= {})
-  shared.presetTasks = {
-    usePresetTasks: () => ({
-      ...host,
-      load: vi.fn(async () => {}),
-      addTask: vi.fn(async () => {}),
-      updateTask: vi.fn(async () => {}),
-      deleteTask: vi.fn(async () => {}),
-      reconcileWithQueue: vi.fn(async () => {}),
-      markEnqueued: vi.fn(),
-      markCompletedByTaskId: vi.fn(),
-      markInterruptedByTaskId: vi.fn(),
-      revertToUnusedByTaskId: vi.fn(),
-      canEnqueue: () => true,
-    }),
-  }
+  localStorage.clear()
+  h.httpRequest.mockReset()
+  h.httpRequest.mockResolvedValue({ code: 0, message: 'ok' })
+  const made = makeContext()
+  map = made.map
+  bindPresetTasks(made.context)
 })
 
 afterEach(() => {
-  delete (window as any).__WASMNEST_SHARED__?.presetTasks
+  unbindPresetTasks()
+  localStorage.clear()
 })
 
-describe('C-PA1 共享模块形状（回归根因）', () => {
-  it('should_not_expose_tasks_on_raw_shared_module_when_sdk_getPresetTasks_returns_module', () => {
-    const raw = (window as any).__WASMNEST_SHARED__.presetTasks
-    expect(typeof raw.usePresetTasks).toBe('function')
-    expect(raw.tasks).toBeUndefined()
-    expect(raw.executeTask).toBeUndefined()
+describe('C-PA1 插件 KV 为真源', () => {
+  it('should_loadTasksFromPluginStorage_whenKVHasRecords', async () => {
+    map.set(STORAGE_KEY, [makeTask({ id: 'a' })])
+    await load()
+    expect(usePresetTasks().tasks.value.map((t) => t.id)).toEqual(['a'])
+  })
+
+  it('should_fillMissingFields_when_storedTaskIsLegacyShape', async () => {
+    map.set(STORAGE_KEY, [{ id: 'a', content: '旧任务' }])
+    await load()
+    const [task] = usePresetTasks().tasks.value
+    expect(task.status).toBe('unused')
+    expect(task.pendingTaskId).toBeNull()
+    expect(task.pendingSessionId).toBeNull()
   })
 })
 
-describe('C-PA2 取用点形状', () => {
-  it('should_expose_full_store_when_usePresetTasks_called', () => {
-    const store = usePresetTasks()
-    expect(store.tasks.value).toEqual([TASK])
-    for (const fn of [
-      'load',
-      'addTask',
-      'updateTask',
-      'deleteTask',
-      'sendTask',
-      'executeTask',
-      'reconcileWithQueue',
-      'markEnqueued',
-      'markCompletedByTaskId',
-      'markInterruptedByTaskId',
-      'revertToUnusedByTaskId',
-      'canEnqueue',
-    ]) {
-      expect(typeof (store as any)[fn], `${fn} 必须由取用点透出`).toBe('function')
-    }
+describe('C-PA2 旧宿主 localStorage 迁移', () => {
+  it('should_importLegacyTasks_and_deleteLegacyKey_when_KVEmpty', async () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify([makeTask({ id: 'legacy' })]))
+    await load()
+    expect(usePresetTasks().tasks.value.map((t) => t.id)).toEqual(['legacy'])
+    expect(localStorage.getItem(STORAGE_KEY)).toBeNull()
+    // 导入后立刻写回插件 KV（旧键不再是第二真源）
+    expect((map.get(STORAGE_KEY) as PresetTask[]).map((t) => t.id)).toEqual(['legacy'])
+  })
+
+  it('should_preferPluginKV_when_bothSidesHaveData', async () => {
+    map.set(STORAGE_KEY, [makeTask({ id: 'new' })])
+    localStorage.setItem(STORAGE_KEY, JSON.stringify([makeTask({ id: 'legacy' })]))
+    await load()
+    expect(usePresetTasks().tasks.value.map((t) => t.id)).toEqual(['new'])
+    // KV 有数据时不动旧键（留给用户手动清理，不静默删数据）
+    expect(localStorage.getItem(STORAGE_KEY)).not.toBeNull()
   })
 })
 
-describe('C-PA3 透传宿主实现', () => {
-  it('should_forward_args_when_executeOrSend_called', async () => {
-    const store = usePresetTasks()
-    await store.executeTask(TASK, 'sess-1')
-    await store.sendTask(TASK, 'sess-1')
-    expect(host.executeTask).toHaveBeenCalledWith(TASK, 'sess-1')
-    expect(host.sendTask).toHaveBeenCalledWith(TASK, 'sess-1')
+describe('C-PA3 入队判据（repeatable 已退役）', () => {
+  it('should_lockOnlyExecuting_when_statusDiffers', () => {
+    expect(canEnqueue(makeTask({ status: 'executing' }))).toBe(false)
+    expect(canEnqueue(makeTask({ status: 'unused' }))).toBe(true)
+    expect(canEnqueue(makeTask({ status: 'completed' }))).toBe(true)
+    expect(canEnqueue(makeTask({ status: 'interrupted' }))).toBe(true)
+  })
+
+  it('should_ignoreLegacyRepeatableField_when_oldDataStillCarriesIt', () => {
+    const legacy = { ...makeTask({ status: 'completed' }), repeatable: false } as PresetTask
+    expect(canEnqueue(legacy)).toBe(true)
+  })
+})
+
+describe('C-PA4 执行直连桌面 HTTP', () => {
+  it('should_postSessionInputWithEnter_andMarkCompleted', async () => {
+    map.set(STORAGE_KEY, [makeTask({ id: 'p1' })])
+    await load()
+    const task = usePresetTasks().tasks.value[0]
+    await executeTask(task, 'sess-1')
+    expect(h.httpRequest).toHaveBeenCalledWith('/api/sessions/sess-1/input', {
+      method: 'POST',
+      body: { data: '跑一遍单测', specialKey: 'enter' },
+    })
+    expect(usePresetTasks().tasks.value[0].status).toBe('completed')
+    expect((map.get(STORAGE_KEY) as PresetTask[])[0].status).toBe('completed')
+  })
+
+  it('should_throwAndKeepStatus_when_serverRejects', async () => {
+    map.set(STORAGE_KEY, [makeTask({ id: 'p1' })])
+    await load()
+    h.httpRequest.mockResolvedValueOnce({ code: 400, message: 'boom' })
+    await expect(executeTask(usePresetTasks().tasks.value[0], 'sess-1')).rejects.toThrow(
+      'mobile.toolbox.sendFailed',
+    )
+    expect(usePresetTasks().tasks.value[0].status).toBe('unused')
+  })
+})
+
+describe('C-PA5 新增落 KV', () => {
+  it('should_persistNewTask_when_addTaskCalled', async () => {
+    await load()
+    await addTask({ content: '新预设' })
+    const stored = map.get(STORAGE_KEY) as PresetTask[]
+    expect(stored).toHaveLength(1)
+    expect(stored[0].content).toBe('新预设')
+    expect(stored[0].status).toBe('unused')
+  })
+})
+
+describe('C-PA6 设备擦除标记', () => {
+  it('should_clearTasks_when_hostMarkerIsNewerThanAcked', async () => {
+    map.set(STORAGE_KEY, [makeTask({ id: 'a' })])
+    localStorage.setItem(CLEARED_AT_KEY, String(Date.now()))
+    await load()
+    expect(usePresetTasks().tasks.value).toEqual([])
+  })
+
+  it('should_keepTasks_when_hostMarkerAlreadyAcked', async () => {
+    const marker = Date.now()
+    map.set(STORAGE_KEY, [makeTask({ id: 'a' })])
+    map.set('preset.clearedAt', marker)
+    localStorage.setItem(CLEARED_AT_KEY, String(marker))
+    await load()
+    expect(usePresetTasks().tasks.value.map((t) => t.id)).toEqual(['a'])
   })
 })
