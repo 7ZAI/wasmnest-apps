@@ -130,6 +130,10 @@ describe('RelayConfigSection', () => {
     await flushPromises()
 
     expect(wrapper.find('[data-testid="ft-relay-config-qr"]').exists()).toBe(true)
+    // 二维码必须带扫码去向（手机设置页），不只是一个裸码
+    expect(wrapper.get('[data-testid="ft-relay-config-qr-hint"]').text()).toBe(
+      'transfer.relayConfig.shareHint',
+    )
     expect(wrapper.find('[data-testid="ft-relay-config-share-error"]').exists()).toBe(false)
   })
 

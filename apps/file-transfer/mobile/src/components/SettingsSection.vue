@@ -19,6 +19,7 @@ import { isNeedsAllFilesAccess, promptAllFilesAccess } from '../composables/useA
 import { KIND_PRIVATE_DOWNLOADS } from '../types'
 import type { ReceivingPolicy } from '../types'
 import TrustedPeersSection from './TrustedPeersSection.vue'
+import MyDeviceSection from './MyDeviceSection.vue'
 import RelayConfigSection from './RelayConfigSection.vue'
 import AppUpdateSection from '@binblink/wasmnest-plugin-sdk-mobile/ui/app-update'
 import manifest from '../../plugin.json'
@@ -320,6 +321,9 @@ watch(() => props.settingsApi.settings.value.relayMaxBytesPerTask, syncRelayThre
         </div>
       </div>
     </section>
+
+    <!-- ==================== 我的设备（形态改造）：设备名 / 指纹只读展示 ==================== -->
+    <MyDeviceSection />
 
     <!-- ==================== 内网穿透配置（形态改造）：只读 + 扫码导入 ==================== -->
     <RelayConfigSection />

@@ -5,7 +5,9 @@
  * relay 状态时返回 supported，否则显性 unsupported（**不伪造** nodeId / addrs）。
  * 本 composable 只做读面 + relay 端点保存；拨号 / 预留仍在宿主。
  *
- * 本 composable 保留设备/relay 读面与「我的设备」二维码载荷；粘贴连接串入口已退役。
+ * 本 composable 服务设置页「我的设备」区块（设备名 / 指纹）与「内网穿透」区块；
+ * `link` / `canShare` 的 v3 配对载荷保留兼容（扫码添加入口已于 2026-11-16 下线，
+ * 无界面消费方）。
  */
 import { computed, ref, type Ref } from 'vue'
 import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-mobile'

@@ -55,9 +55,6 @@ export type MessageSchema = {
   'transfer.devices.modeWanOnly': string
   'transfer.devices.modeNone': string
   'transfer.devices.modeNoneHint': string
-  'transfer.devices.scanAdd': string
-  'transfer.devices.scanTitle': string
-  'transfer.devices.scanHint': string
   // T12：中继 / 远程设备（传输形态、手动尝试外网）
   'transfer.devices.remote': string
   'transfer.devices.removeRemote': string
@@ -73,7 +70,18 @@ export type MessageSchema = {
   'transfer.devices.errorTimeout': string
   /** 未识别失败：`{detail}` 为命令原文，原样展示（fail-visible） */
   'transfer.devices.errorUnknown': string
-  'transfer.remote.added': string
+
+  // ==================== 我的设备（设置页：设备名 / 指纹） ====================
+  'transfer.myDevice.title': string
+  'transfer.myDevice.loading': string
+  'transfer.myDevice.loadFailed': string
+  'transfer.myDevice.refresh': string
+  'transfer.myDevice.unsupportedTitle': string
+  'transfer.myDevice.unsupportedBody': string
+  'transfer.myDevice.deviceName': string
+  'transfer.myDevice.unnamed': string
+  'transfer.myDevice.fingerprint': string
+  'transfer.myDevice.hint': string
 
   // ==================== 顶栏 / 浏览 ====================
   'transfer.topbar.settings': string
@@ -315,7 +323,6 @@ export type MessageSchema = {
   'transfer.relayConfig.scanImport': string
   'transfer.relayConfig.scanTitle': string
   'transfer.relayConfig.scanHint': string
-  'transfer.relayConfig.scannedInDeviceFlow': string
   'transfer.relayConfig.scanHintSlow': string
   'transfer.relayConfig.scanClose': string
   'transfer.relayConfig.scanRetry': string

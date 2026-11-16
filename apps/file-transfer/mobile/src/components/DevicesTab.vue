@@ -6,14 +6,15 @@
  *   1. 顶部「扫描带」——雷达图元 + 状态文案 + 重新扫描；扫描进行中雷达转动，
  *      没有设备时雷达放大成整页主视觉。用户任何时刻都能看出「在搜 / 搜完了」。
  *   2. 分组列表——已连接（含活跃对端标记）与附近设备分开，连接动作就近呈现。
- *   3. 尾部——扫码添加 + 信任说明。
+ *   3. 尾部——信任说明。
  *
- * 设备添加走中继自动发现 + mDNS；手动连接串 / 邀请入口已退役，仅保留
- * 「我的设备二维码 → 手机扫码导入」这一条手动配对路径。
+ * 本页是**纯发现层**（形态改造 2026-11-16）：设备只来自中继自动发现 + mDNS；
+ * 「添加远程设备」（扫码 / 粘贴）与「我的设备」入口已从本页下线——身份信息与
+ * 穿透配置统一收敛到设置页，发现流里不再混入手工配对与配置管理。
  *
  * 纯展示：行状态由 usePeerDevices 派生的 rows 传入，操作以事件上抛。
  */
-import { computed, inject, ref } from 'vue'
+import { computed, inject } from 'vue'
 import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-mobile'
 import type {
   DeviceRow,
@@ -21,9 +22,7 @@ import type {
   RelayCardAction,
   RelayCardModel,
 } from '../composables/deviceState'
-import { type RelayConfigShare, type RemotePeerLink } from '../utils/pairingLink'
 import ScanRadar from './ScanRadar.vue'
-import ScanPanel from './ScanPanel.vue'
 
 type Translate = (key: string, params?: Record<string, any>) => string
 
@@ -43,9 +42,6 @@ const emit = defineEmits<{
   (e: 'retry-relay-only', nodeId: string): void
   (e: 'disconnect', nodeId: string): void
   (e: 'set-active', nodeId: string): void
-  /** 设备二维码解析成功 → 父级落设备缓存 */
-  (e: 'add-remote', link: RemotePeerLink): void
-
   /** 移除历史手动配对的远程设备 */
   (e: 'remove-remote', nodeId: string): void
   /** 直达发送（T23）：未连接时先连后选文件；已连接时切活跃 + 选文件 */
@@ -70,25 +66,6 @@ const groups = computed(() => {
     { key: 'nearby', title: t('transfer.v2.devices.groupNearby'), rows: nearby },
   ].filter((group) => group.rows.length > 0)
 })
-
-// ==================== 扫码添加（设备二维码） ====================
-
-/** 扫码面板（设备二维码导入；穿透配置分享提示去设置导入） */
-const scanOpen = ref(false)
-
-function onScanned(link: RemotePeerLink): void {
-  scanOpen.value = false
-  emit('add-remote', link)
-}
-
-/**
- * 设备流程里扫到穿透配置分享：不在这里导入（避免静默改全局配置），
- * 只提示正确入口；配置导入在「设置 → 内网穿透」里完成。
- */
-function onRelayConfigScanned(_share: RelayConfigShare): void {
-  scanOpen.value = false
-  context.dialogs.showToast(t('transfer.relayConfig.scannedInDeviceFlow'), 'info')
-}
 
 // ==================== 状态卡 ====================
 
@@ -200,16 +177,6 @@ function metaText(row: DeviceRow): string {
 
 <template>
   <div class="fv2-page">
-    <!-- 扫码导入设备二维码（相机路径；fixed 全屏取景） -->
-    <ScanPanel
-      v-if="scanOpen"
-      :t="t"
-      mode="device"
-      @link="onScanned"
-      @relay-config="onRelayConfigScanned"
-      @close="scanOpen = false"
-    />
-
     <!-- 跨网状态卡（P0-2）：任何状态都有一个明确下一步；空态之上也可见 -->
     <div
       v-if="props.relayCard"
@@ -296,13 +263,6 @@ function metaText(row: DeviceRow): string {
             />
           </svg>
           {{ scanning ? t('transfer.devices.discovering') : t('transfer.devices.discover') }}
-        </button>
-        <button
-          class="fv2-btn-text"
-          data-testid="mobile-remote-scan-add-empty"
-          @click="scanOpen = true"
-        >
-          {{ t('transfer.devices.scanAdd') }}
         </button>
       </div>
     </div>
@@ -502,10 +462,7 @@ function metaText(row: DeviceRow): string {
           </div>
         </section>
 
-        <!-- 尾部：扫码添加 + 信任说明（列表短时无需滚动即可见） -->
-        <button class="fv2-btn-text" data-testid="mobile-remote-scan-add" @click="scanOpen = true">
-          {{ t('transfer.devices.scanAdd') }}
-        </button>
+        <!-- 尾部：信任说明（列表短时无需滚动即可见） -->
         <p class="fv2-trust-hint">{{ t('transfer.devices.trustHint') }}</p>
       </div>
     </template>

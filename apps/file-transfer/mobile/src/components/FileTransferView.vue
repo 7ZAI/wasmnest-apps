@@ -31,7 +31,6 @@ import { useSwipeTabs } from '@binblink/wasmnest-plugin-sdk-mobile/ui/swipe-tabs
 import { useTasks } from '../composables/useTasks'
 import { isNeedsAllFilesAccess, promptAllFilesAccess } from '../composables/useAllFilesAccess'
 import { usePeerDevices } from '../composables/usePeerDevices'
-import type { RemotePeerLink } from '../utils/pairingLink'
 import { prepareDeviceSend } from '../composables/sendToDevice'
 import { useRelayStatus } from '../composables/useRelayStatus'
 
@@ -216,12 +215,6 @@ function handleDeviceConnect(nodeId: string): void {
 /** 外网入口（显式）：跳过 LAN 候选，失败不回退（用户显式意图） */
 function handleDeviceRetryRelayOnly(nodeId: string): void {
   void devices.connect(nodeId, { relayOnly: true })
-}
-
-/** 设备二维码扫码成功：落设备缓存（paired 条目跨重启保留） */
-function handleAddRemote(link: RemotePeerLink): void {
-  devices.addRemotePeer(link)
-  context.dialogs.showToast(t('transfer.remote.added'), 'success')
 }
 
 function handleRemoveRemote(nodeId: string): void {
@@ -502,7 +495,6 @@ onUnmounted(() => {
           @retry-relay-only="handleDeviceRetryRelayOnly"
           @disconnect="handleDeviceDisconnect"
           @set-active="handleDeviceSetActive"
-          @add-remote="handleAddRemote"
           @remove-remote="handleRemoveRemote"
           @send="handleSendToDevice"
           @scan="handleScanDevices"

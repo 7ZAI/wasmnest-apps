@@ -55,9 +55,6 @@ export default {
   'transfer.devices.modeWanOnly': '仅外网',
   'transfer.devices.modeNone': '暂无通路',
   'transfer.devices.modeNoneHint': '暂无可用地址，请重新发现或移除该设备后重试',
-  'transfer.devices.scanAdd': '扫码添加',
-  'transfer.devices.scanTitle': '扫码添加设备',
-  'transfer.devices.scanHint': '对准对方设备「我的设备」里的二维码',
   // T12: 中继 / 远程设备
   'transfer.devices.remote': '远程',
   'transfer.devices.removeRemote': '移除',
@@ -72,7 +69,18 @@ export default {
   'transfer.devices.errorRelayUnreachable': '中继路径不可达：检查中继服务与对端是否在线',
   'transfer.devices.errorTimeout': '连接超时，请重试',
   'transfer.devices.errorUnknown': '连接失败：{detail}',
-  'transfer.remote.added': '已添加远程设备',
+
+  // ==================== 我的设备（设置页：设备名 / 指纹） ====================
+  'transfer.myDevice.title': '我的设备',
+  'transfer.myDevice.loading': '正在读取设备信息…',
+  'transfer.myDevice.loadFailed': '读取设备信息失败，请重试',
+  'transfer.myDevice.refresh': '重试',
+  'transfer.myDevice.unsupportedTitle': '宿主暂不支持',
+  'transfer.myDevice.unsupportedBody': '当前宿主未提供设备身份；升级宿主后重试。',
+  'transfer.myDevice.deviceName': '设备名',
+  'transfer.myDevice.unnamed': '未命名设备',
+  'transfer.myDevice.fingerprint': '设备指纹',
+  'transfer.myDevice.hint': '对方设备在附近设备列表里用名称与指纹核对本机身份。',
 
   // ==================== 顶栏 / 浏览 ====================
   'transfer.topbar.settings': '设置',
@@ -317,7 +325,6 @@ export default {
   'transfer.relayConfig.scanImport': '扫码导入配置',
   'transfer.relayConfig.scanTitle': '扫描穿透配置',
   'transfer.relayConfig.scanHint': '对准另一台设备「设置 → 内网穿透」里的分享二维码',
-  'transfer.relayConfig.scannedInDeviceFlow': '这是穿透配置二维码；请到「设置 → 内网穿透」里导入',
   'transfer.relayConfig.scanHintSlow': '还没识别到二维码：靠近一点，或让对方把屏幕亮度调高',
   'transfer.relayConfig.scanClose': '关闭',
   'transfer.relayConfig.scanRetry': '重试',

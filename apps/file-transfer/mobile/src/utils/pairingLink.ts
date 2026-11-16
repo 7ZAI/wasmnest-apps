@@ -1,14 +1,15 @@
 /**
  * 配对载荷工具（file-transfer，移动端）
  *
- * 设备配对只保留「我的设备二维码」：本端生成、对端扫码导入。粘贴连接串与
- * v4 邀请已退役；设备发现主路径仍是中继会合 + mDNS。
- *
  * 本文件承载两类载荷：
  *
- * 1. 设备二维码 v3（`wasmnest://pair/`）：nodeId + 可拨地址 + 展示名；
+ * 1. 设备二维码 v3（`wasmnest://pair/`）：nodeId + 可拨地址 + 展示名。
+ *    **入口已下线**（2026-11-16 形态改造）：扫码添加 / 我的设备二维码不再有
+ *    界面消费方，生成与解析仅保留兼容（旧快照与历史载荷不失效）。
  * 2. 穿透配置分享 v1（`wasmnest://relay-config/`）：设置页扫码导入，只写本机
  *    relay 配置，不建立设备信任。
+ *
+ * 设备发现主路径是中继会合 + mDNS。
  *
  * 桌面 / 移动端各持一份（与双端同构的既有做法一致，刻意不跨应用耦合
  * 源码）；改动字段口径时两处一起改。
@@ -26,13 +27,13 @@ export interface RemotePeerLink {
   deviceName: string
 }
 
-/** 设备二维码前缀（「我的设备」生成，手机扫码导入） */
+/** 设备二维码前缀（v3；保留兼容，界面已无生成 / 扫码入口） */
 export const PAIR_URI_PREFIX = 'wasmnest://pair/'
 
 /** 载荷版本（v3 = 设备连接串） */
 export const PAIR_URI_VERSION = 3
 
-/** 「我的设备」生成二维码载荷的输入 */
+/** 设备二维码载荷输入（保留兼容） */
 export interface DeviceLinkInput {
   nodeId: string
   addrs: string[]

@@ -73,13 +73,11 @@ export type MessageSchema = {
   'transfer.topbar.sendToPhone': string
   'transfer.topbar.downloadSelected': string
   'transfer.topbar.refresh': string
-  'transfer.topbar.myDevice': string
   'transfer.topbar.settings': string
   'transfer.topbar.closeSettings': string
 
-  // ==================== 我的设备（二维码） ====================
+  // ==================== 我的设备（设置页：设备名 / 指纹） ====================
   'transfer.myDevice.title': string
-  'transfer.myDevice.close': string
   'transfer.myDevice.loading': string
   'transfer.myDevice.loadFailed': string
   'transfer.myDevice.refresh': string
@@ -88,8 +86,7 @@ export type MessageSchema = {
   'transfer.myDevice.deviceName': string
   'transfer.myDevice.unnamed': string
   'transfer.myDevice.fingerprint': string
-  'transfer.myDevice.qrHint': string
-  'transfer.myDevice.qrUnavailable': string
+  'transfer.myDevice.hint': string
 
   // ==================== 目录表格 ====================
   'transfer.table.name': string
@@ -253,6 +250,7 @@ export type MessageSchema = {
   'transfer.relayConfig.share': string
   'transfer.relayConfig.shareRelayMissing': string
   'transfer.relayConfig.shareFailed': string
+  'transfer.relayConfig.shareHint': string
 
   // ==================== 错误（spec §10 + v2 拒绝原因） ====================
   'transfer.error.duplicateName': string

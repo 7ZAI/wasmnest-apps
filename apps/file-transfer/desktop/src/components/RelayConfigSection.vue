@@ -282,6 +282,9 @@ watch(qrCanvasRef, () => void renderShareQr(sharePayload.value, qrCanvasRef.valu
         <div class="ft-relay-config-qr">
           <canvas ref="qrCanvasRef" class="block"></canvas>
         </div>
+        <p class="ft-settings-helper" data-testid="ft-relay-config-qr-hint">
+          {{ t('transfer.relayConfig.shareHint') }}
+        </p>
       </div>
     </template>
   </section>

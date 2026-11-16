@@ -145,5 +145,12 @@ describe('File Transfer（真机 · 移动宿主运行面）', () => {
       true,
       '设置页可见（宿主路由跳转成功）',
     )
+    // 形态改造：我的设备信息迁到设置页（探索页不再有该入口）
+    await phone().waitFor('[data-testid="mobile-settings-section-my-device"]', 30_000)
+    expectEqual(
+      await phone().visible('[data-testid="mobile-settings-section-my-device"]'),
+      true,
+      '设置页「我的设备」区块可见',
+    )
   })
 })

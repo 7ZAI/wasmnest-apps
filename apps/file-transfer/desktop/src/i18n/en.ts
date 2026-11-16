@@ -74,24 +74,22 @@ const en: MessageSchema = {
   'transfer.topbar.sendToPhone': 'Send to current device…',
   'transfer.topbar.downloadSelected': 'Download selected ({count})',
   'transfer.topbar.refresh': 'Refresh',
-  'transfer.topbar.myDevice': 'My device',
   'transfer.topbar.settings': 'Settings',
   'transfer.topbar.closeSettings': 'Back',
 
-  // ==================== My device (QR) ====================
+  // ==================== My device (settings: name / fingerprint) ====================
   'transfer.myDevice.title': 'My device',
-  'transfer.myDevice.close': 'Close',
   'transfer.myDevice.loading': 'Reading device info…',
   'transfer.myDevice.loadFailed': 'Failed to read device info, please retry',
   'transfer.myDevice.refresh': 'Retry',
   'transfer.myDevice.unsupportedTitle': 'Host not supported',
   'transfer.myDevice.unsupportedBody':
-    'This host does not expose device identity or dialable addresses; upgrade the host and retry.',
+    'This host does not expose device identity; upgrade the host and retry.',
   'transfer.myDevice.deviceName': 'Device name',
   'transfer.myDevice.unnamed': 'Unnamed device',
   'transfer.myDevice.fingerprint': 'Fingerprint',
-  'transfer.myDevice.qrHint': 'Scan this QR with File Transfer → Scan to add on your phone',
-  'transfer.myDevice.qrUnavailable': 'No dialable address to encode; enable LAN or relay first.',
+  'transfer.myDevice.hint':
+    'The other device identifies this one by name and fingerprint in its nearby-device list.',
 
   // ==================== File table ====================
   'transfer.table.name': 'Name',
@@ -266,6 +264,8 @@ const en: MessageSchema = {
     'This host cannot navigate between apps; open the network center from the sidebar.',
   'transfer.relayConfig.share': 'Generate share QR',
   'transfer.relayConfig.shareRelayMissing': 'No relay address to share yet',
+  'transfer.relayConfig.shareHint':
+    'Scan this QR with File Transfer → Settings → Relay configuration → Scan on your phone.',
   'transfer.relayConfig.shareFailed': 'Failed to generate the share QR, please retry',
 
   // ==================== Errors (spec §10 + v2 reject reasons) ====================

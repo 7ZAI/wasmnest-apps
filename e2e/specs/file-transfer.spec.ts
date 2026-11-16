@@ -38,21 +38,30 @@ describe('File Transfer（桌面端 · 宿主内挂载）', () => {
 
   it('主界面渲染：顶栏动作就位', async () => {
     expectEqual(await visible('ft-view'), true, '主界面可见')
-    for (const id of ['ft-peer-switch', 'ft-queue', 'ft-my-device-open', 'ft-settings']) {
+    for (const id of ['ft-peer-switch', 'ft-queue', 'ft-settings']) {
       expectEqual(await exists(id), true, `顶栏动作 ${id} 存在`)
     }
+    // 形态改造：手工配对入口下线，「我的设备」只在设置页出现
+    expectEqual(await exists('ft-my-device-open'), false, '顶栏不再有我的设备入口')
+    expectEqual(await exists('ft-my-device'), false, '主界面不再渲染我的设备弹层')
   })
 
-  it('我的设备：二维码弹窗可打开可关闭', async () => {
-    expectEqual(await exists('ft-my-device'), false, '初始无我的设备弹窗')
+  it('设置页「我的设备」：设备名 / 指纹区块可读（或显性不支持）', async () => {
+    await click('ft-settings')
+    await waitFor('ft-settings-panel')
+    await waitFor('ft-settings-section-my-device')
 
-    await click('ft-my-device-open')
-    await waitFor('ft-my-device')
-    expectEqual(await visible('ft-my-device'), true, '我的设备弹窗已打开')
-
-    await click('ft-my-device-close')
-    await waitGone('ft-my-device')
-    expectEqual(await exists('ft-my-device'), false, '我的设备弹窗已关闭')
+    // 宿主提供设备身份 → 展示指纹；未提供 → 显性 unsupported（不伪造）
+    const hasFingerprint = await exists('ft-my-device-fingerprint')
+    const hasUnsupported = await exists('ft-my-device-unsupported')
+    const hasLoadError = await exists('ft-my-device-load-error')
+    expectEqual(
+      hasFingerprint || hasUnsupported || hasLoadError,
+      true,
+      '我的设备区块给出身份、显性不支持或读取失败之一',
+    )
+    await click('ft-settings-close')
+    await waitGone('ft-settings-panel')
   })
 
   it('附近设备面板可展开可收起', async () => {

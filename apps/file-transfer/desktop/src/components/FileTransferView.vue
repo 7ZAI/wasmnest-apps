@@ -15,7 +15,6 @@ import SettingsPanel from './SettingsPanel.vue'
 import PeerDevicesPanel from './PeerDevicesPanel.vue'
 import BatchRequestDialog from './BatchRequestDialog.vue'
 import ConfirmDialog from './ConfirmDialog.vue'
-import MyDeviceDialog from './MyDeviceDialog.vue'
 
 import { useTasks } from '../composables/useTasks'
 import { useReceiving } from '../composables/useReceiving'
@@ -91,10 +90,6 @@ const peerConnected = computed(() => connectedIds.value.size > 0)
 const fs = useRemoteFs(context, () => peer.value.id)
 
 const showSettings = ref(false)
-
-/** 「我的设备」二维码（桌面生成，移动端扫码导入） */
-const showMyDevice = ref(false)
-
 
 /** 传输队列面板是否展开 */
 const queueVisible = ref(false)
@@ -503,23 +498,6 @@ function handleClearHistoryConfirm(): void {
         </svg>
         <span class="ft-btn-text">{{ t('transfer.topbar.refresh') }}</span>
       </button>
-      <!-- 我的设备：展示设备二维码，由手机扫码导入 -->
-      <button
-        class="ft-btn"
-        :title="t('transfer.topbar.myDevice')"
-        data-testid="ft-my-device-open"
-        @click="showMyDevice = true"
-      >
-        <svg class="ft-ico-btn" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            stroke-width="2"
-            d="M4 4h5v5H4zM15 4h5v5h-5zM4 15h5v5H4zM15 15h2v2h-2zM19 19h1v1h-1zM15 19h1v1h-1zM19 15h1v1h-1z"
-          />
-        </svg>
-        <span class="ft-btn-text">{{ t('transfer.topbar.myDevice') }}</span>
-      </button>
       <!-- 传输队列开关：面板默认收起，点击展开/收起（带任务数角标） -->
       <button
         class="ft-btn"
@@ -753,8 +731,5 @@ function handleClearHistoryConfirm(): void {
         @close="showSettings = false"
       />
     </Transition>
-
-    <!-- 我的设备：设备二维码（桌面生成，移动端扫码导入） -->
-    <MyDeviceDialog v-if="showMyDevice" @close="showMyDevice = false" />
   </div>
 </template>

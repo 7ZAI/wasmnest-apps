@@ -59,9 +59,6 @@ export default {
   'transfer.devices.modeNone': 'No path',
   'transfer.devices.modeNoneHint':
     'No dialable address yet; rediscover or forget the device and retry',
-  'transfer.devices.scanAdd': 'Scan to add',
-  'transfer.devices.scanTitle': 'Scan to add device',
-  'transfer.devices.scanHint': 'Point at the QR in “My device” on the other device',
   // T12: relay / remote devices
   'transfer.devices.remote': 'Remote',
   'transfer.devices.removeRemote': 'Forget',
@@ -78,7 +75,20 @@ export default {
     'Relay path unreachable: check the relay and whether the peer is online',
   'transfer.devices.errorTimeout': 'Connection timed out, please retry',
   'transfer.devices.errorUnknown': 'Connection failed: {detail}',
-  'transfer.remote.added': 'Remote device added',
+
+  // ==================== My device (settings: name / fingerprint) ====================
+  'transfer.myDevice.title': 'My device',
+  'transfer.myDevice.loading': 'Reading device info…',
+  'transfer.myDevice.loadFailed': 'Failed to read device info, please retry',
+  'transfer.myDevice.refresh': 'Retry',
+  'transfer.myDevice.unsupportedTitle': 'Host not supported',
+  'transfer.myDevice.unsupportedBody':
+    'The current host provides no device identity; upgrade the host and retry.',
+  'transfer.myDevice.deviceName': 'Device name',
+  'transfer.myDevice.unnamed': 'Unnamed device',
+  'transfer.myDevice.fingerprint': 'Fingerprint',
+  'transfer.myDevice.hint':
+    'The other device identifies this one by name and fingerprint in its nearby-device list.',
 
   // ==================== Top bar / browsing ====================
   'transfer.topbar.settings': 'Settings',
@@ -340,8 +350,6 @@ export default {
   'transfer.relayConfig.scanFailed': 'Cannot start the camera',
   'transfer.relayConfig.scanPermission':
     'Camera permission denied; allow camera access for this app in system settings and retry',
-  'transfer.relayConfig.scannedInDeviceFlow':
-    'This is a relay configuration QR; import it in Settings → Relay configuration',
   'transfer.relayConfig.confirmTitle': 'Import this relay configuration?',
   'transfer.relayConfig.confirmReplace': 'Current relay addresses / room code will be replaced.',
   'transfer.relayConfig.import': 'Import',

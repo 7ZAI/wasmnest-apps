@@ -44,7 +44,7 @@
 - P2P 打洞（QUIC/DCUtR，P3，T16）。
 - 改动 T12 中继开关的语义（见 §3.2 语义隔离）。
 - Windows / macOS relay 包、6 位码远程配对、官方公共 relay。
-- 把「添加远程设备」（接收方：扫码/粘贴导入）迁出探索面板——它属于发现流的接收侧，保留。
+- ~~把「添加远程设备」（接收方：扫码/粘贴导入）迁出探索面板——它属于发现流的接收侧，保留。~~ **2026-11-16 用户裁定变更**：手工配对入口也从探索页下线（设备只来自自动发现）；本机身份信息与穿透配置统一收敛到设置页（见 §10）。
 
 ## 3. 总体设计
 
@@ -252,6 +252,7 @@
 | 移动入口下线 + 设置区块 | `MyDeviceSheet.vue` 删除；`DevicesTab` 移除两个「我的设备」入口；状态卡分享动作开设置二级页。新增 `components/RelayConfigSection.vue`：只读展示 + 扫码导入（`ScanPanel mode="relay-config"`，复用 `scan/` 栈）+ 导入确认页（替换提示）+ `import-relay-config` 落库。 |
 | 设备行连接方式 | 双端 `DeviceRow` 增加 `lanAvailable` / `connectionModes`；设备行标注「内网+外网 / 仅内网 / 仅外网 / 暂无通路」，idle 态改为「内网」「外网」两个入口；`connect` 增加 `lanOnly`（显式内网不被上次外网记录隐式升级），外网入口仍为 relay-only（失败不回退）。 |
 | Rust 存储 / 导入 | `core/settings.rs`：`relay_origin` 扩展 `qr` / `sync`，新增 `relay_synced_at`；`relay_center.rs` 来源枚举加 `Qr` / `Sync`；`peer.rs` 新增 `import-relay-config`（只写 relay 地址 / 空间码 / 来源 / 同步时刻，`sync` 必须带 `peerNodeId` 且命中宿主信任表），`get-my-device` 增 `relayOrigin` / `relaySyncedAt` / `wanPolicy`；双端 `plugin.json` 注册命令。 |
+| **探索页纯发现化（2026-11-16）** | 双端删除「添加远程设备」（移动扫码 / 粘贴入口 + `ScanPanel` 的 device 模式）与「我的设备」入口（桌面顶栏按钮 + `MyDeviceDialog` 删除）；`ScanPanel` 只服务穿透配置扫码。新增双端设置页 `MyDeviceSection`：设备名 / 指纹只读展示，宿主未提供身份时 fail-visible；桌面穿透配置分享二维码补「手机设置页扫码」去向提示。 |
 | **对端配置同步（第二批，跨三仓）** | 能力仓 `wasmnest-server-peer-net`：`TransferFrame::ConfigRequest/ConfigResponse` + `SharedConfigSnapshot`（16 KiB / JSON 对象校验）+ `set_config_snapshot` / `fetch_shared_config` / `fetch_peer_config`；WIT `host-peer` 增 `set-config-snapshot` / `fetch-config`（23 条原语）。平台仓：`compose-wit` 重新生成双端 SDK 契约；`HostPeer` trait 增两方法（默认 unsupported，旧宿主不静默失败）并在 `WasmHost` 实现。应用仓：`apply_relay_reservation` 顺带发布本机快照（中心不可用且缓存为空时保留旧快照）；新命令 `sync-peer-relay-config`（要求既有会话 + 信任表命中，不隐式拨号；成功写 `sync` 来源并重收敛预留）；移动设置区块增「从已连接设备同步」按钮与逐项 status 文案。 |
 
 **未完成 / 阻塞（显性）**

@@ -10,6 +10,7 @@ import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-desktop'
 import type { Settings } from '../types'
 import type { RootItem } from '../composables/useSettings'
 import TrustedPeersSection from './TrustedPeersSection.vue'
+import MyDeviceSection from './MyDeviceSection.vue'
 import RelayConfigSection from './RelayConfigSection.vue'
 import AppUpdateSection from '@binblink/wasmnest-plugin-sdk-desktop/ui/app-update'
 import manifest from '../../plugin.json'
@@ -212,6 +213,10 @@ function onTimeoutCommit(secs: number): void {
           </div>
           <p class="ft-settings-helper">{{ t('transfer.settings.concurrencyHint') }}</p>
         </section>
+
+        <!-- 我的设备（形态改造）：本机身份只读展示（设备名 / 指纹）；
+             手工配对入口已从探索面板下线，扫码添加随之退役 -->
+        <MyDeviceSection />
 
         <!-- 内网穿透配置（形态改造）：真源 = 穿透配置中心；只读展示 + 分享，
              与下方 T12「中继」开关语义隔离（怎么接入 vs 用不用外网） -->

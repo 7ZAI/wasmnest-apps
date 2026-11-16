@@ -68,23 +68,20 @@ const zhCN: MessageSchema = {
   'transfer.topbar.sendToPhone': '发送到当前设备…',
   'transfer.topbar.downloadSelected': '下载所选 ({count})',
   'transfer.topbar.refresh': '刷新',
-  'transfer.topbar.myDevice': '我的设备',
   'transfer.topbar.settings': '设置',
   'transfer.topbar.closeSettings': '返回',
 
-  // ==================== 我的设备（二维码） ====================
+  // ==================== 我的设备（设置页：设备名 / 指纹） ====================
   'transfer.myDevice.title': '我的设备',
-  'transfer.myDevice.close': '关闭',
   'transfer.myDevice.loading': '正在读取设备信息…',
   'transfer.myDevice.loadFailed': '读取设备信息失败，请重试',
   'transfer.myDevice.refresh': '重试',
   'transfer.myDevice.unsupportedTitle': '宿主暂不支持',
-  'transfer.myDevice.unsupportedBody': '当前宿主未提供设备身份或可拨地址；升级宿主后重试。',
+  'transfer.myDevice.unsupportedBody': '当前宿主未提供设备身份；升级宿主后重试。',
   'transfer.myDevice.deviceName': '设备名',
   'transfer.myDevice.unnamed': '未命名设备',
   'transfer.myDevice.fingerprint': '设备指纹',
-  'transfer.myDevice.qrHint': '用手机「文件传输 → 扫码添加」扫描此二维码',
-  'transfer.myDevice.qrUnavailable': '暂无可扫码的连接地址；请确认已开启内网或中继。',
+  'transfer.myDevice.hint': '对方设备在附近设备列表里用名称与指纹核对本机身份。',
 
   // ==================== 目录表格 ====================
   'transfer.table.name': '名称',
@@ -252,6 +249,8 @@ const zhCN: MessageSchema = {
   'transfer.relayConfig.share': '生成分享二维码',
   'transfer.relayConfig.shareRelayMissing': '还没有可分享的中继地址',
   'transfer.relayConfig.shareFailed': '生成分享二维码失败，请重试',
+  'transfer.relayConfig.shareHint':
+    '用手机「文件传输 → 设置 → 内网穿透配置 → 扫码导入配置」扫描此二维码。',
 
   // ==================== 错误（spec §10 + v2 拒绝原因） ====================
   'transfer.error.duplicateName': '无法上传：目标目录已存在同名文件',
