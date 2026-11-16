@@ -237,9 +237,20 @@ function cancelRelaySend(): void {
   relayHintPaths.value = []
 }
 
-/** 顶栏刷新：任务 + 当前目录层级 + 设备缓存清扫 */
+/**
+ * 顶栏刷新：任务 + 设备缓存清扫；无活跃传输时再刷当前目录层级。
+ *
+ * 传输进行中不拉数据面目录：目录刷新经 `ensure_target` 可能重拨，而发现面
+ * 的自动重连也会对同一对端拨号；两路并发不同地址会触发引擎换址切换，
+ * 在飞传输会话随旧连接关闭直接失败（真机：进度停住 / 远端不弹窗）。
+ */
 async function handleRefresh(): Promise<void> {
-  await Promise.all([refreshTasks(), fs.refresh(), refreshDevices()])
+  const hasActiveTransfer = tasks.value.some(
+    (task) =>
+      task.state === 'transferring' || task.state === 'pending' || task.state === 'paused',
+  )
+  await Promise.all([refreshTasks(), refreshDevices()])
+  if (!hasActiveTransfer && peer.value.online) await fs.refresh()
 }
 
 /** 发送到手机：系统多文件选择器直发活跃对端（失败 → 友好 toast，原文只进日志） */
