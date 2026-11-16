@@ -207,10 +207,9 @@ function localPathOf(relPath: string | null | undefined): string | null {
   return `${base}/${relPath.replace(/^[\\/]+/, '')}`
 }
 
-/** 下载完成 → 打开本地所在目录（无落盘目录时静默忽略） */
+/** 下载完成 → 打开本地所在目录（未配置下载目录时发空路径，由视图给出可见提示） */
 function openFolderAt(relPath: string | null | undefined): void {
-  const p = localPathOf(relPath)
-  if (p) emit('openFolder', p)
+  emit('openFolder', localPathOf(relPath) ?? '')
 }
 
 /** tab 列表：正在发送 = 本端上传；全部 = 本端任务 + 接收任务合并倒序 */

@@ -290,6 +290,10 @@ const en: MessageSchema = {
     'All completed, failed and cancelled records will be deleted (in-progress tasks are unaffected). This cannot be undone.',
   'transfer.history.empty': 'No transfer history',
   'transfer.history.openFolder': 'Show in folder',
+  'transfer.history.openFolderFailed':
+    'Could not open the containing folder: file not found (it may have been moved, deleted, or the download folder has changed)',
+  'transfer.history.openFolderNoDir':
+    'No download folder configured — choose one in Settings to locate the file',
   'transfer.history.results.completed': 'Completed',
   'transfer.history.results.failed': 'Failed',
   'transfer.history.results.rejected': 'Rejected',

@@ -272,6 +272,9 @@ const zhCN: MessageSchema = {
     '将删除全部已完成、失败与被取消的记录（进行中的任务不受影响），此操作不可撤销。',
   'transfer.history.empty': '暂无传输历史',
   'transfer.history.openFolder': '打开所在文件夹',
+  'transfer.history.openFolderFailed':
+    '打开所在文件夹失败：找不到该文件（可能已被移动、删除，或下载目录已变更）',
+  'transfer.history.openFolderNoDir': '尚未设置下载目录，无法定位文件；请先在设置中选择下载目录',
   'transfer.history.results.completed': '已完成',
   'transfer.history.results.failed': '失败',
   'transfer.history.results.rejected': '已拒绝',

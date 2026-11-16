@@ -433,7 +433,8 @@ export default {
   'transfer.v2.devices.emptyTitle': '还没有发现设备',
   'transfer.v2.pendingRequests': '{count} 个待处理请求',
   'transfer.v2.history.openFolder': '打开所在文件夹',
-  'transfer.v2.history.noLocalFile': '本机没有对应文件',
+  'transfer.v2.history.noLocalFile':
+    '打开所在文件夹失败：找不到该文件（可能已被移动、删除，或下载目录已变更）',
   'transfer.history.allFilesAccess.title': '需要「所有文件访问」权限',
   'transfer.history.allFilesAccess.message':
     '打开系统的公共下载目录需要「所有文件访问」权限（系统设置 → 应用 → 特殊权限设置 → 所有文件访问）。部分设备未提供该开关，此时 WasmNest 会自动改用镜像目录视图显示下载文件，无需授权。',

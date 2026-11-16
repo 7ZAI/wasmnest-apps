@@ -23,6 +23,7 @@ import { useSettings } from '../composables/useSettings'
 import { usePeerDevices } from '../composables/usePeerDevices'
 import { prepareDeviceSend } from '../composables/sendToDevice'
 import { useBatchPrompt } from '../composables/useBatchPrompt'
+import { revealLocalPath } from '../utils/revealLocal'
 
 import { toast } from 'vue-sonner'
 
@@ -261,13 +262,9 @@ async function handleUpload(): Promise<void> {
   await dispatchSend(paths)
 }
 
-/** 下载完成 → 打开本地所在目录（插件自有命令 → 宿主原语 host-platform.reveal-in-dir） */
-async function handleOpenFolder(path: string): Promise<void> {
-  try {
-    await context.commands.execute('file-transfer.reveal-in-dir', { path })
-  } catch (e) {
-    console.error('[File Transfer] open folder failed:', e)
-  }
+/** 下载完成 → 打开本地所在目录（插件自有命令 → 宿主原语 host-platform.reveal-in-dir；失败显性 toast） */
+function handleOpenFolder(path: string): Promise<boolean> {
+  return revealLocalPath(context, path)
 }
 
 /** 附近设备面板开合（点击外部关闭，见 onMounted 文档监听） */

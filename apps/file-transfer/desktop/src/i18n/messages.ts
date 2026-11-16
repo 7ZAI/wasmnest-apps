@@ -272,6 +272,8 @@ export type MessageSchema = {
   'transfer.history.clearConfirmBody': string
   'transfer.history.empty': string
   'transfer.history.openFolder': string
+  'transfer.history.openFolderFailed': string
+  'transfer.history.openFolderNoDir': string
   'transfer.history.results.completed': string
   'transfer.history.results.failed': string
   'transfer.history.results.rejected': string

@@ -467,7 +467,8 @@ export default {
   'transfer.v2.devices.emptyTitle': 'No devices yet',
   'transfer.v2.pendingRequests': '{count} pending request(s)',
   'transfer.v2.history.openFolder': 'Open containing folder',
-  'transfer.v2.history.noLocalFile': 'File not on this device',
+  'transfer.v2.history.noLocalFile':
+    'Could not open the containing folder: file not found (it may have been moved, deleted, or the download folder has changed)',
   'transfer.history.allFilesAccess.title': 'All files access required',
   'transfer.history.allFilesAccess.message':
     'Opening the system Downloads folder requires the "All files access" permission (Settings → Apps → Special access → All files access). Some devices do not offer this switch; in that case WasmNest automatically shows a mirrored folder view of your downloads, no permission needed.',
