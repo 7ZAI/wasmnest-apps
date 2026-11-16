@@ -1,11 +1,12 @@
 <script setup lang="ts">
 /**
- * RelayConfigSection — 移动端设置页「内网穿透」区块
+ * RelayConfigSection — 移动端设置页「内网穿透配置」区块
  *
- * 与「中继（外网）」开关**语义隔离**：
- * - 本区块 = 「怎么接入外网」（relay 地址 / 空间码 / 来源），只读展示 +
- *   扫码导入（穿透配置分享 v1）；
- * - 中继开关 = 「用不用外网通道」（拨号策略），语义未变。
+ * 区块收口「外网接入」的全部内容：
+ * - 接入信息：relay 地址 / 来源 / 中继状态 / 空间码 / 获取时间（只读展示）
+ *   + 扫码导入（穿透配置分享 v1）；
+ * - 拨号策略：中继（外网）开关 + 中继提示阈值（父组件经 `#relay` 插槽注入，
+ *   逻辑与样式仍住在 SettingsSection，避免两套设置实例）。
  *
  * 移动端没有配置中心：导入即写本应用设置（`import-relay-config`，来源 `qr`），
  * 后端校验地址 / 空间码后再收敛中继预留。空间码只在分享携带非空值时对齐。
@@ -56,11 +57,6 @@ onMounted(() => {
 const addrs = computed(() => my.info.value.relayAddrs)
 const sourceText = computed(() => t(relaySourceKey(my.info.value.relaySource)))
 const stateText = computed(() => t(relayStateKey(my.info.value.relayState)))
-const wanPolicyText = computed(() =>
-  my.info.value.wanPolicy === 'blocked'
-    ? t('transfer.relayConfig.wanBlocked')
-    : t('transfer.relayConfig.wanAllowed'),
-)
 const syncedAtText = computed(() => formatSyncedAt(my.info.value.relaySyncedAt ?? 0))
 
 /** 导入会替换当前配置（地址集合 / 空间码任一不同即提示） */
@@ -165,8 +161,6 @@ async function syncFromPeer(): Promise<void> {
     <!-- 扫码（全屏取景）：只收穿透配置分享二维码 -->
     <ScanPanel v-if="scanning" :t="t" @relay-config="onScanned" @close="closeScan" />
 
-    <p class="settings-desc">{{ t('transfer.relayConfig.hint') }}</p>
-
     <p v-if="my.loading.value" class="settings-desc" data-testid="mobile-relay-config-loading">
       {{ t('transfer.relayConfig.loading') }}
     </p>
@@ -217,12 +211,6 @@ async function syncFromPeer(): Promise<void> {
             {{ stateText }}
           </div>
         </div>
-        <div class="settings-row">
-          <div class="settings-label">{{ t('transfer.relayConfig.wanPolicy') }}</div>
-          <div class="settings-value" data-testid="mobile-relay-config-wan-policy">
-            {{ wanPolicyText }}
-          </div>
-        </div>
         <div v-if="my.info.value.relayRoom" class="settings-row">
           <div class="settings-label">{{ t('transfer.relayConfig.room') }}</div>
           <code class="settings-value" data-testid="mobile-relay-config-room">{{
@@ -237,6 +225,10 @@ async function syncFromPeer(): Promise<void> {
         </div>
       </template>
     </div>
+
+    <!-- 拨号策略（中继开关 / 提示阈值）：由设置页以 #relay 插槽注入，
+         与本区块同属「内网穿透配置」 -->
+    <slot name="relay" />
 
     <p
       v-if="my.info.value.relayError"
@@ -300,9 +292,6 @@ async function syncFromPeer(): Promise<void> {
         {{ syncing ? t('transfer.relayConfig.syncing') : t('transfer.relayConfig.syncNow') }}
       </button>
     </div>
-    <p class="settings-desc" data-testid="mobile-relay-config-sync-hint">
-      {{ t('transfer.relayConfig.syncHint') }}
-    </p>
     <p
       v-if="syncText"
       class="settings-desc"
@@ -310,9 +299,6 @@ async function syncFromPeer(): Promise<void> {
       data-testid="mobile-relay-config-sync-status"
     >
       {{ syncText }}
-    </p>
-    <p class="settings-desc" data-testid="mobile-relay-config-probe-hint">
-      {{ t('transfer.relayConfig.probeHint') }}
     </p>
   </section>
 </template>

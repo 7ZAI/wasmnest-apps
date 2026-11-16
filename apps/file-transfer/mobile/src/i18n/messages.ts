@@ -292,7 +292,6 @@ export type MessageSchema = {
 
   // ==================== 内网穿透配置（设置页） ====================
   'transfer.relayConfig.title': string
-  'transfer.relayConfig.hint': string
   'transfer.relayConfig.loading': string
   'transfer.relayConfig.loadFailed': string
   'transfer.relayConfig.refresh': string
@@ -314,9 +313,6 @@ export type MessageSchema = {
   'transfer.relayConfig.stateReserved': string
   'transfer.relayConfig.stateLost': string
   'transfer.relayConfig.stateUnknown': string
-  'transfer.relayConfig.wanPolicy': string
-  'transfer.relayConfig.wanAllowed': string
-  'transfer.relayConfig.wanBlocked': string
   'transfer.relayConfig.room': string
   'transfer.relayConfig.syncedAt': string
   'transfer.relayConfig.centerError': string
@@ -345,8 +341,6 @@ export type MessageSchema = {
   'transfer.relayConfig.syncInvalidConfig': string
   'transfer.relayConfig.syncUnsupported': string
   'transfer.relayConfig.syncFailed': string
-  'transfer.relayConfig.syncHint': string
-  'transfer.relayConfig.probeHint': string
   'transfer.relayCard.conflict.title': string
   'transfer.relayCard.conflict.body': string
   'transfer.relayCard.unconfigured.title': string

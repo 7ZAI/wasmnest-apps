@@ -309,8 +309,6 @@ export default {
 
   // ==================== Relay config (settings, read-only + QR import) ====================
   'transfer.relayConfig.title': 'Relay configuration',
-  'transfer.relayConfig.hint':
-    'This end has no network center: generate a share QR on the other device and scan it here to align relay and room code.',
   'transfer.relayConfig.loading': 'Loading relay configuration…',
   'transfer.relayConfig.loadFailed': 'Failed to load relay configuration, please retry',
   'transfer.relayConfig.refresh': 'Reload',
@@ -333,9 +331,6 @@ export default {
   'transfer.relayConfig.stateReserved': 'Ready',
   'transfer.relayConfig.stateLost': 'Lost (retrying)',
   'transfer.relayConfig.stateUnknown': 'Unknown',
-  'transfer.relayConfig.wanPolicy': 'Relay policy',
-  'transfer.relayConfig.wanAllowed': 'Allowed',
-  'transfer.relayConfig.wanBlocked': 'LAN only (relay off)',
   'transfer.relayConfig.room': 'Room code',
   'transfer.relayConfig.syncedAt': 'Fetched at',
   'transfer.relayConfig.centerError': 'Could not read relay configuration: {message}',
@@ -369,10 +364,6 @@ export default {
   'transfer.relayConfig.syncUnsupported':
     'This host runtime does not support peer config sync; upgrade the host',
   'transfer.relayConfig.syncFailed': 'Sync failed, please retry',
-  'transfer.relayConfig.syncHint':
-    'Connect the device in Nearby devices first; only a trusted peer is read, and the peer is never modified.',
-  'transfer.relayConfig.probeHint':
-    'Connectivity check is handled by the network center (desktop).',
 
   'transfer.relayCard.conflict.title': 'Global relay differs from this space',
   'transfer.relayCard.conflict.body':

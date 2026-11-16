@@ -6,6 +6,8 @@
  * 免授权特殊条目「app 私有下载目录」由宿主派生注入（builtin，不可移除）。
  * 下载目录只读展示（固定 MediaStore/Downloads）；接收策略 ask/accept/reject
  * 经宿主 set_receive_policy 写入。
+ * 中继（外网）开关与提示阈值并入「内网穿透配置」区块（`#relay` 插槽），
+ * 不再单列「中继」分区。
  *
  * 同时注册为宿主 SettingsSection（registerSettingsSection），并作为插件内设置页复用。
  *
@@ -325,64 +327,64 @@ watch(() => props.settingsApi.settings.value.relayMaxBytesPerTask, syncRelayThre
     <!-- ==================== 我的设备（形态改造）：设备名 / 指纹只读展示 ==================== -->
     <MyDeviceSection />
 
-    <!-- ==================== 内网穿透配置（形态改造）：只读 + 扫码导入 ==================== -->
-    <RelayConfigSection />
-
-    <!-- ==================== 中继（T12）：关的是「经 relay 拨号」，不是加密 ==================== -->
-    <section class="space-y-2">
-      <h2 class="settings-section-title">{{ t('transfer.settings.relay') }}</h2>
-      <div class="settings-group">
-        <div class="settings-row ft-policy-row">
-          <div class="min-w-0 flex-1">
-            <div class="settings-label">{{ t('transfer.settings.relay') }}</div>
-            <div class="settings-desc">{{ t('transfer.settings.relayHint') }}</div>
+    <!-- ==================== 内网穿透配置（形态改造）：接入信息 + 中继拨号策略 ==================== -->
+    <RelayConfigSection>
+      <!-- 中继（T12）：关的是「经 relay 拨号」，不是加密。设置项并入穿透配置区块，
+           逻辑与样式仍在本组件（插槽内容按父作用域渲染，scoped 样式生效） -->
+      <template #relay>
+        <div class="settings-group" data-testid="mobile-relay-config-relay-controls">
+          <div class="settings-row ft-policy-row">
+            <div class="min-w-0 flex-1">
+              <div class="settings-label">{{ t('transfer.settings.relay') }}</div>
+              <div class="settings-desc">{{ t('transfer.settings.relayHint') }}</div>
+            </div>
+            <div class="ft-segmented flex-shrink-0">
+              <button
+                class="ft-segmented-item"
+                :class="{ 'ft-segmented-item--active': settingsApi?.settings.value.allowWan !== false }"
+                role="tab"
+                :aria-checked="settingsApi?.settings.value.allowWan !== false"
+                data-testid="ft-relay-on"
+                @click="settingsApi?.setAllowWan(true)"
+              >
+                {{ t('transfer.settings.relayOn') }}
+              </button>
+              <button
+                class="ft-segmented-item"
+                :class="{ 'ft-segmented-item--active': settingsApi?.settings.value.allowWan === false }"
+                role="tab"
+                :aria-checked="settingsApi?.settings.value.allowWan === false"
+                data-testid="ft-relay-off"
+                @click="settingsApi?.setAllowWan(false)"
+              >
+                {{ t('transfer.settings.relayOff') }}
+              </button>
+            </div>
           </div>
-          <div class="ft-segmented flex-shrink-0">
-            <button
-              class="ft-segmented-item"
-              :class="{ 'ft-segmented-item--active': settingsApi?.settings.value.allowWan !== false }"
-              role="tab"
-              :aria-checked="settingsApi?.settings.value.allowWan !== false"
-              data-testid="ft-relay-on"
-              @click="settingsApi?.setAllowWan(true)"
-            >
-              {{ t('transfer.settings.relayOn') }}
-            </button>
-            <button
-              class="ft-segmented-item"
-              :class="{ 'ft-segmented-item--active': settingsApi?.settings.value.allowWan === false }"
-              role="tab"
-              :aria-checked="settingsApi?.settings.value.allowWan === false"
-              data-testid="ft-relay-off"
-              @click="settingsApi?.setAllowWan(false)"
-            >
-              {{ t('transfer.settings.relayOff') }}
-            </button>
+          <div class="settings-row">
+            <div class="min-w-0 flex-1">
+              <div class="settings-label">{{ t('transfer.settings.relayThreshold') }}</div>
+              <div class="settings-desc">{{ t('transfer.settings.relayThresholdHint') }}</div>
+            </div>
+            <div class="flex items-center gap-2 flex-shrink-0">
+              <input
+                v-model="relayThresholdInput"
+                class="ft-timeout-input"
+                type="number"
+                min="0"
+                :max="RELAY_THRESHOLD_MAX_MB"
+                inputmode="numeric"
+                data-testid="ft-relay-threshold-input"
+                @focus="syncRelayThreshold()"
+                @blur="commitRelayThreshold()"
+                @keyup.enter="($event.target as HTMLInputElement).blur()"
+              />
+              <span class="settings-desc">MB</span>
+            </div>
           </div>
         </div>
-        <div class="settings-row">
-          <div class="min-w-0 flex-1">
-            <div class="settings-label">{{ t('transfer.settings.relayThreshold') }}</div>
-            <div class="settings-desc">{{ t('transfer.settings.relayThresholdHint') }}</div>
-          </div>
-          <div class="flex items-center gap-2 flex-shrink-0">
-            <input
-              v-model="relayThresholdInput"
-              class="ft-timeout-input"
-              type="number"
-              min="0"
-              :max="RELAY_THRESHOLD_MAX_MB"
-              inputmode="numeric"
-              data-testid="ft-relay-threshold-input"
-              @focus="syncRelayThreshold()"
-              @blur="commitRelayThreshold()"
-              @keyup.enter="($event.target as HTMLInputElement).blur()"
-            />
-            <span class="settings-desc">MB</span>
-          </div>
-        </div>
-      </div>
-    </section>
+      </template>
+    </RelayConfigSection>
 
     <!-- ==================== 发送并发上限 ==================== -->
     <section class="space-y-2">

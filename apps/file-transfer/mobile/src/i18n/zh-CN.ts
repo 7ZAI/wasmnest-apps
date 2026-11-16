@@ -293,8 +293,6 @@ export default {
 
   // ==================== 内网穿透配置（设置页，只读 + 扫码导入） ====================
   'transfer.relayConfig.title': '内网穿透配置',
-  'transfer.relayConfig.hint':
-    '移动端没有配置中心：在另一台设备上生成分享二维码，这里扫码导入即可对齐中继与空间码。',
   'transfer.relayConfig.loading': '正在读取穿透配置…',
   'transfer.relayConfig.loadFailed': '读取穿透配置失败，请重试',
   'transfer.relayConfig.refresh': '重新读取',
@@ -316,9 +314,6 @@ export default {
   'transfer.relayConfig.stateReserved': '已就绪',
   'transfer.relayConfig.stateLost': '已断开（重试中）',
   'transfer.relayConfig.stateUnknown': '未知',
-  'transfer.relayConfig.wanPolicy': '对外网',
-  'transfer.relayConfig.wanAllowed': '允许经中继',
-  'transfer.relayConfig.wanBlocked': '仅内网（已关闭中继）',
   'transfer.relayConfig.room': '空间码',
   'transfer.relayConfig.syncedAt': '获取时间',
   'transfer.relayConfig.centerError': '穿透配置读取异常：{message}',
@@ -347,9 +342,6 @@ export default {
   'transfer.relayConfig.syncInvalidConfig': '对端配置未通过校验，已拒绝',
   'transfer.relayConfig.syncUnsupported': '当前宿主版本不支持对端配置同步；请升级宿主',
   'transfer.relayConfig.syncFailed': '同步失败，请重试',
-  'transfer.relayConfig.syncHint':
-    '需先在「附近设备」完成连接；只读取可信设备的配置，不改对端设置。',
-  'transfer.relayConfig.probeHint': '连通性检测暂由「内网穿透」页负责（桌面端）。',
 
   'transfer.relayCard.conflict.title': '全局中继与当前空间不一致',
   'transfer.relayCard.conflict.body':
