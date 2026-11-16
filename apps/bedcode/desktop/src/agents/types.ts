@@ -316,6 +316,19 @@ export interface SkillEntry {
   distribution: Record<string, SkillDistribution>
 }
 
+/** 最近一次删除 / 卸载的结果（guest 回灌；targets 为已清理的副本目标名） */
+export interface SkillDeleteResult {
+  ok: boolean
+  dir: string
+  name: string
+  /** 规范库目录是否已消失 */
+  libraryRemoved: boolean
+  /** 已清理的分发副本目标（不含规范库） */
+  targets: string[]
+  error: string | null
+  at: number
+}
+
 /** Skills 域复合状态（host-storage `skills` 键 + `plugin:bedcode:skills` 事件载荷） */
 export interface SkillsDomainState {
   status: 'idle' | 'scanning' | 'ready' | 'error'
@@ -323,6 +336,8 @@ export interface SkillsDomainState {
   scannedAt: number | null
   libraryRoot: string
   importing: boolean
+  /** 正在删除的 skill 目录名（异步命令，完成后回灌 null） */
+  deleting?: string | null
   skills: SkillEntry[]
   targets: Record<string, { root: string; exists: boolean }>
   github: {
@@ -343,6 +358,9 @@ export interface SkillsDomainState {
       error: string | null
       at: number
     } | null
+  }
+  delete?: {
+    last: SkillDeleteResult | null
   }
 }
 

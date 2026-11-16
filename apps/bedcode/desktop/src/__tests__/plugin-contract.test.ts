@@ -257,6 +257,7 @@ describe('C1 工程身份五处一致', () => {
       'agent.check-updates',
       'agent.clear-usage-data',
       'agent.delete-preset',
+      'agent.delete-skill',
       'agent.describe-install',
       'agent.detect',
       'agent.distribute-skill',

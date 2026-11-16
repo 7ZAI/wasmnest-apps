@@ -833,6 +833,19 @@ export type MessageSchema = {
   'hub.skill.status.libraryOnly': string
   'hub.skill.status.synced': string
   'hub.skill.status.stale': string
+  'hub.skill.delete': string
+  // 参数：name（skill 名）/ targets（已分发到的目标展示名）
+  'hub.skill.deleteConfirm': string
+  // 参数：name（skill 名）
+  'hub.skill.deleteConfirmLibraryOnly': string
+  'hub.skill.deleteConfirmGo': string
+  'hub.skill.deleteCancel': string
+  'hub.skill.deleting': string
+  // 参数：name（skill 名）
+  'hub.skill.deleteDone': string
+  // 参数：name（skill 名）/ n（清理的副本数）
+  'hub.skill.deleteDoneTargets': string
+  'hub.skill.deleteFailed': string
 
   // ==================== Skills · GitHub 安装（票据 04） ====================
   'hub.skill.github.action': string

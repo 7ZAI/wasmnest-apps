@@ -315,6 +315,10 @@
         "title": "Agent Hub: Delete Provider Preset"
       },
       {
+        "id": "agent.delete-skill",
+        "title": "Agent Hub: Delete / Uninstall Skill"
+      },
+      {
         "id": "agent.describe-install",
         "title": "Agent Hub: Describe Install Command"
       },

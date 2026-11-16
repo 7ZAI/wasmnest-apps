@@ -903,6 +903,17 @@ const en: MessageSchema = {
   'hub.skill.status.libraryOnly': 'Library only',
   'hub.skill.status.synced': '{name} ✓',
   'hub.skill.status.stale': '{name} stale',
+  'hub.skill.delete': 'Delete',
+  'hub.skill.deleteConfirm':
+    'Delete "{name}"? The library copy and distributed copies ({targets}) are removed too — those agents lose this skill immediately.',
+  'hub.skill.deleteConfirmLibraryOnly':
+    'Delete "{name}"? It is not distributed to any agent yet; only the library copy is removed.',
+  'hub.skill.deleteConfirmGo': 'Confirm delete',
+  'hub.skill.deleteCancel': 'Cancel',
+  'hub.skill.deleting': 'Deleting…',
+  'hub.skill.deleteDone': 'Deleted {name}',
+  'hub.skill.deleteDoneTargets': 'Deleted {name} and cleaned {n} distributed copies',
+  'hub.skill.deleteFailed': 'Delete failed',
 
   // ==================== Skills · GitHub install (ticket 04) ====================
   'hub.skill.github.action': 'Install from GitHub',

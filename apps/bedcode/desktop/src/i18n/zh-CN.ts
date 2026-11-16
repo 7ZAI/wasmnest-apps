@@ -865,6 +865,17 @@ const zhCN: MessageSchema = {
   'hub.skill.status.libraryOnly': '仅规范库',
   'hub.skill.status.synced': '{name} ✓',
   'hub.skill.status.stale': '{name} 落后',
+  'hub.skill.delete': '删除',
+  'hub.skill.deleteConfirm':
+    '删除「{name}」？规范库与已分发副本（{targets}）将一并移除，这些 agent 立即失去该 skill。',
+  'hub.skill.deleteConfirmLibraryOnly':
+    '删除「{name}」？该 skill 尚未分发到任何 agent，仅移除规范库。',
+  'hub.skill.deleteConfirmGo': '确认删除',
+  'hub.skill.deleteCancel': '取消',
+  'hub.skill.deleting': '删除中…',
+  'hub.skill.deleteDone': '已删除 {name}',
+  'hub.skill.deleteDoneTargets': '已删除 {name}，并清理 {n} 个分发副本',
+  'hub.skill.deleteFailed': '删除失败',
 
   // ==================== Skills · GitHub 安装（票据 04） ====================
   'hub.skill.github.action': '从 GitHub 安装',

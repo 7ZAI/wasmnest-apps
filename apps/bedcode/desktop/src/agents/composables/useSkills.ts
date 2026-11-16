@@ -111,6 +111,23 @@ export function useSkills(context: PluginContext) {
   }
 
   /**
+   * 删除 / 卸载 skill：规范库目录与全部分发副本一并删净（guest 异步进程，
+   * 结果经 `plugin:bedcode:skills` 回灌到 `state.delete.last`）。
+   *
+   * 返回 `started=false` 只代表命令本身被拒（未知 skill / 并发删除 / 管道
+   * 失败），条目仍在列表里——调用方必须把 `error` 呈现为可见失败。
+   */
+  async function deleteSkill(dir: string): Promise<{ started: boolean; error?: string }> {
+    try {
+      await context.commands.execute('agent.delete-skill', { dir })
+      return { started: true }
+    } catch (e) {
+      logger.error('[Agent Hub] delete-skill failed', dir, e)
+      return { started: false, error: e instanceof Error ? e.message : String(e) }
+    }
+  }
+
+  /**
    * GitHub 安装（overwrite 用于同名 skill 的覆盖确认重试）
    *
    * `skill` = 只装仓库里的某一个 skill（联网搜索结果安装：skills.sh 结果是
@@ -189,6 +206,7 @@ export function useSkills(context: PluginContext) {
     readSkill,
     saveSkill,
     distribute,
+    deleteSkill,
     installGithub,
     searchRemote,
     importLocal,

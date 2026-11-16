@@ -24,7 +24,7 @@
 | 入口           | 宿主 → BedCode → 侧栏「Agent 管理」（`nav-agents` / `/agents`）；应用默认落地 `/pairing`（设备配对），进入本域后默认「概览」                               |
 | 分区           | 概览 / 安装与更新 / Skills / 供应商 / 会话日志 / 使用统计（六个；`hub-tab-*`）                                                                        |
 | 权限面         | 随 bedcode 整应用 manifest（21 项，并入时新增 `app:path` / `fs:pick`）；核验以 `apps/bedcode/desktop/plugin.json` 为准，本分册不单列域级权限          |
-| 命令面         | `agent.*`（47 条；路由真源 `rust/src/hub/mod.rs` 的 `invoke_command`，声明见 `plugin.json contributes.commands`）                                     |
+| 命令面         | `agent.*`（48 条；路由真源 `rust/src/hub/mod.rs` 的 `invoke_command`，声明见 `plugin.json contributes.commands`）                                     |
 | 受管 CLI       | claude / codex / opencode / pi（展示顺序 pi → opencode → codex → claude）                                                                               |
 | 自动化基线     | `node scripts/e2e.mjs --app bedcode`（`e2e/specs/bedcode.spec.ts`，12 例）；仅「侧栏七项 / 视图切换」与「日期框样式回归」两例触及本域（`nav-agents` → `hub-view`） |
 | 自动化覆盖边界 | 六分区交互、安装 / Node 引导 / Skills / 供应商 / 日志 / 统计、启动与恢复会话闭环**均无 E2E**；原 agent-hub 独立 E2E 套件已退役，不得引用其结论充数     |
@@ -56,7 +56,7 @@
 | F-03 | 概览：CLI 卡片           | 四张 CLI 卡、七种状态徽章、双安装警告、卸载确认弹窗、启动会话             | 桌面 | 手动                 | 至少一种 CLI 状态                |
 | F-04 | 概览：Node 引导          | 缺失安装、托管版本升级/移除、清理残留、失败重试                       | 桌面 | 手动                 | 可访问 nodejs.org 或镜像         |
 | F-05 | 安装与更新               | 源测速/换源/自定义源/npmrc 还原、CLI 安装更新、输出控制台             | 桌面 | 手动（部分单测）     | node / npm / 网络 / npmrc 写权限 |
-| F-06 | Skills                   | 扫描、列表、GitHub 安装、本地导入、编辑 diff、分发                    | 桌面 | 手动                 | 目录授权 / GitHub 网络           |
+| F-06 | Skills                   | 扫描、列表、GitHub 安装、本地导入、编辑 diff、分发、删除 / 卸载       | 桌面 | 手动                 | 目录授权 / GitHub 网络           |
 | F-07 | 供应商                   | 反向导入、从 agent-hub 导入、预设 CRUD、模型拉取、密钥、应用到 CLI     | 桌面 | 手动                 | CLI 配置目录授权 / 模型接口      |
 | F-08 | 会话日志                 | 来源管理、扫描、条件查询、分页、会话详情、恢复会话                    | 桌面 | 手动                 | 目录授权 / 本地日志              |
 | F-09 | 使用统计                 | 时间窗、六 KPI、趋势/热力/占比/排行、清空数据、降级横幅               | 桌面 | 手动                 | 目录授权 / 已扫描数据            |
@@ -144,6 +144,8 @@
 - [ ] **S-06-07** 制造磁盘冲突（保存前外部修改文件）。期望：显示磁盘 ↔ 草稿 diff，可选择「以我的版本覆盖」或「从磁盘重读」。
 - [ ] **S-06-08** 对一个技能点击分发 / 重新分发。期望：显示分发中状态；完成后目标同步标签更新；未授权时禁用。
 - [ ] **S-06-09** 检查空态与扫描失败态。期望：空库、扫描失败分别有明确文案，不显示伪造列表。
+- [ ] **S-06-10** 删除 / 卸载一个已分发的技能（`delete-<dir>`）。期望：行内按钮只展开确认条（`delete-confirm`）并点名会失效的目标（如「Pi · Claude Code」），此时磁盘**未**变动；点「确认删除」后规范库目录与各目标副本目录（`~/.agents/skills/<dir>`、`~/.pi/agent/skills/<dir>`、`~/.claude/skills/<dir>`）全部消失，列表条目移除，结果行显示清理副本数（`skill-delete-result`），相关 agent 立即读不到该技能。**取消**（`delete-confirm-cancel`）不删除。
+- [ ] **S-06-11** 删除失败面：制造不可删条件（如目标目录只读 / 文件被占用）。期望：条目**不**从列表消失，显示「删除失败」与原始残留路径（`skill-delete-error` / 结果行的 `ah-sk-raw-error`），不谎报删除成功。
 
 ### F-07 供应商（核心）
 

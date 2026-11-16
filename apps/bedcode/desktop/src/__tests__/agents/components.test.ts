@@ -2570,6 +2570,168 @@ describe('A5 SkillsTab：GitHub / 本地导入 覆盖确认', () => {
   })
 })
 
+// ==================== A5b SkillsTab：删除 / 卸载 ====================
+
+/**
+ * 删除是破坏性且跨目录的动作（规范库 + 各目标副本），契约是「先确认再发
+ * 命令」：行内按钮只武装确认条，命令只由确认条发出；确认文案必须点名会
+ * 失效的 agent，让「删掉 = 那些 agent 失去 skill」在点之前就可见。
+ */
+describe('A5b SkillsTab：删除 / 卸载（先确认再发命令）', () => {
+  function skillEntry(over: Partial<SkillEntry> = {}): SkillEntry {
+    return {
+      dir: 'code-review',
+      path: '/home/u/.agents/skills/code-review',
+      name: 'code-review',
+      description: 'Review a diff against repo standards',
+      allowedTools: null,
+      files: [],
+      hash: 'h',
+      error: null,
+      distribution: {
+        pi: { status: 'distributed', missingFiles: [], staleFiles: [] },
+        claude: { status: 'stale', missingFiles: ['SKILL.md'], staleFiles: [] },
+      },
+      ...over,
+    }
+  }
+
+  function skillsStub(skills: SkillEntry[], over: Partial<UseSkillsReturn> = {}): UseSkillsReturn {
+    return {
+      state: ref({
+        status: 'ready',
+        libraryRoot: '/home/u/.agents/skills',
+        skills,
+        import: { last: null },
+        github: { last: null },
+        delete: { last: null },
+      }),
+      githubBusy: ref(false),
+      distributing: ref(null),
+      deleteSkill: vi.fn().mockResolvedValue({ started: true }),
+      ...over,
+    } as unknown as UseSkillsReturn
+  }
+
+  it('点击删除只武装确认条、不发命令；确认后调 delete-skill 并收起确认条', async () => {
+    const deleteSkill = vi.fn().mockResolvedValue({ started: true })
+    const w = mountComponent(SkillsTab, {
+      detection: { authGranted: true },
+      skills: skillsStub([skillEntry()], { deleteSkill }),
+    })
+    await flushPromises()
+    await w.get('[data-testid="delete-code-review"]').trigger('click')
+    await flushPromises()
+    expect(deleteSkill).not.toHaveBeenCalled()
+
+    const confirm = w.get('[data-testid="delete-confirm"]')
+    expect(confirm.text()).toContain('hub.skill.deleteConfirm(name=code-review,targets=Pi · Claude Code)')
+
+    await w.get('[data-testid="delete-confirm-go"]').trigger('click')
+    await flushPromises()
+    expect(deleteSkill).toHaveBeenCalledWith('code-review')
+    expect(w.find('[data-testid="delete-confirm"]').exists()).toBe(false)
+    w.unmount()
+  })
+
+  it('取消收紧确认条且不发命令（条目仍可继续编辑 / 分发）', async () => {
+    const deleteSkill = vi.fn().mockResolvedValue({ started: true })
+    const w = mountComponent(SkillsTab, {
+      detection: { authGranted: true },
+      skills: skillsStub([skillEntry()], { deleteSkill }),
+    })
+    await flushPromises()
+    await w.get('[data-testid="delete-code-review"]').trigger('click')
+    await flushPromises()
+    await w.get('[data-testid="delete-confirm-cancel"]').trigger('click')
+    await flushPromises()
+    expect(w.find('[data-testid="delete-confirm"]').exists()).toBe(false)
+    expect(deleteSkill).not.toHaveBeenCalled()
+    expect(w.find('[data-testid="edit-code-review"]').exists()).toBe(true)
+    w.unmount()
+  })
+
+  it('未分发时确认文案改成「仅移除规范库」（不谎报会波及 agent）', async () => {
+    const w = mountComponent(SkillsTab, {
+      detection: { authGranted: true },
+      skills: skillsStub([skillEntry({ distribution: {} })]),
+    })
+    await flushPromises()
+    await w.get('[data-testid="delete-code-review"]').trigger('click')
+    await flushPromises()
+    expect(w.get('[data-testid="delete-confirm"]').text()).toContain(
+      'hub.skill.deleteConfirmLibraryOnly(name=code-review)',
+    )
+    w.unmount()
+  })
+
+  it('命令被拒（started=false）→ 行内错误条透出原因，不静默', async () => {
+    const deleteSkill = vi.fn().mockResolvedValue({ started: false, error: 'unknown skill code-review' })
+    const w = mountComponent(SkillsTab, {
+      detection: { authGranted: true },
+      skills: skillsStub([skillEntry()], { deleteSkill }),
+    })
+    await flushPromises()
+    await w.get('[data-testid="delete-code-review"]').trigger('click')
+    await flushPromises()
+    await w.get('[data-testid="delete-confirm-go"]').trigger('click')
+    await flushPromises()
+    expect(w.get('[data-testid="skill-delete-error"]').text()).toContain('unknown skill code-review')
+    w.unmount()
+  })
+
+  it('删除中（state.deleting）→ 该行按钮禁用并显示「删除中…」', async () => {
+    const stub = skillsStub([skillEntry()])
+    ;(stub.state.value as unknown as Record<string, unknown>).deleting = 'code-review'
+    const w = mountComponent(SkillsTab, { detection: { authGranted: true }, skills: stub })
+    await flushPromises()
+    const btn = w.get('[data-testid="delete-code-review"]')
+    expect(btn.attributes('disabled')).toBeDefined()
+    expect(btn.text()).toBe('hub.skill.deleting')
+    w.unmount()
+  })
+
+  it('结果回流：成功显示清理的副本数；失败条带原始错误', async () => {
+    const stub = skillsStub([skillEntry()])
+    ;(stub.state.value as unknown as Record<string, Record<string, unknown>>).delete = {
+      last: {
+        ok: true,
+        dir: 'code-review',
+        name: 'code-review',
+        libraryRemoved: true,
+        targets: ['pi', 'claude'],
+        error: null,
+        at: 1,
+      },
+    }
+    const w = mountComponent(SkillsTab, { detection: { authGranted: true }, skills: stub })
+    await flushPromises()
+    expect(w.get('[data-testid="skill-delete-result"]').text()).toContain(
+      'hub.skill.deleteDoneTargets(name=code-review,n=2)',
+    )
+    w.unmount()
+
+    const failing = skillsStub([skillEntry()])
+    ;(failing.state.value as unknown as Record<string, Record<string, unknown>>).delete = {
+      last: {
+        ok: false,
+        dir: 'code-review',
+        name: 'code-review',
+        libraryRemoved: false,
+        targets: [],
+        error: 'residual paths: lib: /home/u/.agents/skills/code-review',
+        at: 1,
+      },
+    }
+    const w2 = mountComponent(SkillsTab, { detection: { authGranted: true }, skills: failing })
+    await flushPromises()
+    const result = w2.get('[data-testid="skill-delete-result"]')
+    expect(result.classes()).toContain('err')
+    expect(result.text()).toContain('residual paths')
+    w2.unmount()
+  })
+})
+
 // ==================== A7 SkillsTab：本地 / 联网搜索 ====================
 
 describe('A7 SkillsTab：本地过滤与 skills.sh 联网搜索', () => {

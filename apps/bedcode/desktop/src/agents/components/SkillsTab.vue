@@ -264,11 +264,58 @@ function handleImportResult(r: Awaited<ReturnType<UseSkillsReturn['importLocal']
   importPending.value = null
 }
 
+// ==================== 删除 / 卸载（规范库 + 全部分发副本） ====================
+
+/**
+ * 删除语义 = 卸载：guest 会连各目标副本一起删（否则 CLI 仍能读到孤儿副本，
+ * 等于没删）。破坏性且跨目录，故走「先武装确认条、再确认」两步：行内按钮
+ * 只 arm，真正的命令在确认条上发出。
+ */
+const deleteArmDir = ref<string | null>(null)
+/** 命令被拒（未知 skill / 并发删除 / 管道失败）的行内错误；异步结果走 state.delete.last */
+const deleteError = ref<string | null>(null)
+/** 正在删除的目录（guest 异步进程；回灌前禁用全部删除入口） */
+const deletingDir = computed(() => state.value?.deleting ?? null)
+const deleteLast = computed(() => state.value?.delete?.last ?? null)
+
+function targetName(id: string): string {
+  return targets.value.find((t) => t.id === id)?.displayName ?? id
+}
+
+/** 待确认的删除目标（附已分发到的目标展示名，确认文案要点名会失效的 agent） */
+const deleteArm = computed<{ entry: SkillEntry; targetNames: string[] } | null>(() => {
+  if (!deleteArmDir.value) return null
+  const row = rows.value.find((r) => r.entry.dir === deleteArmDir.value)
+  if (!row) return null
+  return { entry: row.entry, targetNames: row.tags.map((tag) => targetName(tag.target)) }
+})
+
+function armDelete(dir: string) {
+  deleteError.value = null
+  deleteArmDir.value = dir
+}
+
+function cancelDelete() {
+  deleteArmDir.value = null
+}
+
+async function confirmDelete() {
+  const dir = deleteArmDir.value
+  if (!dir) return
+  deleteArmDir.value = null
+  deleteError.value = null
+  const r = await props.skills.deleteSkill(dir)
+  // 命令本身被拒：条目还在列表里，必须显性说明，不能静默吞掉
+  if (!r.started) deleteError.value = r.error ?? t('hub.skill.deleteFailed')
+}
+
 // ==================== 编辑 ====================
 
 const editingDir = ref<string | null>(null)
 
 function openEditor(dir: string) {
+  // 进编辑器前收起待确认的删除态：返回列表时不该凭空出现一条确认条
+  deleteArmDir.value = null
   editingDir.value = dir
 }
 
@@ -453,6 +500,53 @@ function closeEditor() {
           }}<template v-if="state.github.last.skippedFiles > 0"> · {{ t('hub.skill.github.skipped', { n: state.github.last.skippedFiles }) }}</template>
       </div>
 
+      <!-- 删除 / 卸载：结果回流 + 待确认条（确认后才真的发命令） -->
+      <div
+        v-if="deleteLast"
+        class="ah-sk-result"
+        :class="{ err: !deleteLast.ok }"
+        data-testid="skill-delete-result"
+      >
+        {{ deleteLast.ok
+          ? deleteLast.targets.length > 0
+            ? t('hub.skill.deleteDoneTargets', { name: deleteLast.name, n: deleteLast.targets.length })
+            : t('hub.skill.deleteDone', { name: deleteLast.name })
+          : t('hub.skill.deleteFailed') }}
+        <div v-if="deleteLast.error" class="ah-sk-raw-error">{{ deleteLast.error }}</div>
+      </div>
+      <div v-if="deleteArm" class="ah-banner ah-sk-confirm" data-testid="delete-confirm">
+        <span class="ah-banner-ic">⚠</span>
+        <span class="ah-banner-text">
+          {{ deleteArm.targetNames.length > 0
+            ? t('hub.skill.deleteConfirm', {
+                name: deleteArm.entry.name,
+                targets: deleteArm.targetNames.join(' · '),
+              })
+            : t('hub.skill.deleteConfirmLibraryOnly', { name: deleteArm.entry.name }) }}
+        </span>
+        <button
+          type="button"
+          class="ah-btn ah-btn-warn ah-btn-sm"
+          :disabled="deletingDir !== null"
+          data-testid="delete-confirm-go"
+          @click="confirmDelete()"
+        >
+          {{ t('hub.skill.deleteConfirmGo') }}
+        </button>
+        <button
+          type="button"
+          class="ah-btn ah-btn-ghost ah-btn-sm"
+          data-testid="delete-confirm-cancel"
+          @click="cancelDelete()"
+        >
+          {{ t('hub.skill.deleteCancel') }}
+        </button>
+      </div>
+      <div v-if="deleteError" class="ah-cli-error" data-testid="skill-delete-error">
+        {{ t('hub.skill.deleteFailed') }}
+        <div class="ah-sk-raw-error">{{ deleteError }}</div>
+      </div>
+
       <!-- 空态（本地库为空） / 无本地命中 -->
       <div v-if="searchMode === 'local' && !scanning && rows.length === 0" class="ah-card ah-sk-empty">
         <div class="ah-section-title">{{ t('hub.skill.empty') }}</div>
@@ -577,14 +671,20 @@ function closeEditor() {
             </span>
           </div>
           <div class="ah-sk-row-actions">
-            <button type="button" class="ah-btn ah-btn-ghost ah-btn-sm" :data-testid="`edit-${row.entry.dir}`" @click="openEditor(row.entry.dir)">
+            <button
+              type="button"
+              class="ah-btn ah-btn-ghost ah-btn-sm"
+              :disabled="deletingDir !== null"
+              :data-testid="`edit-${row.entry.dir}`"
+              @click="openEditor(row.entry.dir)"
+            >
               {{ t('hub.skill.edit') }}
             </button>
             <button
               type="button"
               class="ah-btn ah-btn-sm"
               :class="row.tags.some((x) => x.status === 'stale') || row.tags.length === 0 ? 'ah-btn-primary' : 'ah-btn-ghost'"
-              :disabled="busy || props.skills.distributing.value !== null || !authGranted"
+              :disabled="busy || deletingDir !== null || props.skills.distributing.value !== null || !authGranted"
               :data-testid="`distribute-${row.entry.dir}`"
               @click="skills.distribute(row.entry.dir)"
             >
@@ -595,6 +695,16 @@ function closeEditor() {
                   : row.tags.some((x) => x.status === 'stale')
                     ? t('hub.skill.redistribute')
                     : t('hub.skill.distribute') }}
+            </button>
+            <button
+              type="button"
+              class="ah-btn ah-btn-ghost ah-btn-sm"
+              :class="{ 'ah-btn-warn': deleteArmDir === row.entry.dir }"
+              :disabled="busy || deletingDir !== null || !authGranted"
+              :data-testid="`delete-${row.entry.dir}`"
+              @click="armDelete(row.entry.dir)"
+            >
+              {{ deletingDir === row.entry.dir ? t('hub.skill.deleting') : t('hub.skill.delete') }}
             </button>
           </div>
         </div>
