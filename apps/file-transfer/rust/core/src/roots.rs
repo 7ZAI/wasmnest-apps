@@ -90,6 +90,20 @@ where
     Ok(next)
 }
 
+/// 把存储里的全量注册表重推给引擎（幂等，不改存储）。
+///
+/// 引擎镜像只有变更命令会写；一旦镜像与注册表分叉（宿主落盘失败被回滚、
+/// 数据目录变化、旧版本只写了插件库），对端会一直读到空清单，直到用户再
+/// 改一次共享目录。调用方在激活期与对端连入时各调一次即可收敛。
+pub fn push_snapshot<H>(h: &H) -> PortResult<Vec<SharedRoot>>
+where
+    H: RootsStore + RootWireCodec + PeerPort,
+{
+    let roots = h.load_roots()?;
+    h.peer_set_shared_roots(&h.roots_to_push_payload(&roots))?;
+    Ok(roots)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -248,6 +262,51 @@ mod tests {
                 serde_json::json!({ "id": root_id("C:/docs"), "name": "Docs", "path": "C:/docs" })
             ]
         );
+    }
+
+    #[test]
+    fn push_snapshot_repushes_storage_without_mutating_it() {
+        // 镜像丢失（宿主重启后未同步 / 落盘回滚）时，重推必须把存储里的全量条目
+        // 原样送到引擎，且不改动存储本身
+        let h = MockBackend::default();
+        h.stored.borrow_mut().push(root("C:/keep", "Keep"));
+        let pushed = push_snapshot(&h).unwrap();
+        assert_eq!(pushed, vec![root("C:/keep", "Keep")]);
+        assert_eq!(h.pushed.borrow().len(), 1, "重推恰好一次");
+        assert_eq!(
+            h.pushed.borrow()[0],
+            vec![
+                serde_json::json!({ "id": root_id("C:/keep"), "name": "Keep", "path": "C:/keep" })
+            ]
+        );
+        assert_eq!(
+            *h.stored.borrow(),
+            vec![root("C:/keep", "Keep")],
+            "存储不变"
+        );
+    }
+
+    #[test]
+    fn push_snapshot_is_idempotent_across_calls() {
+        let h = MockBackend::default();
+        h.stored.borrow_mut().push(root("C:/keep", "Keep"));
+        push_snapshot(&h).unwrap();
+        push_snapshot(&h).unwrap();
+        assert_eq!(h.pushed.borrow().len(), 2, "每次调用都全量重推");
+        assert_eq!(h.pushed.borrow()[0], h.pushed.borrow()[1], "两次载荷相同");
+    }
+
+    #[test]
+    fn push_snapshot_propagates_engine_rejection() {
+        // 重推失败不得吞成成功：调用方要据此记日志，别把镜像分叉当已收敛
+        let h = MockBackend {
+            reject_push: true,
+            ..Default::default()
+        };
+        h.stored.borrow_mut().push(root("C:/keep", "Keep"));
+        let err = push_snapshot(&h).unwrap_err();
+        assert!(err.message().contains("engine rejected path"), "实得 {err}");
+        assert!(h.pushed.borrow().is_empty(), "被拒时不得留下「已推」记录");
     }
 
     #[test]

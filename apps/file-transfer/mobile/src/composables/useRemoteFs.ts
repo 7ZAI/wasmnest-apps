@@ -15,7 +15,32 @@ export interface SharedRootRef {
   name: string
 }
 
-export function useRemoteFs(context: PluginContext) {
+/**
+ * 根清单拉取的就绪键（空串 = 现在不该拉）。
+ *
+ * 三个条件缺一不可：活跃对端存在、连接已建立、至少有一条可用地址。最后一条
+ * 常被忽略——入站（被连）侧没有拨号会话句柄，必须按 endpoint 重拨才能拉清单，
+ * 地址未就绪时发起只会拿到 `no-endpoint`。
+ */
+export function rootsReadyKey(input: {
+  peerId: string
+  online: boolean
+  connectionModes: 'both' | 'lan' | 'wan' | 'none'
+}): string {
+  if (!input.peerId || !input.online) return ''
+  return input.connectionModes === 'none' ? '' : input.peerId
+}
+
+export function useRemoteFs(context: PluginContext, getPeerId: () => string = () => '') {
+  /**
+   * 寻址参数：显式带上活跃对端 id，后端不必依赖 `set-active-peer` 的到达时序
+   * （入站连接建立与拉取几乎同刻发生，插件侧 ACTIVE_NODE 可能还没落值）。
+   */
+  function targetArgs(): { peerId?: string } {
+    const peerId = getPeerId()
+    return peerId ? { peerId } : {}
+  }
+
   /** 当前所在共享根（null = 处于根清单层） */
   const currentRoot = ref<SharedRootRef | null>(null)
   /** 根内相对路径（"" = 根目录） */
@@ -60,6 +85,7 @@ export function useRemoteFs(context: PluginContext) {
       const data = await context.commands.execute('file-transfer.list-remote', {
         path: '',
         dirId: '',
+        ...targetArgs(),
       })
       const roots: SharedRootRef[] = Array.isArray(data?.roots) ? data.roots : []
       // 缓存 id ↔ name 映射：entries 仅保留展示名，进入共享根需按名回查真实 id
@@ -85,6 +111,7 @@ export function useRemoteFs(context: PluginContext) {
       const data = await context.commands.execute('file-transfer.list-remote', {
         path: relPath,
         dirId: currentRoot.value.id,
+        ...targetArgs(),
       })
       entries.value = Array.isArray(data?.entries) ? data.entries : []
       notice.value = data?.notice ?? null

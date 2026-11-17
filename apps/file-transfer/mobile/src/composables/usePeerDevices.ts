@@ -263,12 +263,35 @@ function createPeerDevices(context: PluginContext) {
     }, SNAPSHOT_SAVE_DEBOUNCE_MS)
   }
 
+  /**
+   * 连接事件里的设备兜底：被连侧可能还没收到 mdns-found，缓存里没有该节点，
+   * 活跃对端兜底与设备行都会跳过它。这里先落一条只有身份的条目（刻意不落盘，
+   * 地址未知，重启后由实时发现重建）；地址由后续 found 事件补齐，并同时补写
+   * endpoint memo，数据面才能重拨。
+   */
+  function ensureConnectedEntry(nodeId: string, deviceName: string): void {
+    if (devices.value.some((d) => d.nodeId === nodeId)) return
+    devices.value = [
+      ...devices.value,
+      {
+        nodeId,
+        deviceName,
+        fileTransfer: true,
+        lastSeenMs: Date.now(),
+        restored: false,
+      },
+    ]
+  }
+
   // ==================== 事件处理 ====================
 
   function handleFound(payload: unknown): void {
     const device = parseFoundPayload(payload)
     if (!device) return
     upsertDevice(device)
+    // 发现晚于连接时，连接那一刻还没有地址可登记：这里补写 endpoint memo，
+    // 否则数据面（浏览 / 拉取）在入站侧永远重拨不出去
+    rememberEndpoint(device.nodeId)
     ensureActiveFallback()
   }
 
@@ -314,6 +337,9 @@ function createPeerDevices(context: PluginContext) {
     if (!payload?.nodeId) return
     if (payload.connected) {
       markConnected(payload.nodeId)
+      // 被连侧可能尚未发现对方（连接可比 mdns-found 先到）：先落一条只有身份的
+      // 条目，活跃对端兜底与设备行才有对象；地址等后续 found 事件补齐
+      ensureConnectedEntry(payload.nodeId, typeof payload.deviceName === 'string' ? payload.deviceName : '')
       const transport = normalizeTransport(payload.transport)
       if (transport) transports.value = { ...transports.value, [payload.nodeId]: transport }
       // 宿主带出的设备名 / 连接时刻 / 真实传输形态回写缓存：远程设备没有
@@ -323,10 +349,11 @@ function createPeerDevices(context: PluginContext) {
         typeof payload.deviceName === 'string' ? payload.deviceName : '',
         transport,
       )
-      ensureActiveFallback()
       // 入站（被连侧）连接没有拨号 memo：数据面命令（浏览/拉取/发送）经它
-      // 重拨，endpoint 取自自建缓存（mdns-found 维护）
+      // 重拨，endpoint 取自自建缓存（mdns-found 维护）。
+      // 必须先于活跃对端兜底：兜底会触发一次根清单拉取，memo 未落地就必失败
       rememberEndpoint(payload.nodeId)
+      ensureActiveFallback()
     } else {
       connectedIds.value = withoutId(connectedIds.value, payload.nodeId)
       if (payload.nodeId in transports.value) {

@@ -240,6 +240,16 @@ impl WasmPlugin for FileTransferPlugin {
         if let Err(e) = roots_registry::ensure_table(&h) {
             h.log_warn(&format!("shared_roots table init deferred: {e}"));
         }
+        // 引擎镜像自愈：镜像只由「改共享目录」写，激活期重推一次让两边收敛。
+        // 失败不翻成激活失败（节点已起、下次变更 / 对端连入仍会重试），但必须留痕：
+        // 镜像落后 = 对端一直读到空清单。
+        match roots_registry::sync_engine(&h) {
+            Ok(roots) => h.log_info(&format!(
+                "activate: shared roots synced to engine ({} entries)",
+                roots.len()
+            )),
+            Err(e) => h.log_error(&format!("activate: shared roots sync failed: {e}")),
+        }
         // 首屏兜底（传输编排下沉票 2 开放点 4）：激活晚于事件时经
         // active-transfers 原语查询宿主在册活跃批补占位行；节点未起等场景
         // 内部降级日志，不阻断激活
@@ -585,6 +595,12 @@ fn dispatch_bus_message(
         if payload.get("connected").and_then(|v| v.as_bool()) == Some(false) {
             if let Some(node_id) = payload.get("nodeId").and_then(|v| v.as_str()) {
                 device_bridge::forget_session(node_id);
+            }
+        } else if payload.get("connected").and_then(|v| v.as_bool()) == Some(true) {
+            // 对端连入即重推一次共享根：对端随后会立刻来拉清单，这里保证引擎
+            // 镜像与本插件注册表一致（镜像落后会让对方看到空列表）。
+            if let Err(e) = roots_registry::sync_engine(h) {
+                h.log_error(&format!("connection: shared roots sync failed: {e}"));
             }
         }
         h.emit_event("plugin:file-transfer:connection-changed", payload);

@@ -58,6 +58,21 @@ pub(crate) fn apply_and_push<H: HostStorage + HostPluginDatabase + HostPeer + ?S
     }
 }
 
+/// 把注册表全量重推给引擎镜像（幂等，不改持久层）。
+///
+/// 引擎镜像只由变更命令写入；插件激活期与对端连入时各跑一次，让两边收敛
+/// （镜像落后时对端会一直读到空清单，直到用户再改一次共享目录）。
+pub(crate) fn sync_engine<H: HostStorage + HostPluginDatabase + HostPeer + ?Sized>(
+    h: &H,
+) -> anyhow::Result<Vec<SharedRoot>> {
+    match platform::current() {
+        Platform::Desktop => {
+            core_roots::push_snapshot(&DesktopPorts(h)).map_err(anyhow::Error::new)
+        }
+        Platform::Mobile => core_roots::push_snapshot(&MobilePorts(h)).map_err(anyhow::Error::new),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -283,6 +298,36 @@ mod tests {
         assert!(h.rows.borrow().is_empty(), "移动不得落 plugin-db 表");
         // 推送 wire 用 safTreeUri 字段（差异面③）
         assert_eq!(h.pushed_roots.borrow()[0]["safTreeUri"], "E:/Docs");
+    }
+
+    #[test]
+    fn sync_engine_repushes_mirror_with_desktop_wire_shape() {
+        let _g = platform::test_lock().lock().unwrap();
+        platform::set_for_test(platform::Platform::Desktop);
+        let h = MockHost::default();
+        apply_and_push(&h, |list| list.extend(sample())).unwrap();
+        // 模拟引擎镜像落后（宿主重启后未同步 / 上次推送被回滚）
+        h.pushed_roots.borrow_mut().clear();
+
+        let pushed = sync_engine(&h).unwrap();
+        assert_eq!(pushed, sample(), "重推内容 = 注册表全量");
+        assert_eq!(h.pushed_roots.borrow().len(), 1, "恰好重推一次");
+        assert_eq!(h.pushed_roots.borrow()[0]["path"], "E:/Docs");
+        assert_eq!(h.rows.borrow().len(), 1, "重推不得重写持久层");
+    }
+
+    #[test]
+    fn sync_engine_repushes_mirror_with_mobile_wire_shape() {
+        let _g = platform::test_lock().lock().unwrap();
+        platform::set_for_test(platform::Platform::Mobile);
+        let h = MockHost::default();
+        apply_and_push(&h, |list| list.extend(sample())).unwrap();
+        h.pushed_roots.borrow_mut().clear();
+
+        sync_engine(&h).unwrap();
+        assert_eq!(h.pushed_roots.borrow().len(), 1);
+        assert_eq!(h.pushed_roots.borrow()[0]["safTreeUri"], "E:/Docs");
+        assert!(h.kv.borrow().contains_key("shared_roots"), "移动落点仍是 KV");
     }
 
     #[test]

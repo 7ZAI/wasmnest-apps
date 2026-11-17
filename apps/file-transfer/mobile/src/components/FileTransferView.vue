@@ -34,7 +34,7 @@ import { useTasks } from '../composables/useTasks'
 import { isNeedsAllFilesAccess, promptAllFilesAccess } from '../composables/useAllFilesAccess'
 import { usePeerDevices } from '../composables/usePeerDevices'
 import { prepareDeviceSend } from '../composables/sendToDevice'
-import { useRemoteFs } from '../composables/useRemoteFs'
+import { rootsReadyKey, useRemoteFs } from '../composables/useRemoteFs'
 import { useSettings } from '../composables/useSettings'
 import { formatBytes, formatSpeed } from '../utils/format'
 import { resolveMainSwipe } from '../utils/mainSwipe'
@@ -52,7 +52,7 @@ const t = (key: string, params?: Record<string, any>) => context.i18n.t(key, par
 
 const tasks = useTasks(context)
 const devices = usePeerDevices(context)
-const fs = useRemoteFs(context)
+const fs = useRemoteFs(context, () => devices.peer.value.id)
 const settings = useSettings(context)
 
 /** 一级页面（默认探索连接：没有对端时传输页无事可做） */
@@ -344,12 +344,29 @@ async function uploadFile(): Promise<void> {
  */
 const readyPeerId = computed(() => (devices.peer.value.online ? devices.peer.value.id : ''))
 
-/** 活跃对端就绪状态变化驱动目录加载（就绪加载共享根，未就绪清空浏览态）；
- *  immediate：挂载时按当前状态对齐一次，替代此前挂载无条件 loadRoots（无活跃对端必失败） */
+/**
+ * 根清单拉取就绪键：活跃对端 + 已连接 + 有可用地址。
+ *
+ * 不能只看 id：首次连接时被连侧往往还没发现对方（设备无任何地址），这一刻
+ * 发起拉取必失败，而后端没有重试；等 mdns-found 补齐地址后键随之变化，才会
+ * 再拉一次。键出现前不发起，避免把注定失败的请求留在界面上。
+ */
+const rootsSyncKey = computed(() => {
+  const peer = devices.peer.value
+  const row = devices.rows.value.find((item) => item.nodeId === peer.id)
+  return rootsReadyKey({
+    peerId: peer.id,
+    online: peer.online,
+    connectionModes: row?.connectionModes ?? 'none',
+  })
+})
+
+/** 就绪键变化驱动目录加载（就绪加载共享根，未就绪清空浏览态）；
+ *  immediate：挂载时按当前状态对齐一次 */
 watch(
-  readyPeerId,
-  (id) => {
-    if (id) void fs.loadRoots()
+  rootsSyncKey,
+  (key) => {
+    if (key) void fs.loadRoots()
     else fs.reset()
   },
   { immediate: true },

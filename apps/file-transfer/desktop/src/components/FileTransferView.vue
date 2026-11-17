@@ -18,7 +18,7 @@ import ConfirmDialog from './ConfirmDialog.vue'
 
 import { useTasks } from '../composables/useTasks'
 import { useReceiving } from '../composables/useReceiving'
-import { useRemoteFs } from '../composables/useRemoteFs'
+import { rootsReadyKey, useRemoteFs } from '../composables/useRemoteFs'
 import { useSettings } from '../composables/useSettings'
 import { usePeerDevices } from '../composables/usePeerDevices'
 import { prepareDeviceSend } from '../composables/sendToDevice'
@@ -345,16 +345,33 @@ onUnmounted(() => {
   stopReceiving()
 })
 
-/** 激活设备变化驱动目录加载/清空 */
+/**
+ * 目录加载的就绪键：活跃对端 + 已连接 + 有可用地址。
+ *
+ * 只看 id 会漏两种情况：①重连时 id 不变（连接态变化不触发重拉）；②被连侧首次
+ * 连入时还没发现对方（无地址），那次拉取必失败且后端不重试。地址随后续
+ * mdns-found 补齐时键才出现，届时再拉一次。
+ */
+const rootsSyncKey = computed(() => {
+  const row = deviceRows.value.find((item) => item.nodeId === peer.value.id)
+  return rootsReadyKey({
+    peerId: peer.value.id,
+    online: peer.value.online,
+    connectionModes: row?.connectionModes ?? 'none',
+  })
+})
+
+/** 就绪键变化驱动目录加载/清空 */
 watch(
-  () => peer.value.id,
-  (id) => {
-    if (id) {
+  rootsSyncKey,
+  (key) => {
+    if (key) {
       void fs.loadRoots()
     } else {
       fs.reset()
     }
   },
+  { immediate: true },
 )
 
 // ==================== 传入批请求弹窗（挂载包自持渲染） ====================
