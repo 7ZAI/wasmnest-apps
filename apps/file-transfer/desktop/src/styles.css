@@ -132,8 +132,12 @@
   top: calc(100% + 6px);
   left: 0;
   z-index: 30;
-  width: 340px;
+  width: 384px;
   max-width: calc(100vw - 32px);
+  /* 窗口偏矮时由设备列表自己滚动，面板不越过窗口底部 */
+  max-height: calc(100vh - 120px);
+  display: flex;
+  flex-direction: column;
   padding: 10px;
   background: var(--bg-card);
   border: 1px solid var(--border);
@@ -144,6 +148,7 @@
 .ft-dev-head {
   display: flex;
   align-items: baseline;
+  flex-shrink: 0;
   gap: 8px;
   padding: 2px 4px 8px;
   border-bottom: 1px solid var(--border);
@@ -225,6 +230,8 @@
 }
 
 .ft-dev-list {
+  flex: 1 1 auto;
+  min-height: 0;
   max-height: 300px;
   overflow-y: auto;
   padding-top: 6px;
@@ -232,7 +239,9 @@
 
 .ft-dev-row {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
+  /* 信息与动作放不下时动作整块换行，避免横向溢出压到相邻行 / 面板外 */
+  flex-wrap: wrap;
   gap: 8px;
   padding: 7px 8px;
   border-radius: var(--radius-tag);
@@ -250,19 +259,21 @@
 }
 
 .ft-dev-info {
-  flex: 1;
+  flex: 1 1 150px;
   min-width: 0;
 }
 
 .ft-dev-name-line {
   display: flex;
   align-items: center;
-  gap: 6px;
+  flex-wrap: wrap;
+  gap: 4px 6px;
   min-width: 0;
 }
 
 .ft-dev-name {
   flex: 0 1 auto;
+  max-width: 100%;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -277,6 +288,15 @@
   font-family: ui-monospace, monospace;
   font-size: var(--font-size-sm);
   color: var(--text-tertiary);
+}
+
+/* 徽标组：整组随名称行换行，组内再按序换行，单个徽标不被压缩 */
+.ft-dev-tags {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-width: 0;
 }
 
 .ft-dev-tag {
@@ -341,8 +361,13 @@
 .ft-dev-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
-  flex-shrink: 0;
+  justify-content: flex-end;
+  /* 按钮多于一行宽度时换行，保证不越过面板边界与相邻内容重叠 */
+  flex-wrap: wrap;
+  gap: 6px 8px;
+  flex: 0 1 auto;
+  min-width: 0;
+  margin-left: auto;
 }
 
 .ft-text-btn {
@@ -399,6 +424,7 @@
 }
 
 .ft-dev-hint {
+  flex-shrink: 0;
   padding: 8px 4px 2px;
   border-top: 1px solid var(--border);
   margin-top: 6px;

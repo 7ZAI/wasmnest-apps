@@ -172,7 +172,11 @@ const zhCN: MessageSchema = {
   'pairing.code.generateFailedNoCode': '生成配对码失败：未收到有效配对码',
 
   'pairing.qr.title': 'QR 码连接',
+  'pairing.qr.tabLan': '局域网',
+  'pairing.qr.tabWan': '外网',
   'pairing.qr.generate': '生成二维码',
+  'pairing.qr.generateWan': '生成外网二维码',
+  'pairing.qr.generateFailed': '生成二维码失败',
   'pairing.qr.hint': '使用移动端 BedCode 扫描二维码',
   'pairing.qr.singleUse': '每个二维码只能绑定一个设备',
   'pairing.qr.placeholder': '点击下方按钮生成二维码',
@@ -712,9 +716,10 @@ const zhCN: MessageSchema = {
   'hub.card.method.standalone': 'standalone',
   'hub.card.method.unknown': '—',
 
-  // 概览 · CLI 卸载（两击确认 + 不可用原因 + 失败提示）
+  // 概览 · CLI 卸载（确认弹窗 + 不可用原因 + 失败提示）
   'hub.card.uninstall': '卸载',
-  'hub.card.uninstallConfirm': '确认卸载？',
+  'hub.card.uninstallDialogTitle': '卸载 {name}？',
+  'hub.card.uninstallDialogBody': '将从此机器移除 {name}。此操作不可撤销，如有需要可稍后重新安装。',
   'hub.card.uninstallRunning': '卸载中…',
   'hub.card.uninstallHintDual': '检测到多处安装，请手动卸载',
   'hub.card.uninstallHintMethod': '安装方式未知，请手动卸载',
@@ -860,6 +865,17 @@ const zhCN: MessageSchema = {
   'hub.skill.status.libraryOnly': '仅规范库',
   'hub.skill.status.synced': '{name} ✓',
   'hub.skill.status.stale': '{name} 落后',
+  'hub.skill.delete': '删除',
+  'hub.skill.deleteConfirm':
+    '删除「{name}」？规范库与已分发副本（{targets}）将一并移除，这些 agent 立即失去该 skill。',
+  'hub.skill.deleteConfirmLibraryOnly':
+    '删除「{name}」？该 skill 尚未分发到任何 agent，仅移除规范库。',
+  'hub.skill.deleteConfirmGo': '确认删除',
+  'hub.skill.deleteCancel': '取消',
+  'hub.skill.deleting': '删除中…',
+  'hub.skill.deleteDone': '已删除 {name}',
+  'hub.skill.deleteDoneTargets': '已删除 {name}，并清理 {n} 个分发副本',
+  'hub.skill.deleteFailed': '删除失败',
 
   // ==================== Skills · GitHub 安装（票据 04） ====================
   'hub.skill.github.action': '从 GitHub 安装',
@@ -875,6 +891,32 @@ const zhCN: MessageSchema = {
   'hub.skill.github.overwrite': '覆盖安装',
   'hub.skill.github.unreachable': 'GitHub 不可达：请检查网络，或配置代理/镜像后重试。',
   'hub.skill.github.failed': '安装失败',
+
+  // ==================== Skills · 搜索（本地 / skills.sh 联网） ====================
+  'hub.skill.search.placeholder': '搜索 skill（名称 / 描述 / 关键词）',
+  'hub.skill.search.local': '本地',
+  'hub.skill.search.remote': '联网',
+  'hub.skill.search.modeLabel': '搜索范围',
+  'hub.skill.search.localHint': '规范库内匹配 {n} / {total}；输入即筛。',
+  'hub.skill.search.remoteHint':
+    '联网搜索走 skills.sh（与 npx skills find 同一数据源）：安装量 ≥1K 优先信任，<100 谨慎，官方来源更可靠。',
+  'hub.skill.search.action': '联网搜索',
+  'hub.skill.search.searching': '搜索中…',
+  'hub.skill.search.failed': '搜索失败：skills.sh 不可达或响应异常。',
+  'hub.skill.search.installFailed': '安装失败',
+  'hub.skill.search.remoteIdle': '输入关键词后开始联网搜索',
+  'hub.skill.search.remoteEmpty': '没有找到与「{q}」相关的 skill',
+  'hub.skill.search.remoteEmptyHint': '换个说法或缩短关键词再试；也可以直接用 GitHub 链接安装，或导入本地目录。',
+  'hub.skill.search.count': '「{q}」命中 {n} 个 skill',
+  'hub.skill.search.fallback': '含按词拆分的近似结果',
+  'hub.skill.search.noMatch': '规范库内没有匹配「{q}」的 skill',
+  'hub.skill.search.noMatchHint': '清空关键词查看全部；或切到联网搜索去 skills.sh 找现成的。',
+  'hub.skill.search.installs': '{n} 安装',
+  'hub.skill.search.trustHigh': '高采用',
+  'hub.skill.search.trustMid': '中等采用',
+  'hub.skill.search.trustLow': '低采用',
+  'hub.skill.search.official': '官方来源',
+  'hub.skill.search.install': '安装',
 
   // ==================== Skills · 本地导入（票据 04） ====================
   'hub.skill.import.action': '导入本地目录',
@@ -896,6 +938,8 @@ const zhCN: MessageSchema = {
   'hub.skill.editor.conflict': '文件在装载后被外部修改，请选择覆盖或放弃',
   'hub.skill.editor.overwriteMine': '以我的版本覆盖',
   'hub.skill.editor.reload': '从磁盘重读',
+  'hub.skill.editor.loadFailed': '读取 SKILL.md 失败，请重试（详情见应用日志）',
+  'hub.skill.editor.retry': '重试',
 
   // ==================== 供应商管理（票据 05） ====================
   'hub.pv.secure':
@@ -1282,7 +1326,7 @@ const zhCN: MessageSchema = {
 
   // 确认与提示
   'project.confirm.removeTitle': '移除项目',
-  'project.confirm.removeMsg': '移除「{name}」及其运行记录？磁盘上的文件不会被删除。',
+  'project.confirm.removeMsg': '移除「{name}」及其运行记录、该目录下的启动配置？磁盘上的文件不会被删除。',
   'project.toast.created': '项目已创建',
   'project.toast.existed': '该目录已有项目，已带你过去',
   'project.toast.renamed': '项目已重命名',
@@ -1317,6 +1361,7 @@ const zhCN: MessageSchema = {
 
   // 运行
   'project.run.title': '运行',
+  'project.run.noProject': '未归属项目',
   'project.run.new': '新建运行',
   'project.run.empty': '还没有运行',
   'project.run.emptyHint': '选一个 agent 启动：每次启动产生一条运行，可在同一项目里并发多条',
@@ -1346,6 +1391,10 @@ const zhCN: MessageSchema = {
   'project.terminal.tileEmpty': '没有存活运行',
   'project.terminal.tileEmptyHint': '拼屏只铺存活运行；先在左栏新建运行，或选中一条运行切回单屏',
   'project.terminal.tileHidden': '还有 {n} 条存活运行未铺开，点左栏运行可换入',
+  // 拼屏范围：本项目 / 全部项目（跨项目并线）
+  'project.terminal.scope': '拼屏范围',
+  'project.terminal.scopeProject': '本项目',
+  'project.terminal.scopeAll': '全部项目',
 
   // 运行内 agent 控制（模型 / 思考等级下拉）
   'project.agent.modelNone': '未上报模型',

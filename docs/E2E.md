@@ -481,9 +481,9 @@ scripts/e2e-mobile.mjs（编排层）
 1. **断状态位，不断文案**：`data-online` / `aria-pressed` / `disabled`；设备语言可能是
    zh-CN / en。
 2. **断言要有牙**：file-transfer 移动端的 `devMock.ts` 给 mock 壳播了「已连接的活跃
-   对端」（小米 14 Pro），真宿主**忽略 devMock** → 真机必然离线。故
-   `mobile-ft-peer-status[data-online="false"]` + 上传按钮 `disabled` 这两条，
-   对 mock 壳是红的、对真机是绿的——它们同时证明了「跑的是真宿主真 wasm，不是 mock 壳」。
+   对端」（小米 14 Pro），真宿主**忽略 devMock** → 真机必然离线。故底栏上方上传按钮
+   `mobile-ft-upload[disabled]` 这一条，对 mock 壳是红的、对真机是绿的——它证明
+   了「跑的是真宿主真 wasm，不是 mock 壳」。
 
 ### 11.5 加一条真机单端用例
 

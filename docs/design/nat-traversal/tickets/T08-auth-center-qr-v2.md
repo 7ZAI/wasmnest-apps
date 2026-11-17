@@ -145,3 +145,23 @@
 nodeId 2 条、级联 4 条）；wasm32-wasip3 release 构建绿；双端 SDK `check` 与
 `compose-wit --all --check` 绿。真机跨网（peer face 实测 `peerNodeId` 注入）
 归 T10。
+
+### 8. QR v3 紧凑编码（2026-11-13，仅前端载荷，无后端/契约改动）
+
+**动机**：v2 的 479 字符 / 85 模块按「每模块 ≥4 CSS px」要画到 356px；载荷里有大量
+移动端可推导的重复（`nodeId` 出现 3 次、JSON 长键、与 `h:p` 相同的 LAN 地址整条重复）。
+
+**编码**（语义与 v2 等价）：`{v:3,h,p,t,n,a[],tk}`——`a` 存完整 multiaddr 去掉尾部
+`/p2p/<n>` 后的**拨号前缀**，`"@"` 代表与 `h:p` 逐字相同的那条 LAN 地址；解析侧拼回。
+
+**落点**：`apps/bedcode/desktop/src/utils/pairingPayload.ts`（组装）、
+`apps/bedcode/mobile/src/host/qr.ts`（解析，保留 v1/v2 路径）、
+`docs/design/nat-traversal.md` §4.3（契约描述）。
+
+**实测（ECC M）**：双地址 314 字符 / 69 模块 / 292px；仅 LAN 216 字符 / 61 模块 /
+260px；三地址 73 模块 / 308px（v2 同载荷 85 / 93 模块、356 / 372px）。
+
+**回归锁**：桌面 `pairingPayload.test.ts` T08-1..7（含 69/73/61 模块断言）、
+`deviceCenter.test.ts` C5e/C5h（真实 `qrcode` 渲染前的载荷形状）；移动
+`qr.test.ts` C-QR-8（前缀还原 / `@` / 坏前缀 / v4）、`scanIntegration.test.ts`
+（桌面真实载荷 → 取景 → 解码 → 解析，模块数与等价性）。

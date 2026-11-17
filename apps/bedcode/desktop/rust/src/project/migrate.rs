@@ -9,7 +9,8 @@
 //! 1. `sessions` → `runs`（重命名 + 补列 `project_id` / `agent_id` /
 //!    `agent_session_id` / `title` / `model`）；
 //! 2. `session_configs` 按 `(执行环境, 归一化目录)` 去重生成 `projects`（已存在则复用，
-//!    不覆盖用户改过的名字）；
+//!    不覆盖用户改过的名字）。项目移除时 `project::remove_via_host` 会清掉对应的
+//!    配置行，否则下次激活会按同一目录把项目以新 id 重建出来；
 //! 3. 运行按 `config_id` → 配置的目录/命令回填 `(project_id, agent_id)`；
 //! 4. 无法归属的运行（`config_id` 空 / 配置已删）**删除**并把 id 写进迁移日志
 //!    （研发期无真实用户，不背幽灵项目；但绝不静默——日志键 `project.migration_log`）。
@@ -813,6 +814,50 @@ mod tests {
         let runs = store.runs();
         assert_eq!(runs[0].project_id.as_deref(), Some("manual-project"));
         assert_eq!(runs[0].agent_id.as_deref(), Some("claude"));
+    }
+
+    /// 项目移除后不复活：清掉该目录的启动配置，重跑迁移就不得以新 id 重建项目
+    #[test]
+    fn removed_project_does_not_reappear_once_configs_are_cleared() {
+        let store = MockContainerStore::with_tables(&[
+            "runs",
+            "session_configs",
+            "task_queue",
+            "plugin_meta",
+        ]);
+        *store.configs.lock().unwrap() = vec![
+            config("c1", "linux", "/srv/app", "pi"),
+            config("c2", "linux", "/srv/app/", "opencode"),
+        ];
+
+        let first = migrate(&store, "2026-10-29T00:00:00Z", ids()).expect("first");
+        assert_eq!(
+            first.projects_created.len(),
+            1,
+            "跑过 agent 的目录落成一条项目"
+        );
+        assert_eq!(store.project_count(), 1);
+
+        // 对照组：只删项目行、留着配置（旧行为）→ 下次激活必然把项目建回来
+        store.projects.lock().unwrap().clear();
+        let revived = migrate(&store, "2026-10-30T00:00:00Z", ids()).expect("revive");
+        assert_eq!(
+            revived.projects_created.len(),
+            1,
+            "配置未清时会把项目重建回来"
+        );
+        assert_eq!(store.project_count(), 1);
+
+        // 修复后：项目行与启动配置一起清掉 → 迁移没有重建来源
+        store.projects.lock().unwrap().clear();
+        store.configs.lock().unwrap().clear();
+        let after_remove = migrate(&store, "2026-10-31T00:00:00Z", ids()).expect("after remove");
+        assert!(
+            after_remove.projects_created.is_empty(),
+            "清掉启动配置后不得重建, got: {:?}",
+            after_remove.projects_created
+        );
+        assert_eq!(store.project_count(), 0, "被移除的项目保持不存在");
     }
 
     /// 日志 JSON 形状（前端/排障按字段名读，键名漂移即排障失据）

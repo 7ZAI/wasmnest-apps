@@ -513,6 +513,30 @@ describe('S13 分段栏宽度与选中态无关', () => {
   })
 })
 
+describe('S15 输入框焦点态不与宿主壳焦点环叠成双层边框', () => {
+  // 回归（2026-11-13 用户反馈：skills 搜索框「双层边框」）：宿主
+  // `shell/styles/shell.css` 的 `.shell-root :is(button, a, [tabindex], input, ...):focus-visible`
+  // 特异性 0,3,0，压过 `.ah-input:focus { outline: none }`（0,2,0）；而应用挂载槽
+  // （AppMountSlot）就在 `.shell-root` 内，于是聚焦时「1px 品牌边框 + 3px 柔光环」
+  // 之外再套一圈 2px 外扩蓝环（WebKitGTK 实测 outline 2px solid rgb(37,99,235)、
+  // offset 2px）。契约：输入控件自带焦点态，按控件类型用 0,3,1 的选择器摘环
+  // ——带元素名抬一档特异性，既不依赖 CSS 注入顺序，也不用 !important。
+  const SHELL_CSS = resolve(PLATFORM_ROOT, 'wasmnest-desktop/src/shell/styles/shell.css')
+
+  it('宿主壳环仍把 input 算在内（壳若改掉这条，摘环规则要回来复看）', () => {
+    expect(readFileSync(SHELL_CSS, 'utf8')).toMatch(
+      /\.shell-root :is\([^)]*input[^)]*\):focus-visible/,
+    )
+  })
+
+  it.each(['input', 'select', 'textarea'])('%s.ah-input 在壳环之上摘掉 outline', (tag) => {
+    const selector = `.ah-view ${tag}.ah-input:focus-visible`
+    const hit = RULES.filter((r) => r.selector === selector)
+    expect(hit.length, `${selector} 缺失：壳环会重新套成双层边框`).toBe(1)
+    expect(hit[0].decls.outline, `${selector} 必须 outline: none`).toBe('none')
+  })
+})
+
 /** 取单类名规则的声明体（用于样式层布局契约断言） */
 function declsOf(selector: string): Record<string, string> {
   const hit = RULES.filter((r) => r.selector === selector)
@@ -687,5 +711,48 @@ describe('S11 会话日志高度链不断（详情页任务记录不再塌成一
   it('内部滚动容器就位（事件流与原始行各有一层 overflow-y: auto）', () => {
     expect(declsOf('.ah-chat-scroll')['overflow-y']).toBe('auto')
     expect(declsOf('.ah-lg-raw')['overflow-y']).toBe('auto')
+  })
+})
+
+// ==================== S15 SKILL.md 编辑器高度链（2026-11-15 实机回归） ====================
+
+/**
+ * 点「编辑」后正文整块消失：只剩标题栏与底部按钮，SKILL.md 内容不可见。
+ *
+ * 成因与 S11 同型：编辑态根 `.ah-sk--editing` 的父级是分区过渡容器 `.page-swap`
+ * （普通块盒，不是 flex 容器），`flex: 1` 在这里空转 → `.ah-sk` 退回内容高 →
+ * 下游 `.ah-sk-editor-body { flex: 1 1 0; min-height: 0 }` 的基数为 0 且无剩余
+ * 空间可分配，被压成 0 高（WebKitGTK 实测：body / MarkdownEditor 均 0 高，
+ * textarea 只剩 6px，正文不可见）。
+ *
+ * 契约：高度锚点用 `height: 100%`（对上 `.page-swap` 这个已确定高度的块盒），
+ * 不再写 `flex`；`.ah-sk-editor-body` 保留 `flex: 1 1 0` + `min-height: 0`，
+ * 才能从已确定的父高度里真正分到空间。
+ */
+describe('S15 SKILL.md 编辑器高度链不断（点编辑后正文不再整块消失）', () => {
+  it('第 1 跳：.ah-sk--editing 用 height 锚定 .page-swap，不用 flex（父级是块盒）', () => {
+    const sk = declsOf('.ah-sk--editing')
+    expect(sk['height'], '缺 height: 100% → .ah-sk 退回内容高，编辑器主体塌成 0').toBe('100%')
+    expect(
+      sk['flex'],
+      '.ah-sk--editing 的 flex 是空转声明（父级 .page-swap 为块盒），写回去会静默回到本 bug',
+    ).toBeUndefined()
+  })
+
+  it('第 2 跳：编辑器根占满 .ah-sk 剩余高度，且允许被压缩', () => {
+    const editor = declsOf('.ah-sk-editor')
+    expect(editor['flex'], '缺 flex: 1 → 拿不到 .ah-sk 的剩余高度').toBe('1')
+    expect(editor['min-height'], '缺 min-height: 0 → 自动最小尺寸挡压缩').toBe('0')
+  })
+
+  it('第 3 跳：正文容器是 flex 列里的可增长项（flex-basis 0 + min-height 0）', () => {
+    const body = declsOf('.ah-sk-editor-body')
+    expect(body['flex'], '缺 flex: 1 1 0 → 正文容器退回内容高，MarkdownEditor 高度失锚').toBe(
+      '1 1 0',
+    )
+    expect(body['min-height'], '缺 min-height: 0 → 自动最小尺寸挡压缩').toBe('0')
+    expect(body.display, '正文容器必须是 flex 列，MarkdownEditor 的 height: 100% 才成立').toBe(
+      'flex',
+    )
   })
 })

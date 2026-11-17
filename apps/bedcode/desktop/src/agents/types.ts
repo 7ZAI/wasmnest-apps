@@ -316,6 +316,19 @@ export interface SkillEntry {
   distribution: Record<string, SkillDistribution>
 }
 
+/** 最近一次删除 / 卸载的结果（guest 回灌；targets 为已清理的副本目标名） */
+export interface SkillDeleteResult {
+  ok: boolean
+  dir: string
+  name: string
+  /** 规范库目录是否已消失 */
+  libraryRemoved: boolean
+  /** 已清理的分发副本目标（不含规范库） */
+  targets: string[]
+  error: string | null
+  at: number
+}
+
 /** Skills 域复合状态（host-storage `skills` 键 + `plugin:bedcode:skills` 事件载荷） */
 export interface SkillsDomainState {
   status: 'idle' | 'scanning' | 'ready' | 'error'
@@ -323,6 +336,8 @@ export interface SkillsDomainState {
   scannedAt: number | null
   libraryRoot: string
   importing: boolean
+  /** 正在删除的 skill 目录名（异步命令，完成后回灌 null） */
+  deleting?: string | null
   skills: SkillEntry[]
   targets: Record<string, { root: string; exists: boolean }>
   github: {
@@ -344,6 +359,9 @@ export interface SkillsDomainState {
       at: number
     } | null
   }
+  delete?: {
+    last: SkillDeleteResult | null
+  }
 }
 
 /** read-skill 返回（编辑器装载载荷） */
@@ -363,6 +381,35 @@ export interface GithubInstallResult {
   skipped?: string[]
   error?: string
   exists?: string[]
+}
+
+/** skills.sh 联网搜索单条结果（guest `agent.search-skills` 归一后的形状） */
+export interface SkillSearchHit {
+  /** `owner/repo/skill`（skills.sh 详情页路径） */
+  id: string
+  /** 展示名（frontmatter name，可能是自由文本如 `react:components`） */
+  name: string
+  /** `owner/repo` */
+  source: string
+  /** 仓库内 skill 名（sanitize 后；安装按此定位目录 / frontmatter） */
+  skillId: string
+  /** 安装量（可信度原始依据） */
+  installs: number
+  /** `source@skillId`（= `npx skills add` 的包选择子） */
+  install: string
+  /** skills.sh 详情页 */
+  url: string
+}
+
+/** skills.sh 联网搜索返回（error 非空 = 网络/响应失败，不静默给空结果） */
+export interface SkillSearchResponse {
+  query: string
+  results: SkillSearchHit[]
+  /** 精确命中条数（合并前） */
+  exactCount: number
+  /** 精确命中不足时是否并入了逐词近似结果 */
+  fallback: boolean
+  error: string | null
 }
 
 /** import-skill 返回（picked/auth/exists 为交互分支信号） */

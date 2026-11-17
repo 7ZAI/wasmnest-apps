@@ -186,7 +186,11 @@ export type MessageSchema = {
 
   // ==================== QR 卡 ====================
   'pairing.qr.title': string
+  'pairing.qr.tabLan': string
+  'pairing.qr.tabWan': string
   'pairing.qr.generate': string
+  'pairing.qr.generateWan': string
+  'pairing.qr.generateFailed': string
   'pairing.qr.hint': string
   'pairing.qr.singleUse': string
   'pairing.qr.placeholder': string
@@ -671,7 +675,8 @@ export type MessageSchema = {
   'hub.card.method.unknown': string
   // ==================== 概览 · CLI 卸载（概览卡片动作） ====================
   'hub.card.uninstall': string
-  'hub.card.uninstallConfirm': string
+  'hub.card.uninstallDialogTitle': string
+  'hub.card.uninstallDialogBody': string
   'hub.card.uninstallRunning': string
   'hub.card.uninstallHintDual': string
   'hub.card.uninstallHintMethod': string
@@ -828,6 +833,19 @@ export type MessageSchema = {
   'hub.skill.status.libraryOnly': string
   'hub.skill.status.synced': string
   'hub.skill.status.stale': string
+  'hub.skill.delete': string
+  // 参数：name（skill 名）/ targets（已分发到的目标展示名）
+  'hub.skill.deleteConfirm': string
+  // 参数：name（skill 名）
+  'hub.skill.deleteConfirmLibraryOnly': string
+  'hub.skill.deleteConfirmGo': string
+  'hub.skill.deleteCancel': string
+  'hub.skill.deleting': string
+  // 参数：name（skill 名）
+  'hub.skill.deleteDone': string
+  // 参数：name（skill 名）/ n（清理的副本数）
+  'hub.skill.deleteDoneTargets': string
+  'hub.skill.deleteFailed': string
 
   // ==================== Skills · GitHub 安装（票据 04） ====================
   'hub.skill.github.action': string
@@ -842,6 +860,36 @@ export type MessageSchema = {
   'hub.skill.github.overwrite': string
   'hub.skill.github.unreachable': string
   'hub.skill.github.failed': string
+
+  // ==================== Skills · 搜索（本地 / skills.sh 联网） ====================
+  'hub.skill.search.placeholder': string
+  'hub.skill.search.local': string
+  'hub.skill.search.remote': string
+  'hub.skill.search.modeLabel': string
+  // 参数：n（命中）/ total（库内总数）
+  'hub.skill.search.localHint': string
+  'hub.skill.search.remoteHint': string
+  'hub.skill.search.action': string
+  'hub.skill.search.searching': string
+  'hub.skill.search.failed': string
+  'hub.skill.search.installFailed': string
+  'hub.skill.search.remoteIdle': string
+  // 参数：q（查询串）
+  'hub.skill.search.remoteEmpty': string
+  'hub.skill.search.remoteEmptyHint': string
+  // 参数：n（条数）/ q（查询串）
+  'hub.skill.search.count': string
+  'hub.skill.search.fallback': string
+  // 参数：q（查询串）
+  'hub.skill.search.noMatch': string
+  'hub.skill.search.noMatchHint': string
+  // 参数：n（安装量缩写）
+  'hub.skill.search.installs': string
+  'hub.skill.search.trustHigh': string
+  'hub.skill.search.trustMid': string
+  'hub.skill.search.trustLow': string
+  'hub.skill.search.official': string
+  'hub.skill.search.install': string
 
   // ==================== Skills · 本地导入（票据 04） ====================
   'hub.skill.import.action': string
@@ -863,6 +911,8 @@ export type MessageSchema = {
   'hub.skill.editor.conflict': string
   'hub.skill.editor.overwriteMine': string
   'hub.skill.editor.reload': string
+  'hub.skill.editor.loadFailed': string
+  'hub.skill.editor.retry': string
 
   // ==================== 供应商管理（票据 05） ====================
   'hub.pv.secure': string
@@ -1286,6 +1336,7 @@ export type MessageSchema = {
 
   // 运行
   'project.run.title': string
+  'project.run.noProject': string
   'project.run.new': string
   'project.run.empty': string
   'project.run.emptyHint': string
@@ -1314,6 +1365,10 @@ export type MessageSchema = {
   'project.terminal.tileEmpty': string
   'project.terminal.tileEmptyHint': string
   'project.terminal.tileHidden': string
+  // 拼屏范围：本项目 / 全部项目（跨项目并线）
+  'project.terminal.scope': string
+  'project.terminal.scopeProject': string
+  'project.terminal.scopeAll': string
 
   // 运行内 agent 控制（模型 / 思考等级下拉）
   'project.agent.modelNone': string

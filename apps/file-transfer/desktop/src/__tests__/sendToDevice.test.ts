@@ -28,6 +28,8 @@ function row(overrides: Partial<DeviceRow> = {}): DeviceRow {
     transport: null,
     lastTransport: null,
     wanAvailable: false,
+    lanAvailable: false,
+    connectionModes: 'none',
     relayOnlyRecommended: false,
     ...overrides,
   }

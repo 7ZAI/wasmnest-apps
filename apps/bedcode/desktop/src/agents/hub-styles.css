@@ -838,6 +838,25 @@
   box-shadow: var(--ah-ctl-focus-shadow);
 }
 
+/* 摘掉宿主壳的统一焦点环（2026-11-13 用户反馈：skills 搜索框聚焦时「双层边框」）。
+ *
+ * 宿主 `shell/styles/shell.css` 有一条全局规则
+ * `.shell-root :is(button, a, [tabindex], input, select, textarea, summary):focus-visible`
+ * —— 特异性 0,3,0，**盖过**上面的 `.ah-input:focus { outline: none }`（0,2,0）。
+ * 而应用挂载槽（AppMountSlot）就在 `.shell-root` 里，于是输入框聚焦时在
+ * 「1px 品牌边框 + 3px 柔光环」之外又套一圈 2px 外扩蓝环（WebKitGTK 实测：
+ * `outline: 2px solid rgb(37, 99, 235); outline-offset: 2px`；环色取宿主
+ * `--color-info`，也不跟应用色板走），看起来就是双层边框。
+ *
+ * 插件输入控件已自带明确的焦点态（边框换 primary + 柔光环），故按控件类型逐条摘环。
+ * 选择器带元素名（类型选择器）把特异性抬到 0,3,1：稳定压过壳环，既不依赖 CSS
+ * 注入顺序，也不用 !important（`input` / `select` / `textarea` 都是壳环清单成员）。 */
+.ah-view input.ah-input:focus-visible,
+.ah-view select.ah-input:focus-visible,
+.ah-view textarea.ah-input:focus-visible {
+  outline: none;
+}
+
 .ah-input::placeholder {
   color: var(--ah-ctl-placeholder);
 }
@@ -969,9 +988,15 @@
   gap: 14px;
 }
 
-/* 编辑态撑满：仅编辑 SKILL.md 时压缩到视口剩余高度（列表态不拉伸，内容流高度回归原行为） */
+/* 编辑态撑满：仅编辑 SKILL.md 时压缩到视口剩余高度（列表态不拉伸，内容流高度回归原行为）。
+   高度锚点必须是 `height: 100%` 而不是 `flex: 1`：父级是分区过渡容器 `.page-swap`
+   （宿主全局类，普通块盒，不是 flex 容器），`flex: 1` 在这里空转——`.ah-sk` 退回内容高后，
+   下游 `.ah-sk-editor-body { flex: 1 1 0; min-height: 0 }` 的 flex-basis 0 拿不到可分配
+   高度，编辑器主体被压成 0 高（实机：点「编辑」后只剩标题栏与保存按钮，SKILL.md 内容
+   不可见）。父级高度由 `.ah-view > .page-swap { flex: 1 }` 确定，`height: 100%` 才对得上
+   （与 `.ah-lg` 同一条修法）。护栏：styleGuards.test.ts S15。 */
 .ah-sk--editing {
-  flex: 1;
+  height: 100%;
   min-height: 0;
 }
 
@@ -981,6 +1006,77 @@
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+/* 搜索行（§搜索）：输入框复用 .ah-input，右侧是模式分段 */
+.ah-sk-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+/* 本地 / 联网 分段：底槽 + 选中项上色（与 .ah-tab 同一语义） */
+.ah-sk-search-modes {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--radius-button);
+  background: var(--bg-hover);
+  flex-shrink: 0;
+}
+
+.ah-sk-mode-btn {
+  height: 26px;
+  padding: 0 10px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--ah-text-data);
+  font-family: inherit;
+  font-size: var(--font-size-tag);
+  /* 字重恒定：选中不改字重，避免分段栏随选中项宽度变化（同 .ah-tab） */
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color 0.15s,
+    color 0.15s;
+}
+
+.ah-sk-mode-btn:hover {
+  background: var(--bg-hover);
+}
+
+.ah-sk-mode-btn.active {
+  background: var(--color-primary);
+  color: var(--color-primary-contrast);
+}
+
+.ah-sk-mode-btn:focus-visible {
+  outline: 2px solid var(--text-primary);
+  outline-offset: -2px;
+}
+
+.ah-sk-mode-btn.active:focus-visible {
+  outline-color: var(--color-primary-contrast);
+}
+
+.ah-sk-search-hint {
+  margin-top: 6px;
+}
+
+/* 联网结果头行：命中条数 + 近似合并提示 */
+.ah-sk-search-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 8px 0 2px;
+  color: var(--ah-text-data);
+  font-size: var(--font-size-tag);
 }
 
 /* GitHub 安装表单 */

@@ -41,11 +41,11 @@
       </div>
       <div class="flex items-center gap-2 shrink-0">
         <span
-          v-if="activeRunCount > 0"
+          v-if="projectActiveRunCount > 0"
           class="wb-mono text-[calc(11px*var(--ui-scale))] text-[var(--color-success-ink)] flex items-center gap-1.5"
         >
           <span class="w-1.5 h-1.5 rounded-full bg-[var(--color-success)]"></span>
-          {{ t('project.workbench.activeRuns', { n: activeRunCount }) }}
+          {{ t('project.workbench.activeRuns', { n: projectActiveRunCount }) }}
         </span>
         <button class="wb-btn-ghost" data-testid="workbench-refresh" @click="refresh">
           <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -123,6 +123,7 @@
           >
             {{ t('project.run.title') }}
             <span v-if="liveRuns.length > 0" class="wb-mono">· {{ liveRuns.length }}</span>
+            <span v-if="crossProject" class="wb-mono">· {{ t('project.terminal.scopeAll') }}</span>
           </span>
           <button
             class="w-6 h-6 rounded-[6px] flex items-center justify-center text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] transition-colors"
@@ -220,6 +221,14 @@
                     >
                   </div>
                   <div class="mt-0.5 flex items-center gap-2 pl-3.5">
+                    <!-- 跨项目拼屏：行上标归属项目，否则同名运行无法区分是谁的 -->
+                    <span
+                      v-if="crossProject"
+                      class="wb-mono min-w-0 max-w-[8rem] truncate text-[calc(11px*var(--ui-scale))] text-[var(--text-tertiary)]"
+                      data-testid="run-item-project"
+                    >
+                      {{ projectLabel(run) }}
+                    </span>
                     <span
                       class="wb-mono text-[calc(11px*var(--ui-scale))] text-[var(--text-secondary)]"
                     >
@@ -479,7 +488,7 @@
             </svg>
           </button>
 
-          <!-- 拼屏开关：把该项目存活运行的终端一起铺开（最多 4 格，点击格子换焦点） -->
+          <!-- 拼屏开关：把存活运行的终端一起铺开（最多 4 格，点击格子换焦点） -->
           <button
             class="shrink-0 whitespace-nowrap inline-flex items-center gap-1.5 rounded-[6px] border h-6 px-2 text-[calc(11px*var(--ui-scale))] transition-colors"
             :class="
@@ -502,6 +511,41 @@
             </svg>
             {{ tileMode ? t('project.terminal.singleMode') : t('project.terminal.tileMode') }}
           </button>
+          <!-- 拼屏范围：单屏恒为本项目，不做控件；拼屏时可把各项目的存活运行并在一张网格 -->
+          <div
+            v-if="tileMode"
+            class="shrink-0 inline-flex items-center overflow-hidden rounded-[6px] border border-[var(--border)]"
+            role="group"
+            :aria-label="t('project.terminal.scope')"
+            data-testid="run-tile-scope"
+          >
+            <button
+              class="h-6 px-2 whitespace-nowrap text-[calc(11px*var(--ui-scale))] transition-colors"
+              :class="
+                tileScope === 'project'
+                  ? 'bg-[var(--bg-hover)] text-[var(--text-primary)]'
+                  : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'
+              "
+              :aria-pressed="tileScope === 'project'"
+              data-testid="run-scope-project"
+              @click="setTileScope('project')"
+            >
+              {{ t('project.terminal.scopeProject') }}
+            </button>
+            <button
+              class="h-6 px-2 whitespace-nowrap text-[calc(11px*var(--ui-scale))] transition-colors"
+              :class="
+                tileScope === 'all'
+                  ? 'bg-[var(--bg-hover)] text-[var(--text-primary)]'
+                  : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'
+              "
+              :aria-pressed="tileScope === 'all'"
+              data-testid="run-scope-all"
+              @click="setTileScope('all')"
+            >
+              {{ t('project.terminal.scopeAll') }}
+            </button>
+          </div>
           <!-- 打开独立终端窗口：跟终端主面走（原在检查器头部，终端迁中栏后随迁）。
                拼屏时每格有自己的开窗按钮。 -->
           <button
@@ -587,6 +631,15 @@
                   :title="run.title || run.name"
                 >
                   {{ run.title || run.name }}
+                </span>
+                <!-- 跨项目拼屏：格子标题标归属项目（同 title 的运行只能靠它区分） -->
+                <span
+                  v-if="crossProject"
+                  class="wb-mono shrink-0 max-w-[7rem] truncate text-[calc(10px*var(--ui-scale))] text-[var(--text-tertiary)]"
+                  data-testid="run-tile-project"
+                  :title="projectLabel(run)"
+                >
+                  {{ projectLabel(run) }}
                 </span>
                 <span
                   class="wb-mono shrink-0 text-[calc(10px*var(--ui-scale))] text-[var(--text-tertiary)]"
@@ -997,13 +1050,26 @@ const t = (key: string, params?: Record<string, any>) => context.i18n.t(key, par
 const route = useRoute()
 const router = useRouter()
 
-const projectId = computed(() => String(route.params.id ?? ''))
+/**
+ * 本实例所属项目 id —— **挂载时快照**，不从 `useRoute()` 实时读。
+ *
+ * `useRoute()` 注入的是 router 的全局 currentRoute（所有组件共享同一份响应式
+ * 路由）。本页被 AppLayout 的 KeepAlive 按 `fullPath` 缓存后，切到别的项目只
+ * deactivate、实例仍活着，此时 `route.params.id` 已经变成**别的项目**。
+ *
+ * 本页的 `session:created / stopped / removed` 订阅是全局的（切走后照样收事件），
+ * 事件处理里 `refreshRuns()` 读 `projectId` 就成了「拿别的项目 id 刷新本实例」：
+ * 缓存中的旧项目工作台被写成最后访问那个项目的 project / runs，回到旧项目时
+ * 标题与终端都指向同一份运行（两个不同项目的终端看起来一模一样）。
+ *
+ * 实例与 `fullPath` 一一对应（KeepAlive 的 key），故挂载时快照即恒等。
+ */
+const projectId = ref(String(route.params.id ?? ''))
 
 const {
   project,
   runs,
   agents,
-  activeRunCount,
   isLoading,
   now,
   loadWorkbench,
@@ -1022,6 +1088,14 @@ const selectedRunId = ref('')
 const notFound = ref(false)
 const isStarting = ref(false)
 const showAgentPicker = ref(false)
+
+/**
+ * 工具栏「运行中」= **本项目**统计（后端 `project.get` 的派生值）
+ *
+ * 不能沿用 `runs` 的计数：跨项目拼屏时列表里含别的项目的运行，拿列表计数会
+ * 把「本项目几条在跑」写成「全部项目几条在跑」。
+ */
+const projectActiveRunCount = computed(() => project.value?.activeRuns ?? 0)
 
 // ==================== 运行列表（与 agent CLI 同生命周期） ====================
 //
@@ -1084,6 +1158,8 @@ function toggleTileMode(): void {
   tileMode.value = !tileMode.value
   tileModeUserSet = true
   persistTileMode()
+  // 取数范围随模式变化：关掉拼屏回到本项目；打开且范围为全部项目则取全量
+  void refreshRuns()
   if (!tileMode.value) return
   // 打开拼屏先铺用户正在看的那条；它不在存活态时把焦点落到第一格
   const current = selectedRun.value
@@ -1125,14 +1201,76 @@ function onTilePointerDown(run: RunView): void {
   focusTileTerminal(run.id)
 }
 
-watch(
-  projectId,
-  (pid) => {
-    tilePriority.value = []
-    void loadTileMode(pid)
-  },
-  { immediate: true },
-)
+// 实例恒定属于一个项目（见 `projectId` 快照说明）：进入工作台只读一次拼屏偏好。
+// 不再 watch(projectId)：它不会变，「换项目 = 换实例」由 KeepAlive 的 key 保证。
+// 两个偏好（模式 + 范围）都读回后由 onMounted 对齐取数。
+
+/**
+ * 拼屏范围：本项目 / 全部项目（与拼屏模式同口径，按项目记在 app KV）
+ *
+ * 「跨项目并线」= 拼屏 + 全部项目：把各项目的存活运行铺进同一张网格。单屏恒为
+ * 本项目（控件只在拼屏时出现），不用一个开关同时表达两件事。
+ */
+const TILE_SCOPE_KEY_PREFIX = 'project.workbench.tileScope.'
+const tileScope = ref<'project' | 'all'>('project')
+/** 异步读回的代次：用户已手动切换时丢弃过期结果（与模式同一处置） */
+let tileScopeLoadSeq = 0
+let tileScopeUserSet = false
+
+/** 跨项目拼屏（真正的「多项目并线」判据；单屏恒 false） */
+const crossProject = computed(() => tileMode.value && tileScope.value === 'all')
+
+/** 项目 id → 名字（跨项目拼屏时给运行行 / 格子标归属；切回本项目即清空） */
+const projectNames = ref<Record<string, string>>({})
+
+async function loadProjectNames(): Promise<void> {
+  const raw = (await context.commands.execute('project.list', {})) as {
+    projects?: { id?: string; name?: string }[]
+  } | null
+  const map: Record<string, string> = {}
+  for (const item of raw?.projects ?? []) {
+    if (item?.id) map[item.id] = item.name || item.id
+  }
+  projectNames.value = map
+}
+
+/** 运行归属项目名（未归属 = 显性文案；不显示空白，也不写成「未知」） */
+function projectLabel(run: RunView): string {
+  if (!run.projectId) return t('project.run.noProject')
+  return projectNames.value[run.projectId] ?? run.projectId
+}
+
+async function loadTileScope(pid: string): Promise<void> {
+  const seq = ++tileScopeLoadSeq
+  tileScopeUserSet = false
+  tileScope.value = 'project'
+  if (!pid) return
+  try {
+    const raw = await context.storage.get(`${TILE_SCOPE_KEY_PREFIX}${pid}`)
+    if (seq !== tileScopeLoadSeq || tileScopeUserSet) return
+    tileScope.value = raw === 'all' ? 'all' : 'project'
+  } catch (e) {
+    // 读失败按本项目处理：范围偏好不该把工作台拦住
+    console.warn('[Project Workbench] read tile scope failed:', e)
+  }
+}
+
+function persistTileScope(): void {
+  const pid = projectId.value
+  if (!pid) return
+  void context.storage.set(`${TILE_SCOPE_KEY_PREFIX}${pid}`, tileScope.value).catch((e) => {
+    console.warn('[Project Workbench] persist tile scope failed:', e)
+  })
+}
+
+/** 切范围：全部项目要取全量运行 + 项目名，切回本项目只取本项目 */
+function setTileScope(scope: 'project' | 'all'): void {
+  if (tileScope.value === scope) return
+  tileScope.value = scope
+  tileScopeUserSet = true
+  persistTileScope()
+  void refreshRuns()
+}
 
 // ==================== 右栏页签（文件 / Git / 变更） ====================
 
@@ -1208,10 +1346,8 @@ function openFile(name: string, path: string): void {
   fileViewerOpen.value = true
 }
 
-/** 切到另一个项目时收起查看器：旧路径在新项目里没有意义 */
-watch(projectId, () => {
-  fileViewerOpen.value = false
-})
+// 注：不监听「项目变化后收起文件查看器」——一个工作台实例恒属一个项目
+// （KeepAlive 按 fullPath 分实例），不存在「同一实例换项目」这条路径。
 
 // ==================== 三栏宽度（可拖拽） ====================
 
@@ -1672,10 +1808,20 @@ async function load(): Promise<void> {
   }
 }
 
-/** 运行状态变化只重取运行 + 项目统计（agent 清单无需跟着刷） */
+/**
+ * 运行状态变化只重取运行 + 项目统计（agent 清单无需跟着刷）
+ *
+ * 跨项目拼屏时运行按**全部项目**重取，并顺带刷新项目名映射（新项目可能在
+ * 此期间被创建）。单屏 / 本项目范围仍只取本项目——取数范围与视图一致。
+ */
 async function refreshRuns(): Promise<void> {
   try {
-    await Promise.all([loadRuns(projectId.value), loadProject(projectId.value)])
+    const all = crossProject.value
+    await Promise.all([
+      all ? loadRuns() : loadRuns(projectId.value),
+      loadProject(projectId.value),
+      all ? loadProjectNames() : Promise.resolve(),
+    ])
   } catch (e) {
     console.error('[Project Workbench] refresh runs failed:', e)
   }
@@ -1683,7 +1829,13 @@ async function refreshRuns(): Promise<void> {
 
 async function refresh(): Promise<void> {
   try {
-    await Promise.all([loadRuns(projectId.value), loadProject(projectId.value), loadAgents()])
+    const all = crossProject.value
+    await Promise.all([
+      all ? loadRuns() : loadRuns(projectId.value),
+      loadProject(projectId.value),
+      loadAgents(),
+      all ? loadProjectNames() : Promise.resolve(),
+    ])
     toast.info(t('project.toast.refreshed'))
   } catch (e) {
     toast.error(resolvePluginErrorText(context, e, 'project.error.loadFailed'))
@@ -1732,7 +1884,10 @@ async function start(agentId: string): Promise<void> {
   if (isStarting.value) return
   isStarting.value = true
   try {
-    const created = await startRun(projectId.value, agentId)
+    // 新建运行恒落在**本项目**；只是运行列表按当前取数范围刷新（跨项目拼屏=全量）
+    const created = await startRun(projectId.value, agentId, {
+      allRuns: crossProject.value,
+    })
     selectedRunId.value = created.runId
     // 新运行立刻有字节可看：终端主面随选中运行切换
     showAgentPicker.value = false
@@ -1747,7 +1902,9 @@ async function start(agentId: string): Promise<void> {
 async function stop(run: RunView | null): Promise<void> {
   if (!run) return
   try {
-    await stopRun(run.id, projectId.value)
+    // 拼屏可跨项目：被停的运行可能不属于本项目，重取范围跟取数范围走
+    const scope = crossProject.value ? projectId.value : run.projectId || projectId.value
+    await stopRun(run.id, scope, { allRuns: crossProject.value })
     toast.info(t('session.toast.stopped'))
   } catch (e) {
     console.error('[Project Workbench] stop run failed:', e)
@@ -1807,6 +1964,13 @@ onMounted(async () => {
   void loadCollapsed(INSPECTOR_COLLAPSED_KEY, inspectorCollapsed)
   await load()
   startTicker()
+  // 拼屏偏好（模式 + 范围）都读回后再对齐取数：存储里是「拼屏 + 全部项目」时，
+  // 首帧 `load()` 只取了本项目运行，需要补一次全量（只补一次，不覆盖用户手选）
+  void (async () => {
+    await Promise.all([loadTileMode(projectId.value), loadTileScope(projectId.value)])
+    if (tileModeUserSet || tileScopeUserSet) return
+    if (crossProject.value) await refreshRuns()
+  })()
   const refreshOnEvent = () => {
     void refreshRuns()
   }

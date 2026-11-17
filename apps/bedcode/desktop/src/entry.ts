@@ -189,9 +189,10 @@ export async function mountApp(root: HTMLElement, env: AppMountEnv): Promise<App
 
   // 初始路由（宿主按路由目录传入；未传 / 非应用路径 → 应用默认落地页）
   //
-  // 默认落地随 `/sessions` 停用改为 `/projects`（2026-11-06）。宿主若仍传
-  // `/sessions`（存量 lastRoute / 路由目录未同步），push 会落到 not-found ——
-  // 显性可见而非白屏，用户可自行返回；这里不改写宿主的显式意图。
+  // 默认落地 = `/pairing`（用户裁定：初始点击进入的首页显示「设备配对」）。
+  // 宿主落地路由目录仍登记 `/sessions`（终端会话面，2026-11-06 停用）：首入时
+  // push `/sessions` 由路由表显式重定向到落地页（sessions-legacy），不再落
+  // not-found；其余未匹配路径维持 fail-visible 兜底，仍不改写宿主显式意图。
   const initial = env.initialRoute && env.initialRoute !== '/' ? env.initialRoute : DEFAULT_ROUTE
   if (initial !== DEFAULT_ROUTE) {
     await router.push(initial).catch((e) => {

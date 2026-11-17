@@ -499,6 +499,35 @@ describe('BedCode（桌面端 · 宿主内挂载）', () => {
     expectEqual((spacing?.gap ?? -1) >= 4, true, '图标与文字间隔 ≥4px')
   })
 
+  /**
+   * Skills 搜索行：本地 / 联网模式切换的界面契约。
+   *
+   * 联网搜索依赖外网 skills.sh（本机网络决定成败），默认套件不打真实网络
+   * （docs/E2E.md §6.1「不依赖机器状态」）；真实取数由组件层单测与
+   * `agent.search-skills` 的 Rust 单测覆盖，这里只锁锚点与模式切换。
+   */
+  it('Agent 管理 · Skills：搜索行在本地 / 联网之间切换', async () => {
+    await click('nav-agents')
+    await waitFor('hub-view')
+    await click('hub-tab-skills')
+    await waitFor('panel-skills')
+    await waitFor('skill-search')
+    await waitFor('skill-search-input')
+
+    // 本地模式默认：没有联网搜索按钮，只给本地计数提示
+    expectEqual(await exists('search-remote-go'), false, '本地模式不出现联网搜索按钮')
+
+    await click('search-mode-remote')
+    await waitFor('search-remote-go')
+    await waitFor('search-idle')
+    expectEqual(await exists('search-results'), false, '未发起搜索时不渲染结果表')
+
+    await click('search-mode-local')
+    await waitGone('search-remote-go')
+    await waitGone('search-idle')
+    await waitFor('skill-search-input')
+  })
+
   it('设置：六个业务分组全部渲染', async () => {
     await click('nav-settings')
     await waitFor('settings-view')

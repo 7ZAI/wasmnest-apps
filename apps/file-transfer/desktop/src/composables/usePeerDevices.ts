@@ -264,12 +264,35 @@ export function usePeerDevices(context: PluginContext) {
     }, SNAPSHOT_SAVE_DEBOUNCE_MS)
   }
 
+  /**
+   * 连接事件里的设备兜底：被连侧可能还没收到 mdns-found，缓存里没有该节点，
+   * 活跃对端兜底与设备行都会跳过它。这里先落一条只有身份的条目（刻意不落盘，
+   * 地址未知，重启后由实时发现重建）；地址由后续 found 事件补齐，并同时补写
+   * endpoint memo，数据面才能重拨。
+   */
+  function ensureConnectedEntry(nodeId: string, deviceName: string): void {
+    if (devices.value.some((d) => d.nodeId === nodeId)) return
+    devices.value = [
+      ...devices.value,
+      {
+        nodeId,
+        deviceName,
+        fileTransfer: true,
+        lastSeenMs: Date.now(),
+        restored: false,
+      },
+    ]
+  }
+
   // ==================== 事件处理 ====================
 
   function handleFound(payload: unknown): void {
     const device = parseFoundPayload(payload)
     if (!device) return
     upsertDevice(device)
+    // 发现晚于连接时，连接那一刻还没有地址可登记：这里补写 endpoint memo，
+    // 否则数据面（浏览 / 拉取）在入站侧永远重拨不出去
+    rememberEndpoint(device.nodeId)
     ensureActiveFallback()
   }
 
@@ -315,6 +338,12 @@ export function usePeerDevices(context: PluginContext) {
     if (!payload?.nodeId) return
     if (payload.connected) {
       markConnected(payload.nodeId)
+      // 被连侧可能尚未发现对方（连接可比 mdns-found 先到）：先落一条只有身份的
+      // 条目，活跃对端兜底与设备行才有对象；地址等后续 found 事件补齐
+      ensureConnectedEntry(
+        payload.nodeId,
+        typeof payload.deviceName === 'string' ? payload.deviceName : '',
+      )
       const transport = normalizeTransport(payload.transport)
       if (transport) transports.value = { ...transports.value, [payload.nodeId]: transport }
       // 宿主带出的设备名 / 连接时刻 / 真实传输形态回写缓存：远程设备没有
@@ -324,10 +353,11 @@ export function usePeerDevices(context: PluginContext) {
         typeof payload.deviceName === 'string' ? payload.deviceName : '',
         transport,
       )
-      ensureActiveFallback()
       // 入站（被连侧）连接没有拨号 memo：数据面命令（浏览/拉取/发送）经它
-      // 重拨，endpoint 取自自建缓存（mdns-found 维护）
+      // 重拨，endpoint 取自自建缓存（mdns-found 维护）。
+      // 必须先于活跃对端兜底：兜底会触发一次根清单拉取，memo 未落地就必失败
       rememberEndpoint(payload.nodeId)
+      ensureActiveFallback()
     } else {
       connectedIds.value = withoutId(connectedIds.value, payload.nodeId)
       if (payload.nodeId in transports.value) {
@@ -388,7 +418,7 @@ export function usePeerDevices(context: PluginContext) {
    */
   async function connect(
     nodeId: string,
-    opts?: { wan?: boolean; relayOnly?: boolean },
+    opts?: { wan?: boolean; relayOnly?: boolean; lanOnly?: boolean },
   ): Promise<DialStatus | null> {
     const device = devices.value.find((d) => d.nodeId === nodeId)
     if (!device || !device.fileTransfer) return null
@@ -420,14 +450,18 @@ export function usePeerDevices(context: PluginContext) {
       !device.addr &&
       (device.port ?? 0) === 0 &&
       !hasLanCandidate
-    const relayOnly = opts?.relayOnly === true || pureRelay
+    // 显式「内网」入口：只走 LAN，不允许 pureRelay 的隐式升级
+    const lanOnly = opts?.lanOnly === true
+    const relayOnly = !lanOnly && (opts?.relayOnly === true || pureRelay)
     // 当前仍在中继快照里、且没有实时 mDNS 证据（instanceName）= 设备现在只经
     // 中继可见：即使缓存里还留着上一网络的 LAN 地址，也要把 relay 纳入候选
     // （LAN 仍先试，失败后走 relay，而不是停在 lan-unreachable）。
     const relayVisible = device.relay === true && !device.instanceName
     // 上次经中继成功 ⇒ 本次默认把 relay 纳入候选（有 LAN 候选时 LAN 仍先试）；
     // 「仅经中继」是更强的显式意图，优先
-    const wan = relayOnly || (opts?.wan ?? (device.lastTransport === 'wan-relay' || relayVisible))
+    const wan =
+      !lanOnly &&
+      (relayOnly || (opts?.wan ?? (device.lastTransport === 'wan-relay' || relayVisible)))
 
     connectingIds.value = withId(connectingIds.value, nodeId)
     clearDialError(nodeId)
@@ -464,6 +498,9 @@ export function usePeerDevices(context: PluginContext) {
 
   /**
    * 添加远程设备（T12）：配对连接串 → 自建缓存条目。
+   *
+   * 手工配对入口已于 2026-11-16 从探索面板下线（本函数不再有界面调用），
+   * 保留用于已存 paired 快照的兼容与测试种子。
    *
    * 已存在同 nodeId 时合并候选与展示名（保留已连接态）；手动添加的条目标
    * `paired`，之后 TTL 清扫不会把它清掉。返回是否为新增。

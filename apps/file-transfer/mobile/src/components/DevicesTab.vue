@@ -2,38 +2,19 @@
 /**
  * DevicesTab — 探索连接（附近设备）一级页面
  *
- * 结构（v3，底部导航版）：
+ * 结构：
  *   1. 顶部「扫描带」——雷达图元 + 状态文案 + 重新扫描；扫描进行中雷达转动，
  *      没有设备时雷达放大成整页主视觉。用户任何时刻都能看出「在搜 / 搜完了」。
  *   2. 分组列表——已连接（含活跃对端标记）与附近设备分开，连接动作就近呈现。
- *   3. 尾部——添加远程设备（连接串 / 扫码，T12）+ 信任说明。
  *
- * 添加远程设备收进底部弹层（sheet）：面板贴着触发点出现，不把用户已滚动到的
- * 列表位置顶走；扫码面板仍是全屏取景（相机预览需要整屏）。
+ * 本页是**纯发现层**：设备只来自中继自动发现 + mDNS；身份信息、穿透配置与
+ * 中继状态统一收敛到设置页，发现流里不混入配置管理。
  *
  * 纯展示：行状态由 usePeerDevices 派生的 rows 传入，操作以事件上抛。
  */
-import { computed, inject, ref, type Ref } from 'vue'
-import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-mobile'
-import type {
-  DeviceRow,
-  DialFailureCode,
-  RelayCardAction,
-  RelayCardModel,
-} from '../composables/deviceState'
-import {
-  isConnectionInvite,
-  parseConnectionInvite,
-  parseRemotePeerLink,
-  type ConnectionInvite,
-  type ConnectionInviteError,
-  type RemotePeerLink,
-  type RemotePeerLinkError,
-} from '../utils/pairingLink'
-import { useConnectionInvite } from '../composables/useConnectionInvite'
+import { computed } from 'vue'
+import type { DeviceRow, DialFailureCode } from '../composables/deviceState'
 import ScanRadar from './ScanRadar.vue'
-import ScanPanel from './ScanPanel.vue'
-import MyDeviceSheet from './MyDeviceSheet.vue'
 
 type Translate = (key: string, params?: Record<string, any>) => string
 
@@ -42,25 +23,15 @@ const props = defineProps<{
   /** 探索发现进行中（雷达转动、按钮转 spinner、防重复点击） */
   scanning: boolean
   t: Translate
-  /** 当前经中继可见的设备数（邀请确认页展示「当前空间 N 台」） */
-  relayDeviceCount?: number
-  /** 跨网状态卡模型（P0-2；父级经 deriveRelayCard 产出） */
-  relayCard?: RelayCardModel | null
 }>()
 
 const emit = defineEmits<{
   (e: 'connect', nodeId: string): void
-  /** 手动「尝试外网」：只在有 relay 候选且用户显式点击时纳入 relay（§4.9） */
-  (e: 'retry-wan', nodeId: string): void
-  /** 仅经中继：跳过 LAN 候选直接拨 relay（T20 §4.2） */
+  /** 外网入口：跳过 LAN 候选直接拨 relay（显式点击，不回退；T20 §4.2） */
   (e: 'retry-relay-only', nodeId: string): void
   (e: 'disconnect', nodeId: string): void
   (e: 'set-active', nodeId: string): void
-  /** 连接串解析成功 → 父级落设备缓存（T12） */
-  (e: 'add-remote', link: RemotePeerLink): void
-  /** 邀请导入成功（T23）：设置已写入，父级负责刷新发现 */
-  (e: 'invite-joined', invite: ConnectionInvite): void
-  /** 移除手动添加的远程设备（T12） */
+  /** 移除历史手动配对的远程设备 */
   (e: 'remove-remote', nodeId: string): void
   /** 直达发送（T23）：未连接时先连后选文件；已连接时切活跃 + 选文件 */
   (e: 'send', nodeId: string): void
@@ -68,22 +39,6 @@ const emit = defineEmits<{
 }>()
 
 const t = props.t
-const context = inject<PluginContext>('pluginContext')!
-/** 邀请编排：读当前空间 / 应用设置都在这里收敛（与桌面同构） */
-const invites = useConnectionInvite(context)
-
-/**
- * 底部安全区（宿主经 provide 注入，与 BottomNav 同源；dev-shell 无注入时退化 0）。
- * 弹层用 position: fixed 贴视口底，若不加系统条留白，确认按钮会被手势条盖住。
- */
-const safeArea = inject<Ref<{ bottom: number; navigationBar?: number }> | undefined>(
-  'safeArea',
-  undefined,
-)
-const sheetBottomInset = computed(() => {
-  const value = safeArea?.value
-  return value?.navigationBar ?? value?.bottom ?? 0
-})
 
 // ==================== 分组 ====================
 
@@ -99,201 +54,6 @@ const groups = computed(() => {
     { key: 'nearby', title: t('transfer.v2.devices.groupNearby'), rows: nearby },
   ].filter((group) => group.rows.length > 0)
 })
-
-// ==================== 添加远程设备（T12：无摄像头场景粘贴连接串） ====================
-
-const addOpen = ref(false)
-/** 「我的设备」底部弹层（T21：连接串 + 外网接入） */
-const myOpen = ref(false)
-const addText = ref('')
-const addError = ref<RemotePeerLinkError | null>(null)
-const inviteError = ref<ConnectionInviteError | null>(null)
-const pasteFailed = ref(false)
-/** 非 null = 停在邀请确认页（此时不写任何设置） */
-const pendingInvite = ref<ConnectionInvite | null>(null)
-const joining = ref(false)
-const joinFailed = ref(false)
-/** 扫码面板（相机路径；与粘贴共用同一解析） */
-const scanOpen = ref(false)
-
-const ADD_ERROR_KEYS: Record<RemotePeerLinkError, string> = {
-  malformed: 'transfer.remote.errorMalformed',
-  incomplete: 'transfer.remote.errorIncomplete',
-  'address-invalid': 'transfer.remote.errorAddressInvalid',
-}
-
-const INVITE_ERROR_KEYS: Record<ConnectionInviteError, string> = {
-  malformed: 'transfer.invite.errorMalformed',
-  'missing-room': 'transfer.invite.errorMissingRoom',
-  'address-invalid': 'transfer.invite.errorAddressInvalid',
-}
-
-const inviteErrorKey = computed(() =>
-  inviteError.value ? INVITE_ERROR_KEYS[inviteError.value] : '',
-)
-
-/** 「加入后看不到当前空间设备」判定（确认页必须说清楚） */
-const leaveRoom = computed(() => {
-  const target = pendingInvite.value
-  const current = invites.current.value
-  return Boolean(target && current && current.room && current.room !== target.room)
-})
-
-/** 中心冲突：移动端没有配置中心，恒 false；保留同构判据 */
-const conflict = computed(() =>
-  pendingInvite.value ? invites.isCenterConflict(pendingInvite.value) : false,
-)
-
-/** 空间码只展示前 8 位 */
-const roomPrefix = computed(() => {
-  const room = pendingInvite.value?.room ?? ''
-  return room.length > 8 ? `${room.slice(0, 8)}…` : room
-})
-
-const inviteName = computed(() => pendingInvite.value?.name || t('transfer.invite.unnamed'))
-
-/** 输入变化即清掉旧错误（设备链接 / 邀请两种解析口径共用同一输入框） */
-function clearInputErrors(): void {
-  addError.value = null
-  inviteError.value = null
-}
-
-function submitRemote(): void {
-  addError.value = null
-  inviteError.value = null
-
-  // 先试 v4 邀请（纯 v4 JSON 粘贴也能识别）
-  const joined = parseConnectionInvite(addText.value)
-  if (joined.ok) {
-    pendingInvite.value = joined.invite
-    joinFailed.value = false
-    void invites.loadCurrent()
-    return
-  }
-  // 明确是邀请前缀却解析失败：按邀请细分原因提示，不回退成「设备链接坏」
-  if (isConnectionInvite(addText.value)) {
-    inviteError.value = joined.reason
-    return
-  }
-
-  const parsed = parseRemotePeerLink(addText.value)
-  if (!parsed.ok) {
-    addError.value = parsed.reason
-    return
-  }
-  addError.value = null
-  addText.value = ''
-  addOpen.value = false
-  emit('add-remote', parsed.link)
-}
-
-async function confirmJoinInvite(): Promise<void> {
-  const target = pendingInvite.value
-  if (!target || joining.value || conflict.value) return
-  joining.value = true
-  joinFailed.value = false
-  const ok = await invites.apply(target)
-  joining.value = false
-  if (!ok) {
-    joinFailed.value = true
-    return
-  }
-  pendingInvite.value = null
-  addText.value = ''
-  addOpen.value = false
-  emit('invite-joined', target)
-}
-
-function cancelInviteConfirm(): void {
-  pendingInvite.value = null
-  joinFailed.value = false
-}
-
-async function pasteFromClipboard(): Promise<void> {
-  pasteFailed.value = false
-  try {
-    const value = await navigator.clipboard.readText()
-    if (!value.trim()) {
-      pasteFailed.value = true
-      return
-    }
-    addText.value = value
-    addError.value = null
-  } catch {
-    pasteFailed.value = true
-  }
-}
-
-function openAddRemote(): void {
-  addError.value = null
-  inviteError.value = null
-  pendingInvite.value = null
-  joinFailed.value = false
-  pasteFailed.value = false
-  addOpen.value = true
-}
-
-function closeAddRemote(): void {
-  addOpen.value = false
-  addError.value = null
-  inviteError.value = null
-  pendingInvite.value = null
-  joinFailed.value = false
-}
-
-/** 扫码成功：与粘贴同一落点（父级设备缓存），关闭两个面板 */
-function onScanned(link: RemotePeerLink): void {
-  scanOpen.value = false
-  addOpen.value = false
-  addText.value = ''
-  addError.value = null
-  emit('add-remote', link)
-}
-
-/** 扫到 v4 邀请：停在确认页，不直接改本机空间 */
-function onInviteScanned(invite: ConnectionInvite): void {
-  scanOpen.value = false
-  addOpen.value = true
-  pendingInvite.value = invite
-  joinFailed.value = false
-  void invites.loadCurrent()
-}
-
-// ==================== 状态卡 ====================
-
-/** 状态卡操作 → 文案 key（none 不渲染） */
-const RELAY_ACTION_KEYS: Record<RelayCardAction, string> = {
-  'paste-invite': 'transfer.relayCard.actionPaste',
-  'generate-invite': 'transfer.relayCard.actionInvite',
-  refresh: 'transfer.relayCard.actionRefresh',
-  'open-center': 'transfer.relayCard.actionCenter',
-  'open-settings': 'transfer.relayCard.actionSettings',
-  none: '',
-}
-
-/**
- * 移动端没有配置中心：open-center / open-settings 都落到「我的设备」弹层
- * （relay 地址与空间码都在那里编辑），不跳宿主设置页。
- */
-function handleRelayAction(action: RelayCardAction): void {
-  switch (action) {
-    case 'paste-invite':
-      openAddRemote()
-      break
-    case 'generate-invite':
-      myOpen.value = true
-      break
-    case 'refresh':
-      emit('scan')
-      break
-    case 'open-center':
-    case 'open-settings':
-      myOpen.value = true
-      break
-    default:
-      break
-  }
-}
 
 // ==================== 行内文案 ====================
 
@@ -375,72 +135,7 @@ function metaText(row: DeviceRow): string {
 
 <template>
   <div class="fv2-page">
-    <!-- 扫码添加远程设备（相机路径；fixed 全屏取景） -->
-    <ScanPanel
-      v-if="scanOpen"
-      :t="t"
-      @link="onScanned"
-      @invite="onInviteScanned"
-      @close="scanOpen = false"
-    />
-
-    <!-- 跨网状态卡（P0-2）：任何状态都有一个明确下一步；空态之上也可见 -->
-    <div
-      v-if="props.relayCard"
-      class="fv2-relay-card"
-      :class="`fv2-relay-card--${props.relayCard.tone}`"
-      data-testid="mobile-relay-card"
-    >
-      <div class="fv2-relay-card-head">
-        <span class="fv2-relay-card-title" data-testid="mobile-relay-card-title">
-          {{ t(props.relayCard.title) }}
-        </span>
-        <span
-          v-if="props.relayCard.count > 0"
-          class="fv2-relay-card-count"
-          data-testid="mobile-relay-card-count"
-        >
-          {{ props.relayCard.count }}
-        </span>
-      </div>
-      <p class="fv2-relay-card-body" data-testid="mobile-relay-card-body">
-        {{ t(props.relayCard.body, props.relayCard.params) }}
-      </p>
-      <p
-        v-if="props.relayCard.stale"
-        class="fv2-relay-card-stale"
-        data-testid="mobile-relay-card-stale"
-      >
-        {{ t('transfer.relayCard.stale') }}
-      </p>
-      <p
-        v-if="props.relayCard.roomHint"
-        class="fv2-relay-card-hint"
-        data-testid="mobile-relay-card-room-hint"
-      >
-        {{ t('transfer.relayCard.roomHint') }}
-      </p>
-      <div class="fv2-relay-card-actions">
-        <button
-          v-if="props.relayCard.primary !== 'none'"
-          class="fv2-btn-primary"
-          data-testid="mobile-relay-card-primary"
-          @click="handleRelayAction(props.relayCard.primary)"
-        >
-          {{ t(RELAY_ACTION_KEYS[props.relayCard.primary]) }}
-        </button>
-        <button
-          v-if="props.relayCard.secondary !== 'none'"
-          class="fv2-btn-text"
-          data-testid="mobile-relay-card-secondary"
-          @click="handleRelayAction(props.relayCard.secondary)"
-        >
-          {{ t(RELAY_ACTION_KEYS[props.relayCard.secondary]) }}
-        </button>
-      </div>
-    </div>
-
-    <!-- 空态：雷达占主视觉，扫描 / 添加两个出口都在这里（不渲染状态带，避免重复标题） -->
+    <!-- 空态：雷达占主视觉，扫描入口在这里（不渲染状态带，避免重复标题） -->
     <div v-if="rows.length === 0" class="fv2-discover fv2-discover--empty">
       <ScanRadar :active="scanning" size="lg" />
       <h2 class="fv2-discover-title">
@@ -469,13 +164,7 @@ function metaText(row: DeviceRow): string {
               d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
             />
           </svg>
-          {{ scanning ? t('transfer.devices.scanning') : t('transfer.devices.scan') }}
-        </button>
-        <button class="fv2-btn-text" data-testid="mobile-remote-add" @click="openAddRemote()">
-          + {{ t('transfer.devices.addRemote') }}
-        </button>
-        <button class="fv2-btn-text" data-testid="mobile-my-device-open" @click="myOpen = true">
-          {{ t('transfer.devices.myDevice') }}
+          {{ scanning ? t('transfer.devices.discovering') : t('transfer.devices.discover') }}
         </button>
       </div>
     </div>
@@ -519,7 +208,7 @@ function metaText(row: DeviceRow): string {
               d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
             />
           </svg>
-          {{ t('transfer.v2.devices.rescan') }}
+          {{ t('transfer.devices.discover') }}
         </button>
       </div>
 
@@ -532,17 +221,19 @@ function metaText(row: DeviceRow): string {
           </h3>
           <div class="fv2-device-list">
             <div v-for="row in group.rows" :key="row.nodeId" class="fv2-device-row">
-              <!-- 状态点：绿=已连接 / 琥珀=握手中 / 淡绿=在线未连接 / 灰=离线 -->
-              <span
-                class="fv2-dev-dot flex-shrink-0"
-                :class="dotClass(row)"
-                aria-hidden="true"
-              ></span>
-
               <div class="fv2-device-main">
-                <div class="fv2-device-line">
-                  <span class="fv2-device-name truncate">{{ row.deviceName }}</span>
+                <!-- 状态点：绿=已连接 / 琥珀=握手中 / 淡绿=在线未连接 / 灰=离线 -->
+                <div class="fv2-device-head">
+                  <span class="fv2-dev-dot" :class="dotClass(row)" aria-hidden="true"></span>
+                  <span class="fv2-device-name">{{ row.deviceName }}</span>
                   <span class="fv2-device-fp">{{ shortFingerprint(row.nodeId) }}</span>
+                </div>
+
+                <!-- 标签独立成行：信息多时折行，不与设备名 / 操作按钮抢同一行 -->
+                <div
+                  v-if="row.paired || row.relay || row.isActive || row.fileTransfer"
+                  class="fv2-device-tags"
+                >
                   <span v-if="row.paired" class="fv2-device-tag" data-testid="mobile-remote-tag">
                     {{ t('transfer.devices.remote') }}
                   </span>
@@ -552,7 +243,7 @@ function metaText(row: DeviceRow): string {
                   <span v-if="row.isActive" class="fv2-device-tag fv2-device-tag--active">
                     {{ t('transfer.devices.activeCurrent') }}
                   </span>
-                  <!-- T20：跨网能力小徽标（有 relay 候选 = 可跨网，仅内网 = 需重新配对） -->
+                  <!-- 连接方式标注：内网+外网 / 仅内网 / 仅外网（不把单一通路说成通用可达） -->
                   <span
                     v-if="row.fileTransfer"
                     class="fv2-device-tag"
@@ -560,14 +251,19 @@ function metaText(row: DeviceRow): string {
                     data-testid="mobile-dev-relay-badge"
                   >
                     {{
-                      row.wanAvailable
-                        ? t('transfer.devices.hasRelay')
-                        : t('transfer.devices.lanOnly')
+                      row.connectionModes === 'both'
+                        ? t('transfer.devices.modeBoth')
+                        : row.connectionModes === 'lan'
+                          ? t('transfer.devices.modeLanOnly')
+                          : row.connectionModes === 'wan'
+                            ? t('transfer.devices.modeWanOnly')
+                            : t('transfer.devices.modeNone')
                     }}
                   </span>
                 </div>
-                <p class="fv2-device-meta truncate">
-                  {{ metaText(row) }}
+                <!-- 状态 / 地址 / 传输形态：超宽折行而不是截断，长地址也能读全 -->
+                <p class="fv2-device-meta">
+                  <span class="fv2-device-meta-text">{{ metaText(row) }}</span>
                   <span
                     v-if="transportLabel(row)"
                     class="fv2-device-transport"
@@ -575,7 +271,7 @@ function metaText(row: DeviceRow): string {
                     data-testid="mobile-dev-transport"
                     >{{ transportLabel(row) }}</span
                   >
-                  <!-- T20：上次传输形态（断开后仍保留，决定下次重连默认路径） -->
+                  <!-- 上次传输形态（断开后仍保留，决定下次重连默认路径） -->
                   <span
                     v-if="lastTransportLabel(row)"
                     class="fv2-device-transport"
@@ -584,7 +280,7 @@ function metaText(row: DeviceRow): string {
                     >{{ lastTransportLabel(row) }}</span
                   >
                 </p>
-                <!-- 拨号终态反馈：按分类给可操作出路（T20） -->
+                <!-- 拨号终态反馈：按分类给可操作出路 -->
                 <p
                   v-if="row.dialError"
                   class="fv2-device-error"
@@ -594,7 +290,8 @@ function metaText(row: DeviceRow): string {
                 </p>
               </div>
 
-              <!-- 行内操作：发送 / 连接 / 设为当前 / 断开，全部为文字按钮（44px 命中区） -->
+              <!-- 行内操作：发送 / 连接 / 设为当前 / 断开，全部为文字按钮（44px 命中区）；
+                   窄屏折行右对齐，不挤压左侧设备信息 -->
               <div class="fv2-device-actions">
                 <!-- T23：直达发送 = 连接（如需要）+ 选文件 + 发送 -->
                 <button
@@ -627,267 +324,50 @@ function metaText(row: DeviceRow): string {
                     {{ t('transfer.devices.disconnect') }}
                   </button>
                 </template>
-                <span v-else-if="row.status === 'connecting'" class="fv2-device-meta">
+                <span v-else-if="row.status === 'connecting'" class="fv2-device-note">
                   {{ t('transfer.devices.connectingHint') }}
                 </span>
                 <template v-else>
-                  <!-- 失败后主入口：「仅经中继」（LAN 失败 + 有 relay 候选；T20 §4.2） -->
-                  <button
-                    v-if="row.relayOnlyRecommended"
-                    class="fv2-btn-text fv2-btn-text--accent"
-                    :disabled="!row.fileTransfer"
-                    :title="t('transfer.devices.relayOnlyHint')"
-                    data-testid="mobile-dev-try-relay-only"
-                    @click="emit('retry-relay-only', row.nodeId)"
+                  <!-- 无任何候选：不猜路径，给「等重新发现」的显性说明 -->
+                  <span
+                    v-if="row.connectionModes === 'none'"
+                    class="fv2-device-note"
+                    data-testid="mobile-dev-no-endpoint"
                   >
-                    {{ t('transfer.devices.relayOnly') }}
-                  </button>
-                  <!-- 手动「尝试外网」：仅存在 relay 候选时给入口；不自动切换（§4.9） -->
+                    {{ t('transfer.devices.modeNoneHint') }}
+                  </span>
+                  <!-- 内网入口（默认路径；LAN 失败后不自动切外网） -->
                   <button
-                    v-if="row.wanAvailable"
-                    class="fv2-btn-text"
-                    :disabled="!row.fileTransfer"
-                    :title="t('transfer.devices.tryWanHint')"
-                    data-testid="mobile-dev-try-wan"
-                    @click="emit('retry-wan', row.nodeId)"
-                  >
-                    {{ t('transfer.devices.tryWan') }}
-                  </button>
-                  <button
+                    v-if="row.lanAvailable"
                     class="fv2-btn-text"
                     :class="{ 'fv2-btn-text--accent': !row.relayOnlyRecommended }"
                     :disabled="!row.fileTransfer"
+                    :title="t('transfer.devices.connectLanHint')"
+                    data-testid="mobile-dev-connect-lan"
                     @click="emit('connect', row.nodeId)"
                   >
-                    {{ t('transfer.devices.connect') }}
+                    {{ t('transfer.devices.connectLan') }}
+                  </button>
+                  <!-- 外网入口：显式点击才经中继（relay-only，不回退 LAN） -->
+                  <button
+                    v-if="row.wanAvailable"
+                    class="fv2-btn-text"
+                    :class="{
+                      'fv2-btn-text--accent': row.relayOnlyRecommended || !row.lanAvailable,
+                    }"
+                    :disabled="!row.fileTransfer"
+                    :title="t('transfer.devices.connectWanHint')"
+                    data-testid="mobile-dev-connect-wan"
+                    @click="emit('retry-relay-only', row.nodeId)"
+                  >
+                    {{ t('transfer.devices.connectWan') }}
                   </button>
                 </template>
               </div>
             </div>
           </div>
         </section>
-
-        <!-- 尾部：添加远程设备 + 信任说明（列表短时无需滚动即可见） -->
-        <button class="fv2-add-remote" data-testid="mobile-remote-add" @click="openAddRemote()">
-          <svg aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="1.8"
-              d="M12 5v14M5 12h14"
-            />
-          </svg>
-          {{ t('transfer.devices.addRemote') }}
-        </button>
-        <button
-          class="fv2-add-remote"
-          data-testid="mobile-my-device-open-footer"
-          @click="myOpen = true"
-        >
-          <svg aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="1.8"
-              d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"
-            />
-          </svg>
-          {{ t('transfer.devices.myDevice') }}
-        </button>
-        <p class="fv2-trust-hint">{{ t('transfer.devices.trustHint') }}</p>
       </div>
     </template>
-
-    <!-- 我的设备（T21）：连接串 + 外网接入；添加设备流程不出现中继 -->
-    <MyDeviceSheet v-if="myOpen" @close="myOpen = false" />
-
-    <!-- 添加远程设备（底部弹层：贴触发点出现，不顶走列表位置） -->
-    <div v-if="addOpen" class="fv2-sheet-mask" @click.self="closeAddRemote">
-      <div
-        class="fv2-sheet"
-        data-testid="mobile-remote-panel"
-        :style="{ paddingBottom: `calc(1rem + ${sheetBottomInset}px)` }"
-      >
-        <div class="fv2-sheet-head">
-          <h3 class="fv2-sheet-title">
-            {{ pendingInvite ? t('transfer.invite.joinTitle') : t('transfer.devices.addRemote') }}
-          </h3>
-          <button
-            class="fv2-icon-btn"
-            :aria-label="t('transfer.remote.cancel')"
-            @click="closeAddRemote"
-          >
-            <svg aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M6 18L18 6M6 6l12 12"
-              />
-            </svg>
-          </button>
-        </div>
-        <!-- 邀请确认页：先展示将改什么，再落设置（不直接关闭弹层） -->
-        <template v-if="pendingInvite">
-          <div data-testid="mobile-invite-confirm">
-            <p class="fv2-md-hint" data-testid="mobile-invite-confirm-name">
-              {{ t('transfer.invite.joinName', { name: inviteName }) }}
-            </p>
-            <div class="fv2-md-kv">
-              <span>{{ t('transfer.invite.joinRelay') }}</span>
-              <code data-testid="mobile-invite-confirm-relay">{{
-                pendingInvite.relay.join(', ')
-              }}</code>
-            </div>
-            <div class="fv2-md-kv">
-              <span>{{ t('transfer.invite.joinRoom') }}</span>
-              <code data-testid="mobile-invite-confirm-room">{{ roomPrefix }}</code>
-            </div>
-            <div class="fv2-md-kv">
-              <span>{{ t('transfer.invite.joinDevices') }}</span>
-              <strong data-testid="mobile-invite-confirm-count">{{
-                props.relayDeviceCount ?? 0
-              }}</strong>
-            </div>
-            <p
-              v-if="leaveRoom"
-              class="fv2-device-error"
-              data-testid="mobile-invite-confirm-leave-room"
-            >
-              {{ t('transfer.invite.joinLeaveRoom') }}
-            </p>
-            <p
-              v-if="joinFailed"
-              class="fv2-device-error"
-              data-testid="mobile-invite-confirm-save-error"
-            >
-              {{ t('transfer.invite.joinFailed') }}
-            </p>
-          </div>
-          <div class="fv2-sheet-actions">
-            <button
-              class="fv2-btn-text"
-              data-testid="mobile-invite-confirm-back"
-              @click="cancelInviteConfirm()"
-            >
-              {{ t('transfer.remote.cancel') }}
-            </button>
-            <button
-              class="fv2-btn-primary"
-              :disabled="joining || conflict"
-              data-testid="mobile-invite-join"
-              @click="confirmJoinInvite()"
-            >
-              {{ joining ? t('transfer.invite.joining') : t('transfer.invite.join') }}
-            </button>
-          </div>
-        </template>
-
-        <template v-else>
-          <!-- T21：连接串来源 = 对方设备的「我的设备」；T23 也接受邀请 -->
-          <p class="fv2-remote-source" data-testid="mobile-remote-source">
-            {{ t('transfer.invite.inputHint') }}
-          </p>
-          <textarea
-            v-model="addText"
-            class="fv2-remote-input"
-            rows="3"
-            :placeholder="t('transfer.invite.placeholder')"
-            data-testid="mobile-remote-input"
-            @input="clearInputErrors"
-          ></textarea>
-          <p v-if="pasteFailed" class="fv2-device-error" data-testid="mobile-remote-paste-failed">
-            {{ t('transfer.remote.pasteFailed') }}
-          </p>
-          <p v-if="addError" class="fv2-device-error" data-testid="mobile-remote-error">
-            {{ t(ADD_ERROR_KEYS[addError]) }}
-          </p>
-          <p v-if="inviteError" class="fv2-device-error" data-testid="mobile-invite-add-error">
-            {{ t(inviteErrorKey) }}
-          </p>
-          <div class="fv2-sheet-actions">
-            <button
-              class="fv2-btn-text"
-              data-testid="mobile-remote-paste"
-              @click="pasteFromClipboard()"
-            >
-              {{ t('transfer.remote.paste') }}
-            </button>
-            <button
-              class="fv2-btn-text"
-              data-testid="mobile-remote-scan-open"
-              @click="scanOpen = true"
-            >
-              {{ t('transfer.remote.scan') }}
-            </button>
-            <button class="fv2-btn-text" @click="closeAddRemote">
-              {{ t('transfer.remote.cancel') }}
-            </button>
-            <button
-              class="fv2-btn-primary"
-              :disabled="addText.trim() === ''"
-              data-testid="mobile-remote-confirm"
-              @click="submitRemote()"
-            >
-              {{ t('transfer.remote.confirm') }}
-            </button>
-          </div>
-        </template>
-      </div>
-    </div>
   </div>
 </template>
-
-<style scoped>
-.fv2-relay-card {
-  margin: 8px 12px 4px;
-  padding: 10px 12px;
-  border-radius: 12px;
-  border: 1px solid var(--border-color, #3a3f47);
-  background: var(--surface-secondary, rgba(255, 255, 255, 0.03));
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.fv2-relay-card--progress {
-  border-color: rgba(120, 170, 255, 0.45);
-}
-.fv2-relay-card--warn {
-  border-color: rgba(255, 190, 90, 0.5);
-}
-.fv2-relay-card--ok {
-  border-color: rgba(90, 200, 140, 0.5);
-}
-.fv2-relay-card-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.fv2-relay-card-title {
-  font-weight: 600;
-  font-size: 0.9rem;
-}
-.fv2-relay-card-count {
-  margin-left: auto;
-  font-size: 0.78rem;
-  padding: 0 6px;
-  border-radius: 999px;
-  background: rgba(90, 200, 140, 0.18);
-}
-.fv2-relay-card-body,
-.fv2-relay-card-stale,
-.fv2-relay-card-hint {
-  margin: 0;
-  font-size: 0.8rem;
-  line-height: 1.45;
-  color: var(--text-secondary, #a4a9b3);
-}
-.fv2-relay-card-stale {
-  color: var(--warning, #e5b567);
-}
-.fv2-relay-card-actions {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-</style>

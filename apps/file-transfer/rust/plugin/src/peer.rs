@@ -23,6 +23,7 @@ use crate::transfer_store::{self, PullFileSpec, RetryMeta, TransferEntry};
 use std::sync::Mutex;
 use std::sync::OnceLock;
 use wasmnest_file_transfer_core::dial as core_dial;
+use wasmnest_file_transfer_core::settings as core_settings;
 use wasmnest_plugin_api::host::{
     HostBus, HostEvents, HostLog, HostPeer, HostPlatform, HostPluginDatabase, HostStorage,
 };
@@ -1864,7 +1865,11 @@ pub(crate) fn get_my_device(h: &WasmHost) -> Result<serde_json::Value> {
         "relayCacheAddrs": s.relay_addrs,
         "relayRoom": s.relay_room,
         "relayOrigin": s.relay_origin,
+        "relaySyncedAt": s.relay_synced_at,
         "relaySource": relay.source.as_str(),
+        // 对外网策略（本应用的拨号开关，T12 语义）：分享载荷据此标注
+        // allowed / blocked；它不是配置中心里的跨应用注册表。
+        "wanPolicy": if s.allow_wan { "allowed" } else { "blocked" },
         "relayError": relay.error,
         "nodeId": info.node_id,
         "deviceName": info.device_name,
@@ -1891,6 +1896,49 @@ pub(crate) fn publish_relay_room(h: &WasmHost, room: &str, enabled: Option<bool>
     }
 }
 
+/// 对端同步用的配置快照载荷（纯函数：与分享载荷同字段，便于 native 直测）。
+///
+/// 地址取**当前生效**视图（中心优先 / 缓存兜底）；空间码明文随快照走同一条
+/// Noise 加密的对等连接，不落盘、不广播。`generatedAt` 只在导入渠道写过时非零，
+/// 中心直读没有「同步时刻」概念。
+pub(crate) fn relay_config_snapshot_payload(
+    s: &settings_store::TransferSettings,
+    view: &relay_center::RelayView,
+) -> serde_json::Value {
+    serde_json::json!({
+        "v": 1,
+        "kind": "ft-relay-config",
+        "relayAddrs": view.addrs,
+        "room": s.relay_room,
+        "wanPolicy": if s.allow_wan { "allowed" } else { "blocked" },
+        "generatedAt": s.relay_synced_at,
+    })
+}
+
+/// 把快照写入宿主（对端 `fetch-config` 只读）。失败只留痕：同步是可选能力，
+/// 旧宿主 / 无头环境不应让激活或设置保存失败。
+fn publish_relay_config_snapshot(
+    h: &WasmHost,
+    s: &settings_store::TransferSettings,
+    view: &relay_center::RelayView,
+) {
+    let payload = relay_config_snapshot_payload(s, view);
+    let text = match serde_json::to_string(&payload) {
+        Ok(text) => text,
+        Err(e) => {
+            h.log_warn(&format!(
+                "relay config snapshot serialize failed (non-fatal): {e}"
+            ));
+            return;
+        }
+    };
+    if let Err(e) = h.peer_set_config_snapshot(&text) {
+        h.log_warn(&format!(
+            "relay config snapshot publish failed (non-fatal): {e}"
+        ));
+    }
+}
+
 /// 把当前生效的 relay 配置推给宿主（幂等 reconcile；失败只记日志，不翻命令失败）。
 ///
 /// 地址口径与 `get-my-device` 同源（`relay_center::effective`）：桌面读配置中心，
@@ -1910,6 +1958,11 @@ pub(crate) fn apply_relay_reservation(
         &s.relay_room,
         Some(s.allow_wan && !view.addrs.is_empty()),
     );
+    // 对端同步读取的本机快照：中心不可用且缓存为空 = 配置未知，保留上一份快照
+    // （不能把「读不到」写成「没有中继」）。
+    if !(view.error.is_some() && view.addrs.is_empty()) {
+        publish_relay_config_snapshot(h, s, &view);
+    }
     if !HOST_RELAY_RESERVATION_SUPPORTED {
         return;
     }
@@ -2054,7 +2107,10 @@ pub(crate) fn set_settings(h: &WasmHost, args: &serde_json::Value) -> Result<ser
             .map_err(|e| anyhow::anyhow!("relayAddrs must be a string array: {e}"))?;
         s.relay_addrs = settings_store::normalize_relay_addrs(&raw).map_err(anyhow::Error::msg)?;
         if !origin_explicit {
+            // 手动改地址 = 配置不再由导入渠道负责：来源与同步时刻一并清空，
+            // 避免界面继续标「扫码 / 同步」而地址其实已被手改。
             s.relay_origin.clear();
+            s.relay_synced_at = 0;
         }
     }
     // 空间码：空 = relay-wide；非空两端必须一致（只发哈希给中继，见宿主会合表）
@@ -2087,6 +2143,200 @@ pub(crate) fn set_settings(h: &WasmHost, args: &serde_json::Value) -> Result<ser
     }
     h.log_info("set-settings: policy/download-dir applied (plugin-sourced)");
     Ok(serde_json::json!({ "ok": true }))
+}
+
+/// 可信对端列表里是否包含指定 nodeId（纯函数，native 可直测）。
+///
+/// 列表来自宿主 `peer_list_trusted`（`TrustedPeerDto[]`）；字段名兼容
+/// `nodeId` / `node_id` / `id` 三种历史形状，但**只认显式命中**——缺失 /
+/// 畸形列表由调用方按失败处理，不把「读不到」当「已信任」。
+pub(crate) fn trusted_list_contains(list: &serde_json::Value, node_id: &str) -> bool {
+    let Some(entries) = list.as_array() else {
+        return false;
+    };
+    entries.iter().any(|entry| {
+        ["nodeId", "node_id", "id"].iter().any(|key| {
+            entry
+                .get(*key)
+                .and_then(serde_json::Value::as_str)
+                .is_some_and(|id| id.eq_ignore_ascii_case(node_id))
+        })
+    })
+}
+
+/// 同步获取的信任门：对端必须已在宿主信任表里（未配对一律拒绝，防配置注入）。
+fn peer_is_trusted(h: &WasmHost, node_id: &str) -> Result<bool> {
+    let list = h
+        .peer_list_trusted()
+        .map_err(|e| anyhow::anyhow!("relay config: trusted list unavailable: {}", e.message))?;
+    if !list.is_array() {
+        anyhow::bail!("relay config: trusted list malformed (expected array)");
+    }
+    Ok(trusted_list_contains(&list, node_id))
+}
+
+/// 导入穿透配置（扫码 `qr` / 内网同步 `sync`）。
+///
+/// 与 `set-settings` 的分工：本命令是**导入渠道**的专用写面，只写 relay 地址 /
+/// 空间码 / 来源 / 同步时刻，不碰接收策略、并发、中继开关（T12 语义隔离）。
+/// 校验沿用核内 `normalize_relay_addrs` / `normalize_relay_room`：坏地址整批
+/// 拒绝并点名，不静默保存半份配置。
+///
+/// `sync` 来源必须带 `peerNodeId` 且该设备已在宿主信任表里；未配对设备推送
+/// 一律拒绝（信任边界，见 spec §4.3）。
+pub(crate) fn import_relay_config(
+    h: &WasmHost,
+    args: &serde_json::Value,
+) -> Result<serde_json::Value> {
+    let source = args
+        .get("source")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("");
+    let origin = settings_store::normalize_relay_origin(source).map_err(anyhow::Error::msg)?;
+    if origin.is_empty() {
+        anyhow::bail!("import-relay-config: source must be `qr` or `sync`");
+    }
+
+    let raw: Vec<String> = serde_json::from_value(
+        args.get("relayAddrs")
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("import-relay-config: relayAddrs required"))?,
+    )
+    .map_err(|e| anyhow::anyhow!("relayAddrs must be a string array: {e}"))?;
+    let addrs = settings_store::normalize_relay_addrs(&raw).map_err(anyhow::Error::msg)?;
+    if addrs.is_empty() {
+        anyhow::bail!("import-relay-config: at least one relay address is required");
+    }
+
+    if origin == "sync" {
+        let peer_node = args
+            .get("peerNodeId")
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .unwrap_or("");
+        if peer_node.is_empty() {
+            anyhow::bail!("import-relay-config: peerNodeId is required for `sync`");
+        }
+        if !peer_is_trusted(h, peer_node)? {
+            anyhow::bail!("import-relay-config: `sync` requires a trusted peer");
+        }
+    }
+
+    let mut s = settings_store::load_or_migrate(h)?;
+    s.relay_addrs = addrs;
+    s.relay_origin = origin;
+    // 空间码：只在分享里带非空值时对齐；空 / 缺失保持本机现有隔离键
+    //（分享方未设空间码 = relay-wide，不构成「清除接收方空间码」的授权）
+    if let Some(v) = args.get("room") {
+        let room = v
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("room must be a string"))?;
+        let room = settings_store::normalize_relay_room(room).map_err(anyhow::Error::msg)?;
+        if !room.is_empty() {
+            s.relay_room = room;
+        }
+    }
+    // 同步时刻由调用方给（客户端时钟）；缺失 = 未知，不伪造当前时间
+    s.relay_synced_at = args
+        .get("syncedAt")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
+    settings_store::save_and_push(h, &s)?;
+    apply_relay_reservation(h, platform::current(), &s);
+    Ok(serde_json::json!({
+        "relayAddrs": s.relay_addrs,
+        "relayRoom": s.relay_room,
+        "relayOrigin": s.relay_origin,
+        "relaySyncedAt": s.relay_synced_at,
+    }))
+}
+
+/// 同步结果令牌（前端按 status 分文案；失败不抛命令错误，避免被宿主信封吞成
+/// 无分类的 `code`）。
+fn relay_sync_status(status: &str) -> serde_json::Value {
+    serde_json::json!({ "status": status })
+}
+
+fn relay_sync_status_detail(status: &str, detail: impl std::fmt::Display) -> serde_json::Value {
+    serde_json::json!({ "status": status, "detail": detail.to_string() })
+}
+
+/// 从已连接的可信设备同步穿透配置（`sync` 来源）。
+///
+/// 前置：本机与对端已建立会话（不在此处隐式拨号——同步是用户显式动作，
+/// 但不应顺带把「未连接」变成一次意外连接），且对端在宿主信任表内。
+/// 只读取配置快照，不拉文件、不改对端；成功写入本机设置并重收敛预留，
+/// 同时刷新本机快照供其他设备反向同步。
+///
+/// 失败一律以 `status` 返回（`no-peer` / `not-trusted` / `not-connected` /
+/// `no-config` / `invalid-config` / `unsupported` / `fetch-failed` / `synced`），
+/// 机制异常才走 `Err`。
+pub(crate) fn sync_peer_relay_config(
+    h: &WasmHost,
+    args: &serde_json::Value,
+    active_node: &'static Mutex<String>,
+) -> Result<serde_json::Value> {
+    let Some(node_id) = resolve_node(args, active_node) else {
+        return Ok(relay_sync_status("no-peer"));
+    };
+    if !peer_is_trusted(h, &node_id)? {
+        return Ok(relay_sync_status("not-trusted"));
+    }
+    // 仅接受既有会话：不把同步动作变成隐式拨号（spec §4.3「内网直连成功后」）
+    let Some(handle) = device_bridge::session_of(&node_id) else {
+        return Ok(relay_sync_status("not-connected"));
+    };
+
+    let snapshot = match h.peer_fetch_config(&handle) {
+        Ok(snapshot) => snapshot,
+        Err(e) => {
+            let detail = e.message;
+            // 默认 trait 实现（旧宿主 / 无头）以 unsupported 文案暴露；单独分类，
+            // 让界面提示「升级宿主」而不是「网络失败」。
+            if detail.contains("unsupported") {
+                return Ok(relay_sync_status("unsupported"));
+            }
+            return Ok(relay_sync_status_detail("fetch-failed", detail));
+        }
+    };
+    let Some(raw) = snapshot else {
+        return Ok(relay_sync_status("no-config"));
+    };
+    let parsed = match core_settings::parse_relay_config_snapshot(&raw) {
+        Ok(parsed) => parsed,
+        Err(e) => return Ok(relay_sync_status_detail("invalid-config", e)),
+    };
+    if parsed.relay_addrs.is_empty() {
+        return Ok(relay_sync_status("no-config"));
+    }
+
+    let mut s = settings_store::load_or_migrate(h)?;
+    s.relay_addrs = parsed.relay_addrs;
+    // 快照的 room 是**完整配置**的一部分：空 = 对端 relay-wide，同步动作按
+    // 用户确认后的整份替换语义生效（与扫码导入「空不覆盖」不同）。
+    s.relay_room = parsed.room;
+    s.relay_origin = "sync".to_string();
+    s.relay_synced_at = if parsed.generated_at > 0 {
+        parsed.generated_at
+    } else {
+        args.get("syncedAt")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(0)
+    };
+    settings_store::save_and_push(h, &s)?;
+    let platform = platform::current();
+    apply_relay_reservation(h, platform, &s);
+    let view = relay_center::effective(platform, &s.relay_addrs, &s.relay_origin);
+
+    Ok(serde_json::json!({
+        "status": "synced",
+        "relayAddrs": view.addrs,
+        "relayRoom": s.relay_room,
+        "relayOrigin": s.relay_origin,
+        "relaySyncedAt": s.relay_synced_at,
+        // 对端策略只回显，不改本机 allowWan（语义隔离）
+        "wanPolicy": parsed.wan_policy,
+    }))
 }
 
 /// 选择接收落点目录（桌面形态命令；移动 lib.rs 直接返回 unsupported 不入本模块）
@@ -4098,6 +4348,60 @@ mod tests {
             "实得 {err}"
         );
         super::device_bridge::drain_sessions();
+    }
+
+    // ==================== 穿透配置导入（qr / sync） ====================
+
+    /// 信任表判据：只认显式命中；缺字段 / 非数组 / 大小写差异都按各自语义处理
+    #[test]
+    fn trusted_list_contains_matches_only_explicit_node_ids() {
+        let list = serde_json::json!([
+            { "nodeId": "AABBCCDD", "displayName": "桌面" },
+            { "node_id": "11223344" },
+            { "id": "99887766" },
+        ]);
+        assert!(super::trusted_list_contains(&list, "aabbccdd"));
+        assert!(super::trusted_list_contains(&list, "11223344"));
+        assert!(super::trusted_list_contains(&list, "99887766"));
+        assert!(!super::trusted_list_contains(&list, "deadbeef"));
+        // 非数组 / 畸形条目 = 读不到 → 不当作已信任
+        assert!(!super::trusted_list_contains(
+            &serde_json::json!({}),
+            "aabbccdd"
+        ));
+        assert!(!super::trusted_list_contains(
+            &serde_json::json!([{ "nodeId": 42 }]),
+            "42"
+        ));
+        assert!(!super::trusted_list_contains(
+            &serde_json::json!([null]),
+            "aabbccdd"
+        ));
+    }
+
+    /// 快照载荷与分享载荷同字段：地址取生效视图、策略随开关、时间随导入渠道
+    #[test]
+    fn relay_config_snapshot_payload_mirrors_share_shape() {
+        let s = super::TransferSettings {
+            relay_addrs: vec!["/ip4/198.51.100.7/tcp/4001/p2p/12D3KooWCache".into()],
+            relay_room: "nest-abc".into(),
+            relay_origin: "sync".into(),
+            relay_synced_at: 1_734_000_000_000,
+            allow_wan: false,
+            ..Default::default()
+        };
+        let view = super::relay_center::RelayView {
+            addrs: vec!["/ip4/203.0.113.9/tcp/4001/p2p/12D3KooWRelay".into()],
+            source: super::relay_center::RelaySource::Center,
+            error: None,
+        };
+        let payload = super::relay_config_snapshot_payload(&s, &view);
+        assert_eq!(payload["v"], 1);
+        assert_eq!(payload["kind"], "ft-relay-config");
+        assert_eq!(payload["relayAddrs"][0], "/ip4/203.0.113.9/tcp/4001/p2p/12D3KooWRelay");
+        assert_eq!(payload["room"], "nest-abc");
+        assert_eq!(payload["wanPolicy"], "blocked");
+        assert_eq!(payload["generatedAt"], 1_734_000_000_000u64);
     }
 
     // 票 08 场景链 / 终态历史持久化往返（断点续传时序）拆至子模块

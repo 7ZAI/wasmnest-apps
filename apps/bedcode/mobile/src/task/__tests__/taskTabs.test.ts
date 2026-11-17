@@ -23,6 +23,14 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { ref } from 'vue'
 import { mount } from '@vue/test-utils'
 import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-mobile'
+/** 预设任务真源替身（2026-11-16 下沉后替换应用 store 模块，不再走宿主共享模块） */
+const presetMock = vi.hoisted(() => ({ store: null as any }))
+vi.mock('../presetApi', () => ({
+  usePresetTasks: () => presetMock.store,
+  bindPresetTasks: () => {},
+  unbindPresetTasks: () => {},
+}))
+
 import AutoTaskToolboxView from '../components/AutoTaskToolboxView.vue'
 import type { PresetTask } from '../../terminal/model'
 import {
@@ -47,7 +55,7 @@ const ZH: Record<string, string> = {
   'preset.selectTargetHint': '选一个运行中的会话，或为该预设启动新会话',
   'preset.startNewSession': '启动新会话并执行',
   'preset.startNewSessionNeedsTarget': '该预设未绑定项目 / Agent，无法启动新会话',
-  'preset.startNewSessionLocked': '该预设正在执行或不可重复，不能再入队',
+  'preset.startNewSessionLocked': '该预设正在执行，不能再入队',
   'preset.startAndExecute': '启动并执行',
   'preset.willStartNewSession': '将启动新会话并把指令入队，由任务调度自动下发',
   'preset.willSendToTerminal': '指令将发送到所选会话的终端',
@@ -92,31 +100,27 @@ interface PresetCalls {
   enqueued: { id: string; taskId: string; sessionId: string }[]
 }
 
-/** 预设与 `presetTaskState.canEnqueue` 同一判据（执行中 / 不可重复已用过 → 不可入队） */
+/** 预设入队判据：执行中不可再排 */
 function canEnqueueStub(task: PresetTask): boolean {
   if (task.status === 'executing') return false
-  if (!task.repeatable && task.status !== 'unused') return false
   return true
 }
 
-/** 预设任务真源替身（形状对齐宿主 usePresetTasks 共享模块） */
+/** 预设任务真源替身（应用自持 store 的消费面） */
 function installPresetTasks(tasks: PresetTask[], calls: PresetCalls) {
-  const shared = ((window as any).__WASMNEST_SHARED__ ??= {})
-  shared.presetTasks = {
-    usePresetTasks: () => ({
-      tasks: ref(tasks),
-      load: vi.fn(async () => {}),
-      addTask: vi.fn(async () => {}),
-      updateTask: vi.fn(async () => {}),
-      deleteTask: vi.fn(async () => {}),
-      executeTask: vi.fn(async (task: PresetTask) => {
-        calls.execute.push(task.id)
-      }),
-      reconcileWithQueue: vi.fn(async () => {}),
-      canEnqueue: vi.fn(canEnqueueStub),
-      markEnqueued: vi.fn((id: string, taskId: string, sessionId: string) => {
-        calls.enqueued.push({ id, taskId, sessionId })
-      }),
+  presetMock.store = {
+    tasks: ref(tasks),
+    load: vi.fn(async () => {}),
+    addTask: vi.fn(async () => {}),
+    updateTask: vi.fn(async () => {}),
+    deleteTask: vi.fn(async () => {}),
+    executeTask: vi.fn(async (task: PresetTask) => {
+      calls.execute.push(task.id)
+    }),
+    reconcileWithQueue: vi.fn(async () => {}),
+    canEnqueue: vi.fn(canEnqueueStub),
+    markEnqueued: vi.fn((id: string, taskId: string, sessionId: string) => {
+      calls.enqueued.push({ id, taskId, sessionId })
     }),
   }
 }
@@ -126,7 +130,6 @@ function presetTask(overrides: Partial<PresetTask> & { id: string }): PresetTask
     content: '跑一遍单测',
     createdAt: '2026-10-16T08:00:00Z',
     updatedAt: '2026-10-16T08:00:00Z',
-    repeatable: true,
     status: 'unused',
     pendingTaskId: null,
     pendingSessionId: null,
@@ -331,23 +334,20 @@ describe('C-TT7 执行分流：先选执行目标，再确认', () => {
 /** 记录新增/更新的预设任务真源替身（断言内联表单的保存路径） */
 function installPresetTasksWithCalls(
   tasks: PresetTask[],
-  calls: PresetCalls & { added: { content: string; repeatable: boolean }[] },
+  calls: PresetCalls & { added: { content: string }[] },
 ) {
-  const shared = ((window as any).__WASMNEST_SHARED__ ??= {})
-  shared.presetTasks = {
-    usePresetTasks: () => ({
-      tasks: ref(tasks),
-      load: vi.fn(async () => {}),
-      addTask: vi.fn(async (data: { content: string; repeatable: boolean }) => {
-        calls.added.push({ ...data })
-      }),
-      updateTask: vi.fn(async () => {}),
-      deleteTask: vi.fn(async () => {}),
-      executeTask: vi.fn(async () => {}),
-      reconcileWithQueue: vi.fn(async () => {}),
-      canEnqueue: vi.fn(canEnqueueStub),
-      markEnqueued: vi.fn(),
+  presetMock.store = {
+    tasks: ref(tasks),
+    load: vi.fn(async () => {}),
+    addTask: vi.fn(async (data: { content: string }) => {
+      calls.added.push({ ...data })
     }),
+    updateTask: vi.fn(async () => {}),
+    deleteTask: vi.fn(async () => {}),
+    executeTask: vi.fn(async () => {}),
+    reconcileWithQueue: vi.fn(async () => {}),
+    canEnqueue: vi.fn(canEnqueueStub),
+    markEnqueued: vi.fn(),
   }
 }
 
@@ -368,7 +368,7 @@ describe('C-TT8 编辑表单常驻页面顶部（不弹窗）', () => {
   })
 
   it('should_saveNewTask_viaInlineForm_when_clickAdd', async () => {
-    const calls: PresetCalls & { added: { content: string; repeatable: boolean }[] } = {
+    const calls: PresetCalls & { added: { content: string }[] } = {
       execute: [],
       enqueued: [],
       added: [],
@@ -387,14 +387,14 @@ describe('C-TT8 编辑表单常驻页面顶部（不弹窗）', () => {
     await addBtn!.trigger('click')
     await wrapper.vm.$nextTick()
 
-    expect(calls.added).toEqual([{ content: '构建并上传安装包', repeatable: true }])
+    expect(calls.added).toEqual([{ content: '构建并上传安装包' }])
     // 保存成功后输入框清空并保留焦点（支持连续录入）
     expect((textarea.element as HTMLTextAreaElement).value).toBe('')
   })
 
   it('should_loadTaskIntoEditor_when_clickEdit (no popup for edit)', async () => {
     installPresetTasks(
-      [presetTask({ id: 't1', content: '发布构建产物', repeatable: false })],
+      [presetTask({ id: 't1', content: '发布构建产物' })],
       execCalls,
     )
     const wrapper = mountView()
@@ -638,9 +638,9 @@ describe('C-TT9 启动新会话执行', () => {
     api.activeSessions.value = []
     api.httpRequest = installHttp([])
     const commands: { command: string; args?: any }[] = []
-    // 不可重复 + 已完成 → 不可再入队
+    // 执行中 → 不可再入队
     installPresetTasks(
-      [presetTask({ id: 't1', repeatable: false, status: 'completed' })],
+      [presetTask({ id: 't1', status: 'executing' })],
       execCalls,
     )
     const wrapper = mountView(makeContext(toasts, installCommands(commands)))
@@ -652,7 +652,7 @@ describe('C-TT9 启动新会话执行', () => {
     ) as HTMLButtonElement
     expect(startNew).toBeTruthy()
     expect(startNew.disabled).toBe(true)
-    expect(document.body.textContent).toContain('该预设正在执行或不可重复，不能再入队')
+    expect(document.body.textContent).toContain('该预设正在执行，不能再入队')
 
     startNew.click()
     await wrapper.vm.$nextTick()

@@ -240,6 +240,16 @@ impl WasmPlugin for FileTransferPlugin {
         if let Err(e) = roots_registry::ensure_table(&h) {
             h.log_warn(&format!("shared_roots table init deferred: {e}"));
         }
+        // 引擎镜像自愈：镜像只由「改共享目录」写，激活期重推一次让两边收敛。
+        // 失败不翻成激活失败（节点已起、下次变更 / 对端连入仍会重试），但必须留痕：
+        // 镜像落后 = 对端一直读到空清单。
+        match roots_registry::sync_engine(&h) {
+            Ok(roots) => h.log_info(&format!(
+                "activate: shared roots synced to engine ({} entries)",
+                roots.len()
+            )),
+            Err(e) => h.log_error(&format!("activate: shared roots sync failed: {e}")),
+        }
         // 首屏兜底（传输编排下沉票 2 开放点 4）：激活晚于事件时经
         // active-transfers 原语查询宿主在册活跃批补占位行；节点未起等场景
         // 内部降级日志，不阻断激活
@@ -493,6 +503,13 @@ impl WasmPlugin for FileTransferPlugin {
             // T21：「我的设备」——本机身份 / 可拨地址 / relay 状态。宿主
             // `host-peer.node-info` 未就绪时显性 unsupported（不伪造链接）。
             "file-transfer.get-my-device" => peer::get_my_device(&h),
+            // 穿透配置导入（扫码 qr / 内网同步 sync）：只写 relay 地址 / 空间码 /
+            // 来源，不动接收策略与中继开关（T12 语义隔离）
+            "file-transfer.import-relay-config" => peer::import_relay_config(&h, &args),
+            // 从已连接的可信设备同步穿透配置（只读快照；不改对端）
+            "file-transfer.sync-peer-relay-config" => {
+                peer::sync_peer_relay_config(&h, &args, active_node())
+            }
             // 接收落点选择（桌面形态）：移动端固定 MediaStore.Downloads，
             // 命令显性报错（与退役前移动端行为逐字一致）
             "file-transfer.pick-download-dir" => {
@@ -578,6 +595,12 @@ fn dispatch_bus_message(
         if payload.get("connected").and_then(|v| v.as_bool()) == Some(false) {
             if let Some(node_id) = payload.get("nodeId").and_then(|v| v.as_str()) {
                 device_bridge::forget_session(node_id);
+            }
+        } else if payload.get("connected").and_then(|v| v.as_bool()) == Some(true) {
+            // 对端连入即重推一次共享根：对端随后会立刻来拉清单，这里保证引擎
+            // 镜像与本插件注册表一致（镜像落后会让对方看到空列表）。
+            if let Err(e) = roots_registry::sync_engine(h) {
+                h.log_error(&format!("connection: shared roots sync failed: {e}"));
             }
         }
         h.emit_event("plugin:file-transfer:connection-changed", payload);

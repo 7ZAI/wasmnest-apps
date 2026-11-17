@@ -195,12 +195,14 @@ function hasErrorMark(s: string): boolean {
   return /\(error\)\s*$/i.test(s.trim())
 }
 
-/** token / 大数字量缩写：0–999 原样，k / M / G 三级，1 位小数 */
+/** token / 大数字量缩写：0–999 原样，k / M / B / T 四级，1 位小数 */
 export function formatTokens(n: number | null | undefined): string {
   if (n == null || !Number.isFinite(n)) return '—'
   const v = Math.max(0, n)
   if (v < 1000) return String(Math.round(v))
-  const units = ['', 'k', 'M', 'G', 'T'] as const
+  // B（billion = 10^9）是行业统计口径；G 在英制语境里指 billion 但同表混用
+  // k/M/T 时会被读成「giga」，统一用 B 与 Vercel / npm / GitHub 等统计面板一致。
+  const units = ['', 'k', 'M', 'B', 'T'] as const
   let tier = 0
   let scaled = v
   while (scaled >= 1000 && tier < units.length - 1) {
@@ -232,7 +234,7 @@ export function formatAxisTick(v: number): string {
     // 整数值的 `.0` 尾巴（1.0 → 1）
     return String(v).replace(/\.0(?=$)/, '')
   }
-  return formatTokens(v).replace(/\.0(?=[kMGT]|$)/, '')
+  return formatTokens(v).replace(/\.0(?=[kMBT]|$)/, '')
 }
 
 /** 毫秒时长缩写：<1s 为 ms；<60s 为 s；<60m 为 min；<24h 为 h（1 位小数）；否则 d */

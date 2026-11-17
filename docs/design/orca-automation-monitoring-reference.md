@@ -218,6 +218,7 @@ AutomationRunCompletionWatcher
   3. 双路径合并时按 `created_at` 取新行（现有 `find_task_by_claude_sid`/`find_task_by_session` 双路查询逻辑可复用）。
 - **落地位置**：`queue.rs` `dispatch_task`、`state.rs` `create_task_from_dispatch`。
 - **工作量**：中（1-2 周），注意与宿主扩展的幂等协同。
+- **2026-11-13 收口（移动端执行键无任务行）**：`session::input_via_pty` 的特殊键分支对 Enter 补了提交行观察（`is_submit_key` → `line_tracker().feed("\r")` → `handle_submitted_input`）。此前移动端预设执行 / 输入栏执行走 `specialKey=enter` 只写回车字节，内容与 Enter 被拆成两次写入，重建器从未产出提交行，故 `task-status` 推送因无行被静默跳过。队列派发路径已由 `dispatch_task` 直接建行（第 1 条建议已落地），两条入口现都覆盖。
 
 ### D9【P2】无 usage 采集、无历史保留
 

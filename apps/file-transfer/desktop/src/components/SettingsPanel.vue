@@ -10,6 +10,8 @@ import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-desktop'
 import type { Settings } from '../types'
 import type { RootItem } from '../composables/useSettings'
 import TrustedPeersSection from './TrustedPeersSection.vue'
+import MyDeviceSection from './MyDeviceSection.vue'
+import RelayConfigSection from './RelayConfigSection.vue'
 import AppUpdateSection from '@binblink/wasmnest-plugin-sdk-desktop/ui/app-update'
 import manifest from '../../plugin.json'
 import NumberField from '@binblink/wasmnest-plugin-sdk-desktop/ui/number-field'
@@ -212,6 +214,14 @@ function onTimeoutCommit(secs: number): void {
           <p class="ft-settings-helper">{{ t('transfer.settings.concurrencyHint') }}</p>
         </section>
 
+        <!-- 我的设备（形态改造）：本机身份只读展示（设备名 / 指纹）；
+             手工配对入口已从探索面板下线，扫码添加随之退役 -->
+        <MyDeviceSection />
+
+        <!-- 内网穿透配置（形态改造）：真源 = 穿透配置中心；只读展示 + 分享，
+             与下方 T12「中继」开关语义隔离（怎么接入 vs 用不用外网） -->
+        <RelayConfigSection />
+
         <!-- 中继（T12）：关的是「经 relay 拨号」，不是加密；默认开 -->
         <section class="ft-settings-section" data-testid="ft-settings-section-relay">
           <h3 class="ft-settings-section-title">{{ t('transfer.settings.relay') }}</h3>
@@ -237,8 +247,8 @@ function onTimeoutCommit(secs: number): void {
               {{ t('transfer.settings.relayOff') }}
             </button>
           </div>
-          <p class="ft-settings-helper">{{ t('transfer.settings.relayHint') }}</p>
-          <div class="ft-settings-row">
+
+          <div class="ft-settings-row ft-settings-row--push">
             <label class="ft-timeout-label" for="ft-relay-threshold">
               {{ t('transfer.settings.relayThreshold') }}
             </label>

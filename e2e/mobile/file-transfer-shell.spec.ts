@@ -18,12 +18,9 @@
  *
  * file-transfer 移动端的 `devMock.ts` 给 dev-shell 播了**已连接的活跃对端**
  * （「小米 14 Pro」connected + active）。真宿主**忽略 devMock**（真实宿主不消费该导出），
- * 所以真机上必然「无对端」。于是：
- *
- * - `mobile-ft-peer-status[data-online="false"]` —— 真机为 false、mock 为 true；
- * - 上传入口 `disabled` —— 真机为禁用、mock 为可用。
- *
- * 这两条断言一旦为真，就同时证明了「跑的是真宿主真 wasm，不是 mock 壳」。
+ * 所以真机上必然「无对端」，底栏上方的上传入口因此 `disabled`：
+ * 真机为禁用、mock 为可用。这条断言一旦为真，就同时证明了
+ * 「跑的是真宿主真 wasm，不是 mock 壳」。
  *
  * ## 判据纪律（与 `docs/E2E.md` §6 / §10.4 同口径）
  *
@@ -127,7 +124,8 @@ describe('File Transfer（真机 · 移动宿主运行面）', () => {
     this.timeout(60_000)
     // 真宿主忽略 devMock 的「已连接活跃对端」种子 → 必然离线；
     // dev-shell 会显示在线（小米 14 Pro）→ 这条断言对 mock 壳是红的。
-    await phone().waitForAttr('[data-testid="mobile-ft-peer-status"]', 'data-online', 'false', 30_000)
+    // 等按钮落进禁用态，而不是 sleep 固定时长
+    await phone().waitFor('[data-testid="mobile-ft-upload"][disabled]', 30_000)
 
     const uploadDisabled = await phone().eval<boolean | null>(`(() => {
       const el = document.querySelector('[data-testid="mobile-ft-upload"]')
@@ -144,6 +142,13 @@ describe('File Transfer（真机 · 移动宿主运行面）', () => {
       await phone().visible('[data-testid="mobile-ft-settings-page"]'),
       true,
       '设置页可见（宿主路由跳转成功）',
+    )
+    // 形态改造：我的设备信息迁到设置页（探索页不再有该入口）
+    await phone().waitFor('[data-testid="mobile-settings-section-my-device"]', 30_000)
+    expectEqual(
+      await phone().visible('[data-testid="mobile-settings-section-my-device"]'),
+      true,
+      '设置页「我的设备」区块可见',
     )
   })
 })

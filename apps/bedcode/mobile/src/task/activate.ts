@@ -16,6 +16,7 @@ import { createApp, ref, type App, watch } from 'vue'
 import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-mobile'
 import { getMobileApi } from '@binblink/wasmnest-plugin-sdk-mobile'
 import { getAutoTaskApi } from './api'
+import { bindPresetTasks, unbindPresetTasks } from './presetApi'
 import AutoTaskPanelHost from './components/AutoTaskPanelHost.vue'
 import AutoTaskToolboxView from './components/AutoTaskToolboxView.vue'
 import { messages } from './i18n'
@@ -238,6 +239,8 @@ export function isAutoTaskSupported(agentType: string | null | undefined): boole
 /** 任务域激活（插件入口 activate 调用；与终端域（票 15 迁入）并列） */
 export async function activateTaskDomain(context: PluginContext): Promise<void> {
   _ctx = context
+  // 预设任务真源随业务下沉：绑定插件上下文后，KV / 日志 / 命令面都走本应用
+  bindPresetTasks(context)
   context.logger.info('Task domain activating...')
 
   // 注册 i18n 消息（自动添加插件 ID 前缀），必须在面板组件 setup 前完成
@@ -327,5 +330,6 @@ export function deactivateTaskDomain(): void {
   document.getElementById('bedcode-task-panel-style')?.remove()
   document.getElementById('bedcode-task-toolbox-style')?.remove()
   document.getElementById('bedcode-task-datepicker-style')?.remove()
+  unbindPresetTasks()
   _ctx?.logger.info('Task domain deactivated')
 }

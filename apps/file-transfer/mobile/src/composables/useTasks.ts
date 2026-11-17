@@ -58,6 +58,8 @@ function mapWireReceiving(raw: any): ReceivingTask {
     remotePath: displayName(raw.files),
     size: raw.totalBytes ?? 0,
     offset: raw.transferredBytes ?? 0,
+    // 速率随接收快照下发；不映射会让下载方向恒无速度可显示
+    rateBps: raw.rateBps ?? 0,
     state: status === 'running' ? 'transferring' : status,
     reason: raw.detail ?? null,
     peerId: raw.nodeId ?? '',
@@ -124,7 +126,7 @@ export function useTasks(context: PluginContext) {
   const history = ref<HistoryEntry[]>([])
   /** 接收应答卡数据源（pending 批） */
   const batches = ref<PendingBatch[]>([])
-  /** 活跃传输总速率（B/s，取各 running 批 rateBps 求和） */
+  /** 活跃传输总速率（B/s，双向：发送批 + 接收批 rateBps 求和；0 = 无采样） */
   const totalSpeed = ref(0)
 
   /** 存在具备文件传输能力的发现设备（= 可发送） */
@@ -138,15 +140,26 @@ export function useTasks(context: PluginContext) {
   let dispHistory: Disposable | null = null
   let dispPeerCancelled: Disposable | null = null
 
+  /**
+   * 重算总速率：发送（tasks-changed）与接收（receiving-changed）是两条独立快照流，
+   * 任一侧有任务变化都要把两侧一起重算，否则接收方向速率永远进不了底部摘要条。
+   */
+  function recomputeTotalSpeed(): void {
+    let speed = 0
+    for (const t of tasks.value) {
+      if (t.state === 'transferring') speed += t.rateBps ?? 0
+    }
+    for (const r of receivingTasks.value) {
+      if (r.state === 'transferring') speed += r.rateBps ?? 0
+    }
+    totalSpeed.value = speed
+  }
+
   /** 任务/速率快照整表替换 */
   function applySnapshot(list: any[]): void {
     const next = list.map(mapWireTask)
     tasks.value = next
-    let speed = 0
-    for (const t of next) {
-      if (t.state === 'transferring') speed += t.rateBps ?? 0
-    }
-    totalSpeed.value = speed
+    recomputeTotalSpeed()
 
     const firstNamed = next.find((t) => t.peer?.name)
     if (firstNamed?.peer?.name) peerName.value = firstNamed.peer.name
@@ -396,6 +409,7 @@ export function useTasks(context: PluginContext) {
               : '(empty)',
           )
           receivingTasks.value = payload.map(mapWireReceiving)
+          recomputeTotalSpeed()
         }
       },
     )
@@ -421,6 +435,7 @@ export function useTasks(context: PluginContext) {
       ])
       batches.value = Array.isArray(b) ? b.map(mapWireBatch) : []
       receivingTasks.value = Array.isArray(r) ? r.map(mapWireReceiving) : []
+      recomputeTotalSpeed()
       applyHistorySnapshot(Array.isArray(h) ? h : [], true)
     } catch (e) {
       console.error('[File Transfer] initial receiving snapshot failed:', e)

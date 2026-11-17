@@ -224,12 +224,19 @@ export function useProjects(context: PluginContext) {
   /**
    * 运行列表（最新在前由后端保证；状态在取数边界归一为字符串）
    *
+   * `projectId` **缺省 = 全部项目**（后端 `run.list` 不收 `projectId` 即全量）：
+   * 跨项目拼屏要同时铺多个项目的存活运行。显式传空串仍按「该项目」过滤——
+   * 空串是「未知项目」而不是「全部」，不要把它当缺省。
+   *
    * 这里保留后端给出的全量运行（含终态），「运行区域只展示存活运行」由视图层
    * 用 `isLiveRun` 过滤：卡片与 agent CLI 同生命周期，CLI 退出即从列表消失；
    * 记录本身仍留在会话域（移动端 REST / 会话视图仍可读历史）。
    */
-  async function loadRuns(projectId: string): Promise<void> {
-    const raw = (await context.commands.execute('run.list', { projectId })) as {
+  async function loadRuns(projectId?: string): Promise<void> {
+    const raw = (await context.commands.execute(
+      'run.list',
+      projectId === undefined ? {} : { projectId },
+    )) as {
       runs?: RunView[]
     } | null
     const list = Array.isArray(raw?.runs) ? raw!.runs! : []
@@ -332,10 +339,14 @@ export function useProjects(context: PluginContext) {
    *
    * 先预测终端网格再启动（PTY 以正确行列 openpty，避免开终端后重排）——与
    * 会话页的启动口径一致。
+   *
+   * `options.allRuns`：启动后的运行列表按**全部项目**重取（跨项目拼屏的取数
+   * 范围跟视图一致；缺省按本项目）。
    */
   async function startRun(
     projectId: string,
     agentId: string,
+    options: { allRuns?: boolean } = {},
   ): Promise<{ runId: string; name: string }> {
     const size = await context.session.predictTerminalSize()
     const raw = (await context.commands.execute('run.start', {
@@ -345,15 +356,30 @@ export function useProjects(context: PluginContext) {
       rows: size?.rows,
     })) as { runId?: string; name?: string } | null
     if (!raw?.runId) throw new Error('run.start returned no runId')
-    await Promise.all([loadRuns(projectId), loadProject(projectId)])
+    await Promise.all([
+      options.allRuns ? loadRuns() : loadRuns(projectId),
+      loadProject(projectId),
+    ])
     return { runId: raw.runId, name: raw.name ?? '' }
   }
 
-  /** 停止运行（`session.close`：登记 Stopping + kill PTY，终态由退出事件收尾） */
-  async function stopRun(runId: string, projectId: string): Promise<void> {
+  /**
+   * 停止运行（`session.close`：登记 Stopping + kill PTY，终态由退出事件收尾）
+   *
+   * `projectId` 是**重取范围**（跨项目拼屏时该运行可能不属于当前项目）；
+   * `options.allRuns` 表示按全部项目重取（与启动同一处置）。
+   */
+  async function stopRun(
+    runId: string,
+    projectId: string,
+    options: { allRuns?: boolean } = {},
+  ): Promise<void> {
     await context.commands.execute('session.close', { sessionId: runId })
     await context.session.closeTerminal(runId)
-    await Promise.all([loadRuns(projectId), loadProject(projectId)])
+    await Promise.all([
+      options.allRuns ? loadRuns() : loadRuns(projectId),
+      loadProject(projectId),
+    ])
   }
 
   /** 把运行拉到独立终端窗口（窗口本体归宿主，本域只发起） */

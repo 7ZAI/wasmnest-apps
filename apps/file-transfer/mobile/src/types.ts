@@ -123,8 +123,14 @@ export interface MyDeviceInfo {
   relayAddrs: string[]
   /** 中继会合空间码（空 = 同一中继所有设备可见；双端必须一致） */
   relayRoom?: string
-  /** relay 地址来源：center / cache / invite（移动端通常 cache / invite） */
-  relaySource?: 'center' | 'cache' | 'invite'
+  /** relay 地址来源：center / cache / invite / qr / sync（移动端通常 cache / qr / sync） */
+  relaySource?: 'center' | 'cache' | 'invite' | 'qr' | 'sync'
+  /** 导入渠道原值（"" / invite / qr / sync；设置页溯源） */
+  relayOrigin?: string
+  /** 最近一次外部获取配置的时刻（Unix 毫秒；0 = 未记录） */
+  relaySyncedAt?: number
+  /** 本应用对外网策略（T12 拨号开关；分享载荷标注用） */
+  wanPolicy?: 'allowed' | 'blocked'
   /** 读取配置中心的错误（移动端恒空；保留同构形状） */
   relayError?: string | null
   nodeId?: string
@@ -214,6 +220,8 @@ export interface ReceivingTask {
   remotePath: string
   size: number
   offset: number
+  /** 接收方向即时速率（B/s；任务卡与总速率展示用，0 = 无采样） */
+  rateBps?: number
   /** running / completed / failed / rejected / cancelled */
   state: string
   reason?: string | null
@@ -284,7 +292,7 @@ export interface TaskAction {
   variant: 'neutral' | 'tint'
 }
 
-/** 底部行动条状态（idle = 整条不渲染；发送入口常驻顶栏） */
+/** 底部行动条状态（idle = 整条不渲染；发送入口常驻底栏上方） */
 export type FooterMode = 'idle' | 'select' | 'active'
 
 /** 底部导航一级页面键 */

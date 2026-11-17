@@ -14,16 +14,18 @@
  * 三种未定状态（未扫描 / 未授权 / 扫描中）由上游归为 `unknown`，此时仍走
  * 常规「已装」——**宁可少一次提醒也不误报**。
  *
- * 卸载（本次新增）：仅已装卡片出现；两击确认防误触（第一击 arm，4s 自动
- * 复位）。busy（任意在途 run）禁用；双安装 / 未知安装方式 / npm-global 缺
- * node 不提供自动卸载（手动）。运行中由父层经 `uninstalling` 标注。
+ * 卸载（本次新增）：仅已装卡片出现；确认弹窗防误触（点「卸载」开弹窗，
+ * 弹窗内确认才发命令）。busy（任意在途 run）禁用；双安装 / 未知安装方式 /
+ * npm-global 缺 node 不提供自动卸载（手动）。运行中由父层经 `uninstalling`
+ * 标注。
  */
-import { computed, inject, onUnmounted, ref } from 'vue'
+import { computed, inject, ref } from 'vue'
 import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-desktop'
 import type { CliDetectInfo, CliId } from '../types'
 import type { CliSessionState } from '../composables/useUsage'
 import { builtinAgentName } from '../registry'
 import CliIcon from './CliIcon.vue'
+import UninstallConfirmDialog from './UninstallConfirmDialog.vue'
 
 const props = defineProps<{
   cliId: CliId
@@ -84,7 +86,7 @@ const methodLabel = computed(() => {
   return m && m !== 'unknown' ? t(`hub.card.method.${m}`) : null
 })
 
-// ==================== 卸载动作（两击确认，防误触） ====================
+// ==================== 卸载动作（确认弹窗，防误触） ====================
 
 /** 卸载不可用原因（null=可自动卸载；hidden=不渲染按钮） */
 type UninstallReason = 'dual' | 'unknown-method' | 'no-node' | 'hidden' | null
@@ -112,27 +114,17 @@ const uninstallReasonLabel = computed(() => {
   }
 })
 
-/** 两击确认：第一击 arm（4s 自动复位），第二击才发命令 */
-const armed = ref(false)
-let armedTimer: ReturnType<typeof setTimeout> | null = null
+/** 确认弹窗：点「卸载」开弹窗，弹窗内确认后才上抛命令（危险动作先讲后果） */
+const confirmOpen = ref(false)
 
 function onUninstall() {
-  if (!armed.value) {
-    armed.value = true
-    if (armedTimer) clearTimeout(armedTimer)
-    armedTimer = setTimeout(() => {
-      armed.value = false
-    }, 4000)
-    return
-  }
-  armed.value = false
-  if (armedTimer) clearTimeout(armedTimer)
-  emit('uninstall', props.cliId)
+  confirmOpen.value = true
 }
 
-onUnmounted(() => {
-  if (armedTimer) clearTimeout(armedTimer)
-})
+function onConfirmUninstall() {
+  confirmOpen.value = false
+  emit('uninstall', props.cliId)
+}
 </script>
 
 <template>
@@ -198,24 +190,29 @@ onUnmounted(() => {
         {{ t('hub.launch.open') }}
       </button>
 
-      <!-- 卸载动作：仅已装；两击确认防误触；busy/双安装/未知安装方式/缺 node 不可用 -->
+      <!-- 卸载动作：仅已装；确认弹窗防误触；busy/双安装/未知安装方式/缺 node 不可用 -->
       <span v-if="uninstallReason !== 'hidden'" class="ah-cli-foot-end">
         <span v-if="uninstallReasonLabel" class="ah-cli-error">{{ uninstallReasonLabel }}</span>
         <button
           v-else
           type="button"
           class="ah-btn ah-btn-ghost ah-btn-danger ah-btn-sm"
-          :class="{ 'ah-btn-warn': armed }"
           :disabled="busy || uninstalling"
           :data-testid="`cli-uninstall-${cliId}`"
           @click="onUninstall"
         >
-          {{ uninstalling
-            ? t('hub.card.uninstallRunning')
-            : armed ? t('hub.card.uninstallConfirm') : t('hub.card.uninstall') }}
+          {{ uninstalling ? t('hub.card.uninstallRunning') : t('hub.card.uninstall') }}
         </button>
       </span>
     </div>
     <div v-if="uninstallFailed" class="ah-cli-error">{{ uninstallFailed }}</div>
+
+    <UninstallConfirmDialog
+      :open="confirmOpen"
+      :name="displayName"
+      :busy="busy || uninstalling"
+      @close="confirmOpen = false"
+      @confirm="onConfirmUninstall"
+    />
   </div>
 </template>

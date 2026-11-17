@@ -15,7 +15,8 @@
 
 ### 变更
 
-- 桌面后端由 Rust 切换为 Go（TinyGo wasip2）试点，命令面与存储布局保持不变；Go 工具链缺失时构建跳过后端并沿用上一份产物（wasmnest-apps#21）。
+- 桌面后端改为 Go + Rust 双后端：Go（TinyGo wasip2）与 Rust 两份同时编译、打包（`--backend go|rust|both`、`--install <go|rust>`），宿主默认加载 Rust，Go 为可选变体；命令面与存储布局保持不变。缺 Go 工具链时构建告警并只装 Rust 后端，沿用上一份产物（wasmnest-apps#21）。
+- 应用图标还原为渐变底版本（含 sparkle / 白设备元素）。
 - 设置页「版本更新」固定在最后，并在检查前显示当前版本号（取自随包 `plugin.json`）。
 
 ### 安全

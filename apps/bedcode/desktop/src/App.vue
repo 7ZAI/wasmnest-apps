@@ -77,6 +77,6 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
-  // 卸载路径：entry.ts unmount 已先推回 /sessions；此处无附加清理
+  // 卸载路径：entry.ts unmount 已先推回落地页；此处无附加清理
 })
 </script>

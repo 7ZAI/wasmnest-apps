@@ -2,8 +2,8 @@
 /**
  * SummaryBar — 底部导航上方的上下文行动条（多选 / 活跃传输两态）
  *
- * 一级入口下沉到底栏后，底栏只留四个导航项；「发送」常驻顶栏，于是这里只
- * 承担两件随上下文出现的事：
+ * 一级入口下沉到底栏后，底栏只留四个导航项；「发送」常驻底栏上方的整宽发送条，
+ * 于是这里只承担两件随上下文出现的事：
  *   select — 浏览页勾选了文件：取消选择 + 批量下载（主 CTA）
  *   active — 有正在传输的任务：总体进度 + 速率，整条可点回传输页
  * 空闲（idle）时整条不渲染——没有要说的就不占高度，列表能多显示一张卡。
@@ -66,7 +66,7 @@ defineEmits<{
         <div class="fv2-mini-body">
           <div class="fv2-mini-head">
             <span class="fv2-mini-title">{{ activeLabel }}</span>
-            <span class="fv2-mini-speed flex-shrink-0">{{ speedLabel }}</span>
+            <span v-if="speedLabel" class="fv2-mini-speed flex-shrink-0">{{ speedLabel }}</span>
           </div>
           <div class="fv2-progress fv2-progress--bar">
             <div

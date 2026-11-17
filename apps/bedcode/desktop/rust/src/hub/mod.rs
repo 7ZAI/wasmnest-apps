@@ -68,12 +68,14 @@ static DATA_DIR: OnceLock<String> = OnceLock::new();
 pub(crate) static HOME: OnceLock<String> = OnceLock::new();
 /// 在途进程归属：run_id → 归属描述；on_process_done 按 run_id 分发
 pub(crate) struct PendingRun {
-    /// "env" | CLI 名（探测）| "install" | "uninstall" | "skills-scan" | "skills-import"
+    /// "env" | CLI 名（探测）| "install" | "uninstall" | "skills-scan"
+    /// | "skills-import" | "skills-delete"
     pub kind: String,
     pub output_path: String,
     /// kind == "install" 时为 Some(cli)
     pub cli: Option<String>,
-    /// kind == "skills-import" 时为 "源目录\n入库目录名"
+    /// kind == "skills-import" 时为 "源目录\n入库目录名"；
+    /// kind == "skills-delete" 时为待删 skill 的目录名
     pub source: Option<String>,
 }
 static PENDING: OnceLock<Mutex<HashMap<String, PendingRun>>> = OnceLock::new();
@@ -231,8 +233,11 @@ pub(crate) fn invoke_command(
         "agent.read-skill" => skills::read_skill(&h, &args),
         "agent.save-skill" => skills::save_skill(&h, &args),
         "agent.distribute-skill" => skills::distribute(&h, &args),
+        // 删除 / 卸载：规范库 + 全部分发副本一并删净（相关 agent 立即失去该 skill）
+        "agent.delete-skill" => skills::delete_skill(&h, &args),
         "agent.install-github-skill" => skills::install_github(&h, &args),
         "agent.import-skill" => skills::import_local(&h, &args),
+        "agent.search-skills" => skills::search(&h, &args),
         // ==================== 供应商统一管理 ====================
         "agent.get-providers-state" => providers::get_state(&h),
         "agent.save-preset" => providers::save_preset(&h, &args),

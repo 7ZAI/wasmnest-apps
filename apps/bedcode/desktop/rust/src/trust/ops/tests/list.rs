@@ -157,6 +157,17 @@ fn list_surfaces_peer_error_without_dropping_pairings() {
         ) -> Result<serde_json::Value, HostError> {
             unimplemented_peer!()
         }
+        /// T21 本机节点投影 / relay 预留：本用例只测 list 的 peer 段错误透出
+        fn peer_node_info(&self) -> Result<wasmnest_plugin_api::host::PeerNodeInfo, HostError> {
+            unimplemented_peer!()
+        }
+        fn peer_configure_relay(
+            &self,
+            _relay_addrs: &[String],
+            _enable: bool,
+        ) -> Result<wasmnest_plugin_api::host::PeerNodeInfo, HostError> {
+            unimplemented_peer!()
+        }
     }
 
     let records = MockRecords::new(vec![MockRecords::record(

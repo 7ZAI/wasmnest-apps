@@ -1,5 +1,5 @@
 /**
- * 配对载荷组装（T08：QR v2）
+ * 配对载荷组装（T08：QR v2；2026-11-13 起 v3 紧凑编码）
  *
  * 契约真源：设计 §4.3「QR v2（推荐路径）」——在既有 `{host, port, token}` 上追加
  * `peer`（`nodeId` + 多地址 + 一次性传输票据），旧版移动端忽略未知字段仍走 LAN。
@@ -12,8 +12,32 @@
  *   {@link PairingPayloadError}），禁止静默退回 v1：静默降级会让新桌面把
  *   「本可走隧道」的配对退回明文 LAN 入口，属于不变量 6/9 禁止的静默降级。
  *
- * 两种输出共用同一载荷：{@link buildQrPayload}（二维码文本）与
+ * 三种输出共用同一载荷：{@link buildQrPayload}（二维码文本）与
  * {@link buildPairUri}（`wasmnest://pair/<base64url>` 连接串，无摄像头场景）。
+ *
+ * ## v3：只为把二维码变小（2026-11-13）
+ *
+ * v2 的典型载荷（LAN + relay 两条地址、真实 64 hex 票据）是 479 字符 / 85 模块，
+ * 按「每模块 ≥4 CSS px」的画布硬下限要撑到 356px（见 `utils/qrRender.ts` 头注）。
+ * v3 不改变语义，只删掉移动端可推导的重复（判据：`apps/bedcode/mobile/src/host/qr.ts`
+ * 的 v3 解析逐字段还原，且有跨端集成用例锁住等价性）：
+ *
+ * - 字段名缩写：`host→h`、`port→p`、`token→t`、`peer.nodeId→n`、`addrs→a`、`ticket→tk`；
+ * - `nodeId` 全载荷只出现一次：`a` 存**拨号前缀**（完整地址去掉尾部 `/p2p/<nodeId>`），
+ *   解析侧统一再拼回；relay 前缀保留 `/p2p/<relayId>/p2p-circuit`（拨号必需）；
+ * - 与 `h:p` 完全相同的那条 LAN 前缀记为 `"@"`（**逐字相等才替换**，不按地址类型推测）。
+ *
+ * 实测（ECC M，LAN 端口与 `h:p` 相同→`"@"`）：479 → 314 字符 / 85 → 69 模块 /
+ * 画布 356 → 292px；仅 LAN 时 216 字符 / 61 模块 / 260px；多网卡三地址 73 模块。
+ *
+ * ## v2 仍是真实宿主的常态（2026-11-14 修正）
+ *
+ * v3 把 `n` 当作地址尾部目标段来还原，前提是「`peer.nodeId` === 地址里的
+ * `/p2p/<id>`」。实测宿主不满足：`node.nodeId` 是应用层身份指纹（64 hex
+ * `56bc2e94…`），地址尾部是 libp2p PeerId（`12D3KooWSFCWtAt…`）。此时按 v3 折叠
+ * 会把整批地址判成「目标段不是本节点」→ 外网 Tab 报「隧道地址不可拨号」而彻底
+ * 出不了码。故 **尾部目标 id 与 `nodeId` 不一致时退回 v2 完整地址载荷**
+ * （见 {@link FULL_PEER_PAYLOAD_VERSION}）；移动端保留 v1/v2/v3 三条解析路径。
  */
 
 /**
@@ -23,7 +47,27 @@
  */
 export const PAIR_URI_PREFIX = 'wasmnest://pair/'
 
-/** 对端节点信息（QR v2 `peer` 字段；宿主 `host-tunnel` 状态投影） */
+/** v3 载荷版本（v1 = 无版本字段的三字段旧形状；v2 = 完整 peer 形状） */
+const PAYLOAD_VERSION = 3
+
+/**
+ * v2 完整载荷版本：`peer.addrs` 原样携带（不做前缀折叠）
+ *
+ * **为什么需要它**：v3 的压缩前提是「地址尾部的 `/p2p/<id>` 就是 `peer.nodeId`」。
+ * 真实宿主并不成立——`node.nodeId` 是应用层身份指纹（64 hex，如
+ * `56bc2e94…`），而 multiaddr 尾部是 libp2p PeerId（`12D3KooWSFCWtAt…`），
+ * 两者是不同的 id 空间。此时若仍按 v3 折叠，解析侧会用 `nodeId` 拼回地址 ⇒
+ * 拼出的目标 id 是错的（对端永远拨不通），所以只能退回完整地址形状。
+ *
+ * `peer.nodeId` 仍按宿主原值携带：移动端把它传给连接命令（宿主按应用层 id
+ * 解析 / 对端匹配），`addrs` 直接用尾部真实 PeerId 拨号；两条信息互不替代。
+ */
+const FULL_PEER_PAYLOAD_VERSION = 2
+
+/** `a` 中代表「与载荷 `h:p` 完全相同的那条 LAN 地址」的占位符 */
+export const SAME_ENDPOINT_PREFIX = '@'
+
+/** 对端节点信息（QR `peer` 字段；宿主 `host-tunnel` 状态投影） */
 export interface PairingPeerInfo {
   /** peer 节点 id（宿主已验证；应用不得信任客户端自报值——本字段只用于渲染/拨号） */
   nodeId: string
@@ -56,13 +100,62 @@ export class PairingPayloadError extends Error {
   }
 }
 
+/** 归一后的 peer：完整地址 + 对应的拨号前缀 + 尾部目标 id */
+interface NormalizedPeer {
+  nodeId: string
+  /** 完整 multiaddr（去重保序）——v2 载荷直接用它 */
+  addrs: string[]
+  /** 与 {@link addrs} 一一对应的「去尾部 `/p2p/<目标 id>`」前缀——v3 载荷用它 */
+  prefixes: string[]
+  /**
+   * 地址尾部的目标 id；**全表一致时为该 id，不一致为 null**
+   *
+   * 与 {@link nodeId} 可能不同（真实宿主：nodeId = 应用层指纹，尾部 = libp2p
+   * PeerId）。只有两者相等才能用 v3 的「前缀 + `/p2p/<n>`」无损还原。
+   */
+  targetId: string | null
+  ticket: string
+}
+
+/**
+ * 完整 multiaddr 的可拨判据（与移动端解析同口径）：
+ * 以 `/` 开头、无空白、不是未指定地址、带 `/p2p/` 目标段。
+ */
+function isDialableAddr(addr: string): boolean {
+  return (
+    addr.startsWith('/') && !/\s/.test(addr) && !addr.includes('/ip4/0.0.0.0') && addr.includes('/p2p/')
+  )
+}
+
+/**
+ * 完整 multiaddr → `{prefix, targetId}`（尾部 `/p2p/<目标 id>` 拆出来）。
+ *
+ * 判据刻意只看**字面结构**、不与 `peer.nodeId` 比较：目标 id 与应用层 nodeId
+ * 属于不同 id 空间（见 {@link FULL_PEER_PAYLOAD_VERSION}），拿 nodeId 当唯一
+ * 合法目标会把宿主真实返回的地址整批评成「不可拨号」。
+ */
+function splitAddrTarget(addr: string): { prefix: string; targetId: string } {
+  const targetId = /\/p2p\/([^/]+)$/.exec(addr)?.[1] ?? ''
+  if (!targetId) {
+    throw new PairingPayloadError(
+      'peer-address-invalid',
+      `peer address missing trailing /p2p/ target: ${addr}`,
+    )
+  }
+  const prefix = addr.slice(0, addr.length - targetId.length - '/p2p/'.length)
+  if (!prefix) {
+    throw new PairingPayloadError('peer-address-invalid', `peer address has no transport: ${addr}`)
+  }
+  return { prefix, targetId }
+}
+
 /**
  * 归一并校验 `peer`：缺省返回 null（v1 路径）；给了就必须完整且可拨号。
  *
- * 地址判据（与移动端解析同口径）：multiaddr 以 `/` 开头、不含空白与未指定地址
- * （`/ip4/0.0.0.0`）、且带 `/p2p/` 目标段。多网卡去重保序（LAN 在前不被重排）。
+ * 多网卡去重保序（LAN 在前不被重排）；每条的尾部目标 id 必须存在，
+ * 且全表一致才可能走 v3（不一致 → null，由调用方退回完整地址载荷）。
  */
-function normalizePeer(peer: PairingPeerInfo | null | undefined): PairingPeerInfo | null {
+function normalizePeer(peer: PairingPeerInfo | null | undefined): NormalizedPeer | null {
   if (peer === undefined || peer === null) return null
 
   const nodeId = typeof peer.nodeId === 'string' ? peer.nodeId.trim() : ''
@@ -70,51 +163,83 @@ function normalizePeer(peer: PairingPeerInfo | null | undefined): PairingPeerInf
   if (!nodeId || !ticket) {
     throw new PairingPayloadError(
       'peer-incomplete',
-      'peer info incomplete (nodeId / ticket required for QR v2)',
+      'peer info incomplete (nodeId / ticket required for QR peer payload)',
     )
   }
 
   if (!Array.isArray(peer.addrs) || peer.addrs.length === 0) {
     throw new PairingPayloadError('peer-incomplete', 'peer info incomplete (addrs required)')
   }
-  const addrs = peer.addrs.map((addr) => (typeof addr === 'string' ? addr.trim() : ''))
-  for (const addr of addrs) {
-    if (!addr.startsWith('/') || /\s/.test(addr) || addr.includes('/ip4/0.0.0.0')) {
+  const addrs: string[] = []
+  for (const raw of peer.addrs) {
+    const addr = typeof raw === 'string' ? raw.trim() : ''
+    if (!isDialableAddr(addr)) {
       throw new PairingPayloadError(
         'peer-address-invalid',
         `peer address is not dialable: ${addr || '<empty>'}`,
       )
     }
-    if (!addr.includes('/p2p/')) {
-      throw new PairingPayloadError(
-        'peer-address-invalid',
-        `peer address missing /p2p/ target: ${addr}`,
-      )
-    }
+    if (!addrs.includes(addr)) addrs.push(addr)
   }
 
-  return { nodeId, addrs: [...new Set(addrs)], ticket }
+  const prefixes: string[] = []
+  let targetId: string | null = null
+  for (const addr of addrs) {
+    const target = splitAddrTarget(addr)
+    if (targetId === null) {
+      targetId = target.targetId
+    } else if (targetId !== target.targetId) {
+      // 多地址指向不同节点：无法用单个 id 表达，v3 折叠必然拼错
+      targetId = null
+      // 继续校验剩余地址的结构（坏地址要显性失败，不因前面已判不可折叠而放过）
+    }
+    prefixes.push(target.prefix)
+  }
+
+  return { nodeId, addrs, prefixes, targetId, ticket }
 }
 
 /**
  * 组装二维码载荷文本（JSON）。
  *
- * 有完整 `peer` → `{v:2, host, port, token, peer}`；否则 → `{host, port, token}`
- * （字段顺序与旧实现一致，保证旧移动端与既有快照不受影响）。
+ * 三种形状（解析侧 `apps/bedcode/mobile/src/host/qr.ts` 三条路径一一对应）：
+ * - 无 `peer` → v1 `{host, port, token}`（字段顺序与旧实现逐字一致）；
+ * - 尾部目标 id === `nodeId` → v3 紧凑 `{v:3, h, p, t, n, a, tk}`（`a` 为前缀）；
+ * - 否则（真实宿主的常态）→ v2 完整 `{v:2, host, port, token, peer:{nodeId, addrs, ticket}}`。
  *
- * @throws {PairingPayloadError} `peer` 存在但缺字段 / 地址不可拨号
+ * @throws {PairingPayloadError} `peer` 存在但缺字段 / 地址不可拨号（结构坏）
  */
 export function buildQrPayload(input: PairingPayloadInput): string {
   const peer = normalizePeer(input.peer)
   if (!peer) {
     return JSON.stringify({ host: input.host, port: input.port, token: input.token })
   }
+
+  if (peer.targetId !== peer.nodeId) {
+    // 应用层 nodeId ≠ 地址尾部 PeerId：v3 的拼接前提不成立，只能带完整地址
+    return JSON.stringify({
+      v: FULL_PEER_PAYLOAD_VERSION,
+      host: input.host,
+      port: input.port,
+      token: input.token,
+      peer: { nodeId: peer.nodeId, addrs: peer.addrs, ticket: peer.ticket },
+    })
+  }
+
+  const hostPrefix = `/ip4/${input.host}/tcp/${input.port}`
+  const compact: string[] = []
+  for (const prefix of peer.prefixes) {
+    const entry = prefix === hostPrefix ? SAME_ENDPOINT_PREFIX : prefix
+    if (!compact.includes(entry)) compact.push(entry)
+  }
   return JSON.stringify({
-    v: 2,
-    host: input.host,
-    port: input.port,
-    token: input.token,
-    peer,
+    v: PAYLOAD_VERSION,
+    h: input.host,
+    p: input.port,
+    t: input.token,
+    n: peer.nodeId,
+    a: compact,
+    tk: peer.ticket,
   })
 }
 

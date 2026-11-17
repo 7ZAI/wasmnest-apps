@@ -22,8 +22,6 @@ import {
 import HostProcessCard from './HostProcessCard.vue'
 import PluginCardMobile from './PluginCardMobile.vue'
 import MiniSignal from './MiniSignal.vue'
-import AppUpdateSection from '@binblink/wasmnest-plugin-sdk-mobile/ui/app-update'
-import manifest from '../../plugin.json'
 
 const NAMESPACE = 'com.wasmnest.monitor'
 const { t, locale } = useI18n()
@@ -509,12 +507,6 @@ onBeforeUnmount(() => {
               </div>
             </section>
           </template>
-
-          <!-- ==================== 版本更新（SDK 默认实现） ====================
-               固定放在最后一张卡片；版本号随包内联，检查前也能看到 -->
-          <div style="padding: 0 16px 16px">
-            <AppUpdateSection :current-version="manifest.version" />
-          </div>
         </template>
 
         <!-- ==================== 提供方面板（整页；由宿主中介装载） ==================== -->

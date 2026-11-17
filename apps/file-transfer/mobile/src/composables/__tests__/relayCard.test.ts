@@ -66,11 +66,11 @@ describe('deriveRelayCard', () => {
     expect(card.primary).toBe('open-center')
   })
 
-  it('should_promptForRelayWhenUnconfigured', () => {
+  it('should_pointToRelaySettingsWhenUnconfigured', () => {
     const card = deriveRelayCard({ ...base, relayAddrs: [], discovery: null })
     expect(card.title).toBe('transfer.relayCard.unconfigured.title')
-    expect(card.primary).toBe('paste-invite')
-    expect(card.secondary).toBe('open-center')
+    expect(card.primary).toBe('open-center')
+    expect(card.secondary).toBe('none')
   })
 
   it('should_useRelayStateWhileReservationIsInProgress', () => {
@@ -105,39 +105,33 @@ describe('deriveRelayCard', () => {
     expect(errorCard.params).toEqual({ detail: 'timeout' })
   })
 
-  it('should_showReadyWithCountAndRoomHint', () => {
-    const empty = deriveRelayCard({ ...base, relayRoom: '', discovery: discovery({ count: 0 }) })
-    expect(empty.title).toBe('transfer.relayCard.readyEmpty.title')
-    expect(empty.roomHint).toBe(true)
-
-    const ready = deriveRelayCard({ ...base, discovery: discovery({ count: 3 }) })
-    expect(ready.title).toBe('transfer.relayCard.ready.title')
-    expect(ready.count).toBe(3)
-    expect(ready.params).toMatchObject({ count: 3 })
-    expect(ready.roomHint).toBe(false)
-    expect(ready.tone).toBe('ok')
+  it('should_renderNoCardWhenRelayIsReady', () => {
+    expect(
+      deriveRelayCard({ ...base, relayRoom: '', discovery: discovery({ count: 0 }) }),
+    ).toBeNull()
+    expect(deriveRelayCard({ ...base, discovery: discovery({ count: 3 }) })).toBeNull()
   })
 
   it('should_markStaleAfterThreshold', () => {
     const fresh = deriveRelayCard({
       ...base,
-      discovery: discovery({ updatedAtMs: NOW - RELAY_CARD_STALE_MS + 1 }),
+      discovery: discovery({ status: 'unavailable', updatedAtMs: NOW - RELAY_CARD_STALE_MS + 1 }),
     })
-    expect(fresh.stale).toBe(false)
+    expect(fresh?.stale).toBe(false)
     const stale = deriveRelayCard({
       ...base,
-      discovery: discovery({ updatedAtMs: NOW - RELAY_CARD_STALE_MS - 1 }),
+      discovery: discovery({ status: 'unavailable', updatedAtMs: NOW - RELAY_CARD_STALE_MS - 1 }),
     })
-    expect(stale.stale).toBe(true)
+    expect(stale?.stale).toBe(true)
   })
 
   it('should_degradeForOldHostWithoutEnvelope', () => {
     const reserved = deriveRelayCard({ ...base, relayState: 'relay-reserved', discovery: null })
-    expect(reserved.title).toBe('transfer.relayCard.pending.title')
-    expect(reserved.primary).toBe('generate-invite')
+    expect(reserved?.title).toBe('transfer.relayCard.pending.title')
+    expect(reserved?.primary).toBe('share-config')
 
     const unknown = deriveRelayCard({ ...base, discovery: null })
-    expect(unknown.title).toBe('transfer.relayCard.pending.title')
-    expect(unknown.primary).toBe('refresh')
+    expect(unknown?.title).toBe('transfer.relayCard.pending.title')
+    expect(unknown?.primary).toBe('refresh')
   })
 })

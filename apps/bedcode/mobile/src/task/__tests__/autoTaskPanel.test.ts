@@ -15,6 +15,14 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { ref } from 'vue'
 import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-mobile'
+/** 预设任务真源替身（2026-11-16 下沉后不再走宿主共享模块，直接替换应用 store 模块） */
+const presetMock = vi.hoisted(() => ({ store: null as any }))
+vi.mock('../presetApi', () => ({
+  usePresetTasks: () => presetMock.store,
+  bindPresetTasks: () => {},
+  unbindPresetTasks: () => {},
+}))
+
 import AutoTaskPanelHost from '../components/AutoTaskPanelHost.vue'
 import { autoTaskPanelVisible } from '../state'
 import type { PresetTask } from '../../terminal/model'
@@ -74,7 +82,6 @@ const preset = (overrides: Partial<PresetTask> = {}): PresetTask => ({
   content: '跑一遍单测',
   createdAt: '2026-10-27T08:00:00Z',
   updatedAt: '2026-10-27T08:00:00Z',
-  repeatable: true,
   status: 'executing',
   pendingTaskId: 'q1',
   pendingSessionId: 'sess-old',
@@ -118,33 +125,30 @@ beforeEach(() => {
 
   tasks = ref([preset()])
   saveToStorage = vi.fn()
-  const shared = ((window as any).__WASMNEST_SHARED__ ??= {})
-  shared.presetTasks = {
-    usePresetTasks: () => ({
-      tasks,
-      saveToStorage,
-      load: vi.fn(async () => {}),
-      addTask: vi.fn(async () => {}),
-      updateTask: vi.fn(async () => {}),
-      deleteTask: vi.fn(async () => {}),
-      sendTask: vi.fn(async () => {}),
-      executeTask: vi.fn(async () => {}),
-      reconcileWithQueue: vi.fn(async () => {}),
-      markEnqueued: vi.fn(),
-      markCompletedByTaskId: vi.fn((taskId: string) => {
-        const t = tasks.value.find((x) => x.pendingTaskId === taskId)
-        if (t) {
-          t.status = 'completed'
-          t.pendingTaskId = null
-        }
-      }),
-      markInterruptedByTaskId: vi.fn((taskId: string) => {
-        const t = tasks.value.find((x) => x.pendingTaskId === taskId)
-        if (t) t.status = 'interrupted'
-      }),
-      revertToUnusedByTaskId: vi.fn(),
-      canEnqueue: () => true,
+  presetMock.store = {
+    tasks,
+    saveToStorage,
+    load: vi.fn(async () => {}),
+    addTask: vi.fn(async () => {}),
+    updateTask: vi.fn(async () => {}),
+    deleteTask: vi.fn(async () => {}),
+    sendTask: vi.fn(async () => {}),
+    executeTask: vi.fn(async () => {}),
+    reconcileWithQueue: vi.fn(async () => {}),
+    markEnqueued: vi.fn(),
+    markCompletedByTaskId: vi.fn((taskId: string) => {
+      const t = tasks.value.find((x) => x.pendingTaskId === taskId)
+      if (t) {
+        t.status = 'completed'
+        t.pendingTaskId = null
+      }
     }),
+    markInterruptedByTaskId: vi.fn((taskId: string) => {
+      const t = tasks.value.find((x) => x.pendingTaskId === taskId)
+      if (t) t.status = 'interrupted'
+    }),
+    revertToUnusedByTaskId: vi.fn(),
+    canEnqueue: () => true,
   }
   autoTaskPanelVisible.value = false
 })
@@ -153,7 +157,7 @@ afterEach(() => {
   autoTaskPanelVisible.value = false
   uninstallFakeHost()
   uninstallMockMobileApi()
-  delete (window as any).__WASMNEST_SHARED__?.presetTasks
+  presetMock.store = null
   document.body.innerHTML = ''
 })
 

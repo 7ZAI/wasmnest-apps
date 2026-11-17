@@ -448,17 +448,16 @@ html:not(.dark) .ft-app {
   opacity: 0.55;
 }
 
-/* ==================== 顶栏（标题 · 对端胶囊 · 发送） ==================== */
-/* 一级入口下沉到底栏后，顶栏一行回答三件事：这是哪页 / 跟谁传 / 立刻发。
-   顶部光晕画在 ::before（伪元素不参与布局；也不把 background-image 写回
-   .fv2-view，那里是宿主环境光的入口）。 */
+/* ==================== 顶栏（页面标题） ==================== */
+/* 顶栏只交代「当前在哪一页」：连接状态在设备行里表达，发送入口在底栏上方，
+   顶栏不重复这两件事。顶部光晕画在 ::before（伪元素不参与布局；也不把
+   background-image 写回 .fv2-view，那里是宿主环境光的入口）。 */
 .fv2-top {
   position: relative;
   flex-shrink: 0;
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0.5rem 1rem 0.75rem;
+  padding: 0.5rem 1rem 0.625rem;
   /* 自成层叠：光晕在内容之下，且不溢出到其它区域的命中测试 */
   isolation: isolate;
 }
@@ -480,164 +479,15 @@ html:not(.dark) .ft-app {
 /* 页面标题：始终与底栏选中项同文（navLabels 单一真源），长词不折行 */
 .fv2-top-title {
   margin: 0;
-  flex-shrink: 0;
+  min-width: 0;
   font-size: var(--font-size-xl);
   font-weight: 700;
   letter-spacing: -0.03em;
   line-height: 1.15;
   color: var(--ft-text-primary);
   white-space: nowrap;
-}
-
-/* 对端胶囊：名称 + 连接状态两行，整块可点 → 探索连接。
-   可压缩（flex 1）——长设备名只挤自己，不挤掉右侧发送按钮 */
-.fv2-peer {
-  flex: 1 1 auto;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 0.4375rem;
-  padding: 0.1875rem 0.5rem 0.1875rem 0.1875rem;
-  border-radius: 9999px;
-  border: 1px solid var(--ft-border);
-  background: var(--ft-bg-card);
-  text-align: left;
-  transition:
-    background-color 0.15s ease,
-    border-color 0.15s ease,
-    transform 0.15s ease;
-  -webkit-tap-highlight-color: transparent;
-}
-
-.fv2-peer:active {
-  background: var(--ft-bg-tertiary);
-  border-color: var(--ft-border-strong);
-  transform: scale(0.99);
-}
-
-/* 头像位：手机轮廓 + 右下状态点（点色与文案同源，不只靠颜色） */
-.fv2-peer-avatar {
-  position: relative;
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 1.75rem;
-  height: 1.75rem;
-  border-radius: 9999px;
-  background: var(--ft-bg-tertiary);
-  color: var(--ft-text-muted);
-  transition:
-    background-color 0.2s ease,
-    color 0.2s ease;
-}
-
-.fv2-peer-avatar > svg {
-  width: 1rem;
-  height: 1rem;
-}
-
-.fv2-peer-avatar--online {
-  background: var(--ft-accent-muted);
-  color: var(--ft-accent-text);
-}
-
-.fv2-peer-pin {
-  position: absolute;
-  right: -1px;
-  bottom: -1px;
-  width: 0.4375rem;
-  height: 0.4375rem;
-  border-radius: 9999px;
-  background: var(--ft-text-disabled);
-  /* 描边取胶囊自身的底，状态点与头像之间不留环缝 */
-  box-shadow: 0 0 0 2px var(--ft-bg-card);
-}
-
-.fv2-peer-avatar--online .fv2-peer-pin {
-  background: var(--ft-success);
-  animation: fv2-dot-pulse 2.4s ease-in-out infinite;
-}
-
-.fv2-peer-copy {
-  display: flex;
-  flex-direction: column;
-  flex: 1 1 auto;
-  min-width: 0;
-  line-height: 1.15;
-}
-
-.fv2-peer-name {
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: var(--font-size-sm);
-  font-weight: 600;
-  color: var(--ft-text-primary);
-  letter-spacing: -0.01em;
-}
-
-/* 连接状态：文案 + 点；在线用绿（与点同源），离线用弱化档 */
-.fv2-peer-state {
-  margin-top: 0.0625rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 0.6875rem;
-  font-weight: 500;
-  color: var(--ft-text-muted);
-}
-
-.fv2-peer-state--online {
-  color: var(--ft-success);
-}
-
-.fv2-peer-chevron {
-  width: 0.875rem;
-  height: 0.875rem;
-  flex-shrink: 0;
-  color: var(--ft-text-muted);
-}
-
-/* 发送：常驻主操作（青→蓝渐变），对端离线时回中性面置灰 */
-.fv2-send {
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.3125rem;
-  min-height: 2.375rem;
-  padding: 0 0.8125rem;
-  border-radius: 9999px;
-  background-image: linear-gradient(135deg, var(--ft-grad-from), var(--ft-grad-to));
-  color: var(--ft-grad-ink);
-  font-size: var(--font-size-sm);
-  font-weight: 700;
-  letter-spacing: 0.01em;
-  box-shadow: 0 8px 20px -12px var(--ft-glow);
-  transition:
-    opacity 0.15s ease,
-    transform 0.15s ease;
-  -webkit-tap-highlight-color: transparent;
-}
-
-.fv2-send > svg {
-  width: 1.0625rem;
-  height: 1.0625rem;
-  flex-shrink: 0;
-}
-
-.fv2-send:active:not(:disabled) {
-  opacity: 0.9;
-  transform: scale(0.96);
-}
-
-.fv2-send:disabled {
-  background-image: none;
-  background-color: var(--ft-bg-tertiary);
-  color: var(--ft-text-muted);
-  box-shadow: none;
-  opacity: 0.75;
 }
 
 @keyframes fv2-dot-pulse {
@@ -670,7 +520,10 @@ html:not(.dark) .ft-app {
   isolation: isolate;
 }
 
-/* 滑块：卡面色 + 极轻青调渐变，不用实心青（纯色滑块会把文字压成反面角色） */
+/* 滑块：主题色实底（青→蓝渐变，与发送主操作同一套 --ft-grad-* token）——切换指示
+   必须读得出主题色。此前用「卡面色 + 24% 青」的极轻渐变，在深底上近似半透明玻璃，
+   切换时主题色几乎不可见。文字取 --ft-grad-ink（深墨/白）保证在亮青蓝渐变上的
+   对比度，与主操作按钮同口径（纯色青会把文字压成反面角色，故走渐变而非实心）。 */
 .fv2-seg-indicator {
   position: absolute;
   left: 4px;
@@ -678,11 +531,7 @@ html:not(.dark) .ft-app {
   bottom: 4px;
   width: calc((100% - 8px) / 4);
   border-radius: 0.625rem;
-  background-image: linear-gradient(
-    160deg,
-    color-mix(in srgb, var(--ft-accent) 24%, var(--ft-bg-card)),
-    var(--ft-bg-card)
-  );
+  background-image: linear-gradient(135deg, var(--ft-grad-from), var(--ft-grad-to));
   box-shadow: inset 0 0 0 1px var(--ft-border-strong);
   transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
   pointer-events: none;
@@ -713,7 +562,7 @@ html:not(.dark) .ft-app {
 }
 
 .fv2-seg-btn--active {
-  color: var(--ft-text-primary);
+  color: var(--ft-grad-ink);
   font-weight: 600;
 }
 
@@ -739,8 +588,10 @@ html:not(.dark) .ft-app {
 }
 
 .fv2-seg-btn--active .fv2-seg-count {
-  background: var(--ft-accent-muted);
-  color: var(--ft-accent-text);
+  /* 角标落在主题色渐变滑块上：accent 系在亮青蓝底上不可见，改用墨色（深档深墨/
+     浅档白）的半透明底，与滑块文字同口径 */
+  background: color-mix(in srgb, var(--ft-grad-ink) 18%, transparent);
+  color: var(--ft-grad-ink);
 }
 
 /* ==================== 分段切换（方向感动画） ==================== */
@@ -1212,7 +1063,7 @@ html:not(.dark) .ft-app {
   text-overflow: ellipsis;
 }
 
-/* 重新扫描：胶囊次级按钮（青 tint），与顶栏主发送形成强弱两层 */
+/* 重新扫描：胶囊次级按钮（青 tint），与底栏上方的主发送形成强弱两层 */
 .fv2-discover-btn {
   flex-shrink: 0;
   display: inline-flex;
@@ -1275,110 +1126,10 @@ html:not(.dark) .ft-app {
   font-variant-numeric: tabular-nums;
 }
 
-/* 尾部：添加远程设备（虚线空位，提示「还可以再加」）+ 信任说明 */
-.fv2-add-remote {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-  width: 100%;
-  min-height: 3rem;
-  margin-top: 1rem;
-  border: 1px dashed var(--ft-border-strong);
-  border-radius: 0.875rem;
-  background: transparent;
-  color: var(--ft-text-secondary);
-  font-size: var(--font-size-sm);
-  font-weight: 500;
-  transition:
-    background-color 0.15s ease,
-    color 0.15s ease;
-  -webkit-tap-highlight-color: transparent;
-}
-
-.fv2-add-remote > svg {
-  width: 1.0625rem;
-  height: 1.0625rem;
-  flex-shrink: 0;
-  color: var(--ft-accent-text);
-}
-
-.fv2-add-remote:active {
-  background: var(--ft-bg-card);
-  color: var(--ft-text-primary);
-}
-
-/* 添加远程设备底部弹层：贴触发点出现，不把列表位置顶走；
-   扫面仍是全屏取景（相机预览需要整屏，见 .ft-scan-overlay） */
-.fv2-sheet-mask {
-  position: fixed;
-  inset: 0;
-  z-index: 60;
-  display: flex;
-  align-items: flex-end;
-  background: rgb(2 6 10 / 0.58);
-  animation: fv2-sheet-fade 0.16s ease;
-}
-
-.fv2-sheet {
-  width: 100%;
-  /* 底部安全区由组件注入内联 padding-bottom（Android WebView 的 env() 恒为 0） */
-  padding: 0.75rem 1rem 1rem;
-  border-radius: 1.25rem 1.25rem 0 0;
-  border-top: 1px solid var(--ft-border-strong);
-  background: var(--ft-bg-elevated);
-  box-shadow: 0 -16px 40px -24px rgb(0 0 0 / 0.85);
-  animation: fv2-sheet-rise 0.24s cubic-bezier(0.2, 0.8, 0.2, 1);
-}
-
-.fv2-sheet-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
-}
-
-.fv2-sheet-title {
-  margin: 0;
-  font-size: var(--font-size-base);
-  font-weight: 600;
-  color: var(--ft-text-primary);
-}
-
-.fv2-sheet-actions {
-  display: flex;
-  align-items: center;
-  gap: 0.375rem;
-  margin-top: 0.75rem;
-}
-
-/* 扫面 / 取消在左，确认在右（首个子项吃掉弹性空隙） */
-.fv2-sheet-actions > :first-child {
-  margin-right: auto;
-}
-
-.fv2-sheet-actions .fv2-btn-primary {
-  min-height: 2.75rem;
-  padding: 0 1.125rem;
-  font-size: var(--font-size-sm);
-}
-
-@keyframes fv2-sheet-fade {
-  from {
-    opacity: 0;
-  }
-}
-
-@keyframes fv2-sheet-rise {
-  from {
-    transform: translateY(14px);
-    opacity: 0;
-  }
-}
-
 /* ==================== 设备行 ==================== */
-/* 设备列表 = 一个分组卡里的多行（不再是「一设备一卡 + 整行大按钮」）。
-   行内：状态点 + 名称/指纹/地址 + 右侧文字操作（44px 命中区） */
+/* 设备列表 = 一个分组卡里的多行。手机上是纵向两段（信息块 + 操作行）：
+   设备名 / 标签 / 地址各有自己的换行容器，操作按钮再换行也不会挤出容器、
+   不会压到信息上；平板（见文末容器查询）再把操作挪回信息右侧并排。 */
 .fv2-device-list {
   overflow: hidden;
   background: var(--ft-bg-card);
@@ -1388,30 +1139,38 @@ html:not(.dark) .ft-app {
 
 .fv2-device-row {
   display: flex;
-  align-items: center;
-  gap: 0.625rem;
-  padding: 0.625rem 0.875rem;
-  min-height: 4rem;
+  flex-direction: column;
+  gap: 0.375rem;
+  padding: 0.75rem 0.875rem;
 }
 
 .fv2-device-row + .fv2-device-row {
   border-top: 1px solid var(--ft-group-divider);
 }
 
-/* 设备名 + 指纹同行（指纹是核对信息，不用 disabled 色） */
 .fv2-device-main {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
-.fv2-device-line {
   display: flex;
-  align-items: baseline;
-  gap: 0.375rem;
+  flex-direction: column;
+  gap: 0.25rem;
   min-width: 0;
 }
 
+/* 名称 + 指纹（指纹是核对信息，不截断；长名先让位） */
+.fv2-device-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.375rem;
+  min-width: 0;
+}
+
+/* 长设备名只截断自己：与指纹保持同一行，标签另起一行 */
 .fv2-device-name {
+  flex: 1 1 6rem;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: var(--font-size-base);
   font-weight: 500;
   color: var(--ft-text-primary);
@@ -1423,6 +1182,14 @@ html:not(.dark) .ft-app {
   font-size: var(--font-size-xs);
   color: var(--ft-text-muted);
   font-variant-numeric: tabular-nums;
+}
+
+/* 标签行：独立换行容器，标签再多也只往下折，不透到相邻区域 */
+.fv2-device-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  min-width: 0;
 }
 
 /* 「当前」标记：极轻描边文字，不用色块；活跃对端用青 tint 区分 */
@@ -1442,41 +1209,61 @@ html:not(.dark) .ft-app {
   color: var(--ft-accent-text);
 }
 
-/* T20 跨网能力徽标：含中继 = 可跨网（与中继形态同色），仅内网 = 默认中性 */
+/* 跨网能力徽标：含中继 = 可跨网（与中继形态同色），仅内网 = 默认中性 */
 .fv2-device-tag--wan {
   border-color: color-mix(in srgb, var(--ft-warning-text, #b45309) 40%, transparent);
   color: var(--ft-warning-text, #b45309);
 }
 
-/* 设备元信息（地址 / 状态） */
+/* 设备元信息（地址 / 状态）：折行而不是截断，长地址也能读全 */
 .fv2-device-meta {
-  margin-top: 0.125rem;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.375rem;
+  margin: 0;
   font-size: var(--font-size-xs);
   color: var(--ft-text-secondary);
   font-variant-numeric: tabular-nums;
 }
 
-/* 拨号失败行内错误 */
-.fv2-device-error {
-  margin-top: 0.125rem;
-  font-size: var(--font-size-xs);
-  color: var(--ft-error);
+.fv2-device-meta-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
-/* 行内操作：文字按钮，不再有整行填充按钮 */
+/* 拨号失败行内错误 */
+.fv2-device-error {
+  margin: 0;
+  font-size: var(--font-size-xs);
+  line-height: 1.45;
+  color: var(--ft-error);
+  overflow-wrap: anywhere;
+}
+
+/* 行内操作：文字按钮（44px 命中区）；窄屏折行右对齐，不挤压左侧信息 */
 .fv2-device-actions {
   display: flex;
   align-items: center;
-  gap: 0;
-  flex-shrink: 0;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 0.25rem;
 }
 
 .fv2-device-actions .fv2-btn-text {
-  padding: 0 0.5rem;
+  padding: 0 0.625rem;
+}
+
+/* 行内状态说明（握手中 / 暂无可用地址）：右对齐弱化文字，与按钮同处一行 */
+.fv2-device-note {
+  flex: 1 1 auto;
+  text-align: right;
+  font-size: var(--font-size-xs);
+  line-height: 1.4;
+  color: var(--ft-text-muted);
 }
 
 .fv2-device-transport {
-  margin-left: 0.375rem;
   padding: 0 0.3rem;
   border-radius: 9999px;
   font-size: 0.625rem;
@@ -1487,30 +1274,6 @@ html:not(.dark) .ft-app {
 .fv2-device-transport--wan {
   color: var(--ft-warning-text, #b45309);
   background: color-mix(in srgb, var(--ft-warning-text, #b45309) 12%, transparent);
-}
-
-/* T20 连接串来源提示：说明「这份链接由对方设备生成」 */
-.fv2-remote-source {
-  margin: 0.25rem 0 0;
-  font-size: var(--font-size-xs);
-  line-height: 1.5;
-  color: var(--ft-text-secondary);
-}
-
-/* 添加远程设备：连接串输入（T12，无摄像头场景）；弹层内顶部与标题拉开一点 */
-.fv2-remote-input {
-  width: 100%;
-  box-sizing: border-box;
-  margin-top: 0.5rem;
-  padding: 0.5rem 0.625rem;
-  border: 1px solid var(--ft-border);
-  border-radius: 0.5rem;
-  background: var(--ft-bg-primary);
-  color: var(--ft-text-primary);
-  font-family: ui-monospace, monospace;
-  font-size: var(--font-size-sm);
-  line-height: 1.5;
-  resize: vertical;
 }
 
 /* 扫码面板（T12）：全屏取景 + 定位框（无遮挡读码） */
@@ -1597,15 +1360,6 @@ html:not(.dark) .ft-app {
 
 .fv2-scan-icon {
   animation: fv2-spin 0.8s linear infinite;
-}
-
-/* 信任说明：列表尾部的弱化长文本（可换行，不截断） */
-.fv2-trust-hint {
-  margin: 0.75rem 0.25rem 0;
-  font-size: 0.6875rem;
-  line-height: 1.55;
-  color: var(--ft-text-muted);
-  white-space: normal;
 }
 
 /* 设备状态点 */
@@ -1932,6 +1686,18 @@ html:not(.dark) .ft-app {
   gap: 0.5rem;
 }
 
+/* 发送条：常驻底栏上方的整宽主操作（无对端时保持位置、置灰） */
+.fv2-sendbar {
+  flex-shrink: 0;
+  padding: 0.5rem 1rem;
+  border-top: 1px solid var(--ft-border);
+  background: var(--ft-bg-secondary);
+}
+
+.fv2-sendbar-btn {
+  width: 100%;
+}
+
 /* 迷你传输条：整体可点（回传输页）；卡面 + 呼吸点 + 进度 */
 .fv2-mini {
   display: flex;
@@ -2225,12 +1991,34 @@ html:not(.dark) .ft-app {
   }
 
   .fv2-top,
-  .fv2-bar {
+  .fv2-bar,
+  .fv2-sendbar {
     padding-inline: max(1rem, calc((100% - 44rem) / 2));
   }
 
   .fv2-nav {
     padding-inline: max(0.5rem, calc((100% - 44rem) / 2));
+  }
+
+  /* 设备行：平板上一行放完——信息在左、操作在右，不再纵向堆叠 */
+  .fv2-device-row {
+    flex-direction: row;
+    align-items: center;
+    gap: 0.75rem;
+  }
+
+  .fv2-device-main {
+    flex: 1 1 auto;
+  }
+
+  .fv2-device-actions {
+    flex: 0 0 auto;
+    flex-wrap: nowrap;
+  }
+
+  .fv2-device-note {
+    flex: 0 1 auto;
+    max-width: 12rem;
   }
 }
 
@@ -2239,7 +2027,6 @@ html:not(.dark) .ft-app {
    （进度反馈不丢失，但不产生运动）。spinner 保留——它是状态指示而非装饰。
    雷达只保留静态环（扇形停在半透明态），不转也不扩散 */
 @media (prefers-reduced-motion: reduce) {
-  .fv2-peer-pin,
   .fv2-mini-pulse,
   .fv2-progress-indeterminate,
   .fv2-check--checked,
@@ -2251,11 +2038,6 @@ html:not(.dark) .ft-app {
 
   .fv2-radar--active .fv2-radar-sweep {
     opacity: 0.35;
-  }
-
-  .fv2-sheet,
-  .fv2-sheet-mask {
-    animation: none;
   }
 
   .fv2-seg-indicator {

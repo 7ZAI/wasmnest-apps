@@ -107,10 +107,14 @@
       </div>
     </div>
 
-    <div class="page-swap page-swap-pad-lg flex-1 overflow-auto">
+    <div
+      ref="tabScrollRef"
+      data-testid="pairing-tab-scroll"
+      class="page-swap pairing-tab-swap flex-1 overflow-auto"
+    >
       <Transition name="page">
         <!-- ==================== Tab1 设备配对 · 网络信息 + 配对码 + QR（各占一行） ==================== -->
-        <div v-if="activeTab === 'pairing'" class="space-y-5">
+        <div v-if="activeTab === 'pairing'" class="space-y-5 px-6 py-5">
           <!-- ==================== 网络信息条（置顶） ==================== -->
           <div
             class="rounded-[10px] border border-[var(--border)] bg-[var(--bg-card)] px-4 py-2.5 flex items-center gap-3 flex-wrap"
@@ -271,45 +275,72 @@
             </div>
           </div>
 
-          <!-- ==================== QR 码卡片（内容居中，旧版样式） ==================== -->
+          <!-- ==================== QR 码卡片（标题 + 紧凑内部分页；每页各自出码） ==================== -->
           <div
             class="rounded-[10px] border border-[var(--border)] bg-[var(--bg-card)] p-5 flex flex-col"
           >
-            <div class="flex items-center justify-between gap-3 mb-4">
-              <div class="min-w-0">
-                <h4
-                  class="text-[calc(13px*var(--ui-scale))] font-semibold text-[var(--text-primary)]"
+            <!-- 标题行：内部分页紧贴标题、宽度只贴合文本（不铺满卡片）；
+                 生成 / 取消 / 倒计时下沉到各页内容区——两页的出码条件不同，
+                 共用一颗按钮会让「外网页点了没码」看不出是谁的问题 -->
+            <div class="flex items-center gap-3 mb-4 flex-wrap" data-testid="pairing-qr-header">
+              <h4
+                class="text-[calc(13px*var(--ui-scale))] font-semibold text-[var(--text-primary)]"
+              >
+                {{ t('pairing.qr.title') }}
+              </h4>
+              <div
+                class="inline-flex w-auto shrink-0 items-center gap-0.5 p-0.5 rounded-lg bg-[var(--bg-hover)]"
+                role="tablist"
+              >
+                <button
+                  v-for="tab in qrTabs"
+                  :key="tab.key"
+                  class="h-6 px-2.5 rounded-md whitespace-nowrap text-[calc(11px*var(--ui-scale))] font-medium transition-colors duration-200"
+                  :class="
+                    activeQrTab === tab.key
+                      ? 'bg-[var(--bg-card)] text-[var(--text-primary)] shadow-sm'
+                      : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                  "
+                  role="tab"
+                  :aria-selected="activeQrTab === tab.key"
+                  :data-testid="`pairing-qr-tab-${tab.key}`"
+                  @click="selectQrTab(tab.key)"
                 >
-                  {{ t('pairing.qr.title') }}
-                </h4>
+                  {{ tab.label }}
+                </button>
               </div>
-              <div class="flex items-center gap-2 flex-shrink-0">
+            </div>
+
+            <div class="flex flex-col items-center text-center">
+              <!-- 本页独立操作行：按钮文案 / 倒计时只反映本页能否出码；
+                   取消按共享 token 判断——两页用的是同一份 QR 会话，任一页都能撤销 -->
+              <div class="flex items-center gap-2 mb-4">
                 <button
                   v-if="hasQr"
                   class="wb-btn-ghost !h-7 !px-2.5 text-[calc(11px*var(--ui-scale))]"
+                  :data-testid="`pairing-qr-cancel-${activeQrTab}`"
                   @click="clearQr"
                 >
                   {{ t('pairing.button.cancel') }}
                 </button>
                 <button
                   class="wb-btn-primary !h-7 !px-2.5 text-[calc(11px*var(--ui-scale))]"
+                  :data-testid="`pairing-qr-generate-${activeQrTab}`"
                   :disabled="isQrLoading"
-                  @click="generateQr(selectedHost || undefined)"
+                  @click="handleGenerateQr(activeQrTab)"
                 >
-                  {{ hasQr ? t('pairing.button.refresh') : t('pairing.qr.generate') }}
+                  {{ qrGenerateLabel }}
                 </button>
                 <span
-                  v-if="hasQr"
+                  v-if="qrTabRenderable"
                   class="wb-mono text-[calc(11px*var(--ui-scale))] inline-flex items-center gap-1.5 px-2 h-5 rounded-[6px] bg-[var(--color-success-light)] text-[var(--color-success)]"
                 >
                   <span class="w-1.5 h-1.5 rounded-full bg-[var(--color-success)]"></span>
                   {{ qrRemainingSeconds }}{{ t('pairing.time.seconds') }}
                 </span>
               </div>
-            </div>
 
-            <div class="flex flex-col items-center text-center">
-              <template v-if="hasQr">
+              <template v-if="qrTabRenderable">
                 <!-- 白底衬底保证二维码在暗色模式下可读 -->
                 <div
                   class="inline-block bg-white p-3 rounded-lg border border-[var(--border)] mb-4"
@@ -331,31 +362,6 @@
                 >
                   {{ t('pairing.qr.copyLink') }}
                 </button>
-                <!-- T18：中继降级 / 注册表关闭外网：二维码仍可用，但必须能看出只走 LAN -->
-                <p
-                  v-if="qrRelayError"
-                  data-testid="pairing-qr-relay-error"
-                  class="mt-2 text-[calc(11px*var(--ui-scale))] text-[var(--color-warning)] leading-relaxed"
-                  :title="qrRelayError"
-                >
-                  {{ t('pairing.qr.relayDegraded', { message: qrRelayError }) }}
-                </p>
-                <p
-                  v-if="qrWanDisabled"
-                  data-testid="pairing-qr-wan-disabled"
-                  class="mt-2 text-[calc(11px*var(--ui-scale))] text-[var(--color-warning)] leading-relaxed"
-                >
-                  {{ t('pairing.qr.wanDisabled') }}
-                </p>
-                <!-- T08：隧道 peer 未产出 → 载荷为 v1（仅内网），原因必须可见 -->
-                <p
-                  v-if="qrPeerError"
-                  data-testid="pairing-qr-peer-error"
-                  class="mt-2 text-[calc(11px*var(--ui-scale))] text-[var(--color-warning)] leading-relaxed"
-                  :title="qrPeerError"
-                >
-                  {{ t('pairing.tunnel.onlyLan') }}
-                </p>
               </template>
               <template v-else>
                 <div
@@ -391,20 +397,57 @@
                 >
                   {{ t('pairing.qr.hint') }}
                 </p>
+                <!-- 外网 Tab：隧道码不可出的显性原因（局域网 Tab 无此失败路径） -->
                 <p
-                  v-if="qrErrorText"
+                  v-if="activeQrTab === 'wan' && hasQr && qrWanErrorText"
                   data-testid="pairing-qr-error"
                   class="mt-1.5 text-[calc(11px*var(--ui-scale))] text-[var(--color-danger)] leading-relaxed"
                 >
-                  {{ qrErrorText }}
+                  {{ qrWanErrorText }}
                 </p>
               </template>
+
+              <!-- 生成动作本身失败（命令面报错）：必须上屏 + 详情进 title，不留白也不假装成功 -->
+              <p
+                v-if="qrGenerateError"
+                data-testid="pairing-qr-generate-error"
+                class="mt-2 text-[calc(11px*var(--ui-scale))] text-[var(--color-danger)] leading-relaxed"
+                :title="qrGenerateError"
+              >
+                {{ t('pairing.qr.generateFailed') }}
+              </p>
+
+              <!-- T18 / T08：外网能力提示（只在外网 Tab 展示：说明该码的外网可达性） -->
+              <p
+                v-if="activeQrTab === 'wan' && qrRelayError"
+                data-testid="pairing-qr-relay-error"
+                class="mt-2 text-[calc(11px*var(--ui-scale))] text-[var(--color-warning)] leading-relaxed"
+                :title="qrRelayError"
+              >
+                {{ t('pairing.qr.relayDegraded', { message: qrRelayError }) }}
+              </p>
+              <p
+                v-if="activeQrTab === 'wan' && qrWanDisabled"
+                data-testid="pairing-qr-wan-disabled"
+                class="mt-2 text-[calc(11px*var(--ui-scale))] text-[var(--color-warning)] leading-relaxed"
+              >
+                {{ t('pairing.qr.wanDisabled') }}
+              </p>
+              <!-- T08：隧道 peer 未产出 → 无外网码，原因必须可见 -->
+              <p
+                v-if="activeQrTab === 'wan' && qrPeerError"
+                data-testid="pairing-qr-peer-error"
+                class="mt-2 text-[calc(11px*var(--ui-scale))] text-[var(--color-warning)] leading-relaxed"
+                :title="qrPeerError"
+              >
+                {{ t('pairing.tunnel.onlyLan') }}
+              </p>
             </div>
           </div>
         </div>
 
         <!-- ==================== Tab2 设备列表 · 在线 / 离线 ==================== -->
-        <div v-else class="space-y-6" data-testid="pairing-devices-panel">
+        <div v-else class="space-y-6 px-6 py-5" data-testid="pairing-devices-panel">
           <!-- ==================== ONLINE 分区 ==================== -->
           <section>
             <h3 class="wb-section-title">
@@ -654,7 +697,8 @@ const {
   qrRemainingSeconds,
   isQrLoading,
   hasQr,
-  qrError,
+  hasWanQr,
+  qrWanError,
   qrPeerError,
   qrRelayError,
   qrWanDisabled,
@@ -684,18 +728,74 @@ const deviceTabs: { key: TabKey; label: string }[] = [
   { key: 'pairing', label: t('pairing.tab.pairing') },
   { key: 'devices', label: t('pairing.tab.devices') },
 ]
+const tabScrollRef = ref<HTMLElement | null>(null)
+
+// 切页时复位滚动：过渡用「旧页绝对定位层淡出 + 新页淡入」，旧层锚在内容顶部，
+// 滚动位置若留在中段，残影会落在视口之外、两层对不齐。post flush 保证复位发生在
+// DOM 更新（旧页已脱流）之后、浏览器绘制之前，旧页不会先跳回顶部再开始淡出。
+watch(
+  activeTab,
+  () => {
+    if (tabScrollRef.value) tabScrollRef.value.scrollTop = 0
+  },
+  { flush: 'post' },
+)
+
+// ==================== QR 内部分页（局域网 / 外网） ====================
+type QrTabKey = 'lan' | 'wan'
+const activeQrTab = ref<QrTabKey>('lan')
+const qrTabs: { key: QrTabKey; label: string }[] = [
+  { key: 'lan', label: t('pairing.qr.tabLan') },
+  { key: 'wan', label: t('pairing.qr.tabWan') },
+]
+
+/**
+ * 生成动作本身的失败详情（命令面报错原文；null = 无失败）
+ *
+ * 与 `qrWanError` 分开：后者是「命令成功但外网载荷组装不了」，本字段是
+ * 「命令压根没成功」（如认证中心未激活 / 端口配置缺失）。两种都必须可见——
+ * 早前这条路径没有 catch，命令抛错只留下一个未处理的 Promise，界面停在占位态，
+ * 用户看到的就是「点了生成二维码但什么都没有」。
+ */
+const qrGenerateError = ref<string | null>(null)
+
+/**
+ * 当前 QR 分页能否出码：局域网 = 有活跃 QR；外网 = 隧道 peer 可用且载荷可组装
+ *
+ * peer 缺省时载荷虽能按 v1 组装，但那不是内网穿透码，外网分页不出码、只展示原因。
+ */
+const qrTabRenderable = computed(() =>
+  activeQrTab.value === 'lan' ? hasQr.value : hasWanQr.value,
+)
+
+/** 切页：清掉上一页残留的生成失败提示（两页各自独立，不互相继承错误态） */
+function selectQrTab(key: QrTabKey): void {
+  activeQrTab.value = key
+  qrGenerateError.value = null
+}
+
+/**
+ * 当前页的生成按钮文案
+ *
+ * 按**本页**能否出码取「刷新 / 生成」，而不是看共享的 `hasQr`：外网页在隧道
+ * peer 不可用时没有码，按钮就不能显示成「刷新」（那会让用户以为已有外网码）。
+ */
+const qrGenerateLabel = computed(() => {
+  if (qrTabRenderable.value) return t('pairing.button.refresh')
+  return activeQrTab.value === 'wan' ? t('pairing.qr.generateWan') : t('pairing.qr.generate')
+})
 
 /** 工具栏展示的当前对外 IP（未选择时显示占位文案） */
 const displayIp = computed(() => selectedHost.value || t('pairing.network.notSelected'))
 
 /**
- * QR 载荷组装失败的显性文案（T08：peer 信息残缺不静默降级成 v1）
+ * 外网载荷组装失败的显性文案（T08：peer 信息残缺不静默降级成 v1）
  *
  * 显式映射而不是拼接 key：`plugin-contract` C6 静态检查 `t('...')` 字面量，
  * 动态 key 会绕过完整性门禁。
  */
-const qrErrorText = computed(() => {
-  switch (qrError.value) {
+const qrWanErrorText = computed(() => {
+  switch (qrWanError.value) {
     case 'peer-incomplete':
       return t('pairing.qr.errorPeerIncomplete')
     case 'peer-address-invalid':
@@ -703,6 +803,20 @@ const qrErrorText = computed(() => {
     default:
       return ''
   }
+})
+
+/**
+ * 外网 Tab 出不了码时对用户说的**一句**原因（toast 用；空串 = 没有更具体的原因）
+ *
+ * 优先级按「离根因最近」排：载荷组装失败 > 业务关闭外网 > 后端未产出 peer >
+ * 中继配置降级。页面内的分条提示照旧全量展示，这里只挑第一条说给立刻要反馈的用户。
+ */
+const qrWanBlockReason = computed(() => {
+  if (qrWanErrorText.value) return qrWanErrorText.value
+  if (qrWanDisabled.value) return t('pairing.qr.wanDisabled')
+  if (qrPeerError.value) return t('pairing.tunnel.onlyLan')
+  if (qrRelayError.value) return t('pairing.qr.relayDegraded', { message: qrRelayError.value })
+  return ''
 })
 
 // ==================== 隧道状态（T07） ====================
@@ -809,12 +923,13 @@ const qrCanvasRef = ref<HTMLCanvasElement | null>(null)
  *    「移出文档再移回」的 canvas 内容保留行为。
  */
 async function renderQrCanvas() {
-  const payload = qrPayload()
+  const payload = qrPayload(activeQrTab.value)
   const canvas = qrCanvasRef.value
   if (!payload || !canvas) return
   try {
-    // 画布尺寸必须按**实际模块数**算：v2 载荷（LAN + relay 地址）是 85~93 模块，
-    // 固定 192px 只剩 ~2.2px/模块，手机相机扫不出（见 utils/qrRender.ts 头注）。
+    // 画布尺寸必须按**实际模块数**算：v3 载荷（LAN + relay 地址）是 73 模块（多网卡 77，
+    // 仅 LAN 61），v2 时代是 85~93；固定 192px 只剩 ~2.2px/模块，手机相机扫不出
+    // （见 utils/qrRender.ts 头注）。
     const plan = planQrCanvas(qrMatrix(payload).size, window.devicePixelRatio)
     await QRCode.toCanvas(canvas, payload, {
       width: plan.size,
@@ -832,7 +947,9 @@ async function renderQrCanvas() {
 }
 
 watch(
-  () => qrPayload(),
+  // 载荷变化（生成 / 恢复 / 扫码后自动重生成）与分页切换（局域网 ↔ 外网载荷不同）
+  // 都要触发重绘；canvas 元素重建由下面的 qrCanvasRef watch 兜底
+  () => [activeQrTab.value, qrPayload(activeQrTab.value)] as const,
   () => void renderQrCanvas(),
   { flush: 'post' },
 )
@@ -851,11 +968,11 @@ onActivated(() => {
 /**
  * 复制连接串（无摄像头场景：把 `wasmnest://pair/…` 粘贴到移动端）
  *
- * 载荷组装失败（peer 残缺）时 `qrPairUri()` 返回 null，页面已有显性错误文案，
+ * 按当前分页的载荷组装：组装失败时 `qrPairUri()` 返回 null，页面已有显性错误文案，
  * 此时不动作——不复制半成品，也不假装成功；剪贴板不可用则显性 toast。
  */
 async function copyPairUri() {
-  const uri = qrPairUri()
+  const uri = qrPairUri(activeQrTab.value)
   if (!uri) return
   try {
     if (!navigator.clipboard?.writeText) throw new Error('clipboard unavailable')
@@ -875,6 +992,35 @@ function handleIpSelect(value: string | number) {
   void selectHost(String(value)).then(() => {
     if (hasQr.value) void generateQr(String(value))
   })
+}
+
+/**
+ * 生成 / 刷新当前分页的二维码
+ *
+ * 三条纪律（每条都对应一个真实故障，别再退回「点了没反应」）：
+ * 1. **外网页先生成隧道**：外网码的 `peer` 是后端在生成时按当时的通道配置组装的；
+ *    换网 / relay 刚恢复 / 插件重新激活后旧通道可能还没重建，直接生成会拿到
+ *    `peerError`（表现为「外网页生成不出码」）。`prepare` 幂等，代价只有一次命令。
+ * 2. **失败必须可见**：命令抛错时置 `qrGenerateError` 并 toast——早前没有 catch，
+ *    Promise 未处理 ⇒ 界面停在占位态，看起来就是「按钮没生效」。
+ * 3. **外网页没出码要说原因**：后端没能给出可拨的隧道信息时，二维码不该出（那会
+ *    假装外网可达），但原因必须上屏 + toast，而不是留一张空占位。
+ */
+async function handleGenerateQr(tab: QrTabKey) {
+  qrGenerateError.value = null
+  try {
+    if (tab === 'wan') {
+      await tunnel.prepare()
+    }
+    await generateQr(selectedHost.value || undefined)
+  } catch (e) {
+    console.error('[Device Center] generate qr failed:', e)
+    qrGenerateError.value = e instanceof Error ? e.message : String(e)
+    toast.error(t('pairing.qr.generateFailed'))
+    return
+  }
+  if (tab !== 'wan' || hasWanQr.value) return
+  toast.error(qrWanBlockReason.value || t('pairing.qr.errorPeerIncomplete'))
 }
 
 /** 生成配对码（含失败提示；无码视为生成失败，不静默） */
@@ -1012,8 +1158,58 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-/* Tab 切换过渡已收归宿主页面过渡体系（src/style.css 的 .page-* / .page-swap）：
-   名字恒为 `page`，时长/缓动/位移走 --motion-page-* token，效果变体由
-   <html data-page-fx> 选（全端唯一切换点 = 宿主 src/utils/pageTransition.ts）。
-   本文件不再自带 .tab-fade-* —— 同一份页面过渡散落多处必然漂移。 */
+/* 两页签切换过渡只在本页生效（2026-11-17：设备配对 / 设备列表两页签要平滑过渡）。
+ *
+ * 宿主页面过渡体系（.page-* / .page-swap / --motion-page-*）仍是全局真源；本应用
+ * 在 src/style.css 里为工作台高频切换把整页过渡压成了瞬时。这里不新建过渡名字，
+ * 只给本页的过渡容器加 `.pairing-tab-swap`，让宿主那套「重叠交叉淡入 + 出场层
+ * 脱离文档流」的机制在本页按更短的节奏重新生效——其它页面仍走瞬时策略。
+ *
+ * 频率与幅度：页签切换是低频动作，入场 160ms / 出场 120ms、位移收到 4px，读起来
+ * 是「换了一页」而不是「加载了一页」；只动 opacity / transform，不写 will-change
+ * （WebKitGTK 上整块合成层容易闪）。系统减弱动态时与宿主同一口径：瞬时、无位移。
+ *
+ * 内边距放在两个 pane 上而不是过渡容器上：旧页脱流后与新页用同一套 px-6 py-5，
+ * 不依赖宿主的 padding 补偿变量，两层内外缘自然对齐。
+ */
+.page-swap.pairing-tab-swap {
+  --motion-page-duration-in: 160ms;
+  --motion-page-duration-out: 120ms;
+  --motion-page-shift: 4px;
+}
+
+.page-swap.pairing-tab-swap .page-enter-active {
+  transition:
+    opacity var(--motion-page-duration-in) var(--motion-page-ease),
+    transform var(--motion-page-duration-in) var(--motion-page-ease);
+}
+
+.page-swap.pairing-tab-swap .page-leave-active {
+  transition:
+    opacity var(--motion-page-duration-out) var(--motion-page-ease),
+    transform var(--motion-page-duration-out) var(--motion-page-ease);
+}
+
+.page-swap.pairing-tab-swap .page-enter-from {
+  opacity: 0;
+  transform: translateY(var(--motion-page-shift));
+}
+
+.page-swap.pairing-tab-swap .page-leave-to {
+  opacity: 0;
+  transform: translateY(calc(0px - var(--motion-page-shift) / 2));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page-swap.pairing-tab-swap .page-enter-active,
+  .page-swap.pairing-tab-swap .page-leave-active {
+    transition-duration: 0.01ms;
+  }
+
+  .page-swap.pairing-tab-swap .page-enter-from,
+  .page-swap.pairing-tab-swap .page-leave-to {
+    opacity: 1;
+    transform: none;
+  }
+}
 </style>

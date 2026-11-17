@@ -29,7 +29,7 @@ export default {
   'transfer.devices.title': 'Nearby Devices',
   'transfer.devices.subtitle': 'WasmNest nodes on this network',
   'transfer.devices.relayEmptyHint':
-    'Devices on the same relay appear automatically (configure the same relay on both ends; the relay must support auto-discovery). QR / link is only needed when a shared relay is unavailable.',
+    'Devices on the same relay appear automatically (configure the same relay on both ends; the relay must support auto-discovery).',
   'transfer.devices.empty':
     'No nearby devices found; make sure the other device has WasmNest open and is on the same network',
   'transfer.devices.online': 'Online',
@@ -41,39 +41,54 @@ export default {
   'transfer.devices.capNone': 'No transfer',
   'transfer.devices.activeCurrent': 'Current',
   'transfer.devices.setActive': 'Set active',
-  'transfer.devices.connect': 'Connect',
   'transfer.devices.disconnect': 'Disconnect',
   'transfer.devices.denied': 'Connection rejected by the other device',
   'transfer.devices.unreachable': 'Cannot connect; the device may be offline',
   'transfer.devices.trustHint':
     'First-time connections need approval on the other side; manage trust in Settings → Trusted peers',
-  'transfer.devices.scan': 'Discover',
-  'transfer.devices.scanning': 'Discovering…',
+  'transfer.devices.discover': 'Rediscover',
+  'transfer.devices.discovering': 'Discovering…',
+  'transfer.devices.connectLan': 'LAN',
+  'transfer.devices.connectLanHint':
+    'Use LAN addresses only; failures never switch to relay automatically',
+  'transfer.devices.connectWan': 'Relay',
+  'transfer.devices.connectWanHint': 'Dial through the relay directly (only when you ask)',
+  'transfer.devices.modeBoth': 'LAN + relay',
+  'transfer.devices.modeLanOnly': 'LAN only',
+  'transfer.devices.modeWanOnly': 'Relay only',
+  'transfer.devices.modeNone': 'No path',
+  'transfer.devices.modeNoneHint':
+    'No dialable address yet; rediscover or forget the device and retry',
   // T12: relay / remote devices
-  'transfer.devices.addRemote': 'Add remote device',
-  'transfer.devices.myDevice': 'My device',
   'transfer.devices.remote': 'Remote',
   'transfer.devices.removeRemote': 'Forget',
-  'transfer.devices.tryWan': 'Try over relay',
-  'transfer.devices.tryWanHint':
-    'Only tries the relay when you ask; same-network failures never switch automatically',
   'transfer.devices.transportLan': 'LAN direct',
   'transfer.devices.transportWan': 'Relay',
   // T20: last transport / WAN capability / classified failure exits
   'transfer.devices.lastTransportLan': 'Last: LAN direct',
   'transfer.devices.lastTransportWan': 'Last: relay',
-  'transfer.devices.hasRelay': 'Relay ready',
-  'transfer.devices.lanOnly': 'LAN only',
   'transfer.devices.relayTag': 'Relay',
-  'transfer.devices.relayOnly': 'Relay only',
-  'transfer.devices.relayOnlyHint':
-    'Skip LAN candidates and dial straight through the relay (faster on cellular)',
-  'transfer.devices.errorNoEndpoint': 'No dialable address; add the remote device again',
+  'transfer.devices.errorNoEndpoint':
+    'No dialable address; rediscover or forget the device and retry',
   'transfer.devices.errorRelayDisabled': 'Relay is off: enable "Relay (WAN)" in settings and retry',
   'transfer.devices.errorRelayUnreachable':
     'Relay path unreachable: check the relay and whether the peer is online',
   'transfer.devices.errorTimeout': 'Connection timed out, please retry',
   'transfer.devices.errorUnknown': 'Connection failed: {detail}',
+
+  // ==================== My device (settings: name / fingerprint) ====================
+  'transfer.myDevice.title': 'My device',
+  'transfer.myDevice.loading': 'Reading device info…',
+  'transfer.myDevice.loadFailed': 'Failed to read device info, please retry',
+  'transfer.myDevice.refresh': 'Retry',
+  'transfer.myDevice.unsupportedTitle': 'Host not supported',
+  'transfer.myDevice.unsupportedBody':
+    'The current host provides no device identity; upgrade the host and retry.',
+  'transfer.myDevice.deviceName': 'Device name',
+  'transfer.myDevice.unnamed': 'Unnamed device',
+  'transfer.myDevice.fingerprint': 'Fingerprint',
+  'transfer.myDevice.hint':
+    'The other device identifies this one by name and fingerprint in its nearby-device list.',
 
   // ==================== Top bar / browsing ====================
   'transfer.topbar.settings': 'Settings',
@@ -292,91 +307,70 @@ export default {
   'transfer.relayHint.confirm': 'Continue',
   'transfer.relayHint.cancel': 'Cancel',
 
-  // ==================== Add remote device (T12) ====================
-  'transfer.remote.title': 'Add remote device',
-  'transfer.remote.hint':
-    'Paste the pairing link (wasmnest://pair/…) or the raw JSON payload from the other device. Only connection info and an optional one-time ticket are carried; long-term keys never are.',
-  'transfer.remote.placeholder': 'wasmnest://pair/… or {"nodeId":"…","addrs":["…"]}',
-  'transfer.remote.sourceHint':
-    'Preferred: configure the same relay on both ends under My device → External access. Devices on the same relay appear automatically — no QR code or link exchange. Use the link / QR below only when both sides cannot share a relay.',
-  'transfer.remote.cancel': 'Cancel',
-  'transfer.remote.confirm': 'Add',
-  'transfer.remote.added': 'Remote device added',
-  'transfer.remote.addedWithRelay': 'Added (relay candidate included, works across networks)',
-  'transfer.remote.addedLanOnly': 'Added (LAN only)',
-  'transfer.remote.scan': 'Scan',
-  'transfer.remote.scanTitle': 'Scan to add device',
-  'transfer.remote.scanHint':
-    'Point this app’s scanner at the pairing QR code on the other device (the system camera will not open this app)',
-  'transfer.remote.scanHintSlow':
+  // ==================== Relay config (settings, read-only + QR import) ====================
+  'transfer.relayConfig.title': 'Relay configuration',
+  'transfer.relayConfig.loading': 'Loading relay configuration…',
+  'transfer.relayConfig.loadFailed': 'Failed to load relay configuration, please retry',
+  'transfer.relayConfig.refresh': 'Reload',
+  'transfer.relayConfig.emptyTitle': 'No external access yet',
+  'transfer.relayConfig.empty':
+    'Scan a relay configuration shared by another device; skip this for LAN-only use.',
+  'transfer.relayConfig.addresses': 'Relay addresses',
+  'transfer.relayConfig.showAddr': 'Show full address',
+  'transfer.relayConfig.hideAddr': 'Hide address',
+  'transfer.relayConfig.source': 'Source',
+  'transfer.relayConfig.sourceCenter': 'Network center',
+  'transfer.relayConfig.sourceCache': 'Local cache',
+  'transfer.relayConfig.sourceInvite': 'Imported invite',
+  'transfer.relayConfig.sourceQr': 'Imported QR',
+  'transfer.relayConfig.sourceSync': 'Synced on LAN',
+  'transfer.relayConfig.sourceUnknown': 'Unspecified',
+  'transfer.relayConfig.relayState': 'Relay state',
+  'transfer.relayConfig.stateIdle': 'Disabled',
+  'transfer.relayConfig.stateConnecting': 'Connecting…',
+  'transfer.relayConfig.stateReserved': 'Ready',
+  'transfer.relayConfig.stateLost': 'Lost (retrying)',
+  'transfer.relayConfig.stateUnknown': 'Unknown',
+  'transfer.relayConfig.room': 'Room code',
+  'transfer.relayConfig.syncedAt': 'Fetched at',
+  'transfer.relayConfig.centerError': 'Could not read relay configuration: {message}',
+  'transfer.relayConfig.scanImport': 'Scan configuration',
+  'transfer.relayConfig.scanTitle': 'Scan relay configuration',
+  'transfer.relayConfig.scanHint':
+    'Point at the share QR in Settings → Relay configuration on the other device',
+  'transfer.relayConfig.scanHintSlow':
     'No QR detected yet: move closer, or raise the screen brightness on the other device',
-  'transfer.remote.scanClose': 'Close',
-  'transfer.remote.scanRetry': 'Retry',
-  'transfer.remote.scanFailed': 'Cannot start the camera',
-  'transfer.remote.scanPermission':
+  'transfer.relayConfig.scanClose': 'Close',
+  'transfer.relayConfig.scanRetry': 'Retry',
+  'transfer.relayConfig.scanFailed': 'Cannot start the camera',
+  'transfer.relayConfig.scanPermission':
     'Camera permission denied; allow camera access for this app in system settings and retry',
-  'transfer.remote.paste': 'Paste',
-  'transfer.remote.pasteFailed': 'Clipboard unavailable; select and paste manually',
-  'transfer.remote.errorMalformed': 'Invalid pairing link or JSON',
-  'transfer.remote.errorIncomplete':
-    'Pairing data is incomplete (nodeId and at least one address are required)',
-  'transfer.remote.errorAddressInvalid': 'Address is not dialable (expects a /multiaddr)',
+  'transfer.relayConfig.confirmTitle': 'Import this relay configuration?',
+  'transfer.relayConfig.confirmReplace': 'Current relay addresses / room code will be replaced.',
+  'transfer.relayConfig.import': 'Import',
+  'transfer.relayConfig.importing': 'Importing…',
+  'transfer.relayConfig.cancel': 'Cancel',
+  'transfer.relayConfig.importFailed':
+    'Import failed: addresses or room code were rejected, please retry',
+  'transfer.relayConfig.imported': 'Relay configuration imported',
+  'transfer.relayConfig.syncNow': 'Sync from connected device',
+  'transfer.relayConfig.syncing': 'Syncing…',
+  'transfer.relayConfig.syncSynced': 'Relay configuration synced from peer',
+  'transfer.relayConfig.syncNoPeer': 'No active device; connect one in Nearby devices first',
+  'transfer.relayConfig.syncNotTrusted': 'This device is not trusted; sync refused',
+  'transfer.relayConfig.syncNotConnected': 'Peer is not connected; connect before syncing',
+  'transfer.relayConfig.syncNoConfig': 'Peer has no relay configured; nothing to sync',
+  'transfer.relayConfig.syncInvalidConfig': 'Peer configuration failed validation; refused',
+  'transfer.relayConfig.syncUnsupported':
+    'This host runtime does not support peer config sync; upgrade the host',
+  'transfer.relayConfig.syncFailed': 'Sync failed, please retry',
 
-  // ==================== My device (T21, file-transfer standalone) ====================
-  'transfer.myDevice.title': 'My device',
-  'transfer.myDevice.loading': 'Reading this device…',
-  'transfer.myDevice.loadFailed': 'Could not read this device. Try again.',
-  'transfer.myDevice.unsupportedTitle': 'This host cannot generate a link yet',
-  'transfer.myDevice.unsupportedBody':
-    'The host must provide the local nodeId and dialable addresses (host-peer node-info) before a link can be shown. This version never fabricates one; you can still pre-save an external access address below.',
-  'transfer.myDevice.deviceName': 'Device name',
-  'transfer.myDevice.unnamed': 'Unnamed device',
-  'transfer.myDevice.fingerprint': 'Fingerprint',
-  'transfer.myDevice.relayState': 'External access',
-  'transfer.myDevice.relayIdle': 'Off',
-  'transfer.myDevice.relayConnecting': 'Connecting…',
-  'transfer.myDevice.relayReserved': 'Ready',
-  'transfer.myDevice.relayLost': 'Lost (retrying)',
-  'transfer.myDevice.relayUnknown': 'Unknown',
-  'transfer.myDevice.addresses': 'Dialable addresses',
-  'transfer.myDevice.linkLabel': 'Link',
-  'transfer.myDevice.autoDiscoveryHint':
-    'With the same relay configured on both ends, devices appear automatically under “Nearby devices” — no QR code or link copying. The relay only handles discovery; the first connection still needs approval on the other device.',
-  'transfer.myDevice.linkHint':
-    'Only needed when the other device cannot join the same relay. Copy it into a chat, then paste it under “Add remote device” on the other device.',
-  'transfer.myDevice.linkUnavailable':
-    'No dialable address (need a LAN address or a ready relay address)',
-  'transfer.myDevice.copy': 'Copy link',
-  'transfer.myDevice.copied': 'Copied',
-  'transfer.myDevice.copyFailed': 'Copy failed; select the text and copy manually',
-  'transfer.myDevice.share': 'Share link',
-  'transfer.myDevice.shared': 'Shared',
-  'transfer.myDevice.shareFailed': 'Share failed; use Copy instead',
-  'transfer.myDevice.relayRoomLabel': 'Space code (same on both ends)',
-  'transfer.myDevice.relayRoomPlaceholder': 'Leave empty to see every device on this relay',
-  'transfer.myDevice.relayRoomHint':
-    'With a space code, only devices in the same space discover each other through the relay. The relay receives its hash, never the code.',
-  'transfer.myDevice.relayRoomSaved': 'Space code saved',
-  'transfer.myDevice.relayRoomError':
-    'Save failed: use letters, digits, underscores or dashes (max 64).',
-  'transfer.myDevice.relayRoomSave': 'Save space code',
-  'transfer.myDevice.relayTitle': 'External access (relay)',
-  'transfer.myDevice.relayHint':
-    'Import the address once in the Network ingress center; all apps share it. Auto-discovery requires the same relay on both ends (optionally with the same space code). The relay only forwards and helps discovery; it is not an authorization point.',
-  'transfer.myDevice.relayPlaceholder': '/ip4/203.0.113.9/tcp/4001/p2p/12D3KooW…',
-  'transfer.myDevice.relayUnsupported':
-    'This host version only saves the config; it does not establish a relay reservation yet. It will take effect after a host upgrade.',
-  'transfer.myDevice.relaySaved': 'Saved',
-  'transfer.myDevice.relayError': 'Save failed: invalid address or storage unavailable',
-  'transfer.myDevice.relaySave': 'Save external access',
-  'transfer.myDevice.refresh': 'Refresh',
-  'transfer.myDevice.close': 'Done',
-  'transfer.relayCard.conflict.title': 'Global relay differs from the invite',
+  'transfer.relayCard.conflict.title': 'Global relay differs from this space',
   'transfer.relayCard.conflict.body':
-    'Auto-discovery will not work. Switch Network to the invited relay, or ask the other side to use yours.',
+    'Auto-discovery will not work. Switch the relay in Network to this space, or ask the other side to use yours.',
   'transfer.relayCard.unconfigured.title': 'Cross-network not configured',
   'transfer.relayCard.unconfigured.body':
-    'A relay is required. Paste an invite, or set up your own relay.',
+    'A relay is required. Open Network to enter an address, or scan a shared configuration.',
   'transfer.relayCard.connecting.title': 'Connecting to the relay…',
   'transfer.relayCard.connecting.body':
     'The first connection may take a few seconds; devices in the same space will appear automatically.',
@@ -387,7 +381,7 @@ export default {
     'Check the “allow relay” switch or the relay address; when off, only LAN is used.',
   'transfer.relayCard.unsupported.title': 'Relay does not support discovery',
   'transfer.relayCard.unsupported.body':
-    'This relay version does not handle rendezvous queries; upgrade it and retry.',
+    'Upgrade to a relay version that supports device discovery, then retry.',
   'transfer.relayCard.denied.title': 'Relay rejected this device',
   'transfer.relayCard.denied.body':
     'Allowlist mode requires enrollment first; check the relay configuration.',
@@ -396,61 +390,18 @@ export default {
   'transfer.relayCard.unavailable.title': 'Relay not ready',
   'transfer.relayCard.unavailable.body':
     'It will retry once the relay reservation is ready; you can also refresh manually.',
-  'transfer.relayCard.readyEmpty.title': 'Ready, no devices in this space yet',
-  'transfer.relayCard.readyEmpty.body':
-    'Make sure the other side has the app open and both use the same space code.',
-  'transfer.relayCard.ready.title': '{count} devices online in this space',
-  'transfer.relayCard.ready.body': 'Updated {seconds}s ago; send files directly from a device row.',
+
   'transfer.relayCard.pending.title': 'Checking discovery status',
   'transfer.relayCard.pending.body':
     'Refresh to query again; older hosts may not report discovery status.',
   'transfer.relayCard.roomHint': 'No space code: every device on this relay is visible.',
   'transfer.relayCard.stale': 'Status may be stale; refresh to retry.',
-  'transfer.relayCard.actionPaste': 'Paste invite',
-  'transfer.relayCard.actionInvite': 'Generate invite',
+  'transfer.relayCard.actionShareConfig': 'Share configuration',
   'transfer.relayCard.actionRefresh': 'Refresh',
   'transfer.relayCard.actionCenter': 'Open Network',
   'transfer.relayCard.actionSettings': 'Open settings',
   'transfer.relayCard.openCenterUnavailable':
     'This host cannot navigate; open Network from the sidebar.',
-  'transfer.invite.title': 'Invite a device',
-  'transfer.invite.hint':
-    'Bundle the relay and space code into one invite; the other side scans or pastes it once to discover you.',
-  'transfer.invite.generate': 'Generate invite',
-  'transfer.invite.generating': 'Generating…',
-  'transfer.invite.generateFailed': 'Could not generate the invite. Try again.',
-  'transfer.invite.errorRelayMissing':
-    'No relay configured yet. Fill in the relay under My device, or paste an invite.',
-  'transfer.invite.errorSaveFailed': 'Could not save the space code. Try again.',
-  'transfer.invite.errorMalformed': 'This is not a valid invite (damaged payload)',
-  'transfer.invite.errorMissingRoom': 'The invite has no space code',
-  'transfer.invite.errorAddressInvalid': 'The relay address in the invite is not usable',
-  'transfer.invite.copy': 'Copy invite',
-  'transfer.invite.copied': 'Invite copied',
-  'transfer.invite.copyFailed': 'Copy failed; select the text manually',
-  'transfer.invite.share': 'Share invite',
-  'transfer.invite.shared': 'Shared',
-  'transfer.invite.shareFailed': 'Share failed; use Copy instead',
-  'transfer.invite.rotate': 'Rotate space code',
-  'transfer.invite.rotateHint':
-    'Old invites can still enter the old space, but will no longer see this device. Send the new invite to the devices you want to connect.',
-  'transfer.invite.inputHint':
-    'Paste an invite or device link from the other side; an invite asks you to confirm the space first.',
-  'transfer.invite.placeholder': 'wasmnest://join/… or wasmnest://pair/…',
-  'transfer.invite.joinTitle': 'Join space',
-  'transfer.invite.joinName': 'Join the space of “{name}”?',
-  'transfer.invite.joinRelay': 'Relay',
-  'transfer.invite.joinRoom': 'Space code',
-  'transfer.invite.joinDevices': 'Devices in this space',
-  'transfer.invite.joinLeaveRoom': 'You are in another space; joining will hide its devices.',
-  'transfer.invite.openCenter': 'Open Network',
-  'transfer.invite.openCenterUnavailable':
-    'This host cannot navigate there; open the Network app manually.',
-  'transfer.invite.join': 'Join',
-  'transfer.invite.joining': 'Joining…',
-  'transfer.invite.joinFailed': 'Save failed; you have not joined. Try again.',
-  'transfer.invite.joined': 'Joined the space of “{name}”',
-  'transfer.invite.unnamed': 'the other device',
 
   // ==================== 首连确认（全局对话框，spec 决策 7） ====================
   'transfer.consent.title': 'Connection request',
@@ -489,7 +440,6 @@ export default {
   'transfer.v2.filter.receiving': 'Receiving',
   'transfer.v2.filter.history': 'History',
   'transfer.v2.upload.cta': 'Upload file',
-  'transfer.v2.upload.short': 'Send',
   'transfer.v2.queue.hint': '{count} in queue',
   'transfer.v2.active.overall': 'Overall {percent}%',
   'transfer.v2.active.viewQueue': 'View queue',
@@ -498,13 +448,13 @@ export default {
   'transfer.v2.devices.scanningHint':
     'Make sure the other device has WasmNest open on the same network',
   'transfer.v2.devices.found': '{count} device(s) found',
-  'transfer.v2.devices.rescan': 'Scan again',
   'transfer.v2.devices.groupConnected': 'Connected',
   'transfer.v2.devices.groupNearby': 'Nearby devices',
   'transfer.v2.devices.emptyTitle': 'No devices yet',
   'transfer.v2.pendingRequests': '{count} pending request(s)',
   'transfer.v2.history.openFolder': 'Open containing folder',
-  'transfer.v2.history.noLocalFile': 'File not on this device',
+  'transfer.v2.history.noLocalFile':
+    'Could not open the containing folder: file not found (it may have been moved, deleted, or the download folder has changed)',
   'transfer.history.allFilesAccess.title': 'All files access required',
   'transfer.history.allFilesAccess.message':
     'Opening the system Downloads folder requires the "All files access" permission (Settings → Apps → Special access → All files access). Some devices do not offer this switch; in that case WasmNest automatically shows a mirrored folder view of your downloads, no permission needed.',

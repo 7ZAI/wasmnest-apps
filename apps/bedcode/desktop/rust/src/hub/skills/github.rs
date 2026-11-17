@@ -5,7 +5,7 @@
 //! raw.githubusercontent.com 文本下载；非 UTF-8 文件（图片等）跳过并记录。
 //! 不可达时报错落状态，前端提示代理/镜像（v1 仅提示）。
 
-use super::listing::group_skills;
+use super::listing::{group_skills, parse_frontmatter};
 use super::scan::scan;
 use super::SKIPPED_SAMPLE_CAP;
 use super::{library_root, read_state, write_state};
@@ -77,17 +77,9 @@ pub(crate) fn parse_github_url(url: &str) -> Result<GithubTarget, String> {
     }
 }
 
-/// trees API 响应 → 安装计划 [(skill 目录名, 相对文件路径列表)]（纯函数）
-///
-/// - subdir 指向的目录必须根级含 SKILL.md（单 skill 安装）
-/// - 仓库根：根级 SKILL.md → 单 skill（以 repo 名入库）；否则安装全部
-///   「顶层目录直接含 SKILL.md」的 skill（多 skill 仓库，如 anthropics/skills）
-/// - 都没有 → Err（前端提示无可安装的 skill）
-pub(crate) fn plan_tree(
-    tree_json: &str,
-    subdir: Option<&str>,
-    repo_name: &str,
-) -> Result<Vec<(String, Vec<String>)>, String> {
+/// trees API 响应 → blob 路径列表（纯函数；truncated 拒绝——截断的树会漏
+/// 文件，装出来是残缺 skill）
+pub(crate) fn tree_blobs(tree_json: &str) -> Result<Vec<String>, String> {
     let tree: Value =
         serde_json::from_str(tree_json).map_err(|e| format!("tree API response invalid: {e}"))?;
     if tree
@@ -109,19 +101,40 @@ pub(crate) fn plan_tree(
             }
         }
     }
+    Ok(blobs)
+}
+
+/// 单个 skill 目录 → 安装计划（目录根必须含 SKILL.md）
+fn plan_dir(blobs: &[String], dir: &str) -> Result<(String, Vec<String>), String> {
+    let prefix = format!("{dir}/");
+    let rels: Vec<String> = blobs
+        .iter()
+        .filter(|p| p.starts_with(&prefix))
+        .map(|p| p[prefix.len()..].to_string())
+        .collect();
+    if !rels.iter().any(|r| r == "SKILL.md") {
+        return Err(format!("no SKILL.md in `{dir}`"));
+    }
+    Ok((dir.rsplit('/').next().unwrap_or(dir).to_string(), rels))
+}
+
+/// trees API 响应 → 安装计划 [(skill 目录名, 相对文件路径列表)]（纯函数）
+///
+/// - subdir 指向的目录必须根级含 SKILL.md（单 skill 安装）
+/// - 仓库根：根级 SKILL.md → 单 skill（以 repo 名入库）；否则安装全部
+///   「顶层目录直接含 SKILL.md」的 skill（多 skill 仓库，如 anthropics/skills）
+/// - 都没有 → Err（前端提示无可安装的 skill）
+///
+/// 指定单个 skill（联网搜索结果）不走本函数，见 [`plan_for_skill`]。
+pub(crate) fn plan_tree(
+    tree_json: &str,
+    subdir: Option<&str>,
+    repo_name: &str,
+) -> Result<Vec<(String, Vec<String>)>, String> {
+    let blobs = tree_blobs(tree_json)?;
 
     if let Some(subdir) = subdir {
-        let prefix = format!("{subdir}/");
-        let rels: Vec<String> = blobs
-            .iter()
-            .filter(|p| p.starts_with(&prefix))
-            .map(|p| p[prefix.len()..].to_string())
-            .collect();
-        if !rels.iter().any(|r| r == "SKILL.md") {
-            return Err(format!("no SKILL.md in `{subdir}`"));
-        }
-        let dir = subdir.rsplit('/').next().unwrap_or(subdir).to_string();
-        return Ok(vec![(dir, rels)]);
+        return Ok(vec![plan_dir(&blobs, subdir)?]);
     }
 
     if blobs.iter().any(|p| p == "SKILL.md") {
@@ -136,7 +149,7 @@ pub(crate) fn plan_tree(
     if dirs.is_empty() {
         return Err("no SKILL.md found in repository root or top-level dirs".to_string());
     }
-    let plan = dirs
+    Ok(dirs
         .into_iter()
         .map(|dir| {
             let prefix = format!("{dir}/");
@@ -147,9 +160,71 @@ pub(crate) fn plan_tree(
                 .collect();
             (dir, rels)
         })
-        .collect();
-    Ok(plan)
+        .collect())
 }
+
+// ==================== 按名定位 skill（联网搜索结果安装） ====================
+
+/// 名称归一：只留 ASCII 字母数字并小写。
+///
+/// skills.sh 的 `skillId` 是 frontmatter `name` 的 sanitize 形态（如
+/// `react:components` → `reactcomponents`），仓库目录名不保证相同（
+/// `vercel-labs/agent-skills` 里 `vercel-react-best-practices` 住在
+/// `skills/react-best-practices/`），故两侧都按此键比对。
+pub(crate) fn skill_key(s: &str) -> String {
+    s.chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect()
+}
+
+/// 仓库内任意深度「目录根含 SKILL.md」的 skill 目录（浅层优先，同层按路径）
+///
+/// 只看 `<dir>/SKILL.md` 形态：仓库根级的 `SKILL.md` 不在这里（那属于
+/// “整个仓库就是一个 skill”，由安装计划另处理）。
+pub(crate) fn skill_dirs(blobs: &[String]) -> Vec<String> {
+    let mut dirs: Vec<String> = blobs
+        .iter()
+        .filter_map(|p| p.strip_suffix("/SKILL.md").map(str::to_string))
+        .collect();
+    dirs.sort_by(|a, b| {
+        a.matches('/')
+            .count()
+            .cmp(&b.matches('/').count())
+            .then(a.cmp(b))
+    });
+    dirs.dedup();
+    dirs
+}
+
+/// 探测顺序：目录名同键 → 目录名与目标互相包含（词级近似）→ 其余（浅层优先）
+///
+/// 顺序只影响「命中前要下载几份 SKILL.md」，不影响命中判定。
+pub(crate) fn probe_order(dirs: &[String], target: &str) -> Vec<String> {
+    let key = skill_key(target);
+    let rank = |dir: &String| -> u8 {
+        let base = dir.rsplit('/').next().unwrap_or(dir);
+        let base_key = skill_key(base);
+        if key.is_empty() || base_key.is_empty() {
+            return 2;
+        }
+        if base_key == key {
+            0
+        } else if base_key.contains(&key) || key.contains(&base_key) {
+            1
+        } else {
+            2
+        }
+    };
+    // 稳定排序：同档内保持 skill_dirs 的浅层优先顺序
+    let mut out: Vec<String> = dirs.to_vec();
+    out.sort_by_key(rank);
+    out
+}
+
+/// 单次按名定位的 SKILL.md 下载上限：命中的是 first-match，探测顺序把同键 /
+/// 名称相关的目录排前，通常 1–3 次；上限只防「上百个 skill 的大仓库」扫穿
+pub(crate) const MAX_SKILL_PROBES: usize = 12;
 
 /// raw 文件下载 URL（路径段最小百分号编码，保留 `/`）
 pub(crate) fn raw_file_url(owner: &str, repo: &str, ref_: &str, path: &str) -> String {
@@ -174,9 +249,12 @@ pub(crate) fn raw_file_url(owner: &str, repo: &str, ref_: &str, path: &str) -> S
     )
 }
 // ==================== 命令：GitHub 安装 ====================
-// ==================== 命令：GitHub 安装 ====================
 
-fn http_get(h: &WasmHost, url: &str, accept_json: bool) -> Result<(u16, String), String> {
+pub(super) fn http_get(
+    h: &WasmHost,
+    url: &str,
+    accept_json: bool,
+) -> Result<(u16, String), String> {
     let mut headers = json!({ "User-Agent": "wasmnest-bedcode-hub" });
     if accept_json {
         headers["Accept"] = json!("application/vnd.github+json");
@@ -195,10 +273,101 @@ fn http_get(h: &WasmHost, url: &str, accept_json: bool) -> Result<(u16, String),
     Ok((status, body))
 }
 
+/// 取仓库内某个 SKILL.md 的 frontmatter 名（下载失败 / 无 frontmatter 给 None）
+fn fetch_skill_name(
+    h: &WasmHost,
+    owner: &str,
+    repo: &str,
+    ref_: &str,
+    path: &str,
+) -> Option<String> {
+    let raw = raw_file_url(owner, repo, ref_, path);
+    let Ok((200, body)) = http_get(h, &raw, false) else {
+        return None;
+    };
+    let (name, _, _) = parse_frontmatter(&body);
+    name.filter(|n| !n.trim().is_empty())
+}
+
+/// 按名定位单个 skill → 安装计划（联网搜索结果安装）
+///
+/// skills.sh 的 skill 名来自 frontmatter，不是目录名；部分仓库两者不一致
+/// （`vercel-react-best-practices` 住在 `skills/react-best-practices/`），所以
+/// 目录同名只当快路径，真判定是 frontmatter 名。探测上限
+/// [`MAX_SKILL_PROBES`]，全不命中即报错并回显探测规模（不静默装成别的）。
+///
+/// 仓库根本身就是一个 skill（根级 SKILL.md）时，先探根再按目录探。
+fn plan_for_skill(
+    h: &WasmHost,
+    owner: &str,
+    repo: &str,
+    ref_: &str,
+    tree_json: &str,
+    target: &str,
+) -> Result<Vec<(String, Vec<String>)>, String> {
+    let key = skill_key(target);
+    if key.is_empty() {
+        return Err(format!("invalid skill name `{target}`"));
+    }
+    let blobs = tree_blobs(tree_json)?;
+
+    if blobs.iter().any(|p| p == "SKILL.md")
+        && fetch_skill_name(h, owner, repo, ref_, "SKILL.md").is_some_and(|n| skill_key(&n) == key)
+    {
+        return Ok(vec![(repo.to_string(), blobs)]);
+    }
+
+    let dirs = skill_dirs(&blobs);
+    if dirs.is_empty() {
+        return Err("no SKILL.md found in repository".to_string());
+    }
+    let mut probed = 0usize;
+    for dir in probe_order(&dirs, target) {
+        // 快路径：目录名与目标同键（省一次下载）
+        let base = dir.rsplit('/').next().unwrap_or(dir.as_str());
+        if skill_key(base) == key {
+            return Ok(vec![plan_dir(&blobs, &dir)?]);
+        }
+        if probed >= MAX_SKILL_PROBES {
+            break;
+        }
+        probed += 1;
+        let name = fetch_skill_name(h, owner, repo, ref_, &format!("{dir}/SKILL.md"));
+        if name.is_some_and(|n| skill_key(&n) == key) {
+            return Ok(vec![plan_dir(&blobs, &dir)?]);
+        }
+    }
+    Err(format!(
+        "skill `{target}` not found in {owner}/{repo} (probed {probed} of {} SKILL.md)",
+        dirs.len()
+    ))
+}
+
+/// 安装计划选择：URL 子目录（精确）→ 指定 skill（按名定位）→ 默认全仓计划
+fn resolve_plan(
+    h: &WasmHost,
+    target: &GithubTarget,
+    ref_: &str,
+    tree_json: &str,
+    skill: Option<&str>,
+) -> Result<Vec<(String, Vec<String>)>, String> {
+    if let Some(subdir) = target.subdir.as_deref() {
+        return plan_tree(tree_json, Some(subdir), &target.repo);
+    }
+    match skill {
+        Some(skill) => plan_for_skill(h, &target.owner, &target.repo, ref_, tree_json, skill),
+        None => plan_tree(tree_json, None, &target.repo),
+    }
+}
+
 /// 从仓库 URL 安装 skill（同步命令，多次 host-http 往返）：解析 URL →
 /// 定位 ref（缺省查 default_branch）→ recursive trees 一次拿全量路径 →
 /// 逐文件 raw 下载（非 UTF-8 跳过记录）→ fs_write 入规范库（fs_write 自动
 /// 建父目录）。已存在同名 skill 时需 overwrite 确认。完成后触发重扫描。
+///
+/// `skill`（可选）= 只装仓库里的某一个 skill（联网搜索结果安装）：按目录名 /
+/// SKILL.md frontmatter `name` 定位（见 [`plan_for_skill`]）；与 URL 自带
+/// `tree/` 子目录互斥（URL 已精确指向目录时以 URL 为准）。
 pub(crate) fn install_github(h: &WasmHost, args: &Value) -> anyhow::Result<Value> {
     let url = args
         .get("url")
@@ -210,6 +379,11 @@ pub(crate) fn install_github(h: &WasmHost, args: &Value) -> anyhow::Result<Value
         .get("overwrite")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
+    let skill = args
+        .get("skill")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
 
     let target = match parse_github_url(url) {
         Ok(t) => t,
@@ -263,7 +437,7 @@ pub(crate) fn install_github(h: &WasmHost, args: &Value) -> anyhow::Result<Value
         Ok(r) => r,
         Err(e) => return finish_github(h, false, &[], 0, &[], &e),
     };
-    let plan = match plan_tree(&tree_body, target.subdir.as_deref(), &target.repo) {
+    let plan = match resolve_plan(h, &target, &ref_, &tree_body, skill) {
         Ok(p) => p,
         Err(e) => return finish_github(h, false, &[], 0, &[], &e),
     };
@@ -466,6 +640,59 @@ mod tests {
         assert_eq!(
             raw_file_url("o", "r", "main", "plain.md"),
             "https://raw.githubusercontent.com/o/r/main/plain.md"
+        );
+    }
+
+    /// 名称归一：大小写 / 分隔符差异归到同键（`react:components` vs `reactcomponents`）
+    #[test]
+    fn skill_key_normalizes() {
+        assert_eq!(skill_key("react:components"), "reactcomponents");
+        assert_eq!(skill_key("React Components"), "reactcomponents");
+        assert_eq!(
+            skill_key("vercel-react-best-practices"),
+            "vercelreactbestpractices"
+        );
+    }
+
+    /// 任意深度的 skill 目录：浅层优先、同层按路径、去重
+    #[test]
+    fn skill_dirs_any_depth() {
+        let tree = r#"{"tree":[
+            {"path":"skills/react-best-practices/SKILL.md","type":"blob"},
+            {"path":"skills/react-best-practices/RULES.md","type":"blob"},
+            {"path":"deep/nested/ctx7/SKILL.md","type":"blob"},
+            {"path":"top/SKILL.md","type":"blob"},
+            {"path":"docs/SKILL.md.bak","type":"blob"},
+            {"path":"SKILL.md","type":"blob"}]}"#;
+        let blobs = tree_blobs(tree).unwrap();
+        assert_eq!(
+            skill_dirs(&blobs),
+            vec![
+                "top".to_string(),
+                "skills/react-best-practices".to_string(),
+                "deep/nested/ctx7".to_string()
+            ]
+        );
+    }
+
+    /// 探测顺序：目录名同键 → 名称相关 → 其余（命中判定不看顺序，只影响往返数）
+    #[test]
+    fn probe_order_prefers_related() {
+        let dirs: Vec<String> = [
+            "other/thing",
+            "skills/react-best-practices",
+            "x/vercel-react-best-practices",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+        assert_eq!(
+            probe_order(&dirs, "vercel-react-best-practices"),
+            vec![
+                "x/vercel-react-best-practices".to_string(),
+                "skills/react-best-practices".to_string(),
+                "other/thing".to_string()
+            ]
         );
     }
 }

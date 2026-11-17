@@ -315,6 +315,10 @@
         "title": "Agent Hub: Delete Provider Preset"
       },
       {
+        "id": "agent.delete-skill",
+        "title": "Agent Hub: Delete / Uninstall Skill"
+      },
+      {
         "id": "agent.describe-install",
         "title": "Agent Hub: Describe Install Command"
       },
@@ -449,6 +453,10 @@
       {
         "id": "agent.scan-usage",
         "title": "Agent Hub: Scan Usage Sessions"
+      },
+      {
+        "id": "agent.search-skills",
+        "title": "Agent Hub: Search Skills (skills.sh)"
       },
       {
         "id": "agent.speed-test",

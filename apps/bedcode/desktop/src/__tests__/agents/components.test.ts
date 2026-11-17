@@ -37,7 +37,7 @@ import AgentHubView from '../../agents/components/AgentHubView.vue'
 import NodeBootstrapDialog from '../../agents/components/NodeBootstrapDialog.vue'
 import NodeRemoveDialog from '../../agents/components/NodeRemoveDialog.vue'
 import { CODE_NODE_MISSING } from '../../agents/composables/useInstall'
-import type { AdapterErrorCode, ProviderPreset, ProvidersDomainState, UsageSessionDetail, UsageSessionRow, UsageSource } from '../../agents/types'
+import type { AdapterErrorCode, ProviderPreset, ProvidersDomainState, SkillEntry, SkillSearchHit, UsageSessionDetail, UsageSessionRow, UsageSource } from '../../agents/types'
 import type { UseProvidersReturn } from '../../agents/composables/useProviders'
 import type { CliSessionState, StatsDays, UseUsageReturn } from '../../agents/composables/useUsage'
 import { AGENT_HUB } from './helpers/contrast'
@@ -2570,6 +2570,407 @@ describe('A5 SkillsTab：GitHub / 本地导入 覆盖确认', () => {
   })
 })
 
+// ==================== A5b SkillsTab：删除 / 卸载 ====================
+
+/**
+ * 删除是破坏性且跨目录的动作（规范库 + 各目标副本），契约是「先确认再发
+ * 命令」：行内按钮只武装确认条，命令只由确认条发出；确认文案必须点名会
+ * 失效的 agent，让「删掉 = 那些 agent 失去 skill」在点之前就可见。
+ */
+describe('A5b SkillsTab：删除 / 卸载（先确认再发命令）', () => {
+  function skillEntry(over: Partial<SkillEntry> = {}): SkillEntry {
+    return {
+      dir: 'code-review',
+      path: '/home/u/.agents/skills/code-review',
+      name: 'code-review',
+      description: 'Review a diff against repo standards',
+      allowedTools: null,
+      files: [],
+      hash: 'h',
+      error: null,
+      distribution: {
+        pi: { status: 'distributed', missingFiles: [], staleFiles: [] },
+        claude: { status: 'stale', missingFiles: ['SKILL.md'], staleFiles: [] },
+      },
+      ...over,
+    }
+  }
+
+  function skillsStub(skills: SkillEntry[], over: Partial<UseSkillsReturn> = {}): UseSkillsReturn {
+    return {
+      state: ref({
+        status: 'ready',
+        libraryRoot: '/home/u/.agents/skills',
+        skills,
+        import: { last: null },
+        github: { last: null },
+        delete: { last: null },
+      }),
+      githubBusy: ref(false),
+      distributing: ref(null),
+      deleteSkill: vi.fn().mockResolvedValue({ started: true }),
+      ...over,
+    } as unknown as UseSkillsReturn
+  }
+
+  it('点击删除只武装确认条、不发命令；确认后调 delete-skill 并收起确认条', async () => {
+    const deleteSkill = vi.fn().mockResolvedValue({ started: true })
+    const w = mountComponent(SkillsTab, {
+      detection: { authGranted: true },
+      skills: skillsStub([skillEntry()], { deleteSkill }),
+    })
+    await flushPromises()
+    await w.get('[data-testid="delete-code-review"]').trigger('click')
+    await flushPromises()
+    expect(deleteSkill).not.toHaveBeenCalled()
+
+    const confirm = w.get('[data-testid="delete-confirm"]')
+    expect(confirm.text()).toContain('hub.skill.deleteConfirm(name=code-review,targets=Pi · Claude Code)')
+
+    await w.get('[data-testid="delete-confirm-go"]').trigger('click')
+    await flushPromises()
+    expect(deleteSkill).toHaveBeenCalledWith('code-review')
+    expect(w.find('[data-testid="delete-confirm"]').exists()).toBe(false)
+    w.unmount()
+  })
+
+  it('取消收紧确认条且不发命令（条目仍可继续编辑 / 分发）', async () => {
+    const deleteSkill = vi.fn().mockResolvedValue({ started: true })
+    const w = mountComponent(SkillsTab, {
+      detection: { authGranted: true },
+      skills: skillsStub([skillEntry()], { deleteSkill }),
+    })
+    await flushPromises()
+    await w.get('[data-testid="delete-code-review"]').trigger('click')
+    await flushPromises()
+    await w.get('[data-testid="delete-confirm-cancel"]').trigger('click')
+    await flushPromises()
+    expect(w.find('[data-testid="delete-confirm"]').exists()).toBe(false)
+    expect(deleteSkill).not.toHaveBeenCalled()
+    expect(w.find('[data-testid="edit-code-review"]').exists()).toBe(true)
+    w.unmount()
+  })
+
+  it('未分发时确认文案改成「仅移除规范库」（不谎报会波及 agent）', async () => {
+    const w = mountComponent(SkillsTab, {
+      detection: { authGranted: true },
+      skills: skillsStub([skillEntry({ distribution: {} })]),
+    })
+    await flushPromises()
+    await w.get('[data-testid="delete-code-review"]').trigger('click')
+    await flushPromises()
+    expect(w.get('[data-testid="delete-confirm"]').text()).toContain(
+      'hub.skill.deleteConfirmLibraryOnly(name=code-review)',
+    )
+    w.unmount()
+  })
+
+  it('命令被拒（started=false）→ 行内错误条透出原因，不静默', async () => {
+    const deleteSkill = vi.fn().mockResolvedValue({ started: false, error: 'unknown skill code-review' })
+    const w = mountComponent(SkillsTab, {
+      detection: { authGranted: true },
+      skills: skillsStub([skillEntry()], { deleteSkill }),
+    })
+    await flushPromises()
+    await w.get('[data-testid="delete-code-review"]').trigger('click')
+    await flushPromises()
+    await w.get('[data-testid="delete-confirm-go"]').trigger('click')
+    await flushPromises()
+    expect(w.get('[data-testid="skill-delete-error"]').text()).toContain('unknown skill code-review')
+    w.unmount()
+  })
+
+  it('删除中（state.deleting）→ 该行按钮禁用并显示「删除中…」', async () => {
+    const stub = skillsStub([skillEntry()])
+    ;(stub.state.value as unknown as Record<string, unknown>).deleting = 'code-review'
+    const w = mountComponent(SkillsTab, { detection: { authGranted: true }, skills: stub })
+    await flushPromises()
+    const btn = w.get('[data-testid="delete-code-review"]')
+    expect(btn.attributes('disabled')).toBeDefined()
+    expect(btn.text()).toBe('hub.skill.deleting')
+    w.unmount()
+  })
+
+  it('结果回流：成功显示清理的副本数；失败条带原始错误', async () => {
+    const stub = skillsStub([skillEntry()])
+    ;(stub.state.value as unknown as Record<string, Record<string, unknown>>).delete = {
+      last: {
+        ok: true,
+        dir: 'code-review',
+        name: 'code-review',
+        libraryRemoved: true,
+        targets: ['pi', 'claude'],
+        error: null,
+        at: 1,
+      },
+    }
+    const w = mountComponent(SkillsTab, { detection: { authGranted: true }, skills: stub })
+    await flushPromises()
+    expect(w.get('[data-testid="skill-delete-result"]').text()).toContain(
+      'hub.skill.deleteDoneTargets(name=code-review,n=2)',
+    )
+    w.unmount()
+
+    const failing = skillsStub([skillEntry()])
+    ;(failing.state.value as unknown as Record<string, Record<string, unknown>>).delete = {
+      last: {
+        ok: false,
+        dir: 'code-review',
+        name: 'code-review',
+        libraryRemoved: false,
+        targets: [],
+        error: 'residual paths: lib: /home/u/.agents/skills/code-review',
+        at: 1,
+      },
+    }
+    const w2 = mountComponent(SkillsTab, { detection: { authGranted: true }, skills: failing })
+    await flushPromises()
+    const result = w2.get('[data-testid="skill-delete-result"]')
+    expect(result.classes()).toContain('err')
+    expect(result.text()).toContain('residual paths')
+    w2.unmount()
+  })
+})
+
+// ==================== A7 SkillsTab：本地 / 联网搜索 ====================
+
+describe('A7 SkillsTab：本地过滤与 skills.sh 联网搜索', () => {
+  function skillEntry(over: Partial<SkillEntry> = {}): SkillEntry {
+    return {
+      dir: 'code-review',
+      path: '/home/u/.agents/skills/code-review',
+      name: 'code-review',
+      description: 'Review a diff against repo standards',
+      allowedTools: null,
+      files: [],
+      hash: 'h',
+      error: null,
+      distribution: {},
+      ...over,
+    }
+  }
+
+  function searchHit(over: Partial<SkillSearchHit> = {}): SkillSearchHit {
+    return {
+      id: 'vercel-labs/agent-skills/vercel-react-best-practices',
+      name: 'vercel-react-best-practices',
+      source: 'vercel-labs/agent-skills',
+      skillId: 'vercel-react-best-practices',
+      installs: 893_012,
+      install: 'vercel-labs/agent-skills@vercel-react-best-practices',
+      url: 'https://skills.sh/vercel-labs/agent-skills/vercel-react-best-practices',
+      ...over,
+    }
+  }
+
+  function skillsStub(skills: SkillEntry[], over: Partial<UseSkillsReturn> = {}): UseSkillsReturn {
+    return {
+      state: ref({
+        status: 'ready',
+        libraryRoot: '/home/u/.agents/skills',
+        skills,
+        import: { last: null },
+        github: { last: null },
+      }),
+      scanning: ref(false),
+      importing: ref(false),
+      busy: ref(false),
+      githubBusy: ref(false),
+      distributing: ref(null),
+      scan: vi.fn(),
+      importLocal: vi.fn(),
+      installGithub: vi.fn(),
+      searchRemote: vi.fn(),
+      distribute: vi.fn(),
+      ...over,
+    } as unknown as UseSkillsReturn
+  }
+
+  const library = [
+    skillEntry({ dir: 'react-review', name: 'react-review', description: 'PR review helper' }),
+    skillEntry({ dir: 'changelog', name: 'changelog', description: 'changelog generator' }),
+  ]
+
+  it('本地模式：输入即按多词 AND 过滤，计数与无命中空态同步', async () => {
+    const w = mountComponent(SkillsTab, { detection: { authGranted: true }, skills: skillsStub(library) })
+    await flushPromises()
+    expect(w.findAll('[data-testid^="skill-row-"]')).toHaveLength(2)
+    expect(w.text()).toContain('hub.skill.search.localHint(n=2,total=2)')
+
+    await w.get('[data-testid="skill-search-input"]').setValue('react review')
+    await flushPromises()
+    expect(w.findAll('[data-testid^="skill-row-"]')).toHaveLength(1)
+    expect(w.text()).toContain('hub.skill.search.localHint(n=1,total=2)')
+
+    await w.get('[data-testid="skill-search-input"]').setValue('nothing-matches')
+    await flushPromises()
+    expect(w.findAll('[data-testid^="skill-row-"]')).toHaveLength(0)
+    expect(w.find('[data-testid="skill-search-no-match"]').exists()).toBe(true)
+    w.unmount()
+  })
+
+  it('本地模式不发联网命令（切到联网才搜索）', async () => {
+    const searchRemote = vi.fn()
+    const w = mountComponent(SkillsTab, {
+      detection: { authGranted: true },
+      skills: skillsStub(library, { searchRemote }),
+    })
+    await flushPromises()
+    await w.get('[data-testid="skill-search-input"]').setValue('react')
+    await flushPromises()
+    expect(searchRemote).not.toHaveBeenCalled()
+    expect(w.find('[data-testid="search-remote-go"]').exists()).toBe(false)
+    w.unmount()
+  })
+
+  it('联网搜索：渲染可信度 / 安装命令 / 详情链接，安装携 skill 名（只装命中的那个）', async () => {
+    const searchRemote = vi.fn().mockResolvedValue({
+      query: 'react',
+      results: [searchHit()],
+      exactCount: 1,
+      fallback: false,
+      error: null,
+    })
+    const installGithub = vi.fn().mockResolvedValue({ installed: ['react-best-practices'], skippedFiles: 0 })
+    const w = mountComponent(SkillsTab, {
+      detection: { authGranted: true },
+      skills: skillsStub(library, { searchRemote, installGithub }),
+    })
+    await flushPromises()
+    await w.get('[data-testid="search-mode-remote"]').trigger('click')
+    await w.get('[data-testid="skill-search-input"]').setValue('react')
+    await w.get('[data-testid="search-remote-go"]').trigger('click')
+    await flushPromises()
+
+    expect(searchRemote).toHaveBeenCalledWith('react')
+    const row = w.get('[data-testid="search-result-vercel-labs/agent-skills/vercel-react-best-practices"]')
+    expect(row.text()).toContain('npx skills add vercel-labs/agent-skills@vercel-react-best-practices')
+    expect(row.text()).toContain('https://skills.sh/vercel-labs/agent-skills/vercel-react-best-practices')
+    expect(row.text()).toContain('hub.skill.search.installs(n=893k)')
+    expect(row.text()).toContain('hub.skill.search.trustHigh')
+    expect(row.text()).toContain('hub.skill.search.official')
+    // 精确命中时不给「近似结果」标签
+    expect(w.find('[data-testid="search-fallback"]').exists()).toBe(false)
+
+    await w.get('[data-testid="search-install-vercel-labs/agent-skills/vercel-react-best-practices"]').trigger('click')
+    await flushPromises()
+    expect(installGithub).toHaveBeenCalledWith(
+      'https://github.com/vercel-labs/agent-skills',
+      false,
+      'vercel-react-best-practices',
+    )
+    w.unmount()
+  })
+
+  it('联网安装同名冲突：出现确认条，确认后 overwrite=true 重试同一 skill', async () => {
+    const searchRemote = vi.fn().mockResolvedValue({
+      query: 'react',
+      results: [searchHit()],
+      exactCount: 1,
+      fallback: false,
+      error: null,
+    })
+    const installGithub = vi
+      .fn()
+      .mockResolvedValueOnce({ installed: false, exists: ['react-best-practices'] })
+      .mockResolvedValueOnce({ installed: true, names: ['react-best-practices'], skippedFiles: 0 })
+    const w = mountComponent(SkillsTab, {
+      detection: { authGranted: true },
+      skills: skillsStub(library, { searchRemote, installGithub }),
+    })
+    await flushPromises()
+    await w.get('[data-testid="search-mode-remote"]').trigger('click')
+    await w.get('[data-testid="skill-search-input"]').setValue('react')
+    await w.get('[data-testid="search-remote-go"]').trigger('click')
+    await flushPromises()
+
+    await w.get('[data-testid="search-install-vercel-labs/agent-skills/vercel-react-best-practices"]').trigger('click')
+    await flushPromises()
+    expect(w.find('[data-testid="registry-confirm"]').exists()).toBe(true)
+
+    await w.get('[data-testid="registry-confirm"] .ah-btn-ghost').trigger('click')
+    await flushPromises()
+    expect(installGithub).toHaveBeenNthCalledWith(
+      2,
+      'https://github.com/vercel-labs/agent-skills',
+      true,
+      'vercel-react-best-practices',
+    )
+    expect(w.find('[data-testid="registry-confirm"]').exists()).toBe(false)
+    w.unmount()
+  })
+
+  it('联网搜索失败：把 guest 的 error 透出，不渲染空结果表', async () => {
+    const searchRemote = vi.fn().mockResolvedValue({
+      query: 'react',
+      results: [],
+      exactCount: 0,
+      fallback: false,
+      error: 'skills.sh returned HTTP 503',
+    })
+    const w = mountComponent(SkillsTab, {
+      detection: { authGranted: true },
+      skills: skillsStub(library, { searchRemote }),
+    })
+    await flushPromises()
+    await w.get('[data-testid="search-mode-remote"]').trigger('click')
+    await w.get('[data-testid="skill-search-input"]').setValue('react')
+    await w.get('[data-testid="search-remote-go"]').trigger('click')
+    await flushPromises()
+
+    expect(w.find('[data-testid="search-error"]').exists()).toBe(true)
+    expect(w.text()).toContain('skills.sh returned HTTP 503')
+    expect(w.find('[data-testid="search-results"]').exists()).toBe(false)
+    w.unmount()
+  })
+
+  it('联网结果为空时给可行动的空态（不是空白）', async () => {
+    const searchRemote = vi.fn().mockResolvedValue({
+      query: 'quux',
+      results: [],
+      exactCount: 0,
+      fallback: false,
+      error: null,
+    })
+    const w = mountComponent(SkillsTab, {
+      detection: { authGranted: true },
+      skills: skillsStub(library, { searchRemote }),
+    })
+    await flushPromises()
+    await w.get('[data-testid="search-mode-remote"]').trigger('click')
+    await w.get('[data-testid="skill-search-input"]').setValue('quux')
+    await w.get('[data-testid="search-remote-go"]').trigger('click')
+    await flushPromises()
+
+    expect(w.find('[data-testid="search-empty"]').exists()).toBe(true)
+    expect(w.text()).toContain('hub.skill.search.remoteEmpty(q=quux)')
+    w.unmount()
+  })
+
+  it('未授权时安装按钮置灰（写盘动作依赖目录授权）', async () => {
+    const searchRemote = vi.fn().mockResolvedValue({
+      query: 'react',
+      results: [searchHit()],
+      exactCount: 1,
+      fallback: false,
+      error: null,
+    })
+    const w = mountComponent(SkillsTab, {
+      detection: { authGranted: false },
+      skills: skillsStub(library, { searchRemote }),
+    })
+    await flushPromises()
+    await w.get('[data-testid="search-mode-remote"]').trigger('click')
+    await w.get('[data-testid="skill-search-input"]').setValue('react')
+    await w.get('[data-testid="search-remote-go"]').trigger('click')
+    await flushPromises()
+
+    const btn = w.get('[data-testid="search-install-vercel-labs/agent-skills/vercel-react-best-practices"]')
+    expect(btn.attributes('disabled')).toBeDefined()
+    w.unmount()
+  })
+})
+
 // ==================== A6 InstallTab 行状态机 ====================
 
 describe('A6 InstallTab：行状态机与两击换源', () => {
@@ -3302,14 +3703,14 @@ describe('A7-4 SessionLogsTab：来源形态与扫描计数口径', () => {
 
 /**
  * A8 概览卡片卸载动作的行为契约（本次新增）：
- *  - A8-1 正例：已装 + 可自动卸载 → 卸载按钮，两击确认后才 emit uninstall(cli)
+ *  - A8-1 正例：已装 + 可自动卸载 → 卸载按钮，开确认弹窗，确认后才 emit uninstall(cli)
  *  - A8-2 反例：未安装 / 检测中 / 失败 → 不渲染卸载动作
  *  - A8-3 反例：双安装 / 未知安装方式 / npm-global 缺 node → 不给按钮，提示手动
  *  - A8-4 边界：busy（任意在途 run）与 uninstalling（本卡卸载中）→ 禁用/文案
  *  - A8-5 反例：卸载失败信号 → 友好 i18n 失败文案
- *  - A8-6 边界：armed 4s 超时自动复位（防误触的第二道保险）
+ *  - A8-6 边界：弹窗可取消关闭（取消/遮罩不发命令）
  */
-describe('A8 CliCard：卸载动作（两击确认与不可用原因）', () => {
+describe('A8 CliCard：卸载动作（确认弹窗与不可用原因）', () => {
   const info = {
     installed: true,
     version: '1.0',
@@ -3320,21 +3721,28 @@ describe('A8 CliCard：卸载动作（两击确认与不可用原因）', () => 
     error: null,
   }
 
-  it('A8-1 正例：已装 npm-global + node → 两击确认后 emit uninstall(cli)', async () => {
+  it('A8-1 正例：已装 npm-global + node → 开确认弹窗，确认后 emit uninstall(cli)', async () => {
     const w = mountComponent(CliCard, { cliId: 'pi', info, nodeReady: true })
     await flushPromises()
     const btn = w.get('[data-testid="cli-uninstall-pi"]')
     expect(btn.text()).toBe('hub.card.uninstall')
 
+    // 点击只打开弹窗，不发命令；标题/正文带 Agent 名
     await btn.trigger('click')
     await flushPromises()
-    // 第一击只 arm：按钮变确认文案，不发命令
-    expect(btn.text()).toBe('hub.card.uninstallConfirm')
+    expect(w.get('[data-testid="uninstall-dialog"]').exists()).toBe(true)
+    expect(w.get('[data-testid="uninstall-dialog-title"]').text()).toBe(
+      'hub.card.uninstallDialogTitle(name=Pi)',
+    )
+    expect(w.get('[data-testid="uninstall-body"]').text()).toBe(
+      'hub.card.uninstallDialogBody(name=Pi)',
+    )
     expect(w.emitted('uninstall')).toBeUndefined()
 
-    await btn.trigger('click')
+    await w.get('[data-testid="uninstall-confirm"]').trigger('click')
     await flushPromises()
     expect(w.emitted('uninstall')?.[0]).toEqual(['pi'])
+    expect(w.find('[data-testid="uninstall-dialog"]').exists()).toBe(false)
     w.unmount()
   })
 
@@ -3435,21 +3843,18 @@ describe('A8 CliCard：卸载动作（两击确认与不可用原因）', () => 
     w.unmount()
   })
 
-  it('A8-6 边界：armed 超时自动复位（4s 后按钮回到「卸载」）', async () => {
-    vi.useFakeTimers()
-    try {
-      const w = mountComponent(CliCard, { cliId: 'pi', info, nodeReady: true })
-      await flushPromises()
-      const btn = w.get('[data-testid="cli-uninstall-pi"]')
-      await btn.trigger('click')
-      expect(btn.text()).toBe('hub.card.uninstallConfirm')
-      vi.advanceTimersByTime(4000)
-      await flushPromises()
-      expect(btn.text()).toBe('hub.card.uninstall')
-      w.unmount()
-    } finally {
-      vi.useRealTimers()
-    }
+  it('A8-6 边界：弹窗取消 → 关闭且不发命令', async () => {
+    const w = mountComponent(CliCard, { cliId: 'pi', info, nodeReady: true })
+    await flushPromises()
+    await w.get('[data-testid="cli-uninstall-pi"]').trigger('click')
+    await flushPromises()
+    expect(w.get('[data-testid="uninstall-dialog"]').exists()).toBe(true)
+
+    await w.get('[data-testid="uninstall-cancel"]').trigger('click')
+    await flushPromises()
+    expect(w.find('[data-testid="uninstall-dialog"]').exists()).toBe(false)
+    expect(w.emitted('uninstall')).toBeUndefined()
+    w.unmount()
   })
 
   it('A8-7 布局：启动会话与卸载同一行（左 / 右），卸载常驻危险色', async () => {
@@ -3473,7 +3878,7 @@ describe('A8 CliCard：卸载动作（两击确认与不可用原因）', () => 
 
 /**
  * A9 OverviewTab 的卸载接线：
- *  - 卡片两击确认后 emit uninstall(cli) 上抛给父层
+ *  - 卡片确认弹窗确认后 emit uninstall(cli) 上抛给父层
  *  - uninstallFailed 信号下传对应卡片（其余卡片不误显示）
  */
 describe('A9 OverviewTab：卸载事件上抛', () => {
@@ -3502,14 +3907,14 @@ describe('A9 OverviewTab：卸载事件上抛', () => {
     })
   }
 
-  it('正例：卡片两击确认后 emit uninstall(cli)', async () => {
+  it('正例：卡片确认弹窗确认后 emit uninstall(cli)', async () => {
     const w = mountOverview()
     await flushPromises()
-    const btn = w.get('[data-testid="cli-uninstall-pi"]')
-    await btn.trigger('click')
+    await w.get('[data-testid="cli-uninstall-pi"]').trigger('click')
     await flushPromises()
+    // 弹窗打开未确认：不发命令
     expect(w.emitted('uninstall')).toBeUndefined()
-    await btn.trigger('click')
+    await w.get('[data-testid="uninstall-confirm"]').trigger('click')
     await flushPromises()
     expect(w.emitted('uninstall')?.[0]).toEqual(['pi'])
     w.unmount()

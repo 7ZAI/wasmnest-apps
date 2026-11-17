@@ -4,12 +4,14 @@
  *
  * 布局（v3）：
  *   ┌──────────────────────────────────────┐
- *   │ AppHeader   页面标题 · 对端胶囊 · 发送 │
+ *   │ AppHeader   页面标题                  │
  *   ├──────────────────────────────────────┤
  *   │ 一级页面（可左右滑）                  │
  *   │   探索连接 / 浏览 / 传输               │
  *   ├──────────────────────────────────────┤
  *   │ SummaryBar  多选或传输中才出现         │
+ *   ├──────────────────────────────────────┤
+ *   │ 发送条      整宽主操作（无对端置灰）   │
  *   ├──────────────────────────────────────┤
  *   │ BottomNav   探索连接 · 浏览 · 传输 · 设置 │
  *   └──────────────────────────────────────┘
@@ -31,11 +33,8 @@ import { useSwipeTabs } from '@binblink/wasmnest-plugin-sdk-mobile/ui/swipe-tabs
 import { useTasks } from '../composables/useTasks'
 import { isNeedsAllFilesAccess, promptAllFilesAccess } from '../composables/useAllFilesAccess'
 import { usePeerDevices } from '../composables/usePeerDevices'
-import { hasRelayCandidate } from '../composables/deviceState'
 import { prepareDeviceSend } from '../composables/sendToDevice'
-import { useRelayStatus } from '../composables/useRelayStatus'
-import type { ConnectionInvite, RemotePeerLink } from '../utils/pairingLink'
-import { useRemoteFs } from '../composables/useRemoteFs'
+import { rootsReadyKey, useRemoteFs } from '../composables/useRemoteFs'
 import { useSettings } from '../composables/useSettings'
 import { formatBytes, formatSpeed } from '../utils/format'
 import { resolveMainSwipe } from '../utils/mainSwipe'
@@ -53,9 +52,7 @@ const t = (key: string, params?: Record<string, any>) => context.i18n.t(key, par
 
 const tasks = useTasks(context)
 const devices = usePeerDevices(context)
-/** 跨网状态卡（P0-2）：relay 现状 + 宿主发现 envelope */
-const { card: relayCard, load: loadRelayStatus } = useRelayStatus(context, devices.relayDiscovery)
-const fs = useRemoteFs(context)
+const fs = useRemoteFs(context, () => devices.peer.value.id)
 const settings = useSettings(context)
 
 /** 一级页面（默认探索连接：没有对端时传输页无事可做） */
@@ -166,9 +163,6 @@ function onMouseUp(): void {
 
 // ==================== 对端 / 设备 ====================
 
-/** 对端展示名：优先活跃对端名（三态真相），回落旧任务快照/占位链 */
-const peerLabel = computed(() => devices.peer.value.name || tasks.displayPeerName.value)
-
 /**
  * 扫描最短展示时长：`refresh-devices` 是「触发宿主重查」的即时返回，
  * 结果由 mDNS 事件陆续送达。动画与命令同时结束会让用户看不到过程，
@@ -209,40 +203,14 @@ function maybeAutoScan(): void {
 }
 watch(tab, () => maybeAutoScan())
 
+/** 内网入口（显式）：不把上次外网记录隐式带进本次拨号 */
 function handleDeviceConnect(nodeId: string): void {
-  void devices.connect(nodeId)
+  void devices.connect(nodeId, { lanOnly: true })
 }
-/** 手动「尝试外网」：显式请求核内纳入 relay 候选（§4.9 不自动切） */
-function handleDeviceRetryWan(nodeId: string): void {
-  void devices.connect(nodeId, { wan: true })
-}
-/** 仅经中继（T20）：跳过 LAN 候选，失败不回退（用户显式意图） */
+/** 外网入口（显式）：跳过 LAN 候选，失败不回退（用户显式意图） */
 function handleDeviceRetryRelayOnly(nodeId: string): void {
   void devices.connect(nodeId, { relayOnly: true })
 }
-/** 添加远程设备（T12）：连接串 → 设备缓存（paired 条目跨重启保留） */
-function handleAddRemote(link: RemotePeerLink): void {
-  devices.addRemotePeer(link)
-  // T20：说清这份链接能不能跨网（只含 LAN 地址 ⇒ 蜂窝网络下必然失败）
-  context.dialogs.showToast(
-    t(
-      hasRelayCandidate(link.addrs)
-        ? 'transfer.remote.addedWithRelay'
-        : 'transfer.remote.addedLanOnly',
-    ),
-    'success',
-  )
-}
-/** 邀请导入成功（T23）：relay + 空间码已写入；只刷新发现并提示，不写信任 */
-async function handleInviteJoined(invite: ConnectionInvite): Promise<void> {
-  await devices.refresh()
-  await loadRelayStatus()
-  const name = invite.name || t('transfer.invite.unnamed')
-  context.dialogs.showToast(t('transfer.invite.joined', { name }), 'success')
-}
-
-/** 当前经中继可见的设备数（邀请确认页展示「当前空间 N 台」） */
-const relayDeviceCount = computed(() => devices.rows.value.filter((row) => row.relay).length)
 
 function handleRemoveRemote(nodeId: string): void {
   devices.removeRemotePeer(nodeId)
@@ -376,12 +344,29 @@ async function uploadFile(): Promise<void> {
  */
 const readyPeerId = computed(() => (devices.peer.value.online ? devices.peer.value.id : ''))
 
-/** 活跃对端就绪状态变化驱动目录加载（就绪加载共享根，未就绪清空浏览态）；
- *  immediate：挂载时按当前状态对齐一次，替代此前挂载无条件 loadRoots（无活跃对端必失败） */
+/**
+ * 根清单拉取就绪键：活跃对端 + 已连接 + 有可用地址。
+ *
+ * 不能只看 id：首次连接时被连侧往往还没发现对方（设备无任何地址），这一刻
+ * 发起拉取必失败，而后端没有重试；等 mdns-found 补齐地址后键随之变化，才会
+ * 再拉一次。键出现前不发起，避免把注定失败的请求留在界面上。
+ */
+const rootsSyncKey = computed(() => {
+  const peer = devices.peer.value
+  const row = devices.rows.value.find((item) => item.nodeId === peer.id)
+  return rootsReadyKey({
+    peerId: peer.id,
+    online: peer.online,
+    connectionModes: row?.connectionModes ?? 'none',
+  })
+})
+
+/** 就绪键变化驱动目录加载（就绪加载共享根，未就绪清空浏览态）；
+ *  immediate：挂载时按当前状态对齐一次 */
 watch(
-  readyPeerId,
-  (id) => {
-    if (id) void fs.loadRoots()
+  rootsSyncKey,
+  (key) => {
+    if (key) void fs.loadRoots()
     else fs.reset()
   },
   { immediate: true },
@@ -419,6 +404,11 @@ const downloadLabel = computed(() =>
     count: fs.selectedCount.value,
     size: formatBytes(fs.selectedTotalSize.value, t),
   }),
+)
+
+/** 总速率文案：0 = 尚无采样（宿主速率窗口未满 / 暂停），不渲染 0 B/s 以免误读为停转 */
+const totalSpeedLabel = computed(() =>
+  tasks.totalSpeed.value > 0 ? formatSpeed(tasks.totalSpeed.value, t) : '',
 )
 
 const activeLabel = computed(() => {
@@ -472,19 +462,8 @@ onUnmounted(() => {
 <template>
   <!-- data-testid：真机 E2E 锚点（移动端统一 mobile- 前缀，见 docs/E2E.md §10.5 / §11.5） -->
   <div class="fv2-view mobile-ui ft-app" data-testid="mobile-ft-root">
-    <!-- 顶栏：页面标题 + 活跃对端（点击 → 探索连接） + 发送入口 -->
-    <AppHeader
-      :title="navLabels[tab]"
-      :peer-name="peerLabel"
-      :online="devices.peer.value.online"
-      :online-label="t('transfer.peer.online')"
-      :offline-label="t('transfer.peer.offline')"
-      :send-label="t('transfer.v2.upload.short')"
-      :send-aria-label="t('transfer.v2.upload.cta')"
-      :send-disabled="!tasks.peerOnline.value"
-      @peer-tap="tab = 'devices'"
-      @send="uploadFile()"
-    />
+    <!-- 顶栏：当前页面标题 -->
+    <AppHeader :title="navLabels[tab]" />
 
     <!-- 一级页面（左右滑切换）：手势统一在本容器持有（.fv2-swipe-zone 只禁浏览器
          水平手势、保留纵向滚动）。传输页先步进页内四段筛选，到首/尾段才翻页——
@@ -512,15 +491,10 @@ onUnmounted(() => {
           :rows="devices.rows.value"
           :scanning="deviceScanning"
           :t="t"
-          :relay-device-count="relayDeviceCount"
-          :relay-card="relayCard"
           @connect="handleDeviceConnect"
-          @retry-wan="handleDeviceRetryWan"
           @retry-relay-only="handleDeviceRetryRelayOnly"
           @disconnect="handleDeviceDisconnect"
           @set-active="handleDeviceSetActive"
-          @add-remote="handleAddRemote"
-          @invite-joined="handleInviteJoined"
           @remove-remote="handleRemoveRemote"
           @send="handleSendToDevice"
           @scan="handleScanDevices"
@@ -582,7 +556,7 @@ onUnmounted(() => {
       :download-label="downloadLabel"
       :clear-label="t('transfer.table.clearSelection')"
       :active-label="activeLabel"
-      :speed-label="formatSpeed(tasks.totalSpeed.value, t)"
+      :speed-label="totalSpeedLabel"
       :overall-label="t('transfer.v2.active.overall', { percent: overallPercent })"
       :overall-percent="overallPercent"
       :view-queue-label="t('transfer.v2.active.viewQueue')"
@@ -590,6 +564,26 @@ onUnmounted(() => {
       @clear-selection="() => fs.clearSelection()"
       @open-queue="tab = 'transfers'"
     />
+
+    <!-- 发送：常驻底栏上方，整宽主操作（无对端时置灰，与传输页空态 CTA 同一条上传路径） -->
+    <div class="fv2-sendbar">
+      <button
+        class="fv2-btn-primary fv2-sendbar-btn"
+        :disabled="!tasks.peerOnline.value"
+        data-testid="mobile-ft-upload"
+        @click="uploadFile()"
+      >
+        <svg aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="2"
+            d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"
+          />
+        </svg>
+        <span>{{ t('transfer.v2.upload.cta') }}</span>
+      </button>
+    </div>
 
     <!-- 底部导航：三个一级页面 + 设置（宿主二级页整页跳转） -->
     <BottomNav

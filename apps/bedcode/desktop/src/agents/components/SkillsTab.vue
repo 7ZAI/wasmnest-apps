@@ -14,10 +14,19 @@ import type {
   AgentDescriptor,
   AgentHubState,
   SkillEntry,
+  SkillSearchHit,
+  SkillSearchResponse,
   SkillsDomainState,
 } from '../types'
 import type { UseSkillsReturn } from '../composables/useSkills'
 import { BUILTIN_AGENTS } from '../registry'
+import { formatTokens } from '../utils/format'
+import {
+  filterLocalSkills,
+  installCommand,
+  isOfficialSource,
+  trustTier,
+} from '../utils/skillSearch'
 import SkillEditor from './SkillEditor.vue'
 
 const props = defineProps<{
@@ -59,14 +68,121 @@ interface SkillRow {
 const rows = computed<SkillRow[]>(() =>
   (state.value?.skills ?? []).map((entry) => ({
     entry,
+    // 只认已分发 / 落后两种状态：持久化状态可能先于注册表变更（新增目标尚无
+    // 该字段），缺字段不能当成「有标签」——旧写法 `!== 'none'` 会把 undefined
+    // 也放进来，随后读 `.status` 直接崩整个页签。
     tags: targetIds.value
-      .filter((t) => entry.distribution[t]?.status !== 'none')
+      .filter((t) => {
+        const status = entry.distribution[t]?.status
+        return status === 'distributed' || status === 'stale'
+      })
       .map((t) => ({
         target: t,
         status: entry.distribution[t].status as 'distributed' | 'stale',
       })),
   })),
 )
+
+// ==================== 搜索（本地过滤 / skills.sh 联网） ====================
+
+/** 搜索模式：local = 过滤规范库已扫出的 skill；remote = 查 skills.sh */
+type SearchMode = 'local' | 'remote'
+const searchMode = ref<SearchMode>('local')
+const query = ref('')
+const searching = ref(false)
+const remoteResult = ref<SkillSearchResponse | null>(null)
+const remoteError = ref<string | null>(null)
+/** 联网结果安装的同名覆盖确认（与 GitHub 表单的确认条互不干扰） */
+const registryPending = ref<{ source: string; skillId: string; names: string[] } | null>(null)
+const registryError = ref<string | null>(null)
+
+const localQuery = computed(() => query.value.trim())
+
+/** 本地模式表格：按名称 / 描述 / 目录做多词 AND 过滤 */
+const visibleRows = computed<SkillRow[]>(() => {
+  const matched = new Set(
+    filterLocalSkills(state.value?.skills ?? [], query.value).map((s) => s.dir),
+  )
+  return rows.value.filter((r) => matched.has(r.entry.dir))
+})
+
+function switchMode(mode: SearchMode) {
+  searchMode.value = mode
+  registryPending.value = null
+  registryError.value = null
+}
+
+function onSearchEnter() {
+  if (searchMode.value === 'remote') void runRemoteSearch()
+}
+
+/** 联网搜索：精确查询 + guest 侧逐词近似合并；网络失败落到 remoteError */
+async function runRemoteSearch() {
+  const q = localQuery.value
+  if (!q || searching.value) return
+  searching.value = true
+  registryPending.value = null
+  registryError.value = null
+  remoteResult.value = null
+  remoteError.value = null
+  try {
+    const r = await props.skills.searchRemote(q)
+    if (r === null) {
+      remoteError.value = t('hub.skill.search.failed')
+      return
+    }
+    remoteError.value = r.error
+    remoteResult.value = r
+  } finally {
+    searching.value = false
+  }
+}
+
+/** 结果行可信度档（find-skills：≥1K 优先，<100 谨慎） */
+function tierTagClass(installs: number): string {
+  const tier = trustTier(installs)
+  return tier === 'high' ? 'ok' : tier === 'low' ? 'warn' : ''
+}
+
+function tierText(installs: number): string {
+  const tier = trustTier(installs)
+  return tier === 'high'
+    ? t('hub.skill.search.trustHigh')
+    : tier === 'mid'
+      ? t('hub.skill.search.trustMid')
+      : t('hub.skill.search.trustLow')
+}
+
+/**
+ * 联网结果安装：skills.sh 结果是 `owner/repo@skill`，仓库里可能有多个 skill，
+ * 故携 `skill` 让 guest 只装命中的那一个（按目录名 / frontmatter name 定位）。
+ */
+async function installRegistry(source: string, skillId: string, force = false) {
+  registryError.value = null
+  const r = await props.skills.installGithub(`https://github.com/${source}`, force, skillId)
+  if (r === null) {
+    registryError.value = t('hub.skill.search.installFailed')
+    return
+  }
+  if (r.exists && r.exists.length > 0) {
+    registryPending.value = { source, skillId, names: r.exists }
+    return
+  }
+  registryPending.value = null
+  if (r.error) registryError.value = r.error
+}
+
+async function installHit(hit: SkillSearchHit) {
+  if (props.skills.githubBusy.value) return
+  await installRegistry(hit.source, hit.skillId)
+}
+
+async function confirmRegistryOverwrite() {
+  const pending = registryPending.value
+  if (!pending) return
+  registryPending.value = null
+  await installRegistry(pending.source, pending.skillId, true)
+}
 
 /** 汇总：某目标全部 distributed → 已同步；有 stale/missing → N 落后 */
 function targetSummary(target: string): { status: 'ok' | 'warn' | 'neutral'; count: number } {
@@ -148,11 +264,58 @@ function handleImportResult(r: Awaited<ReturnType<UseSkillsReturn['importLocal']
   importPending.value = null
 }
 
+// ==================== 删除 / 卸载（规范库 + 全部分发副本） ====================
+
+/**
+ * 删除语义 = 卸载：guest 会连各目标副本一起删（否则 CLI 仍能读到孤儿副本，
+ * 等于没删）。破坏性且跨目录，故走「先武装确认条、再确认」两步：行内按钮
+ * 只 arm，真正的命令在确认条上发出。
+ */
+const deleteArmDir = ref<string | null>(null)
+/** 命令被拒（未知 skill / 并发删除 / 管道失败）的行内错误；异步结果走 state.delete.last */
+const deleteError = ref<string | null>(null)
+/** 正在删除的目录（guest 异步进程；回灌前禁用全部删除入口） */
+const deletingDir = computed(() => state.value?.deleting ?? null)
+const deleteLast = computed(() => state.value?.delete?.last ?? null)
+
+function targetName(id: string): string {
+  return targets.value.find((t) => t.id === id)?.displayName ?? id
+}
+
+/** 待确认的删除目标（附已分发到的目标展示名，确认文案要点名会失效的 agent） */
+const deleteArm = computed<{ entry: SkillEntry; targetNames: string[] } | null>(() => {
+  if (!deleteArmDir.value) return null
+  const row = rows.value.find((r) => r.entry.dir === deleteArmDir.value)
+  if (!row) return null
+  return { entry: row.entry, targetNames: row.tags.map((tag) => targetName(tag.target)) }
+})
+
+function armDelete(dir: string) {
+  deleteError.value = null
+  deleteArmDir.value = dir
+}
+
+function cancelDelete() {
+  deleteArmDir.value = null
+}
+
+async function confirmDelete() {
+  const dir = deleteArmDir.value
+  if (!dir) return
+  deleteArmDir.value = null
+  deleteError.value = null
+  const r = await props.skills.deleteSkill(dir)
+  // 命令本身被拒：条目还在列表里，必须显性说明，不能静默吞掉
+  if (!r.started) deleteError.value = r.error ?? t('hub.skill.deleteFailed')
+}
+
 // ==================== 编辑 ====================
 
 const editingDir = ref<string | null>(null)
 
 function openEditor(dir: string) {
+  // 进编辑器前收起待确认的删除态：返回列表时不该凭空出现一条确认条
+  deleteArmDir.value = null
   editingDir.value = dir
 }
 
@@ -197,6 +360,56 @@ function closeEditor() {
             {{ t('hub.skill.github.action') }}
           </button>
         </span>
+      </div>
+
+      <!-- 搜索：本地过滤规范库 / skills.sh 联网搜索（find-skills 口径） -->
+      <div class="ah-sk-search" data-testid="skill-search">
+        <input
+          v-model="query"
+          class="ah-input"
+          type="text"
+          spellcheck="false"
+          :placeholder="t('hub.skill.search.placeholder')"
+          data-testid="skill-search-input"
+          @keyup.enter="onSearchEnter"
+        />
+        <div class="ah-sk-search-modes" role="group" :aria-label="t('hub.skill.search.modeLabel')">
+          <button
+            type="button"
+            class="ah-sk-mode-btn"
+            :class="{ active: searchMode === 'local' }"
+            :aria-pressed="searchMode === 'local'"
+            data-testid="search-mode-local"
+            @click="switchMode('local')"
+          >
+            {{ t('hub.skill.search.local') }}
+          </button>
+          <button
+            type="button"
+            class="ah-sk-mode-btn"
+            :class="{ active: searchMode === 'remote' }"
+            :aria-pressed="searchMode === 'remote'"
+            data-testid="search-mode-remote"
+            @click="switchMode('remote')"
+          >
+            {{ t('hub.skill.search.remote') }}
+          </button>
+        </div>
+        <button
+          v-if="searchMode === 'remote'"
+          type="button"
+          class="ah-btn ah-btn-primary ah-btn-sm"
+          :disabled="searching || !localQuery"
+          data-testid="search-remote-go"
+          @click="runRemoteSearch()"
+        >
+          {{ searching ? t('hub.skill.search.searching') : t('hub.skill.search.action') }}
+        </button>
+      </div>
+      <div class="ah-inst-hint ah-sk-search-hint" data-testid="skill-search-hint">
+        {{ searchMode === 'local'
+          ? t('hub.skill.search.localHint', { n: visibleRows.length, total: rows.length })
+          : t('hub.skill.search.remoteHint') }}
       </div>
 
       <!-- 状态 tag 行（原型 #a-sk） -->
@@ -287,15 +500,151 @@ function closeEditor() {
           }}<template v-if="state.github.last.skippedFiles > 0"> · {{ t('hub.skill.github.skipped', { n: state.github.last.skippedFiles }) }}</template>
       </div>
 
-      <!-- 空态 -->
-      <div v-if="!scanning && rows.length === 0" class="ah-card ah-sk-empty">
+      <!-- 删除 / 卸载：结果回流 + 待确认条（确认后才真的发命令） -->
+      <div
+        v-if="deleteLast"
+        class="ah-sk-result"
+        :class="{ err: !deleteLast.ok }"
+        data-testid="skill-delete-result"
+      >
+        {{ deleteLast.ok
+          ? deleteLast.targets.length > 0
+            ? t('hub.skill.deleteDoneTargets', { name: deleteLast.name, n: deleteLast.targets.length })
+            : t('hub.skill.deleteDone', { name: deleteLast.name })
+          : t('hub.skill.deleteFailed') }}
+        <div v-if="deleteLast.error" class="ah-sk-raw-error">{{ deleteLast.error }}</div>
+      </div>
+      <div v-if="deleteArm" class="ah-banner ah-sk-confirm" data-testid="delete-confirm">
+        <span class="ah-banner-ic">⚠</span>
+        <span class="ah-banner-text">
+          {{ deleteArm.targetNames.length > 0
+            ? t('hub.skill.deleteConfirm', {
+                name: deleteArm.entry.name,
+                targets: deleteArm.targetNames.join(' · '),
+              })
+            : t('hub.skill.deleteConfirmLibraryOnly', { name: deleteArm.entry.name }) }}
+        </span>
+        <button
+          type="button"
+          class="ah-btn ah-btn-warn ah-btn-sm"
+          :disabled="deletingDir !== null"
+          data-testid="delete-confirm-go"
+          @click="confirmDelete()"
+        >
+          {{ t('hub.skill.deleteConfirmGo') }}
+        </button>
+        <button
+          type="button"
+          class="ah-btn ah-btn-ghost ah-btn-sm"
+          data-testid="delete-confirm-cancel"
+          @click="cancelDelete()"
+        >
+          {{ t('hub.skill.deleteCancel') }}
+        </button>
+      </div>
+      <div v-if="deleteError" class="ah-cli-error" data-testid="skill-delete-error">
+        {{ t('hub.skill.deleteFailed') }}
+        <div class="ah-sk-raw-error">{{ deleteError }}</div>
+      </div>
+
+      <!-- 空态（本地库为空） / 无本地命中 -->
+      <div v-if="searchMode === 'local' && !scanning && rows.length === 0" class="ah-card ah-sk-empty">
         <div class="ah-section-title">{{ t('hub.skill.empty') }}</div>
         <div class="ah-inst-hint ah-sk-empty-hint">{{ t('hub.skill.emptyHint') }}</div>
       </div>
+      <div
+        v-if="searchMode === 'local' && !scanning && rows.length > 0 && visibleRows.length === 0"
+        class="ah-card ah-sk-empty"
+        data-testid="skill-search-no-match"
+      >
+        <div class="ah-section-title">{{ t('hub.skill.search.noMatch', { q: localQuery }) }}</div>
+        <div class="ah-inst-hint ah-sk-empty-hint">{{ t('hub.skill.search.noMatchHint') }}</div>
+      </div>
+
+      <!-- 联网搜索结果（skills.sh） -->
+      <template v-if="searchMode === 'remote'">
+        <div v-if="searching" class="ah-card ah-sk-empty" data-testid="search-loading">
+          <div class="ah-section-title">{{ t('hub.skill.search.searching') }}</div>
+          <div class="ah-inst-hint ah-sk-empty-hint">{{ t('hub.skill.search.remoteHint') }}</div>
+        </div>
+        <div v-else-if="remoteError" class="ah-cli-error" data-testid="search-error">
+          {{ t('hub.skill.search.failed') }}
+          <div class="ah-sk-raw-error">{{ remoteError }}</div>
+        </div>
+        <div v-else-if="!remoteResult" class="ah-card ah-sk-empty" data-testid="search-idle">
+          <div class="ah-section-title">{{ t('hub.skill.search.remoteIdle') }}</div>
+          <div class="ah-inst-hint ah-sk-empty-hint">{{ t('hub.skill.search.remoteHint') }}</div>
+        </div>
+        <div
+          v-else-if="remoteResult.results.length === 0"
+          class="ah-card ah-sk-empty"
+          data-testid="search-empty"
+        >
+          <div class="ah-section-title">{{ t('hub.skill.search.remoteEmpty', { q: remoteResult.query }) }}</div>
+          <div class="ah-inst-hint ah-sk-empty-hint">{{ t('hub.skill.search.remoteEmptyHint') }}</div>
+        </div>
+        <div v-else class="ah-card ah-sk-table-card" data-testid="search-results">
+          <div class="ah-sk-search-meta">
+            <span>{{ t('hub.skill.search.count', { n: remoteResult.results.length, q: remoteResult.query }) }}</span>
+            <span v-if="remoteResult.fallback" class="ah-cli-tag" data-testid="search-fallback">
+              {{ t('hub.skill.search.fallback') }}
+            </span>
+          </div>
+          <div
+            v-for="hit in remoteResult.results"
+            :key="hit.id"
+            class="ah-sk-row"
+            :data-testid="`search-result-${hit.id}`"
+          >
+            <div class="ah-sk-row-main">
+              <span class="ah-sk-row-name">
+                <span class="ah-sk-row-name-text">{{ hit.name }}</span>
+                <span class="ah-mono ah-sk-row-dir">{{ hit.source }}</span>
+              </span>
+              <span class="ah-sk-row-desc ah-mono">{{ installCommand(hit) }}</span>
+              <span class="ah-sk-row-desc ah-mono">{{ hit.url }}</span>
+            </div>
+            <div class="ah-sk-row-dist">
+              <span class="ah-cli-tag" :class="tierTagClass(hit.installs)">
+                <span class="ah-cli-dot"></span>{{ tierText(hit.installs) }}
+              </span>
+              <span class="ah-cli-tag">{{ t('hub.skill.search.installs', { n: formatTokens(hit.installs) }) }}</span>
+              <span v-if="isOfficialSource(hit.source)" class="ah-cli-tag ok">
+                {{ t('hub.skill.search.official') }}
+              </span>
+            </div>
+            <div class="ah-sk-row-actions">
+              <button
+                type="button"
+                class="ah-btn ah-btn-primary ah-btn-sm"
+                :disabled="authGranted === false || props.skills.githubBusy.value"
+                :data-testid="`search-install-${hit.id}`"
+                @click="installHit(hit)"
+              >
+                {{ props.skills.githubBusy.value
+                  ? t('hub.skill.github.installing')
+                  : t('hub.skill.search.install') }}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div v-if="registryPending" class="ah-banner ah-sk-confirm" data-testid="registry-confirm">
+          <span class="ah-banner-ic">⚠</span>
+          <span class="ah-banner-text">{{ t('hub.skill.github.exists', { names: registryPending.names.join(', ') }) }}</span>
+          <button type="button" class="ah-btn ah-btn-ghost ah-btn-sm" @click="confirmRegistryOverwrite()">
+            {{ t('hub.skill.github.overwrite') }}
+          </button>
+        </div>
+        <div v-if="registryError" class="ah-cli-error" data-testid="registry-error">
+          {{ t('hub.skill.search.installFailed') }}
+          <div class="ah-sk-raw-error">{{ registryError }}</div>
+        </div>
+      </template>
 
       <!-- 技能表格（原型：技能 | 描述 | 分发状态 | 动作） -->
-      <div v-if="rows.length > 0" class="ah-card ah-sk-table-card">
-        <div v-for="row in rows" :key="row.entry.dir" class="ah-sk-row" :data-testid="`skill-row-${row.entry.dir}`">
+      <div v-if="searchMode === 'local' && visibleRows.length > 0" class="ah-card ah-sk-table-card">
+        <div v-for="row in visibleRows" :key="row.entry.dir" class="ah-sk-row" :data-testid="`skill-row-${row.entry.dir}`">
           <div class="ah-sk-row-main">
             <span class="ah-sk-row-name">
               <span class="ah-sk-row-name-text">{{ row.entry.name }}</span>
@@ -322,14 +671,20 @@ function closeEditor() {
             </span>
           </div>
           <div class="ah-sk-row-actions">
-            <button type="button" class="ah-btn ah-btn-ghost ah-btn-sm" :data-testid="`edit-${row.entry.dir}`" @click="openEditor(row.entry.dir)">
+            <button
+              type="button"
+              class="ah-btn ah-btn-ghost ah-btn-sm"
+              :disabled="deletingDir !== null"
+              :data-testid="`edit-${row.entry.dir}`"
+              @click="openEditor(row.entry.dir)"
+            >
               {{ t('hub.skill.edit') }}
             </button>
             <button
               type="button"
               class="ah-btn ah-btn-sm"
               :class="row.tags.some((x) => x.status === 'stale') || row.tags.length === 0 ? 'ah-btn-primary' : 'ah-btn-ghost'"
-              :disabled="busy || props.skills.distributing.value !== null || !authGranted"
+              :disabled="busy || deletingDir !== null || props.skills.distributing.value !== null || !authGranted"
               :data-testid="`distribute-${row.entry.dir}`"
               @click="skills.distribute(row.entry.dir)"
             >
@@ -340,6 +695,16 @@ function closeEditor() {
                   : row.tags.some((x) => x.status === 'stale')
                     ? t('hub.skill.redistribute')
                     : t('hub.skill.distribute') }}
+            </button>
+            <button
+              type="button"
+              class="ah-btn ah-btn-ghost ah-btn-sm"
+              :class="{ 'ah-btn-warn': deleteArmDir === row.entry.dir }"
+              :disabled="busy || deletingDir !== null || !authGranted"
+              :data-testid="`delete-${row.entry.dir}`"
+              @click="armDelete(row.entry.dir)"
+            >
+              {{ deletingDir === row.entry.dir ? t('hub.skill.deleting') : t('hub.skill.delete') }}
             </button>
           </div>
         </div>

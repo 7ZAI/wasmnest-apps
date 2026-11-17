@@ -273,6 +273,17 @@ mod tests {
         ) -> Result<serde_json::Value, HostError> {
             unimplemented_peer!()
         }
+        /// T21 本机节点投影 / relay 预留：本组用例只消费 list / revoke
+        fn peer_node_info(&self) -> Result<wasmnest_plugin_api::host::PeerNodeInfo, HostError> {
+            unimplemented_peer!()
+        }
+        fn peer_configure_relay(
+            &self,
+            _relay_addrs: &[String],
+            _enable: bool,
+        ) -> Result<wasmnest_plugin_api::host::PeerNodeInfo, HostError> {
+            unimplemented_peer!()
+        }
     }
     fn sample_peer(node_id: &str, name: &str) -> serde_json::Value {
         serde_json::json!({

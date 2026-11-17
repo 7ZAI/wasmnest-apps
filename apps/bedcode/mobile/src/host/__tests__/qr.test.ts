@@ -13,6 +13,7 @@
  * | C-QR-5 | 健壮性 | 额外字段不参与判定，不影响成功 | 仍成功且载荷只含三字段 |
  * | C-QR-6 | T08 v2 | `v:2` 且 `peer`（nodeId/addrs/ticket）完整、地址可拨号 | `ok` 且带 `peer`；残缺/地址不可拨号 → `incomplete`；未知版本 → `malformed` |
  * | C-QR-7 | T08 连接串 | `wasmnest://pair/<base64url(json)>` 与 QR 共用解析 | 合法 → `ok`；坏 base64 / 未知 kind → `malformed` |
+ * | C-QR-8 | v3 紧凑载荷（2026-11-13） | `{v:3,h,p,t,n,a,tk}`；`a` 是拨号前缀，`"@"` = `h:p` | 还原成与 v2 同形的完整 multiaddr；坏前缀 → `incomplete`；v4 → `malformed` |
  */
 import { describe, it, expect } from 'vitest'
 import { parseQrText } from '../qr'
@@ -160,7 +161,7 @@ describe('C-QR-6 QR v2 载荷', () => {
 
   it('should_rejectAsMalformed_when_versionUnknown', () => {
     expect(
-      parseQrText(JSON.stringify({ v: 3, host: 'h', port: 8765, token: 't', peer: peerFixture })),
+      parseQrText(JSON.stringify({ v: 4, host: 'h', port: 8765, token: 't', peer: peerFixture })),
     ).toEqual({ ok: false, reason: 'malformed' })
   })
 })
@@ -192,5 +193,86 @@ describe('C-QR-7 连接串（wasmnest://pair/…）', () => {
 
   it('should_rejectAsMalformed_when_unknownWasmnestUriKind', () => {
     expect(parseQrText('wasmnest://device/abc')).toEqual({ ok: false, reason: 'malformed' })
+  })
+})
+
+// ==================== v3 紧凑载荷（2026-11-13） ====================
+
+describe('C-QR-8 QR v3 载荷', () => {
+  const nodeId = '12D3KooWTargetNode'
+  const relayId = '12D3KooWRelay'
+  const lanAddr = `/ip4/192.168.1.5/tcp/8765/p2p/${nodeId}`
+  const relayAddr = `/ip4/203.0.113.10/tcp/4001/p2p/${relayId}/p2p-circuit/p2p/${nodeId}`
+
+  /** v3 基础载荷（`"@"` + relay 前缀，覆盖两种前缀形态） */
+  const v3 = {
+    v: 3,
+    h: '192.168.1.5',
+    p: 8765,
+    t: 't',
+    n: nodeId,
+    a: ['@', `/ip4/203.0.113.10/tcp/4001/p2p/${relayId}/p2p-circuit`],
+    tk: 'ticket-once',
+  }
+
+  it('should_expandPlaceholderAndPrefixes_when_v3Complete', () => {
+    expect(parseQrText(JSON.stringify(v3))).toEqual({
+      ok: true,
+      payload: {
+        host: '192.168.1.5',
+        port: 8765,
+        token: 't',
+        peer: { nodeId, addrs: [lanAddr, relayAddr], ticket: 'ticket-once' },
+      },
+    })
+  })
+
+  it('should_parseV3ThroughPairUri_when_wrapped', () => {
+    const result = parseQrText(encodePairUri(JSON.stringify(v3)))
+    expect(result.ok).toBe(true)
+    if (result.ok) expect(result.payload.peer?.addrs).toEqual([lanAddr, relayAddr])
+  })
+
+  it('should_dedupeAddrsAndKeepOrder_when_duplicatePrefixes', () => {
+    const result = parseQrText(JSON.stringify({ ...v3, a: ['@', '@'] }))
+    expect(result.ok).toBe(true)
+    if (result.ok) expect(result.payload.peer?.addrs).toEqual([lanAddr])
+  })
+
+  it('should_notRequireLegacyLongKeys_when_v3', () => {
+    // v3 只认 h/p/t；同时带旧长键也不影响（未知字段忽略）
+    const result = parseQrText(JSON.stringify({ ...v3, host: 'ignored', port: 1, token: 'x' }))
+    expect(result.ok).toBe(true)
+    if (result.ok) expect(result.payload.host).toBe('192.168.1.5')
+  })
+
+  const incomplete: Array<{ label: string; payload: Record<string, unknown> }> = [
+    { label: '缺 nodeId', payload: { ...v3, n: undefined } },
+    { label: 'nodeId 空串', payload: { ...v3, n: '  ' } },
+    { label: '缺 ticket', payload: { ...v3, tk: undefined } },
+    { label: 'a 缺失', payload: { ...v3, a: undefined } },
+    { label: 'a 空数组', payload: { ...v3, a: [] } },
+    { label: 'a 非数组', payload: { ...v3, a: '@' } },
+    { label: 'a 含非字符串', payload: { ...v3, a: [1] } },
+    { label: '前缀不以 / 开头', payload: { ...v3, a: ['ip4/1.2.3.4/tcp/1'] } },
+    { label: '前缀含空白', payload: { ...v3, a: ['/ip4/1.2.3.4/tcp/1 x'] } },
+    { label: '前缀未指定地址', payload: { ...v3, a: ['/ip4/0.0.0.0/tcp/1'] } },
+    { label: '前缀已含本节点目标段', payload: { ...v3, a: [`/ip4/1.2.3.4/tcp/1/p2p/${nodeId}`] } },
+    { label: '占位符但 host 非 IPv4', payload: { ...v3, h: 'desktop.local', a: ['@'] } },
+    { label: '缺 token', payload: { ...v3, t: '' } },
+    { label: '端口越界', payload: { ...v3, p: 70000 } },
+  ]
+
+  for (const c of incomplete) {
+    it(`should_rejectAsIncomplete_when_${c.label}`, () => {
+      expect(parseQrText(JSON.stringify(c.payload))).toEqual({ ok: false, reason: 'incomplete' })
+    })
+  }
+
+  it('should_rejectAsMalformed_when_v4Payload', () => {
+    expect(parseQrText(JSON.stringify({ ...v3, v: 4 }))).toEqual({
+      ok: false,
+      reason: 'malformed',
+    })
   })
 })

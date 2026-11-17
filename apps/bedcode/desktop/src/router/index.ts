@@ -9,6 +9,8 @@
  * - 菜单项（进侧边栏，order 即视觉顺序）：/pairing 100 / /projects 190 /
  *   /agents 205（Agent 管理域，原 agent-hub 并入）/ /orchestrations 207（已停用）/
  *   /tasks 210；
+ * - 遗留入口重定向：/sessions（宿主落地路由目录仍登记此路径；终端会话面 2026-11-06
+ *   停用）→ 落地页 /pairing（用户裁定：初始点击进入的首页显示「设备配对」）；
  * - 设置（业务分组：配对 / 会话；平台分组在宿主系统页 /sys/settings）：
  *   /settings、/settings/authorization（遗留深链 → 宿主 /sys/perms，此处兜底）；
  * - 平台页（URL 直达、不进导航）：/server（诊断页，常驻不可开关）；
@@ -26,13 +28,27 @@
  */
 import { createRouter, createMemoryHistory } from 'vue-router'
 
-/** 应用默认落地页（入口与卸载回位共用；终端会话面停用后归项目列表） */
-export const DEFAULT_ROUTE = '/projects'
+/**
+ * 应用默认落地页（入口与卸载回位共用）。
+ * 用户裁定（2026-11-15）：初始点击进入的首页显示「设备配对」→ `/pairing`；
+ * 原落地 `/projects` 仍从侧边栏菜单进入。
+ */
+export const DEFAULT_ROUTE = '/pairing'
 
 const router = createRouter({
   history: createMemoryHistory(),
   routes: [
     { path: '/', redirect: DEFAULT_ROUTE },
+    {
+      // 遗留入口重定向：宿主落地路由目录（SURFACE_ROUTES）对 bedcode 仍登记
+      // `/sessions`（终端会话面，2026-11-06 停用）。初始点击进入时宿主 push
+      // `/sessions`，app 侧显式重定向到落地页 —— 避免落入 not-found（用户裁定：
+      // 初始进入首页显示「设备配对」）。其余未匹配路径仍走 fail-visible 兜底，
+      // 不改写宿主对未知路径的显式意图。
+      path: '/sessions',
+      name: 'sessions-legacy',
+      redirect: DEFAULT_ROUTE,
+    },
     {
       path: '/pairing',
       name: 'pairing',

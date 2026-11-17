@@ -14,7 +14,9 @@
 //! - [`listing`]：列举解析 / 内容 hash / frontmatter / 分发判定（纯函数）
 //! - [`scan`]：规范库扫描（枚举 → 逐 skill 采集 → 分发比对）
 //! - [`editor`]：读 / 保存 / 分发命令
+//! - [`delete`]：删除 / 卸载（规范库 + 全部分发副本一并删净）
 //! - [`github`]：GitHub 安装（URL 解析 → trees API → raw 下载）
+//! - [`search`]：skills.sh 联网搜索（精确查询 + 逐词近似合并）
 //! - [`import`]：本地目录导入（pick-folders + 授权 → 枚举 → fs_copy）
 //! - 本模块：域状态（host-storage `skills` 键，读-改-写 + 全量推送）+ 命令入口
 //!
@@ -62,10 +64,12 @@ fn default_state(home: &str) -> Value {
         "scannedAt": null,
         "libraryRoot": format!("{home}/{LIBRARY_SEG}"),
         "importing": false,
+        "deleting": null,
         "skills": [],
         "targets": Value::Object(targets),
         "github": { "last": null },
         "import": { "last": null },
+        "delete": { "last": null },
     })
 }
 
@@ -95,18 +99,22 @@ pub(super) fn library_root() -> anyhow::Result<String> {
         .map(|home| format!("{home}/{LIBRARY_SEG}"))
         .ok_or_else(|| anyhow::anyhow!("skills: home unavailable"))
 }
+mod delete;
 mod editor;
 mod github;
 mod import;
 mod listing;
 mod scan;
+mod search;
 
 /// 命令入口面（lib.rs 路由）
+pub(crate) use delete::delete_skill;
 pub(crate) use editor::{distribute, read_skill, save_skill};
 pub(crate) use github::install_github;
 pub(crate) use import::import_local;
 pub(crate) use listing::parse_listing;
 pub(crate) use scan::scan;
+pub(crate) use search::search;
 
 use super::{host, pending, HOME};
 use serde_json::{json, Value};
@@ -115,6 +123,7 @@ use wasmnest_plugin_api::events::ProcessDoneEvent;
 use wasmnest_plugin_api::host::{HostEvents, HostLog, HostStorage};
 use wasmnest_plugin_api::wasm_host::WasmHost;
 
+use self::delete::handle_delete_done;
 use self::import::handle_import_done;
 use self::scan::handle_scan_done;
 
@@ -140,6 +149,10 @@ pub(crate) fn handle_process_done(event: &ProcessDoneEvent, kind: &str) -> anyho
         "skills-import" => {
             let src = entry.source.unwrap_or_default();
             handle_import_done(event, &entry.output_path, &src)
+        }
+        "skills-delete" => {
+            let dir = entry.source.unwrap_or_default();
+            handle_delete_done(event, &entry.output_path, &dir)
         }
         other => {
             host().log_warn(&format!("skills: unknown process kind {other}"));

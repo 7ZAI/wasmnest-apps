@@ -288,6 +288,13 @@ export interface DeviceRow {
   lastTransport: TransportKind | null
   /** 有 relay 候选可手动「尝试外网」（§4.9：不自动切，给手动入口） */
   wanAvailable: boolean
+  /** 有内网候选（LAN 地址 / 非 circuit 多地址；可点「内网」连接） */
+  lanAvailable: boolean
+  /**
+   * 可用连接方式标注（spec §4.1.2）：both = 内网+外网 / lan = 仅内网 /
+   * wan = 仅外网 / none = 暂无可用候选（等重新发现）。
+   */
+  connectionModes: 'both' | 'lan' | 'wan' | 'none'
   /**
    * 建议「仅经中继」：LAN 拨号失败且存在 relay 候选（T20 §4.2）
    *
@@ -308,7 +315,7 @@ export interface DeviceStateInput {
   transports?: Readonly<Record<string, TransportKind>>
 }
 
-/** relay 候选标记（与核内 `dial::RELAY_MARKER` / `pairingLink.isRelayCandidate` 同字面） */
+/** relay 候选标记（与核内 `dial::RELAY_MARKER` 同字面） */
 const RELAY_MARKER = '/p2p-circuit'
 
 /** 候选表里是否存在 relay 地址（手动「尝试外网」入口判据） */
@@ -423,6 +430,11 @@ export function deriveDeviceRows(input: DeviceStateInput): DeviceRow[] {
     const connecting = !connected && input.connectingIds.has(d.nodeId)
     const dialError = connected || connecting ? null : (input.dialErrors[d.nodeId] ?? null)
     const wanAvailable = hasRelayCandidate(d.addrs) || input.transports?.[d.nodeId] === 'wan-relay'
+    // 内网候选：地址三元组存在，或多地址里有非 circuit 项（mDNS / 配对 LAN）
+    const lanAvailable =
+      Boolean(d.addr) || (d.port ?? 0) > 0 || (d.addrs ?? []).some((a) => !a.includes(RELAY_MARKER))
+    const connectionModes =
+      lanAvailable && wanAvailable ? 'both' : lanAvailable ? 'lan' : wanAvailable ? 'wan' : 'none'
     return {
       nodeId: d.nodeId,
       deviceName: d.deviceName || d.nodeId,
@@ -437,6 +449,8 @@ export function deriveDeviceRows(input: DeviceStateInput): DeviceRow[] {
       transport: connected ? (input.transports?.[d.nodeId] ?? null) : null,
       lastTransport: normalizeTransport(d.lastTransport),
       wanAvailable,
+      lanAvailable,
+      connectionModes,
       relayOnlyRecommended: dialError?.code === 'lan-unreachable' && wanAvailable,
     }
   })
@@ -457,9 +471,6 @@ const RELAY_DISCOVERY_STATUSES: readonly RelayDiscoveryStatus[] = [
 
 /** 错误摘要展示上限（完整内容只在日志 / 控制台） */
 const RELAY_ERROR_DISPLAY_MAX = 120
-
-/** 状态卡「可能过期」阈值（宿主持久 25s 心跳；超过两个心跳即可疑） */
-export const RELAY_CARD_STALE_MS = 60_000
 
 /** 中继发现状态（宿主 envelope 的增量字段；旧宿主返回 null） */
 export interface RelayDiscovery {
@@ -482,7 +493,7 @@ function truncateDisplay(text: string, maxChars: number): string {
 /**
  * 解析宿主发现状态（纯函数）。
  *
- * 旧宿主只发 `{ devices }`：返回 null，状态卡降级为「按 relayState 展示」，
+ * 随 `peer:relay-devices` 快照下发；旧宿主只发 `{ devices }`：返回 null，
  * 不把缺失字段猜成 ok。`error` 只保留 ≤120 字符，完整内容进日志。
  */
 export function parseRelayDiscoveryPayload(payload: unknown): RelayDiscovery | null {
@@ -504,126 +515,4 @@ export function parseRelayDiscoveryPayload(payload: unknown): RelayDiscovery | n
     updatedAtMs,
     count: Array.isArray(rec.devices) ? rec.devices.length : 0,
   }
-}
-
-/** 状态卡主 / 次操作 token（组件映射到 i18n 文案与本地入口） */
-export type RelayCardAction =
-  'paste-invite' | 'generate-invite' | 'refresh' | 'open-center' | 'open-settings' | 'none'
-
-/** 状态卡渲染模型（纯函数产出；组件只做文案与按钮映射） */
-export interface RelayCardModel {
-  tone: 'neutral' | 'progress' | 'warn' | 'ok'
-  /** 标题 i18n key */
-  title: string
-  /** 说明 i18n key */
-  body: string
-  /** 说明参数（count / detail / seconds） */
-  params?: Record<string, string | number>
-  primary: RelayCardAction
-  secondary: RelayCardAction
-  /** 宿主状态超过阈值未更新（提示刷新，不假装实时） */
-  stale: boolean
-  /** 空间码为空：同一中继设备互相可见 */
-  roomHint: boolean
-  count: number
-}
-
-export interface RelayCardInput {
-  relayAddrs: readonly string[]
-  relayRoom: string
-  /** get-my-device 的 relayState（relay-idle / connecting / reserved / lost） */
-  relayState?: string
-  /** 宿主发现 envelope（旧宿主为 null） */
-  discovery: RelayDiscovery | null
-  /** 中心已配置且与邀请缓存不一致（由调用方判定） */
-  conflict?: boolean
-  nowMs: number
-}
-
-function relayCard(
-  tone: RelayCardModel['tone'],
-  key: string,
-  primary: RelayCardAction,
-  secondary: RelayCardAction,
-  extra: Partial<RelayCardModel> = {},
-): RelayCardModel {
-  return {
-    tone,
-    title: `transfer.relayCard.${key}.title`,
-    body: `transfer.relayCard.${key}.body`,
-    primary,
-    secondary,
-    stale: false,
-    roomHint: false,
-    count: 0,
-    ...extra,
-  }
-}
-
-/**
- * 跨网状态卡模型（纯函数）。
- *
- * 优先级：中心冲突 > 未配置中继 > 中继连接态 > 宿主发现状态 > 旧宿主降级。
- * 每个分支都给一个明确主操作（没有「什么都没有」的空态）。
- */
-export function deriveRelayCard(input: RelayCardInput): RelayCardModel {
-  const addrs = input.relayAddrs ?? []
-  const discovery = input.discovery
-  const roomHint = input.relayRoom.trim() === ''
-  const stale =
-    discovery !== null &&
-    discovery.updatedAtMs > 0 &&
-    input.nowMs - discovery.updatedAtMs > RELAY_CARD_STALE_MS
-  const ageSeconds =
-    discovery && discovery.updatedAtMs > 0
-      ? Math.max(0, Math.floor((input.nowMs - discovery.updatedAtMs) / 1000))
-      : 0
-  const base = { stale, roomHint }
-
-  if (input.conflict) {
-    return relayCard('warn', 'conflict', 'open-center', 'none', base)
-  }
-  if (addrs.length === 0) {
-    return relayCard('warn', 'unconfigured', 'paste-invite', 'open-center', base)
-  }
-
-  // 预留过程态比发现快照更早/更准：刚配置时发现还是 relay-unavailable
-  switch (input.relayState) {
-    case 'relay-connecting':
-      return relayCard('progress', 'connecting', 'refresh', 'none', base)
-    case 'relay-lost':
-      return relayCard('warn', 'lost', 'refresh', 'open-center', base)
-    case 'relay-idle':
-      return relayCard('warn', 'disabled', 'open-settings', 'none', base)
-  }
-
-  switch (discovery?.status) {
-    case 'disabled':
-      return relayCard('warn', 'disabled', 'open-settings', 'none', base)
-    case 'relay-unavailable':
-      return relayCard('progress', 'unavailable', 'refresh', 'none', base)
-    case 'unsupported':
-      return relayCard('warn', 'unsupported', 'refresh', 'none', base)
-    case 'denied':
-      return relayCard('warn', 'denied', 'refresh', 'none', base)
-    case 'error':
-      return relayCard('warn', 'error', 'refresh', 'none', {
-        ...base,
-        params: { detail: discovery.error ?? '' },
-      })
-    case 'ok':
-      return discovery.count > 0
-        ? relayCard('ok', 'ready', 'generate-invite', 'refresh', {
-            ...base,
-            count: discovery.count,
-            params: { count: discovery.count, seconds: ageSeconds },
-          })
-        : relayCard('neutral', 'readyEmpty', 'generate-invite', 'refresh', base)
-  }
-
-  // 旧宿主：没有 envelope；relay-reserved 时按「已就绪，等待设备」降级
-  if (input.relayState === 'relay-reserved') {
-    return relayCard('neutral', 'pending', 'generate-invite', 'refresh', base)
-  }
-  return relayCard('neutral', 'pending', 'refresh', 'paste-invite', base)
 }

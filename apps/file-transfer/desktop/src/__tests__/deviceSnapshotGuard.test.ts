@@ -102,6 +102,8 @@ describe('usePeerDevices snapshot dial guard', () => {
     env.onCommand('file-transfer.save-device-snapshot', () => ({ ok: true }))
     env.onCommand('file-transfer.set-active-peer', () => ({ ok: true }))
     env.onCommand('file-transfer.refresh-devices', () => ({}))
+    // 发现事件会补写 endpoint memo（入站侧数据面重拨用）
+    env.onCommand('file-transfer.remember-peer-endpoint', () => ({ ok: true }))
   })
 
   it('drops stale snapshot entries beyond the restore window', async () => {

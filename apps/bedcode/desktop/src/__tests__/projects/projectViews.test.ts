@@ -29,10 +29,24 @@ const { pushMock, toastSuccess, toastInfo, toastError, storageGet, storageSet, o
 
 // 两个视图都只用 useRouter / useRoute（无 router-link），桩掉即可；
 // 断言「创建后跳转到工作台」靠 push 的入参。
-vi.mock('vue-router', () => ({
-  useRouter: () => ({ push: pushMock, replace: pushMock }),
-  useRoute: () => ({ params: { id: 'p-1' }, path: '/projects/p-1', fullPath: '/projects/p-1' }),
-}))
+//
+// 用 reactive 复刻真实 `useRoute()` 语义：它注入的是 router 的**全局**响应式
+// currentRoute（所有组件共享同一份），供「工作台实例被 KeepAlive 缓存后，
+// 全局路由已切到别的项目」的回归用例改写参数。
+vi.mock('vue-router', async () => {
+  const { reactive } = await import('vue')
+  const route = reactive({
+    params: { id: 'p-1' } as Record<string, string>,
+    path: '/projects/p-1',
+    fullPath: '/projects/p-1',
+  })
+  return {
+    useRouter: () => ({ push: pushMock, replace: pushMock }),
+    useRoute: () => route,
+    // 仅测试可见：真实 vue-router 无此导出
+    __route: route,
+  }
+})
 
 vi.mock('vue-sonner', () => ({
   toast: { success: toastSuccess, info: toastInfo, error: toastError },
@@ -47,9 +61,20 @@ vi.mock('@/utils/codeHighlight', () => ({
   highlightFileContent: async () => ({ status: 'unsupported' }),
 }))
 
+import * as routerMock from 'vue-router'
 import ProjectListView from '@/views/projects/ProjectListView.vue'
 import ProjectWorkbenchView from '@/views/projects/ProjectWorkbenchView.vue'
 import { PROJECT_GIT_LIMIT } from '@/composables/useProjectGit'
+
+/** 全局响应式路由桩（真实 vue-router 注入 currentRoute 的语义） */
+const routeMock = (
+  routerMock as unknown as {
+    __route: { params: Record<string, string>; path: string; fullPath: string }
+  }
+).__route
+
+/** 会话事件订阅（工作台 mounted 时挂上；回归用例需要主动模拟一次广播） */
+const eventHandlers = new Map<string, Set<(payload?: unknown) => void>>()
 
 // ==================== 命令面桩 ====================
 
@@ -211,7 +236,18 @@ function makeContext(): PluginContext {
       isTerminalOpen: () => false,
     },
     storage: { get: storageGet, set: storageSet, delete: async () => {} },
-    events: { on: () => ({ dispose: () => {} }), emit: () => {} },
+    events: {
+      on: (event: string, handler: (payload?: unknown) => void) => {
+        let set = eventHandlers.get(event)
+        if (!set) {
+          set = new Set()
+          eventHandlers.set(event, set)
+        }
+        set.add(handler)
+        return { dispose: () => set!.delete(handler) }
+      },
+      emit: () => {},
+    },
   } as unknown as PluginContext
 }
 
@@ -231,6 +267,11 @@ beforeEach(() => {
   vi.clearAllMocks()
   // clearAllMocks 只清调用记录，不清实现：storage 默认「读不到」每个用例都重设
   storageGet.mockImplementation(async () => undefined)
+  eventHandlers.clear()
+  // 全局路由回到默认项目（用例可能改写它，模拟「切到别的项目」）
+  routeMock.params.id = 'p-1'
+  routeMock.path = '/projects/p-1'
+  routeMock.fullPath = '/projects/p-1'
   routes = defaultRoutes()
   execute.mockImplementation(async (id: string, args: any) => {
     const handler = routes[id]
@@ -1119,5 +1160,185 @@ describe('ProjectWorkbenchView（项目工作台）', () => {
     await flushPromises()
 
     expect(commandsTo('session.close')[0][1]).toEqual({ sessionId: 'r-1' })
+  })
+
+  // ==================== 跨项目隔离（KeepAlive 缓存下的实例归属） ====================
+
+  /**
+   * 回归：两个项目的终端显示一模一样
+   *
+   * 复现条件（真实链路）：AppLayout 用 KeepAlive 按 fullPath 缓存工作台，切到
+   * 另一个项目只 deactivate、实例仍活着且订阅着全局会话事件；而 `useRoute()`
+   * 注入的是**全局**响应式 currentRoute。若 projectId 实时读路由，切走后它已
+   * 变成新项目 —— 新项目里创建会话触发 `session:created` 时，被缓存的旧实例
+   * 会拿新项目 id 刷新自己，project / runs 被整体覆盖，回到旧项目时两个项目
+   * 看到同一份运行与同一个终端。
+   */
+  it('被缓存的工作台只按自己的项目刷新：全局路由已切到别的项目也不串数据', async () => {
+    routes['project.get'] = (args: { id: string }) =>
+      args.id === 'p-2' ? projectRecord('p-2', '另一个项目') : projectRecord('p-1', '支付重构')
+    routes['run.list'] = (args: { projectId: string }) =>
+      args.projectId === 'p-2'
+        ? { runs: [{ ...runRecord('r-p2', 'running', true), projectId: 'p-2' }] }
+        : { runs: [runRecord('r-1', 'running', true)] }
+
+    const wrapper = mountView(ProjectWorkbenchView)
+    await flushPromises()
+    expect(wrapper.text()).toContain('支付重构')
+
+    // 用户进入另一个项目：本实例被缓存（不卸载），全局路由已变成 p-2
+    routeMock.params.id = 'p-2'
+    routeMock.path = '/projects/p-2'
+    routeMock.fullPath = '/projects/p-2'
+
+    // p-2 里新建运行 → 会话事件广播到所有存活实例（含本实例）
+    for (const handler of eventHandlers.get('session:created') ?? []) handler({})
+    await flushPromises()
+
+    // 不得用别的项目 id 取数，画面仍是自己的项目与运行（终端不切到别人的运行）
+    expect(commandsTo('project.get').filter((call) => call[1]?.id === 'p-2')).toHaveLength(0)
+    expect(commandsTo('run.list').filter((call) => call[1]?.projectId === 'p-2')).toHaveLength(0)
+    expect(wrapper.text()).not.toContain('另一个项目')
+    expect((wrapper.findComponent(TerminalStub).props('session') as { id: string }).id).toBe('r-1')
+  })
+
+  // ==================== 跨项目拼屏（多项目并线，2026-11-13） ====================
+
+  /** 跨项目取数桩：不带 projectId = 全部项目（p-2 一条在前，p-1 一条；最新在前） */
+  function crossProjectRoutes(): void {
+    routes['project.list'] = () => ({
+      projects: [projectRecord('p-1', '支付重构'), projectRecord('p-2', '另一个项目')],
+    })
+    routes['run.list'] = (args: { projectId?: string }) => {
+      if (args?.projectId === 'p-2') {
+        return { runs: [{ ...runRecord('r-p2', 'running', true), projectId: 'p-2' }] }
+      }
+      if (args?.projectId === 'p-1') return { runs: [runRecord('r-1', 'running', true)] }
+      return {
+        runs: [
+          { ...runRecord('r-p2', 'running', true), projectId: 'p-2' },
+          runRecord('r-1', 'running', true),
+        ],
+      }
+    }
+  }
+
+  /** 最后一次某命令的入参（跨项目用例要断言「取数范围」而不是次数） */
+  function lastArgs(id: string): unknown {
+    const calls = commandsTo(id)
+    return calls[calls.length - 1]?.[1]
+  }
+
+  it('跨项目拼屏：切「全部项目」后按无 projectId 取全量，运行行与格子标项目名', async () => {
+    crossProjectRoutes()
+    const wrapper = mountView(ProjectWorkbenchView)
+    await flushPromises()
+
+    // 单屏没有范围控件（单屏恒为本项目），首帧只取本项目
+    expect(wrapper.find('[data-testid="run-tile-scope"]').exists()).toBe(false)
+    expect(lastArgs('run.list')).toEqual({ projectId: 'p-1' })
+
+    await wrapper.get('[data-testid="run-tile-toggle"]').trigger('click')
+    await flushPromises()
+    // 拼屏默认仍为本项目：不标项目名
+    expect(wrapper.findAll('[data-testid="run-item-project"]')).toHaveLength(0)
+
+    await wrapper.get('[data-testid="run-scope-all"]').trigger('click')
+    await flushPromises()
+
+    // 全量取数 = run.list 不带 projectId；项目名映射同时取回
+    expect(lastArgs('run.list')).toEqual({})
+    expect(commandsTo('project.list').length).toBeGreaterThan(0)
+
+    // 左栏：两个项目的运行都在，且各标归属
+    const items = wrapper.findAll('[data-testid="run-item"]')
+    expect(items).toHaveLength(2)
+    expect(
+      wrapper.findAll('[data-testid="run-item-project"]').map((node) => node.text()),
+    ).toEqual(['另一个项目', '支付重构'])
+
+    // 拼屏：两格并线（各自一条真实运行），格子标题也标归属
+    const tiles = wrapper.findAll('[data-testid="run-tile"]')
+    expect(tiles).toHaveLength(2)
+    expect(new Set(tiles.map((tile) => tile.get('[data-testid="run-tile-project"]').text()))).toEqual(
+      new Set(['支付重构', '另一个项目']),
+    )
+  })
+
+  it('跨项目拼屏：停止别的项目的运行后按全量范围刷新（列表不被打回本项目）', async () => {
+    crossProjectRoutes()
+    const wrapper = mountView(ProjectWorkbenchView)
+    await flushPromises()
+    await wrapper.get('[data-testid="run-tile-toggle"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="run-scope-all"]').trigger('click')
+    await flushPromises()
+
+    const foreign = wrapper
+      .findAll('[data-testid="run-item"]')
+      .find((item) => item.text().includes('另一个项目'))
+    expect(foreign).toBeTruthy()
+    await foreign!.get('[data-testid="run-stop"]').trigger('click')
+    await flushPromises()
+
+    // 停的是归属 p-2 的运行；刷新仍按全量，当前项目统计只刷本项目
+    expect(commandsTo('session.close')[0][1]).toEqual({ sessionId: 'r-p2' })
+    expect(lastArgs('run.list')).toEqual({})
+    expect(lastArgs('project.get')).toEqual({ id: 'p-1' })
+  })
+
+  it('跨项目拼屏：切回「本项目」后按 projectId 重新取数，项目标注消失', async () => {
+    crossProjectRoutes()
+    const wrapper = mountView(ProjectWorkbenchView)
+    await flushPromises()
+    await wrapper.get('[data-testid="run-tile-toggle"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="run-scope-all"]').trigger('click')
+    await flushPromises()
+
+    await wrapper.get('[data-testid="run-scope-project"]').trigger('click')
+    await flushPromises()
+
+    expect(lastArgs('run.list')).toEqual({ projectId: 'p-1' })
+    expect(wrapper.findAll('[data-testid="run-item"]')).toHaveLength(1)
+    expect(wrapper.findAll('[data-testid="run-item-project"]')).toHaveLength(0)
+  })
+
+  it('跨项目拼屏：范围按项目持久化，关掉拼屏回到本项目取数', async () => {
+    crossProjectRoutes()
+    const wrapper = mountView(ProjectWorkbenchView)
+    await flushPromises()
+    await wrapper.get('[data-testid="run-tile-toggle"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="run-scope-all"]').trigger('click')
+    await flushPromises()
+
+    expect(storageSet).toHaveBeenCalledWith('project.workbench.tileScope.p-1', 'all')
+
+    // 关掉拼屏：范围控件消失，运行列表回到本项目（跨项目标注一并消失）
+    await wrapper.get('[data-testid="run-tile-toggle"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="run-tile-scope"]').exists()).toBe(false)
+    expect(lastArgs('run.list')).toEqual({ projectId: 'p-1' })
+    expect(wrapper.findAll('[data-testid="run-item"]')).toHaveLength(1)
+    expect(wrapper.findAll('[data-testid="run-item-project"]')).toHaveLength(0)
+  })
+
+  it('跨项目拼屏：范围偏好重进读回（存储 all + 拼屏 on → 直接铺全量）', async () => {
+    crossProjectRoutes()
+    storageGet.mockImplementation(async (key: string) => {
+      if (key === 'project.workbench.tileMode.p-1') return true
+      if (key === 'project.workbench.tileScope.p-1') return 'all'
+      return undefined
+    })
+
+    const wrapper = mountView(ProjectWorkbenchView)
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="run-tile-toggle"]').attributes('aria-pressed')).toBe('true')
+    expect(wrapper.get('[data-testid="run-scope-all"]').attributes('aria-pressed')).toBe('true')
+    expect(lastArgs('run.list')).toEqual({})
+    expect(wrapper.findAll('[data-testid="run-tile"]')).toHaveLength(2)
   })
 })

@@ -174,7 +174,11 @@ const en: MessageSchema = {
   'pairing.code.generateFailedNoCode': 'Failed to generate pairing code: no valid code received',
 
   'pairing.qr.title': 'QR Code Connection',
+  'pairing.qr.tabLan': 'LAN',
+  'pairing.qr.tabWan': 'WAN',
   'pairing.qr.generate': 'Generate QR Code',
+  'pairing.qr.generateWan': 'Generate WAN QR Code',
+  'pairing.qr.generateFailed': 'Failed to generate QR code',
   'pairing.qr.hint': 'Scan the QR code with the BedCode mobile app',
   'pairing.qr.singleUse': 'Each QR code can bind only one device',
   'pairing.qr.placeholder': 'Tap the button below to generate a QR code',
@@ -742,9 +746,11 @@ const en: MessageSchema = {
   'hub.card.method.standalone': 'standalone',
   'hub.card.method.unknown': '—',
 
-  // Overview · CLI uninstall (two-click confirm + unavailability reasons + failure)
+  // Overview · CLI uninstall (confirm dialog + unavailability reasons + failure)
   'hub.card.uninstall': 'Uninstall',
-  'hub.card.uninstallConfirm': 'Confirm uninstall?',
+  'hub.card.uninstallDialogTitle': 'Uninstall {name}?',
+  'hub.card.uninstallDialogBody':
+    '{name} will be removed from this machine. This action cannot be undone; you can reinstall it later if needed.',
   'hub.card.uninstallRunning': 'Uninstalling…',
   'hub.card.uninstallHintDual': 'Multiple installs detected; uninstall manually',
   'hub.card.uninstallHintMethod': 'Unknown install method; uninstall manually',
@@ -897,6 +903,17 @@ const en: MessageSchema = {
   'hub.skill.status.libraryOnly': 'Library only',
   'hub.skill.status.synced': '{name} ✓',
   'hub.skill.status.stale': '{name} stale',
+  'hub.skill.delete': 'Delete',
+  'hub.skill.deleteConfirm':
+    'Delete "{name}"? The library copy and distributed copies ({targets}) are removed too — those agents lose this skill immediately.',
+  'hub.skill.deleteConfirmLibraryOnly':
+    'Delete "{name}"? It is not distributed to any agent yet; only the library copy is removed.',
+  'hub.skill.deleteConfirmGo': 'Confirm delete',
+  'hub.skill.deleteCancel': 'Cancel',
+  'hub.skill.deleting': 'Deleting…',
+  'hub.skill.deleteDone': 'Deleted {name}',
+  'hub.skill.deleteDoneTargets': 'Deleted {name} and cleaned {n} distributed copies',
+  'hub.skill.deleteFailed': 'Delete failed',
 
   // ==================== Skills · GitHub install (ticket 04) ====================
   'hub.skill.github.action': 'Install from GitHub',
@@ -913,6 +930,32 @@ const en: MessageSchema = {
   'hub.skill.github.unreachable':
     'GitHub unreachable: check your network, or configure a proxy/mirror and retry.',
   'hub.skill.github.failed': 'Install failed',
+
+  // ==================== Skills · search (local / skills.sh) ====================
+  'hub.skill.search.placeholder': 'Search skills (name / description / keyword)',
+  'hub.skill.search.local': 'Local',
+  'hub.skill.search.remote': 'Online',
+  'hub.skill.search.modeLabel': 'Search scope',
+  'hub.skill.search.localHint': '{n} of {total} matched in the library; typing filters instantly.',
+  'hub.skill.search.remoteHint':
+    'Online search uses skills.sh (same source as `npx skills find`): prefer 1K+ installs, be cautious below 100, official sources are more trustworthy.',
+  'hub.skill.search.action': 'Search online',
+  'hub.skill.search.searching': 'Searching…',
+  'hub.skill.search.failed': 'Search failed: skills.sh unreachable or returned an invalid response.',
+  'hub.skill.search.installFailed': 'Install failed',
+  'hub.skill.search.remoteIdle': 'Type keywords, then search online',
+  'hub.skill.search.remoteEmpty': 'No skills found for "{q}"',
+  'hub.skill.search.remoteEmptyHint': 'Try different or shorter keywords; you can also install from a GitHub URL or import a local directory.',
+  'hub.skill.search.count': '{n} skills matched "{q}"',
+  'hub.skill.search.fallback': 'includes per-term fallback matches',
+  'hub.skill.search.noMatch': 'No skill in the library matches "{q}"',
+  'hub.skill.search.noMatchHint': 'Clear the query to see everything, or switch to online search on skills.sh.',
+  'hub.skill.search.installs': '{n} installs',
+  'hub.skill.search.trustHigh': 'widely used',
+  'hub.skill.search.trustMid': 'moderately used',
+  'hub.skill.search.trustLow': 'low adoption',
+  'hub.skill.search.official': 'official source',
+  'hub.skill.search.install': 'Install',
 
   // ==================== Skills · local import (ticket 04) ====================
   'hub.skill.import.action': 'Import local directory',
@@ -935,6 +978,8 @@ const en: MessageSchema = {
     'The file was changed externally after loading; choose overwrite or reload',
   'hub.skill.editor.overwriteMine': 'Save my version',
   'hub.skill.editor.reload': 'Reload from disk',
+  'hub.skill.editor.loadFailed': 'Failed to read SKILL.md; retry (details in app logs)',
+  'hub.skill.editor.retry': 'Retry',
 
   // ==================== Provider management (ticket 05) ====================
   'hub.pv.secure':
@@ -1335,7 +1380,7 @@ const en: MessageSchema = {
   // Confirmations & toasts
   'project.confirm.removeTitle': 'Remove project',
   'project.confirm.removeMsg':
-    'Remove "{name}" and its run history? Files on disk are left untouched.',
+    'Remove "{name}", its run history, and the launch configs for this folder? Files on disk are left untouched.',
   'project.toast.created': 'Project created',
   'project.toast.existed': 'That folder already had a project — opened it',
   'project.toast.renamed': 'Project renamed',
@@ -1370,6 +1415,7 @@ const en: MessageSchema = {
 
   // Runs
   'project.run.title': 'Runs',
+  'project.run.noProject': 'No project',
   'project.run.new': 'New Run',
   'project.run.empty': 'No runs yet',
   'project.run.emptyHint':
@@ -1404,6 +1450,10 @@ const en: MessageSchema = {
     'Tile view only shows live runs — start one on the left, or select a run to switch back to single view',
   'project.terminal.tileHidden':
     '{n} more live run(s) not tiled — click a run on the left to swap it in',
+  // Tile scope: this project / all projects (cross-project parallel view)
+  'project.terminal.scope': 'Tile scope',
+  'project.terminal.scopeProject': 'This project',
+  'project.terminal.scopeAll': 'All projects',
 
   // In-run agent control (model / thinking level dropdowns)
   'project.agent.modelNone': 'no model reported',
