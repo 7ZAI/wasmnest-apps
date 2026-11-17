@@ -2,27 +2,18 @@
 /**
  * DevicesTab — 探索连接（附近设备）一级页面
  *
- * 结构（v3，底部导航版）：
+ * 结构：
  *   1. 顶部「扫描带」——雷达图元 + 状态文案 + 重新扫描；扫描进行中雷达转动，
  *      没有设备时雷达放大成整页主视觉。用户任何时刻都能看出「在搜 / 搜完了」。
  *   2. 分组列表——已连接（含活跃对端标记）与附近设备分开，连接动作就近呈现。
- *   3. 尾部——信任说明。
  *
- * 本页是**纯发现层**（形态改造 2026-11-16）：设备只来自中继自动发现 + mDNS；
- * 「添加远程设备」（扫码 / 粘贴）与「我的设备」入口已从本页下线——身份信息与
- * 穿透配置统一收敛到设置页，发现流里不再混入手工配对与配置管理。
- * 跨网状态卡只在异常 / 待处置时出现；中继「已就绪」不渲染卡片区域。
+ * 本页是**纯发现层**：设备只来自中继自动发现 + mDNS；身份信息、穿透配置与
+ * 中继状态统一收敛到设置页，发现流里不混入配置管理。
  *
  * 纯展示：行状态由 usePeerDevices 派生的 rows 传入，操作以事件上抛。
  */
-import { computed, inject } from 'vue'
-import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-mobile'
-import type {
-  DeviceRow,
-  DialFailureCode,
-  RelayCardAction,
-  RelayCardModel,
-} from '../composables/deviceState'
+import { computed } from 'vue'
+import type { DeviceRow, DialFailureCode } from '../composables/deviceState'
 import ScanRadar from './ScanRadar.vue'
 
 type Translate = (key: string, params?: Record<string, any>) => string
@@ -32,9 +23,6 @@ const props = defineProps<{
   /** 探索发现进行中（雷达转动、按钮转 spinner、防重复点击） */
   scanning: boolean
   t: Translate
-
-  /** 跨网状态卡模型（P0-2；父级经 deriveRelayCard 产出） */
-  relayCard?: RelayCardModel | null
 }>()
 
 const emit = defineEmits<{
@@ -51,7 +39,6 @@ const emit = defineEmits<{
 }>()
 
 const t = props.t
-const context = inject<PluginContext>('pluginContext')!
 
 // ==================== 分组 ====================
 
@@ -67,36 +54,6 @@ const groups = computed(() => {
     { key: 'nearby', title: t('transfer.v2.devices.groupNearby'), rows: nearby },
   ].filter((group) => group.rows.length > 0)
 })
-
-// ==================== 状态卡 ====================
-
-/** 状态卡操作 → 文案 key（none 不渲染） */
-const RELAY_ACTION_KEYS: Record<RelayCardAction, string> = {
-  'share-config': 'transfer.relayCard.actionShareConfig',
-  refresh: 'transfer.relayCard.actionRefresh',
-  'open-center': 'transfer.relayCard.actionCenter',
-  'open-settings': 'transfer.relayCard.actionSettings',
-  none: '',
-}
-
-/**
- * 移动端没有配置中心：分享 / 检测都落到本应用设置页「内网穿透」区块
- * （扫码导入 + 状态展示），不跳宿主设置页。
- */
-function handleRelayAction(action: RelayCardAction): void {
-  switch (action) {
-    case 'share-config':
-    case 'open-center':
-    case 'open-settings':
-      context.ui.openPage('settings')
-      break
-    case 'refresh':
-      emit('scan')
-      break
-    default:
-      break
-  }
-}
 
 // ==================== 行内文案 ====================
 
@@ -178,56 +135,7 @@ function metaText(row: DeviceRow): string {
 
 <template>
   <div class="fv2-page">
-    <!-- 跨网状态卡（P0-2）：仅异常/处置态渲染；已就绪时不占卡片区域 -->
-    <div
-      v-if="props.relayCard"
-      class="fv2-relay-card"
-      :class="`fv2-relay-card--${props.relayCard.tone}`"
-      data-testid="mobile-relay-card"
-    >
-      <div class="fv2-relay-card-head">
-        <span class="fv2-relay-card-title" data-testid="mobile-relay-card-title">
-          {{ t(props.relayCard.title) }}
-        </span>
-      </div>
-      <p class="fv2-relay-card-body" data-testid="mobile-relay-card-body">
-        {{ t(props.relayCard.body, props.relayCard.params) }}
-      </p>
-      <p
-        v-if="props.relayCard.stale"
-        class="fv2-relay-card-stale"
-        data-testid="mobile-relay-card-stale"
-      >
-        {{ t('transfer.relayCard.stale') }}
-      </p>
-      <p
-        v-if="props.relayCard.roomHint"
-        class="fv2-relay-card-hint"
-        data-testid="mobile-relay-card-room-hint"
-      >
-        {{ t('transfer.relayCard.roomHint') }}
-      </p>
-      <div class="fv2-relay-card-actions">
-        <button
-          v-if="props.relayCard.primary !== 'none'"
-          class="fv2-btn-primary"
-          data-testid="mobile-relay-card-primary"
-          @click="handleRelayAction(props.relayCard.primary)"
-        >
-          {{ t(RELAY_ACTION_KEYS[props.relayCard.primary]) }}
-        </button>
-        <button
-          v-if="props.relayCard.secondary !== 'none'"
-          class="fv2-btn-text"
-          data-testid="mobile-relay-card-secondary"
-          @click="handleRelayAction(props.relayCard.secondary)"
-        >
-          {{ t(RELAY_ACTION_KEYS[props.relayCard.secondary]) }}
-        </button>
-      </div>
-    </div>
-
-    <!-- 空态：雷达占主视觉，扫描 / 添加两个出口都在这里（不渲染状态带，避免重复标题） -->
+    <!-- 空态：雷达占主视觉，扫描入口在这里（不渲染状态带，避免重复标题） -->
     <div v-if="rows.length === 0" class="fv2-discover fv2-discover--empty">
       <ScanRadar :active="scanning" size="lg" />
       <h2 class="fv2-discover-title">
@@ -313,17 +221,19 @@ function metaText(row: DeviceRow): string {
           </h3>
           <div class="fv2-device-list">
             <div v-for="row in group.rows" :key="row.nodeId" class="fv2-device-row">
-              <!-- 状态点：绿=已连接 / 琥珀=握手中 / 淡绿=在线未连接 / 灰=离线 -->
-              <span
-                class="fv2-dev-dot flex-shrink-0"
-                :class="dotClass(row)"
-                aria-hidden="true"
-              ></span>
-
               <div class="fv2-device-main">
-                <div class="fv2-device-line">
-                  <span class="fv2-device-name truncate">{{ row.deviceName }}</span>
+                <!-- 状态点：绿=已连接 / 琥珀=握手中 / 淡绿=在线未连接 / 灰=离线 -->
+                <div class="fv2-device-head">
+                  <span class="fv2-dev-dot" :class="dotClass(row)" aria-hidden="true"></span>
+                  <span class="fv2-device-name">{{ row.deviceName }}</span>
                   <span class="fv2-device-fp">{{ shortFingerprint(row.nodeId) }}</span>
+                </div>
+
+                <!-- 标签独立成行：信息多时折行，不与设备名 / 操作按钮抢同一行 -->
+                <div
+                  v-if="row.paired || row.relay || row.isActive || row.fileTransfer"
+                  class="fv2-device-tags"
+                >
                   <span v-if="row.paired" class="fv2-device-tag" data-testid="mobile-remote-tag">
                     {{ t('transfer.devices.remote') }}
                   </span>
@@ -351,8 +261,9 @@ function metaText(row: DeviceRow): string {
                     }}
                   </span>
                 </div>
-                <p class="fv2-device-meta truncate">
-                  {{ metaText(row) }}
+                <!-- 状态 / 地址 / 传输形态：超宽折行而不是截断，长地址也能读全 -->
+                <p class="fv2-device-meta">
+                  <span class="fv2-device-meta-text">{{ metaText(row) }}</span>
                   <span
                     v-if="transportLabel(row)"
                     class="fv2-device-transport"
@@ -360,7 +271,7 @@ function metaText(row: DeviceRow): string {
                     data-testid="mobile-dev-transport"
                     >{{ transportLabel(row) }}</span
                   >
-                  <!-- T20：上次传输形态（断开后仍保留，决定下次重连默认路径） -->
+                  <!-- 上次传输形态（断开后仍保留，决定下次重连默认路径） -->
                   <span
                     v-if="lastTransportLabel(row)"
                     class="fv2-device-transport"
@@ -369,7 +280,7 @@ function metaText(row: DeviceRow): string {
                     >{{ lastTransportLabel(row) }}</span
                   >
                 </p>
-                <!-- 拨号终态反馈：按分类给可操作出路（T20） -->
+                <!-- 拨号终态反馈：按分类给可操作出路 -->
                 <p
                   v-if="row.dialError"
                   class="fv2-device-error"
@@ -379,7 +290,8 @@ function metaText(row: DeviceRow): string {
                 </p>
               </div>
 
-              <!-- 行内操作：发送 / 连接 / 设为当前 / 断开，全部为文字按钮（44px 命中区） -->
+              <!-- 行内操作：发送 / 连接 / 设为当前 / 断开，全部为文字按钮（44px 命中区）；
+                   窄屏折行右对齐，不挤压左侧设备信息 -->
               <div class="fv2-device-actions">
                 <!-- T23：直达发送 = 连接（如需要）+ 选文件 + 发送 -->
                 <button
@@ -412,14 +324,14 @@ function metaText(row: DeviceRow): string {
                     {{ t('transfer.devices.disconnect') }}
                   </button>
                 </template>
-                <span v-else-if="row.status === 'connecting'" class="fv2-device-meta">
+                <span v-else-if="row.status === 'connecting'" class="fv2-device-note">
                   {{ t('transfer.devices.connectingHint') }}
                 </span>
                 <template v-else>
                   <!-- 无任何候选：不猜路径，给「等重新发现」的显性说明 -->
                   <span
                     v-if="row.connectionModes === 'none'"
-                    class="fv2-device-meta"
+                    class="fv2-device-note"
                     data-testid="mobile-dev-no-endpoint"
                   >
                     {{ t('transfer.devices.modeNoneHint') }}
@@ -455,54 +367,7 @@ function metaText(row: DeviceRow): string {
             </div>
           </div>
         </section>
-
-        <!-- 尾部：信任说明（列表短时无需滚动即可见） -->
-        <p class="fv2-trust-hint">{{ t('transfer.devices.trustHint') }}</p>
       </div>
     </template>
   </div>
 </template>
-
-<style scoped>
-.fv2-relay-card {
-  margin: 8px 12px 4px;
-  padding: 10px 12px;
-  border-radius: 12px;
-  border: 1px solid var(--border-color, #3a3f47);
-  background: var(--surface-secondary, rgba(255, 255, 255, 0.03));
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.fv2-relay-card--progress {
-  border-color: rgba(120, 170, 255, 0.45);
-}
-.fv2-relay-card--warn {
-  border-color: rgba(255, 190, 90, 0.5);
-}
-.fv2-relay-card-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.fv2-relay-card-title {
-  font-weight: 600;
-  font-size: 0.9rem;
-}
-.fv2-relay-card-body,
-.fv2-relay-card-stale,
-.fv2-relay-card-hint {
-  margin: 0;
-  font-size: 0.8rem;
-  line-height: 1.45;
-  color: var(--text-secondary, #a4a9b3);
-}
-.fv2-relay-card-stale {
-  color: var(--warning, #e5b567);
-}
-.fv2-relay-card-actions {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-</style>

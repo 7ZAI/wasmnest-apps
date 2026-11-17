@@ -292,7 +292,7 @@ export interface TaskAction {
   variant: 'neutral' | 'tint'
 }
 
-/** 底部行动条状态（idle = 整条不渲染；发送入口常驻顶栏） */
+/** 底部行动条状态（idle = 整条不渲染；发送入口常驻底栏上方） */
 export type FooterMode = 'idle' | 'select' | 'active'
 
 /** 底部导航一级页面键 */

@@ -409,7 +409,6 @@ export default {
   'transfer.v2.filter.receiving': '接收',
   'transfer.v2.filter.history': '历史',
   'transfer.v2.upload.cta': '上传文件',
-  'transfer.v2.upload.short': '发送',
   'transfer.v2.queue.hint': '队列 {count} 项',
   'transfer.v2.active.overall': '总体 {percent}%',
   'transfer.v2.active.viewQueue': '查看队列',

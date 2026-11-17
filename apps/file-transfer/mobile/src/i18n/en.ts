@@ -440,7 +440,6 @@ export default {
   'transfer.v2.filter.receiving': 'Receiving',
   'transfer.v2.filter.history': 'History',
   'transfer.v2.upload.cta': 'Upload file',
-  'transfer.v2.upload.short': 'Send',
   'transfer.v2.queue.hint': '{count} in queue',
   'transfer.v2.active.overall': 'Overall {percent}%',
   'transfer.v2.active.viewQueue': 'View queue',

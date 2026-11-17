@@ -4,12 +4,14 @@
  *
  * 布局（v3）：
  *   ┌──────────────────────────────────────┐
- *   │ AppHeader   页面标题 · 对端胶囊 · 发送 │
+ *   │ AppHeader   页面标题                  │
  *   ├──────────────────────────────────────┤
  *   │ 一级页面（可左右滑）                  │
  *   │   探索连接 / 浏览 / 传输               │
  *   ├──────────────────────────────────────┤
  *   │ SummaryBar  多选或传输中才出现         │
+ *   ├──────────────────────────────────────┤
+ *   │ 发送条      整宽主操作（无对端置灰）   │
  *   ├──────────────────────────────────────┤
  *   │ BottomNav   探索连接 · 浏览 · 传输 · 设置 │
  *   └──────────────────────────────────────┘
@@ -32,8 +34,6 @@ import { useTasks } from '../composables/useTasks'
 import { isNeedsAllFilesAccess, promptAllFilesAccess } from '../composables/useAllFilesAccess'
 import { usePeerDevices } from '../composables/usePeerDevices'
 import { prepareDeviceSend } from '../composables/sendToDevice'
-import { useRelayStatus } from '../composables/useRelayStatus'
-
 import { useRemoteFs } from '../composables/useRemoteFs'
 import { useSettings } from '../composables/useSettings'
 import { formatBytes, formatSpeed } from '../utils/format'
@@ -52,8 +52,6 @@ const t = (key: string, params?: Record<string, any>) => context.i18n.t(key, par
 
 const tasks = useTasks(context)
 const devices = usePeerDevices(context)
-/** 跨网状态卡（P0-2）：relay 现状 + 宿主发现 envelope */
-const { card: relayCard } = useRelayStatus(context, devices.relayDiscovery)
 const fs = useRemoteFs(context)
 const settings = useSettings(context)
 
@@ -164,9 +162,6 @@ function onMouseUp(): void {
 }
 
 // ==================== 对端 / 设备 ====================
-
-/** 对端展示名：优先活跃对端名（三态真相），回落旧任务快照/占位链 */
-const peerLabel = computed(() => devices.peer.value.name || tasks.displayPeerName.value)
 
 /**
  * 扫描最短展示时长：`refresh-devices` 是「触发宿主重查」的即时返回，
@@ -450,19 +445,8 @@ onUnmounted(() => {
 <template>
   <!-- data-testid：真机 E2E 锚点（移动端统一 mobile- 前缀，见 docs/E2E.md §10.5 / §11.5） -->
   <div class="fv2-view mobile-ui ft-app" data-testid="mobile-ft-root">
-    <!-- 顶栏：页面标题 + 活跃对端（点击 → 探索连接） + 发送入口 -->
-    <AppHeader
-      :title="navLabels[tab]"
-      :peer-name="peerLabel"
-      :online="devices.peer.value.online"
-      :online-label="t('transfer.peer.online')"
-      :offline-label="t('transfer.peer.offline')"
-      :send-label="t('transfer.v2.upload.short')"
-      :send-aria-label="t('transfer.v2.upload.cta')"
-      :send-disabled="!tasks.peerOnline.value"
-      @peer-tap="tab = 'devices'"
-      @send="uploadFile()"
-    />
+    <!-- 顶栏：当前页面标题 -->
+    <AppHeader :title="navLabels[tab]" />
 
     <!-- 一级页面（左右滑切换）：手势统一在本容器持有（.fv2-swipe-zone 只禁浏览器
          水平手势、保留纵向滚动）。传输页先步进页内四段筛选，到首/尾段才翻页——
@@ -490,7 +474,6 @@ onUnmounted(() => {
           :rows="devices.rows.value"
           :scanning="deviceScanning"
           :t="t"
-          :relay-card="relayCard"
           @connect="handleDeviceConnect"
           @retry-relay-only="handleDeviceRetryRelayOnly"
           @disconnect="handleDeviceDisconnect"
@@ -564,6 +547,26 @@ onUnmounted(() => {
       @clear-selection="() => fs.clearSelection()"
       @open-queue="tab = 'transfers'"
     />
+
+    <!-- 发送：常驻底栏上方，整宽主操作（无对端时置灰，与传输页空态 CTA 同一条上传路径） -->
+    <div class="fv2-sendbar">
+      <button
+        class="fv2-btn-primary fv2-sendbar-btn"
+        :disabled="!tasks.peerOnline.value"
+        data-testid="mobile-ft-upload"
+        @click="uploadFile()"
+      >
+        <svg aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="2"
+            d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"
+          />
+        </svg>
+        <span>{{ t('transfer.v2.upload.cta') }}</span>
+      </button>
+    </div>
 
     <!-- 底部导航：三个一级页面 + 设置（宿主二级页整页跳转） -->
     <BottomNav

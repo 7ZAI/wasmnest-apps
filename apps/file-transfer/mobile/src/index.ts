@@ -14,8 +14,8 @@
  * 内部界面由 .ft-app 作用域自持，不写回平台 --mobile-* token。
  *
  * 主视图 FileTransferView 采用底部导航布局：探索连接（默认）/ 浏览 / 传输三个
- * 一级页面在底栏，设置从底栏第四项进宿主二级页；顶栏常驻「页面标题 + 对端 + 发送」，
- * 上下文行动条只在多选 / 活跃传输时出现。领域逻辑（useTasks / usePeerDevices /
+ * 一级页面在底栏，设置从底栏第四项进宿主二级页；顶栏只留页面标题，发送是底栏
+ * 上方的整宽按钮，上下文行动条只在多选 / 活跃传输时出现。领域逻辑（useTasks / usePeerDevices /
  * useRemoteFs / useSettings）由组件内 setup 启动，组件卸载 / 插件停用时经
  * context._disposables 与组件 onUnmounted 清理。
  */

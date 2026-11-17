@@ -403,8 +403,6 @@ export type MessageSchema = {
   'transfer.v2.tab.devices': string
   /** 底栏一级页：设置（宿主二级页入口） */
   'transfer.v2.nav.settings': string
-  /** 顶栏发送按钮短文案（比 upload.cta 短，给标题与对端让位） */
-  'transfer.v2.upload.short': string
   /** 传输 tab 筛选 chip：全部（含双向） */
   'transfer.v2.filter.all': string
   /** 传输 tab 筛选 chip：仅本端发出 */
@@ -413,7 +411,7 @@ export type MessageSchema = {
   'transfer.v2.filter.receiving': string
   /** 传输 tab 筛选 chip：历史记录 */
   'transfer.v2.filter.history': string
-  /** 上传主按钮文案（底栏 CTA） */
+  /** 上传主按钮文案（底栏上方的整宽发送条 / 传输页空态 CTA） */
   'transfer.v2.upload.cta': string
   /** 底栏上传按钮副文案：队列仍有条目时提示 */
   'transfer.v2.queue.hint': string
