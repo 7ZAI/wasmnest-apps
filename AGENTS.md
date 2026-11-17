@@ -102,6 +102,10 @@
 
 > **规则**：任何 Rust 后端的**编写与审核**（crate / 命令面 / `plugin.json` 宏面 / `Cargo.toml` / 测试 / rustdoc），动手前与完成审核时**必须**显式加载并遵循 `/skill:rust-best-practices`（skill 落点 `~/.agents/skills/rust-best-practices/SKILL.md`）；未加载即开始写或评审 = 流程违规，视为未完成交付 / 无效评审。该 skill 是通用惯用法与 API 设计判据层（占 §1 裁决第 5 档「通用工程经验」），与本仓硬约束（`docs/BACKEND.md` / 权限词汇 / 契约 / §4.1 安全）冲突时**以本仓为准**；其自带的自检命令（fmt / clippy）不替代 §7 的验证清单。
 
+### 4.5 前端现代 Web 指南（强制前置 skill）
+
+> **规则**：任何前端 UI / CSS / 客户端 JS 的**编写与审核**（含新增界面、布局、表单、性能、无障碍），动手前与完成审核时**必须**先加载并遵循 `/skill:modern-web-guidance`，按 `docs/FRONTEND.md` §0 检索并裁决；未加载即开始写或评审 = 流程违规。该 skill 是通用平台能力判据层（占 §1 裁决第 5 档「通用工程经验」），与本仓硬约束冲突时**以本仓为准**——尤其是原生 UI 禁令（指南推荐原生 `<dialog>` / `<select>`，本仓禁用）、资源访问红线、token-bound 与移动端单文件产物（完整对照表见 `docs/FRONTEND.md` §0.2）。它不替代 `ui-ux-pro-max` / `frontend-styles` 的各自职责。
+
 ---
 
 ## 5. 命令
@@ -171,8 +175,9 @@
 
 | 任务 | 动手前必读 |
 | --- | --- |
-| 改桌面应用界面 / 交互 | `docs/FRONTEND.md` §1 + 该 app `entry.ts` / `appContext.ts` + 平台 `src/shell/mount/useAppMount.ts`；多任务卡片预览面另读 `docs/FRONTEND.md` §1.2.1（可选 `mountPreview`，平台 L5 锁钉契约）；跑该 app vitest + 真实宿主目验 |
-| 改移动应用界面 / 运行面 | `docs/FRONTEND.md` §2 + 平台 `plugin-sdk-mobile/src/types.ts`（`UIRegistry`）+ `wasmnest-mobile/src/shell/registry.ts`；优先 dev-shell 预览 |
+| 前端 UI / CSS / 客户端 JS（新增或修改界面 / 布局 / 表单 / 性能 / 无障碍） | **先加载 `/skill:modern-web-guidance`**，按 `docs/FRONTEND.md` §0 检索并按 §0.2 裁决（本仓红线优先）；再按端读 §1 / §2 与对应 app 源码 |
+| 改桌面应用界面 / 交互 | 先过上一行 §0 前置；再读 `docs/FRONTEND.md` §1 + 该 app `entry.ts` / `appContext.ts` + 平台 `src/shell/mount/useAppMount.ts`；多任务卡片预览面另读 `docs/FRONTEND.md` §1.2.1（可选 `mountPreview`，平台 L5 锁钉契约）；跑该 app vitest + 真实宿主目验 |
+| 改移动应用界面 / 运行面 | 先过 §0 前置；再读 `docs/FRONTEND.md` §2 + 平台 `plugin-sdk-mobile/src/types.ts`（`UIRegistry`）+ `wasmnest-mobile/src/shell/registry.ts`；优先 dev-shell 预览 |
 | 写 / 改 Rust 后端 / 新增命令 | **先加载 `/skill:rust-best-practices`**，再读 `docs/BACKEND.md`（尤其 §8 检查清单）+ 该 crate + SDK rust crate；命令面与 `plugin.json` 同步 |
 | 改 manifest / 权限 | `docs/BACKEND.md` §5 + SDK `rust/src/permission.rs`（唯一词汇真源）——**不得自造词汇表外的权限字符串** |
 | 改 i18n | `docs/FRONTEND.md` §3（注意 `bedcode/mobile` 按域分散；宿主不装应用文案，桌面仅 `errors.*` 机制副本） |

@@ -16,6 +16,45 @@
 
 ---
 
+## 0. 现代 Web 平台指南（modern-web-guidance，强制前置）
+
+> 适用范围：`apps/<slug>/{desktop,mobile}/src/**`、`servers/<slug>/{desktop,mobile}/src/**` 中所有 HTML / CSS / 客户端 JS 的新增或修改。
+> skill 落点 = `~/.agents/skills/modern-web-guidance/SKILL.md`（全局安装，覆盖 Claude Code / Codex / OpenCode / Copilot / Pi）。本仓只引用，不复制副本进仓库。
+
+本 skill 补的是「现代平台能力**怎么用才对**」——262 项平台特性 / 204 个真实用例，带 Baseline 支持度、坑点与轻量回退。它**不替代** `ui-ux-pro-max`（定「长什么样」）与 `frontend-styles`（定「BedCode 怎么写」）；两者按各自分工叠加使用。
+
+### 0.1 工作流（开发与审核都走）
+
+1. **动手前**：加载 `/skill:modern-web-guidance`，用 2–5 个英文动作词检索**一个**平台能力（多特性拆多次检索）：
+   ```bash
+   pnpx modern-web-guidance@latest search "light dismiss dialog"
+   pnpx modern-web-guidance@latest retrieve "<id>"
+   ```
+   无 pnpm 时用 `npx -y modern-web-guidance@latest ...`（CLI 离线、无 API key）。检索无匹配就如实说明并继续，**不硬套**指南。
+2. **裁决**：按 §0.2 把指南与本仓红线对齐，再写 CSS / 组件；检索建议不得直接覆盖本仓 token / 原生 UI / 产物形态约束。
+3. **审核**：对照取回的 guide 逐条核对实现（含 fallback 分支）；交付说明写明检索过的 id 与裁决结论，不写「参考了最佳实践」这类空话。
+
+### 0.2 本仓红线优先于指南（冲突裁决）
+
+指南面向通用 Web，本仓跑在 Tauri WebView / Android WebView 的插件沙箱里。下表冲突**一律以本仓为准**，指南对应写法视为不适用：
+
+| 指南常见建议 | 本仓裁决 |
+| --- | --- |
+| 原生 `<dialog>` + `showModal()` / `<dialog popover>` / `popovertarget` | **禁用**（`frontend-styles` 原生 UI 禁令）：系统绘制弹层不吃 token / `--ui-scale`，深浅色脱钩。用 `PluginModal` / Toast（`vue-sonner`）+ `<Teleport to="body">` + safe-stack z-index；交互逻辑可借 `reka-ui` |
+| `<select>` + `:user-invalid` / `input[type=date\|number\|color\|range]` | **禁用**：用宿主共享 `Select`（`@binblink/wasmnest-plugin-sdk-desktop/ui`）/ token 化 `TextInput` / `@vuepic/vue-datepicker` / 自绘滑块 |
+| 引入 polyfill / 条件加载第三方脚本 | 移动端产物**必须单文件**（§2.2）：不得新增动态 `import()` 分包（asset 协议下相对 chunk 解析到 scope 外必 403）；优先 CSS-only 或构建期内联 |
+| 示例里的 hex / 第三方色板 / Google Fonts | **token-bound**：颜色字体只取各 app `tailwind.config.js` / CSS token（见 `frontend-styles/TOKENS.md`） |
+| `fetch()` / `sendBeacon()` / 预加载网络资源 | 前端**不得直连网络**（§4）：HTTP / WS / 文件访问由 Rust 端发起并经权限仲裁 |
+
+Baseline 提示只作参考；Origin Trial 与 volatile 特性默认关闭，`retrieve` 会门控——**不要**自行改 `.mwgrc` 绕过。
+
+### 0.3 适用场景
+
+- **该查**：弹层 / 表单 / 表格 / 深色模式 / 容器查询 / View Transitions / 滚动动效 / 焦点与无障碍 / 图片与加载优先级 / INP / Web Components / 日期时区 / 安全（HTML sanitization / passkey）/ WebAssembly。
+- **不必查**：纯 token 数值修正、既有组件微调、修 CSS bug；后端 / infra / 构建脚本 / 工具链琐碎改动（与 skill 自身 description 一致）。
+
+---
+
 ## 1. 桌面端：独立挂载包（机制 B，ADR 0057）
 
 ### 1.1 三个文件的分工
