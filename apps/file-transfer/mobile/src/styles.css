@@ -520,7 +520,10 @@ html:not(.dark) .ft-app {
   isolation: isolate;
 }
 
-/* 滑块：卡面色 + 极轻青调渐变，不用实心青（纯色滑块会把文字压成反面角色） */
+/* 滑块：主题色实底（青→蓝渐变，与发送主操作同一套 --ft-grad-* token）——切换指示
+   必须读得出主题色。此前用「卡面色 + 24% 青」的极轻渐变，在深底上近似半透明玻璃，
+   切换时主题色几乎不可见。文字取 --ft-grad-ink（深墨/白）保证在亮青蓝渐变上的
+   对比度，与主操作按钮同口径（纯色青会把文字压成反面角色，故走渐变而非实心）。 */
 .fv2-seg-indicator {
   position: absolute;
   left: 4px;
@@ -528,11 +531,7 @@ html:not(.dark) .ft-app {
   bottom: 4px;
   width: calc((100% - 8px) / 4);
   border-radius: 0.625rem;
-  background-image: linear-gradient(
-    160deg,
-    color-mix(in srgb, var(--ft-accent) 24%, var(--ft-bg-card)),
-    var(--ft-bg-card)
-  );
+  background-image: linear-gradient(135deg, var(--ft-grad-from), var(--ft-grad-to));
   box-shadow: inset 0 0 0 1px var(--ft-border-strong);
   transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
   pointer-events: none;
@@ -563,7 +562,7 @@ html:not(.dark) .ft-app {
 }
 
 .fv2-seg-btn--active {
-  color: var(--ft-text-primary);
+  color: var(--ft-grad-ink);
   font-weight: 600;
 }
 
@@ -589,8 +588,10 @@ html:not(.dark) .ft-app {
 }
 
 .fv2-seg-btn--active .fv2-seg-count {
-  background: var(--ft-accent-muted);
-  color: var(--ft-accent-text);
+  /* 角标落在主题色渐变滑块上：accent 系在亮青蓝底上不可见，改用墨色（深档深墨/
+     浅档白）的半透明底，与滑块文字同口径 */
+  background: color-mix(in srgb, var(--ft-grad-ink) 18%, transparent);
+  color: var(--ft-grad-ink);
 }
 
 /* ==================== 分段切换（方向感动画） ==================== */
