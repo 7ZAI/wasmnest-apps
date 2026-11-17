@@ -1,0 +1,101 @@
+{
+  "id": "com.wasmnest.speech",
+  "name": "Speech",
+  "version": "0.0.1",
+  "platform": "desktop",
+  "update": {
+    "provider": "github-release"
+  },
+  "description": "语音识别服务：给平台内其他应用提供「音频字节 → 文本」的识别能力。本地走宿主 host-stt（whisper.cpp，离线、16 kHz 单声道 PCM），远端走 OpenAI 兼容的 /v1/audio/transcriptions（multipart，经 host-http 的 bodyBase64）。支持中英文、模型管理、通道探测与元数据记录；不采集音频的对外触发只在服务页面内做诊断录音，互调 API 只接收调用方给的字节。",
+  "author": "WasmNest",
+  "main": "index.js",
+  "pluginType": "full",
+  "type": "internal-business",
+  "rustLibrary": "wasmnest_plugin_speech",
+  "icon": "icon.svg",
+  "permissions": [
+    "audio:capture",
+    "audio:io",
+    "auth",
+    "network:http",
+    "storage",
+    "stt:infer",
+    "stt:model"
+  ],
+  "api": [
+    "com.wasmnest.speech.transcribe-submit",
+    "com.wasmnest.speech.transcribe-result",
+    "com.wasmnest.speech.transcribe-cancel",
+    "com.wasmnest.speech.settings-get",
+    "com.wasmnest.speech.settings-set",
+    "com.wasmnest.speech.models-list",
+    "com.wasmnest.speech.models-download",
+    "com.wasmnest.speech.models-remove",
+    "com.wasmnest.speech.channels-probe",
+    "com.wasmnest.speech.records-list"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "id": "speech.settings-get",
+        "title": "Speech: Get Settings"
+      },
+      {
+        "id": "speech.settings-set",
+        "title": "Speech: Update Settings"
+      },
+      {
+        "id": "speech.models-list",
+        "title": "Speech: List Models"
+      },
+      {
+        "id": "speech.model-download",
+        "title": "Speech: Download Model"
+      },
+      {
+        "id": "speech.model-status",
+        "title": "Speech: Model Status"
+      },
+      {
+        "id": "speech.model-remove",
+        "title": "Speech: Remove Model"
+      },
+      {
+        "id": "speech.records-list",
+        "title": "Speech: List Records"
+      },
+      {
+        "id": "speech.channels-probe",
+        "title": "Speech: Probe Channels"
+      },
+      {
+        "id": "speech.job-result",
+        "title": "Speech: Job Result"
+      },
+      {
+        "id": "speech.job-cancel",
+        "title": "Speech: Cancel Job"
+      },
+      {
+        "id": "speech.test-submit",
+        "title": "Speech: Test Submit"
+      },
+      {
+        "id": "speech.capture-start",
+        "title": "Speech: Start Capture"
+      },
+      {
+        "id": "speech.capture-pull",
+        "title": "Speech: Pull Capture"
+      },
+      {
+        "id": "speech.capture-stop",
+        "title": "Speech: Stop Capture"
+      },
+      {
+        "id": "speech.capture-abort",
+        "title": "Speech: Abort Capture"
+      }
+    ]
+  }
+}

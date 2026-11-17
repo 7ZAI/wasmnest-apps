@@ -1,0 +1,261 @@
+/* Speech 服务页基础样式（独立挂载包）
+ *
+ * Tailwind 工具类由本工程自编译；设计 token 由宿主文档根提供。本文件不写
+ * :root token 兜底（避免覆盖宿主浅色主题）。
+ */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+.speech-page {
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  background: var(--bg-page);
+  color: var(--text-primary);
+  font-size: calc(14px * var(--ui-scale));
+  line-height: 1.55;
+  overscroll-behavior: contain;
+}
+
+.speech-page :focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 3px;
+}
+
+.speech-wrap {
+  width: min(100%, 1180px);
+  margin-inline: auto;
+  padding: calc(22px * var(--ui-scale)) calc(22px * var(--ui-scale)) 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.speech-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  padding: 16px 18px;
+}
+
+.speech-card h2 {
+  font-size: calc(14px * var(--ui-scale));
+  font-weight: 650;
+  margin-bottom: 4px;
+}
+
+.speech-muted {
+  color: var(--text-secondary);
+  font-size: calc(12px * var(--ui-scale));
+}
+
+.speech-input {
+  width: 100%;
+  min-height: 38px;
+  padding: 7px 10px;
+  border-radius: var(--radius-button);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-page);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: calc(13px * var(--ui-scale));
+}
+
+.speech-input:focus-visible {
+  border-color: var(--color-primary);
+}
+
+.speech-input:is(:user-invalid, .speech-invalid) {
+  border-color: #d93025;
+  background: color-mix(in srgb, #d93025 8%, var(--bg-page));
+}
+
+.speech-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 6px 12px;
+  border-radius: var(--radius-button);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-page);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: calc(12px * var(--ui-scale));
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.speech-btn:hover {
+  border-color: var(--color-primary);
+}
+
+.speech-btn:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.speech-btn-primary {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: var(--color-primary-contrast, #fff);
+  font-weight: 600;
+}
+
+.speech-btn-danger {
+  color: #d93025;
+  border-color: color-mix(in srgb, #d93025 35%, var(--border-subtle));
+}
+
+.speech-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border-subtle);
+  font-size: calc(11px * var(--ui-scale));
+  color: var(--text-secondary);
+  background: var(--bg-page);
+}
+
+.speech-badge-ok {
+  color: #188038;
+  border-color: color-mix(in srgb, #188038 40%, var(--border-subtle));
+}
+
+.speech-badge-bad {
+  color: #d93025;
+  border-color: color-mix(in srgb, #d93025 40%, var(--border-subtle));
+}
+
+.speech-radio-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 8px;
+}
+
+.speech-choice {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 9px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-button);
+  background: var(--bg-page);
+  cursor: pointer;
+}
+
+.speech-choice:has(input:checked) {
+  border-color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 8%, var(--bg-page));
+}
+
+.speech-choice input {
+  margin-top: 3px;
+  accent-color: var(--color-primary);
+}
+
+.speech-switch-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.speech-switch {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--color-primary);
+}
+
+.speech-progress {
+  width: 100%;
+  height: 8px;
+  accent-color: var(--color-primary);
+}
+
+.speech-level {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--border-subtle);
+  overflow: hidden;
+}
+
+.speech-level > span {
+  display: block;
+  height: 100%;
+  background: var(--color-primary);
+  transition: width 120ms linear;
+}
+
+.speech-result {
+  white-space: pre-wrap;
+  word-break: break-word;
+  min-height: 54px;
+  padding: 10px 12px;
+  border: 1px dashed var(--border-subtle);
+  border-radius: var(--radius-button);
+  background: var(--bg-page);
+}
+
+.speech-alert {
+  padding: 9px 12px;
+  border-radius: var(--radius-button);
+  border: 1px solid color-mix(in srgb, #d93025 40%, var(--border-subtle));
+  color: #b3261e;
+  background: color-mix(in srgb, #d93025 8%, var(--bg-page));
+  font-size: calc(12px * var(--ui-scale));
+}
+
+.speech-ok {
+  color: #188038;
+  font-size: calc(12px * var(--ui-scale));
+}
+
+.speech-records {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.speech-record {
+  display: grid;
+  grid-template-columns: 92px 62px minmax(90px, 1fr) 74px 74px 84px;
+  gap: 8px;
+  align-items: center;
+  padding: 7px 9px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-button);
+  background: var(--bg-page);
+  font-size: calc(11.5px * var(--ui-scale));
+}
+
+.speech-record-error {
+  color: #b3261e;
+}
+
+.speech-grid-2 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+}
+
+.speech-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+.speech-field label {
+  font-size: calc(12px * var(--ui-scale));
+  color: var(--text-secondary);
+}
+
+.speech-field-error {
+  color: #b3261e;
+  font-size: calc(11.5px * var(--ui-scale));
+}
