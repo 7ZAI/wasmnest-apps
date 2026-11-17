@@ -15,12 +15,11 @@
 - 阈值预警（桌面）：平台与单插件内存、插件状态、Trap 增量、计算负载、任务池背压；`monitor.notify` 可经宿主投递系统通知。
 - 宿主进程（WebView）面板（桌面）：宿主主进程 + WebView 子进程的 PSS / RSS / CPU 与进程树合计，与 wasm 指标分开、不可相加；宿主未装配该段时显式标注「未提供」。
 - 移动端宿主进程卡片：本进程 PSS / RSS / CPU 与进程树合计，附 WebView 自报 JS 堆；WebView 渲染进程为独立 uid，显式标注「不可归属」。
-- 应用内检查更新：双端接入宿主 `appUpdate`，`plugin.json` 声明 GitHub Release 更新源。
 
 ### 变更
 
 - 宿主进程段前移到平台总览之后、预警置尾；桌面改为横排布局。
-- 「版本更新」固定在最后一张卡片，并在检查前显示当前版本号（取自随包 `plugin.json`）。
+- 版本更新改由宿主「应用管理」统一提供：双端监控页不再内置检查更新卡片，`plugin.json` 仍声明 GitHub Release 更新源供宿主使用。
 - Nest 助手接入延后到下一版本：此前声明的 assistant 只读工具 `monitor.runtime-snapshot` 已撤回。
 - 文案清理与权限补齐：桌面监控页删除多余说明文字（与移动端对齐）、移动端删去说明性文案、桌面清单补 `storage` 权限。
 
