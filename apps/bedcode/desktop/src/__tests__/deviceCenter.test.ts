@@ -334,6 +334,23 @@ describe('DeviceCenterView（设备与配对页面）', () => {
     expect(calls[calls.length - 1][0]).toBe(wrapper.find('canvas').element)
   })
 
+  it('C30 Tab 切换复位内容区滚动：过渡叠层与新页同以顶部对齐', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+
+    const scroll = wrapper.find('[data-testid="pairing-tab-scroll"]').element as HTMLElement
+    scroll.scrollTop = 240
+
+    await findButton(wrapper, 'pairing.tab.devices')!.trigger('click')
+    await flushPromises()
+    expect(scroll.scrollTop).toBe(0)
+
+    scroll.scrollTop = 180
+    await findButton(wrapper, 'pairing.tab.pairing')!.trigger('click')
+    await flushPromises()
+    expect(scroll.scrollTop).toBe(0)
+  })
+
   it('C5j QR 内部分页：默认选中「局域网」；无 peer 时外网 Tab 不出码、无组装错误', async () => {
     const wrapper = mountView()
     await flushPromises()

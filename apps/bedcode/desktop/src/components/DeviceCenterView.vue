@@ -107,10 +107,14 @@
       </div>
     </div>
 
-    <div class="page-swap page-swap-pad-lg flex-1 overflow-auto">
+    <div
+      ref="tabScrollRef"
+      data-testid="pairing-tab-scroll"
+      class="page-swap pairing-tab-swap flex-1 overflow-auto"
+    >
       <Transition name="page">
         <!-- ==================== Tab1 设备配对 · 网络信息 + 配对码 + QR（各占一行） ==================== -->
-        <div v-if="activeTab === 'pairing'" class="space-y-5">
+        <div v-if="activeTab === 'pairing'" class="space-y-5 px-6 py-5">
           <!-- ==================== 网络信息条（置顶） ==================== -->
           <div
             class="rounded-[10px] border border-[var(--border)] bg-[var(--bg-card)] px-4 py-2.5 flex items-center gap-3 flex-wrap"
@@ -443,7 +447,7 @@
         </div>
 
         <!-- ==================== Tab2 设备列表 · 在线 / 离线 ==================== -->
-        <div v-else class="space-y-6" data-testid="pairing-devices-panel">
+        <div v-else class="space-y-6 px-6 py-5" data-testid="pairing-devices-panel">
           <!-- ==================== ONLINE 分区 ==================== -->
           <section>
             <h3 class="wb-section-title">
@@ -724,6 +728,18 @@ const deviceTabs: { key: TabKey; label: string }[] = [
   { key: 'pairing', label: t('pairing.tab.pairing') },
   { key: 'devices', label: t('pairing.tab.devices') },
 ]
+const tabScrollRef = ref<HTMLElement | null>(null)
+
+// 切页时复位滚动：过渡用「旧页绝对定位层淡出 + 新页淡入」，旧层锚在内容顶部，
+// 滚动位置若留在中段，残影会落在视口之外、两层对不齐。post flush 保证复位发生在
+// DOM 更新（旧页已脱流）之后、浏览器绘制之前，旧页不会先跳回顶部再开始淡出。
+watch(
+  activeTab,
+  () => {
+    if (tabScrollRef.value) tabScrollRef.value.scrollTop = 0
+  },
+  { flush: 'post' },
+)
 
 // ==================== QR 内部分页（局域网 / 外网） ====================
 type QrTabKey = 'lan' | 'wan'
@@ -1142,8 +1158,58 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-/* Tab 切换过渡已收归宿主页面过渡体系（src/style.css 的 .page-* / .page-swap）：
-   名字恒为 `page`，时长/缓动/位移走 --motion-page-* token，效果变体由
-   <html data-page-fx> 选（全端唯一切换点 = 宿主 src/utils/pageTransition.ts）。
-   本文件不再自带 .tab-fade-* —— 同一份页面过渡散落多处必然漂移。 */
+/* 两页签切换过渡只在本页生效（2026-11-17：设备配对 / 设备列表两页签要平滑过渡）。
+ *
+ * 宿主页面过渡体系（.page-* / .page-swap / --motion-page-*）仍是全局真源；本应用
+ * 在 src/style.css 里为工作台高频切换把整页过渡压成了瞬时。这里不新建过渡名字，
+ * 只给本页的过渡容器加 `.pairing-tab-swap`，让宿主那套「重叠交叉淡入 + 出场层
+ * 脱离文档流」的机制在本页按更短的节奏重新生效——其它页面仍走瞬时策略。
+ *
+ * 频率与幅度：页签切换是低频动作，入场 160ms / 出场 120ms、位移收到 4px，读起来
+ * 是「换了一页」而不是「加载了一页」；只动 opacity / transform，不写 will-change
+ * （WebKitGTK 上整块合成层容易闪）。系统减弱动态时与宿主同一口径：瞬时、无位移。
+ *
+ * 内边距放在两个 pane 上而不是过渡容器上：旧页脱流后与新页用同一套 px-6 py-5，
+ * 不依赖宿主的 padding 补偿变量，两层内外缘自然对齐。
+ */
+.page-swap.pairing-tab-swap {
+  --motion-page-duration-in: 160ms;
+  --motion-page-duration-out: 120ms;
+  --motion-page-shift: 4px;
+}
+
+.page-swap.pairing-tab-swap .page-enter-active {
+  transition:
+    opacity var(--motion-page-duration-in) var(--motion-page-ease),
+    transform var(--motion-page-duration-in) var(--motion-page-ease);
+}
+
+.page-swap.pairing-tab-swap .page-leave-active {
+  transition:
+    opacity var(--motion-page-duration-out) var(--motion-page-ease),
+    transform var(--motion-page-duration-out) var(--motion-page-ease);
+}
+
+.page-swap.pairing-tab-swap .page-enter-from {
+  opacity: 0;
+  transform: translateY(var(--motion-page-shift));
+}
+
+.page-swap.pairing-tab-swap .page-leave-to {
+  opacity: 0;
+  transform: translateY(calc(0px - var(--motion-page-shift) / 2));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page-swap.pairing-tab-swap .page-enter-active,
+  .page-swap.pairing-tab-swap .page-leave-active {
+    transition-duration: 0.01ms;
+  }
+
+  .page-swap.pairing-tab-swap .page-enter-from,
+  .page-swap.pairing-tab-swap .page-leave-to {
+    opacity: 1;
+    transform: none;
+  }
+}
 </style>
