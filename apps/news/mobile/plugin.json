@@ -1,0 +1,31 @@
+{
+  "id": "com.wasmnest.news",
+  "name": "News",
+  "version": "0.0.1",
+  "platform": "both",
+  "update": { "provider": "github-release" },
+  "description": "个人新闻聚合：底部分段浏览今日 / 圈子 / 实时 / 收藏。\n使用：应用列表打开 News → 底部分段切换 → 点卡片看摘要与来源。",
+  "author": "WasmNest",
+  "icon": "icon.svg",
+  "main": "index.js",
+  "pluginType": "full",
+  "rustLibrary": "wasmnest_plugin_news",
+  "permissions": ["storage", "ui:back", "ui:route"],
+  "contributes": {
+    "commands": [
+      { "id": "news.list-feed", "title": "news.list-feed" },
+      { "id": "news.list-circles", "title": "news.list-circles" },
+      { "id": "news.list-sources", "title": "news.list-sources" },
+      { "id": "news.get-settings", "title": "news.get-settings" },
+      { "id": "news.refresh", "title": "Refresh News" }
+    ],
+    "routes": [
+      {
+        "id": "settings",
+        "title": "新闻设置",
+        "component": "SettingsPage",
+        "header": true
+      }
+    ]
+  }
+}

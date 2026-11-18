@@ -107,6 +107,7 @@ wasmnest-apps/
 | ai-chatbox | `com.wasmnest.ai-chatbox` | desktop + mobile | `entry.ts` / `index.ts` | 双端 `full` | `wasmnest_plugin_ai_chatbox`（两端同名） | `wasmnest-plugin-ai-chatbox` @ `desktop/rust`（桌面产物改由 `desktop/go` TinyGo 构建，issue #21 试点；rust/ 源保留至合流清理）；`wasmnest_plugin_ai_chatbox` @ `mobile/rust` |
 | bedcode（显示名 BedCode） | `com.wasmnest.bedcode` | desktop + mobile | `entry.ts` / `index.ts` | 双端 `full` | `bedcode_plugin_terminal_session`（两端同名） | `bedcode-plugin-terminal-session` @ `desktop/rust`；`bedcode_plugin_terminal_session` @ `mobile/rust` |
 | file-transfer | `com.wasmnest.file-transfer` | desktop + mobile（`platform: "both"`） | `entry.ts` / `index.ts` | 双端 `full` | `wasmnest_plugin_file_transfer`（两端同名） | 单产物 `wasmnest-plugin-file-transfer` @ `apps/file-transfer/rust/plugin`；共享核 `wasmnest-file-transfer-core` @ `apps/file-transfer/rust/core` |
+| news | `com.wasmnest.news` | desktop + mobile（`platform: "both"`） | `entry.ts` / `index.ts` | 双端 `full` | `wasmnest_plugin_news`（两端同名） | 单产物 `wasmnest-plugin-news` @ `apps/news/rust/plugin`；共享核 `wasmnest-news-core` @ `apps/news/rust/core` |
 | monitor（**`servers/` 分组**） | `com.wasmnest.monitor` | desktop + mobile | `entry.ts` / `index.ts` | 双端 `full` | `wasmnest_plugin_monitor`（两端同名） | `wasmnest-plugin-monitor` @ `servers/monitor/desktop/rust`；`wasmnest_plugin_monitor` @ `servers/monitor/mobile/rust` |
 | auth-center（**`servers/` 分组**） | `com.wasmnest.auth-center` | desktop | `servers/auth-center/desktop/src/entry.ts` | `full` | `wasmnest_plugin_auth_center` | `wasmnest-plugin-auth-center` @ `servers/auth-center/desktop/rust` |
 | net-config（**`servers/` 分组**，T18） | `com.wasmnest.net-config` | desktop | `servers/net-config/desktop/src/entry.ts` | `full` | `wasmnest_plugin_net_config` | `wasmnest-plugin-net-config` @ `servers/net-config/desktop/rust` |
@@ -152,9 +153,9 @@ wasmnest-apps/
 - **`rustLibrary` = Cargo 包名的下划线归一化**：cargo 把包名里的 `-` 归一化成 `_` 生成产物。例：Cargo `bedcode-plugin-terminal-session` → 产物 `bedcode_plugin_terminal_session.wasm` → `rustLibrary` 填后者。**填连字符形式会找不到产物**。
 - 新增 / 改名应用时同步五处：`plugin.json`、`package.json`、Cargo 包名、`rustLibrary`、i18n 命名空间，外加平台仓 `release-manifest.json`。
 
-### file-transfer 双端单产物（ADR 0050）
+### 双端单产物应用（ADR 0050：file-transfer / news）
 
-`apps/file-transfer/{desktop,mobile}` 下**只有前端**，Rust 全在应用级 `apps/file-transfer/rust/`：
+`apps/file-transfer/{desktop,mobile}` 下**只有前端**，Rust 全在应用级 `apps/file-transfer/rust/`；`apps/news` 同形态（`apps/news/rust/{core,plugin}`）。
 
 - `rust/core/` —— 共享业务核（端口 trait + 纯逻辑，零 SDK 依赖，可 native 单测）
 - `rust/plugin/` —— 双端同构 crate，**不属任何一端**；桌面 `desktop/scripts/build.js` 的 `--manifest-path ../rust/plugin/Cargo.toml` 与移动 `package.json` 的 `wasmnest.sharedRustManifest: "../rust/plugin/Cargo.toml"` 都指向它
@@ -190,7 +191,7 @@ apps/<slug>/<end>/ 源码
    └─ <rustLibrary>.wasm
 ```
 
-桌面 app 的 `pnpm run build` 默认写**本仓** `apps/<slug>/desktop/.build/plugins/<appId>/`（CI 打包经 `scripts/ci/build-app.mjs` 的 `--out` staging 收集，`scripts/ci/check-release-purity.mjs` 保证产物里不含宿主痕迹）；平台 `tauri:dev` / `dev-run.js` 需要产物进宿主 resources 时显式 `--out`；移动 app 的 `wasmnest-plugin build` 只产自身 `dist/`，**写进宿主 resources 由平台仓移动构建负责**（`wasmnest-mobile/scripts/plugin-build.js`；file-transfer/mobile 的 `build` 已直接指向该包装脚本）。
+桌面 app 的 `pnpm run build` 默认写**本仓** `apps/<slug>/desktop/.build/plugins/<appId>/`（CI 打包经 `scripts/ci/build-app.mjs` 的 `--out` staging 收集，`scripts/ci/check-release-purity.mjs` 保证产物里不含宿主痕迹）；平台 `tauri:dev` / `dev-run.js` 需要产物进宿主 resources 时显式 `--out`；移动 app 的 `wasmnest-plugin build` 只产自身 `dist/`，**写进宿主 resources 由平台仓移动构建负责**（`wasmnest-mobile/scripts/plugin-build.js`；file-transfer/mobile 与 news/mobile 的 `build` 已直接指向该包装脚本，因为 SDK CLI 不读 `wasmnest.sharedRustManifest`）。
 
 **发布产物（CI）**：`scripts/ci/build-app.mjs` 在上述构建链之后经 `package-plugins.mjs --skip-build` 打包为
 `dist/release/<slug>-<end>-v<version>.zip` + 同名元数据 JSON（详见 `docs/CI.md` §5）。
