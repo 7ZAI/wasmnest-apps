@@ -26,6 +26,10 @@ export default defineConfig({
     alias: {
       '@': resolve(__dirname, 'src'),
       '@host': resolve(PLATFORM_ROOT, 'wasmnest-mobile/src'),
+      // 跨端单测引用 desktop 的 qrRender.ts（其 import 'qrcode'）：vite 按被引用文件
+      // 所在目录向上解析 node_modules，从 apps/bedcode/desktop 路径看不到移动端的
+      // 依赖，故显式把 qrcode 指到本端已安装的副本（qrcode 已在本端 package.json 声明）
+      qrcode: resolve(__dirname, 'node_modules/qrcode'),
     },
   },
 })
