@@ -206,6 +206,7 @@ pnpm run dev:host
 | 决策记录（ADR） | [`docs/adr/`](docs/adr/) |
 | Agent 协作约定（领域 / issue / triage） | [`docs/agents/`](docs/agents/) |
 | 设计文档（NAT 穿透等） | [`docs/design/`](docs/design/) |
+| 中继服务器构建教程（内网穿透） | [`docs/design/nat-traversal/build-relay-server.md`](docs/design/nat-traversal/build-relay-server.md) |
 | 领域词汇 | [`GLOSSARY.md`](GLOSSARY.md) |
 | 平台仓（宿主 / SDK / release-manifest） | [github.com/7ZAI/wasmnest](https://github.com/7ZAI/wasmnest) |
 | 能力仓（引擎 / WIT 真源） | [github.com/7ZAI/wasmnest-lib](https://github.com/7ZAI/wasmnest-lib) |
