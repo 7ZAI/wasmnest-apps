@@ -53,35 +53,29 @@
 
 ## 实现结构
 
-```text
-apps/bedcode/
-├─ desktop/
-│  ├─ src/entry.ts              挂载 + 预览契约；建 Vue/pinia/router/i18n 全量依赖
-│  ├─ src/router/               内存路由（自身导航不进宿主 URL；未匹配显性 not-found）
-│  ├─ src/components/           DeviceCenterView / SessionCenterView / TaskHistoryView
-│  │                            ConnectionHistoryView / Sidebar / TaskQueueModal / terminal/
-│  ├─ src/views/                SettingsView / ServerView / terminal/TerminalWindowView
-│  │                            projects/{ProjectListView,ProjectWorkbenchView}（项目壳，M2）
-│  ├─ src/agents/               Agent 管理域：AgentHubView + Install/Providers/Skills/Stats 页签
-│  ├─ src/composables/          useServer / useSessionCenter / useProjects / useDeviceCenter
-│  │                            useSidebarMenu / useLinkCrypto / useSessionWindows / useToast …
-│  ├─ src/utils/terminal/       渲染策略 / 尺寸裁决 / 写入管线 / 滚动缓冲
-│  ├─ scripts/{auto_task,codex_task}_hook.py、{opencode,pi}_task_hook.ts
-│  │                            注入项目 hooks 的脚本模板（随插件资源分发）
-│  └─ rust/src/                 按域组织（见下表）
-└─ mobile/
-   ├─ src/index.ts              激活顺序：host → projects → terminal → fileExplorer → task → app
-   ├─ src/app/                  壳域：底部导航 + 页签状态机 + 沉浸运行面
-   ├─ src/host/                 设备 / 连接态
-   ├─ src/projects/             项目域：项目列表 → 运行 → 终端入口 + Agent 选择
-   ├─ src/terminal/             终端消费 UI（缓冲 store / 输入助手 / 样式）
-   ├─ src/task/                 任务面板与只读投影
-   ├─ src/fileExplorer/         文件浏览器域
-   └─ rust/src/                 auth.rs（配对与认证）/ project.rs（项目 / 运行 / Agent）
-                                 / commands.rs / keys.rs
-```
+### 工程布局
 
-桌面后端按域分包（`rust/src/`）：
+| 路径 | 职责 |
+| --- | --- |
+| `desktop/src/entry.ts` | 挂载 + 预览契约；建 Vue / pinia / router / i18n 全量依赖 |
+| `desktop/src/router/` | 内存路由（自身导航不进宿主 URL；未匹配显性 not-found） |
+| `desktop/src/components/` | DeviceCenterView / SessionCenterView / TaskHistoryView / ConnectionHistoryView / Sidebar / TaskQueueModal / terminal/ |
+| `desktop/src/views/` | SettingsView / ServerView / terminal/TerminalWindowView / projects/{ProjectListView, ProjectWorkbenchView}（项目壳，M2） |
+| `desktop/src/agents/` | Agent 管理域：AgentHubView + Install / Providers / Skills / Stats 页签 |
+| `desktop/src/composables/` | useServer / useSessionCenter / useProjects / useDeviceCenter / useSidebarMenu / useLinkCrypto / useSessionWindows / useToast … |
+| `desktop/src/utils/terminal/` | 渲染策略 / 尺寸裁决 / 写入管线 / 滚动缓冲 |
+| `desktop/scripts/` | 注入项目 hooks 的脚本模板（`auto_task` / `codex_task` hook 脚本等），随插件资源分发 |
+| `desktop/rust/src/` | 按域分包（见下表） |
+| `mobile/src/index.ts` | 激活顺序：host → projects → terminal → fileExplorer → task → app |
+| `mobile/src/app/` | 壳域：底部导航 + 页签状态机 + 沉浸运行面 |
+| `mobile/src/host/` | 设备 / 连接态 |
+| `mobile/src/projects/` | 项目域：项目列表 → 运行 → 终端入口 + Agent 选择 |
+| `mobile/src/terminal/` | 终端消费 UI（缓冲 store / 输入助手 / 样式） |
+| `mobile/src/task/` | 任务面板与只读投影 |
+| `mobile/src/fileExplorer/` | 文件浏览器域 |
+| `mobile/rust/src/` | `auth.rs`（配对与认证）/ `project.rs`（项目 / 运行 / Agent）/ commands.rs / keys.rs |
+
+### 桌面后端按域分包（`rust/src/`）
 
 | 域 | 目录 | 职责 |
 | --- | --- | --- |
