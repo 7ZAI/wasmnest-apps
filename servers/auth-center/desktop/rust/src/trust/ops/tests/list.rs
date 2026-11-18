@@ -39,6 +39,26 @@ fn list_pairings_only_active_sorted_by_paired_at_desc() {
     assert_eq!(devices[0]["addedAt"], "2026-09-19T00:00:00Z");
     assert_eq!(devices[0]["active"], true);
 }
+/// 混合时区偏移的 paired_at 按归一 unix 秒排序（T-F04 同口径）：
+/// `01:00+02:00` = 前一日 `23:00Z`，字典序更大但时间更旧，不得排在前
+#[test]
+fn list_pairings_sort_normalizes_mixed_offsets() {
+    let records = MockRecords::new(vec![
+        MockRecords::record(
+            "lexically-larger",
+            "偏移串",
+            "fp-a",
+            "2026-09-19T01:00:00+02:00",
+        ),
+        MockRecords::record("utc-newer", "UTC 串", "fp-b", "2026-09-19T00:00:00Z"),
+    ]);
+    let peer = MockPeer::new(vec![]);
+    let r = list(&records, &peer).expect("list");
+    let devices = r["devices"].as_array().unwrap();
+    assert_eq!(devices[0]["id"], "utc-newer", "时间序优先于字典序");
+    assert_eq!(devices[1]["id"], "lexically-larger");
+}
+
 /// peer 段：透传宿主 list-trusted 条目（kind=peer，条目序保留），
 /// 与 pairing 段合并统一数组
 #[test]
@@ -71,6 +91,10 @@ fn list_surfaces_peer_error_without_dropping_pairings() {
         fn peer_dial(&self, _e: &serde_json::Value) -> Result<String, HostError> {
             unimplemented_peer!()
         }
+        /// T11 `dial-peer-addrs`：PeerDown 不拨号
+        fn peer_dial_addrs(&self, _e: &serde_json::Value) -> Result<String, HostError> {
+            unimplemented_peer!()
+        }
         fn peer_close(&self, _h: &str) -> Result<bool, HostError> {
             unimplemented_peer!()
         }
@@ -84,6 +108,14 @@ fn list_surfaces_peer_error_without_dropping_pairings() {
             ))
         }
         fn peer_revoke_trusted(&self, _n: &str) -> Result<bool, HostError> {
+            unimplemented_peer!()
+        }
+        /// 信任写入：本组用例只测 list
+        fn peer_trust_node(
+            &self,
+            _node_id: &str,
+            _display_name: Option<&str>,
+        ) -> Result<bool, HostError> {
             unimplemented_peer!()
         }
         fn peer_send_files(&self, _s: &str, _p: &[serde_json::Value]) -> Result<String, HostError> {
@@ -126,7 +158,10 @@ fn list_surfaces_peer_error_without_dropping_pairings() {
         fn peer_set_download_dir(&self, _p: &str) -> Result<(), HostError> {
             unimplemented_peer!()
         }
-        fn peer_start_node(&self) -> Result<bool, HostError> {
+        fn peer_start_node(
+            &self,
+            _config: &wasmnest_plugin_api::host::PeerNodeConfig,
+        ) -> Result<bool, HostError> {
             unimplemented_peer!()
         }
         fn peer_stop_node(&self) -> Result<bool, HostError> {

@@ -47,7 +47,7 @@
  *
  * app 域运行面的「任务」页签与壳内 `tasks` 路由经 PluginViewHost provide pluginContext
  * 后渲染本组件。业务逻辑全部下沉到 composables（useTaskHistory / useScheduledJobs）
- * 与预设任务真源（SDK `getPresetTasks()`），本组件只做：页签切换 + 两页联动
+ * 与预设任务真源（`presetApi` 应用自持），本组件只做：页签切换 + 两页联动
  * （事件去抖重拉 + 断线重连重拉）。
  *
  * 页签顺序 = 预设任务 / 定时任务 / 任务记录（tabs 数组即视觉顺序，面板按下标一一对应；

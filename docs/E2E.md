@@ -5,6 +5,10 @@
 > `../wasmnest/docs/public/testing.md`。
 > 文档字面 ≠ 事实：改动脚本或流程后回来同步本文件。
 
+> **功能验收清单**：按 app 的完整功能验证模板（含真实网络 / 真实对端 / 跨端人工步骤与
+> 报告口径）见 [`docs/verification/README.md`](verification/README.md)。自动化 E2E 覆盖
+> 「交互契约」，模板补功能完整性与真实链路；两者不可互相替代。
+
 ---
 
 ## 1. 为什么有这一层
@@ -57,7 +61,8 @@ E2E 的判据：**在真实桌面宿主里挂载真实 wasm app，用脚本点�
 > **逐 app 一次 wdio**：桌面宿主是**单实例**资源（端口 + 应用数据目录 + 窗口），
 > 同一个 wdio run 里放多个 spec 文件会各自起 worker → 各自起宿主实例 → 第二个起不来
 > （表现为「宿主 webview 未就绪」超时）。故运行器**每个 app 单独跑一次 wdio**，
-> 每次宿主里只装这一个 app。全量模式 = 依次跑完每个 app，退出码合并。
+> 每次宿主里只装这一个 app（全量模式也为每个 app 建独立临时 staging）。全量 = 依次跑完
+> 每个 app，退出码合并。
 
 **为什么 app 的界面能被脚本点到**：桌面 app 不是 iframe，而是经 `mountApp(root, env)`
 把独立构建的 Vue 应用**挂进宿主 webview 的同一个 document**（宿主
@@ -76,8 +81,8 @@ WebDriver 注入的脚本能直接访问 app 内部节点。
 `scripts/e2e.mjs` 对以上都做**显性预检**（缺则打印修复指引并退出，不静默降级）。
 
 ```bash
-node scripts/e2e.mjs --app agent-hub                        # packed（默认）
-node scripts/e2e.mjs --app agent-hub --host-mode cargo      # 平台集成
+node scripts/e2e.mjs --app bedcode                         # packed（默认）
+node scripts/e2e.mjs --app bedcode --host-mode cargo       # 平台集成
 node scripts/e2e.mjs --app bedcode --host ./host-desktop     # packed + 显式宿主产物目录
 node scripts/e2e.mjs --app monitor --skip-build              # 复用 app 默认产物目录搬进 staging
 ```
@@ -107,23 +112,29 @@ wasmnest-apps/e2e/
 
 ```bash
 # 单个 app（推荐：一次只装一个 app，主屏只有一张卡，断言不受干扰）
-node scripts/e2e.mjs --app agent-hub
+node scripts/e2e.mjs --app bedcode
 node scripts/e2e.mjs --app ai-chatbox
 node scripts/e2e.mjs --app bedcode
 node scripts/e2e.mjs --app file-transfer
 node scripts/e2e.mjs --app monitor
+node scripts/e2e.mjs --app auth-center
 
 # 全量（依次跑每个 app：每个 app 单独一次 wdio，宿主单实例故不能并行）
 node scripts/e2e.mjs
 
 # 单条用例
-node scripts/e2e.mjs --app agent-hub --spec e2e/specs/agent-hub.spec.ts
+node scripts/e2e.mjs --app bedcode --spec e2e/specs/bedcode.spec.ts
 
 # 参数
 --skip-build   复用现有产物（改过前端就别用）
 --build-full   连 wasm 后端一起构建（默认只重建前端：E2E 关注交互层）
 --isolate      用临时 XDG_DATA_HOME 隔离宿主持久状态
 ```
+
+> **数据根落在 `$HOME` 的 app**（当前只有 `lanbitou`）：运行器会额外把宿主 `HOME`
+> 指到临时目录（`scripts/e2e.mjs` 的 `HOME_SCOPED_APPS`），避免用例写进
+> `~/.wasmnest/<app>` 污染真实用户数据；其余 app 仍用真实 `HOME`（bedcode 的
+> `~/bedcode-e2e-project` 依赖它）。
 
 **退出码即结论**（0 = 全绿）。CI / 钩子可直接用它。
 
@@ -190,6 +201,8 @@ E2E 只认 `data-testid`。命名 = `<域>-<元素>`，kebab-case，**不带 app
 - 取**取值域**而不是具体值：`expectInSet(badge, labelSet('hub.card.installed'), …)`
 - 取**交互前后状态翻转**而不是绝对状态：`点击后 aria-expanded 由 false 变 true`
 - 机器相关的分支要**显式两分支都成立**：例如「未授权 → 入口禁用 + 横幅可见」「已授权 → 入口可展开表单」
+- 不假设其他 app 是否存在：单跑与全量都成立（运行器为每个 app 建独立 staging，但用户数据里
+  仍可能有历史插件 / 配对 / 共享目录）
 
 ### 6.2 文案断言跨语言
 
@@ -197,9 +210,9 @@ E2E 只认 `data-testid`。命名 = `<域>-<元素>`，kebab-case，**不带 app
 做法：期望值取 app i18n 各语言取值域的**并集**（`pages/<slug>.ts` 的 `labelSet(key)`）。
 
 ```ts
-// e2e/pages/agentHub.ts
-import en from '../../apps/agent-hub/desktop/src/i18n/en'
-import zhCN from '../../apps/agent-hub/desktop/src/i18n/zh-CN'
+// e2e/pages/bedcode.ts（示意）
+import en from '../../apps/bedcode/desktop/src/i18n/en'
+import zhCN from '../../apps/bedcode/desktop/src/i18n/zh-CN'
 
 export function labelSet(key: keyof typeof zhCN): string[] {
   const out: string[] = []
@@ -256,13 +269,20 @@ export function labelSet(key: keyof typeof zhCN): string[] {
 - **只能测 debug 构建**：release 产物不含 wdio 插件（平台仓有锁测试保证这点）。
 - **外部依赖不覆盖**：真实对端（file-transfer）、真实 API key（ai-chatbox）不在范围内；
   相关用例只断言「界面层」的门控与状态翻转。
-- **不测移动端**：§1–§9 的单端套件只覆盖桌面宿主；移动端由 §10 的双端套件承接。
+- **不测移动端**：§1–§9 的单端套件只覆盖桌面宿主；移动端由 §10 双端套件与 §11 真机单端承接。
 - **宿主壳无 testid**：壳层交互只能靠 ARIA 语义定位；宿主若要更稳的锚点，需在**平台仓**
   补 `data-testid`（跨仓改动，需单独裁决）。
 - **Windows / macOS**：驱动不同（WebKitWebDriver / 各平台 provider），本套件当前只在
   Linux 验证过。
 - **wasm 产物可能是旧的**：E2E 默认只重建前端（wasm 复用上一份）。改了 Rust 后端要用
   `--build-full`，否则测的是旧后端 + 新前端。
+- **合成指针不进 CodeMirror**（2026-11-04 lanbitou 实测）：`browser.action(...)` 的鼠标
+  拖选只落到 WebView 的**原生选区**（`window.getSelection()` 有文本），CodeMirror 的
+  选区状态不动（`.cm-selectionBackground` 不出现、工具栏「复制选中内容」取不到）。
+  是自动化通道限制，不是产品缺陷：编辑器类 app 的拖选用例按「原生选区非空」判定，
+  复制/编辑链路用键盘驱动（`Ctrl+A` 等）另测；选区**样式**另在真实 WebKit 里目验。
+- **CodeMirror 光标要真点**：对 contenteditable 只做 JS `.focus()` 后 `browser.keys`
+  可能打给别的元素；用 `element.click()` 把焦点与光标一起落进去再输入。
 
 ---
 
@@ -345,6 +365,10 @@ scripts/e2e-dual.mjs（编排层）
   （本次补：`mobile-bedcode-root` / `mobile-manual-connect` / `mobile-manual-input` /
   `mobile-manual-confirm` / `mobile-pairing-dialog` / `mobile-pairing-key-<d>` /
   `mobile-pairing-submit` / `mobile-connection-status`）。
+- 扫码面板（2026-11-11 解码面重做后补）：`mobile-scan-panel`（相机预览根）/
+  `mobile-scan-slow-hint`（10s 无结果提示，仅出现时在场）/ `mobile-scan-torch` /
+  `mobile-scan-album`。相机本身在 E2E 里不可用，断言走锚点在场 / 提示出现，
+  不依赖真实取景画面。
 - **宿主壳没有锚点**（平台仓未加）：移动端主屏应用卡用 `aria-label` 前缀（= 应用名，
   与语言无关），桌面端壳用 ARIA 语义（§5）。
 
@@ -417,6 +441,10 @@ node scripts/e2e-mobile.mjs --app file-transfer --spec e2e/mobile/file-transfer.
 node scripts/e2e-mobile.mjs --app file-transfer --serial <serial> --skip-install
 ```
 
+> debug APK 的 WebView 走 `devUrl=http://localhost:1423/`。运行器会自动起（或复用）
+> 平台仓 `wasmnest-mobile` 的 dev server，并做 `adb reverse tcp:1423`；跑完收掉自己起的
+> server 与 reverse。手工跑 mocha 时必须自行准备这两步，否则页面白屏 → 找不到应用卡。
+
 | 参数 | 作用 |
 | --- | --- |
 | `--apk <path>` | 指定 debug APK（缺省探测平台仓 `apk/{arm64,universal,x86_64}/debug/`） |
@@ -431,6 +459,7 @@ node scripts/e2e-mobile.mjs --app file-transfer --serial <serial> --skip-install
 ```text
 scripts/e2e-mobile.mjs（编排层）
   ├─ 预检：adb 设备（唯一 online）/ debug APK 存在 / APK 新鲜度告警
+  ├─ 起（或复用）移动前端 dev server（vite :1423）+ adb reverse tcp:1423
   ├─ adb install -r -t <debug apk> → pm clear → force-stop
   └─ pnpm exec mocha --require tsx e2e/mobile/<slug>-*.spec.ts
        └─ e2e/harness/mobile.ts
@@ -452,9 +481,9 @@ scripts/e2e-mobile.mjs（编排层）
 1. **断状态位，不断文案**：`data-online` / `aria-pressed` / `disabled`；设备语言可能是
    zh-CN / en。
 2. **断言要有牙**：file-transfer 移动端的 `devMock.ts` 给 mock 壳播了「已连接的活跃
-   对端」（小米 14 Pro），真宿主**忽略 devMock** → 真机必然离线。故
-   `mobile-ft-peer-status[data-online="false"]` + 上传按钮 `disabled` 这两条，
-   对 mock 壳是红的、对真机是绿的——它们同时证明了「跑的是真宿主真 wasm，不是 mock 壳」。
+   对端」（小米 14 Pro），真宿主**忽略 devMock** → 真机必然离线。故底栏上方上传按钮
+   `mobile-ft-upload[disabled]` 这一条，对 mock 壳是红的、对真机是绿的——它证明
+   了「跑的是真宿主真 wasm，不是 mock 壳」。
 
 ### 11.5 加一条真机单端用例
 
@@ -465,7 +494,9 @@ scripts/e2e-mobile.mjs（编排层）
 
 ### 11.6 已知边界
 
-- **只测 debug 产物**：release 不开 WebView 调试套接字，CDP 连不上。
+- **只测 debug 产物**：release 不开 WebView 调试套接字，CDP 连不上；debug APK 走
+  `devUrl`，运行器会自动起 1423 dev server 并 `adb reverse`（已在跑则复用），手工跑
+  mocha 时需自行准备这两步。
 - **APK 陈旧**：编排器对比 `apps/<slug>/mobile/src` 的 mtime 并告警；改了移动端必须重建 APK。
 - **应用代码取自 APK**：真机上的应用 = 打进 APK 的那一份；改代码 → 重建 APK → 重装。
 - **单设备串行**：真机一台，别并行。

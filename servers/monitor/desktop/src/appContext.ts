@@ -76,6 +76,7 @@ export function createAppContext(env: AppMountEnv): MonitorAppContext {
   const context = {
     id: env.appId,
     extensionPath: '',
+    appUpdate: env.appUpdate,
 
     hostInvoke: env.invoke,
     mountMonitorPanel: env.mountMonitorPanel,

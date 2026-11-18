@@ -7,7 +7,6 @@
  */
 export type MessageSchema = {
   'monitor.title': string
-  'monitor.subtitle': string
   'monitor.live': string
   'monitor.interval': string
   'monitor.updated': string
@@ -28,7 +27,6 @@ export type MessageSchema = {
   'monitor.kpi.pluginsValue': string
   'monitor.kpi.calls': string
   'monitor.kpi.inFlight': string
-  'monitor.kpi.inFlightHint': string
   'monitor.kpi.traps': string
   'monitor.kpi.memoryPeak': string
 
@@ -67,7 +65,6 @@ export type MessageSchema = {
   'monitor.metric.quotaInstances': string
   'monitor.metric.quotaMemories': string
   'monitor.metric.quotaTables': string
-  'monitor.metric.quotaNote': string
   'monitor.metric.lastEvent': string
   'monitor.metric.more': string
 
@@ -99,14 +96,20 @@ export type MessageSchema = {
   'monitor.hero.stale': string
   'monitor.hero.proofUnknown': string
   'monitor.hero.proofStale': string
-  'monitor.hero.proofMobile': string
+  'monitor.hero.memoryHigh': string
+  'monitor.hero.memoryCritical': string
+
+  'monitor.overview.title': string
+  'monitor.overview.memory': string
+  'monitor.overview.unbounded': string
+  'monitor.overview.compute': string
+  'monitor.overview.perSecond': string
   'monitor.signal.title': string
   'monitor.signal.perSecond': string
   'monitor.signal.window': string
   'monitor.signal.justStarted': string
   'monitor.signal.starting': string
   'monitor.signal.inFlight': string
-  'monitor.signal.note': string
   'monitor.signal.peak': string
   'monitor.ledger.title': string
   'monitor.ledger.calls': string
@@ -124,6 +127,22 @@ export type MessageSchema = {
   'monitor.panels.retry': string
   'monitor.inspector.usage': string
   'monitor.inspector.noTraps': string
-  'monitor.footer.source': string
-  'monitor.footer.session': string
+  // ==================== 宿主进程（WebView） ====================
+  // 整机口径：宿主进程的 PSS / RSS / CPU；与 wasm 段分开，不可相加
+  'monitor.process.title': string
+  'monitor.process.unavailable': string
+  'monitor.process.notSampled': string
+  'monitor.process.pss': string
+  'monitor.process.rss': string
+  'monitor.process.cpu': string
+  'monitor.process.cpuPending': string
+  'monitor.process.webviewRow': string
+  'monitor.process.webviewAbsent': string
+  'monitor.process.heapRow': string
+  'monitor.process.heapValue': string
+  'monitor.process.heapQuantized': string
+  'monitor.process.otherRow': string
+  'monitor.process.otherValue': string
+  'monitor.process.treeRow': string
+  'monitor.process.treeValue': string
 }

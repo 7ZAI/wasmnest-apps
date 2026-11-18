@@ -1,0 +1,143 @@
+<template>
+  <Modal
+    :model-value="modelValue"
+    :title="t('project.run.pickAgent')"
+    size="md"
+    @update:model-value="$emit('update:modelValue', $event)"
+  >
+    <p class="group-row-sub mb-3">{{ t('project.run.pickAgentHint') }}</p>
+
+    <div v-if="loading" class="flex items-center justify-center gap-3 py-8">
+      <span class="picker-spinner" aria-hidden="true"></span>
+      <span class="group-row-sub">{{ t('project.loading') }}</span>
+    </div>
+
+    <div v-else-if="error" class="flex flex-col items-center gap-3 py-6 text-center">
+      <p class="group-row-sub">{{ t(error) }}</p>
+      <button type="button" class="picker-retry" @click="$emit('refresh')">
+        {{ t('project.retry') }}
+      </button>
+    </div>
+
+    <div v-else-if="agents.length === 0" class="py-6 text-center">
+      <p class="group-row-sub">{{ t('project.run.noAgents') }}</p>
+    </div>
+
+    <div v-else class="space-y-2">
+      <button
+        v-for="agent in agents"
+        :key="agent.id"
+        type="button"
+        class="agent-row w-full flex items-center gap-3 rounded-[var(--bc-radius-card)] border px-3 py-2.5 text-left transition-colors active:opacity-80"
+        :class="{ 'agent-row--missing': agent.readiness === 'missing' }"
+        :style="{ borderColor: 'var(--mobile-border)' }"
+        :aria-disabled="agent.readiness === 'missing' || !!startingAgentId"
+        :data-testid="`mobile-agent-${agent.id}`"
+        @click="$emit('pick', agent)"
+      >
+        <!-- Agent 自己的官方品牌标（与桌面端同一份图元，未知 id 回退通用占位） -->
+        <AgentIcon :agent-id="agent.id" :size="34" />
+
+        <div class="flex-1 min-w-0">
+          <div class="group-row-title truncate">{{ agent.displayName }}</div>
+          <div class="group-row-sub font-mono truncate mt-0.5">{{ agent.binary }}</div>
+        </div>
+
+        <!-- 就绪度是「能不能点」的解释，不是状态灯：小字 + 中性底 -->
+        <span v-if="agent.readiness === 'missing'" class="bc-chip shrink-0">
+          {{ t('project.run.agentMissing') }}
+        </span>
+        <span v-else-if="agent.readiness === 'unknown'" class="bc-chip shrink-0">
+          {{ t('project.run.agentUnknown') }}
+        </span>
+
+        <span
+          v-if="startingAgentId === agent.id"
+          class="picker-spinner shrink-0"
+          aria-hidden="true"
+        ></span>
+      </button>
+    </div>
+
+    <p v-if="hasMissing && !loading && !error" class="picker-note mt-3">
+      {{ t('project.run.installOnDesktop') }}
+    </p>
+  </Modal>
+</template>
+
+<script setup lang="ts">
+/**
+ * Agent 选择器（新建运行）
+ *
+ * 就绪度来自桌面 `/api/agents`：`missing` 行保留在列表里（用户要知道缺什么），
+ * 但整行降透明度并由父级在点击时给出「去桌面端安装」提示——不渲染灰按钮假装
+ * 可启动，也不静默隐藏。`unknown` 允许尝试启动（探测没结论，不谎称未安装）。
+ * 行首图标一律用 Agent 自己的官方品牌标（`agents/components/AgentIcon.vue`）。
+ */
+import { computed } from 'vue'
+import { useHostPage } from '../../host/useHostPage'
+import Modal from '../../host/components/ui/Modal.vue'
+import AgentIcon from '../../agents/components/AgentIcon.vue'
+import type { AgentEntry } from '../types'
+
+const props = defineProps<{
+  modelValue: boolean
+  agents: AgentEntry[]
+  loading: boolean
+  error: string
+  startingAgentId: string | null
+}>()
+
+defineEmits<{
+  'update:modelValue': [value: boolean]
+  pick: [agent: AgentEntry]
+  refresh: []
+}>()
+
+const t = useHostPage().t
+
+const hasMissing = computed(() => props.agents.some((agent) => agent.readiness === 'missing'))
+</script>
+
+<style scoped>
+.agent-row--missing {
+  opacity: 0.6;
+}
+
+.picker-spinner {
+  width: 1rem;
+  height: 1rem;
+  border-radius: 999px;
+  border: 2px solid var(--mobile-text-muted);
+  border-top-color: transparent;
+  animation: picker-spin 0.8s linear infinite;
+}
+
+@keyframes picker-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.picker-retry {
+  height: 2.5rem;
+  padding: 0 1rem;
+  border-radius: var(--bc-radius-control);
+  font-size: var(--font-size-base);
+  color: var(--mobile-text-primary);
+  background: var(--mobile-bg-primary);
+  border: 1px solid var(--mobile-border);
+}
+
+.picker-note {
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+  color: var(--mobile-text-secondary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .picker-spinner {
+    animation: none;
+  }
+}
+</style>

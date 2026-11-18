@@ -38,6 +38,7 @@ mod auth_center;
 mod device_bridge;
 mod peer;
 mod platform;
+mod relay_center;
 mod roots_registry;
 mod settings_store;
 mod transfer_store;
@@ -121,6 +122,30 @@ fn host() -> WasmHost {
     WasmHost
 }
 
+/// 节点期望监听端口（固定值，**不是** 0）
+///
+/// 与能力仓 `wasmnest-server-peer-net` 的 `DEFAULT_PEER_PORT` 同值；WIT `peer.wit`
+/// 明确「防火墙友好场景应显式指定固定端口」，固定端口也让「对端连不上」的排查
+/// 有确定目标（被占用时宿主自行回退 OS 分配，不靠调用方猜）。
+const PEER_NODE_LISTEN_PORT: u16 = 47613;
+
+/// 节点启动配置的**唯一构造点**（`activate` 与桌面 `NodePower` 实现共用）
+///
+/// `data_dir` / `device_name` 留空 ⇒ 宿主按产品默认补全（SDK `host-peer` 没有
+/// 插件作用域数据目录原语，app 侧也无从得知该路径）。
+///
+/// 现状提醒（勿据此假设 per-app 隔离已生效）：宿主在**服务租约路径**（双端生产
+/// 装配恒命中）并不读这份配置——节点按全局 `PeerCtx` + `DEFAULT_PEER_PORT` 起，
+/// per-app 实例表尚未落地。因此 `listen_port` / 空身份只在无租约装配（无头 /
+/// 测试）下生效。
+pub(crate) fn peer_node_config(listen_port: u16) -> wasmnest_plugin_api::host::PeerNodeConfig {
+    wasmnest_plugin_api::host::PeerNodeConfig {
+        data_dir: String::new(),
+        device_name: String::new(),
+        listen_port,
+    }
+}
+
 struct FileTransferPlugin;
 
 impl WasmPlugin for FileTransferPlugin {
@@ -153,6 +178,7 @@ impl WasmPlugin for FileTransferPlugin {
             "peer:transfer-event",
             "peer:consent",
             "peer:connection",
+            "peer:relay-devices",
         ];
         // 旧快照双写期对账 topic：仅桌面仍订阅（移动已整条退役——宿主早无发布者，
         // 订阅只是把死 topic 写进文档）
@@ -173,18 +199,28 @@ impl WasmPlugin for FileTransferPlugin {
         // peer-net-dissolve：业务语义不留在底座），产品默认（Ask + 审批窗口）由
         // 本插件激活期显式给出——否则引擎直拒一切传入传输。失败不翻成激活失败
         // （下次设置变更 save_and_push 重推收敛）
-        if let Err(e) = settings_store::load(&h)
-            .and_then(|settings| settings_store::save_and_push(&h, &settings))
-        {
-            h.log_error(&format!("activate: receive policy push failed: {e}"));
-        }
+        let settings = match settings_store::load(&h) {
+            Ok(settings) => {
+                if let Err(e) = settings_store::save_and_push(&h, &settings) {
+                    h.log_error(&format!("activate: receive policy push failed: {e}"));
+                }
+                Some(settings)
+            }
+            Err(e) => {
+                h.log_error(&format!("activate: receive policy push failed: {e}"));
+                None
+            }
+        };
         // 引擎电源：双端同构——本插件显式请求 peer 节点起停（服务租约按插件 id
         // 记账：首个引用拉起、最后引用关停；宿主外壳不再按产品 id 驱动）
         // 放在 activate 后段，等价于旧外壳的 `result.is_ok()` 门——前面任何
         // 一步失败都不会把节点带起来。起节点失败不翻成激活失败（与旧行为一致：
         // 旧外壳只 log_error，激活结果由 inner 决定），否则一次引擎故障会变成
-        // 插件整体不可用
-        match h.peer_start_node() {
+        // 插件整体不可用。
+        // T6：经 `PeerNodeConfig` 声明端口与身份（口径见 `PEER_NODE_LISTEN_PORT` /
+        // `peer_node_config`：固定端口 + 空身份交宿主补全）。**不要传 0**——临时
+        // 端口每次重启都变，防火墙放行与排障都失去确定目标
+        match h.peer_start_node(&peer_node_config(PEER_NODE_LISTEN_PORT)) {
             Ok(changed) => h.log_info(&format!(
                 "peer-net node requested by this activation (state changed: {changed})"
             )),
@@ -192,10 +228,27 @@ impl WasmPlugin for FileTransferPlugin {
                 "peer-net node start failed (plugin stays active): {e}"
             )),
         }
+        // T21（7ZAI/wasmnest-apps#27）：node-info / configure-relay 就绪后，激活期
+        // 按当前生效配置（桌面 = 配置中心；移动 = 本地设置）建立本插件份额的 relay
+        // 预留；deactivate 对称释放。预留失败/节点未起只留痕，不把插件打成不可用——
+        // 打开「我的设备」或改设置会再次收敛（幂等）。
+        if let Some(settings) = &settings {
+            peer::apply_relay_reservation(&h, platform, settings);
+        }
         // 注册表层初始化：桌面建 plugin-db 表（幂等，尽早暴露持久化故障）；
         // 移动 storage KV 无表可建（函数内按平台短路）
         if let Err(e) = roots_registry::ensure_table(&h) {
             h.log_warn(&format!("shared_roots table init deferred: {e}"));
+        }
+        // 引擎镜像自愈：镜像只由「改共享目录」写，激活期重推一次让两边收敛。
+        // 失败不翻成激活失败（节点已起、下次变更 / 对端连入仍会重试），但必须留痕：
+        // 镜像落后 = 对端一直读到空清单。
+        match roots_registry::sync_engine(&h) {
+            Ok(roots) => h.log_info(&format!(
+                "activate: shared roots synced to engine ({} entries)",
+                roots.len()
+            )),
+            Err(e) => h.log_error(&format!("activate: shared roots sync failed: {e}")),
         }
         // 首屏兜底（传输编排下沉票 2 开放点 4）：激活晚于事件时经
         // active-transfers 原语查询宿主在册活跃批补占位行；节点未起等场景
@@ -246,6 +299,7 @@ impl WasmPlugin for FileTransferPlugin {
             "peer:transfer-event",
             "peer:consent",
             "peer:connection",
+            "peer:relay-devices",
         ];
         if platform.uses_legacy_snapshot() {
             topics.extend(["peer:devices", "peer:transfer", "peer:receive"]);
@@ -254,6 +308,21 @@ impl WasmPlugin for FileTransferPlugin {
             // 退订失败同样留痕：残留订阅会让停用后的插件仍收到事件
             if let Err(e) = h.bus_unsubscribe(topic) {
                 h.log_warn(&format!("deactivate: bus_unsubscribe {topic} failed: {e}"));
+            }
+        }
+        // T21：插件下线 = 释放自己那份 relay 预留；共享节点可能仍被其他插件持有，
+        // 因此不能靠节点停机的自然释放代替（在此之前调用，节点还活着）
+        // 先关会合：应用已停用，不应继续让同一中继上的设备发现本机
+        peer::publish_relay_room(&h, "", Some(false));
+        if peer::HOST_RELAY_RESERVATION_SUPPORTED {
+            match h.peer_configure_relay(&[], false) {
+                Ok(info) => h.log_info(&format!(
+                    "deactivate: relay reservation released (state={})",
+                    info.relay_state
+                )),
+                Err(e) => h.log_warn(&format!(
+                    "deactivate: relay reservation release skipped/failed (non-fatal): {e}"
+                )),
             }
         }
         // 引擎电源：双端同构——插件下线 → 释放本插件的节点引用（会话已在上方
@@ -281,6 +350,12 @@ impl WasmPlugin for FileTransferPlugin {
             // 设备列表由自建 browse 的定向事件流自行收敛）
             "file-transfer.refresh-devices" => {
                 ensure_mdns_browse(&h);
+                // 空间码 / 会合开关可能早于宿主订阅者登记（激活瞬间丢失）：
+                // 每次显式刷新按当前生效配置重发（幂等；中心不可用时按 fail-closed
+                // 处理，不把「未知」当成「可以对外登记」）
+                if let Ok(settings) = settings_store::load_or_migrate(&h) {
+                    peer::apply_relay_reservation(&h, platform, &settings);
+                }
                 h.bus_publish(
                     "peer:discovery-refresh",
                     &serde_json::json!({ "requestedBy": PLUGIN_ID }),
@@ -326,6 +401,23 @@ impl WasmPlugin for FileTransferPlugin {
 
             // ==================== 发送 ====================
             "file-transfer.pick-files" => Ok(serde_json::to_value(h.platform_pick_files()?)?),
+            // 发送前体积预览（T12）：经 relay 前按阈值给一次「可能较慢」提示。
+            // 只汇总宿主 collect-outgoing 的元数据（不读文件内容、不发起传输）
+            "file-transfer.preview-outgoing" => {
+                let paths: Vec<serde_json::Value> = args
+                    .get("paths")
+                    .and_then(|v| v.as_array())
+                    .cloned()
+                    .unwrap_or_default();
+                if paths.is_empty() {
+                    return Ok(serde_json::json!({ "totalBytes": 0, "files": [] }));
+                }
+                let files = h.peer_collect_outgoing(&paths)?;
+                Ok(serde_json::json!({
+                    "totalBytes": peer::outgoing_total_bytes(&files),
+                    "files": files,
+                }))
+            }
             // 下载完成「打开本地目录」（桌面形态命令）：走 ABI v22 平台原语
             // `host-platform-desktop.reveal-in-dir`（与 pick-files 同域、同口径，
             // 不叠加权限门）。原先经宿主前端 `context.system.revealInDir` +
@@ -356,9 +448,6 @@ impl WasmPlugin for FileTransferPlugin {
             "file-transfer.pause" => peer::pause_task(&h, &args),
             "file-transfer.resume" => peer::resume_task(&h, &args),
             "file-transfer.resume-all" => peer::resume_all_tasks(&h),
-            "file-transfer.remove-task" => Err(anyhow::anyhow!(
-                "unsupported: task removal is not part of the transfer lifecycle"
-            )),
 
             // ==================== 接收端 ====================
             "file-transfer.list-batches" => peer::list_batches(&h),
@@ -411,6 +500,16 @@ impl WasmPlugin for FileTransferPlugin {
             // ==================== 设置（真源 = 插件 storage + 注册表） ====================
             "file-transfer.get-settings" => peer::get_settings(&h),
             "file-transfer.set-settings" => peer::set_settings(&h, &args),
+            // T21：「我的设备」——本机身份 / 可拨地址 / relay 状态。宿主
+            // `host-peer.node-info` 未就绪时显性 unsupported（不伪造链接）。
+            "file-transfer.get-my-device" => peer::get_my_device(&h),
+            // 穿透配置导入（扫码 qr / 内网同步 sync）：只写 relay 地址 / 空间码 /
+            // 来源，不动接收策略与中继开关（T12 语义隔离）
+            "file-transfer.import-relay-config" => peer::import_relay_config(&h, &args),
+            // 从已连接的可信设备同步穿透配置（只读快照；不改对端）
+            "file-transfer.sync-peer-relay-config" => {
+                peer::sync_peer_relay_config(&h, &args, active_node())
+            }
             // 接收落点选择（桌面形态）：移动端固定 MediaStore.Downloads，
             // 命令显性报错（与退役前移动端行为逐字一致）
             "file-transfer.pick-download-dir" => {
@@ -458,6 +557,14 @@ fn dispatch_bus_message(
     // 定向发现事件透传（wire 形状不过翻译）；设备缓存状态机在前端。
     // 注：payload 增量追加 serviceType / browserId（spec v2 §5.2），
     // 前端按「忽略未知字段」增量原则兼容，这里原样透传
+    // 中继会合发现（跨 NAT）：宿主全量快照 → 前端按 nodeId 与 mDNS 缓存归并。
+    // 与 mDNS 事件分开投递：前端要区分「局域网发现」与「中继发现」（后者没有
+    // addr/port，只有 circuit 候选；TTL 也由宿主的 25s 心跳续期）。
+    if topic == "peer:relay-devices" {
+        h.emit_event("plugin:file-transfer:relay-devices", payload);
+        return Ok(());
+    }
+
     if topic == *MDNS_FOUND_TOPIC || topic == *MDNS_LOST_TOPIC {
         let event = if topic == *MDNS_FOUND_TOPIC {
             "mdns-found"
@@ -488,6 +595,12 @@ fn dispatch_bus_message(
         if payload.get("connected").and_then(|v| v.as_bool()) == Some(false) {
             if let Some(node_id) = payload.get("nodeId").and_then(|v| v.as_str()) {
                 device_bridge::forget_session(node_id);
+            }
+        } else if payload.get("connected").and_then(|v| v.as_bool()) == Some(true) {
+            // 对端连入即重推一次共享根：对端随后会立刻来拉清单，这里保证引擎
+            // 镜像与本插件注册表一致（镜像落后会让对方看到空列表）。
+            if let Err(e) = roots_registry::sync_engine(h) {
+                h.log_error(&format!("connection: shared roots sync failed: {e}"));
             }
         }
         h.emit_event("plugin:file-transfer:connection-changed", payload);
@@ -541,6 +654,29 @@ fn require_str(args: &serde_json::Value, key: &str) -> anyhow::Result<String> {
         .and_then(|v| v.as_str())
         .map(|s| s.to_string())
         .ok_or_else(|| anyhow::anyhow!("missing {key}"))
+}
+
+#[cfg(test)]
+mod node_config_tests {
+    use super::*;
+
+    /// 固定端口锁值：改这里 = 改双端节点监听端口口径，必须同时确认能力仓
+    /// `DEFAULT_PEER_PORT` 与 WIT `peer.wit` 注释仍一致
+    #[test]
+    fn listen_port_matches_documented_default() {
+        assert_eq!(PEER_NODE_LISTEN_PORT, 47613);
+    }
+
+    /// 唯一构造点：空身份交宿主补全，端口按入参透传（activate 传固定端口）
+    #[test]
+    fn peer_node_config_carries_host_filled_identity_and_caller_port() {
+        let config = peer_node_config(PEER_NODE_LISTEN_PORT);
+        assert!(config.data_dir.is_empty(), "data_dir 留空由宿主补全");
+        assert!(config.device_name.is_empty(), "device_name 留空由宿主补全");
+        assert_eq!(config.listen_port, PEER_NODE_LISTEN_PORT);
+        let auto = peer_node_config(0);
+        assert_eq!(auto.listen_port, 0, "入参透传（0 = OS 分配）");
+    }
 }
 
 // 协商 ABI（双端下界）：桌面宿主持 38 ≥ 21、移动宿主 21 ≥ 21 均放行

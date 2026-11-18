@@ -148,8 +148,8 @@ pub fn revoke_via_host(_id: &str) -> Result<serde_json::Value, String> {
 mod tests {
     use super::*;
     use crate::trust::source::tests::MockRecords;
-    use wasmnest_plugin_api::host::HostError;
     use std::sync::Mutex;
+    use wasmnest_plugin_api::host::HostError;
     // 跨分组共享的测试脚手架（子模块经 `use super::*` 可见）
 
     /// mock host-peer（native 单测；peer_list_trusted 返回 TrustedPeerDto
@@ -174,6 +174,10 @@ mod tests {
         fn peer_dial(&self, _endpoint: &serde_json::Value) -> Result<String, HostError> {
             unimplemented_peer!()
         }
+        /// T11 `dial-peer-addrs`：本测试只消费 list / revoke 两函数，不拨号
+        fn peer_dial_addrs(&self, _endpoint: &serde_json::Value) -> Result<String, HostError> {
+            unimplemented_peer!()
+        }
         fn peer_close(&self, _handle: &str) -> Result<bool, HostError> {
             unimplemented_peer!()
         }
@@ -194,6 +198,14 @@ mod tests {
             let before = trusted.len();
             trusted.retain(|t| t["nodeId"] != node_id);
             Ok(trusted.len() < before)
+        }
+        /// T07/T08 信任写入：本组用例只消费 list / revoke 两函数
+        fn peer_trust_node(
+            &self,
+            _node_id: &str,
+            _display_name: Option<&str>,
+        ) -> Result<bool, HostError> {
+            unimplemented_peer!()
         }
         fn peer_send_files(
             &self,
@@ -243,7 +255,10 @@ mod tests {
         fn peer_set_download_dir(&self, _path: &str) -> Result<(), HostError> {
             unimplemented_peer!()
         }
-        fn peer_start_node(&self) -> Result<bool, HostError> {
+        fn peer_start_node(
+            &self,
+            _config: &wasmnest_plugin_api::host::PeerNodeConfig,
+        ) -> Result<bool, HostError> {
             unimplemented_peer!()
         }
         fn peer_stop_node(&self) -> Result<bool, HostError> {
@@ -256,6 +271,17 @@ mod tests {
             &self,
             _paths: &[serde_json::Value],
         ) -> Result<serde_json::Value, HostError> {
+            unimplemented_peer!()
+        }
+        /// T21 本机节点投影 / relay 预留：本组用例只消费 list / revoke
+        fn peer_node_info(&self) -> Result<wasmnest_plugin_api::host::PeerNodeInfo, HostError> {
+            unimplemented_peer!()
+        }
+        fn peer_configure_relay(
+            &self,
+            _relay_addrs: &[String],
+            _enable: bool,
+        ) -> Result<wasmnest_plugin_api::host::PeerNodeInfo, HostError> {
             unimplemented_peer!()
         }
     }

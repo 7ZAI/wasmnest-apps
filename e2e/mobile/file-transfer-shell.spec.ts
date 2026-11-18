@@ -18,12 +18,9 @@
  *
  * file-transfer 移动端的 `devMock.ts` 给 dev-shell 播了**已连接的活跃对端**
  * （「小米 14 Pro」connected + active）。真宿主**忽略 devMock**（真实宿主不消费该导出），
- * 所以真机上必然「无对端」。于是：
- *
- * - `mobile-ft-peer-status[data-online="false"]` —— 真机为 false、mock 为 true；
- * - 上传入口 `disabled` —— 真机为禁用、mock 为可用。
- *
- * 这两条断言一旦为真，就同时证明了「跑的是真宿主真 wasm，不是 mock 壳」。
+ * 所以真机上必然「无对端」，底栏上方的上传入口因此 `disabled`：
+ * 真机为禁用、mock 为可用。这条断言一旦为真，就同时证明了
+ * 「跑的是真宿主真 wasm，不是 mock 壳」。
  *
  * ## 判据纪律（与 `docs/E2E.md` §6 / §10.4 同口径）
  *
@@ -84,7 +81,7 @@ describe('File Transfer（真机 · 移动宿主运行面）', () => {
     }
   })
 
-  it('应用在真宿主里挂载成功：运行面与主分段就位', async function () {
+  it('应用在真宿主里挂载成功：运行面与底栏入口就位', async function () {
     this.timeout(60_000)
     expectEqual(
       await phone().visible('[data-testid="mobile-ft-root"]'),
@@ -95,33 +92,40 @@ describe('File Transfer（真机 · 移动宿主运行面）', () => {
       expectEqual(
         await phone().visible(`[data-testid="mobile-ft-tab-${key}"]`),
         true,
-        `主分段 ${key} 可见`,
+        `底栏入口 ${key} 可见`,
       )
     }
+    // 设置是底栏第四项（进宿主二级页），不是一级页：有锚点但没有 aria-pressed 选中态
+    expectEqual(
+      await phone().visible('[data-testid="mobile-ft-settings"]'),
+      true,
+      '底栏设置入口可见',
+    )
   })
 
   it('主分段可切换：状态位随点击推进（aria-pressed）', async function () {
     this.timeout(60_000)
     const tab = (key: string) => `[data-testid="mobile-ft-tab-${key}"]`
 
-    // 默认落在传输页（应用的第一目标）
-    expectEqual(await phone().attr(tab('transfers'), 'aria-pressed'), 'true', '默认选中传输分段')
-    expectEqual(await phone().attr(tab('browse'), 'aria-pressed'), 'false', '默认未选中浏览分段')
+    // 默认落在探索连接（没有可用对端时传输页无事可做；底栏第一项即首页）
+    expectEqual(await phone().attr(tab('devices'), 'aria-pressed'), 'true', '默认选中探索连接')
+    expectEqual(await phone().attr(tab('transfers'), 'aria-pressed'), 'false', '默认未选中传输分段')
 
     await phone().tap(tab('browse'))
     await phone().waitForAttr(tab('browse'), 'aria-pressed', 'true', 15_000)
-    expectEqual(await phone().attr(tab('transfers'), 'aria-pressed'), 'false', '切到浏览后传输分段解除')
+    expectEqual(await phone().attr(tab('devices'), 'aria-pressed'), 'false', '切到浏览后探索连接解除')
 
-    await phone().tap(tab('devices'))
-    await phone().waitForAttr(tab('devices'), 'aria-pressed', 'true', 15_000)
-    expectEqual(await phone().attr(tab('browse'), 'aria-pressed'), 'false', '切到设备后浏览分段解除')
+    await phone().tap(tab('transfers'))
+    await phone().waitForAttr(tab('transfers'), 'aria-pressed', 'true', 15_000)
+    expectEqual(await phone().attr(tab('browse'), 'aria-pressed'), 'false', '切到传输后浏览分段解除')
   })
 
   it('无对端时上传入口禁用（真实 wasm 的对端判定生效，非 mock 壳）', async function () {
     this.timeout(60_000)
     // 真宿主忽略 devMock 的「已连接活跃对端」种子 → 必然离线；
     // dev-shell 会显示在线（小米 14 Pro）→ 这条断言对 mock 壳是红的。
-    await phone().waitForAttr('[data-testid="mobile-ft-peer-status"]', 'data-online', 'false', 30_000)
+    // 等按钮落进禁用态，而不是 sleep 固定时长
+    await phone().waitFor('[data-testid="mobile-ft-upload"][disabled]', 30_000)
 
     const uploadDisabled = await phone().eval<boolean | null>(`(() => {
       const el = document.querySelector('[data-testid="mobile-ft-upload"]')
@@ -138,6 +142,13 @@ describe('File Transfer（真机 · 移动宿主运行面）', () => {
       await phone().visible('[data-testid="mobile-ft-settings-page"]'),
       true,
       '设置页可见（宿主路由跳转成功）',
+    )
+    // 形态改造：我的设备信息迁到设置页（探索页不再有该入口）
+    await phone().waitFor('[data-testid="mobile-settings-section-my-device"]', 30_000)
+    expectEqual(
+      await phone().visible('[data-testid="mobile-settings-section-my-device"]'),
+      true,
+      '设置页「我的设备」区块可见',
     )
   })
 })

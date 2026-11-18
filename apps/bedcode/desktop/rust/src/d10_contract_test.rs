@@ -57,6 +57,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use crate::http_routes::{HttpRouteDecl, ROUTES};
+use futures_util::{SinkExt, StreamExt};
 use wasmnest_plugin_api::host::bus::TOPIC_NS_SEP;
 use wasmnest_plugin_api::host::ws::WS_CLIENT_CONNECT;
 use wasmnest_server_base::config::NetworkConfig;
@@ -66,14 +67,13 @@ use wasmnest_server_base::ports::{
     MdnsTypeSubscription, PathsPort, PluginInvoker, PowerPort, RuntimePort, ServerLifecycleEvent,
     ServerLifecyclePort, ServerPorts, SystemInfoPort,
 };
-use futures_util::{SinkExt, StreamExt};
 // 注册面吃的是**能力仓自持的 wire 副本**（`wasmnest_server_http::wire` /
 // `wasmnest_server_websocket::wire`），与桌面 SDK 的 `wasmnest_plugin_api::EndpointAuth`
 // 是两份逐字一致、由能力仓 `cross-end-tests` 漂移锁钉住的独立类型。测试要过的注册表
 // 认前者，故档位解析也必须用前者——用 SDK 副本会得到 E0308（两个同名不同类型）。
+use serde_json::{json, Value};
 use wasmnest_server_http::wire::EndpointAuth as HttpEndpointAuth;
 use wasmnest_server_websocket::endpoint::EndpointAuth as WsEndpointAuth;
-use serde_json::{json, Value};
 
 /// 本插件 id（与 `plugin.json` 的 `id` 逐字一致；命名空间段由宿主注入）
 const PLUGIN_ID: &str = "com.wasmnest.bedcode";
@@ -388,6 +388,7 @@ fn register_all_http_routes() -> usize {
         let auth = HttpEndpointAuth::parse_with(Some(decl.auth), HttpEndpointAuth::Jwt)
             .unwrap_or_else(|e| panic!("{} 的 auth 档位非法：{e}", decl.path));
         let methods: Vec<String> = decl.methods.iter().map(|m| m.to_string()).collect();
+        // 端点注册不携带 encryption：链路加密策略按应用由宿主执行（应用设置页决定）。
         let entry = wasmnest_server_http::registry::register(
             PLUGIN_ID, decl.path, decl.host, &methods, auth,
         )
@@ -451,6 +452,15 @@ const FROZEN_GATEWAY_ALIASES: &[(&str, &str, &[&str], &str)] = &[
     // 业务域（移动端配置页 / 快捷指令页）
     ("configs", "/api/configs", &["GET"], "jwt"),
     ("quick-actions", "/api/quick-actions", &["GET"], "jwt"),
+    // 项目 / 运行 / Agent（ADR 0003 桌面项目化的移动消费面；2026-10-31 新增）
+    //
+    // 跨端影响：移动端从「会话配置列表」改为「项目 → 运行 → 终端」后，需要
+    // 项目列表、项目内运行列表、启动运行与 agent 清单。写面（建/改名/删除/选目录）
+    // 仍只在桌面，不在此表。移动端字面量见 `apps/bedcode/mobile/rust/src/project.rs`。
+    ("projects", "/api/projects", &["GET"], "jwt"),
+    ("runs", "/api/runs", &["GET"], "jwt"),
+    ("runs/start", "/api/runs/start", &["POST"], "jwt"),
+    ("agents", "/api/agents", &["GET"], "jwt"),
     // 文件浏览域（移动端文件面板）
     ("file-tree", "/api/file-tree", &["POST"], "jwt"),
     (
@@ -695,8 +705,8 @@ async fn http_routes_reach_the_plugin_edge_with_declared_method_and_auth_tier() 
         .collect();
     assert_eq!(
         gateway_aliased.len(),
-        17,
-        "网关别名数 = 业务 10 + sessions 7（auth 7 条已随认证中心迁出）"
+        21,
+        "网关别名数 = 业务 10 + sessions 7 + 项目/运行/Agent 4（auth 7 条已随认证中心迁出）"
     );
     assert_eq!(
         static_aliased.len(),
@@ -938,8 +948,8 @@ async fn http_routes_reach_the_plugin_edge_with_declared_method_and_auth_tier() 
         .collect();
     assert_eq!(
         internal_none.len(),
-        2,
-        "内部路径上的 none 档端点 = task-status + session-mode（另加即需逐条交代）"
+        6,
+        "内部路径上的 none 档端点 = task-status + session-mode + 桥接四路由（run-attach 身份握手 + 三条桥接；另加即需逐条交代）"
     );
     for decl in &internal_none {
         let url = format!("{base}/api/plugin/{PLUGIN_ID}/{}", decl.path);
@@ -952,7 +962,7 @@ async fn http_routes_reach_the_plugin_edge_with_declared_method_and_auth_tier() 
         assert_eq!(
             resp.status().as_u16(),
             200,
-            "{} 是 none 档（环回 hook），经内部路径必须免凭证可达（否则 hook 静默 401）",
+            "{} 是 none 档（环回 hook / 桥接），经内部路径必须免凭证可达（否则静默 401）",
             decl.path
         );
     }

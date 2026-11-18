@@ -150,9 +150,17 @@ pub fn new_record(
 ) -> SessionRecord {
     SessionRecord {
         id: id.to_string(),
-        // P1 后续阶段由本插件经 host-pty.spawn 自持句柄；今天宿主内部持有
+        // 句柄由 spawn 回执补齐（`note_created`）
         pty_id: None,
         config_id: config_id.to_string(),
+        // 容器归属由创建编排回填（launch 传入项目的目录与命令推断结果）
+        project_id: None,
+        agent_id: None,
+        agent_session_id: None,
+        title: None,
+        model: None,
+        truncated: false,
+        bridge_seen_at: None,
         name: name.to_string(),
         status: if start {
             SessionStatus::Running
@@ -190,6 +198,13 @@ mod tests {
             id: "s1".to_string(),
             pty_id: None,
             config_id: "c1".to_string(),
+            project_id: None,
+            agent_id: None,
+            agent_session_id: None,
+            title: None,
+            model: None,
+            truncated: false,
+            bridge_seen_at: None,
             name: "会话".to_string(),
             status,
             created_at: "2026-09-23T09:00:00Z".to_string(),
@@ -199,6 +214,22 @@ mod tests {
             owner: None,
             updated_at: "2026-09-23T09:00:00Z".to_string(),
         }
+    }
+
+    // ==================== 终端会话面归属判据 ====================
+
+    /// 无项目归属 = 终端会话面；有归属 = 项目运行（不进终端会话列表）
+    ///
+    /// 回归 2026-11-06：终端会话面停用后，项目运行的会话仍照常落库（项目工作台
+    /// 靠 `run.list` 读它），但不得从 `session.list` 透出。
+    #[test]
+    fn session_scope_excludes_project_runs() {
+        // 无归属 → 终端会话面
+        assert!(super::super::is_session_scope(None));
+        // 空串等价于无归属（迁移遗留 / 未绑定行的两种写法）
+        assert!(super::super::is_session_scope(Some("")));
+        // 有归属 → 项目运行，不属于终端会话面
+        assert!(!super::super::is_session_scope(Some("p-1")));
     }
 
     // ==================== 状态机合法性矩阵 ====================

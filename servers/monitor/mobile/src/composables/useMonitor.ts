@@ -15,15 +15,19 @@ import {
   collectSystemSections,
   describeError,
   normalizeSnapshot,
+  platformTotals,
   summarize,
   toRows,
 } from '../utils/format'
+import { hostProcessOf, webviewHeapOf } from '../utils/process'
 import type {
+  HostProcessMetrics,
   MetricsSnapshot,
   MonitorPanelRegistration,
   PluginMetricRow,
   RuntimeSample,
   SystemSection,
+  WebviewHeap,
 } from '../types'
 
 /** 本次打开最多保留的采样数（1s 轮询 ≈ 一分钟；不落盘） */
@@ -52,6 +56,11 @@ export interface UseMonitorOptions {
   intervalMs?: number
   /** 是否展示 `task` 系统段（移动端默认 false） */
   includeTask?: boolean
+  /**
+   * WebView 自报 JS 堆的探针（默认读当前 realm 的 `performance.memory`）。
+   * 注入点存在只为可测：Chromium 才有该 API，WebKitGTK / WKWebView 恒 null。
+   */
+  heapProbe?: () => WebviewHeap | null
 }
 
 export function useMonitor(
@@ -60,6 +69,7 @@ export function useMonitor(
 ) {
   const intervalMs = options.intervalMs ?? 1000
   const includeTask = options.includeTask ?? false
+  const heapProbe = options.heapProbe ?? (() => webviewHeapOf(globalThis))
 
   const snapshot = shallowRef<MetricsSnapshot | null>(null)
   const rows = ref<PluginMetricRow[]>([])
@@ -76,6 +86,15 @@ export function useMonitor(
   const lastUpdated = ref<number | null>(null)
   /** 本次打开期间的采样序列（仅内存）；速率为相邻采样差值 */
   const samples = ref<RuntimeSample[]>([])
+  /** 平台总览（全插件求和 / 速率）：快照或采样变化时重算 */
+  const platform = computed(() => platformTotals(snapshot.value, samples.value))
+  /**
+   * 宿主进程 / WebView（`process` 段）：整机口径，**不并入** wasm 台账。
+   * `null` = 快照没有这一段（旧宿主）→ 页面显示「未提供」。
+   */
+  const hostProcess = computed<HostProcessMetrics | null>(() => hostProcessOf(snapshot.value))
+  /** WebView 自报 JS 堆（Chromium 才有；每次成功采样重读，量化值原样透出） */
+  const webviewHeap = ref<WebviewHeap | null>(null)
 
   let timer: ReturnType<typeof setInterval> | null = null
   let inflight = false
@@ -89,10 +108,12 @@ export function useMonitor(
       const next = normalizeSnapshot(raw)
       const now = Date.now()
       const totals = summarize(next)
+      const plat = platformTotals(next)
       snapshot.value = next
       rows.value = toRows(next)
       panels.value = collectMonitorPanels(next)
       systems.value = collectSystemSections(next, { includeTask })
+      webviewHeap.value = heapProbe()
       error.value = null
       lastUpdated.value = now
       samples.value = [
@@ -102,6 +123,9 @@ export function useMonitor(
           callsTotal: totals.callsTotal,
           callsInFlight: totals.callsInFlight,
           trapsTotal: totals.trapsTotal,
+          memoryCurrentBytes: plat.memoryCurrentBytes,
+          memoryPeakBytes: plat.memoryPeakBytes,
+          fuelTotal: plat.fuelTotal,
         },
       ].slice(-HISTORY_LIMIT)
     } catch (e) {
@@ -133,10 +157,13 @@ export function useMonitor(
 
   return {
     snapshot,
+    hostProcess,
+    webviewHeap,
     rows,
     panels,
     systems,
     summary,
+    platform,
     error,
     loading,
     lastUpdated,

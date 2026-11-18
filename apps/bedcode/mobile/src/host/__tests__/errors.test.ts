@@ -149,6 +149,7 @@ describe('C-ERR-7 机制引用的 key 双语在场', () => {
     'hub.biometricFailed',
     // 扫码面板（ScanPanel）
     'hub.scanHint',
+    'hub.scanHintSlow',
     'hub.scanFailedTitle',
     'hub.scanBack',
     'hub.scanRescan',

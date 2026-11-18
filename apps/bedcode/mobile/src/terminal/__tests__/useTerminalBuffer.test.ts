@@ -119,6 +119,8 @@ describe('useTerminalBuffer（票 05：新协议）', () => {
   it('已订阅会话再次订阅：仍触发 terminalSubscribe（fresh subscribe 重播）', async () => {
     await terminalBuffer.subscribeSession('s1')
     emitState('s1', 'live')
+    // 页面挂载（新 xterm）：复位重放窗口与在屏内容，允许本页再发一次 fresh subscribe
+    store.registerRealtimeHandler('s1', { onOutput: vi.fn() })
     cmd.terminalSubscribe.mockClear()
     const result = await terminalBuffer.subscribeSession('s1')
     expect(result).toBeNull()
@@ -199,7 +201,9 @@ describe('useTerminalBuffer（票 05：新协议）', () => {
     expect(store.realtimeHandlers.has('s1')).toBe(false)
   })
 
-  it('registerRealtimeHandler：onClear 清空 xterm 并释放写队列（writeCoalescer dispose）', async () => {
+  it('registerRealtimeHandler：不暴露 onClear（清屏改由桌面插件带内下发）', async () => {
+    // P0-3：事件路径清屏会与在飞 write 竞争（丢重放头 / 旧字节回刷）。
+    // 清屏现在编进重放字节流，RealtimeHandler 不再有任何 clear 回调。
     const terminal = {
       clear: vi.fn(),
       write: vi.fn(),
@@ -210,9 +214,9 @@ describe('useTerminalBuffer（票 05：新协议）', () => {
     terminalBuffer.registerRealtimeHandler('s1', terminal)
     await flushAsync()
     const handler = store.realtimeHandlers.get('s1')!
-    handler.onClear?.()
 
-    expect(terminal.clear).toHaveBeenCalledTimes(1)
+    expect('onClear' in handler).toBe(false)
+    expect(terminal.clear).not.toHaveBeenCalled()
   })
 
   it('prepareSession：订阅确认到达 → 返回就绪（终端页挂载时重新订阅触发回放）', async () => {

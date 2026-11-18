@@ -41,10 +41,10 @@ use wasmnest_plugin_api_mobile::host::{HostEvents, HostLog, HostTerminalStream, 
 use wasmnest_plugin_api_mobile::wasm_host::WasmHost;
 
 use crate::protocol::{
-    build_ack_frame, build_subscribe_frame, build_input_text_frame, classify_server_error,
+    build_ack_frame, build_input_text_frame, build_subscribe_frame, classify_server_error,
     plan_input_frames, should_send_ack, InputFrame, ServerErrorClass, MAX_SESSION_MISSING_STRIKES,
 };
-use crate::read_primary_target;
+use crate::{lock_or_recover, read_primary_target};
 
 // ==================== 事件名（前端 listen；payload 形状与退役前逐字段一致） ====================
 //
@@ -218,7 +218,7 @@ impl LinkManager {
             Rebuild(Vec<String>),
         }
         let action = {
-            let mut mgr = LINK_MANAGER.lock().expect("link manager lock");
+            let mut mgr = lock_or_recover(&LINK_MANAGER);
             match mgr.links.get_mut(session_id) {
                 Some(link) if !link.stopped && link.handle.is_some() => {
                     // 端口标志清掉——从此刻起断线重连需恢复订阅
@@ -256,9 +256,7 @@ impl LinkManager {
         // 订阅失败经 error 帧显性表达——会话不存在 → 主动断开借宿主退避重试
         h.ws_send_text(&handle, &frame)
             .map_err(|e| anyhow::anyhow!("subscribe send failed: {}", e.message))?;
-        LINK_MANAGER
-            .lock()
-            .expect("link manager lock")
+        lock_or_recover(&LINK_MANAGER)
             .links
             .insert(session_id.to_string(), link);
         emit_state(h, session_id, LinkPhase::Auth, 0, "subscribed_sent");
@@ -285,7 +283,7 @@ impl LinkManager {
         let mut stale_handles: Vec<String> = Vec::new();
         let mut reclaimed_idle = 0usize;
         {
-            let mut mgr = LINK_MANAGER.lock().expect("link manager lock");
+            let mut mgr = lock_or_recover(&LINK_MANAGER);
             if let Some(link) = mgr.links.get_mut(session_id) {
                 if !link.stopped && link.handle.is_some() {
                     return Ok(());
@@ -330,9 +328,7 @@ impl LinkManager {
         link.handle = Some(handle.clone());
         link.last_handle = Some(handle);
         link.prewarmed = true;
-        LINK_MANAGER
-            .lock()
-            .expect("link manager lock")
+        lock_or_recover(&LINK_MANAGER)
             .links
             .insert(session_id.to_string(), link);
         // phase=connecting + detail=prewarmed：前端只会看到「未订阅但已建连」，
@@ -349,7 +345,7 @@ impl LinkManager {
         }
         // 锁内只摘句柄；ws_close / emit 一律锁外（#14）
         let handle = {
-            let mut mgr = LINK_MANAGER.lock().expect("link manager lock");
+            let mut mgr = lock_or_recover(&LINK_MANAGER);
             let Some(link) = mgr.links.get_mut(session_id) else {
                 return;
             };
@@ -368,9 +364,7 @@ impl LinkManager {
     /// 全部取消（设备手动断开 / 连接关闭）
     pub(crate) fn unsubscribe_all(h: &WasmHost) {
         let ids: Vec<String> = {
-            LINK_MANAGER
-                .lock()
-                .expect("link manager lock")
+            lock_or_recover(&LINK_MANAGER)
                 .links
                 .keys()
                 .cloned()
@@ -384,7 +378,7 @@ impl LinkManager {
     /// 会话删除：清链路（订阅态与推送通道在宿主 gateway 由命令层同步清理）
     pub(crate) fn remove(h: &WasmHost, session_id: &str) {
         Self::unsubscribe(h, session_id);
-        let mut mgr = LINK_MANAGER.lock().expect("link manager lock");
+        let mut mgr = lock_or_recover(&LINK_MANAGER);
         mgr.links.remove(session_id);
         // 会话已删除：在屏内容事实随之失效（同 id 重建的会话必须从头重放）
         mgr.page_content.remove(session_id);
@@ -392,10 +386,15 @@ impl LinkManager {
 
     /// 发送终端输入（文本 + 特殊键共存，帧序即写入序；投递失败上抛——
     /// 多帧输入下「文本已写进 PTY、回车没发」必须让前端看得见）
-    pub(crate) fn send_input(h: &WasmHost, session_id: &str, data: &str, special_key: Option<&str>) -> anyhow::Result<()> {
+    pub(crate) fn send_input(
+        h: &WasmHost,
+        session_id: &str,
+        data: &str,
+        special_key: Option<&str>,
+    ) -> anyhow::Result<()> {
         let frames = plan_input_frames(data, special_key).map_err(anyhow::Error::msg)?;
         let handle = {
-            let mgr = LINK_MANAGER.lock().expect("link manager lock");
+            let mgr = lock_or_recover(&LINK_MANAGER);
             let link = mgr
                 .links
                 .get(session_id)
@@ -403,7 +402,9 @@ impl LinkManager {
             if !link.subscribe_ack {
                 return Err(anyhow::anyhow!("terminal link not subscribed"));
             }
-            link.handle.clone().ok_or_else(|| anyhow::anyhow!("terminal link not subscribed"))?
+            link.handle
+                .clone()
+                .ok_or_else(|| anyhow::anyhow!("terminal link not subscribed"))?
         };
         for frame in frames {
             match frame {
@@ -431,7 +432,7 @@ impl LinkManager {
     pub(crate) fn ack_rendered(h: &WasmHost, session_id: &str, offset: u64) {
         // 锁内只记账与节流裁决；ws_send / log 一律锁外（#14）
         let ack = {
-            let mut mgr = LINK_MANAGER.lock().expect("link manager lock");
+            let mut mgr = lock_or_recover(&LINK_MANAGER);
             let Some(link) = mgr.links.get_mut(session_id) else {
                 return;
             };
@@ -457,7 +458,7 @@ impl LinkManager {
 
     /// 链路状态快照（前端轮询/对账；camelCase 键对齐前端 TerminalLinkState）
     pub(crate) fn get_state(session_id: &str) -> serde_json::Value {
-        let mgr = LINK_MANAGER.lock().expect("link manager lock");
+        let mgr = lock_or_recover(&LINK_MANAGER);
         match mgr.links.get(session_id) {
             Some(link) => serde_json::json!({
                 "sessionId": session_id,
@@ -484,7 +485,7 @@ impl LinkManager {
             None => return,
         };
         let resumed = {
-            let mut mgr = LINK_MANAGER.lock().expect("link manager lock");
+            let mut mgr = lock_or_recover(&LINK_MANAGER);
             let target = mgr
                 .links
                 .iter_mut()
@@ -514,7 +515,10 @@ impl LinkManager {
                 // 重新订阅（无续传语义；环淘汰由 ring_resync 如实告知）。
                 // 重放前的清屏由 `subscribed` 按「页面是否已有内容」判定并发 resync
                 if let Err(e) = h.ws_send_text(handle, &build_subscribe_frame(&session_id)) {
-                    h.log_warn(&format!("resubscribe after reconnect failed (session {session_id}): {}", e.message));
+                    h.log_warn(&format!(
+                        "resubscribe after reconnect failed (session {session_id}): {}",
+                        e.message
+                    ));
                     return;
                 }
                 emit_state(h, &session_id, LinkPhase::Auth, 0, "subscribed_sent");
@@ -534,8 +538,11 @@ impl LinkManager {
     /// 活跃链路进入「等待宿主重连」并转发 reconnecting 状态（重连由宿主
     /// auto-reconnect 接管，插件无时钟）
     pub(crate) fn on_ws_close(h: &WasmHost, handle: &str) {
-        let mut mgr = LINK_MANAGER.lock().expect("link manager lock");
-        let target = mgr.links.iter_mut().find(|(_, l)| l.handle.as_deref() == Some(handle));
+        let mut mgr = lock_or_recover(&LINK_MANAGER);
+        let target = mgr
+            .links
+            .iter_mut()
+            .find(|(_, l)| l.handle.as_deref() == Some(handle));
         let Some((_sid, link)) = target else {
             return;
         };
@@ -556,14 +563,21 @@ impl LinkManager {
     /// 退役前 `reconnect_scheduled` detail 一致：`retry_in_ms` 字段）
     pub(crate) fn on_reconnect_scheduled(h: &WasmHost, handle: &str, retry_in_ms: u64) {
         let session_id = {
-            let mgr = LINK_MANAGER.lock().expect("link manager lock");
+            let mgr = lock_or_recover(&LINK_MANAGER);
             mgr.links
                 .iter()
                 .find(|(_, l)| l.last_handle.as_deref() == Some(handle) && l.waiting_reconnect)
                 .map(|(sid, _)| sid.clone())
         };
         if let Some(session_id) = session_id {
-            emit_state_with_retry(h, &session_id, LinkPhase::Connecting, 0, "reconnect_scheduled", retry_in_ms);
+            emit_state_with_retry(
+                h,
+                &session_id,
+                LinkPhase::Connecting,
+                0,
+                "reconnect_scheduled",
+                retry_in_ms,
+            );
         }
     }
 
@@ -573,7 +587,7 @@ impl LinkManager {
     /// （门控 → 窄转发）。句柄反查会话；未命中 = 旧连接残帧，丢弃
     pub(crate) fn on_ws_frame(h: &WasmHost, handle: &str, kind: u8, payload: &[u8]) {
         let session_id = {
-            let mgr = LINK_MANAGER.lock().expect("link manager lock");
+            let mgr = lock_or_recover(&LINK_MANAGER);
             mgr.links
                 .iter()
                 .find(|(_, l)| l.handle.as_deref() == Some(handle))
@@ -616,7 +630,7 @@ fn handle_control_text(h: &WasmHost, session_id: &str, text: &str) {
         // 发 terminal-resync 让前端清屏 + 归零
         Some("subscribed") => {
             {
-                let mut mgr = LINK_MANAGER.lock().expect("link manager lock");
+                let mut mgr = lock_or_recover(&LINK_MANAGER);
                 let Some(link) = mgr.links.get_mut(session_id) else {
                     return;
                 };
@@ -632,9 +646,7 @@ fn handle_control_text(h: &WasmHost, session_id: &str, text: &str) {
             // 的重放会与在屏内容叠加渲染（重订阅/重连/会话重启）⇒ 必须先清屏。
             // 判据用「页面内容事实」而不是订阅相位：两条重放路径（重订阅竞态、
             // 重连）都不保证订阅时相位已是 live。
-            let page_has_content = LINK_MANAGER
-                .lock()
-                .expect("link manager lock")
+            let page_has_content = lock_or_recover(&LINK_MANAGER)
                 .page_content
                 .contains(session_id);
             emit_state(h, session_id, LinkPhase::Live, 0, "subscribed");
@@ -647,7 +659,7 @@ fn handle_control_text(h: &WasmHost, session_id: &str, text: &str) {
         Some("ring_resync") => {
             let offset = msg.get("offset").and_then(|v| v.as_u64()).unwrap_or(0);
             {
-                let mut mgr = LINK_MANAGER.lock().expect("link manager lock");
+                let mut mgr = lock_or_recover(&LINK_MANAGER);
                 if let Some(link) = mgr.links.get_mut(session_id) {
                     link.cursor = 0;
                     link.frontend_rendered = 0;
@@ -668,7 +680,7 @@ fn handle_control_text(h: &WasmHost, session_id: &str, text: &str) {
                 "terminal session stopped (session {session_id}, reason={reason}, exit_code={exit_code:?})"
             ));
             let handle = {
-                let mut mgr = LINK_MANAGER.lock().expect("link manager lock");
+                let mut mgr = lock_or_recover(&LINK_MANAGER);
                 let Some(link) = mgr.links.get_mut(session_id) else {
                     return;
                 };
@@ -682,12 +694,21 @@ fn handle_control_text(h: &WasmHost, session_id: &str, text: &str) {
             emit_state(h, session_id, LinkPhase::Idle, 0, "stopped");
         }
         Some("error") => {
-            let message = msg.get("message").and_then(|v| v.as_str()).unwrap_or("").to_string();
-            h.log_warn(&format!("terminal ws server error (session {session_id}): {message}"));
-            match classify_server_error(&message) {
+            let message = msg
+                .get("message")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            // `code` 是跨端机器可读分类（桌面 `ws_terminal::ERR_CODE_*`）；
+            // 缺失时回落文案匹配（兼容未升级桌面）
+            let code = msg.get("code").and_then(|v| v.as_str());
+            h.log_warn(&format!(
+                "terminal ws server error (session {session_id}): {message}"
+            ));
+            match classify_server_error(code, &message) {
                 ServerErrorClass::SessionMissing => {
                     let (strikes, handle) = {
-                        let mut mgr = LINK_MANAGER.lock().expect("link manager lock");
+                        let mut mgr = lock_or_recover(&LINK_MANAGER);
                         let Some(link) = mgr.links.get_mut(session_id) else {
                             return;
                         };
@@ -700,7 +721,7 @@ fn handle_control_text(h: &WasmHost, session_id: &str, text: &str) {
                         h.log_warn(&format!(
                             "session missing after {MAX_SESSION_MISSING_STRIKES} attempts, stopping terminal link (session {session_id})"
                         ));
-                        let mut mgr = LINK_MANAGER.lock().expect("link manager lock");
+                        let mut mgr = lock_or_recover(&LINK_MANAGER);
                         if let Some(link) = mgr.links.get_mut(session_id) {
                             link.stopped = true;
                             link.phase = LinkPhase::Idle;
@@ -719,7 +740,7 @@ fn handle_control_text(h: &WasmHost, session_id: &str, text: &str) {
                         // 会跳过），strikes 永远到不了上限，终端永久停在「重连中」。
                         // 重试帧由前端新一轮 subscribe 发出（同一连接可重复 subscribe）。
                         {
-                            let mut mgr = LINK_MANAGER.lock().expect("link manager lock");
+                            let mut mgr = lock_or_recover(&LINK_MANAGER);
                             if let Some(link) = mgr.links.get_mut(session_id) {
                                 link.reset_subscription_base();
                                 link.waiting_reconnect = false;
@@ -736,7 +757,9 @@ fn handle_control_text(h: &WasmHost, session_id: &str, text: &str) {
             }
         }
         _ => {
-            h.log_debug(&format!("unknown terminal control frame (session {session_id})"));
+            h.log_debug(&format!(
+                "unknown terminal control frame (session {session_id})"
+            ));
         }
     }
 }
@@ -754,7 +777,7 @@ fn ingest_output(h: &WasmHost, session_id: &str, data: &[u8]) {
     // 锁内只计数与门控判定；宿主转发在锁外（#14：持锁做宿主调用，
     // 回调重入即死锁）
     {
-        let mut mgr = LINK_MANAGER.lock().expect("link manager lock");
+        let mut mgr = lock_or_recover(&LINK_MANAGER);
         let Some(link) = mgr.links.get_mut(session_id) else {
             return;
         };
@@ -765,7 +788,7 @@ fn ingest_output(h: &WasmHost, session_id: &str, data: &[u8]) {
     }
     let forwarded = h.terminal_stream_forward_output(session_id, data).is_ok();
     if forwarded {
-        let mut mgr = LINK_MANAGER.lock().expect("link manager lock");
+        let mut mgr = lock_or_recover(&LINK_MANAGER);
         // 页面真的收到了字节 = 在屏内容事实（`subscribed` 时据此决定重放前清屏）
         mgr.page_content.insert(session_id.to_string());
     }

@@ -1,5 +1,5 @@
 <template>
-  <div class="h-full overflow-y-auto bg-[var(--bg-page)]">
+  <div class="h-full overflow-y-auto bg-[var(--bg-page)]" data-testid="server-view">
     <!-- ==================== 工具栏页头：左标题+状态，右只读提示+重置 ==================== -->
     <div class="wb-toolbar sticky top-0 z-10">
       <div class="flex items-center gap-2.5">
@@ -14,10 +14,7 @@
         <span class="text-[calc(11px*var(--ui-scale))] text-[var(--text-tertiary)]">{{
           t('server.surfaceHint')
         }}</span>
-        <button
-          class="wb-btn-ghost !text-[var(--text-secondary)]"
-          @click="handleResetDefaults"
-        >
+        <button class="wb-btn-ghost !text-[var(--text-secondary)]" @click="handleResetDefaults">
           {{ t('server.resetDefaults') }}
         </button>
       </div>
@@ -35,7 +32,7 @@
     <!-- ==================== 内容分区 ==================== -->
     <div v-else class="p-5 max-w-5xl mx-auto space-y-6">
       <!-- ---------- SECTION: STATUS ---------- -->
-      <section>
+      <section data-testid="server-section-status">
         <h2 class="wb-section-title">{{ t('server.sectionStatus') }}</h2>
         <div class="bg-[var(--bg-card)] border border-[var(--border)] rounded-[10px]">
           <div class="flex items-center justify-between px-4 h-12 border-b border-[var(--border)]">
@@ -43,6 +40,7 @@
               <span class="w-2 h-2 rounded-full" :class="dotClass"></span>
               <span
                 class="text-[calc(13px*var(--ui-scale))] font-medium text-[var(--text-primary)]"
+                data-testid="server-status-text"
                 >{{ statusText }}</span
               >
             </div>
@@ -86,7 +84,7 @@
       </section>
 
       <!-- ---------- SECTION: NETWORK ---------- -->
-      <section>
+      <section data-testid="server-section-network">
         <h2 class="wb-section-title">{{ t('server.sectionNetwork') }}</h2>
         <div class="bg-[var(--bg-card)] border border-[var(--border)] rounded-[10px] px-4">
           <div class="flex items-center justify-between h-12 border-b border-[var(--border)]">
@@ -94,23 +92,27 @@
               t('server.port')
             }}</span>
             <div class="flex items-center gap-3">
-              <input
-                v-model.number="portInput"
-                type="number"
-                min="1024"
-                max="65535"
-                class="w-20 h-7 px-2 wb-mono rounded-[6px] border border-[var(--border-input)] bg-[var(--bg-input)] text-[var(--text-primary)] outline-none focus:border-[var(--color-primary)]"
+              <NumberField
+                v-model="portInput"
+                :min="1024"
+                :max="65535"
+                :aria-label="t('server.port')"
+                width="96px"
+                data-testid="server-port-input"
                 @keyup.enter="handleSavePort"
               />
               <button
                 class="wb-btn-ghost !h-7 !px-3 !text-[calc(11.5px*var(--ui-scale))]"
                 :class="!portDirty && '!text-[var(--text-tertiary)] cursor-not-allowed'"
                 :disabled="!portDirty || savingPort"
+                data-testid="server-port-save"
                 @click="handleSavePort"
               >
                 {{ t('server.portSave') }}
               </button>
-              <span class="text-[calc(11px*var(--ui-scale))] text-[var(--text-tertiary)]">{{ t('server.portHint') }}</span>
+              <span class="text-[calc(11px*var(--ui-scale))] text-[var(--text-tertiary)]">{{
+                t('server.portHint')
+              }}</span>
             </div>
           </div>
           <div
@@ -134,13 +136,15 @@
       </section>
 
       <!-- ---------- SECTION: CONFIG ---------- -->
-      <section v-if="networkConfig">
+      <section v-if="networkConfig" data-testid="server-section-advanced">
         <div class="flex items-center justify-between mb-2">
           <h2 class="wb-section-title mb-0">
             {{ t('server.advancedConfig').toUpperCase() }}
           </h2>
           <button
             class="text-[calc(11px*var(--ui-scale))] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
+            data-testid="server-advanced-toggle"
+            :aria-expanded="advExpanded"
             @click="advExpanded = !advExpanded"
           >
             {{ advExpanded ? t('server.collapse') : t('server.expand') }}
@@ -149,6 +153,7 @@
         <div
           v-show="advExpanded"
           class="bg-[var(--bg-card)] border border-[var(--border)] rounded-[10px] overflow-hidden"
+          data-testid="server-advanced-panel"
         >
           <div class="grid grid-cols-2 md:grid-cols-3 divide-x divide-y divide-[var(--border)]">
             <div v-for="field in advFields" :key="field.key" class="px-4 py-3">
@@ -177,7 +182,7 @@
       </section>
 
       <!-- ---------- SECTION: MONITORING ---------- -->
-      <section>
+      <section data-testid="server-section-monitoring">
         <h2 class="wb-section-title">{{ t('server.monitoring').toUpperCase() }}</h2>
         <div class="bg-[var(--bg-card)] border border-[var(--border)] rounded-[10px] p-4">
           <div class="grid grid-cols-2 md:grid-cols-6 gap-3 mb-4">
@@ -214,6 +219,7 @@ import { useAppI18n } from '@/composables/useAppI18n'
 import { useServer } from '@/composables/useServer'
 import { useToast } from '@/composables/useToast'
 import { showUserError } from '@/utils/userError'
+import NumberField from '@binblink/wasmnest-plugin-sdk-desktop/ui/number-field'
 import VChart from 'vue-echarts'
 import { use } from 'echarts/core'
 import { LineChart } from 'echarts/charts'
@@ -248,7 +254,14 @@ const {
 /** 首次加载未完成时显示骨架屏 */
 const initializing = ref(true)
 
-const portInput = ref(8765)
+/**
+ * 端口草稿值（未点「保存」时不落盘）。
+ *
+ * `NumberField` 清空输入时会回抛 null，故类型放宽为 `number | null`。null 表示
+ * 「已改动但没有可写入的值」：`portDirty` 因 `null !== port` 仍为真（保存按钮保持可点），
+ * 而 `handleSavePort` 会在取不到合法端口时直接返回，不落盘也不提示。
+ */
+const portInput = ref<number | null>(8765)
 
 /** 后端端口刷新后同步输入框（loadStatus / updatePort 等操作完成后调用） */
 function syncPortInput() {
@@ -268,9 +281,12 @@ const savingPort = ref(false)
  */
 async function handleSavePort() {
   if (!portDirty.value) return
+  // 空输入（NumberField 回抛 null）没有可写入的端口：不落盘、不提示，等用户补全
+  const nextPort = portInput.value
+  if (nextPort === null) return
   savingPort.value = true
   try {
-    await updatePort(portInput.value)
+    await updatePort(nextPort)
     toast.success(t('server.portSavedDelayed'))
   } catch (e) {
     showUserError(e, { retry: handleSavePort })
@@ -292,10 +308,10 @@ const statusText = computed(() => {
 
 const dotClass = computed(() =>
   status.value === 'running'
-    ? 'bg-green-500'
+    ? 'bg-[var(--color-success)]'
     : status.value === 'starting'
-      ? 'bg-yellow-500'
-      : 'bg-red-500',
+      ? 'bg-[var(--color-warning)]'
+      : 'bg-[var(--color-danger)]',
 )
 
 /** 运行时长本地计时 — 每秒刷新，不依赖后端轮询 */

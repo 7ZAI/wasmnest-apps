@@ -17,7 +17,9 @@ import { getAutoTaskApi } from '../api'
 export interface ScheduledJob {
   id: string
   name: string | null
-  config_id: string
+  project_id: string | null
+  agent_id: string | null
+  config_id: string | null
   trigger_at: string
   /** SQLite TEXT 列：JSON 字符串数组，需 parse 后展示 */
   prompts: string
@@ -77,7 +79,8 @@ export function useScheduledJobs(context: PluginContext) {
 
   const formOpen = ref(false)
   const formName = ref('')
-  const formConfigId = ref('')
+  const formProjectId = ref('')
+  const formAgentId = ref('')
   /** 本地时区时间（Datepicker 产出）；提交时转 UTC */
   const formTriggerAt = ref<Date | null>(null)
   const formPrompts = ref<string[]>([''])
@@ -101,7 +104,8 @@ export function useScheduledJobs(context: PluginContext) {
   /** 打开表单时重置为空白 */
   function openForm(): void {
     formName.value = ''
-    formConfigId.value = ''
+    formProjectId.value = ''
+    formAgentId.value = ''
     formTriggerAt.value = null
     formPrompts.value = ['']
     formOpen.value = true
@@ -117,8 +121,8 @@ export function useScheduledJobs(context: PluginContext) {
    */
   async function submit(): Promise<void> {
     const prompts = formPrompts.value.map((p) => p.trim()).filter((p) => p.length > 0)
-    if (!formConfigId.value) {
-      context.dialogs.showToast(context.i18n.t('scheduled.create.configRequired'), 'warning')
+    if (!formProjectId.value || !formAgentId.value) {
+      context.dialogs.showToast(context.i18n.t('scheduled.create.targetRequired'), 'warning')
       return
     }
     if (!formTriggerAt.value) {
@@ -133,7 +137,8 @@ export function useScheduledJobs(context: PluginContext) {
     try {
       const result = await api.httpScheduledJobCreate({
         name: formName.value.trim() || undefined,
-        config_id: formConfigId.value,
+        project_id: formProjectId.value,
+        agent_id: formAgentId.value,
         trigger_at: dateToUtc(formTriggerAt.value),
         prompts,
       })
@@ -162,7 +167,8 @@ export function useScheduledJobs(context: PluginContext) {
     load,
     formOpen,
     formName,
-    formConfigId,
+    formProjectId,
+    formAgentId,
     formTriggerAt,
     formPrompts,
     submitting,

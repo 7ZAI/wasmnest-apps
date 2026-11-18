@@ -4,7 +4,8 @@
       {{ t('notFound.title') }}
     </p>
     <p class="text-xs text-[var(--text-tertiary)]">{{ t('notFound.body') }}</p>
-    <button class="wb-btn-ghost" @click="router.push('/sessions')">
+    <!-- 返回应用主面：/sessions 停用后主面是项目列表（默认落地页） -->
+    <button class="wb-btn-ghost" @click="router.push(DEFAULT_ROUTE)">
       {{ t('notFound.back') }}
     </button>
   </div>
@@ -19,6 +20,7 @@
  */
 import { useAppI18n } from '@/composables/useAppI18n'
 import { useRouter } from 'vue-router'
+import { DEFAULT_ROUTE } from '@/router'
 
 const t = useAppI18n()
 const router = useRouter()

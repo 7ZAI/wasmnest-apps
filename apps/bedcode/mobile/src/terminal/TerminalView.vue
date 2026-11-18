@@ -2,6 +2,9 @@
   <div
     ref="terminalViewRef"
     class="terminal-view"
+    data-testid="mobile-terminal"
+    :data-session-active="isSessionActive ? 'true' : 'false'"
+    :data-phase="terminalPhase"
     :style="terminalViewStyle"
   >
     <!-- Loading Overlay -->
@@ -39,6 +42,23 @@
               <div v-if="reconnecting" class="reconnect-banner" role="status" aria-live="polite">
                 <span class="reconnect-banner-spinner" aria-hidden="true"></span>
                 <span class="reconnect-banner-text">{{ reconnectBannerText }}</span>
+              </div>
+            </transition>
+            <!-- 尺寸错位提示（P1-3）：用户取消覆盖后 PTY 仍是另一端尺寸，
+                 显示会持续错乱——常驻提示 + 一键改用本机尺寸 -->
+            <transition name="reconnect-fade">
+              <div
+                v-if="rendererSizeMismatch && !reconnecting"
+                class="reconnect-banner size-mismatch-banner"
+                role="status"
+                aria-live="polite"
+              >
+                <span class="reconnect-banner-text">
+                  {{ t('terminal.rendererSizeMismatch', { renderer: rendererSizeMismatch.rendererName }) }}
+                </span>
+                <button class="size-mismatch-action" type="button" @click="confirmRendererOverride">
+                  {{ t('terminal.rendererSizeMismatchApply') }}
+                </button>
               </div>
             </transition>
             <div
@@ -122,10 +142,9 @@
       :theme="terminalSettings.theme"
       :is-theme-user-set="terminalSettings.isThemeUserSet"
       :letter-spacing="terminalSettings.letterSpacing"
-      :quick-bar-count="assistStore.settings.quickBarCount"
-      :toolbar-items="assistStore.settings.headerToolbarItems || ['folder', 'settings']"
+      :toolbar-items="displayStore.settings.headerToolbarItems"
       :all-toolbar-items="ALL_TOOLBAR_ITEMS"
-      :onboarding-pending="assistStore.settings.terminalOnboardingPending"
+      :onboarding-pending="displayStore.settings.onboardingPending"
       @change="handleSettingsUpdate"
       @close="showSettings = false"
     />
@@ -237,12 +256,15 @@ import { getMobileApi, getRouter } from '@binblink/wasmnest-plugin-sdk-mobile'
 import { usePresetTasks } from '../task/presetApi'
 import { isAutoTaskSupported } from '../task/activate'
 import { logger, t, toast } from './host'
+import { getDirectorySessions, refreshSessionDirectory } from '../host/sessionDirectory'
+import { isSessionActive as isLiveStatus } from '../host/utils'
 // xterm.css / terminal.css 由域 activate 统一注入（?inline 运行时挂载）
 import { isMockSession, useMockTerminal } from './composables/useMockTerminal'
 import { useTerminalBuffer } from './composables/useTerminalBuffer'
 import ConfirmDialog from './components/ConfirmDialog.vue'
 import { useOrientation } from './composables/useOrientation'
 import { useInputAssistantStore } from './inputAssistant'
+import { useTerminalDisplayStore } from './displaySettings'
 import { useTerminalScroll } from './composables/useTerminalScroll'
 import { useTuiCompat } from './composables/useTuiCompat'
 import { createTerminalKernel } from './composables/terminalKernel'
@@ -288,6 +310,7 @@ const mockTerminal = useMockTerminal()
 const { isLandscape } = useOrientation()
 const { store: bufferStore, registerRealtimeHandler, unregisterRealtimeHandler, subscribeSession, unsubscribeSession, handleDisconnect, handleSessionStopped, markSessionRunning, sendInput } = useTerminalBuffer()
 const assistStore = useInputAssistantStore()
+const displayStore = useTerminalDisplayStore()
 
 // issue #24：FileSidebar 自宿主提供组件（wasmnestHostComponents provide/inject）迁入本 app
 // fileExplorer 域，改为直接 import；挂载契约（props / events）不变
@@ -298,6 +321,27 @@ const sessionId = computed(() => props.sessionId || connection.activeSessionId.v
 // 若仍读 sessionId.value 会导致 unsubscribe 调用错会话 → 桌面端订阅泄漏 →
 // 重进会话时旧订阅流干扰游标连续性（violation 循环，终端多次进入才渲染完整）
 const mountedSessionId = sessionId.value
+
+// ==================== 终端装配就绪门（P1-2） ====================
+//
+// 三个订阅入口（isSessionActive / isConnected watcher / onMounted）在 setup 阶段
+// 就已注册，而 onMounted 的 initTerminal 要先 `await ensureTerminalFontLoaded`
+// 才 registerRealtimeHandler → markPageEntered（登记页面 Channel）。若 watcher 在
+// 这段 await 期间发出 subscribe，桌面端会立即从环起点整段重放，而宿主窄转发表
+// 里还没有通道 → 全部 `no page channel` 丢弃；此时订阅去重又阻止自愈，页面就只剩
+// 实时尾巴。所有订阅入口先等这扇门（登记完成）再发订阅。
+let resolveTerminalReady!: () => void
+const terminalReady = new Promise<void>((resolve) => {
+  resolveTerminalReady = resolve
+})
+let terminalReadyDone = false
+/** 页面是否仍存活（卸载后到达的 await 不得再发订阅） */
+let pageAlive = true
+function markTerminalReady() {
+  if (terminalReadyDone) return
+  terminalReadyDone = true
+  resolveTerminalReady()
+}
 
 // ==================== 链路重连提示（2026-10-04） ====================
 //
@@ -312,6 +356,8 @@ const mountedSessionId = sessionId.value
 // 而不是每秒重读同一个毫秒数（2026-10-04 OCR M-02——读静态值导致显示秒数
 // 恒定不递减）。
 const reconnecting = computed(() => bufferStore.getBuffer(mountedSessionId)?.reconnecting ?? false)
+/** 订阅阶段（E2E 状态位：idle / connecting / auth / live；与 bufferStore 同源，不另建状态） */
+const terminalPhase = computed(() => bufferStore.getBuffer(mountedSessionId)?.phase ?? 'idle')
 const reconnectSeconds = ref<number | null>(null)
 let reconnectTicker: ReturnType<typeof setInterval> | null = null
 
@@ -384,7 +430,7 @@ const availableToolbarItems = computed(() =>
 )
 
 const visibleToolbarItems = computed(() => {
-  const items = assistStore.settings.headerToolbarItems || ['folder', 'settings']
+  const items = displayStore.settings.headerToolbarItems
   return availableToolbarItems.value.filter(item => items.includes(item.key))
 })
 
@@ -404,7 +450,9 @@ const session = computed(() => {
   if (isMockSession(sessionId.value)) {
     return { id: sessionId.value, name: t('session.mockName'), status: 'running', is_active: true }
   }
-  return connection.activeSessions.value.find(s => s.id === sessionId.value)
+  // 会话目录 = 宿主 activeSessions（无项目终端会话）+ 项目运行（bedcode.list-runs）：
+  // 桌面 /api/sessions 带 scope:"session"，项目运行只经运行侧可见
+  return getDirectorySessions().find((s) => s.id === sessionId.value)
 })
 
 // 会话的 config_id：WS 事件推送的会话对象为 camelCase（configId），
@@ -422,7 +470,16 @@ const sessionAgentType = computed(() => {
 
 const sessionName = computed(() => session.value?.name || sessionId.value || t('terminal.titleDesktop'))
 
-const isSessionActive = computed(() => isMockSession(sessionId.value) || (session.value?.status || 'stopped') === 'running')
+/**
+ * 会话可交互（订阅 / 输入 / 预设下发的前提）
+ *
+ * 判据与 `host/utils.isSessionActive` 同一口径：running 与 waitingInput 都算存活
+ * ——waitingInput 正是 agent 等用户回复的时刻，只认 running 会把输入栏锁死。
+ * 项目运行的 status 来自运行视图（wire 字符串，见 projects/types.normalizeRunStatus）。
+ */
+const isSessionActive = computed(
+  () => isMockSession(sessionId.value) || isLiveStatus(String(session.value?.status ?? '')),
+)
 
 const inputPlaceholder = computed(() => {
   // mock 会话与标题（mockName）不再重复：直接使用通用命令占位文案
@@ -452,6 +509,7 @@ const subscription = useTerminalSubscription(kernel, { bufferStore, subscribeSes
 const {
   rendererOverrideTarget,
   showRendererOverrideDialog,
+  rendererSizeMismatch,
   confirmRendererOverride,
   cancelRendererOverride,
 } = resize
@@ -585,14 +643,15 @@ function handleSettingsUpdate(settings: TerminalSettings) {
   terminalSettings.value.letterSpacing = settings.letterSpacing
 
   try {
-    assistStore.saveSettings({
-      quickBarCount: settings.quickBarCount,
+    // 显示设置已独立成 terminalDisplay store（issue #19）；quickBarCount 移到
+    // ShortcutConfigModal 由该弹窗直接即改即存，不再经本回调
+    displayStore.saveSettings({
+      fontSize: terminalSettings.value.fontSize,
+      letterSpacing: terminalSettings.value.letterSpacing,
+      theme: terminalSettings.value.isThemeUserSet ? terminalSettings.value.theme : null,
+      isThemeUserSet: terminalSettings.value.isThemeUserSet,
+      onboardingPending: settings.onboardingPending,
       headerToolbarItems: settings.toolbarItems,
-      terminalFontSize: terminalSettings.value.fontSize,
-      terminalTheme: terminalSettings.value.isThemeUserSet ? terminalSettings.value.theme : null,
-      isTerminalThemeUserSet: terminalSettings.value.isThemeUserSet,
-      terminalLetterSpacing: terminalSettings.value.letterSpacing,
-      terminalOnboardingPending: settings.onboardingPending,
     })
   } catch (e) {
     logger.error('[TerminalView] 设置持久化失败：', e)
@@ -654,8 +713,10 @@ watch(isSessionActive, async (active, prevActive) => {
     // 监听器会永久丢弃新流帧（事件路径 SyncSessionStatusChanged 已复位，
     // 此处兜底防事件丢失场景）
     markSessionRunning(sessionId.value)
-    // 会话停止/重启后重新订阅：fresh subscribe → 回放环窗口（重播在屏内容
-    // 前先经 Rust 重锚事件清屏，旧内容不与新流重叠）
+    // 等页面通道登记完成再发订阅（P1-2）：否则重放会被 `no page channel` 丢掉
+    await terminalReady
+    if (!pageAlive) return
+    // 会话停止/重启后重新订阅：fresh subscribe → 回放环窗口（带内清屏 + 重放）
     await subscription.subscribeWithRetry()
     // 会话激活（含重连后）时 PTY 可能仍是默认尺寸，主动同步一次
     resize.syncTerminalSizeToHost()
@@ -671,6 +732,9 @@ watch(isConnected, async (connected) => {
     subscription.clearSubscribeRetry()
   } else {
     if (isSessionActive.value) {
+      // 等页面通道登记完成再发订阅（P1-2，同 isSessionActive watcher）
+      await terminalReady
+      if (!pageAlive) return
       // 重连成功后 PTY 重建为默认 80x24，需主动同步当前尺寸
       await subscription.subscribeWithRetry()
     }
@@ -693,14 +757,15 @@ onMounted(async () => {
 
   // 兜底加载会话配置：DevicesView 之外的进入路径（通知跳转/路由恢复）从未调用过
   // loadSessionConfigs，预设识别需要其中的启动命令；加载完成后由上方 watch 触发识别。
-  // 会话列表（activeSessions）不在此兜底——由 applyAgentPreset 按 sessionId 按需反查。
+  // 会话目录不在此兜底——由 applyAgentPreset 按 sessionId 按需反查。
   if (!connection.hasLoadedConfigs.value && !connection.isLoadingConfigs.value) {
     connection.loadSessionConfigs().catch(() => {})
   }
-  // 会话列表兜底：直接进入终端页（通知跳转/路由恢复）时 activeSessions 可能为空，
-  // 会使 isSessionActive=false → 输入条禁用、输入被丢弃。主动拉一次会话列表。
-  if (!connection.activeSessions.value.some(s => s.id === sessionId.value)) {
-    connection.loadActiveSessions().catch(() => {})
+  // 会话目录兜底：直接进入终端页（通知跳转/路由恢复 / 桌面先起运行）时目录可能
+  // 尚未含该运行，会使 isSessionActive=false → 不订阅、输入被丢弃。
+  // 主动拉一次运行侧（含项目运行）；到位后 isSessionActive watch 会自动补订阅。
+  if (!getDirectorySessions().some((s) => s.id === sessionId.value)) {
+    refreshSessionDirectory().catch(() => {})
   }
 
   await nextTick()
@@ -715,6 +780,11 @@ onMounted(async () => {
   bufferStore.resetCursor(sessionId.value)
 
   await initTerminal()
+  // 页面通道已登记（registerRealtimeHandler → markPageEntered）：放行早到的
+  // isSessionActive / isConnected watcher（P1-2）
+  markTerminalReady()
+  // 装配期间已卸载：不再订阅（xterm 已销毁，订阅只会丢字节）
+  if (!pageAlive) return
 
   // DEV 前缀：生产构建常量折叠为 false，整个 mock 分支（含 startOutput 调用）被 tree-shake
   if (import.meta.env.DEV && isMockSession(sessionId.value) && mockTerminal.isDev) {
@@ -747,7 +817,7 @@ onMounted(async () => {
   await nextPaintFrame()
   isTerminalReady.value = true
   // 新手引导：终端就绪后按持久化标记展示一次（关闭或打开完整教程即清除）
-  if (assistStore.settings.terminalOnboardingPending) {
+  if (displayStore.settings.onboardingPending) {
     showOnboarding.value = true
   }
   // 链路调试（布局/渲染排查）：就绪路径（gate 正常 or 超时兜底）+ 终端网格尺寸，
@@ -771,6 +841,9 @@ onMounted(async () => {
 onUnmounted(async () => {
   // 链路调试：渲染管线卸载（writeCoalescer dispose 汇总日志随后输出）
   logger.debug(`[TerminalView] unmounted (session=${mountedSessionId})`)
+  // 释放就绪门等待者（initTerminal 未走完就被卸载：await 不得永久悬挂）
+  pageAlive = false
+  markTerminalReady()
   // 订阅重试定时器 + 门控兜底定时器（遮罩已放行时为 null，防御未走完 onMounted 的卸载竞态）
   subscription.disposeSubscription()
 
@@ -780,6 +853,8 @@ onUnmounted(async () => {
   }
   // 键盘避让双通道监听 + 页面 pan 守卫
   keyboard.dispose()
+  // 作废 resize 退避重试定时器（P1-3）
+  resize.disposeResize()
 
   if (isMockSession(mountedSessionId)) {
     mockTerminal.stopOutput()

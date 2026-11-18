@@ -65,7 +65,7 @@
  * 票 14：会话页与设备/配对页共用同一外壳（原 `SessionModal.vue` 改名为此名，
  * 避免域前缀误导——它与业务域无关）。
  */
-import { computed } from 'vue'
+import { computed, onMounted, onUnmounted } from 'vue'
 
 interface Props {
   modelValue: boolean
@@ -120,6 +120,22 @@ function close() {
   emit('update:modelValue', false)
   emit('close')
 }
+
+/**
+ * Esc 关闭（键盘用户的主要逃生口）
+ *
+ * 遮罩点击与右上角 × 都要求鼠标；键盘用户打开弹窗后此前只能一路 Tab 找按钮。
+ * 用捕获阶段并停掉冒泡，避免同时触达页面级的 Esc 处理（否则一次 Esc 关两层）。
+ */
+function onKeydown(event: KeyboardEvent): void {
+  if (!props.modelValue || !props.closable) return
+  if (event.key !== 'Escape') return
+  event.stopPropagation()
+  close()
+}
+
+onMounted(() => document.addEventListener('keydown', onKeydown, true))
+onUnmounted(() => document.removeEventListener('keydown', onKeydown, true))
 </script>
 
 <style scoped>

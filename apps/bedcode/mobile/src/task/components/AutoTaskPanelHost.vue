@@ -1,6 +1,6 @@
 <template>
   <Transition name="atp-sheet">
-    <div v-if="autoTaskPanelVisible" class="fixed inset-0 z-[100] flex items-end justify-center mobile-ui">
+    <div v-if="autoTaskPanelVisible" class="fixed inset-0 z-[100] flex items-end justify-center mobile-ui" data-bedcode-surface>
       <div class="absolute inset-0 bg-[var(--mobile-overlay-heavy)]" @click="close"></div>
       <div class="atp-panel" :style="panelStyle">
         <!-- Header -->
@@ -214,6 +214,7 @@
       <div
         v-if="editingTask"
         class="fixed inset-0 z-[110] flex items-end justify-center mobile-ui"
+        data-bedcode-surface
         @click.self="cancelEdit"
       >
         <div class="absolute inset-0 bg-[var(--mobile-overlay-heavy)]" @click="cancelEdit"></div>
@@ -262,6 +263,7 @@
 import { ref, computed, watch, nextTick, inject, onMounted, onUnmounted } from 'vue'
 import { getMobileApi } from '@binblink/wasmnest-plugin-sdk-mobile'
 import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-mobile'
+import { getDirectorySessions } from '../../host/sessionDirectory'
 import { getAutoTaskApi } from '../api'
 import { usePresetTasks } from '../presetApi'
 import { autoTaskPanelVisible } from '../state'
@@ -319,10 +321,14 @@ const errorMessage = ref('')
 // 当前活动会话（宿主共享 ref，进入终端会话时由宿主更新）
 const activeSessionId = computed(() => mobileApi.activeSessionId.value ?? '')
 
-/** 活动会话是否仍在运行：stopped/error 的会话不能入队，对账也不适用 */
+/** 活动会话是否仍在运行：stopped/error 的会话不能入队，对账也不适用
+ *
+ * 经会话目录合并视图（宿主 activeSessions + 项目运行）：桌面 /api/sessions
+ * 只列无项目终端会话，只读 activeSessions 会把项目运行判成「未运行」。
+ */
 const activeSessionRunning = computed(() =>
-  (mobileApi.activeSessions.value || []).some(
-    (s: any) =>
+  getDirectorySessions().some(
+    (s) =>
       s.id === activeSessionId.value && (s.status === 'running' || s.status === 'waitingInput'),
   ),
 )
@@ -348,16 +354,16 @@ function presetStatusLabel(status: string): string {
 }
 
 const statusColor: Record<string, string> = {
-  idle: 'var(--mobile-text-disabled)',
+  idle: 'var(--mobile-text-muted)',
   in_progress: 'var(--mobile-accent)',
-  asking: '#f59e0b',
-  completed: '#22c55e',
+  asking: 'var(--mobile-warning)',
+  completed: 'var(--mobile-success)',
   interrupted: 'var(--mobile-error)',
-  pending: 'var(--mobile-text-disabled)',
+  pending: 'var(--mobile-text-muted)',
   // 队列项处理中状态（active_task）
-  waiting: '#f59e0b',
+  waiting: 'var(--mobile-warning)',
   // 预设任务执行状态（本地，入队即视为已执行）
-  unused: 'var(--mobile-text-disabled)',
+  unused: 'var(--mobile-text-muted)',
   executing: 'var(--mobile-accent)',
 }
 

@@ -207,7 +207,7 @@ function handleClick() {
   cursor: pointer;
   user-select: none;
   -webkit-user-select: none;
-  transition: background-color 0.15s ease;
+  transition: background-color var(--bc-dur-fast) var(--bc-ease);
 }
 
 .tree-item-row:active {

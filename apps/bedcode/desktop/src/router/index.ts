@@ -6,30 +6,94 @@
  * 路径（env.initialRoute / handle.setRoute），自身导航不进宿主 URL。
  *
  * 应用路由（业务面单一事实源）：
- * - 菜单项（进侧边栏，order 即视觉顺序）：/pairing 100 / /sessions 200 / /tasks 210；
+ * - 菜单项（进侧边栏，order 即视觉顺序）：/pairing 100 / /projects 190 /
+ *   /agents 205（Agent 管理域，原 agent-hub 并入）/ /orchestrations 207（已停用）/
+ *   /tasks 210；
+ * - 遗留入口重定向：/sessions（宿主落地路由目录仍登记此路径；终端会话面 2026-11-06
+ *   停用）→ 落地页 /pairing（用户裁定：初始点击进入的首页显示「设备配对」）；
  * - 设置（业务分组：配对 / 会话；平台分组在宿主系统页 /sys/settings）：
  *   /settings、/settings/authorization（遗留深链 → 宿主 /sys/perms，此处兜底）；
  * - 平台页（URL 直达、不进导航）：/server（诊断页，常驻不可开关）；
  * - 深链页（不进菜单）：/history（设备列表「历史」按钮 query 深链）、
  *   /terminal-window/:id（bareWindow：独立终端窗口，不套侧边栏外壳）；
  * - 未匹配 → 显性 not-found（fail-visible，不白屏）。
+ *
+ * 终端会话中心（原 /sessions 路由）已于 2026-11-06 停用（用户裁定）：项目运行是
+ * 唯一的一级容器，终端会话面不再作为入口——后端 `session.list` 同步只返回无项目
+ * 归属的行，项目运行的会话不再从该面透出。路由整条注释保留，便于回滚。
+ *
+ * Agent 编排（/orchestrations、/orchestrations/:id）已于 2026-11-09 停用（用户裁定，
+ * 先注释不删除）：菜单项（useSidebarMenu.ts）与后端接线（lib.rs）同步注释，页面组件
+ * 未删除。深链落 not-found（fail-visible），回滚时取消注释即可。
  */
 import { createRouter, createMemoryHistory } from 'vue-router'
+
+/**
+ * 应用默认落地页（入口与卸载回位共用）。
+ * 用户裁定（2026-11-15）：初始点击进入的首页显示「设备配对」→ `/pairing`；
+ * 原落地 `/projects` 仍从侧边栏菜单进入。
+ */
+export const DEFAULT_ROUTE = '/pairing'
 
 const router = createRouter({
   history: createMemoryHistory(),
   routes: [
-    { path: '/', redirect: '/sessions' },
+    { path: '/', redirect: DEFAULT_ROUTE },
+    {
+      // 遗留入口重定向：宿主落地路由目录（SURFACE_ROUTES）对 bedcode 仍登记
+      // `/sessions`（终端会话面，2026-11-06 停用）。初始点击进入时宿主 push
+      // `/sessions`，app 侧显式重定向到落地页 —— 避免落入 not-found（用户裁定：
+      // 初始进入首页显示「设备配对」）。其余未匹配路径仍走 fail-visible 兜底，
+      // 不改写宿主对未知路径的显式意图。
+      path: '/sessions',
+      name: 'sessions-legacy',
+      redirect: DEFAULT_ROUTE,
+    },
     {
       path: '/pairing',
       name: 'pairing',
       component: () => import('@/components/DeviceCenterView.vue'),
     },
     {
-      path: '/sessions',
-      name: 'sessions',
-      component: () => import('@/components/SessionCenterView.vue'),
+      // 项目列表（ADR 0003：项目 = 目录 + 执行环境，取代终端会话成为一级容器）
+      path: '/projects',
+      name: 'projects',
+      component: () => import('@/views/projects/ProjectListView.vue'),
     },
+    {
+      // 项目工作台（左运行列表 / 中对话面 / 右检查器）；id = 项目 id
+      path: '/projects/:id',
+      name: 'project-workbench',
+      component: () => import('@/views/projects/ProjectWorkbenchView.vue'),
+    },
+    // 终端会话中心：2026-11-06 停用（入口与读面一并摘除）。回滚时取消注释即可，
+    // 同时去掉 `lib.rs` 里 `session.list` 的 `{ scope: "session" }`。
+    // {
+    //   path: '/sessions',
+    //   name: 'sessions',
+    //   component: () => import('@/components/SessionCenterView.vue'),
+    // },
+    {
+      // Agent 管理域（原 agent-hub 并入）：安装/引导/Skills/供应商/用量/日志，
+      // 与会话启动联动（安装卡片「启动会话」→ 会话配置 → 终端）
+      path: '/agents',
+      name: 'agents',
+      component: () => import('@/agents/components/AgentHubView.vue'),
+    },
+    // Agent 编排（v1）：2026-11-09 停用（用户裁定，先注释不删除）。列表 + 详情两条
+    // 路由整块注释保留以便回滚（与 useSidebarMenu.ts 的注释菜单项、lib.rs 的编排
+    // 接线注释配对）；页面组件仍在 `views/orchestration/` 下。
+    // {
+    //   // Agent 编排（v1）：计划 / 执行 / 证据三平面；列表 + 详情
+    //   path: '/orchestrations',
+    //   name: 'orchestrations',
+    //   component: () => import('@/views/orchestration/OrchestrationListView.vue'),
+    // },
+    // {
+    //   path: '/orchestrations/:id',
+    //   name: 'orchestration-detail',
+    //   component: () => import('@/views/orchestration/OrchestrationDetailView.vue'),
+    // },
     {
       path: '/tasks',
       name: 'tasks',

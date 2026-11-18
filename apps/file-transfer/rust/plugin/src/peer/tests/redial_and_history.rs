@@ -15,11 +15,11 @@
 
 use super::MockHost;
 use crate::device_bridge;
-use crate::platform::{self, Platform};
 use crate::peer::{
     history_view, load_entries, next_local_failure_id, occupied_send_slots, persist_entries,
     restore_entries, send_row, TransferEntry,
 };
+use crate::platform::{self, Platform};
 use crate::settings_store;
 use crate::transfer_store::{self, RetryMeta};
 
@@ -139,6 +139,7 @@ fn node_stop_drops_stale_handles_but_keeps_endpoint_for_redial() {
         node_id: node.to_string(),
         addr: "192.168.1.42".to_string(),
         port: 47821,
+        ..Default::default()
     };
     device_bridge::remember_session(&ep, "sess-redial".to_string());
     assert_eq!(

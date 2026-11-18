@@ -4,11 +4,12 @@
       <div
         v-if="visible"
         class="fixed inset-0 z-[var(--mobile-z-sheet)] flex items-end justify-center mobile-ui"
+        data-bedcode-surface
         @click.self="emit('close')"
       >
         <div class="absolute inset-0 bg-[var(--mobile-overlay-light)]" @click="emit('close')"></div>
         <div
-          class="relative bg-[var(--mobile-bg-card)] border border-[var(--mobile-border)] rounded-t-2xl w-full max-w-lg max-h-[85vh] flex flex-col shadow-xl modal-panel"
+          class="relative bg-[var(--mobile-bg-card)] border border-[var(--mobile-border)] rounded-t-[var(--bc-radius-sheet)] w-full max-w-lg max-h-[85vh] flex flex-col bc-overlay-panel modal-panel"
           role="dialog"
           aria-modal="true"
           :aria-label="title"

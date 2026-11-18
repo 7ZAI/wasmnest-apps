@@ -60,21 +60,17 @@
           <p>{{ t('history.empty') }}</p>
         </div>
 
-        <!-- 任务列表 -->
-        <div v-else class="att-list">
-          <div v-for="task in tasks" :key="task.id" class="att-row">
+        <!-- 任务列表：一张分组卡，每条任务是一行（与连接历史同一语汇） -->
+        <div v-else class="att-list group-card">
+          <div v-for="task in tasks" :key="task.id" class="att-row group-row">
             <div class="att-row-head">
               <p class="att-row-title">{{ task.description || t('history.noDescription') }}</p>
               <span class="att-badge" :style="badgeStyle(task.status)">{{ statusLabel(task.status) }}</span>
             </div>
-            <div class="att-row-meta">
-              <span v-if="task.agent" class="att-meta-item">{{ t('history.field.agent') }}: {{ task.agent }}</span>
-              <span class="att-meta-item">{{ t('history.field.source') }}: {{ sourceLabel(task.source) }}</span>
-              <span class="att-meta-item">{{ t('history.field.time') }}: {{ utcToLocalDisplay(task.created_at) }}</span>
-              <span v-if="task.started_at && task.completed_at" class="att-meta-item">
-                {{ t('history.field.duration') }}: {{ formatDuration(task.started_at, task.completed_at) }}
-              </span>
-            </div>
+            <p v-if="task.working_dir" class="att-row-path" :title="task.working_dir">
+              {{ task.working_dir }}
+            </p>
+            <p class="att-row-sub">{{ metaLine(task) }}</p>
           </div>
         </div>
 
@@ -126,7 +122,11 @@ import { ref, computed } from 'vue'
 import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-mobile'
 import Select from '@binblink/wasmnest-plugin-sdk-mobile/ui'
 import type { SelectOption } from '@binblink/wasmnest-plugin-sdk-mobile/ui'
-import type { TaskHistoryComposable, HistoryStatusFilter } from '../composables/useTaskHistory'
+import type {
+  TaskHistoryComposable,
+  TaskHistoryItem,
+  HistoryStatusFilter,
+} from '../composables/useTaskHistory'
 import { utcToLocalDisplay, formatDuration } from '../composables/useTaskHistory'
 
 const props = defineProps<{
@@ -184,15 +184,15 @@ function statusLabel(status: string): string {
 /** 状态徽标底色：状态色 10% tint + 状态色文字（与 atp-clear-btn 同款扁平风格） */
 function badgeStyle(status: string): Record<string, string> {
   const color: Record<string, string> = {
-    idle: 'var(--mobile-text-disabled)',
+    idle: 'var(--mobile-text-muted)',
     in_progress: 'var(--mobile-accent)',
-    asking: '#f59e0b',
-    retrying: '#f59e0b',
-    completed: '#22c55e',
+    asking: 'var(--mobile-warning)',
+    retrying: 'var(--mobile-warning)',
+    completed: 'var(--mobile-success)',
     interrupted: 'var(--mobile-error)',
     failed: 'var(--mobile-error)',
-    pending: 'var(--mobile-text-disabled)',
-    waiting: '#f59e0b',
+    pending: 'var(--mobile-text-muted)',
+    waiting: 'var(--mobile-warning)',
   }
   const c = color[status] || color.idle
   return {
@@ -212,6 +212,25 @@ function sourceLabel(source: string | null): string {
     default:
       return t('history.source.unknown')
   }
+}
+
+/**
+ * 副行：agent · 来源 · 时间 · 耗时
+ *
+ * 原先五个「字段: 值」平铺，最长会换到三行（列表密度被元信息吃掉）。列表里值
+ * 本身自明——一个来源词、一个时刻、一段时长不需要再挂标签；agent 放最左，
+ * 与上方标题同侧对齐。空值直接跳过，不留「字段:」孤零零挂着。
+ */
+function metaLine(task: TaskHistoryItem): string {
+  const parts = [
+    task.agent,
+    sourceLabel(task.source),
+    utcToLocalDisplay(task.created_at),
+    task.started_at && task.completed_at
+      ? formatDuration(task.started_at, task.completed_at)
+      : '',
+  ]
+  return parts.filter(Boolean).join(' · ')
 }
 
 // ==================== 下拉刷新 / 上拉加载（自绘状态机，与 FileTransferView 一致） ====================

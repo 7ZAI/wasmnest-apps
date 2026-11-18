@@ -5,6 +5,8 @@
 //!
 //! SQL 一律使用参数绑定（`*_params` + `?N` 占位符），无手写转义。
 
+use serde_json::Value;
+use std::collections::{HashMap, HashSet};
 use wasmnest_plugin_api::constants::{EVENT_SESSION_MODE_CHANGED, EVENT_TASK_STATUS_CHANGED};
 use wasmnest_plugin_api::host::{
     ConfigKey, HostBus, HostConfig, HostEvents, HostLog, HostPluginDatabase,
@@ -12,8 +14,6 @@ use wasmnest_plugin_api::host::{
 use wasmnest_plugin_api::http_response;
 use wasmnest_plugin_api::sql_params;
 use wasmnest_plugin_api::wasm_host::WasmHost;
-use serde_json::Value;
-use std::collections::{HashMap, HashSet};
 
 use crate::task::agent;
 use crate::task::yield_guard;
@@ -459,9 +459,9 @@ pub struct RestartRecovery {
 
 /// 启动恢复：把上一进程遗留的运行中任务行与在途队列项收敛为 interrupted
 ///
-/// **为什么必须有**：会话与 PTY 同生命周期（`session::ensure_schema_via_host`
-/// 在 activate 清空上一进程的会话行），而 agent 进程随宿主退出——新进程里既没有
-/// 那个会话，也不会再有任何 hook 推送（agent 进程已死）。若无本函数，上一进程
+/// **为什么必须有**：PTY 与 agent 进程都随宿主退出（`session::ensure_schema_via_host`
+/// 在 activate 把上一进程遗留的非终态运行收敛成 `Error` 并清空 PTY 句柄），新进程里
+/// 既没有那个 PTY，也不会再有任何 hook 推送（agent 进程已死）。若无本函数，上一进程
 /// 留在 `in_progress` / `asking` / **`retrying`** 的任务行与 `executing` 的队列项
 /// 会永久悬挂：任务历史页长期显示「重试中」、`has_active_task` 恒真把整个队列
 /// 堵死（后续任务再不下发）、定时任务的会话回收也不再触发。
@@ -470,8 +470,9 @@ pub struct RestartRecovery {
 /// （那里收敛定时任务的 `creating`，这里收敛任务行与队列项）。
 ///
 /// 口径与广播：
-/// - 只收敛**会话不在登记域**的行（activate 已清空会话表，故启动时恒为全部遗留行；
-///   写成「不在册才收敛」使调用顺序变化也不会误伤活会话）；
+/// - 只收敛**会话不在册**的行：判据是「运行非终态」（`session::live_ids_via_host`）。
+///   运行行现在跨进程保留，用「表里有行」判 live 会把上一进程的悬挂任务永久卡住；
+///   写成「不在册才收敛」使调用顺序变化也不会误伤活会话；
 /// - `pending` 队列项一并收敛：其会话已随进程消失，无处投递，留着就是永远
 ///   不会被读到的孤儿行（入队清理只在该会话再次入队时发生，而那永不到来）；
 /// - **不广播**：载荷以 `session_id` 键控，而该会话已不存在，订阅方无从匹配；
@@ -505,12 +506,13 @@ pub fn recover_running_tasks_on_restart(host: &WasmHost) -> Result<RestartRecove
         .collect();
 
     // 2. 过滤仍在册会话（P1-b 真源在本域登记视图）
-    let live: HashSet<String> = crate::session::internal_records_json()
-        .ok()
-        .and_then(|v| v.as_array().cloned())
+    //
+    // **判据 = 非终态**（`session::live_ids_via_host`）：ADR 0003 起 `runs` 保留历史，
+    // 终态运行仍会在表里，但它的 PTY 已经不在了——用「表里有行」判 live 会让上一
+    // 进程的悬挂任务永远等不到收敛。
+    let live: HashSet<String> = crate::session::live_ids_via_host()
         .unwrap_or_default()
-        .iter()
-        .filter_map(|s| s.get("id").and_then(|v| v.as_str()).map(str::to_string))
+        .into_iter()
         .collect();
     let orphans: Vec<String> = candidates
         .into_iter()
@@ -595,12 +597,11 @@ pub fn create_task_from_dispatch(
     prompt: &str,
     agent: &str,
     source: &str,
-) {
+) -> Result<(), String> {
     // 写表失败 / 缺行：短路后续广播与派发（不发布幻影 in_progress 事件、
-    // 不占投影槽位——DB 无行却发事件会让下游按不存在的任务推进）
-    if !insert_task_row(host, session_id, prompt, agent, source) {
-        return;
-    }
+    // 不占投影槽位——DB 无行却发事件会让下游按不存在的任务推进）。
+    // 编排派发依赖这个返回值 fail-visible（无任务行时不得继续 send）。
+    insert_task_row(host, session_id, prompt, agent, source)?;
 
     // 调度触发的任务同样发布状态变更（bus + emit + WS，票 06 起不经宿主
     // broadcast_sync；票 02 补 WS 第三通道）
@@ -633,6 +634,7 @@ pub fn create_task_from_dispatch(
         Some(&format!("Dispatched from {}", source)),
         None,
     );
+    Ok(())
 }
 
 /// 插入任务行的内部实现
@@ -640,7 +642,7 @@ pub fn create_task_from_dispatch(
 /// auto_approve 取会话当前的 auto_answer 开关（自动应答）：开启则新任务行
 /// 标记为可自动应答（hook 据此自动回答提问），关闭则标记手动，随会话设置同步。
 ///
-/// 返回是否成功写入了行（`Err` 或缺行 → `false`）：调用方据此短路广播——
+/// 返回 `Err(detail)`：写表失败或 0 行受影响。调用方据此短路广播——
 /// 写历史失败被当 log-only 会让「DB 无行却发 in_progress」的幻影事件溜过。
 fn insert_task_row(
     host: &WasmHost,
@@ -648,7 +650,7 @@ fn insert_task_row(
     input: &str,
     agent: &str,
     source: &str,
-) -> bool {
+) -> Result<(), String> {
     let claude_sid = find_claude_sid_by_session(host, session_id);
     let (_, auto_answer) = session_flags(host, session_id);
     // 记录会话配置的工程目录：任务日志直接展示配置目录，后续配置变更不影响历史行
@@ -683,7 +685,7 @@ fn insert_task_row(
             "Task row inserted: session_id={} agent={} source={} len={} auto_answer={} affected={}",
             session_id, agent, source, input.len(), auto_answer, affected
         ));
-            true
+            Ok(())
         }
         Ok(affected) => {
             // 缺行（0 affected）：与 Err 同待遇——写没发生，调用方不得广播
@@ -693,14 +695,18 @@ fn insert_task_row(
                 source,
                 input.len()
             ));
-            false
+            Err(format!(
+                "task row insert affected 0 rows (session_id={session_id}, source={source})"
+            ))
         }
         Err(e) => {
             host.log_error(&format!(
                 "Failed to insert task row: session_id={} source={} err={}",
                 session_id, source, e
             ));
-            false
+            Err(format!(
+                "task row insert failed (session_id={session_id}, source={source}): {e}"
+            ))
         }
     }
 }
@@ -767,7 +773,7 @@ pub fn handle_submitted_input(host: &WasmHost, session_id: &str, text: &str) {
 /// 只带 wasmnest_session_id）都能命中该行。
 pub fn create_task_from_input(host: &WasmHost, session_id: &str, input: &str) {
     let agent_name = session_agent(host, session_id);
-    if !insert_task_row(host, session_id, input, agent_name, "user") {
+    if insert_task_row(host, session_id, input, agent_name, "user").is_err() {
         return;
     }
 
@@ -1061,7 +1067,7 @@ fn handle_update_task_status(host: &WasmHost, body: &Value) -> Value {
         // agent_settled 推 completed 后进程退出随即推 interrupted（毫秒级连发），
         // 会把主会话刚完成的真实任务误标中断。行状态为 completed 且 incoming
         // interrupted 与行事件相差在窗口内 → 判定为 subagent 退出回声，忽略。
-        // 脚本侧已按 --no-session 静默（pi_task_hook.ts），此处兜底旧部署副本。
+        // 脚本侧已按 --no-session 静默（wasmnest_bridge.ts），此处兜底旧部署副本。
         if status == "interrupted" && current_status == "completed" {
             if let Some(diff_ms) = event_time_diff_ms(&row_event_time, incoming_event_time) {
                 const SUBAGENT_QUIT_ECHO_WINDOW_MS: i64 = 5_000;
@@ -1764,6 +1770,23 @@ pub fn task_history_stats(host: &WasmHost, filter: &TaskHistoryFilter) -> anyhow
 /// 已停止 / 停止中 / 错误 / 空闲会话不参与（无法向其投递任务）。
 /// 结果按活跃度排序：有活动任务 > 有待执行队列 > 其余，同档按名称排序。
 pub fn list_running_sessions(host: &WasmHost) -> Vec<Value> {
+    // project_id → 项目名（任务面按「项目 · agent」展示运行，不再用会话名当主标签）
+    let project_names: HashMap<String, String> = crate::project::list_via_host()
+        .ok()
+        .and_then(|v| v.get("projects").and_then(|p| p.as_array()).cloned())
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|p| {
+            let id = p.get("id")?.as_str()?.to_string();
+            let name = p
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            Some((id, name))
+        })
+        .collect();
+
     // config_id → working_dir 映射（会话配置列表含路径信息，供前端展示会话标签）
     let config_working_dirs: HashMap<String, String> = crate::config::list_via_host()
         .ok()
@@ -1817,6 +1840,17 @@ pub fn list_running_sessions(host: &WasmHost) -> Vec<Value> {
                 .get(&config_id)
                 .cloned()
                 .unwrap_or_default();
+            let project_id = s
+                .get("projectId")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let project_name = project_names.get(&project_id).cloned().unwrap_or_default();
+            let agent_id = s
+                .get("agentId")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
 
             // 最新任务摘要（无记录时视为 idle）
             let task = find_task_by_session(host, &session_id);
@@ -1840,19 +1874,27 @@ pub fn list_running_sessions(host: &WasmHost) -> Vec<Value> {
             let queue_count = crate::task::queue::pending_count(host, &session_id);
             // 会话开关随列表返回（前端队列卡片上的启动/自动应答开关状态）
             let (auto_execute, auto_answer) = session_flags(host, &session_id);
-            let agent = session_agent(host, &session_id);
+            let detected_agent = session_agent(host, &session_id);
+            let agent = if !agent_id.is_empty() {
+                agent_id
+            } else {
+                detected_agent.to_string()
+            };
 
             Some(serde_json::json!({
                 "session_id": session_id,
                 "name": name,
                 "config_id": config_id,
+                "project_id": project_id,
+                "project_name": project_name,
                 "working_dir": working_dir,
                 "status": status,
                 "task_status": task_status,
                 "description": description,
                 "started_at": started_at,
                 "agent": agent,
-                "is_supported": crate::task::agent::is_supported(agent),
+                "agent_id": agent,
+                "is_supported": crate::task::agent::is_supported(&agent),
                 "queue_count": queue_count,
                 "auto_execute": auto_execute,
                 "auto_answer": auto_answer,

@@ -264,7 +264,6 @@ impl SecretStore for WasmKeyStore {
             .auth_secret_set(key, value)
             .map_err(|e| e.message)
     }
-
 }
 
 // ==================== native（cargo test）路径 ====================
@@ -313,7 +312,6 @@ impl SecretStore for MockSecretStore {
         }
         Ok(())
     }
-
 }
 
 // ==================== Tests ====================

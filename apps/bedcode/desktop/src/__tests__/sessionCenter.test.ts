@@ -21,6 +21,8 @@
  * - C7 编辑保存：`session.config.upsert` 收到既有 id 与逐字段同形的草稿；
  *   成功后把本次取值写入插件存储作为下次新建默认值
  * - C8 Tab 切换：「运行中的会话」只列非 stopped / error 会话
+ * - C13 计数口径：错误态对象与 idle / stopping 过渡态不计入「运行中的会话」
+ *   （回归 2026-11-06 桌面端虚报三十余个运行中会话）
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
@@ -356,6 +358,91 @@ describe('SessionCenterView（会话中心页面）', () => {
     expect(text).toContain('claude-dev')
     // stopped 会话（mock-session-3）不入运行中汇总
     expect(text).not.toContain('Ubuntu 工具链')
+  })
+
+  it('C13 计数口径：错误态对象与 idle / stopping 过渡态都不算「运行中」', async () => {
+    // 真机数据形状：`session.list` 的错误态是宿主 wire 形态的对象，不是字符串
+    // `'error'`。旧实现直接比对字符串 → `status !== 'error'` 恒真，每条历史错误
+    // 会话都被算成运行中（桌面端因此虚报出三十余个）。
+    const history = [
+      ...seed.sessions,
+      {
+        id: 'mock-session-err',
+        configId: 'mock-config-1',
+        name: 'interrupted-run',
+        status: { error: 'host process restarted; run interrupted' },
+      },
+      {
+        id: 'mock-session-idle',
+        configId: 'mock-config-1',
+        name: 'idle-run',
+        status: 'idle',
+      },
+      {
+        id: 'mock-session-stopping',
+        configId: 'mock-config-1',
+        name: 'stopping-run',
+        status: 'stopping',
+      },
+    ]
+    execute.mockImplementation(async (command: string) => {
+      if (command === 'session.config.list') return seed.configs
+      if (command === 'session.list') return { sessions: history }
+      return null
+    })
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    // running + waitingInput = 2；错误态 / idle / stopping / stopped 都不计
+    expect(findButton(wrapper, 'session.tab.running (2)')).toBeTruthy()
+    await findButton(wrapper, 'session.tab.running (2)')!.trigger('click')
+    await flushPromises()
+
+    // Tab2 汇总标题同样带计数（与 Tab 标签同源）
+    const text = wrapper.text()
+    expect(text).toContain('session.section.running')
+    expect(text).not.toContain('interrupted-run')
+    expect(text).not.toContain('idle-run')
+    expect(text).not.toContain('stopping-run')
+  })
+
+  it('C14 错误态归一：对象形态的会话仍是可删除的诊断记录（不因归一而丢失）', async () => {
+    execute.mockImplementation(async (command: string, args?: unknown) => {
+      if (command === 'session.config.list') return seed.configs
+      if (command === 'session.list') {
+        return {
+          sessions: [
+            {
+              id: 'mock-session-err',
+              configId: 'mock-config-1',
+              name: 'interrupted-run',
+              status: { error: 'pty closed' },
+            },
+          ],
+        }
+      }
+      if (command === 'session.action.remove') return { removed: true }
+      if (command === 'session.close') return { stopped: true }
+      return args
+    })
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    // 配置 Tab 里仍能看到它（错误会话要保留诊断与删除路径）
+    const text = wrapper.text()
+    expect(text).toContain('interrupted-run')
+    // 归一后 status 是字符串 'error'，删除走「直接删」（不先发 session.close）
+    const delBtn = wrapper
+      .findAll('button')
+      .filter((b) => b.attributes('title') === 'session.button.delete')
+      .find((b) => b.element.closest('.fixed') === null)
+    await delBtn!.trigger('click')
+    await flushPromises()
+
+    expect(commandsTo('session.close')).toHaveLength(0)
+    expect(commandsTo('session.action.remove')[0][1]).toEqual({ sessionId: 'mock-session-err' })
   })
 
   it('C9 启动失败：以错误文案提示且撤下操作遮罩（不静默、不卡在遮罩）', async () => {

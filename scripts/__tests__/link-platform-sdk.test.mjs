@@ -21,7 +21,7 @@ import {
   toFileSpec,
 } from '../platform-sdk-link.mjs'
 
-const APP_SLUGS = ['agent-hub', 'ai-chatbox', 'bedcode', 'file-transfer', 'monitor']
+const APP_SLUGS = ['ai-chatbox', 'bedcode', 'file-transfer', 'monitor']
 
 const ORIGINAL_CARGO_CONFIG =
   '# ==================== wasm 应用共享 target 目录 ====================\n' +
@@ -131,18 +131,18 @@ describe('link-platform-sdk / createLinkPlan + applyLinkPlan', () => {
     )
     // app 深 3 层的相对路径
     assert.equal(
-      specOf(desktopPackageFile(fx.appsRoot, 'agent-hub')),
+      specOf(desktopPackageFile(fx.appsRoot, 'bedcode')),
       'file:../../../../platform/wasmnest-desktop/packages/plugin-sdk-desktop',
     )
 
-    // marker：6 个文件 + 原始 spec
+    // marker：5 个文件 + 原始 spec
     const markerFile = join(fx.appsRoot, '.platform-sdk-link.json')
     assert.ok(existsSync(markerFile))
     const onDisk = readJson(markerFile)
     assert.deepEqual(onDisk, marker)
     assert.equal(onDisk.platformRoot, fx.platformRoot)
     assert.equal(onDisk.linkedAt, '2026-10-21T00:00:00.000Z')
-    assert.equal(Object.keys(onDisk.files).length, 6)
+    assert.equal(Object.keys(onDisk.files).length, 5)
     for (const file of packageFiles(fx.appsRoot)) {
       assert.equal(onDisk.files[file], '0.0.1')
     }
@@ -157,7 +157,10 @@ describe('link-platform-sdk / createLinkPlan + applyLinkPlan', () => {
     assert.ok(
       config.includes(`wasmnest-plugin-api-macros = { path = "${join(fx.sdkDir, 'rust-macros')}" }`),
     )
-    assert.ok(config.includes('[patch."https://github.com/7ZAI/wasmnest-lib"]'))
+    assert.ok(
+      !config.includes('[patch."https://github.com/7ZAI/wasmnest-lib"]'),
+      '能力仓依赖已改 crates.io 版本，不再写 git 源 patch',
+    )
     for (const crate of [
       'wasmnest-server-base',
       'wasmnest-server-core',
@@ -218,7 +221,7 @@ describe('link-platform-sdk / revertLink', () => {
     const result = revertLink({ appsRoot: fx.appsRoot })
 
     assert.equal(result.markerExisted, true)
-    assert.equal(result.restored.length, 6)
+    assert.equal(result.restored.length, 5)
     for (const file of packageFiles(fx.appsRoot)) {
       assert.equal(specOf(file), '0.0.1')
     }
@@ -261,7 +264,7 @@ describe('link-platform-sdk / 路径与命令', () => {
     )
 
     const calls = []
-    const dirs = [fx.appsRoot, join(fx.appsRoot, 'apps', 'agent-hub', 'desktop')]
+    const dirs = [fx.appsRoot, join(fx.appsRoot, 'apps', 'bedcode', 'desktop')]
     const installed = runPnpmInstalls({
       dirs,
       spawn: (cmd, args, opts) => {

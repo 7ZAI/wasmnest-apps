@@ -150,7 +150,7 @@ describe('Select Component', () => {
       const wrapper = mountSelect({ label: 'Required Select', required: true })
 
       expect(wrapper.find('label').text()).toContain('*')
-      expect(wrapper.find('.text-red-500').exists()).toBe(true)
+      expect(wrapper.find('.field-required').exists()).toBe(true)
     })
   })
 
@@ -158,14 +158,14 @@ describe('Select Component', () => {
     it('should display error message when provided', () => {
       const wrapper = mountSelect({ error: 'Please select an option' })
 
-      expect(wrapper.find('.text-red-500').exists()).toBe(true)
-      expect(wrapper.find('.text-red-500').text()).toBe('Please select an option')
+      expect(wrapper.find('.field-error').exists()).toBe(true)
+      expect(wrapper.find('.field-error').text()).toBe('Please select an option')
     })
 
     it('should apply error border styling', () => {
       const wrapper = mountSelect({ error: 'Please select an option' })
 
-      expect(wrapper.find('button').classes()).toContain('border-red-500')
+      expect(wrapper.find('button').classes()).toContain('border-[var(--color-danger)]')
     })
   })
 

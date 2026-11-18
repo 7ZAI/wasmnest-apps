@@ -30,10 +30,10 @@
 //! 端消费者，不进 bus/WS，与 preset.rs 的桌面-only 广播同一口径）；会话 mode
 //! 变更与队列变更沿用既有收口（session-mode 三连广播 / broadcast_queue_changed）。
 
+use serde_json::Value;
 use wasmnest_plugin_api::host::{HostBus, HostEvents, HostLog, HostPluginDatabase};
 use wasmnest_plugin_api::sql_params;
 use wasmnest_plugin_api::wasm_host::WasmHost;
-use serde_json::Value;
 
 /// `task:config-queue-changed`（桌面任务队列区刷新通道；payload 带 queue_id/action）
 pub const EVENT_CONFIG_QUEUE_CHANGED: &str = "task:config-queue-changed";
@@ -44,6 +44,8 @@ pub const CONFIG_QUEUE_SCHEMA: &[&str] = &[
 CREATE TABLE IF NOT EXISTS task_config_queues (
     id          TEXT PRIMARY KEY,
     config_id   TEXT NOT NULL,
+    project_id  TEXT,
+    agent_id    TEXT,
     session_id  TEXT,
     auto_mode   INTEGER NOT NULL DEFAULT 0,
     status      TEXT NOT NULL DEFAULT 'ready',
@@ -64,7 +66,8 @@ fn emit_changed(host: &WasmHost, queue_id: &str, action: &str) {
 /// 读取队列行（不存在 → Ok(None)）
 fn row(host: &WasmHost, queue_id: &str) -> Result<Option<Value>, String> {
     host.plugin_db_query_params(
-        "SELECT id, config_id, session_id, auto_mode, status FROM task_config_queues WHERE id = ?1",
+        "SELECT id, config_id, project_id, agent_id, session_id, auto_mode, status \
+         FROM task_config_queues WHERE id = ?1",
         &sql_params![queue_id],
     )
     .map_err(|e| format!("config-queue row query failed: {}", e.message))
@@ -122,6 +125,47 @@ fn require_supported_config(host: &WasmHost, config_id: &str) -> Result<(), Stri
     Ok(())
 }
 
+/// 配置行 → `(project_id, agent_id)`（任务绑定键；项目按目录 + 执行环境匹配）
+fn config_target(
+    host: &WasmHost,
+    config_id: &str,
+) -> Result<(Option<String>, Option<String>), String> {
+    let _ = host;
+    let configs = crate::config::list_via_host()?;
+    let config = configs
+        .as_array()
+        .and_then(|arr| {
+            arr.iter()
+                .find(|c| c.get("id").and_then(|v| v.as_str()) == Some(config_id))
+        })
+        .ok_or_else(|| format!("config target: 配置不存在：{config_id}"))?;
+    let environment = config
+        .get("environment")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let working_dir = config
+        .get("workingDir")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let command = config.get("command").and_then(|v| v.as_str()).unwrap_or("");
+    let key = crate::project::ops::project_key(environment, working_dir);
+    let project_id = crate::project::list_via_host()
+        .ok()
+        .and_then(|v| v.get("projects").and_then(|p| p.as_array()).cloned())
+        .unwrap_or_default()
+        .iter()
+        .find_map(|project| {
+            let env = project.get("environment")?.as_str()?;
+            let dir = project.get("workingDir")?.as_str()?;
+            (crate::project::ops::project_key(env, dir) == key)
+                .then(|| project.get("id")?.as_str().map(str::to_string))
+                .flatten()
+        });
+    let agent = crate::task::agent::detect_agent(command);
+    let agent_id = (agent != "unknown").then(|| agent.to_string());
+    Ok((project_id, agent_id))
+}
+
 /// 「创建新的 {配置} 会话」入队：进按配置分组的任务队列（**不立即建会话**）
 ///
 /// - 该配置已有 `ready` 队列（未绑定会话）→ 并入（同一枚未来新会话批次）；
@@ -136,6 +180,7 @@ pub fn create_or_enqueue(
     prompt: &str,
 ) -> Result<(String, String, i64), String> {
     require_supported_config(host, config_id)?;
+    let (project_id, agent_id) = config_target(host, config_id)?;
 
     let queue_id = match host
         .plugin_db_query_params(
@@ -155,19 +200,26 @@ pub fn create_or_enqueue(
             let id = new_queue_id(host);
             host.plugin_db_execute_params(
                 "INSERT INTO task_config_queues \
-                 (id, config_id, auto_mode, status, created_at, updated_at) \
-                 VALUES (?1, ?2, 0, 'ready', datetime('now'), datetime('now'))",
-                &sql_params![id, config_id],
+                 (id, config_id, project_id, agent_id, auto_mode, status, created_at, updated_at) \
+                 VALUES (?1, ?2, ?3, ?4, 0, 'ready', datetime('now'), datetime('now'))",
+                &sql_params![id, config_id, project_id.as_deref(), agent_id.as_deref()],
             )
             .map_err(|e| format!("create-and-enqueue: queue create failed: {}", e.message))?;
             id
         }
     };
 
-    // 入队（占位键 = 队列 id；source='queue' 与手动入队同源）
-    let (task_id, position) =
-        crate::task::queue::add_task_with_source(host, &queue_id, prompt, "queue")
-            .map_err(|e| format!("create-and-enqueue: enqueue failed: {e}"))?;
+    // 入队（占位键 = 队列 id；source='queue' 与手动入队同源）。绑定键随行落库：
+    // 队列启动迁移到真实会话后，任务仍知道自己属于哪个项目 + agent。
+    let (task_id, position) = crate::task::queue::add_task_with_source_target(
+        host,
+        &queue_id,
+        project_id.as_deref(),
+        agent_id.as_deref(),
+        prompt,
+        "queue",
+    )
+    .map_err(|e| format!("create-and-enqueue: enqueue failed: {e}"))?;
 
     // 自动模式：入队即自动启动（失败不阻断入队主契约——任务已安全在队）
     if queue_auto_mode(host, &queue_id) {
@@ -205,10 +257,11 @@ fn queue_auto_mode(host: &WasmHost, queue_id: &str) -> bool {
 pub fn list(host: &WasmHost) -> Vec<Value> {
     let rows: Vec<Value> = host
         .plugin_db_query_params(
-            "SELECT q.id, q.config_id, q.auto_mode, q.created_at, \
-                    c.name AS name, c.working_dir AS working_dir \
+            "SELECT q.id, q.config_id, q.project_id, q.agent_id, q.auto_mode, q.created_at, \
+                    c.name AS name, c.working_dir AS working_dir, p.name AS project_name \
              FROM task_config_queues q \
              LEFT JOIN session_configs c ON c.id = q.config_id \
+             LEFT JOIN projects p ON p.id = q.project_id \
              WHERE q.status = 'ready' ORDER BY q.created_at",
             &sql_params![],
         )
@@ -428,11 +481,21 @@ pub fn preset_enqueue(
     queue_id: &str,
     preset_id: &str,
 ) -> Result<(String, i64), String> {
-    if row(host, queue_id)?.is_none() {
-        return Err(format!("preset-enqueue-queue: 队列不存在：{queue_id}"));
-    }
-    let (task_id, position) = crate::task::preset::add_preset_to_queue(host, queue_id, preset_id)
-        .map_err(|e| format!("preset-enqueue-queue: {e}"))?;
+    let queue = row(host, queue_id)?
+        .ok_or_else(|| format!("preset-enqueue-queue: 队列不存在：{queue_id}"))?;
+    let project_id = queue
+        .get("project_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let agent_id = queue.get("agent_id").and_then(|v| v.as_str()).unwrap_or("");
+    let (task_id, position, _) = crate::task::preset::add_preset_to_queue(
+        host,
+        preset_id,
+        project_id,
+        agent_id,
+        Some(queue_id),
+    )
+    .map_err(|e| format!("preset-enqueue-queue: {e}"))?;
     if queue_auto_mode(host, queue_id) {
         if let Err(e) = start(host, queue_id) {
             host.log_error(&format!(

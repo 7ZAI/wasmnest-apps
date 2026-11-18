@@ -2,7 +2,7 @@
  * 定时任务前端契约测试（2026-10-27 排查）
  *
  * 定时链路里移动端唯一的「写入」动作是创建 job：本地时间 → UTC 字符串、
- * prompts 去空、config_id 透传。桌面端 create_job 对 trigger_at 做
+ * prompts 去空、project_id + agent_id 透传。桌面端 create_job 对 trigger_at 做
  * "YYYY-MM-DD HH:MM:SS" UTC 严格校验，格式错会被直接拒绝，因此这三项
  * 都是跨端 wire 契约，不能只靠手测。
  *
@@ -11,7 +11,7 @@
  * | C-SJ1 | dateToUtc | Date → UTC "YYYY-MM-DD HH:MM:SS"；空/非法 → '' |
  * | C-SJ2 | parsePrompts | JSON 数组取字符串项；损坏数据 → [] |
  * | C-SJ3 | submit | POST scheduled-jobs/create，body 只含非空 prompts、空 name 不下发 |
- * | C-SJ4 | submit 校验 | 缺配置/时间/prompts 时不发请求 |
+ * | C-SJ4 | submit 校验 | 缺项目+agent / 时间 / prompts 时不发请求 |
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { installMockMobileApi, uninstallMockMobileApi } from '../../terminal/__tests__/testKit'
@@ -69,7 +69,8 @@ describe('C-SJ3 submit wire contract', () => {
   it('should_post_only_filled_prompts_and_utc_trigger_when_submit', async () => {
     const scheduled = useScheduledJobs(makeContext())
     const trigger = new Date('2026-11-01T08:05:00Z')
-    scheduled.formConfigId.value = 'cfg-1'
+    scheduled.formProjectId.value = 'proj-1'
+    scheduled.formAgentId.value = 'claude'
     scheduled.formTriggerAt.value = trigger
     scheduled.formPrompts.value = ['  ls -la  ', '   ', 'npm test']
 
@@ -78,7 +79,8 @@ describe('C-SJ3 submit wire contract', () => {
     expect(httpRequest).toHaveBeenCalledWith(`${BASE}/scheduled-jobs/create`, {
       method: 'POST',
       body: {
-        config_id: 'cfg-1',
+        project_id: 'proj-1',
+        agent_id: 'claude',
         trigger_at: '2026-11-01 08:05:00',
         prompts: ['ls -la', 'npm test'],
       },
@@ -90,16 +92,17 @@ describe('C-SJ3 submit wire contract', () => {
 })
 
 describe('C-SJ4 submit validation', () => {
-  it('should_not_post_when_config_or_time_or_prompts_missing', async () => {
+  it('should_not_post_when_target_or_time_or_prompts_missing', async () => {
     const scheduled = useScheduledJobs(makeContext())
 
-    // 缺配置
+    // 缺目标
     scheduled.formTriggerAt.value = new Date('2026-11-01T08:05:00Z')
     scheduled.formPrompts.value = ['run']
     await scheduled.submit()
 
     // 缺时间
-    scheduled.formConfigId.value = 'cfg-1'
+    scheduled.formProjectId.value = 'proj-1'
+    scheduled.formAgentId.value = 'claude'
     scheduled.formTriggerAt.value = null
     await scheduled.submit()
 

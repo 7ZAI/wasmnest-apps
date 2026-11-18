@@ -6,8 +6,8 @@ How the engineering skills should consume this repo's domain documentation when 
 
 ## Before exploring, read these
 
-- **`GLOSSARY.md`** at the repo root（已建：agent-hub 环境 / 探测 / 引导 等术语）。
-- **`docs/adr/`**: read ADRs that touch the area you're about to work in（已建：`0001-agent-hub-node-bootstrap.md`）。
+- **`GLOSSARY.md`** at the repo root（已建：Node 环境引导 / 探测 / Agent 管理域 等术语）。
+- **`docs/adr/`**: read ADRs that touch the area you're about to work in（已建：`0001-agent-hub-node-bootstrap.md`（原 agent-hub 的 Node 引导，已随并入迁入 bedcode）/ `0002-agent-hub-merge-into-bedcode.md`）。
 
 If any of these files don't exist, **proceed silently**. Don't flag their absence; don't suggest creating them upfront. The `/domain-modeling` skill (reached via `/grill-with-docs` and `/improve-codebase-architecture`) creates them lazily when terms or decisions actually get resolved.
 
@@ -20,7 +20,7 @@ If any of these files don't exist, **proceed silently**. Don't flag their absenc
 │   ├── 0001-....md
 │   └── 0002-....md
 └── apps/
-    ├── agent-hub/
+    ├──（agent-hub 已并入 bedcode，目录删除）
     ├── ai-chatbox/
     ├── bedcode/
     └── ...

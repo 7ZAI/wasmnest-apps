@@ -58,13 +58,28 @@ pub(crate) fn apply_and_push<H: HostStorage + HostPluginDatabase + HostPeer + ?S
     }
 }
 
+/// 把注册表全量重推给引擎镜像（幂等，不改持久层）。
+///
+/// 引擎镜像只由变更命令写入；插件激活期与对端连入时各跑一次，让两边收敛
+/// （镜像落后时对端会一直读到空清单，直到用户再改一次共享目录）。
+pub(crate) fn sync_engine<H: HostStorage + HostPluginDatabase + HostPeer + ?Sized>(
+    h: &H,
+) -> anyhow::Result<Vec<SharedRoot>> {
+    match platform::current() {
+        Platform::Desktop => {
+            core_roots::push_snapshot(&DesktopPorts(h)).map_err(anyhow::Error::new)
+        }
+        Platform::Mobile => core_roots::push_snapshot(&MobilePorts(h)).map_err(anyhow::Error::new),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::platform;
-    use wasmnest_plugin_api::host::{HostError, HostPeer};
     use std::cell::RefCell;
     use std::collections::HashMap;
+    use wasmnest_plugin_api::host::{HostError, HostPeer};
 
     /// 双平台共用的内存 mock（桌面 SDK trait；移动分支的 KV 落点可断言）
     #[derive(Default)]
@@ -105,7 +120,11 @@ mod tests {
             }
             Ok(None)
         }
-        fn plugin_db_execute_params(&self, sql: &str, params: &[serde_json::Value]) -> Result<i32, HostError> {
+        fn plugin_db_execute_params(
+            &self,
+            sql: &str,
+            params: &[serde_json::Value],
+        ) -> Result<i32, HostError> {
             if sql.contains("INSERT INTO shared_roots") {
                 self.rows.borrow_mut().push(serde_json::json!({
                     "id": params[0], "name": params[1], "path": params[2],
@@ -114,10 +133,15 @@ mod tests {
             }
             Ok(0)
         }
-        fn plugin_db_query_params(&self, _sql: &str, _params: &[serde_json::Value]) -> Result<Option<serde_json::Value>, HostError> {
+        fn plugin_db_query_params(
+            &self,
+            _sql: &str,
+            _params: &[serde_json::Value],
+        ) -> Result<Option<serde_json::Value>, HostError> {
             Ok(None)
         }
-        fn plugin_db_execute_batch(&self, _sqls: &[String]) -> Result<i32, HostError> {
+        fn plugin_db_execute_batch(&self, sqls: &[String]) -> Result<i32, HostError> {
+            crate::adapters::apply_shared_roots_batch(&mut self.rows.borrow_mut(), sqls);
             Ok(0)
         }
     }
@@ -126,10 +150,18 @@ mod tests {
         fn peer_dial(&self, _endpoint: &serde_json::Value) -> Result<String, HostError> {
             unimplemented!()
         }
+        /// T11 `dial-peer-addrs`：本组用例不测多地址拨号
+        fn peer_dial_addrs(&self, _endpoint: &serde_json::Value) -> Result<String, HostError> {
+            unimplemented!()
+        }
         fn peer_close(&self, _handle: &str) -> Result<bool, HostError> {
             unimplemented!()
         }
-        fn peer_respond_consent(&self, _request_id: &str, _accepted: bool) -> Result<bool, HostError> {
+        fn peer_respond_consent(
+            &self,
+            _request_id: &str,
+            _accepted: bool,
+        ) -> Result<bool, HostError> {
             unimplemented!()
         }
         fn peer_list_trusted(&self) -> Result<serde_json::Value, HostError> {
@@ -138,7 +170,18 @@ mod tests {
         fn peer_revoke_trusted(&self, _node_id: &str) -> Result<bool, HostError> {
             unimplemented!()
         }
-        fn peer_send_files(&self, _session: &str, _paths: &[serde_json::Value]) -> Result<String, HostError> {
+        fn peer_trust_node(
+            &self,
+            _node_id: &str,
+            _display_name: Option<&str>,
+        ) -> Result<bool, HostError> {
+            unimplemented!()
+        }
+        fn peer_send_files(
+            &self,
+            _session: &str,
+            _paths: &[serde_json::Value],
+        ) -> Result<String, HostError> {
             unimplemented!()
         }
         fn peer_respond_transfer(&self, _batch_id: &str, _accept: bool) -> Result<(), HostError> {
@@ -150,7 +193,11 @@ mod tests {
         fn peer_resume_transfer(&self, _batch_id: &str) -> Result<(), HostError> {
             unimplemented!()
         }
-        fn peer_set_receive_policy(&self, _mode: &str, _timeout_secs: u64) -> Result<(), HostError> {
+        fn peer_set_receive_policy(
+            &self,
+            _mode: &str,
+            _timeout_secs: u64,
+        ) -> Result<(), HostError> {
             unimplemented!()
         }
         fn peer_set_shared_roots(&self, dirs: &[serde_json::Value]) -> Result<(), HostError> {
@@ -161,16 +208,29 @@ mod tests {
         fn peer_list_shared_roots(&self, _session: &str) -> Result<serde_json::Value, HostError> {
             unimplemented!()
         }
-        fn peer_browse_directory(&self, _session: &str, _dir_id: &str, _rel_path: &str) -> Result<serde_json::Value, HostError> {
+        fn peer_browse_directory(
+            &self,
+            _session: &str,
+            _dir_id: &str,
+            _rel_path: &str,
+        ) -> Result<serde_json::Value, HostError> {
             unimplemented!()
         }
-        fn peer_pull_files(&self, _session: &str, _dir_id: &str, _files: &[serde_json::Value]) -> Result<u32, HostError> {
+        fn peer_pull_files(
+            &self,
+            _session: &str,
+            _dir_id: &str,
+            _files: &[serde_json::Value],
+        ) -> Result<u32, HostError> {
             unimplemented!()
         }
         fn peer_set_download_dir(&self, _path: &str) -> Result<(), HostError> {
             unimplemented!()
         }
-        fn peer_start_node(&self) -> Result<bool, HostError> {
+        fn peer_start_node(
+            &self,
+            _config: &wasmnest_plugin_api::host::PeerNodeConfig,
+        ) -> Result<bool, HostError> {
             unimplemented!()
         }
         fn peer_stop_node(&self) -> Result<bool, HostError> {
@@ -179,7 +239,20 @@ mod tests {
         fn peer_active_transfers(&self) -> Result<serde_json::Value, HostError> {
             unimplemented!()
         }
-        fn peer_collect_outgoing(&self, _paths: &[serde_json::Value]) -> Result<serde_json::Value, HostError> {
+        fn peer_collect_outgoing(
+            &self,
+            _paths: &[serde_json::Value],
+        ) -> Result<serde_json::Value, HostError> {
+            unimplemented!()
+        }
+        fn peer_node_info(&self) -> Result<wasmnest_plugin_api::host::PeerNodeInfo, HostError> {
+            unimplemented!()
+        }
+        fn peer_configure_relay(
+            &self,
+            _relay_addrs: &[String],
+            _enable: bool,
+        ) -> Result<wasmnest_plugin_api::host::PeerNodeInfo, HostError> {
             unimplemented!()
         }
     }
@@ -203,7 +276,10 @@ mod tests {
         assert_eq!(load_all(&h).unwrap(), sample(), "加入顺序必须保序");
         // 桌面落点是 plugin-db 行（不是 storage 键）
         assert_eq!(h.rows.borrow().len(), 1);
-        assert!(!h.kv.borrow().contains_key("shared_roots"), "桌面不得落 KV 键");
+        assert!(
+            !h.kv.borrow().contains_key("shared_roots"),
+            "桌面不得落 KV 键"
+        );
         // 推送 wire 用 path 字段（差异面③）
         assert_eq!(h.pushed_roots.borrow()[0]["path"], "E:/Docs");
     }
@@ -222,6 +298,36 @@ mod tests {
         assert!(h.rows.borrow().is_empty(), "移动不得落 plugin-db 表");
         // 推送 wire 用 safTreeUri 字段（差异面③）
         assert_eq!(h.pushed_roots.borrow()[0]["safTreeUri"], "E:/Docs");
+    }
+
+    #[test]
+    fn sync_engine_repushes_mirror_with_desktop_wire_shape() {
+        let _g = platform::test_lock().lock().unwrap();
+        platform::set_for_test(platform::Platform::Desktop);
+        let h = MockHost::default();
+        apply_and_push(&h, |list| list.extend(sample())).unwrap();
+        // 模拟引擎镜像落后（宿主重启后未同步 / 上次推送被回滚）
+        h.pushed_roots.borrow_mut().clear();
+
+        let pushed = sync_engine(&h).unwrap();
+        assert_eq!(pushed, sample(), "重推内容 = 注册表全量");
+        assert_eq!(h.pushed_roots.borrow().len(), 1, "恰好重推一次");
+        assert_eq!(h.pushed_roots.borrow()[0]["path"], "E:/Docs");
+        assert_eq!(h.rows.borrow().len(), 1, "重推不得重写持久层");
+    }
+
+    #[test]
+    fn sync_engine_repushes_mirror_with_mobile_wire_shape() {
+        let _g = platform::test_lock().lock().unwrap();
+        platform::set_for_test(platform::Platform::Mobile);
+        let h = MockHost::default();
+        apply_and_push(&h, |list| list.extend(sample())).unwrap();
+        h.pushed_roots.borrow_mut().clear();
+
+        sync_engine(&h).unwrap();
+        assert_eq!(h.pushed_roots.borrow().len(), 1);
+        assert_eq!(h.pushed_roots.borrow()[0]["safTreeUri"], "E:/Docs");
+        assert!(h.kv.borrow().contains_key("shared_roots"), "移动落点仍是 KV");
     }
 
     #[test]

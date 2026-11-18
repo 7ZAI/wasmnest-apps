@@ -6,6 +6,8 @@
  * 免授权特殊条目「app 私有下载目录」由宿主派生注入（builtin，不可移除）。
  * 下载目录只读展示（固定 MediaStore/Downloads）；接收策略 ask/accept/reject
  * 经宿主 set_receive_policy 写入。
+ * 中继（外网）开关与提示阈值并入「内网穿透配置」区块（`#relay` 插槽），
+ * 不再单列「中继」分区。
  *
  * 同时注册为宿主 SettingsSection（registerSettingsSection），并作为插件内设置页复用。
  *
@@ -19,6 +21,10 @@ import { isNeedsAllFilesAccess, promptAllFilesAccess } from '../composables/useA
 import { KIND_PRIVATE_DOWNLOADS } from '../types'
 import type { ReceivingPolicy } from '../types'
 import TrustedPeersSection from './TrustedPeersSection.vue'
+import MyDeviceSection from './MyDeviceSection.vue'
+import RelayConfigSection from './RelayConfigSection.vue'
+import AppUpdateSection from '@binblink/wasmnest-plugin-sdk-mobile/ui/app-update'
+import manifest from '../../plugin.json'
 
 type SettingsApi = ReturnType<typeof useSettings>
 
@@ -96,21 +102,7 @@ async function handleSetPolicy(policy: ReceivingPolicy): Promise<void> {
   }
 }
 
-// ==================== 发送加密 ====================
-
-/** 加密开关选项（自绘 segmented，禁原生 checkbox；默认关） */
-const ENCRYPTION_OPTIONS: { value: boolean; labelKey: string }[] = [
-  { value: false, labelKey: 'transfer.settings.encryptionOff' },
-  { value: true, labelKey: 'transfer.settings.encryptionOn' },
-]
-
-/** 切换传输加密（仅影响本端主动发送；接收端按对端加密头自动解密） */
-async function handleSetEncryption(enabled: boolean): Promise<void> {
-  const ok = await props.settingsApi.setEncryption(enabled)
-  if (ok && context) {
-    context.dialogs.showToast(t('transfer.settings.saved'), 'success')
-  }
-}
+// ==================== 发送加密（固定开启，无关闭开关） ====================
 
 /** 并发上限（1–8，spec §7）；步进钳制后即时保存 */
 async function stepConcurrency(delta: number): Promise<void> {
@@ -149,6 +141,31 @@ async function stepTimeout(delta: number): Promise<void> {
 // 初始即同步当前值：此前仅 focus/commit/step 时同步，首帧数值框空白（评审 P0）
 syncTimeoutInput()
 watch(() => props.settingsApi.settings.value.approvalTimeoutSec, syncTimeoutInput)
+
+// ==================== 中继（T12）：开关 + 提示阈值 ====================
+
+/** 阈值上限（MB）：100 GB（存储面是字节；0 = 每次都提示） */
+const RELAY_THRESHOLD_MAX_MB = 102_400
+
+/** 中继提示阈值输入（UI 单位 MB；存储面字节） */
+const relayThresholdInput = ref('')
+
+function syncRelayThreshold(): void {
+  const bytes = props.settingsApi.settings.value.relayMaxBytesPerTask ?? 0
+  relayThresholdInput.value = String(Math.max(0, Math.round(bytes / (1024 * 1024))))
+}
+
+async function commitRelayThreshold(): Promise<void> {
+  const n = Number(relayThresholdInput.value)
+  if (Number.isFinite(n)) {
+    const mb = Math.min(RELAY_THRESHOLD_MAX_MB, Math.max(0, Math.round(n)))
+    await props.settingsApi.setRelayMaxBytes(mb * 1024 * 1024)
+  }
+  syncRelayThreshold()
+}
+
+syncRelayThreshold()
+watch(() => props.settingsApi.settings.value.relayMaxBytesPerTask, syncRelayThreshold)
 </script>
 
 <template>
@@ -293,23 +310,81 @@ watch(() => props.settingsApi.settings.value.approvalTimeoutSec, syncTimeoutInpu
             <div class="settings-label">{{ t('transfer.settings.encryption') }}</div>
             <div class="settings-desc">{{ t('transfer.settings.encryptionHint') }}</div>
           </div>
-          <!-- 自绘分段控件：关/开 两档（默认关），与策略分段同构 -->
-          <div class="ft-segmented flex-shrink-0" role="radiogroup">
-            <button
-              v-for="opt in ENCRYPTION_OPTIONS"
-              :key="String(opt.value)"
-              role="radio"
-              :aria-checked="(settingsApi?.settings.value.encryption ?? false) === opt.value"
-              class="ft-segmented-item"
-              :class="{ 'ft-segmented-item--active': (settingsApi?.settings.value.encryption ?? false) === opt.value }"
-              @click="handleSetEncryption(opt.value)"
+          <!-- 只读档位：加密固定开启（穿透方案不变量 12），无关闭开关 -->
+          <div class="ft-segmented flex-shrink-0">
+            <span
+              class="ft-segmented-item ft-segmented-item--active ft-segmented-item--static"
+              role="status"
+              data-testid="ft-encryption-required"
             >
-              {{ t(opt.labelKey) }}
-            </button>
+              {{ t('transfer.settings.encryptionAlwaysOn') }}
+            </span>
           </div>
         </div>
       </div>
     </section>
+
+    <!-- ==================== 我的设备（形态改造）：设备名 / 指纹只读展示 ==================== -->
+    <MyDeviceSection />
+
+    <!-- ==================== 内网穿透配置（形态改造）：接入信息 + 中继拨号策略 ==================== -->
+    <RelayConfigSection>
+      <!-- 中继（T12）：关的是「经 relay 拨号」，不是加密。设置项并入穿透配置区块，
+           逻辑与样式仍在本组件（插槽内容按父作用域渲染，scoped 样式生效） -->
+      <template #relay>
+        <div class="settings-group" data-testid="mobile-relay-config-relay-controls">
+          <div class="settings-row ft-policy-row">
+            <div class="min-w-0 flex-1">
+              <div class="settings-label">{{ t('transfer.settings.relay') }}</div>
+              <div class="settings-desc">{{ t('transfer.settings.relayHint') }}</div>
+            </div>
+            <div class="ft-segmented flex-shrink-0">
+              <button
+                class="ft-segmented-item"
+                :class="{ 'ft-segmented-item--active': settingsApi?.settings.value.allowWan !== false }"
+                role="tab"
+                :aria-checked="settingsApi?.settings.value.allowWan !== false"
+                data-testid="ft-relay-on"
+                @click="settingsApi?.setAllowWan(true)"
+              >
+                {{ t('transfer.settings.relayOn') }}
+              </button>
+              <button
+                class="ft-segmented-item"
+                :class="{ 'ft-segmented-item--active': settingsApi?.settings.value.allowWan === false }"
+                role="tab"
+                :aria-checked="settingsApi?.settings.value.allowWan === false"
+                data-testid="ft-relay-off"
+                @click="settingsApi?.setAllowWan(false)"
+              >
+                {{ t('transfer.settings.relayOff') }}
+              </button>
+            </div>
+          </div>
+          <div class="settings-row">
+            <div class="min-w-0 flex-1">
+              <div class="settings-label">{{ t('transfer.settings.relayThreshold') }}</div>
+              <div class="settings-desc">{{ t('transfer.settings.relayThresholdHint') }}</div>
+            </div>
+            <div class="flex items-center gap-2 flex-shrink-0">
+              <input
+                v-model="relayThresholdInput"
+                class="ft-timeout-input"
+                type="number"
+                min="0"
+                :max="RELAY_THRESHOLD_MAX_MB"
+                inputmode="numeric"
+                data-testid="ft-relay-threshold-input"
+                @focus="syncRelayThreshold()"
+                @blur="commitRelayThreshold()"
+                @keyup.enter="($event.target as HTMLInputElement).blur()"
+              />
+              <span class="settings-desc">MB</span>
+            </div>
+          </div>
+        </div>
+      </template>
+    </RelayConfigSection>
 
     <!-- ==================== 发送并发上限 ==================== -->
     <section class="space-y-2">
@@ -334,6 +409,10 @@ watch(() => props.settingsApi.settings.value.approvalTimeoutSec, syncTimeoutInpu
     <!-- ==================== 可信对端管理（spec 决策 8） ==================== -->
     <!-- 独立分区，列表/撤销自包含 -->
     <TrustedPeersSection />
+
+    <!-- ==================== 版本更新（SDK 默认实现） ====================
+         固定放在最后；版本号随包内联，检查前也能看到 -->
+    <AppUpdateSection :current-version="manifest.version" />
   </div>
 </template>
 
@@ -496,8 +575,25 @@ watch(() => props.settingsApi.settings.value.approvalTimeoutSec, syncTimeoutInpu
 }
 
 .ft-segmented-item--active {
-  background: var(--ft-bg-elevated);
+  /* 选中项用主操作渐变实底 + 墨字：轨道是 --ft-bg-tertiary，此档若也用背景 token
+     （原 --ft-bg-elevated 与它在深色档同为 #14232e）实际只有文字染青这一档差异，
+     真机上几乎读不出「现在是哪一档」。渐变 + 墨字 + 轻微外发光一眼可辨，
+     且与主按钮同源（--ft-grad-*）不引入新色。 */
+  background-image: linear-gradient(135deg, var(--ft-grad-from), var(--ft-grad-to));
+  color: var(--ft-grad-ink);
+  font-weight: 700;
+  box-shadow: 0 8px 18px -12px var(--ft-glow);
+}
+
+/* 只读档位（固定加密）：是状态而不是选择，改淡青底 + 描边——
+   与可点的选中项区分，又不至于弱化成一行普通说明文字 */
+.ft-segmented-item--static {
+  cursor: default;
+  background-image: none;
+  background-color: var(--ft-accent-muted);
   color: var(--ft-accent-text);
+  font-weight: 600;
+  box-shadow: inset 0 0 0 1px var(--ft-border-strong);
 }
 
 /* 同意超时数字输入：完全自绘外观（token 边框/圆角/字号，无系统控件观感）。

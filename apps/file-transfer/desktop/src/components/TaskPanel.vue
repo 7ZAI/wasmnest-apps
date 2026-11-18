@@ -207,10 +207,9 @@ function localPathOf(relPath: string | null | undefined): string | null {
   return `${base}/${relPath.replace(/^[\\/]+/, '')}`
 }
 
-/** 下载完成 → 打开本地所在目录（无落盘目录时静默忽略） */
+/** 下载完成 → 打开本地所在目录（未配置下载目录时发空路径，由视图给出可见提示） */
 function openFolderAt(relPath: string | null | undefined): void {
-  const p = localPathOf(relPath)
-  if (p) emit('openFolder', p)
+  emit('openFolder', localPathOf(relPath) ?? '')
 }
 
 /** tab 列表：正在发送 = 本端上传；全部 = 本端任务 + 接收任务合并倒序 */
@@ -261,6 +260,7 @@ function historyResult(entry: HistoryEntry): string {
           type="button"
           :title="t('transfer.queue.close')"
           :aria-label="t('transfer.queue.close')"
+          data-testid="ft-queue-close"
           @click="emit('close')"
         >
           <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -295,6 +295,7 @@ function historyResult(entry: HistoryEntry): string {
           :class="{ 'ft-tab--active': activeTab === tab }"
           role="tab"
           :aria-selected="activeTab === tab"
+          :data-testid="`ft-queue-tab-${tab}`"
           @click="activeTab = tab"
         >
           {{ t(`transfer.queue.${tab}`) }}
@@ -303,7 +304,7 @@ function historyResult(entry: HistoryEntry): string {
 
       <!-- ==================== 历史 tab（只读） ==================== -->
       <div v-if="activeTab === 'history'" class="ft-history">
-        <div v-if="history.length === 0" class="ft-empty">
+        <div v-if="history.length === 0" class="ft-empty" data-testid="ft-queue-empty-history">
           {{ t('transfer.history.empty') }}
         </div>
         <TransitionGroup v-else tag="div" name="ft-task" class="ft-task-list">
@@ -392,7 +393,7 @@ function historyResult(entry: HistoryEntry): string {
 
       <!-- ==================== 正在接收 tab（只可取消） ==================== -->
       <div v-else-if="activeTab === 'receiving'" class="ft-receiving">
-        <div v-if="receiving.length === 0" class="ft-empty">
+        <div v-if="receiving.length === 0" class="ft-empty" data-testid="ft-queue-empty-receiving">
           {{ t('transfer.task.receivingEmpty') }}
         </div>
         <TransitionGroup v-else tag="div" name="ft-task" class="ft-task-list">
@@ -493,7 +494,7 @@ function historyResult(entry: HistoryEntry): string {
       <!-- ==================== 全部 / 正在发送 tab（本端任务） ==================== -->
       <div v-else>
         <!-- 空队列 -->
-        <div v-if="tabItems.length === 0" class="ft-empty">
+        <div v-if="tabItems.length === 0" class="ft-empty" data-testid="ft-queue-empty-tasks">
           {{ t('transfer.task.empty') }}
         </div>
 

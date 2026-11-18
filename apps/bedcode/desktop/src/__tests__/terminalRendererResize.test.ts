@@ -565,4 +565,36 @@ describe('useTerminalResize（插件迁移版）', () => {
     await resize.requestResize(100, 30)
     expect(resizeImpl).not.toHaveBeenCalled()
   })
+
+  it('终态 / 无 PTY 会话不发请求（反例）：stopped / error / idle / error 对象形态', async () => {
+    for (const status of ['stopped', 'error', 'idle', { error: 'host restarted' }]) {
+      const deadCtx = makeCtx({
+        getSession: () => ({ ...session, status }) as any,
+        terminalRef: shallowRef(makeTerminal() as any),
+      })
+      const resize = useTerminalResize(deadCtx, resizeImpl as unknown as ResizeRequester, identityT)
+      await resize.requestResize(100, 30)
+    }
+    expect(resizeImpl).not.toHaveBeenCalled()
+  })
+
+  it('会话由存活翻转为终态：关闭残留的覆盖确认弹窗', async () => {
+    let status: unknown = 'running'
+    const ctx = makeCtx({
+      getSession: () => ({ ...session, status }) as any,
+      terminalRef: shallowRef(makeTerminal() as any),
+    })
+    resizeImpl.mockResolvedValue({
+      status: 'needsConfirmation',
+      currentCanonical: { kind: 'mobile', deviceName: 'Pixel' },
+    })
+    const resize = useTerminalResize(ctx, resizeImpl as unknown as ResizeRequester, identityT)
+    await resize.requestResize(100, 30)
+    expect(resize.showRendererOverrideModal.value).toBe(true)
+
+    status = 'error'
+    await resize.requestResize(100, 30)
+    expect(resize.showRendererOverrideModal.value).toBe(false)
+    expect(resize.rendererOverrideTarget.value).toBeNull()
+  })
 })

@@ -132,8 +132,12 @@
   top: calc(100% + 6px);
   left: 0;
   z-index: 30;
-  width: 340px;
+  width: 384px;
   max-width: calc(100vw - 32px);
+  /* 窗口偏矮时由设备列表自己滚动，面板不越过窗口底部 */
+  max-height: calc(100vh - 120px);
+  display: flex;
+  flex-direction: column;
   padding: 10px;
   background: var(--bg-card);
   border: 1px solid var(--border);
@@ -144,6 +148,7 @@
 .ft-dev-head {
   display: flex;
   align-items: baseline;
+  flex-shrink: 0;
   gap: 8px;
   padding: 2px 4px 8px;
   border-bottom: 1px solid var(--border);
@@ -210,7 +215,23 @@
   text-align: center;
 }
 
+.ft-dev-empty p {
+  margin: 0;
+}
+
+.ft-dev-empty p + p {
+  margin-top: 6px;
+}
+
+.ft-dev-empty-hint {
+  font-size: var(--font-size-tag);
+  line-height: 1.5;
+  opacity: 0.85;
+}
+
 .ft-dev-list {
+  flex: 1 1 auto;
+  min-height: 0;
   max-height: 300px;
   overflow-y: auto;
   padding-top: 6px;
@@ -218,7 +239,9 @@
 
 .ft-dev-row {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
+  /* 信息与动作放不下时动作整块换行，避免横向溢出压到相邻行 / 面板外 */
+  flex-wrap: wrap;
   gap: 8px;
   padding: 7px 8px;
   border-radius: var(--radius-tag);
@@ -236,19 +259,21 @@
 }
 
 .ft-dev-info {
-  flex: 1;
+  flex: 1 1 150px;
   min-width: 0;
 }
 
 .ft-dev-name-line {
   display: flex;
   align-items: center;
-  gap: 6px;
+  flex-wrap: wrap;
+  gap: 4px 6px;
   min-width: 0;
 }
 
 .ft-dev-name {
   flex: 0 1 auto;
+  max-width: 100%;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -265,6 +290,15 @@
   color: var(--text-tertiary);
 }
 
+/* 徽标组：整组随名称行换行，组内再按序换行，单个徽标不被压缩 */
+.ft-dev-tags {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-width: 0;
+}
+
 .ft-dev-tag {
   flex-shrink: 0;
   padding: 1px 6px;
@@ -279,6 +313,12 @@
   background: color-mix(in srgb, var(--color-primary) 14%, transparent);
 }
 
+/* T20 跨网能力徽标：含中继 = 可跨网（琥珀，与中继形态同色），仅内网 = 中性 */
+.ft-dev-tag--wan {
+  color: var(--color-warning, #b45309);
+  background: color-mix(in srgb, var(--color-warning, #b45309) 12%, transparent);
+}
+
 .ft-dev-meta {
   margin-top: 1px;
   padding-left: 14px;
@@ -287,6 +327,21 @@
   white-space: nowrap;
   font-size: var(--font-size-tag);
   color: var(--text-tertiary);
+}
+
+/* 传输形态徽标（内网直连 / 外网中继）：与「已加密」同属事实标注，不可点击 */
+.ft-dev-transport {
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: var(--radius-tag);
+  font-size: var(--font-size-sm);
+  color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+}
+
+.ft-dev-transport--wan {
+  color: var(--color-warning, #b45309);
+  background: color-mix(in srgb, var(--color-warning, #b45309) 12%, transparent);
 }
 
 /* 拨号终态反馈：拒绝 / 不可达（行内错误文案） */
@@ -306,8 +361,13 @@
 .ft-dev-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
-  flex-shrink: 0;
+  justify-content: flex-end;
+  /* 按钮多于一行宽度时换行，保证不越过面板边界与相邻内容重叠 */
+  flex-wrap: wrap;
+  gap: 6px 8px;
+  flex: 0 1 auto;
+  min-width: 0;
+  margin-left: auto;
 }
 
 .ft-text-btn {
@@ -364,6 +424,7 @@
 }
 
 .ft-dev-hint {
+  flex-shrink: 0;
   padding: 8px 4px 2px;
   border-top: 1px solid var(--border);
   margin-top: 6px;
@@ -484,6 +545,10 @@
   display: grid;
   /* 默认单栏（队列收起，文件表格全宽）；展开队列时第二列由 --ft-queue-w 展开到 360px */
   grid-template-columns: minmax(0, 1fr) var(--ft-queue-w);
+  /* 行高必须钉成「容器剩余高度」：隐式 auto 行会按内容长高，远端目录超过一屏时
+     表格被撑到内容高度（.ft-table-wrap 自身不再溢出 ⇒ 没有滚动条），超出部分
+     被 .ft-view 的 overflow:hidden 裁掉，表现就是「看不到后面的文件、也滚不动」 */
+  grid-template-rows: minmax(0, 1fr);
   transition: --ft-queue-w 0.28s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
@@ -493,6 +558,12 @@
 
 .ft-browse {
   min-width: 0;
+  /* 撑满可用高度：作为 .page-swap 的普通子块靠 height 100%（网格行已定高），
+     作为父 .ft-browse 的 flex 子项靠 flex:1（组件根与视图各有一层 .ft-browse）。
+     只留 overflow:hidden 不撑高时，内部表格按内容长高，滚动条永远不会出现 */
+  height: 100%;
+  min-height: 0;
+  flex: 1;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -1353,6 +1424,53 @@
   right: 10px;
 }
 
+.ft-remote-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 998;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgb(0 0 0 / 0.42);
+}
+
+.ft-remote-sheet {
+  width: min(520px, calc(100vw - 48px));
+  border-radius: 12px;
+  background: var(--bg-elevated, var(--bg-card, #1c1a16));
+  padding: 20px;
+  box-shadow: 0 12px 32px rgb(0 0 0 / 0.35);
+}
+
+/* T20 连接串来源提示：说明「这份链接由对方设备生成」 */
+.ft-remote-source {
+  margin: 4px 0 0;
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+  color: var(--text-tertiary);
+}
+
+.ft-remote-input {
+  width: 100%;
+  box-sizing: border-box;
+  margin-bottom: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-subtle, var(--bg-hover));
+  border-radius: 8px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: ui-monospace, monospace;
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.ft-remote-error {
+  margin: 0 0 8px;
+  font-size: var(--font-size-tag);
+  color: var(--color-danger);
+}
+
 /* 标题 + 倒计时行（复用 ft-dialog-title / ft-dialog-countdown token 样式） */
 .ft-consent-head {
   display: flex;
@@ -1551,6 +1669,15 @@
   background: var(--bg-card);
   color: var(--text-primary);
   box-shadow: var(--shadow-card);
+}
+
+/* 只读档位（如固定加密）：外观同选中项，但不可点 */
+.ft-segmented-item--static {
+  cursor: default;
+}
+
+.ft-segmented-item--static:hover {
+  color: var(--text-primary);
 }
 
 .ft-settings-timeout {

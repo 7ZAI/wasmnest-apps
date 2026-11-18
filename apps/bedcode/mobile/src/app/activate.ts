@@ -5,7 +5,7 @@
  * - 注册宿主壳运行面（AppRoot = 底部导航 + 页签容器 + 终端沉浸，壳内打开本 app 即进入）
  *
  * 激活顺序约束：运行面组件在壳渲染时才 setup，但文案必须在本域注册完成后才可能
- * 被取到——因此本域在 host / terminal / task 三域之后激活（见 ../index.ts）。
+ * 被取到——因此本域在 host / projects / terminal / task 四域之后激活（见 ../index.ts）。
  *
  * 返回 Disposable；deactivate 对称回收。
  */

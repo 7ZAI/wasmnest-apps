@@ -124,7 +124,10 @@ pub trait PeerPort {
 /// 桌面：插件在 activate / deactivate 显式请求（审计票 12 起宿主无按产品 id 的开关外壳）。
 /// 移动：节点生命周期由宿主外壳驱动，插件不持有电源。默认 = 不请求（移动形态）。
 pub trait NodePower {
-    fn peer_start_node(&self) -> PortResult<bool> {
+    /// `listen_port` = 期望监听端口（0 = 交给 OS 分配；宿主侧被占用时自行回退）。
+    /// 生产调用点在插件 `activate`（直调宿主）：服务租约路径（双端生产装配）
+    /// 忽略该配置，只有无租约装配（无头 / 测试）才按它走。
+    fn peer_start_node(&self, _listen_port: u16) -> PortResult<bool> {
         Err(PortError::unsupported(
             "node power is driven by the host shell",
         ))

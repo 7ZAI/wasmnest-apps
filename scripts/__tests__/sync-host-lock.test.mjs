@@ -27,7 +27,7 @@ function manifest(overrides = {}) {
     hostRuntime: {
       version: '0.0.1',
       sourceCommit: 'b'.repeat(40),
-      libTag: 'lib-v0.0.2',
+      libTag: 'lib-v0.0.1',
       witVersion: '0.0.1',
       sdkVersion: '0.0.1',
       mountContract: '1',
@@ -68,6 +68,18 @@ test('buildHostLock：只保留 CONTRACT §2.3 字段，忽略 $comment', () => 
 test('buildHostLock：artifacts 空对象允许（平台未发布）', () => {
   const lock = buildHostLock(manifest({ artifacts: {} }))
   assert.deepEqual(lock.hostRuntime.artifacts, {})
+})
+
+test('buildHostLock：manifest 缺 artifacts ⇒ 按未发布处理，lock 恒带空对象', () => {
+  const hostRuntime = manifest()
+  delete hostRuntime.artifacts
+  const lock = buildHostLock(hostRuntime)
+  assert.deepEqual(lock.hostRuntime.artifacts, {})
+})
+
+test('buildHostLock：artifacts 非对象 ⇒ 点名报错', () => {
+  assert.throws(() => buildHostLock(manifest({ artifacts: 'retired' })), /artifacts 必须是对象/)
+  assert.throws(() => buildHostLock(manifest({ artifacts: [] })), /artifacts 必须是对象/)
 })
 
 test('buildHostLock：artifacts 命名 / sha 不合法 ⇒ 点名报错', () => {

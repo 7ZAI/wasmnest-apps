@@ -148,6 +148,35 @@ describe('PreviewCard 正常数据', () => {
     wrapper.unmount()
   })
 
+  it('错误态对象不计入运行中（回归：asString 兜底 unknown 曾把它算成运行）', async () => {
+    // `session.list` 的错误态是宿主 externally-tagged 对象，不是字符串。
+    // 旧实现 `asString(status) || 'unknown'` → `isRunning('unknown')` 恒真，
+    // 预览卡把每条历史错误会话都算作运行中。
+    const { env } = makeEnv({
+      sessions: [
+        { id: 'sess-run-1', configId: 'cfg-1', name: '前端开发', status: 'running' },
+        {
+          id: 'sess-err',
+          configId: 'cfg-1',
+          name: '中断的运行',
+          status: { error: 'host process restarted; run interrupted' },
+        },
+      ],
+    })
+    const wrapper = await mountCard(env)
+
+    const text = wrapper.text()
+    expect(text).toContain('1 个运行中')
+    // 错误会话仍列出（诊断信息不隐藏），但状态文案是「错误」而非「未知」
+    expect(text).toContain('中断的运行')
+    expect(text).toContain('错误')
+    expect(text).not.toContain('未知')
+    // 当前会话 = 唯一运行中的那条（不是错误态那条）
+    expect(wrapper.find('.bc-preview__title').text()).toContain('前端开发')
+
+    wrapper.unmount()
+  })
+
   it('无会话 → 诚实空态（不编造运行中内容）', async () => {
     const { env } = makeEnv({ sessions: [] })
     const wrapper = await mountCard(env)

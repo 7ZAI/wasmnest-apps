@@ -20,7 +20,7 @@ import './styles/datepicker-theme.css'
 import './style.css'
 import App from './App.vue'
 import PreviewCard from './preview/PreviewCard.vue'
-import router from './router'
+import router, { DEFAULT_ROUTE } from './router'
 import i18n, { MESSAGE_NAMESPACE } from './i18n'
 import { initFrontendLogger, logger } from './utils/frontendLogger'
 import { createAppContext } from './appContext'
@@ -41,12 +41,30 @@ export interface AppMountEnv {
   mountContract: string
   /** 宿主面命令（白名单代理，ADR 0058 方案 A）：plugin_list_loaded / get_app_settings 等；真源在桌面宿主 APP_FRONTEND_INVOKE_WHITELIST */
   invoke: <T = unknown>(command: string, args?: Record<string, unknown>) => Promise<T>
+  /** 应用更新检查（宿主统一默认实现；appId 与宿主面凭证已绑定） */
+  appUpdate?: {
+    check: () => Promise<{
+      status: 'idle' | 'checking' | 'up-to-date' | 'available' | 'incompatible' | 'error'
+      latestVersion?: string
+      currentVersion?: string
+      reason?: { key: string; params?: Record<string, string> }
+    }>
+  }
   /** 插件面命令（plugin_invoke，本 app 通道令牌已绑定） */
   appInvoke: <T = unknown>(command: string, ...args: unknown[]) => Promise<T>
   /** 本 app 插件 KV 存储（plugin_storage_*，宿主面凭证已绑定） */
   appStorageGet: <T = unknown>(key: string) => Promise<T | undefined>
   appStorageSet: (key: string, value: unknown) => Promise<void>
   appStorageDelete: (key: string) => Promise<void>
+  /**
+   * 本应用链路加密策略（可选：旧宿主不注入 = 无此能力，界面必须显性提示）
+   *
+   * 策略属于应用：本应用**固定 `required`（不可关闭，T07）**，覆盖全部 HTTP /
+   * WS 端点；宿主不设整机下限、只执行与只读审计。`set` 仍接受三值（宿主 wire
+   * 形状），但应用侧唯一写入口只写 `required`（见 `composables/useLinkCrypto`）。
+   */
+  appLinkCryptoGet?: () => Promise<'off' | 'preferred' | 'required'>
+  appLinkCryptoSet?: (policy: 'off' | 'preferred' | 'required') => Promise<void>
   /** 宿主面事实（挂载时快照；后续变更经 setLocale 通知） */
   locale: string
   theme: string
@@ -169,9 +187,14 @@ export async function mountApp(root: HTMLElement, env: AppMountEnv): Promise<App
     })
   }
 
-  // 初始路由（宿主按路由目录传入；未传 / 非应用路径 → 应用默认落地 /sessions）
-  const initial = env.initialRoute && env.initialRoute !== '/' ? env.initialRoute : '/sessions'
-  if (initial !== '/sessions') {
+  // 初始路由（宿主按路由目录传入；未传 / 非应用路径 → 应用默认落地页）
+  //
+  // 默认落地 = `/pairing`（用户裁定：初始点击进入的首页显示「设备配对」）。
+  // 宿主落地路由目录仍登记 `/sessions`（终端会话面，2026-11-06 停用）：首入时
+  // push `/sessions` 由路由表显式重定向到落地页（sessions-legacy），不再落
+  // not-found；其余未匹配路径维持 fail-visible 兜底，仍不改写宿主显式意图。
+  const initial = env.initialRoute && env.initialRoute !== '/' ? env.initialRoute : DEFAULT_ROUTE
+  if (initial !== DEFAULT_ROUTE) {
     await router.push(initial).catch((e) => {
       // 未知子路径（如应用内已退役路由）：兜底 not-found 由路由表处理，不抛
       logger.warn(`[AppMount] initial route push failed: ${initial}`, e)
@@ -186,7 +209,7 @@ export async function mountApp(root: HTMLElement, env: AppMountEnv): Promise<App
     async unmount() {
       routeReporting = false
       try {
-        await router.push('/sessions').catch(() => undefined)
+        await router.push(DEFAULT_ROUTE).catch(() => undefined)
       } catch {
         // 卸载路径尽力而为
       }

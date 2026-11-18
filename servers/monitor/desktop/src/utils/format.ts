@@ -20,7 +20,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-function isFiniteNumber(value: unknown): value is number {
+/** 有限数值判定（缺失 / NaN / Infinity 一律不当作可展示的数字） */
+export function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value)
 }
 
@@ -89,8 +90,8 @@ const ROLE_RANK: Record<PluginKindRole, number> = {
 /** 宿主清单有、指标快照无时只补这些异常态，正常未运行的应用不进入运行时台账 */
 const HOST_ONLY_VISIBLE_STATES = new Set<PluginDisplayState>(['error', 'degraded', 'approval'])
 
-/** 携带 wasm Store 的产物形态；ts-only 没有运行时指标 */
-const WASM_PLUGIN_TYPES = new Set(['rust', 'rust-ts', 'wasm'])
+/** 携带 wasm Store 的产物形态（语言无关三档，wasmnest-apps#21）；frontend 没有运行时指标 */
+const WASM_PLUGIN_TYPES = new Set(['backend', 'full'])
 
 /** manifest kind → 展示角色（兼容历史别名 system / application） */
 export function normalizePluginKind(raw: unknown): PluginKindRole {
@@ -199,7 +200,7 @@ export function mergePluginRows(
     const state = stateOfInfo(info)
     const displayState = displayStateOf(state.raw)
     if (!HOST_ONLY_VISIBLE_STATES.has(displayState)) continue
-    // 明确 ts-only 的插件不进入 wasm 运行时台账；缺 pluginType 的老宿主按异常态兜底
+    // 明确纯前端（frontend）的插件不进入 wasm 运行时台账；缺 pluginType 的老宿主按异常态兜底
     if (isWasmBearingPluginType(info.pluginType) === false) continue
     rows.push({
       id,
@@ -227,6 +228,9 @@ export function mergePluginRows(
  * 收集非插件维度段（如宿主任务池 `task`）。
  *
  * 只收对象段：标量 / 数组段不是 v1 消费面，静默跳过；`plugins` 是保留段。
+ * `process` 段已升级为**专用面板**（`HostProcessPanel` + `utils/process.ts`）：
+ * 它不再进原始键名列表，否则同一份数据会在页面上出现两次（一次裸键名、
+ * 一次正式面板）。
  */
 export function collectSystemSections(
   snapshot: MetricsSnapshot,
@@ -235,7 +239,7 @@ export function collectSystemSections(
   const includeTask = opts.includeTask ?? true
   return Object.entries(snapshot)
     .filter(([id, data]) => {
-      if (id === 'plugins') return false
+      if (id === 'plugins' || id === 'process') return false
       if (!includeTask && id === 'task') return false
       return isRecord(data)
     })
@@ -323,6 +327,17 @@ export function formatRatio(ratio: number | null | undefined): string {
   return `${(ratio * 100).toFixed(1)}%`
 }
 
+/**
+ * 百分比格式化（输入已是 0..100 的百分数，如宿主进程 CPU）
+ *
+ * 与 `formatRatio` 分开：CPU 是「占单核百分比」且可 > 100（多线程），
+ * 不能被 0..1 的口径误读。保留一位小数：`0.4%` 不能被取整成 `0%`。
+ */
+export function formatPercent(value: number | null | undefined): string {
+  if (!isFiniteNumber(value)) return '—'
+  return `${value.toFixed(1)}%`
+}
+
 /** 记录映射求和（缺失 / 非有限值按 0 计） */
 export function sumValues(map: Record<string, number> | null | undefined): number {
   if (!map) return 0
@@ -373,7 +388,9 @@ export function summarize(snapshot: MetricsSnapshot): {
   pluginCount: number
   callsTotal: number
   callsInFlight: number
+  memoryCurrentBytes: number
   memoryPeakBytes: number
+  fuelTotal: number
   trapsTotal: number
 } {
   const list: PluginMetricsSnapshot[] = Object.values(snapshot.plugins)
@@ -381,7 +398,9 @@ export function summarize(snapshot: MetricsSnapshot): {
     pluginCount: list.length,
     callsTotal: list.reduce((sum, m) => sum + (m.calls_total ?? 0), 0),
     callsInFlight: list.reduce((sum, m) => sum + (m.calls_in_flight ?? 0), 0),
+    memoryCurrentBytes: list.reduce((sum, m) => sum + (m.memory_current_bytes ?? 0), 0),
     memoryPeakBytes: list.reduce((sum, m) => sum + (m.memory_peak_bytes ?? 0), 0),
+    fuelTotal: list.reduce((sum, m) => sum + (m.fuel_consumed_total ?? 0), 0),
     trapsTotal: list.reduce((sum, m) => sum + sumValues(m.trap_reasons), 0),
   }
 }

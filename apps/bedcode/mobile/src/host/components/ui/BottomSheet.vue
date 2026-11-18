@@ -1,13 +1,13 @@
 <template>
   <Teleport to="body">
     <Transition name="center-modal">
-      <div v-if="modelValue" class="fixed inset-0 z-50 flex items-center justify-center p-4 mobile-ui">
+      <div v-if="modelValue" class="fixed inset-0 z-50 flex items-center justify-center p-4 mobile-ui" data-bedcode-surface>
         <!-- Backdrop -->
         <div class="absolute inset-0 bg-[var(--mobile-overlay)]" @click="handleBackdropClick"></div>
 
-        <!-- Panel - 居中显示，避免被输入法遮挡 -->
+        <!-- Panel - 居中显示，避免被输入法遮挡；圆角 / 阴影与 Modal 同口径 -->
         <div
-          class="relative w-full max-w-sm bg-[var(--mobile-bg-card)] border border-[var(--mobile-border)] rounded-2xl p-6 shadow-xl modal-panel"
+          class="relative w-full max-w-sm bg-[var(--mobile-bg-card)] border border-[var(--mobile-border)] rounded-xl p-6 shadow-[0_1px_2px_rgba(0,0,0,0.08)] modal-panel"
           data-testid="mobile-manual-sheet"
         >
           <!-- Close button (loading 时禁用) -->
@@ -29,7 +29,7 @@
           <div v-if="loading" class="mb-4">
             <div class="flex items-center justify-center gap-3 py-4">
               <div
-                class="w-6 h-6 border-2 border-[var(--mobile-accent)] border-t-transparent rounded-full animate-spin"
+                class="w-5 h-5 border-2 border-[var(--mobile-text-muted)] border-t-transparent rounded-full animate-spin"
               ></div>
               <span class="text-[var(--mobile-text-secondary)]">{{ connectingText }}</span>
             </div>

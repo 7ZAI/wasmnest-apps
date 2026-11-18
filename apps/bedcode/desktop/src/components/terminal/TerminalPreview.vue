@@ -137,11 +137,15 @@
           class="w-96 rounded-[10px] border border-[var(--border)] bg-[var(--bg-card)] shadow-xl"
         >
           <div class="px-4 py-3 border-b border-[var(--border)]">
-            <span class="text-[calc(13px*var(--ui-scale))] font-semibold text-[var(--text-primary)]">
+            <span
+              class="text-[calc(13px*var(--ui-scale))] font-semibold text-[var(--text-primary)]"
+            >
               {{ t('session.terminal.rendererOverrideTitle') }}
             </span>
           </div>
-          <div class="px-4 py-4 text-[calc(12.5px*var(--ui-scale))] text-[var(--text-secondary)] whitespace-pre-line">
+          <div
+            class="px-4 py-4 text-[calc(12.5px*var(--ui-scale))] text-[var(--text-secondary)] whitespace-pre-line"
+          >
             {{
               t('session.terminal.rendererOverrideBody', {
                 renderer: rendererOverrideTarget?.rendererName ?? '',
@@ -205,11 +209,19 @@ import { Unicode11Addon } from '@xterm/addon-unicode11'
 import { platform } from '@tauri-apps/plugin-os'
 import type { Disposable, PluginContext } from '@binblink/wasmnest-plugin-sdk-desktop'
 import type { SessionInfo } from '../../composables/terminal/model'
+import { sessionHasPty } from '../../composables/terminal/model'
 import { createTerminalKernel } from '../../composables/terminal/terminalKernel'
-import { useTerminalWritePipeline, type TerminalOutputSink } from '../../composables/terminal/useTerminalWritePipeline'
+import {
+  useTerminalWritePipeline,
+  type TerminalOutputSink,
+} from '../../composables/terminal/useTerminalWritePipeline'
 import { useTerminalScroll } from '../../composables/terminal/useTerminalScroll'
 import { useTerminalRenderer } from '../../composables/terminal/useTerminalRenderer'
-import { useTerminalResize, type ResizeRequester, type ResizeOutcome } from '../../composables/terminal/useTerminalResize'
+import {
+  useTerminalResize,
+  type ResizeRequester,
+  type ResizeOutcome,
+} from '../../composables/terminal/useTerminalResize'
 import { useTerminalSettingsSync } from '../../composables/terminal/useTerminalSettingsSync'
 import { attachLinuxImeGuard, type LinuxImeGuard } from '../../utils/terminal/terminalLinuxImeGuard'
 import { TerminalResizeDebouncer } from '../../utils/terminal/terminalResizeDebouncer'
@@ -223,6 +235,7 @@ import { TERMINAL_SCROLLBACK } from '../../utils/terminal/terminalScrollback'
 import {
   OUTPUT_PULL_INTERVAL_MS,
   OUTPUT_PULL_MAX_BATCHES,
+  OUTPUT_PULL_MAX_FAILURES,
   decidePollIntervalMs,
   nextIdleStreak,
 } from '../../utils/terminal/terminalPullPolicy'
@@ -236,12 +249,19 @@ interface Props {
   showInput?: boolean
   /** 是否显示组件内 header（终端窗口模式下由外层统一管理 header） */
   showHeader?: boolean
+  /**
+   * 挂载完成后是否自动聚焦终端（默认 true，与既有单屏 / 终端窗口行为一致）。
+   * 拼屏里多实例同时挂载时只有焦点格置 true：否则后挂载的格子会把键盘焦点
+   * 从用户正在看的终端抢走（focusin 还会连带改掉选中态）。
+   */
+  autoFocus?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
   session: null,
   showInput: true,
   showHeader: true,
+  autoFocus: true,
 })
 
 // 插件上下文（PluginViewHost / dev-shell 注入；插件组件既有模式）
@@ -347,7 +367,14 @@ const renderer = useTerminalRenderer(kernel, console)
 const resize = useTerminalResize(kernel, requestResizeImpl, t)
 
 // 模板同名绑定（域返回值解构，template 零改动）
-const { terminalTheme, fontSize, letterSpacing, themeSelectOptions, fontSizeSelectOptions, letterSpacingSelectOptions } = settings
+const {
+  terminalTheme,
+  fontSize,
+  letterSpacing,
+  themeSelectOptions,
+  fontSizeSelectOptions,
+  letterSpacingSelectOptions,
+} = settings
 const { bgImageUrl, bgOpacity, containerBgColor } = settings
 const { isUserScrolling, clearTerminal, refreshTerminal, scrollToBottomManual } = scroll
 const { rendererDecision } = renderer
@@ -364,15 +391,15 @@ const statusColor = computed(() => {
   if (!props.session) return 'bg-slate-400 dark:bg-dark-500'
   switch (props.session.status) {
     case 'running':
-      return 'bg-green-500'
+      return 'bg-[var(--color-success)]'
     case 'waitingInput':
-      return 'bg-yellow-500 animate-pulse'
+      return 'bg-[var(--color-warning)] animate-pulse'
     case 'error':
-      return 'bg-red-500'
+      return 'bg-[var(--color-danger)]'
     case 'stopped':
       return 'bg-slate-400 dark:bg-dark-500'
     case 'starting':
-      return 'bg-blue-500 animate-pulse'
+      return 'bg-[var(--color-info)] animate-pulse'
     default:
       return 'bg-slate-400 dark:bg-dark-500'
   }
@@ -421,6 +448,10 @@ let attachedSessionId: string | null = null
 let hasRenderedOutput = false
 /** 连续追平计数（空闲退避依据） */
 let idleStreak = 0
+/** 连续拉取失败次数（达到上限停机，防每 tick 抛错灌成全局提示风暴） */
+let pullFailureStreak = 0
+/** 本世代是否已为拉取失败打过一次 warn（只打一次，不刷日志） */
+let pullFailureWarned = false
 
 // ==================== 背压 ack（对齐迁移前 useTerminalOutputStreamChannel） ====================
 //
@@ -464,13 +495,13 @@ function sendAck(sessionId: string): void {
   ackedThroughOffset = offset
   pendingAckBytes = 0
   lastAckSentAt = Date.now()
-  void Promise.resolve(
-    context.commands.execute('session.output.ack', { sessionId, offset }),
-  ).catch((e) => {
-    console.warn(
-      `[bedcode] output ack failed session=${sessionId} offset=${offset}: ${describeCommandError(e)}`,
-    )
-  })
+  void Promise.resolve(context.commands.execute('session.output.ack', { sessionId, offset })).catch(
+    (e) => {
+      console.warn(
+        `[bedcode] output ack failed session=${sessionId} offset=${offset}: ${describeCommandError(e)}`,
+      )
+    },
+  )
 }
 
 /** ack 节流回发（F1）：阈值达标 / 空闲兜底 / 首次 → 回发；否则挂定时器等兜底 */
@@ -503,9 +534,7 @@ function noteParked(sessionId: string, unacked: number): void {
   if (parkedSince === 0) {
     parkedSince = now
     zombieWarned = false
-    console.warn(
-      `[bedcode] 输出背压：进入驻留 session=${sessionId} unacked=${unacked}`,
-    )
+    console.warn(`[bedcode] 输出背压：进入驻留 session=${sessionId} unacked=${unacked}`)
     return
   }
   if (!zombieWarned && now - parkedSince >= OUTPUT_PARK_ZOMBIE_MS) {
@@ -533,9 +562,7 @@ function clearParked(sessionId: string): void {
  * 无需翻插件日志。**纯诊断**：失败仅留痕，绝不影响拉取链路。
  */
 function logUnparkWatermarks(sessionId: string, parkedMs: number): void {
-  void Promise.resolve(
-    context.commands.execute('session.output.watermarks', { sessionId }),
-  )
+  void Promise.resolve(context.commands.execute('session.output.watermarks', { sessionId }))
     .then((res: unknown) => {
       const entries = (res as { entries?: unknown })?.entries
       const row = Array.isArray(entries)
@@ -634,10 +661,40 @@ async function pullOnce(): Promise<boolean> {
   }
 }
 
+/**
+ * 带失败收口的拉取：命令失败（会话已不在册 / 记录无 PTY / 宿主内部错误）
+ * 不得让 rejection 逃到全局 unhandledrejection——那里会弹「未知错误」，
+ * 轮询节奏下就是提示风暴。有限重试后停机，等状态变化/重新接入再恢复。
+ */
+async function pullSafely(): Promise<boolean> {
+  try {
+    const hadMore = await pullOnce()
+    pullFailureStreak = 0
+    return hadMore
+  } catch (e) {
+    pullFailureStreak += 1
+    if (!pullFailureWarned) {
+      pullFailureWarned = true
+      console.warn(
+        `[bedcode] 输出拉取失败 session=${props.session?.id ?? '?'}（有限重试）: ${describeCommandError(e)}`,
+      )
+    }
+    if (pullFailureStreak >= OUTPUT_PULL_MAX_FAILURES) {
+      console.warn(
+        `[bedcode] 输出拉取连续失败 ${pullFailureStreak} 次，已停止轮询 session=${props.session?.id ?? '?'}（会话可能已结束或缺少 PTY）`,
+      )
+      stopOutputPull()
+    }
+    return false
+  }
+}
+
 async function pullTick() {
   // F2 退避期：不发新 pull（throttled 空响应后的 park_poll 等待）
   if (Date.now() < throttleBackoffUntil) return
-  const hadMore = await pullOnce()
+  const hadMore = await pullSafely()
+  // 失败达上限已在 pullSafely 内停机：不要再按本 tick 结果重建 interval
+  if (!pullTimer) return
   idleStreak = nextIdleStreak(idleStreak, hadMore)
   // 节奏决策（驻留 > 有余量 > 空闲阈值）：间隔变化才重建 interval
   const next = decidePollIntervalMs({ idleStreak, hasMore: hadMore, parked: parkedSince !== 0 })
@@ -652,7 +709,7 @@ async function pullTick() {
 function kickOutputPull() {
   if (!props.session?.id || !outputSink) return
   throttleBackoffUntil = 0
-  void pullOnce()
+  void pullSafely()
 }
 
 // ==================== 输出可用通知（P2：宿主限频唤醒） ====================
@@ -730,7 +787,9 @@ function attachOutputSource() {
   outputSink = pipeline.attachSource()
   pipeline.armReplayRefresh()
   // 先立即拉一轮（历史回放），再进入快档轮询（节奏常量见 terminalPullPolicy）
-  void pullOnce()
+  pullFailureStreak = 0
+  pullFailureWarned = false
+  void pullSafely()
   pullTimer = setInterval(() => void pullTick(), OUTPUT_PULL_INTERVAL_MS)
   pollIntervalMs = OUTPUT_PULL_INTERVAL_MS
 }
@@ -740,6 +799,9 @@ function detachOutputSource() {
   outputSink = null
   attachedSessionId = null
 }
+
+/** E2E 只读句柄（xterm 画布不可读文本；docs/E2E.md §10.4 的 oracle 口径） */
+let e2eBufferHandle: (() => string) | null = null
 
 function initTerminal() {
   if (!terminalHostRef.value) return
@@ -823,6 +885,19 @@ function initTerminal() {
   terminal.unicode.activeVersion = '11'
 
   terminal.open(terminalHostRef.value)
+
+  // E2E oracle：WebGL 画布读不到字节，暴露只读 buffer 句柄供真实宿主用例断言
+  // 「终端有真实输出」；句柄只读，不参与渲染与交互。
+  e2eBufferHandle = () => {
+    const buffer = terminal.buffer.active
+    const lines: string[] = []
+    for (let i = 0; i < buffer.length; i += 1) {
+      lines.push(buffer.getLine(i)?.translateToString(true) ?? '')
+    }
+    return lines.join('\n')
+  }
+  const e2eWindow = window as unknown as { __bedcodeTerminalText?: () => string }
+  e2eWindow.__bedcodeTerminalText = e2eBufferHandle
 
   // 渲染器初始化：按 decideRenderer 决策加载 WebGL（或保持 DOM）并同步
   // DOM 层光标状态（DOM 渲染器下 webglAddon 为 null，后续分支天然跳过）
@@ -946,6 +1021,10 @@ function initTerminal() {
       return
     }
 
+    // 终态 / 未启动会话没有 PTY：写入只会在宿主侧报错（且是无 catch 的
+    // fire-and-forget，rejection 会冒成全局提示），静默忽略输入
+    if (!sessionHasPty(props.session.status)) return
+
     // 票 08：输入经**本插件命令通道**写入（宿主不再有会话输入命令面）。
     // 提交行重建 + 任务域观察 + `host-pty.write` 全在本插件 WASM 内完成
     // （与互调 api `session-input` 同一实现）；身份令牌 + 激活门由
@@ -960,16 +1039,28 @@ function initTerminal() {
   })
 }
 
-// 会话状态变化：停止/出错时断开输出流；重新运行时恢复订阅
+// 会话切换 / 状态变化：停止或出错时断开输出流；换会话或仍存活时（重新）接入。
+//
+// **必须连 `session.id` 一起听**：不同运行会被投影成不同会话喂给同一组件实例，
+// 「运行 A → 运行 B」且两条都 running 时 status 不变——只听 status 不会触发任何
+// 分支，屏幕与游标停在上一条会话（B 输出量小于旧游标时看起来永远空白）。
+// 换会话的清理在 `attachOutputSource` 内：清屏 + 游标归零 + 从环起点重放；
+// 同会话重复 attach 幂等（不重置游标）。
 watch(
-  () => props.session?.status,
-  (status) => {
-    if (!sessionId.value) return
-    if (status === 'stopped' || status === 'error') {
+  () => [props.session?.id, props.session?.status] as const,
+  ([id, status], [prevId]) => {
+    if (!id || status === 'stopped' || status === 'error') {
       detachOutputSource()
-    } else if (status === 'running' || status === 'starting') {
-      attachOutputSource()
+      // 换到终态会话：没有可接入的输出源，但屏幕不能留着上一条会话的画面
+      // （同会话停止不清屏——保留最后的输出是既有语义）
+      if (id && id !== prevId) {
+        pipeline.clearPendingOutput()
+        kernel.terminalRef.value?.clear()
+        hasRenderedOutput = false
+      }
+      return
     }
+    attachOutputSource()
   },
 )
 
@@ -988,10 +1079,7 @@ onMounted(async () => {
   // Windows/macOS 保持原有行为（字体即装即用，无需等待）。
   if (kernel.isLinux.value && typeof document !== 'undefined' && 'fonts' in document) {
     try {
-      await Promise.race([
-        document.fonts.ready,
-        new Promise((resolve) => setTimeout(resolve, 400)),
-      ])
+      await Promise.race([document.fonts.ready, new Promise((resolve) => setTimeout(resolve, 400))])
     } catch {
       // fonts.ready 异常不阻塞终端初始化
     }
@@ -1026,10 +1114,17 @@ onMounted(async () => {
     attachOutputSource()
   }
 
-  kernel.terminalRef.value?.focus()
+  if (props.autoFocus) kernel.terminalRef.value?.focus()
 })
 
 onUnmounted(() => {
+  // E2E 句柄只归本实例：卸载后不得再读到旧终端的内容
+  const e2eWindow = window as unknown as { __bedcodeTerminalText?: () => string }
+  if (e2eBufferHandle && e2eWindow.__bedcodeTerminalText === e2eBufferHandle) {
+    delete e2eWindow.__bedcodeTerminalText
+  }
+  e2eBufferHandle = null
+
   // 断开输出源轮询（停止拉取与重连）
   detachOutputSource()
 
@@ -1095,6 +1190,8 @@ defineExpose({
   clearTerminal: scroll.clearTerminal,
   refreshTerminal: scroll.refreshTerminal,
   scrollToBottomManual: scroll.scrollToBottomManual,
+  /** 键盘焦点交给本实例的 xterm（拼屏里点格子 / 左栏换入后调用） */
+  focus: () => kernel.terminalRef.value?.focus(),
 })
 </script>
 

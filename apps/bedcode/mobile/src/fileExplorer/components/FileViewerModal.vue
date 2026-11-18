@@ -1,7 +1,7 @@
 <template>
   <Teleport to="body">
     <transition name="center-modal">
-      <div v-if="visible" class="viewer-overlay mobile-ui" :class="{ 'viewer-overlay-fullscreen': isFullscreen }" @click.self="handleClose" @touchstart.stop @touchmove.stop>
+      <div v-if="visible" class="viewer-overlay mobile-ui" data-bedcode-surface :class="{ 'viewer-overlay-fullscreen': isFullscreen }" @click.self="handleClose" @touchstart.stop @touchmove.stop>
         <div class="viewer-modal modal-panel" :class="{ 'viewer-fullscreen': isFullscreen }" :style="modalStyle">
         <!-- Header -->
         <div class="viewer-header">
@@ -63,6 +63,9 @@
             :style="codeStyle"
             v-html="highlightedHtml"
           ></div>
+          <!-- 高亮引擎不可用（如 wasm 资产取不到）时不得渲染成空白，必须可见报错 -->
+          <div v-else-if="isLoading" class="viewer-loading">{{ t('file.loading') }}</div>
+          <div v-else-if="highlightError" class="viewer-error">{{ highlightError }}</div>
         </div>
 
         <!-- Footer -->
@@ -112,7 +115,8 @@ const emit = defineEmits<{
 }>()
 
 const safeArea = inject<Ref<{ top: number; bottom: number }>>('safeArea')!
-const { highlightedHtml, isLoading, highlight, highlightDiff } = useCodeHighlight()
+const { highlightedHtml, isLoading, error: highlightError, highlight, highlightDiff } =
+  useCodeHighlight()
 
 const isFullscreen = ref(false)
 const codeViewerStore = useCodeViewerStore()
@@ -242,14 +246,19 @@ watch(
 
 .viewer-modal {
   background: var(--mobile-bg-secondary);
-  border-radius: 1rem;
+  border-radius: var(--bc-radius-sheet);
   width: 90%;
-  max-width: clamp(280px, 700px, 900px);
+  max-width: 700px;
   height: 80vh;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  /* 只过渡全屏切换真正会变的几档，避免每次内容变化都重算整张过渡表 */
+  transition:
+    width var(--bc-dur-base) var(--bc-ease),
+    height var(--bc-dur-base) var(--bc-ease),
+    max-width var(--bc-dur-base) var(--bc-ease),
+    border-radius var(--bc-dur-base) var(--bc-ease);
 }
 
 .viewer-fullscreen {
@@ -304,8 +313,8 @@ watch(
 }
 
 .viewer-action-btn {
-  padding: clamp(0.25rem, 0.375rem, 0.5rem);
-  border-radius: 0.375rem;
+  padding: 0.5rem;
+  border-radius: var(--bc-radius-control);
   background: none;
   border: none;
   color: var(--mobile-text-muted);
@@ -313,7 +322,9 @@ watch(
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.2s ease;
+  transition:
+    background-color var(--bc-dur-base) var(--bc-ease),
+    color var(--bc-dur-base) var(--bc-ease);
 }
 
 .viewer-action-btn:hover {
@@ -600,8 +611,6 @@ watch(
   color: var(--mobile-text-primary);
   font-weight: 600;
   font-size: var(--font-size-sm);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
   border-bottom: 2px solid var(--mobile-border);
   white-space: nowrap;
 }

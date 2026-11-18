@@ -3,7 +3,7 @@
  *
  * 桌面 UI 宿主（方案 C 壳）的结构：**主屏**（应用网格 + 系统网格）→ 点应用卡 →
  * 挂载槽装载该 app 的独立前端整包（同一 webview 同一 document，非 iframe）→
- * 壳路由切到该 app 的路由前缀（agent-hub = `/hub`）。
+ * 壳路由切到该 app 的路由前缀（bedcode = `/sessions`）。
  *
  * 所以 E2E 里「打开某个 app」= 主屏点应用卡，「回主屏」= 壳路由回 `/`。
  *
@@ -87,30 +87,48 @@ export async function goHome(timeout = DEFAULT_TIMEOUT): Promise<void> {
 }
 
 /**
- * 点主屏应用卡，打开该 app
+ * 点主屏应用卡（只点，不等路由）
  *
- * @param displayName 应用显示名（= plugin.json 的 name，如 `Agent Hub`）
+ * 首次激活可能弹「文件访问授权」（挡住路由切换），需要调用方自己 `allowFsAuthPrompts`
+ * 再 `waitForAppRoute`；一般的 app 直接用 `openApp` 省事。
+ *
+ * @param displayName 应用显示名（= plugin.json 的 name，如 `BedCode`）
  * @throws 找不到卡片时抛错（fail-visible：静默跳过会把「应用没装上」伪装成「用例通过」）
  */
-export async function openApp(displayName: string, timeout = DEFAULT_TIMEOUT): Promise<void> {
-  const clicked = await browser.execute((name: string) => {
-    const grid = document.querySelector('[role="list"]')
-    if (!grid) return false
-    const items = Array.from(grid.querySelectorAll('[role="listitem"]'))
-    const hit = items.find((el) => {
-      const label = el.getAttribute('aria-label') || ''
-      const nm = (el.querySelector('.nm')?.textContent || label.split('，')[0] || '').trim()
-      return nm === name || label.startsWith(name + '，')
-    }) as HTMLElement | undefined
-    if (!hit) return false
-    hit.click()
-    return true
-  }, displayName)
-
-  if (!clicked) {
+export async function clickAppCard(displayName: string, timeout = DEFAULT_TIMEOUT): Promise<void> {
+  try {
+    await browser.waitUntil(
+      async () =>
+        await browser.execute((name: string) => {
+          const grid = document.querySelector('[role="list"]')
+          if (!grid) return false
+          const items = Array.from(grid.querySelectorAll('[role="listitem"]'))
+          const hit = items.find((el) => {
+            const label = el.getAttribute('aria-label') || ''
+            const nm = (el.querySelector('.nm')?.textContent || label.split('，')[0] || '').trim()
+            return nm === name || label.startsWith(name + '，')
+          }) as HTMLElement | undefined
+          if (!hit) return false
+          hit.click()
+          return true
+        }, displayName),
+      {
+        timeout,
+        interval: 150,
+        timeoutMsg: `主屏找不到可点击的应用卡「${displayName}」`,
+      },
+    )
+  } catch {
     const cards = await homeAppCards()
     throw new Error(`主屏找不到应用卡「${displayName}」。当前主屏卡片：${JSON.stringify(cards)}`)
   }
+}
+
+/** 等壳路由离开主屏（应用装载成功的判据） */
+export async function waitForAppRoute(
+  displayName: string,
+  timeout = DEFAULT_TIMEOUT,
+): Promise<void> {
   await browser.waitUntil(
     async () => {
       const href = await browser.execute(() => window.location.pathname)
@@ -124,6 +142,12 @@ export async function openApp(displayName: string, timeout = DEFAULT_TIMEOUT): P
   )
 }
 
+/** 点主屏应用卡，打开该 app */
+export async function openApp(displayName: string, timeout = DEFAULT_TIMEOUT): Promise<void> {
+  await clickAppCard(displayName, timeout)
+  await waitForAppRoute(displayName, timeout)
+}
+
 /**
  * 点主屏系统宫格条目，打开宿主系统级服务（如 Monitor / Auth Center）
  *
@@ -131,20 +155,28 @@ export async function openApp(displayName: string, timeout = DEFAULT_TIMEOUT): P
  * @throws 找不到条目时抛错（fail-visible：静默跳过会把「服务没装上」伪装成「用例通过」）
  */
 export async function openSystemApp(displayName: string, timeout = DEFAULT_TIMEOUT): Promise<void> {
-  const clicked = await browser.execute((name: string) => {
-    const grids = Array.from(document.querySelectorAll('[role="list"]'))
-    if (grids.length < 2) return false
-    const items = Array.from(grids[1].querySelectorAll('[role="listitem"]'))
-    const hit = items.find((el) => {
-      const nm = (el.querySelector('.nm')?.textContent || '').trim()
-      return nm === name
-    }) as HTMLElement | undefined
-    if (!hit) return false
-    hit.click()
-    return true
-  }, displayName)
-
-  if (!clicked) {
+  try {
+    await browser.waitUntil(
+      async () =>
+        await browser.execute((name: string) => {
+          const grids = Array.from(document.querySelectorAll('[role="list"]'))
+          if (grids.length < 2) return false
+          const items = Array.from(grids[1].querySelectorAll('[role="listitem"]'))
+          const hit = items.find((el) => {
+            const nm = (el.querySelector('.nm')?.textContent || '').trim()
+            return nm === name
+          }) as HTMLElement | undefined
+          if (!hit) return false
+          hit.click()
+          return true
+        }, displayName),
+      {
+        timeout,
+        interval: 150,
+        timeoutMsg: `主屏系统宫格找不到可点击的「${displayName}」`,
+      },
+    )
+  } catch {
     const cards = await homeSystemCards()
     throw new Error(
       `主屏系统宫格找不到「${displayName}」。当前系统宫格条目：${JSON.stringify(cards)}`,

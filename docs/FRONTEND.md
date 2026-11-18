@@ -16,6 +16,45 @@
 
 ---
 
+## 0. 现代 Web 平台指南（modern-web-guidance，强制前置）
+
+> 适用范围：`apps/<slug>/{desktop,mobile}/src/**`、`servers/<slug>/{desktop,mobile}/src/**` 中所有 HTML / CSS / 客户端 JS 的新增或修改。
+> skill 落点 = `~/.agents/skills/modern-web-guidance/SKILL.md`（全局安装，覆盖 Claude Code / Codex / OpenCode / Copilot / Pi）。本仓只引用，不复制副本进仓库。
+
+本 skill 补的是「现代平台能力**怎么用才对**」——262 项平台特性 / 204 个真实用例，带 Baseline 支持度、坑点与轻量回退。它**不替代** `ui-ux-pro-max`（定「长什么样」）与 `frontend-styles`（定「BedCode 怎么写」）；两者按各自分工叠加使用。
+
+### 0.1 工作流（开发与审核都走）
+
+1. **动手前**：加载 `/skill:modern-web-guidance`，用 2–5 个英文动作词检索**一个**平台能力（多特性拆多次检索）：
+   ```bash
+   pnpx modern-web-guidance@latest search "light dismiss dialog"
+   pnpx modern-web-guidance@latest retrieve "<id>"
+   ```
+   无 pnpm 时用 `npx -y modern-web-guidance@latest ...`（CLI 离线、无 API key）。检索无匹配就如实说明并继续，**不硬套**指南。
+2. **裁决**：按 §0.2 把指南与本仓红线对齐，再写 CSS / 组件；检索建议不得直接覆盖本仓 token / 原生 UI / 产物形态约束。
+3. **审核**：对照取回的 guide 逐条核对实现（含 fallback 分支）；交付说明写明检索过的 id 与裁决结论，不写「参考了最佳实践」这类空话。
+
+### 0.2 本仓红线优先于指南（冲突裁决）
+
+指南面向通用 Web，本仓跑在 Tauri WebView / Android WebView 的插件沙箱里。下表冲突**一律以本仓为准**，指南对应写法视为不适用：
+
+| 指南常见建议 | 本仓裁决 |
+| --- | --- |
+| 原生 `<dialog>` + `showModal()` / `<dialog popover>` / `popovertarget` | **禁用**（`frontend-styles` 原生 UI 禁令）：系统绘制弹层不吃 token / `--ui-scale`，深浅色脱钩。用 `PluginModal` / Toast（`vue-sonner`）+ `<Teleport to="body">` + safe-stack z-index；交互逻辑可借 `reka-ui` |
+| `<select>` + `:user-invalid` / `input[type=date\|number\|color\|range]` | **禁用**：用宿主共享 `Select`（`@binblink/wasmnest-plugin-sdk-desktop/ui`）/ token 化 `TextInput` / `@vuepic/vue-datepicker` / 自绘滑块 |
+| 引入 polyfill / 条件加载第三方脚本 | 移动端产物**必须单文件**（§2.2）：不得新增动态 `import()` 分包（asset 协议下相对 chunk 解析到 scope 外必 403）；优先 CSS-only 或构建期内联 |
+| 示例里的 hex / 第三方色板 / Google Fonts | **token-bound**：颜色字体只取各 app `tailwind.config.js` / CSS token（见 `frontend-styles/TOKENS.md`） |
+| `fetch()` / `sendBeacon()` / 预加载网络资源 | 前端**不得直连网络**（§4）：HTTP / WS / 文件访问由 Rust 端发起并经权限仲裁 |
+
+Baseline 提示只作参考；Origin Trial 与 volatile 特性默认关闭，`retrieve` 会门控——**不要**自行改 `.mwgrc` 绕过。
+
+### 0.3 适用场景
+
+- **该查**：弹层 / 表单 / 表格 / 深色模式 / 容器查询 / View Transitions / 滚动动效 / 焦点与无障碍 / 图片与加载优先级 / INP / Web Components / 日期时区 / 安全（HTML sanitization / passkey）/ WebAssembly。
+- **不必查**：纯 token 数值修正、既有组件微调、修 CSS bug；后端 / infra / 构建脚本 / 工具链琐碎改动（与 skill 自身 description 一致）。
+
+---
+
 ## 1. 桌面端：独立挂载包（机制 B，ADR 0057）
 
 ### 1.1 三个文件的分工
@@ -28,7 +67,7 @@
 
 依赖口径：`package.json` 的桌面 SDK 是**已发布版本精确依赖**（`0.0.1`，不用 `file:` / `^`），`rust/Cargo.toml` 里 `wasmnest-plugin-api = { version = "=0.0.1" }`；要拿本地平台仓源码调试必须显式 `pnpm run link:platform`（`unlink:platform` 还原，`link:platform --status` 看状态），link 产生的 `file:` / lock 变更 / `.cargo/config.toml` 的 `[patch]` 一律不提交（AGENTS §2）。
 
-四个产品应用（`agent-hub` / `ai-chatbox` / `bedcode` / `file-transfer`）与 `servers/` 下的服务型 wasm（`auth-center` / `monitor`）都有 `entry.ts` 与 `appContext.ts`；`src/index.ts` 在 agent-hub / ai-chatbox / file-transfer 存在，**bedcode/desktop、monitor/desktop、auth-center/desktop 没有**。
+三个产品应用（`ai-chatbox` / `bedcode` / `file-transfer`；agent-hub 已并入 bedcode 的 Agent 管理域）与 `servers/` 下的服务型 wasm（`auth-center` / `monitor`）都有 `entry.ts` 与 `appContext.ts`；`src/index.ts` 在 ai-chatbox / file-transfer 存在，**bedcode/desktop、monitor/desktop、auth-center/desktop 没有**。
 
 ### 1.2 挂载契约字段
 
@@ -79,7 +118,7 @@
 - 不挂主 `App.vue` / 主 router / 主 pinia / 主 stores / 模块级可变单例（当前前台应用的卡也会挂预览，主实例可能在遮罩后同时运行）；
 - 不留下活过 `unmount()` 的定时器 / 全局监听；数据拿不到时显示应用自己的诚实空态。
 
-内容建议（应用自决）：bedcode 会话 / 连接状态摘要、agent-hub CLI 检测概览、ai-chatbox 最近对话摘要、file-transfer 对端 + 传输任务摘要、monitor 插件数 / 调用 / Trap / 内存峰值摘要。机制与边界完整说明见平台仓 `.scratch/2026-10-20-app-preview-contract/spec.md`。
+内容建议（应用自决）：bedcode 会话 / 连接状态摘要、ai-chatbox 最近对话摘要、file-transfer 对端 + 传输任务摘要、monitor 插件数 / 调用 / Trap / 内存峰值摘要。机制与边界完整说明见平台仓 `.scratch/2026-10-20-app-preview-contract/spec.md`。
 
 ### 1.3 页面取数
 
@@ -125,6 +164,7 @@
 
 - `vite.config.ts`：经 `wasmnestPlugin()`，`vue` / `vue-i18n` / `pinia` 外置为宿主全局 `window.__WASMNEST_SHARED__`（**移动端仍是外置形态，与桌面挂载包不同**）。产物入口 `src/index.ts`，`main` 指向 `index.js`。
 - 库模式下 Vite 不把提取的 CSS 注入 JS，宿主只 import `index.js` → 样式会整体失效。需要 CSS 的应用自行加内联插件（`ai-chatbox/mobile/vite.config.ts` 的 `inlinePluginCss()` 是现成范例，`data-plugin-css` 标记保证重载时先移除旧样式）。
+- **产物必须单文件**：`build.rollupOptions.output` 置 `codeSplitting: false`（旧写法 `inlineDynamicImports: true`）。宿主只 `import()` 清单里的 `main`，且装载 URL 形如 `http://asset.localhost/<整条绝对路径 percent-encoded>`；代码分割出的相对 chunk 会解析成 `http://asset.localhost/<chunk>`（在 asset scope 外，403）。实例：bedcode 的 `import('shiki/wasm')` / `import('@xterm/addon-webgl')` 曾因此全部失败——终端退回 DOM 渲染器，**源码查看静默空白**（2026-11-12 真机定位）。
 - `pnpm run dev` 起 SDK dev-shell（浏览器 HMR）；`devMock` 出口提供领域种子数据（真实宿主忽略）。**具体业务 mock / 种子数据归各 app 工程**，不要写进 SDK dev-shell。
 
 ### 2.3 域组织
@@ -135,11 +175,42 @@
 src/
 ├─ app/        应用壳域（底部导航 + 页签容器 + 终端沉浸运行面）
 ├─ host/       设备 / 会话 / 连接态内容面
+├─ projects/   项目 → 运行域（只列活跃运行 / Agent 选择 / 启动与停止）
+├─ agents/     Agent 品牌图标（与桌面端同一份图元，测试锁跨端同步）
 ├─ terminal/   终端消费 UI 域（TerminalView / terminalBuffer store / 输入助手）
 ├─ task/       任务域（桌面任务域的**只读投影**）
 ├─ settings/   设置域
 └─ index.ts    按域顺序激活（内容域先于壳域：运行面 setup 时要能取到各域文案）
 ```
+
+### 2.4 主题隔离：宿主主题预设不进入应用（2026-11-06）
+
+- 宿主外观设置里的**内置主题预设**（`glass` / `hyper`）只属于壳。应用外观自持，不从 `<html data-theme>` 继承预设 token，也不吃预设的全局结构规则（`.group-card` 材质、`.mobile-ui` 环境光等）。
+- **作用域锚点 = `data-bedcode-surface`**：运行面根（`AppRoot.vue`）+ 每个 `Teleport to="body"` 的弹层根。新增 body 挂载面（含 `createApp(...).mount(document.body)` / 尾部挂到 `document.body` 的 UI）必须补该属性，否则脱离运行面后会被预设 token 污染；`src/app/__tests__/themeScope.test.ts` T-S5 机器判（Teleport 计数 vs 属性计数）。
+- 隔离层 = `src/app/themeScope.css`：在锚点上重声明宿主默认档 token（深 / 浅两套）、归零 `--theme-ambient`，并中和宿主预设作用在 `.group-card` 上的材质 / 硬边规则与棱线 / 噪点伪元素；运行面根自铺 `--mobile-bg-primary` 底色（不透出壳的主题环境光 / 壁纸）。
+- **仍跟随宿主**：深浅色（`html:not(.dark)`）与主色色板（`[data-palette]` 挂运行面根）。隔离层**不声明** accent 系 token，否则会压掉色板。
+- 数值真源 = 平台仓 `wasmnest-mobile/src/styles/mobile.css` 默认档。改宿主默认 token 必须同改 `themeScope.css`；`themeScope.test.ts` T-S1/T-S2 逐 token 比对，宿主主题预设新增基础 token 时点名缺失。
+- 应用源码避免使用宿主主题结构规则命中的类名（`.settings-group` / `.notify-card` / `.shell-*` 等）。允许项只有 `.group-card`（分组卡基础语汇）与 `.mobile-ui`（弹层排版口径），两者已在隔离层中和（T-S4）。
+
+### 2.5 扫码解码策略：bedcode/mobile（2026-11-11）
+
+相机实时扫码**不再走 html5-qrcode 的相机循环**（相册 `scanFile` 保留）。原因是库的解码画布 = 解码区域的 CSS 像素、每帧只解一次全尺寸，而 T08 的 v2 载荷是 85~93 模块：内置 ZXing 的 finder 会锁到数据区里的假 finder（`zxing#897` / `html5-qrcode#380`、`#726`），整帧丢弃且失败回调静默，界面表现是「对准了毫无反应」。
+
+- 模块：`src/host/scan/`
+  - `decodeStrategy.ts`：纯函数层（不依赖 DOM），`planAttempts`（本帧序列）/ `attemptCapture`（一档取样几何）/ `workCanvasEdge` / `nextFrameDelayMs` 全部可单测。
+    - 尝试顺序：原生 `BarcodeDetector`（探测通过才排第一）→ ZXing 全尺寸 + `TRY_HARDER` → `0.66×` 降采样 →（连续未命中 ≥ 30 帧）中心 ROI ×1.4 → `0.45×`。
+    - 单帧总预算 60ms；预算裁剪按序取（单档 ≥ 15ms）。慢帧（> 120ms）把采样从 10fps 降到 5fps。
+    - `quarterTurns` 随连续未命中数轮换：同一帧只跑 2~3 档，四帧覆盖 0/90/180/270 四个扫描方向（实测这是绕开假 finder 的关键：同一「小码 + 失焦」退化语料连续扫描命中 80% → 92%）。
+  - `useQrScanLoop.ts`：工作画布（短边 `min(720, CSS×2)`，`willReadFrequently`）+ 帧循环 + 逐档执行；命中即停。
+  - `useCameraStream.ts`：`getUserMedia` 生命周期（后置优先 / `torch` / 权限分类）；`dispose()` 必须停轨并解绑 `srcObject`（面板卸载不得留常亮摄像头）。
+  - `zxingDecoder.ts`：用 html5-qrcode 随包分发的 `third_party/zxing-js.umd` 解 `ImageData`（`RGBLuminanceSource`，不经画布），相册路径继续用库。
+  - `nativeDetector.ts`：`BarcodeDetector` **构造存在 ≠ 能用**（Android WebView 依赖 GMS）——启动时真调一次 `detect()`，连续失败 2 次即降级；探测失败只损失原生加速，不影响回退路径。
+  - `scanHint.ts`：连续 10s 无结果 → `hub.scanHintSlow` 非阻断提示（命中 / 相机错误即隐藏，不停相机）。
+- 安全：解码原文只进 `onResult`；命中日志只记 `tier / kind / scale / turn / cost`（真机排障要看到多尺度命中），质检日志只记解析结论——二维码含 token / 一次性票据，原文永不落日志（C4）。
+- 评测：`node scripts/qr-decode-bench.mjs`（根目录，`pnpm run bench:qr`）用生产代码跑「桌面载荷 → 1080p 退化（σ 1.5/2.5 + 噪声 + 亚像素平移）→ 策略序列」；CI 阈值断言在 `src/host/__tests__/qrDecodeBench.test.ts`（扫描级命中率 ≥ 95%、单帧 p95 ≤ 60ms）。
+- 真机仍必须目验（本机或双端 E2E）：`mobile-scan-panel` / `mobile-scan-slow-hint` / `mobile-scan-torch` / `mobile-scan-album` 锚点见 `docs/E2E.md` §10.5。
+
+- **file-transfer/mobile 同判据副本**（2026-11-12，#27）：`src/scan/` 复制上述 7 个模块 + `decodeStrategy` / `scanHint` 测试，面板只保留相机 + 提示（无相册 / 手电筒）；提示 key 为 `transfer.remote.scanHintSlow`。改解码策略时两处一起改，禁止跨应用 import。
 
 ---
 
@@ -147,12 +218,19 @@ src/
 
 - 每个 app **自足** i18n：桌面挂载包不依赖宿主实例，语言由 `env.locale` / `setLocale` 传入。
 - 新增 / 修改文案**必须 zh-CN 与 en 同步**；用户可见文案禁止硬编码。
-- 桌面：集中式 `src/i18n/{index,zh-CN,en,messages}.ts`，`appContext.ts` 里 `t()` 按扁平命名空间补前缀（如 `com.wasmnest.agent-hub.*`）。
+- 桌面：集中式 `src/i18n/{index,zh-CN,en,messages}.ts`，`appContext.ts` 里 `t()` 按扁平命名空间补前缀（如 `com.wasmnest.bedcode.*`）。
 - 移动：除 `file-transfer/mobile`（集中式 `src/i18n/`）外，**`bedcode/mobile` 按域分散**（`src/<domain>/i18n.ts`，在各自 `activate` 里注册）。改文案前先 `rg` 定位，不要假设集中目录。
 - **宿主不装应用文案**：应用可见文案一律归本仓自持（2026-10-27 迁移）。
   - 桌面 `bedcode` 不再维护宿主消息集副本：业务 / 设置 / 服务器 / 侧边栏 / 配色等文案在 `src/i18n/{zh-CN,en}.ts`，错误信封 `errors.*` 的机制副本在 `src/i18n/mechanism.ts`（宿主机制契约，code 即 key）。
   - 引用宿主壳命名空间（`desktop.*` / `shell.*` / `common.*`）即取不到文案、界面上回显 key 原文——`i18nPrefixDiscipline.test.ts` L4 机器判。
   - 移动端同理：`wasmnest-mobile/src/locales/**` 只剩宿主壳 / 机制文案；应用 domain 文案（bedcode `hub.*` / `terminal.*` / `task.*` 等、ai-chatbox `chat.*`）由各自 app 注册。
+- **消息必须构建期预编译**（安全审查 #50：双端 CSP 已撤 `'unsafe-eval'`）：
+  - 语言文件仍写 TS（保留 `MessageSchema` 编译期 key 同步校验），由 `scripts/lib/i18n-precompile.mjs`
+    在构建期转成 `(ctx) => string`；桌面 / 服务型工程同时用 `vue-i18n` 运行时构建并置
+    `__INTLIFY_DROP_MESSAGE_COMPILER__`，产物里不再有 `new Function`。
+  - **新增语言文件必须加进该工程 `vite.config.ts` 的 `i18nPrecompile({ include })` 清单**，
+    漏了不会静默降级：丢编译器后字符串消息在运行期直接报错。
+  - 机器判：`scripts/__tests__/i18n-precompile.test.mjs`（插件行为 + 全部工程接线）。
 
 ---
 
@@ -193,7 +271,7 @@ node scripts/replace-console.mjs <desktop|mobile> [appDirName]
 - 每 app 至少覆盖：契约（`mountApp` / `activate` 行为）、关键逻辑（纯函数 / composable）、边界与错误路径。
 - 有预览面的桌面 app 另需覆盖：正常数据渲染、空态 / 命令失败、无副作用（不启动通知 / 轮询）、`unmount` 清理、预览 DOM 内无可聚焦控件。预览内容裁决归各 app owner；平台只钉契约与回退（L5 + `AppPreviewTile` 行为测试）。
 - **禁止**：无断言 / 恒真断言 / 只测 mock / 快照替代行为断言。
-- 现状：`file-transfer/mobile` **没有** `test:run`、没有 `vitest.config.ts`（只有 `build` 与 `dev`）。给它加测试时须同步补 `vitest.config.ts` 与 devDependencies。
+- 现状：`file-transfer/mobile` 已有 `test:run` 与 `vitest.config.ts`（覆盖纯函数与样式静态锁；组件交互仍以真机 / dev-shell 目验为准），改样式表或工具函数时必须跑。
 
 ---
 
@@ -201,12 +279,11 @@ node scripts/replace-console.mjs <desktop|mobile> [appDirName]
 
 | app | 端 | 入口 | 状态管理 | 路由 | 测试 | dev |
 | --- | --- | --- | --- | --- | --- | --- |
-| agent-hub | desktop | `entry.ts` | 组件内 | 无 | ✅ | ✅ `build.js --watch` |
 | ai-chatbox | desktop | `entry.ts` | 组件内 | 无 | ✅ | ✅ |
 | bedcode | desktop | `entry.ts` | pinia | vue-router（内存路由 + `onEvent('route')` 自报） | ✅ | ❌ 无 dev 脚本 |
 | file-transfer | desktop | `entry.ts` | 组件内 | 无 | ✅ | ✅ |
 | monitor | servers/desktop | `entry.ts` | 组件内 | 无 | ✅ | ✅ |
 | ai-chatbox | mobile | `index.ts` | 组件内 | 宿主路由 | ✅ | ✅ dev-shell |
 | bedcode | mobile | `index.ts` | pinia | 宿主路由 | ✅ | ✅ dev-shell |
-| file-transfer | mobile | `index.ts` | 组件内 | 宿主路由 + `registerRoute` | ❌ | ✅ dev-shell |
+| file-transfer | mobile | `index.ts` | 组件内 | 宿主路由 + `registerRoute` | ✅ | ✅ dev-shell |
 | monitor | servers/mobile | `index.ts` | 组件内（composable） | 宿主运行面 | ✅ | ✅ dev-shell |

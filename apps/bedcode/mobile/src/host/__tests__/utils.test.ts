@@ -7,6 +7,7 @@ import {
   formatLastConnected,
   formatRunTime,
   isSessionActive,
+  latestLiveSession,
   parseAddress,
   parseAddressWithDefault,
   sessionStatusKey,
@@ -123,5 +124,50 @@ describe('sessionStatusKey / isSessionActive 会话状态', () => {
     expect(isSessionActive('waitingInput')).toBe(true)
     expect(isSessionActive('stopped')).toBe(false)
     expect(isSessionActive('')).toBe(false)
+  })
+})
+
+describe('latestLiveSession 快捷卡片入口目标（最近活跃的存活会话）', () => {
+  it('按 updatedAt → startedAt → createdAt 取活动时间最大的存活会话', () => {
+    const target = latestLiveSession([
+      { id: 'a', status: 'running', createdAt: '2026-11-11T00:00:00Z' },
+      { id: 'b', status: 'running', startedAt: '2026-11-11T01:00:00Z' },
+      {
+        id: 'c',
+        status: 'waitingInput',
+        createdAt: '2026-11-11T00:00:00Z',
+        updatedAt: '2026-11-11T02:00:00Z',
+      },
+    ])
+    expect(target?.id).toBe('c')
+  })
+
+  it('非存活会话不进候选（stopped 时间再新也不选）', () => {
+    const target = latestLiveSession([
+      { id: 'live', status: 'running', startedAt: '2026-11-11T00:00:00Z' },
+      { id: 'dead', status: 'stopped', startedAt: '2026-11-11T09:00:00Z' },
+    ])
+    expect(target?.id).toBe('live')
+  })
+
+  it('无可用时间字段 / 时间相同 → 取列表靠前的一个（稳定）', () => {
+    const target = latestLiveSession([
+      { id: 'first', status: 'running' },
+      { id: 'second', status: 'running' },
+    ])
+    expect(target?.id).toBe('first')
+  })
+
+  it('无存活会话 → undefined（不给入口意图，不猜目标）', () => {
+    expect(latestLiveSession([])).toBeUndefined()
+    expect(latestLiveSession([{ id: 'x', status: 'stopped' }])).toBeUndefined()
+  })
+
+  it('非法时间字符串被忽略，不污染比较', () => {
+    const target = latestLiveSession([
+      { id: 'bad', status: 'running', updatedAt: 'not-a-date' },
+      { id: 'good', status: 'running', createdAt: '2026-11-11T00:00:00Z' },
+    ])
+    expect(target?.id).toBe('good')
   })
 })

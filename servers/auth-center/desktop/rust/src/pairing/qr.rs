@@ -33,20 +33,22 @@ pub struct QrToken {
 }
 
 impl QrToken {
-    /// 生成新 token（注入创建时间，测试用）
-    pub fn new_at(ttl_secs: u64, now_secs: u64) -> Self {
+    /// 生成新 token（注入创建时间，测试用）。
+    /// 熵不可用 → `Err` 上抛（生产路径禁止 panic：expect 会把 WASM 插件 trap）
+    pub fn new_at(ttl_secs: u64, now_secs: u64) -> Result<Self, String> {
         let mut random_bytes = [0u8; QR_TOKEN_BYTES];
-        getrandom::fill(&mut random_bytes).expect("getrandom fill for QR token");
-        Self {
+        getrandom::fill(&mut random_bytes)
+            .map_err(|e| format!("qr token entropy unavailable: {e}"))?;
+        Ok(Self {
             token: hex::encode(random_bytes),
             created_at_secs: now_secs,
             ttl_secs,
             used: false,
-        }
+        })
     }
 
     /// 生成新 token（默认取当前时间）
-    pub fn new(ttl_secs: u64) -> Self {
+    pub fn new(ttl_secs: u64) -> Result<Self, String> {
         Self::new_at(ttl_secs, now_secs())
     }
 
@@ -77,11 +79,11 @@ impl QrTokenManager {
     }
 
     /// 生成新的 QR token，替换旧的 — 语义同宿主 `generate`
-    pub fn generate(&self, ttl_secs: u64) -> String {
-        let token = QrToken::new(ttl_secs);
+    pub fn generate(&self, ttl_secs: u64) -> Result<String, String> {
+        let token = QrToken::new(ttl_secs)?;
         let token_str = token.token.clone();
         *self.current_token.lock().expect("qr state lock") = Some(token);
-        token_str
+        Ok(token_str)
     }
 
     /// 验证 token：存在、未过期、未使用、匹配 → 消费清除
@@ -126,9 +128,8 @@ impl QrTokenManager {
         })
     }
 
-    /// 清除当前 token — 语义同宿主 `clear`。命令面未暴露（宿主配对流程不
-    /// 主动清除 QR token，靠 TTL/消费语义）；保留为语义完整 API（后续票）
-    #[allow(dead_code)]
+    /// 清除当前 token — 语义同宿主 `clear`。已接命令面 `auth-center.qr-code.clear`
+    /// 与互调 api `qr-code-clear`（lib.rs 的 `qr_clear`）
     pub fn clear(&self) {
         *self.current_token.lock().expect("qr state lock") = None;
     }
@@ -165,7 +166,7 @@ mod tests {
 
     #[test]
     fn token_is_32_hex_chars() {
-        let token = QrToken::new(300);
+        let token = QrToken::new(300).expect("new qr token");
         assert_eq!(token.token.len(), 32);
         assert!(token.token.chars().all(|c| c.is_ascii_hexdigit()));
         assert!(!token.used);
@@ -174,7 +175,7 @@ mod tests {
     /// TTL 边界：`elapsed == ttl` 视为过期（宿主 `>=` 语义；与配对码 `>` 不同）
     #[test]
     fn ttl_boundary_elapsed_equals_ttl_is_expired() {
-        let token = QrToken::new_at(1, 1000);
+        let token = QrToken::new_at(1, 1000).expect("new qr token");
         assert!(
             token.is_expired_at(1001),
             "elapsed == ttl 应视为过期（>= 语义）"
@@ -183,7 +184,7 @@ mod tests {
 
     #[test]
     fn not_expired_before_ttl() {
-        let token = QrToken::new_at(300, 1000);
+        let token = QrToken::new_at(300, 1000).expect("new qr token");
         assert!(!token.is_expired_at(1299));
         assert_eq!(token.remaining_secs_at(1299), 1);
         assert_eq!(token.remaining_secs_at(1300), 0);
@@ -192,7 +193,7 @@ mod tests {
     #[test]
     fn generate_and_verify_single_use() {
         let manager = QrTokenManager::new();
-        let token = manager.generate(300);
+        let token = manager.generate(300).expect("generate qr token");
         assert_eq!(token.len(), 32);
         assert_eq!(manager.verify(&token), Ok(()));
         // 验证后 token 被消费：get_active 返回 None，重复使用失败
@@ -203,7 +204,7 @@ mod tests {
     #[test]
     fn verify_rejects_mismatch() {
         let manager = QrTokenManager::new();
-        manager.generate(300);
+        manager.generate(300).expect("generate qr token");
         assert_eq!(
             manager.verify("invalid_token_32_chars_here!!!"),
             Err(QrVerifyError::Mismatch)
@@ -216,7 +217,7 @@ mod tests {
     #[test]
     fn verify_rejects_expired_and_clears() {
         let manager = QrTokenManager::new();
-        let token = manager.generate(0); // TTL=0 立即过期
+        let token = manager.generate(0).expect("generate qr token"); // TTL=0 立即过期
         assert_eq!(manager.verify(&token), Err(QrVerifyError::Expired));
         assert_eq!(manager.get_active(), None, "过期 token 被顺带清除");
     }
@@ -224,14 +225,14 @@ mod tests {
     #[test]
     fn get_active_filters_expired_and_used() {
         let manager = QrTokenManager::new();
-        manager.generate(0);
+        manager.generate(0).expect("generate qr token");
         assert_eq!(manager.get_active(), None, "过期 token 不应出现在活跃列表");
     }
 
     #[test]
     fn get_active_returns_remaining() {
         let manager = QrTokenManager::new();
-        manager.generate(300);
+        manager.generate(300).expect("generate qr token");
         let active = manager.get_active().expect("active token");
         assert_eq!(active.0.len(), 32);
         assert_eq!(active.1, 300);
@@ -241,7 +242,7 @@ mod tests {
     #[test]
     fn clear_removes_token() {
         let manager = QrTokenManager::new();
-        manager.generate(300);
+        manager.generate(300).expect("generate qr token");
         manager.clear();
         assert_eq!(manager.get_active(), None);
         assert_eq!(manager.verify("x"), Err(QrVerifyError::NoActiveToken));
@@ -254,7 +255,7 @@ mod tests {
     fn concurrent_verify_allows_exactly_one_success() {
         use std::sync::Arc;
         let manager = Arc::new(QrTokenManager::new());
-        let token = manager.generate(300);
+        let token = manager.generate(300).expect("generate qr token");
         let m1 = Arc::clone(&manager);
         let t1 = token.clone();
         let h1 = std::thread::spawn(move || m1.verify(&t1).is_ok());

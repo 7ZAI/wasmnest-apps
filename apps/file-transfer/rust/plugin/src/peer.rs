@@ -16,15 +16,18 @@
 
 use crate::device_bridge::{self, DialEndpoint};
 use crate::platform::{self, Platform};
+use crate::relay_center;
 use crate::roots_registry::{self, SharedRoot};
 use crate::settings_store::{self, TransferSettings};
-use crate::transfer_store::{self, RetryMeta, PullFileSpec, TransferEntry};
-use wasmnest_plugin_api::host::{
-    HostEvents, HostLog, HostPeer, HostPlatform, HostPluginDatabase, HostStorage,
-};
-use wasmnest_plugin_api::wasm_host::WasmHost;
+use crate::transfer_store::{self, PullFileSpec, RetryMeta, TransferEntry};
 use std::sync::Mutex;
 use std::sync::OnceLock;
+use wasmnest_file_transfer_core::dial as core_dial;
+use wasmnest_file_transfer_core::settings as core_settings;
+use wasmnest_plugin_api::host::{
+    HostBus, HostEvents, HostLog, HostPeer, HostPlatform, HostPluginDatabase, HostStorage,
+};
+use wasmnest_plugin_api::wasm_host::WasmHost;
 
 type Result<T> = anyhow::Result<T>;
 
@@ -71,7 +74,48 @@ pub(crate) fn remove_preauth_path(h: &impl HostStorage, path: &str) -> anyhow::R
 // ==================== 任务存储运行时 ====================
 
 static STORE: OnceLock<Mutex<Vec<TransferEntry>>> = OnceLock::new();
-static STORE_LOADED: OnceLock<()> = OnceLock::new();
+/// 台账是否已**成功**从持久层装载。只在成功时置位：载入失败仍标记「已载入」
+/// 会让下一次 flush 的整表覆写把用户历史与重试凭证清空（M1）。
+static STORE_LOADED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// 载入时无法反序列化的持久行：原样保留，下一次落盘原样写回。
+/// 静默丢弃（旧实现 `filter_map(...ok())` / `unwrap_or_default()`）会让下一次
+/// 全量覆写永久删除这些行——读不出来不等于可以删。
+static UNREADABLE_ROWS: OnceLock<Mutex<Vec<UnreadableRow>>> = OnceLock::new();
+
+/// 一行无法解析的持久记录。
+///
+/// 桌面表有三列 NOT NULL（`batch_id` / `direction` / `status`）+ payload，回写时
+/// 按原列值重建；移动端整键 JSON，`batch_id` 等列无意义（空串占位），回写时把
+/// `payload` 原样追加进数组。
+struct UnreadableRow {
+    batch_id: String,
+    direction: String,
+    status: String,
+    /// 桌面 = 原始 payload 文本（JSON 字符串）；移动 = 原始数组元素
+    payload: serde_json::Value,
+}
+
+fn unreadable_rows() -> &'static Mutex<Vec<UnreadableRow>> {
+    UNREADABLE_ROWS.get_or_init(|| Mutex::new(Vec::new()))
+}
+
+fn store_is_loaded() -> bool {
+    STORE_LOADED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// 测试夹具：重置进程级台账状态（仅本 crate 单测使用；生产不编译）。
+#[cfg(test)]
+fn reset_store_for_test() {
+    *store().lock().expect("transfer store lock") = Vec::new();
+    STORE_LOADED.store(false, std::sync::atomic::Ordering::Relaxed);
+    unreadable_rows()
+        .lock()
+        .expect("unreadable rows lock")
+        .clear();
+    PROGRESS_SINCE_PERSIST.store(0, std::sync::atomic::Ordering::Relaxed);
+    LOCAL_FAILURE_SEQ.store(0, std::sync::atomic::Ordering::Relaxed);
+}
 
 /// 待挂载拉取元数据队列：(nodeId, spec)。pull-files 入队时压入，新接收条目
 /// 首次出现在快照中且文件集匹配时消费挂载（引擎按文件逐批铸造 batchId，
@@ -79,6 +123,65 @@ static STORE_LOADED: OnceLock<()> = OnceLock::new();
 static PENDING_PULLS: OnceLock<Mutex<Vec<(String, RetryMeta)>>> = OnceLock::new();
 
 const PENDING_PULLS_CAP: usize = 8;
+
+/// 已提醒过「开始接收」toast 的批（验收 S-10-08：批级 toast，不刷屏）。
+/// 同批只提醒一次；集合随终态/淘汰行收缩（重试后可再次提醒），
+/// 插件停用随 [`reset_volatile_intents`] 清空。
+static TOASTED_RECEIVE_BATCHES: OnceLock<Mutex<std::collections::HashSet<String>>> =
+    OnceLock::new();
+
+fn toasted_receive_batches() -> &'static Mutex<std::collections::HashSet<String>> {
+    TOASTED_RECEIVE_BATCHES.get_or_init(|| Mutex::new(std::collections::HashSet::new()))
+}
+
+/// 「开始接收」toast 载荷：首文件名 + 文件数 + 总大小（前端 5s 自动消失；
+/// per-file 3s 合并分支保留在前端，待引擎提供逐文件事件源再接入）
+/// toast 去重集合随 store 收缩：终态或已淘汰的批次 id 都要移除（重试后可再次
+/// 提醒）。一次建索引，避免对集合每个元素线性扫全 store（L13）。
+fn prune_toasted_batches(entries: &[TransferEntry]) {
+    let mut alive = std::collections::HashSet::new();
+    let mut terminal = std::collections::HashSet::new();
+    for entry in entries {
+        alive.insert(entry.batch_id.as_str());
+        if entry.is_terminal() {
+            terminal.insert(entry.batch_id.as_str());
+        }
+    }
+    toasted_receive_batches()
+        .lock()
+        .expect("toast dedup lock")
+        .retain(|id| alive.contains(id.as_str()) && !terminal.contains(id.as_str()));
+}
+
+/// toast 文件名：Windows / 混合分隔符、控制字符、尾斜杠都要给出可读名字。
+fn display_basename(path: &str) -> String {
+    let name = path
+        .rsplit(['/', '\\'])
+        .find(|segment| !segment.is_empty())
+        .unwrap_or("file");
+    let clean: String = name.chars().filter(|c| !c.is_control()).collect();
+    if clean.is_empty() {
+        "file".to_string()
+    } else {
+        clean
+    }
+}
+
+fn toast_payload(files: &[serde_json::Value], total: u64) -> serde_json::Value {
+    let name = files
+        .first()
+        .and_then(|f| f.get("path"))
+        .and_then(|v| v.as_str())
+        .map(display_basename)
+        .unwrap_or_else(|| "file".to_string());
+    serde_json::json!({
+        "mode": "batch",
+        "name": name,
+        // 空清单如实给 0：把 0 粉饰成 1 与 totalSize=0 自相矛盾（L15）。
+        "count": files.len(),
+        "totalSize": total,
+    })
+}
 
 fn store() -> &'static Mutex<Vec<TransferEntry>> {
     STORE.get_or_init(|| Mutex::new(Vec::new()))
@@ -88,21 +191,72 @@ fn pending_pulls() -> &'static Mutex<Vec<(String, RetryMeta)>> {
     PENDING_PULLS.get_or_init(|| Mutex::new(Vec::new()))
 }
 
-/// 装载持久层（进程内一次）：载入 → 重启恢复标注 → 回写标注结果。
-/// 持久化异常降级为内存空表起步（如实记日志）。
-fn ensure_loaded(h: &WasmHost) -> std::sync::MutexGuard<'static, Vec<TransferEntry>> {
+/// 拉取意图入队（引擎调用前压入：`pull-started` 事件随 batchId 即回流）
+fn remember_pull_intent(node_id: &str, meta: RetryMeta) {
+    transfer_store::push_pull_intent(
+        &mut pending_pulls().lock().expect("pending pulls lock"),
+        node_id,
+        meta,
+    );
+}
+
+/// 撤回刚压入的拉取意图（引擎调用失败时）：残留意图会被后续**同一 node +
+/// 同一 rel_path** 的无关批消费，把这次失败的 retryMeta 挂到别的任务上（C5）。
+fn withdraw_pull_intent(node_id: &str, meta: &RetryMeta) {
+    let mut pending = pending_pulls().lock().expect("pending pulls lock");
+    if let Some(idx) = pending
+        .iter()
+        .rposition(|(node, m)| node == node_id && m == meta)
+    {
+        pending.remove(idx);
+    }
+}
+
+/// 装载持久层（进程内一次，失败可重试）：载入 → 重启恢复标注 → 回写标注结果。
+///
+/// **载入成功才置位 `STORE_LOADED`**：失败时内存表退化为空，但落盘被禁用
+/// （见 [`flush`]）——否则下一次 flush 的 DELETE + 全量 Insert / 整键覆写会
+/// 把用户历史与重试凭证清空。失败只降级「本次会话不落盘」，不降级成数据损坏。
+fn ensure_loaded<H: HostPluginDatabase + HostStorage + HostLog + ?Sized>(
+    h: &H,
+) -> std::sync::MutexGuard<'static, Vec<TransferEntry>> {
     let mut guard = store().lock().expect("transfer store lock");
-    if STORE_LOADED.set(()).is_ok() {
+    if !store_is_loaded() {
         match load_entries(h) {
-            Ok(mut entries) => {
-                let restored = entries.len();
-                let marked = restore_entries(h, &mut entries);
-                h.log_info(&format!(
-                    "restored {restored} transfers, {marked} marked interrupted"
-                ));
-                *guard = entries;
+            Ok(mut loaded) => {
+                let restored = loaded.len();
+                if guard.is_empty() {
+                    // 常规首载：内存表就是持久层。
+                    let marked = restore_entries(h, &mut loaded);
+                    *guard = loaded;
+                    h.log_info(&format!(
+                        "restored {restored} transfers, {marked} marked interrupted"
+                    ));
+                } else {
+                    // 载入失败窗口内已归约出内存行（尚未落盘）。以内存为准，只
+                    // 补充尚未在册的持久行——不能让迟到的成功装载把刚发生的
+                    // 任务冲掉（终态事件对缺失行是静默忽略，丢了就真丢了）。
+                    let marked = transfer_store::mark_active_interrupted(&mut loaded);
+                    let before = guard.len();
+                    for entry in loaded {
+                        if !guard.iter().any(|e| e.batch_id == entry.batch_id) {
+                            guard.push(entry);
+                        }
+                    }
+                    if marked > 0 || guard.len() != before {
+                        if let Err(e) = persist_entries(h, &guard) {
+                            h.log_error(&format!("restore transfer entries failed: {e}"));
+                        }
+                    }
+                    h.log_info(&format!(
+                        "restored {restored} transfers, {marked} marked interrupted (merged)"
+                    ));
+                }
+                STORE_LOADED.store(true, std::sync::atomic::Ordering::Relaxed);
             }
-            Err(e) => h.log_warn(&format!("transfer store load deferred: {e}")),
+            Err(e) => h.log_error(&format!(
+                "transfer store load failed: {e}; persistence disabled to protect existing rows"
+            )),
         }
     }
     guard
@@ -113,7 +267,10 @@ fn ensure_loaded(h: &WasmHost) -> std::sync::MutexGuard<'static, Vec<TransferEnt
 /// - 移动 = `host-storage` 单键 JSON 数组（无 plugin-db 是历史约束；整读整写）。
 ///
 /// 两种落点都是**端上既有事实**：换落点 = 用户历史任务凭空消失，属迁移事故。
-fn load_entries<H: HostPluginDatabase + HostStorage + ?Sized>(
+///
+/// 解析失败的行**不丢弃**：收进 [`UNREADABLE_ROWS`]，下一次落盘原样写回。旧实现
+/// `filter_map(...ok())` / `unwrap_or_default()` 会让下一次全量覆写把它们删掉。
+fn load_entries<H: HostPluginDatabase + HostStorage + HostLog + ?Sized>(
     h: &H,
 ) -> Result<Vec<TransferEntry>> {
     match platform::current() {
@@ -126,23 +283,84 @@ fn load_entries<H: HostPluginDatabase + HostStorage + ?Sized>(
                 payload TEXT NOT NULL
             )",
             )?;
-            let Some(rows) = h.plugin_db_query("SELECT payload FROM transfer_entries ORDER BY rowid")?
+            let Some(rows) = h.plugin_db_query(
+                "SELECT batch_id, direction, status, payload FROM transfer_entries ORDER BY rowid",
+            )?
             else {
+                *unreadable_rows().lock().expect("unreadable rows lock") = Vec::new();
                 return Ok(vec![]);
             };
-            Ok(rows
-                .as_array()
-                .map(|a| a.iter())
-                .unwrap_or_default()
-                .filter_map(|r| r.get("payload").and_then(|p| p.as_str()))
-                .filter_map(|p| serde_json::from_str::<TransferEntry>(p).ok())
-                .collect())
+            let mut entries = Vec::new();
+            let mut unreadable = Vec::new();
+            for row in rows.as_array().map(|a| a.as_slice()).unwrap_or_default() {
+                let payload = row
+                    .get("payload")
+                    .and_then(|p| p.as_str())
+                    .unwrap_or_default();
+                match serde_json::from_str::<TransferEntry>(payload) {
+                    Ok(entry) => entries.push(entry),
+                    Err(_) => unreadable.push(UnreadableRow {
+                        batch_id: row
+                            .get("batch_id")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or_default()
+                            .to_string(),
+                        direction: row
+                            .get("direction")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or_default()
+                            .to_string(),
+                        status: row
+                            .get("status")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or_default()
+                            .to_string(),
+                        payload: serde_json::Value::String(payload.to_string()),
+                    }),
+                }
+            }
+            let kept = unreadable.len();
+            *unreadable_rows().lock().expect("unreadable rows lock") = unreadable;
+            if kept > 0 {
+                h.log_error(&format!(
+                    "transfer store: {kept} unreadable row(s) kept verbatim (not deleted)"
+                ));
+            }
+            Ok(entries)
         }
         Platform::Mobile => {
             let Some(v) = h.storage_get(ENTRIES_KEY)? else {
+                *unreadable_rows().lock().expect("unreadable rows lock") = Vec::new();
                 return Ok(vec![]);
             };
-            Ok(serde_json::from_value(v).unwrap_or_default())
+            let Some(rows) = v.as_array() else {
+                // 形状损坏（非数组）：拒绝装载并由调用方禁用落盘——把整段历史
+                // 当空表后续覆写才是真正的数据丢失。
+                return Err(anyhow::anyhow!(
+                    "transfer_entries storage is not an array; refusing to overwrite"
+                ));
+            };
+            let mut entries = Vec::new();
+            let mut unreadable = Vec::new();
+            for row in rows {
+                match serde_json::from_value::<TransferEntry>(row.clone()) {
+                    Ok(entry) => entries.push(entry),
+                    Err(_) => unreadable.push(UnreadableRow {
+                        batch_id: String::new(),
+                        direction: String::new(),
+                        status: String::new(),
+                        payload: row.clone(),
+                    }),
+                }
+            }
+            let kept = unreadable.len();
+            *unreadable_rows().lock().expect("unreadable rows lock") = unreadable;
+            if kept > 0 {
+                h.log_error(&format!(
+                    "transfer store: {kept} unreadable row(s) kept verbatim (not deleted)"
+                ));
+            }
+            Ok(entries)
         }
     }
 }
@@ -164,25 +382,34 @@ fn persist_entries<H: HostPluginDatabase + HostStorage + HostLog + ?Sized>(
             // 并保证全部提交或全部回滚。批量 INSERT 合并成一条多值语句，避免超过
             // 宿主 64 条语句上限。
             let mut sqls = vec!["DELETE FROM transfer_entries".to_string()];
-            if !entries.is_empty() {
-                let values = entries
-                    .iter()
-                    .map(|entry| {
-                        let payload = serde_json::to_string(entry).map_err(|e| {
-                            anyhow::anyhow!(
-                                "serialize transfer entry {} failed: {e}",
-                                entry.batch_id
-                            )
-                        })?;
-                        Ok(format!(
-                            "({}, {}, {}, {})",
-                            sql_string_literal(&entry.batch_id),
-                            sql_string_literal(&entry.direction),
-                            sql_string_literal(&entry.status),
-                            sql_string_literal(&payload),
-                        ))
-                    })
-                    .collect::<anyhow::Result<Vec<_>>>()?;
+            let mut values: Vec<String> = Vec::with_capacity(entries.len());
+            for entry in entries {
+                let payload = serde_json::to_string(entry).map_err(|e| {
+                    anyhow::anyhow!("serialize transfer entry {} failed: {e}", entry.batch_id)
+                })?;
+                values.push(format!(
+                    "({}, {}, {}, {})",
+                    sql_string_literal(&entry.batch_id),
+                    sql_string_literal(&entry.direction),
+                    sql_string_literal(&entry.status),
+                    sql_string_literal(&payload),
+                ));
+            }
+            // 读不出来的行原样幂等回写（不得因读失败而删用户数据）
+            for row in unreadable_rows()
+                .lock()
+                .expect("unreadable rows lock")
+                .iter()
+            {
+                values.push(format!(
+                    "({}, {}, {}, {})",
+                    sql_string_literal(&row.batch_id),
+                    sql_string_literal(&row.direction),
+                    sql_string_literal(&row.status),
+                    sql_string_literal(row.payload.as_str().unwrap_or_default()),
+                ));
+            }
+            if !values.is_empty() {
                 sqls.push(format!(
                     "INSERT INTO transfer_entries (batch_id, direction, status, payload) VALUES {}",
                     values.join(", ")
@@ -193,15 +420,26 @@ fn persist_entries<H: HostPluginDatabase + HostStorage + HostLog + ?Sized>(
                 .map_err(|e| anyhow::anyhow!("persist transfer entries failed: {e}"))
         }
         Platform::Mobile => {
-            let value = match serde_json::to_value(entries) {
-                Ok(v) => v,
-                Err(e) => {
-                    // 持久化退化不打断数据面编排（下次变更会整读改整写重试）
-                    h.log_warn(&format!("transfer entries serialize failed: {e}"));
-                    return Ok(());
+            let mut items: Vec<serde_json::Value> = Vec::with_capacity(entries.len());
+            for entry in entries {
+                match serde_json::to_value(entry) {
+                    Ok(v) => items.push(v),
+                    Err(e) => {
+                        // 持久化退化不打断数据面编排（下次变更会整读改整写重试）
+                        h.log_warn(&format!("transfer entries serialize failed: {e}"));
+                        return Ok(());
+                    }
                 }
-            };
-            if let Err(e) = h.storage_set(ENTRIES_KEY, &value) {
+            }
+            // 读不出来的元素原样回写（不得因读失败而删用户数据）
+            items.extend(
+                unreadable_rows()
+                    .lock()
+                    .expect("unreadable rows lock")
+                    .iter()
+                    .map(|row| row.payload.clone()),
+            );
+            if let Err(e) = h.storage_set(ENTRIES_KEY, &serde_json::Value::Array(items)) {
                 h.log_warn(&format!("transfer entries persist failed: {e}"));
             }
             Ok(())
@@ -227,36 +465,92 @@ fn restore_entries<H: HostPluginDatabase + HostStorage + HostLog + ?Sized>(
 
 /// 将内部字符串安全编码为 SQLite 字符串字面量。
 /// 这里的值来自插件自身序列化结果，仍显式转义单引号以避免 SQL 语法破坏。
-fn sql_string_literal(value: &str) -> String {
+pub(crate) fn sql_string_literal(value: &str) -> String {
     format!("'{}'", value.replace('\'', "''"))
 }
 
+/// 落盘策略：结构变更（建行/终态/暂停/重试/清历史）立即写；仅进度数值按
+/// [`PROGRESS_PERSIST_EVERY`] 合并写——逐事件整表重写会被 4–10 Hz × 并发批放大。
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Persist {
+    Now,
+    Deferred,
+}
+
+/// 进度事件落盘合并阈值。进程被杀最多丢 N 个进度点；重启后该行本就标注
+/// `interrupted`（不承诺中断时刻的字节数精确）。
+const PROGRESS_PERSIST_EVERY: u32 = 8;
+static PROGRESS_SINCE_PERSIST: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
 /// 变更后统一出口：持久化 + 四路视图派发（tasks/receiving 仅进行中，
 /// 终态条目由 history 视图承接——「完成/失败自动归档历史」）
-fn flush(h: &WasmHost, mut guard: std::sync::MutexGuard<'static, Vec<TransferEntry>>, changed: bool) {
+fn flush<H>(
+    h: &H,
+    mut guard: std::sync::MutexGuard<'static, Vec<TransferEntry>>,
+    changed: bool,
+    persist: Persist,
+) where
+    H: HostPluginDatabase + HostStorage + HostLog + HostEvents + ?Sized,
+{
     if changed {
         transfer_store::evict_overflow(&mut guard);
-        if let Err(e) = persist_entries(h, &guard) {
-            h.log_error(&format!("persist transfer entries failed: {e}"));
+        let write = match persist {
+            Persist::Now => true,
+            Persist::Deferred => {
+                PROGRESS_SINCE_PERSIST.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1
+                    >= PROGRESS_PERSIST_EVERY
+            }
+        };
+        if write {
+            // 不论结构写还是进度兑底写，每次落盘后都重新计数；否则阈值一旦达到
+            // 就变成「之后每个 progress 都写」（写放大回归）。
+            PROGRESS_SINCE_PERSIST.store(0, std::sync::atomic::Ordering::Relaxed);
+            if !store_is_loaded() {
+                // 未成功载入就落盘 = DELETE + 仅当前内存行 ⇒ 历史被清空（M1）
+                h.log_error(
+                    "skip persist: transfer store never loaded (would wipe persisted history)",
+                );
+            } else if let Err(e) = persist_entries(h, &guard) {
+                h.log_error(&format!("persist transfer entries failed: {e}"));
+            }
         }
     }
-    let tasks: Vec<&TransferEntry> = transfer_store::active_send_entries(&guard);
-    let batches: Vec<&TransferEntry> = guard
-        .iter()
-        .filter(|e| e.direction == "receive" && e.status == "pending")
-        .collect();
-    let receiving: Vec<&TransferEntry> = transfer_store::active_receive_entries(&guard);
-    let history = history_view(&guard);
-
-    let dump = |list: Vec<&TransferEntry>| {
+    // flush 是所有写路径的统一出口：终态/淘汰后的 toast 去重集合在此收缩，
+    // 覆盖 node-stopped、merge_and_emit、insert_send_row 等非 reduce 路径（L13）。
+    prune_toasted_batches(guard.as_slice());
+    let dump = |list: Vec<&TransferEntry>| -> Vec<serde_json::Value> {
         list.iter()
             .filter_map(|e| serde_json::to_value(e).ok())
-            .collect::<Vec<_>>()
+            .collect()
     };
-    h.emit_event("plugin:file-transfer:tasks-changed", &serde_json::Value::Array(dump(tasks)));
-    h.emit_event("plugin:file-transfer:batches-changed", &serde_json::Value::Array(dump(batches)));
-    h.emit_event("plugin:file-transfer:receiving-changed", &serde_json::Value::Array(dump(receiving)));
-    h.emit_event("plugin:file-transfer:history-changed", &serde_json::Value::Array(dump(history)));
+    let tasks = dump(transfer_store::active_send_entries(&guard));
+    let batches = dump(
+        guard
+            .iter()
+            .filter(|e| e.direction == "receive" && e.status == "pending")
+            .collect(),
+    );
+    let receiving = dump(transfer_store::active_receive_entries(&guard));
+    let history = dump(history_view(&guard));
+    // 载荷在锁内序列化、发射在锁外：事件若同步回环到插件（读取台账）时
+    // 持锁发射会自锁死，payload 构建期 panic 也会毒化台账锁（C2）。
+    drop(guard);
+    h.emit_event(
+        "plugin:file-transfer:tasks-changed",
+        &serde_json::Value::Array(tasks),
+    );
+    h.emit_event(
+        "plugin:file-transfer:batches-changed",
+        &serde_json::Value::Array(batches),
+    );
+    h.emit_event(
+        "plugin:file-transfer:receiving-changed",
+        &serde_json::Value::Array(receiving),
+    );
+    h.emit_event(
+        "plugin:file-transfer:history-changed",
+        &serde_json::Value::Array(history),
+    );
 }
 
 // ==================== 事件编排 ====================
@@ -264,7 +558,7 @@ fn flush(h: &WasmHost, mut guard: std::sync::MutexGuard<'static, Vec<TransferEnt
 /// 展示名解析（票 2 peer_name 自持）：设备快照（前端 debounce 落盘的
 /// device_snapshot）广播名优先，短指纹兜底——宿主不再解析展示名
 /// （peer_engine_resolve_peer_name 随编排下沉退役）
-fn resolve_peer_name(h: &WasmHost, node_id: &str) -> String {
+fn resolve_peer_name<H: HostStorage + ?Sized>(h: &H, node_id: &str) -> String {
     let fallback = node_id.get(..8).unwrap_or(node_id).to_string();
     device_bridge::load_snapshot(h)
         .ok()
@@ -281,29 +575,97 @@ fn resolve_peer_name(h: &WasmHost, node_id: &str) -> String {
 /// 引擎原始事件归约入口（peer:transfer-event / peer:receive-event，票 2）：
 /// 事件 → store 状态推进（建行/进度/终态/暂停同步），变更后统一 flush。
 /// 建行锚点事件（offer-pending / pull-served）的展示名在此解析（I/O 锁外）。
-pub(crate) fn reduce_and_emit(h: &WasmHost, direction: &str, event: &serde_json::Value) {
-    let peer_name = event
-        .get("nodeId")
-        .and_then(|v| v.as_str())
-        .map(|nid| resolve_peer_name(h, nid))
-        .unwrap_or_default();
-    let is_pull_started = event.get("kind").and_then(|v| v.as_str()) == Some("pull-started");
+pub(crate) fn reduce_and_emit<H>(h: &H, direction: &str, event: &serde_json::Value)
+where
+    H: HostStorage + HostPluginDatabase + HostLog + HostEvents + HostPeer + ?Sized,
+{
+    let kind = event.get("kind").and_then(|v| v.as_str()).unwrap_or("");
+    // 展示名只在建行分支被写入（progress/terminal 等不改名）：其余事件（尤其高频
+    // progress）不读设备快照——那是整表解析的 storage 读（S2）。
+    let peer_name = if matches!(kind, "pull-served" | "offer-pending" | "pull-started") {
+        event
+            .get("nodeId")
+            .and_then(|v| v.as_str())
+            .map(|nid| resolve_peer_name(h, nid))
+            .unwrap_or_default()
+    } else {
+        String::new()
+    };
+    let is_pull_started = kind == "pull-started";
     // 对端取消终态判据先取（归约后行已转终态，事件形状仍是唯一依据）
     let peer_cancelled = transfer_store::peer_cancelled_batch_id(event).map(str::to_string);
-    let changed = {
+    let (changed, toast_anchor) = {
         let mut guard = ensure_loaded(h);
-        let changed = transfer_store::reduce_event(&mut guard, direction, event, &peer_name);
+        // 「开始接收」toast 锚点（验收 S-10-08）：
+        // - 入站推送批：归约前 pending 的行被首个 progress 推进 running = 开始落盘；
+        // - 本端拉取批（pull-started）：建行即 running，直接由事件载荷构造。
+        let toast_anchor = if direction == "receive" {
+            if is_pull_started {
+                event.get("batchId").and_then(|v| v.as_str()).map(|bid| {
+                    let files = event.get("files").and_then(|v| v.as_array()).cloned();
+                    let total = event.get("totalSize").and_then(|v| v.as_u64()).unwrap_or(0);
+                    (
+                        bid.to_string(),
+                        toast_payload(files.as_deref().unwrap_or(&[]), total),
+                    )
+                })
+            } else if kind == "progress" {
+                event
+                    .get("batchId")
+                    .and_then(|v| v.as_str())
+                    .and_then(|bid| {
+                        guard
+                            .iter()
+                            .find(|e| e.batch_id == bid)
+                            .filter(|e| e.status == "pending")
+                            .map(|e| (e.batch_id.clone(), toast_payload(&e.files, e.total_bytes)))
+                    })
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        let mut changed = transfer_store::reduce_event(&mut guard, direction, event, &peer_name);
         // 拉取批次挂重试元数据（票 08）：batch_id 由引擎铸造（pull-files 调用点
         // 拿不到），按 rel_path 匹配本插件发起的拉取意图，命中即消费
-        changed | (is_pull_started && attach_pull_meta(&mut guard, event))
+        changed |= is_pull_started && attach_pull_meta(&mut guard, event);
+        if changed {
+            // O(n+m) 收缩：终态与已淘汰的批次都不再占位（L13）
+            prune_toasted_batches(guard.as_slice());
+        }
+        (changed, toast_anchor)
     };
     if !changed {
         return;
     }
-    // send 方向终态/暂停会空出发送槽位：放行插件侧排队批（并发闸门自控）
-    dispatch_pending_sends(h);
+    // 只有 send 方向的终态/暂停会空出发送槽位（并发闸门自控）；receive 事件
+    // 不触发送派发（每事件多两次锁 + 一次设置读的无关开销，S2）。
+    if direction == "send" {
+        dispatch_pending_sends(h);
+    }
     let guard = ensure_loaded(h);
-    flush(h, guard, true);
+    // progress 只推进数值：合并落盘（S1）；其余均为结构变更，立即落盘
+    flush(
+        h,
+        guard,
+        true,
+        if kind == "progress" {
+            Persist::Deferred
+        } else {
+            Persist::Now
+        },
+    );
+    if let Some((batch_id, payload)) = toast_anchor {
+        // 去重：同批只提醒一次（flush 已派发四路快照，通知随后）
+        let fresh = toasted_receive_batches()
+            .lock()
+            .expect("toast dedup lock")
+            .insert(batch_id);
+        if fresh {
+            h.emit_event("plugin:file-transfer:toast", &payload);
+        }
+    }
     if let Some(batch_id) = peer_cancelled {
         // 状态先落库（flush 派发四路快照），再通知前端提示对端取消
         h.emit_event(
@@ -338,7 +700,7 @@ pub(crate) fn on_receive_event(h: &WasmHost, event: &serde_json::Value) {
                 ));
             }
             let guard = ensure_loaded(h);
-            flush(h, guard, marked > 0);
+            flush(h, guard, marked > 0, Persist::Now);
         }
         Some("offer-pending") => {
             // 先归约建行（视图出现待应答批），再按策略自动应答
@@ -356,7 +718,9 @@ pub(crate) fn rebuild_from_active_transfers(h: &WasmHost) {
     let rows = match h.peer_active_transfers() {
         Ok(v) => v,
         Err(e) => {
-            h.log_warn(&format!("active-transfers bootstrap deferred (non-fatal): {e}"));
+            h.log_warn(&format!(
+                "active-transfers bootstrap deferred (non-fatal): {e}"
+            ));
             return;
         }
     };
@@ -368,7 +732,7 @@ pub(crate) fn rebuild_from_active_transfers(h: &WasmHost) {
     if inserted > 0 {
         h.log_info(&format!("active-transfers bootstrap: +{inserted} rows"));
         let guard = ensure_loaded(h);
-        flush(h, guard, true);
+        flush(h, guard, true, Persist::Now);
     }
 }
 
@@ -377,15 +741,21 @@ pub(crate) fn rebuild_from_active_transfers(h: &WasmHost) {
 /// 规格与共享根 id 写入 retryMeta 并消费队列项（多选拉取逐文件成批，故按
 /// 单文件匹配而非整批文件集相等）
 fn attach_pull_meta(store: &mut [TransferEntry], event: &serde_json::Value) -> bool {
-    let Some(batch_id) = event.get("batchId").and_then(|v| v.as_str()) else { return false };
-    let Some(node_id) = event.get("nodeId").and_then(|v| v.as_str()) else { return false };
+    let Some(batch_id) = event.get("batchId").and_then(|v| v.as_str()) else {
+        return false;
+    };
+    let Some(node_id) = event.get("nodeId").and_then(|v| v.as_str()) else {
+        return false;
+    };
     let rel_path = event
         .get("files")
         .and_then(|v| v.as_array())
         .and_then(|files| files.first())
         .and_then(|f| f.get("path"))
         .and_then(|v| v.as_str());
-    let Some(rel_path) = rel_path else { return false };
+    let Some(rel_path) = rel_path else {
+        return false;
+    };
     let Some(entry) = store
         .iter_mut()
         .find(|e| e.batch_id == batch_id && e.retry_meta.is_none())
@@ -424,7 +794,9 @@ fn auto_answer_offer(h: &WasmHost, event: &serde_json::Value) {
     let Some(answer) = settings_store::auto_answer(&policy) else {
         return;
     };
-    let Some(batch_id) = event.get("batchId").and_then(|v| v.as_str()) else { return };
+    let Some(batch_id) = event.get("batchId").and_then(|v| v.as_str()) else {
+        return;
+    };
     if h.peer_respond_transfer(batch_id, answer).is_ok() {
         h.log_info(&format!("auto-answer ({answer}) batch {batch_id}"));
     }
@@ -440,7 +812,10 @@ pub(crate) fn merge_and_emit(h: &WasmHost, snapshot: &[serde_json::Value], direc
     let mut guard = ensure_loaded(h);
     let diffs = transfer_store::reconcile_diff(&guard, snapshot, direction);
     if !diffs.is_empty() {
-        h.log_info(&format!("reconcile drift ({direction}): {}", diffs.join("; ")));
+        h.log_info(&format!(
+            "reconcile drift ({direction}): {}",
+            diffs.join("; ")
+        ));
     }
     let ids: Vec<String> = snapshot
         .iter()
@@ -452,7 +827,7 @@ pub(crate) fn merge_and_emit(h: &WasmHost, snapshot: &[serde_json::Value], direc
         guard.iter().map(|e| e.batch_id.clone()).collect();
     changed |= transfer_store::merge_snapshot(&mut guard, snapshot);
     changed |= attach_pending_pull_meta(&mut guard, &known_before);
-    flush(h, guard, changed);
+    flush(h, guard, changed, Persist::Now);
 }
 
 /// 新出现条目 × 待挂载队列的文件集匹配（旧快照通路，桌面专用）
@@ -465,7 +840,9 @@ fn attach_pending_pull_meta(
     {
         let mut pending = pending_pulls().lock().expect("pending pulls lock");
         for (idx, (node_id, meta)) in pending.iter().enumerate() {
-            let RetryMeta::Pull { files, .. } = meta else { continue };
+            let RetryMeta::Pull { files, .. } = meta else {
+                continue;
+            };
             let spec_paths: std::collections::HashSet<&str> =
                 files.iter().map(|f| f.rel_path.as_str()).collect();
             for entry in store.iter_mut() {
@@ -538,10 +915,7 @@ fn parse_endpoint(v: Option<&serde_json::Value>) -> Result<Option<DialEndpoint>>
 }
 
 /// 目标三元组解析：peerId 显式参数 > ACTIVE_NODE
-fn resolve_node(
-    args: &serde_json::Value,
-    active_node: &'static Mutex<String>,
-) -> Option<String> {
+fn resolve_node(args: &serde_json::Value, active_node: &'static Mutex<String>) -> Option<String> {
     args.get("peerId")
         .and_then(|v| v.as_str())
         .filter(|s| !s.is_empty())
@@ -552,27 +926,168 @@ fn resolve_node(
 
 /// 连接保障：已有活跃会话直接用句柄；endpoint 可知则静默重拨铸新句柄；
 /// 都不行退回 node-id 直呼（过渡期兜底）。返回传给数据面原语的首参。
-fn ensure_target(h: &WasmHost, node_id: &str, endpoint: Option<DialEndpoint>) -> Result<String> {
+fn ensure_target<H: HostPeer + HostStorage + ?Sized>(
+    h: &H,
+    node_id: &str,
+    endpoint: Option<DialEndpoint>,
+) -> Result<String> {
     if let Some(handle) = device_bridge::session_of(node_id) {
         return Ok(handle);
     }
     let ep = device_bridge::resolve_endpoint(endpoint, node_id)
-        .ok_or_else(|| anyhow::anyhow!("no endpoint known for peer {node_id}"))?;
-    let handle = h.peer_dial(&serde_json::to_value(&ep)?)?;
-    device_bridge::remember_session(&ep, handle);
+        .ok_or_else(|| anyhow::anyhow!("no-endpoint: no endpoint known for peer {node_id}"))?;
+    let (handle, plan) = dial_with_plan(h, &ep, false).map_err(|f| f.into_anyhow(node_id))?;
+    // 重连沿用上次路径：成功纳入过 relay 的会话断线后必须还能按同一候选表重拨；
+    // 「仅经中继」意图同样随 memo 保留，不因一次断线退回 LAN 撞墙
+    let mut memo = ep;
+    memo.wan = memo.wan || plan.relay_included;
+    device_bridge::remember_session(&memo, handle);
     Ok(device_bridge::session_of(node_id).unwrap_or_else(|| node_id.to_string()))
+}
+
+/// 拨号失败：可选稳定 token + 原始错误（T20 §4.2 错误分类）。
+///
+/// 为什么 token 不靠错误串前缀下发：宿主把插件命令失败统一包成
+/// `{ code, request_id }` 信封（ADR 0030），**双端前端都拿不到错误原文**，
+/// 所以「可分类失败」经 `dial-peer` 的 `Ok({status})` 返回（token = status），
+/// 只有机制失败（宿主不可用 / 参数畸形 / 未识别）才 `Err`（前端按 unknown 展示
+/// 并保留原文进日志，不猜成 LAN / WAN / 成功）。
+///
+/// `token` 词表与前端 `DialFailureCode` 同源：
+/// `denied` / `no-endpoint` / `relay-disabled` / `relay-unreachable` /
+/// `lan-unreachable` / `timeout`。
+struct DialAttemptError {
+    token: Option<&'static str>,
+    error: anyhow::Error,
+}
+
+impl DialAttemptError {
+    fn classified(token: &'static str, detail: impl std::fmt::Display) -> Self {
+        Self {
+            token: Some(token),
+            error: anyhow::anyhow!("{detail}"),
+        }
+    }
+
+    fn raw(error: anyhow::Error) -> Self {
+        Self { token: None, error }
+    }
+
+    /// 数据面命令的错误正文：token 前缀在首位（宿主日志 / 移动端错误串可读），
+    /// 未识别错误原样透传（fail-visible）
+    fn into_anyhow(self, node_id: &str) -> anyhow::Error {
+        match self.token {
+            Some(token) => anyhow::anyhow!("{token}: {} (peer {node_id})", self.error),
+            None => self.error,
+        }
+    }
+}
+
+/// 拨号计划 + 真实拨号（双入口共用：用户手动拨号 / 数据面静默重拨）。
+///
+/// 单地址 LAN 端点仍走旧 `dial-peer` 原语（与退役前逐字一致）；只有真的存在
+/// 多候选或 relay 候选时才用 `dial-peer-addrs`——多地址路径的候选顺序完全由
+/// [`core_dial::dial_plan`] 决定，本层不重排。
+fn dial_with_plan<H: HostPeer + HostStorage + ?Sized>(
+    h: &H,
+    ep: &DialEndpoint,
+    manual_wan: bool,
+) -> std::result::Result<(String, core_dial::DialPlan), DialAttemptError> {
+    let settings = settings_store::load(h).map_err(DialAttemptError::raw)?;
+    let plan = core_dial::dial_plan(ep, settings.allow_wan, manual_wan)
+        // 分类码由本层拼前缀（`into_anyhow`），payload 里的 detail 只留归因正文
+        .map_err(|e| DialAttemptError::classified(e.code.as_str(), e.detail))?;
+    let host_dial = if plan.candidates.len() == 1 && ep.addrs.is_empty() && !plan.relay_included {
+        // 旧原语只认单地址三元组：候选表里的 `addrs` / `wan` 不外泄给宿主
+        h.peer_dial(&serde_json::json!({
+            "nodeId": ep.node_id,
+            "addr": ep.addr,
+            "port": ep.port,
+        }))
+    } else {
+        h.peer_dial_addrs(&serde_json::json!({
+            "nodeId": ep.node_id,
+            "addrs": plan.candidates,
+        }))
+    };
+    let handle = host_dial.map_err(|e| classify_host_dial_error(&plan, e))?;
+    Ok((handle, plan))
+}
+
+/// 宿主拨号失败 → 稳定 token（T20 §4.2）。
+///
+/// 「不可达」的归因看本次候选表：纳入过 relay ⇒ relay 候选全失败；只拨了 LAN
+/// ⇒ 内网不可达（前端据此把「仅经中继」提为主按钮）。未识别的错误 `token = None`
+/// ——不得猜成 LAN / WAN / 成功（不变量 6，fail-visible）。
+fn classify_host_dial_error(
+    plan: &core_dial::DialPlan,
+    err: wasmnest_plugin_api::host::HostError,
+) -> DialAttemptError {
+    let text = err.to_string();
+    let token = if text.contains("peer denied") {
+        Some("denied")
+    } else if text.contains("timeout") || text.contains("timed out") {
+        Some("timeout")
+    } else if text.contains("peer unreachable") {
+        Some(if plan.relay_included {
+            "relay-unreachable"
+        } else {
+            "lan-unreachable"
+        })
+    } else {
+        None
+    };
+    match token {
+        Some(token) => DialAttemptError::classified(token, text),
+        None => DialAttemptError::raw(err.into()),
+    }
 }
 
 // ==================== 连接命令 ====================
 
-pub(crate) fn dial_peer(h: &WasmHost, args: &serde_json::Value) -> Result<serde_json::Value> {
+pub(crate) fn dial_peer<H: HostPeer + HostStorage + ?Sized>(
+    h: &H,
+    args: &serde_json::Value,
+) -> Result<serde_json::Value> {
     // 允许两种传参形状：{ endpoint: {...} } 或直接顶层 { nodeId, addr, port }
-    let endpoint_value = args.get("endpoint").cloned().unwrap_or_else(|| args.clone());
-    let endpoint: DialEndpoint = serde_json::from_value(endpoint_value)
+    let endpoint_value = args
+        .get("endpoint")
+        .cloned()
+        .unwrap_or_else(|| args.clone());
+    let mut endpoint: DialEndpoint = serde_json::from_value(endpoint_value)
         .map_err(|e| anyhow::anyhow!("invalid endpoint: {e}"))?;
-    let handle = h.peer_dial(&serde_json::to_value(&endpoint)?)?;
-    device_bridge::remember_session(&endpoint, handle);
-    Ok(serde_json::json!({ "status": "connected" }))
+    // `wan: true` = 用户显式点「尝试外网」（§4.9 不自动烧中继，手动入口才纳入）
+    let manual_wan = args.get("wan").and_then(|v| v.as_bool()).unwrap_or(false);
+    // `relayOnly: true` = 用户显式「仅经中继」（跳过 LAN；T20 §4.2）。
+    // 与 endpoint 内同名字段取并集，命令参数优先于表单字段
+    if args.get("relayOnly").and_then(|v| v.as_bool()) == Some(true) {
+        endpoint.relay_only = true;
+    }
+    let (handle, plan) = match dial_with_plan(h, &endpoint, manual_wan) {
+        Ok(ok) => ok,
+        // 可分类的拨号失败：token 作 `status` 返回（前端据此给可操作出路）。
+        // 这里不是成功——前端只在 `status === 'connected'` 时进入已连接态
+        Err(failure) => {
+            let Some(token) = failure.token else {
+                return Err(failure.error);
+            };
+            return Ok(serde_json::json!({
+                "status": token,
+                "detail": failure.error.to_string(),
+            }));
+        }
+    };
+    let mut memo = endpoint;
+    memo.wan = memo.wan || plan.relay_included;
+    let relay_only = memo.relay_only;
+    device_bridge::remember_session(&memo, handle);
+    // 真实传输形态（lan-direct / wan-relay）由宿主 `peer:connection` 事件给出，
+    // 命令面不猜：这里只代表「拨号成功」。
+    Ok(serde_json::json!({
+        "status": "connected",
+        "relayIncluded": plan.relay_included,
+        "relayOnly": relay_only,
+    }))
 }
 
 pub(crate) fn disconnect_peer(h: &WasmHost, args: &serde_json::Value) -> Result<serde_json::Value> {
@@ -602,13 +1117,32 @@ fn send_payload(settings: &TransferSettings, paths: &[String]) -> Vec<serde_json
         .collect()
 }
 
+/// 发送源清单（宿主 `collect-outgoing` 的 `[{ path, size }]`）→ 总字节数。
+///
+/// 只认 `size` 为无符号整数的条目；缺失/异常条目按 0 计（体积预览是「提示阈值」
+/// 输入，不是安全判据——不因单个条目元数据异常拒绝整批发送）。
+pub(crate) fn outgoing_total_bytes(collected: &serde_json::Value) -> u64 {
+    collected
+        .as_array()
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| item.get("size").and_then(|v| v.as_u64()))
+                .sum()
+        })
+        .unwrap_or(0)
+}
+
 /// 发送批发起（闸门放行后的公共路径）：解析目标 → send-files → 入店占位
-fn launch_send(
-    h: &WasmHost,
+fn launch_send<H>(
+    h: &H,
     node_id: &str,
     endpoint: Option<DialEndpoint>,
     paths: Vec<String>,
-) -> Result<serde_json::Value> {
+) -> Result<serde_json::Value>
+where
+    H: HostPeer + HostStorage + HostPluginDatabase + HostLog + HostEvents + ?Sized,
+{
     let target = ensure_target(h, node_id, endpoint)?;
     let settings = settings_store::load(h)?;
     let batch_id = h.peer_send_files(&target, &send_payload(&settings, &paths))?;
@@ -626,7 +1160,10 @@ fn occupied_send_slots(guard: &[TransferEntry]) -> usize {
         .iter()
         .filter(|e| {
             e.direction == "send"
-                && matches!(e.status.as_str(), "running" | "pending")
+                && matches!(
+                    e.status.as_str(),
+                    transfer_store::STATUS_RUNNING | transfer_store::STATUS_PENDING
+                )
                 && e.retry_meta.is_some()
         })
         .count()
@@ -657,27 +1194,57 @@ const PENDING_SENDS_CAP: usize = 32;
 /// 带 `retry_meta` 的终态失败行——用户从历史看得见、能重试。
 const MAX_SEND_ATTEMPTS: u8 = 2;
 
-/// 发送槽位是否空出（插件闸门唯一判据；设置真源 = 插件 storage 的
-/// `concurrency`，缺省 3）
-fn send_slot_available(h: &WasmHost) -> bool {
-    let guard = ensure_loaded(h);
-    let limit = settings_store::load(h)
+/// 单次事件回调的派发总预算：失败批回队尾后会立刻被再次取出，队列上限 32
+/// × 每批 2 次尝试 = 最多 64 次 `launch_send`（含拨号）挤在一个回调里。
+/// 超出预算留待下一次 store 事件，形成事件驱动的退避（M26）。
+const MAX_LAUNCH_PER_CALL: usize = 4;
+
+/// 发送槽位上限（设置真源 = 插件 storage 的 `concurrency`，缺省 3）。
+/// 一次派发只读一次：每次循环都读设置会在事件热路径上多打一次 storage（S2）。
+fn send_slot_limit<H: HostStorage + ?Sized>(h: &H) -> u8 {
+    settings_store::load(h)
         .map(|s| settings_store::clamp_concurrency(s.concurrency))
-        .unwrap_or(settings_store::DEFAULT_CONCURRENCY);
-    transfer_store::send_slot_open(occupied_send_slots(&guard), limit)
+        .unwrap_or(settings_store::DEFAULT_CONCURRENCY)
+}
+
+/// 发送槽位是否空出（插件闸门唯一判据）
+fn send_slot_available<H: HostPluginDatabase + HostStorage + HostLog + ?Sized>(h: &H) -> bool {
+    let guard = ensure_loaded(h);
+    transfer_store::send_slot_open(occupied_send_slots(&guard), send_slot_limit(h))
 }
 
 /// 并发闸门放行：running < 设置并发上限时逐个出队发起（每次发起后槽位
 /// 再检查）。派发失败按 [`MAX_SEND_ATTEMPTS`] 重排队，用尽后落终态失败行
 /// （票 08：排队批不再静默消失）。
-fn dispatch_pending_sends(h: &WasmHost) {
+///
+/// 出队为 **FIFO**（先提交先发，与 `enqueue` 的「队列」语义一致）；失败批回
+/// 队尾后 **继续放行其他批**——重试间隔不再依赖下一次 store 事件，次数用尽
+/// 即落终态失败行（失败显性化优先，用户从历史可见可重试）。
+fn dispatch_pending_sends<H>(h: &H)
+where
+    H: HostPeer + HostStorage + HostPluginDatabase + HostLog + HostEvents + ?Sized,
+{
+    let limit = send_slot_limit(h);
+    let mut launches = 0usize;
     loop {
-        if !send_slot_available(h) {
+        if launches >= MAX_LAUNCH_PER_CALL {
             return;
         }
-        let Some(job) = pending_sends().lock().expect("pending sends lock").pop() else {
-            return;
+        // 每次发起后槽位再检查（launch_send 会插入占位行）
+        {
+            let guard = ensure_loaded(h);
+            if !transfer_store::send_slot_open(occupied_send_slots(&guard), limit) {
+                return;
+            }
+        }
+        let job = {
+            let mut queue = pending_sends().lock().expect("pending sends lock");
+            if queue.is_empty() {
+                return;
+            }
+            queue.remove(0)
         };
+        launches += 1;
         match launch_send(h, &job.node_id, job.endpoint.clone(), job.paths.clone()) {
             Ok(_) => h.log_info("pending send dispatched (plugin-side gate)"),
             Err(e) => {
@@ -688,12 +1255,14 @@ fn dispatch_pending_sends(h: &WasmHost) {
                         job.attempts + 1,
                         MAX_SEND_ATTEMPTS
                     ));
-                    let mut queue = pending_sends().lock().expect("pending sends lock");
-                    queue.push(PendingSend {
-                        attempts: job.attempts + 1,
-                        ..job
-                    });
-                    return;
+                    pending_sends()
+                        .lock()
+                        .expect("pending sends lock")
+                        .push(PendingSend {
+                            attempts: job.attempts + 1,
+                            ..job
+                        });
+                    continue;
                 }
                 // 用尽尝试：落终态行（带回放凭证），用户从历史可见可重试
                 h.log_error(&format!(
@@ -717,7 +1286,14 @@ fn dispatch_pending_sends(h: &WasmHost) {
 ///
 /// 两者都只存在于内存：无行可查、用户无从重试，留到下次激活就是「凭空冒出
 /// 的旧任务」。任务真源（store）不在此列——它由持久层承接，停用不丢历史。
+/// toast 去重集合与 consent 待确认登记表同属进程内状态，一并清空（重激活后
+/// 不再用上一会话的 nodeId / deviceName 去裁决，C4）。
 pub(crate) fn reset_volatile_intents() -> (usize, usize) {
+    toasted_receive_batches()
+        .lock()
+        .expect("toast dedup lock")
+        .clear();
+    crate::auth_center::reset_pending();
     let queued = {
         let mut queue = pending_sends().lock().expect("pending sends lock");
         let n = queue.len();
@@ -738,12 +1314,17 @@ pub(crate) fn enqueue(
     args: &serde_json::Value,
     active_node: &'static Mutex<String>,
 ) -> Result<serde_json::Value> {
-    let node_id = resolve_node(args, active_node).ok_or_else(|| anyhow::anyhow!("no active peer"))?;
+    let node_id =
+        resolve_node(args, active_node).ok_or_else(|| anyhow::anyhow!("no active peer"))?;
 
     let mut paths: Vec<String> = args
         .get("paths")
         .and_then(|v| v.as_array())
-        .map(|a| a.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect()
+        })
         .unwrap_or_default();
     if let Some(single) = args.get("localPath").and_then(|v| v.as_str()) {
         if !single.is_empty() {
@@ -763,7 +1344,9 @@ pub(crate) fn enqueue(
         let mut queue = pending_sends().lock().expect("pending sends lock");
         if queue.len() >= PENDING_SENDS_CAP {
             // 发送队列满（用户可见拒绝；ADR 0030 业务码，前端经插件 i18n 展示）
-            wasmnest_plugin_api::bail_with_code!("com.wasmnest.file-transfer.transfer.error.queueFull");
+            wasmnest_plugin_api::bail_with_code!(
+                "com.wasmnest.file-transfer.transfer.error.queueFull"
+            );
         }
         queue.push(PendingSend {
             node_id,
@@ -782,12 +1365,15 @@ pub(crate) fn enqueue(
 /// 数据事件，首个 progress 到达才说明对端已放行（归约推进 running）。
 /// 文件清单按本地路径预填：引擎进度/终态事件不带 `files`，任务卡与历史
 /// 展示名依赖占位行自带的这份清单。
-fn insert_send_entry(
-    h: &WasmHost,
+fn insert_send_entry<H>(
+    h: &H,
     node_id: &str,
     batch_id: &str,
     paths: Vec<String>,
-) -> Result<serde_json::Value> {
+) -> Result<serde_json::Value>
+where
+    H: HostStorage + HostPluginDatabase + HostLog + HostEvents + ?Sized,
+{
     let files = send_files_of(&paths);
     let meta = RetryMeta::Send { paths };
     let mut row = send_row(node_id, batch_id, "pending", meta, None);
@@ -837,14 +1423,25 @@ fn send_row(
 ///
 /// batchId 由本地序号铸造（引擎从未见过这批——它连`send-files` 都没调通）；
 /// 携带 retryMeta 故用户可从历史直接重试。返回落库后的行 JSON。
-fn insert_failed_send_entry(
-    h: &WasmHost,
+fn insert_failed_send_entry<H>(
+    h: &H,
     node_id: &str,
     paths: Vec<String>,
     detail: &str,
-) -> Result<serde_json::Value> {
-    let batch_id = next_local_failure_id();
+) -> Result<serde_json::Value>
+where
+    H: HostStorage + HostPluginDatabase + HostLog + HostEvents + ?Sized,
+{
     let files = send_files_of(&paths);
+    let mut guard = ensure_loaded(h);
+    // batch_id 是**跨进程持久键**：进程内序号重启后从 1 重来，必须对照在册行
+    // 递增，否则会 upsert 覆盖上一进程的同名失败行（含其 retryMeta，S5）。
+    let batch_id = loop {
+        let id = next_local_failure_id();
+        if !guard.iter().any(|e| e.batch_id == id) {
+            break id;
+        }
+    };
     let mut row = send_row(
         node_id,
         &batch_id,
@@ -853,22 +1450,30 @@ fn insert_failed_send_entry(
         Some(format!("send dispatch failed: {detail}")),
     );
     row.files = files;
-    insert_send_row(h, row)
+    let out = serde_json::to_value(&row)?;
+    let changed = transfer_store::merge_snapshot(&mut guard, std::slice::from_ref(&out));
+    flush(h, guard, changed, Persist::Now);
+    Ok(out)
 }
 
-/// 本地终态行序号（wasm32 无时钟，用进程内自增序号保证 batchId 唯一）
+/// 本地终态行序号（wasm32 无时钟）。仅在进程内保证递增；跨进程唯一性由
+/// [`insert_failed_send_entry`] 在持锁后对照在册行去重。
+static LOCAL_FAILURE_SEQ: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
 fn next_local_failure_id() -> String {
-    static SEQ: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
-    let n = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+    let n = LOCAL_FAILURE_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
     format!("local-fail-{n}")
 }
 
 /// 行入店统一出口（幂等 upsert + 封顶 + 持久化 + 视图派发）
-fn insert_send_row(h: &WasmHost, entry: TransferEntry) -> Result<serde_json::Value> {
+fn insert_send_row<H>(h: &H, entry: TransferEntry) -> Result<serde_json::Value>
+where
+    H: HostStorage + HostPluginDatabase + HostLog + HostEvents + ?Sized,
+{
     let out = serde_json::to_value(&entry)?;
     let mut guard = ensure_loaded(h);
-    let changed = transfer_store::merge_snapshot(&mut guard, &[out.clone()]);
-    flush(h, guard, changed);
+    let changed = transfer_store::merge_snapshot(&mut guard, std::slice::from_ref(&out));
+    flush(h, guard, changed, Persist::Now);
     Ok(out)
 }
 
@@ -882,12 +1487,15 @@ pub(crate) fn list_tasks(h: &WasmHost) -> Result<serde_json::Value> {
 }
 
 pub(crate) fn cancel_task(h: &WasmHost, args: &serde_json::Value) -> Result<serde_json::Value> {
-    let batch_id =
-        args.get("taskId").and_then(|v| v.as_str()).unwrap_or_default().to_string();
+    let batch_id = args
+        .get("taskId")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .to_string();
     let hit = h.peer_close(&batch_id)?;
     let mut guard = ensure_loaded(h);
     let changed = transfer_store::mark_cancelled(&mut guard, &batch_id);
-    flush(h, guard, changed);
+    flush(h, guard, changed, Persist::Now);
     Ok(serde_json::json!({ "ok": hit || changed }))
 }
 
@@ -896,12 +1504,15 @@ pub(crate) fn cancel_task(h: &WasmHost, args: &serde_json::Value) -> Result<serd
 ///
 /// 返回 `true` 字面量（双端前端契约：桌面 `r === true` 判定生效，移动忽略返回值）
 pub(crate) fn pause_task(h: &WasmHost, args: &serde_json::Value) -> Result<serde_json::Value> {
-    let batch_id =
-        args.get("taskId").and_then(|v| v.as_str()).unwrap_or_default().to_string();
+    let batch_id = args
+        .get("taskId")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .to_string();
     h.peer_pause_transfer(&batch_id)?;
     let mut guard = ensure_loaded(h);
     let changed = transfer_store::mark_paused(&mut guard, &batch_id);
-    flush(h, guard, changed);
+    flush(h, guard, changed, Persist::Now);
     Ok(serde_json::Value::Bool(true))
 }
 
@@ -911,12 +1522,15 @@ pub(crate) fn pause_task(h: &WasmHost, args: &serde_json::Value) -> Result<serde
 /// 恢复命令只向**对端**写 Resume 帧，引擎不回送 resumed 事件（对端收帧后自行
 /// 推进）；本端必须同步乐观推进，否则发起恢复的一端永久停在「已暂停」。
 pub(crate) fn resume_task(h: &WasmHost, args: &serde_json::Value) -> Result<serde_json::Value> {
-    let batch_id =
-        args.get("taskId").and_then(|v| v.as_str()).unwrap_or_default().to_string();
+    let batch_id = args
+        .get("taskId")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .to_string();
     h.peer_resume_transfer(&batch_id)?;
     let mut guard = ensure_loaded(h);
     let changed = transfer_store::mark_resumed(&mut guard, &batch_id);
-    flush(h, guard, changed);
+    flush(h, guard, changed, Persist::Now);
     Ok(serde_json::Value::Bool(true))
 }
 
@@ -945,7 +1559,7 @@ pub(crate) fn resume_all_tasks(h: &WasmHost) -> Result<serde_json::Value> {
         for batch_id in &resumed_ids {
             changed |= transfer_store::mark_resumed(&mut guard, batch_id);
         }
-        flush(h, guard, changed);
+        flush(h, guard, changed, Persist::Now);
     }
     Ok(serde_json::json!({ "resumed": resumed_ids.len() }))
 }
@@ -959,12 +1573,12 @@ pub(crate) fn resume_all_tasks(h: &WasmHost) -> Result<serde_json::Value> {
 /// ② send 方向先过插件并发闸门。原实现先 `send-files` 再 `apply_retry`，
 /// 对不可重试条目会铸出无主会话：send 方向没有引擎建行事件（行由插件发起
 /// 时自建），该会话永不入店、进度事件打不中行，并永久占死一个发送槽位。
-pub(crate) fn retry_task(
-    h: &WasmHost,
-    args: &serde_json::Value,
-) -> Result<serde_json::Value> {
-    let task_id =
-        args.get("taskId").and_then(|v| v.as_str()).unwrap_or_default().to_string();
+pub(crate) fn retry_task(h: &WasmHost, args: &serde_json::Value) -> Result<serde_json::Value> {
+    let task_id = args
+        .get("taskId")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .to_string();
     let endpoint = parse_endpoint(args.get("endpoint"))?;
 
     let (node_id, meta) = {
@@ -993,7 +1607,7 @@ pub(crate) fn retry_task(
                 // 判据已前置，理论上不可达；显性报错而非静默留无主会话
                 anyhow::bail!("retry replay lost its entry (concurrent mutation?): {task_id}");
             }
-            flush(h, guard, true);
+            flush(h, guard, true, Persist::Now);
             let guard = ensure_loaded(h);
             let updated = guard
                 .iter()
@@ -1009,15 +1623,18 @@ pub(crate) fn retry_task(
                 .collect();
             // 意图先于引擎调用入队（票 08）：`pull-started` 事件随引擎铸造
             // batchId 即回流，事后入队会错过挂载窗口 → 新行永不可重试
-            transfer_store::push_pull_intent(
-                &mut pending_pulls().lock().expect("pending pulls lock"),
-                &node_id,
-                RetryMeta::Pull {
-                    dir_id: dir_id.clone(),
-                    files: files.clone(),
-                },
-            );
-            let n = h.peer_pull_files(&target, &dir_id, &values)?;
+            let intent = RetryMeta::Pull {
+                dir_id: dir_id.clone(),
+                files: files.clone(),
+            };
+            remember_pull_intent(&node_id, intent.clone());
+            let n = match h.peer_pull_files(&target, &dir_id, &values) {
+                Ok(n) => n,
+                Err(e) => {
+                    withdraw_pull_intent(&node_id, &intent);
+                    return Err(anyhow::Error::new(e));
+                }
+            };
             Ok(serde_json::json!({ "requeued": n }))
         }
     }
@@ -1050,7 +1667,7 @@ pub(crate) fn list_receiving(h: &WasmHost) -> Result<serde_json::Value> {
 /// list-history 初始快照命令共用同一口径）
 fn history_view(guard: &[TransferEntry]) -> Vec<&TransferEntry> {
     let mut history: Vec<&TransferEntry> = guard.iter().filter(|e| e.is_terminal()).collect();
-    history.sort_by(|a, b| b.updated_at_ms.cmp(&a.updated_at_ms));
+    history.sort_by_key(|a| std::cmp::Reverse(a.updated_at_ms));
     history
 }
 
@@ -1065,7 +1682,10 @@ pub(crate) fn list_history(h: &WasmHost) -> Result<serde_json::Value> {
     ))
 }
 
-pub(crate) fn cancel_receiving(h: &WasmHost, args: &serde_json::Value) -> Result<serde_json::Value> {
+pub(crate) fn cancel_receiving(
+    h: &WasmHost,
+    args: &serde_json::Value,
+) -> Result<serde_json::Value> {
     let batch_id = args
         .get("sessionId")
         .or_else(|| args.get("batchId"))
@@ -1075,14 +1695,14 @@ pub(crate) fn cancel_receiving(h: &WasmHost, args: &serde_json::Value) -> Result
     let hit = h.peer_close(&batch_id)?;
     let mut guard = ensure_loaded(h);
     let changed = transfer_store::mark_cancelled(&mut guard, &batch_id);
-    flush(h, guard, changed);
+    flush(h, guard, changed, Persist::Now);
     Ok(serde_json::json!({ "ok": hit || changed }))
 }
 
 pub(crate) fn clear_history(h: &WasmHost) -> Result<serde_json::Value> {
     let mut guard = ensure_loaded(h);
     let cleared = transfer_store::clear_terminal(&mut guard);
-    flush(h, guard, cleared > 0);
+    flush(h, guard, cleared > 0, Persist::Now);
     // 破坏性操作留痕：真机「点了没反应」需要能区分「命令没到」与「到了没清」
     h.log_info(&format!("clear-history cleared {cleared} terminal entries"));
     Ok(serde_json::json!({ "cleared": cleared }))
@@ -1128,7 +1748,10 @@ pub(crate) fn list_remote(
     let listing = h.peer_browse_directory(&target, root, rel)?;
     // 引擎 RemoteBrowseDto.filtered → 旧 notice 提示字段（双端前端 useRemoteFs
     // 契约一致：data.entries + data.notice）
-    let filtered = listing.get("filtered").and_then(|v| v.as_bool()).unwrap_or(false);
+    let filtered = listing
+        .get("filtered")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
     Ok(serde_json::json!({
         "entries": listing.get("entries").cloned().unwrap_or_default(),
         "notice": if filtered { serde_json::json!("filtered") } else { serde_json::Value::Null },
@@ -1149,7 +1772,11 @@ pub(crate) fn pull_files(
     let names: Vec<String> = args
         .get("files")
         .and_then(|v| v.as_array())
-        .map(|a| a.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect()
+        })
         .ok_or_else(|| anyhow::anyhow!("missing files"))?;
     if names.is_empty() {
         anyhow::bail!("pull-files: no files selected");
@@ -1162,8 +1789,15 @@ pub(crate) fn pull_files(
     let specs: Vec<PullFileSpec> = names
         .iter()
         .map(|name| {
-            let rel = if base.is_empty() { name.clone() } else { format!("{base}/{name}") };
-            PullFileSpec { rel_path: rel, size: 0 }
+            let rel = if base.is_empty() {
+                name.clone()
+            } else {
+                format!("{base}/{name}")
+            };
+            PullFileSpec {
+                rel_path: rel,
+                size: 0,
+            }
         })
         .collect();
     let values: Vec<serde_json::Value> = specs
@@ -1173,19 +1807,187 @@ pub(crate) fn pull_files(
 
     // 意图先于引擎调用入队（票 08）：`pull-started` 事件随引擎铸造 batchId
     // 即回流，事后入队会错过挂载窗口 → 新行永不可重试
-    transfer_store::push_pull_intent(
-        &mut pending_pulls().lock().expect("pending pulls lock"),
-        &node_id,
-        RetryMeta::Pull {
-            dir_id: dir_id.clone(),
-            files: specs.clone(),
-        },
-    );
-    let n = h.peer_pull_files(&target, &dir_id, &values)?;
+    let intent = RetryMeta::Pull {
+        dir_id: dir_id.clone(),
+        files: specs.clone(),
+    };
+    remember_pull_intent(&node_id, intent.clone());
+    let n = match h.peer_pull_files(&target, &dir_id, &values) {
+        Ok(n) => n,
+        Err(e) => {
+            withdraw_pull_intent(&node_id, &intent);
+            return Err(anyhow::Error::new(e));
+        }
+    };
     Ok(serde_json::json!({ "count": n }))
 }
 
 // ==================== 设置 / 注册表命令 ====================
+
+/// 宿主能力探针（file-transfer 独立化 T21）。
+///
+/// `node-info` / `configure-relay` 是 `host-peer` 尚待平台仓落地的两个原语
+/// （7ZAI/wasmnest-apps#27）；在 WIT / SDK 提供之前，本插件显性返回
+/// unsupported，**不伪造**「我的设备」链接，也不假装已建立外网预留。
+/// 两个常量与能力仓实现同批切换。
+pub(crate) const HOST_NODE_INFO_SUPPORTED: bool = true;
+pub(crate) const HOST_RELAY_RESERVATION_SUPPORTED: bool = true;
+
+fn host_capabilities() -> serde_json::Value {
+    serde_json::json!({
+        "nodeInfo": HOST_NODE_INFO_SUPPORTED,
+        "relayReservation": HOST_RELAY_RESERVATION_SUPPORTED,
+    })
+}
+
+/// 「我的设备」：本机可分享的连接信息（T21）。
+///
+/// 身份 / 地址由宿主 peer 节点的 node-info 提供（真实 nodeId + 可拨 addrs；
+/// 只有本插件 relay 预留生效时 addrs 才含 circuit）。relay 地址真源 =
+/// 网络配置中心（`com.wasmnest.net-config`）：桌面读中心，不可用时回退本插件 KV
+/// 缓存并把错误上抛；移动端没有中心，直接用本地缓存。
+pub(crate) fn get_my_device(h: &WasmHost) -> Result<serde_json::Value> {
+    let s = settings_store::load_or_migrate(h)?;
+    let platform = platform::current();
+    let relay = relay_center::effective(platform, &s.relay_addrs, &s.relay_origin);
+    // 打开「我的设备」即收敛一次预留：桌面地址真源在配置中心，中心可能刚改过，
+    // 本命令是唯一保证「显示的地址 = 正在生效的预留」的交互点（幂等；失败只留痕）
+    apply_relay_reservation(h, platform, &s);
+    let info = h
+        .peer_node_info()
+        .map_err(|e| anyhow::anyhow!("get-my-device: node-info failed: {e}"))?;
+    Ok(serde_json::json!({
+        "supported": HOST_NODE_INFO_SUPPORTED,
+        "reason": serde_json::Value::Null,
+        "capabilities": host_capabilities(),
+        "relayAddrs": relay.addrs,
+        // 本机缓存原文（与生效地址分开）：中心优先时界面仍可判断「邀请被中心覆盖」
+        "relayCacheAddrs": s.relay_addrs,
+        "relayRoom": s.relay_room,
+        "relayOrigin": s.relay_origin,
+        "relaySyncedAt": s.relay_synced_at,
+        "relaySource": relay.source.as_str(),
+        // 对外网策略（本应用的拨号开关，T12 语义）：分享载荷据此标注
+        // allowed / blocked；它不是配置中心里的跨应用注册表。
+        "wanPolicy": if s.allow_wan { "allowed" } else { "blocked" },
+        "relayError": relay.error,
+        "nodeId": info.node_id,
+        "deviceName": info.device_name,
+        "addrs": info.addrs,
+        "relayState": info.relay_state,
+    }))
+}
+
+/// 设置读面（`relay_addrs` 是**本机 KV 缓存**，不是真源：桌面端真源在「内网穿透」
+/// 配置中心，只经 `get-my-device` 带出来源；本命令保留缓存形状供设置往返 / 移动端使用）。
+/// 把空间码原文交给宿主（宿主 SHA-256 派生房间键；中继看不到明文）。
+///
+/// 总线消息是**本地**通道；失败只留痕——房间码丢失的后果是「跨网设备不出现」，
+/// 由下一次 activate / 刷新重发，不让设置保存失败。
+/// `enabled = None` = 只同步空间码，保留宿主当前的会合开关（刷新路径用；
+/// 避免为了重发一个字符串去跨插件读配置中心）。
+pub(crate) fn publish_relay_room(h: &WasmHost, room: &str, enabled: Option<bool>) {
+    let mut payload = serde_json::json!({ "room": room });
+    if let Some(enabled) = enabled {
+        payload["enabled"] = serde_json::Value::Bool(enabled);
+    }
+    if let Err(e) = h.bus_publish("peer:relay-room", &payload) {
+        h.log_warn(&format!("relay room publish failed (non-fatal): {e}"));
+    }
+}
+
+/// 对端同步用的配置快照载荷（纯函数：与分享载荷同字段，便于 native 直测）。
+///
+/// 地址取**当前生效**视图（中心优先 / 缓存兜底）；空间码明文随快照走同一条
+/// Noise 加密的对等连接，不落盘、不广播。`generatedAt` 只在导入渠道写过时非零，
+/// 中心直读没有「同步时刻」概念。
+pub(crate) fn relay_config_snapshot_payload(
+    s: &settings_store::TransferSettings,
+    view: &relay_center::RelayView,
+) -> serde_json::Value {
+    serde_json::json!({
+        "v": 1,
+        "kind": "ft-relay-config",
+        "relayAddrs": view.addrs,
+        "room": s.relay_room,
+        "wanPolicy": if s.allow_wan { "allowed" } else { "blocked" },
+        "generatedAt": s.relay_synced_at,
+    })
+}
+
+/// 把快照写入宿主（对端 `fetch-config` 只读）。失败只留痕：同步是可选能力，
+/// 旧宿主 / 无头环境不应让激活或设置保存失败。
+fn publish_relay_config_snapshot(
+    h: &WasmHost,
+    s: &settings_store::TransferSettings,
+    view: &relay_center::RelayView,
+) {
+    let payload = relay_config_snapshot_payload(s, view);
+    let text = match serde_json::to_string(&payload) {
+        Ok(text) => text,
+        Err(e) => {
+            h.log_warn(&format!(
+                "relay config snapshot serialize failed (non-fatal): {e}"
+            ));
+            return;
+        }
+    };
+    if let Err(e) = h.peer_set_config_snapshot(&text) {
+        h.log_warn(&format!(
+            "relay config snapshot publish failed (non-fatal): {e}"
+        ));
+    }
+}
+
+/// 把当前生效的 relay 配置推给宿主（幂等 reconcile；失败只记日志，不翻命令失败）。
+///
+/// 地址口径与 `get-my-device` 同源（`relay_center::effective`）：桌面读配置中心，
+/// 移动读本地设置。`allowWan` 关闭或地址为空 = 释放本插件份额（其他 owner 不受影响）。
+pub(crate) fn apply_relay_reservation(
+    h: &WasmHost,
+    platform: Platform,
+    s: &settings_store::TransferSettings,
+) {
+    // 房间码与预留相互独立：即使宿主不支持预留（旧宿主），也把房间码交给它，
+    // 避免「设置了空间码但发现永远走默认房间」的静默错配。enabled 跟随**本插件
+    // 生效的** relay 配置：没有 relay 地址 / 关掉 allowWan 时不得因为共享节点上
+    // 还有别人的预留就替本应用对外登记。
+    let view = relay_center::effective(platform, &s.relay_addrs, &s.relay_origin);
+    publish_relay_room(
+        h,
+        &s.relay_room,
+        Some(s.allow_wan && !view.addrs.is_empty()),
+    );
+    // 对端同步读取的本机快照：中心不可用且缓存为空 = 配置未知，保留上一份快照
+    // （不能把「读不到」写成「没有中继」）。
+    if !(view.error.is_some() && view.addrs.is_empty()) {
+        publish_relay_config_snapshot(h, s, &view);
+    }
+    if !HOST_RELAY_RESERVATION_SUPPORTED {
+        return;
+    }
+    // 中心不可用且缓存为空 = 不知道真实配置：保留现状，不用「未知」去拆掉可能仍在生效的
+    // 预留；但用户显式关闭 allowWan 时仍必须释放（否则「仅内网」开关不生效）
+    if s.allow_wan
+        && view.source == relay_center::RelaySource::Cache
+        && view.error.is_some()
+        && view.addrs.is_empty()
+    {
+        h.log_warn("relay center unavailable and no cached addrs; keeping current reservation");
+        return;
+    }
+    let enable = s.allow_wan && !view.addrs.is_empty();
+    let addrs: &[String] = if enable { &view.addrs } else { &[] };
+    match h.peer_configure_relay(addrs, enable) {
+        Ok(info) => h.log_info(&format!(
+            "relay reservation reconciled (enable={enable}, state={})",
+            info.relay_state
+        )),
+        Err(e) => h.log_warn(&format!(
+            "relay reservation reconcile failed (non-fatal): {e}"
+        )),
+    }
+}
 
 pub(crate) fn get_settings(h: &WasmHost) -> Result<serde_json::Value> {
     let s = settings_store::load_or_migrate(h)?;
@@ -1200,6 +2002,12 @@ pub(crate) fn get_settings(h: &WasmHost) -> Result<serde_json::Value> {
             "download_dir": s.download_dir.unwrap_or_default(),
             "encryption": s.encryption,
             "concurrency": s.concurrency,
+            "allow_wan": s.allow_wan,
+            "relay_max_bytes_per_task": s.relay_max_bytes_per_task,
+            "relay_addrs": s.relay_addrs,
+            "relay_room": s.relay_room,
+            "relay_origin": s.relay_origin,
+            "capabilities": host_capabilities(),
         })),
         Platform::Mobile => {
             // 平台默认下载目录（app 私有下载目录）：引擎侧为平台缝注册的普通
@@ -1212,9 +2020,11 @@ pub(crate) fn get_settings(h: &WasmHost) -> Result<serde_json::Value> {
             });
             let registry: Vec<serde_json::Value> = roots
                 .iter()
-                .map(|r| serde_json::json!({
-                    "id": r.id, "name": r.name, "builtin": false, "treeUri": r.path,
-                }))
+                .map(|r| {
+                    serde_json::json!({
+                        "id": r.id, "name": r.name, "builtin": false, "treeUri": r.path,
+                    })
+                })
                 .collect();
             let mut all_roots = vec![builtin];
             all_roots.extend(registry);
@@ -1226,6 +2036,12 @@ pub(crate) fn get_settings(h: &WasmHost) -> Result<serde_json::Value> {
                 "download_dir": "MediaStore/Downloads",
                 "encryption": s.encryption,
                 "concurrency": s.concurrency,
+                "allow_wan": s.allow_wan,
+                "relay_max_bytes_per_task": s.relay_max_bytes_per_task,
+                "relay_addrs": s.relay_addrs,
+                "relay_room": s.relay_room,
+                "relay_origin": s.relay_origin,
+                "capabilities": host_capabilities(),
             }))
         }
     }
@@ -1233,6 +2049,7 @@ pub(crate) fn get_settings(h: &WasmHost) -> Result<serde_json::Value> {
 
 /// 设置写入：未指定的键沿用现值；storage 真源 + 宿主配置原语推送。
 /// `downloadDir` 仅桌面形态生效（移动固定落点，静默忽略——与退役前逐字一致）。
+/// `encryption` 固定开启（穿透方案不变量 12）：传 `false` 显性报错，不静默改写。
 pub(crate) fn set_settings(h: &WasmHost, args: &serde_json::Value) -> Result<serde_json::Value> {
     let mut s = settings_store::load_or_migrate(h)?;
     if let Some(policy) = args.get("receivingPolicy").and_then(|v| v.as_str()) {
@@ -1243,18 +2060,283 @@ pub(crate) fn set_settings(h: &WasmHost, args: &serde_json::Value) -> Result<ser
     }
     if platform::current().supports_custom_download_dir() {
         if let Some(dir) = args.get("downloadDir").and_then(|v| v.as_str()) {
-            s.download_dir = if dir.is_empty() { None } else { Some(dir.to_string()) };
+            s.download_dir = if dir.is_empty() {
+                None
+            } else {
+                Some(dir.to_string())
+            };
         }
     }
-    if let Some(enabled) = args.get("encryption").and_then(|v| v.as_bool()) {
-        s.encryption = enabled;
+    if args.get("encryption").is_some() {
+        settings_store::validate_encryption_patch(args.get("encryption"))?;
     }
     if let Some(n) = args.get("concurrency").and_then(|v| v.as_u64()) {
-        s.concurrency = settings_store::clamp_concurrency(n as u8);
+        // 先封顶再窄化：`n as u8` 会按 mod 256 截断（256→0→钳成 1、300→44→8），
+        // 越界值静默变成另一个数；钳到 u8::MAX 后再 clamp 语义才符合直觉（S4）。
+        s.concurrency = settings_store::clamp_concurrency(n.min(u8::MAX as u64) as u8);
+    }
+    // T12：中继开关与提示阈值。非布尔/非数字显性报错（静默忽略 = 设置页显示与
+    // 实际策略分裂）；`allowWan=false` 只影响拨号候选，不碰加密（不变量 12）
+    let mut disable_wan = false;
+    if let Some(v) = args.get("allowWan") {
+        let next = v
+            .as_bool()
+            .ok_or_else(|| anyhow::anyhow!("allowWan must be a boolean"))?;
+        disable_wan = s.allow_wan && !next;
+        s.allow_wan = next;
+    }
+    if let Some(v) = args.get("relayMaxBytesPerTask") {
+        s.relay_max_bytes_per_task = v.as_u64().ok_or_else(|| {
+            anyhow::anyhow!("relayMaxBytesPerTask must be a non-negative integer")
+        })?;
+    }
+    // T23：relay 来源。邀请导入显式置 `invite`；用户手动改地址且未声明来源时清空，
+    // 避免「手动填的地址」被当成邀请缓存而在中心清空后继续生效。
+    let mut origin_explicit = false;
+    if let Some(v) = args.get("relayOrigin") {
+        let raw = v
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("relayOrigin must be a string"))?;
+        s.relay_origin = settings_store::normalize_relay_origin(raw).map_err(anyhow::Error::msg)?;
+        origin_explicit = true;
+    }
+    // T21：外网接入 relay 端点（只保存；宿主 configure-relay 就绪后由 activate 推送）。
+    // 非法地址整批拒绝并点名，不静默丢弃（否则设置页显示已保存、实际没有入口）。
+    if let Some(v) = args.get("relayAddrs") {
+        let raw: Vec<String> = serde_json::from_value(v.clone())
+            .map_err(|e| anyhow::anyhow!("relayAddrs must be a string array: {e}"))?;
+        s.relay_addrs = settings_store::normalize_relay_addrs(&raw).map_err(anyhow::Error::msg)?;
+        if !origin_explicit {
+            // 手动改地址 = 配置不再由导入渠道负责：来源与同步时刻一并清空，
+            // 避免界面继续标「扫码 / 同步」而地址其实已被手改。
+            s.relay_origin.clear();
+            s.relay_synced_at = 0;
+        }
+    }
+    // 空间码：空 = relay-wide；非空两端必须一致（只发哈希给中继，见宿主会合表）
+    if let Some(v) = args.get("relayRoom") {
+        let raw = v
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("relayRoom must be a string"))?;
+        s.relay_room = settings_store::normalize_relay_room(raw).map_err(anyhow::Error::msg)?;
     }
     settings_store::save_and_push(h, &s)?;
+    // T21：设置变更（relayAddrs / allowWan）立即收敛预留，不等下次激活
+    apply_relay_reservation(h, platform::current(), &s);
+    if disable_wan {
+        // M7：宿主会话句柄记忆的候选表在铸句柄时已含 relay，仅改设置不会让数据面
+        // 重拨生效。关闭这些 WAN 会话；下次数据面操作按新设置重拨（LAN-only）。
+        let handles = device_bridge::drop_wan_candidates();
+        for handle in &handles {
+            if let Err(e) = h.peer_close(handle) {
+                h.log_warn(&format!(
+                    "set-settings: close WAN session {handle} failed: {e}"
+                ));
+            }
+        }
+        if !handles.is_empty() {
+            h.log_info(&format!(
+                "set-settings: allowWan=false closed {} WAN session(s) for LAN-only redial",
+                handles.len()
+            ));
+        }
+    }
     h.log_info("set-settings: policy/download-dir applied (plugin-sourced)");
     Ok(serde_json::json!({ "ok": true }))
+}
+
+/// 可信对端列表里是否包含指定 nodeId（纯函数，native 可直测）。
+///
+/// 列表来自宿主 `peer_list_trusted`（`TrustedPeerDto[]`）；字段名兼容
+/// `nodeId` / `node_id` / `id` 三种历史形状，但**只认显式命中**——缺失 /
+/// 畸形列表由调用方按失败处理，不把「读不到」当「已信任」。
+pub(crate) fn trusted_list_contains(list: &serde_json::Value, node_id: &str) -> bool {
+    let Some(entries) = list.as_array() else {
+        return false;
+    };
+    entries.iter().any(|entry| {
+        ["nodeId", "node_id", "id"].iter().any(|key| {
+            entry
+                .get(*key)
+                .and_then(serde_json::Value::as_str)
+                .is_some_and(|id| id.eq_ignore_ascii_case(node_id))
+        })
+    })
+}
+
+/// 同步获取的信任门：对端必须已在宿主信任表里（未配对一律拒绝，防配置注入）。
+fn peer_is_trusted(h: &WasmHost, node_id: &str) -> Result<bool> {
+    let list = h
+        .peer_list_trusted()
+        .map_err(|e| anyhow::anyhow!("relay config: trusted list unavailable: {}", e.message))?;
+    if !list.is_array() {
+        anyhow::bail!("relay config: trusted list malformed (expected array)");
+    }
+    Ok(trusted_list_contains(&list, node_id))
+}
+
+/// 导入穿透配置（扫码 `qr` / 内网同步 `sync`）。
+///
+/// 与 `set-settings` 的分工：本命令是**导入渠道**的专用写面，只写 relay 地址 /
+/// 空间码 / 来源 / 同步时刻，不碰接收策略、并发、中继开关（T12 语义隔离）。
+/// 校验沿用核内 `normalize_relay_addrs` / `normalize_relay_room`：坏地址整批
+/// 拒绝并点名，不静默保存半份配置。
+///
+/// `sync` 来源必须带 `peerNodeId` 且该设备已在宿主信任表里；未配对设备推送
+/// 一律拒绝（信任边界，见 spec §4.3）。
+pub(crate) fn import_relay_config(
+    h: &WasmHost,
+    args: &serde_json::Value,
+) -> Result<serde_json::Value> {
+    let source = args
+        .get("source")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("");
+    let origin = settings_store::normalize_relay_origin(source).map_err(anyhow::Error::msg)?;
+    if origin.is_empty() {
+        anyhow::bail!("import-relay-config: source must be `qr` or `sync`");
+    }
+
+    let raw: Vec<String> = serde_json::from_value(
+        args.get("relayAddrs")
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("import-relay-config: relayAddrs required"))?,
+    )
+    .map_err(|e| anyhow::anyhow!("relayAddrs must be a string array: {e}"))?;
+    let addrs = settings_store::normalize_relay_addrs(&raw).map_err(anyhow::Error::msg)?;
+    if addrs.is_empty() {
+        anyhow::bail!("import-relay-config: at least one relay address is required");
+    }
+
+    if origin == "sync" {
+        let peer_node = args
+            .get("peerNodeId")
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .unwrap_or("");
+        if peer_node.is_empty() {
+            anyhow::bail!("import-relay-config: peerNodeId is required for `sync`");
+        }
+        if !peer_is_trusted(h, peer_node)? {
+            anyhow::bail!("import-relay-config: `sync` requires a trusted peer");
+        }
+    }
+
+    let mut s = settings_store::load_or_migrate(h)?;
+    s.relay_addrs = addrs;
+    s.relay_origin = origin;
+    // 空间码：只在分享里带非空值时对齐；空 / 缺失保持本机现有隔离键
+    //（分享方未设空间码 = relay-wide，不构成「清除接收方空间码」的授权）
+    if let Some(v) = args.get("room") {
+        let room = v
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("room must be a string"))?;
+        let room = settings_store::normalize_relay_room(room).map_err(anyhow::Error::msg)?;
+        if !room.is_empty() {
+            s.relay_room = room;
+        }
+    }
+    // 同步时刻由调用方给（客户端时钟）；缺失 = 未知，不伪造当前时间
+    s.relay_synced_at = args
+        .get("syncedAt")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
+    settings_store::save_and_push(h, &s)?;
+    apply_relay_reservation(h, platform::current(), &s);
+    Ok(serde_json::json!({
+        "relayAddrs": s.relay_addrs,
+        "relayRoom": s.relay_room,
+        "relayOrigin": s.relay_origin,
+        "relaySyncedAt": s.relay_synced_at,
+    }))
+}
+
+/// 同步结果令牌（前端按 status 分文案；失败不抛命令错误，避免被宿主信封吞成
+/// 无分类的 `code`）。
+fn relay_sync_status(status: &str) -> serde_json::Value {
+    serde_json::json!({ "status": status })
+}
+
+fn relay_sync_status_detail(status: &str, detail: impl std::fmt::Display) -> serde_json::Value {
+    serde_json::json!({ "status": status, "detail": detail.to_string() })
+}
+
+/// 从已连接的可信设备同步穿透配置（`sync` 来源）。
+///
+/// 前置：本机与对端已建立会话（不在此处隐式拨号——同步是用户显式动作，
+/// 但不应顺带把「未连接」变成一次意外连接），且对端在宿主信任表内。
+/// 只读取配置快照，不拉文件、不改对端；成功写入本机设置并重收敛预留，
+/// 同时刷新本机快照供其他设备反向同步。
+///
+/// 失败一律以 `status` 返回（`no-peer` / `not-trusted` / `not-connected` /
+/// `no-config` / `invalid-config` / `unsupported` / `fetch-failed` / `synced`），
+/// 机制异常才走 `Err`。
+pub(crate) fn sync_peer_relay_config(
+    h: &WasmHost,
+    args: &serde_json::Value,
+    active_node: &'static Mutex<String>,
+) -> Result<serde_json::Value> {
+    let Some(node_id) = resolve_node(args, active_node) else {
+        return Ok(relay_sync_status("no-peer"));
+    };
+    if !peer_is_trusted(h, &node_id)? {
+        return Ok(relay_sync_status("not-trusted"));
+    }
+    // 仅接受既有会话：不把同步动作变成隐式拨号（spec §4.3「内网直连成功后」）
+    let Some(handle) = device_bridge::session_of(&node_id) else {
+        return Ok(relay_sync_status("not-connected"));
+    };
+
+    let snapshot = match h.peer_fetch_config(&handle) {
+        Ok(snapshot) => snapshot,
+        Err(e) => {
+            let detail = e.message;
+            // 默认 trait 实现（旧宿主 / 无头）以 unsupported 文案暴露；单独分类，
+            // 让界面提示「升级宿主」而不是「网络失败」。
+            if detail.contains("unsupported") {
+                return Ok(relay_sync_status("unsupported"));
+            }
+            return Ok(relay_sync_status_detail("fetch-failed", detail));
+        }
+    };
+    let Some(raw) = snapshot else {
+        return Ok(relay_sync_status("no-config"));
+    };
+    let parsed = match core_settings::parse_relay_config_snapshot(&raw) {
+        Ok(parsed) => parsed,
+        Err(e) => return Ok(relay_sync_status_detail("invalid-config", e)),
+    };
+    if parsed.relay_addrs.is_empty() {
+        return Ok(relay_sync_status("no-config"));
+    }
+
+    let mut s = settings_store::load_or_migrate(h)?;
+    s.relay_addrs = parsed.relay_addrs;
+    // 快照的 room 是**完整配置**的一部分：空 = 对端 relay-wide，同步动作按
+    // 用户确认后的整份替换语义生效（与扫码导入「空不覆盖」不同）。
+    s.relay_room = parsed.room;
+    s.relay_origin = "sync".to_string();
+    s.relay_synced_at = if parsed.generated_at > 0 {
+        parsed.generated_at
+    } else {
+        args.get("syncedAt")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(0)
+    };
+    settings_store::save_and_push(h, &s)?;
+    let platform = platform::current();
+    apply_relay_reservation(h, platform, &s);
+    let view = relay_center::effective(platform, &s.relay_addrs, &s.relay_origin);
+
+    Ok(serde_json::json!({
+        "status": "synced",
+        "relayAddrs": view.addrs,
+        "relayRoom": s.relay_room,
+        "relayOrigin": s.relay_origin,
+        "relaySyncedAt": s.relay_synced_at,
+        // 对端策略只回显，不改本机 allowWan（语义隔离）
+        "wanPolicy": parsed.wan_policy,
+    }))
 }
 
 /// 选择接收落点目录（桌面形态命令；移动 lib.rs 直接返回 unsupported 不入本模块）
@@ -1267,10 +2349,7 @@ pub(crate) fn pick_download_dir(h: &WasmHost) -> Result<serde_json::Value> {
     let Some(folder) = folder.into_iter().next() else {
         return Ok(serde_json::json!({ "cancelled": true }));
     };
-    set_settings(
-        h,
-        &serde_json::json!({ "downloadDir": folder }),
-    )?;
+    set_settings(h, &serde_json::json!({ "downloadDir": folder }))?;
     Ok(serde_json::json!({ "path": folder }))
 }
 
@@ -1280,6 +2359,7 @@ pub(crate) fn pick_download_dir(h: &WasmHost) -> Result<serde_json::Value> {
 /// - 移动：弹 SAF 目录树选择器（core `host-platform.pick-folders`，宿主返回
 ///   0/1 项树 URI）；引擎注册表校验 `content://` 根（真实路径会被整批拒绝导致
 ///   「多次选择只显示一条」）；展示名由树 URI 末段解码（卷前缀剥离）派生。
+///
 /// 用户取消以错误上抛（调用方按 'cancelled' 字样分流）。
 pub(crate) fn mount_local(
     h: &(impl HostPlatform + HostPluginDatabase + HostPeer + HostStorage),
@@ -1296,17 +2376,20 @@ fn mount_local_desktop(
     h: &(impl HostPlatform + HostPluginDatabase + HostPeer + HostStorage),
     args: &serde_json::Value,
 ) -> Result<serde_json::Value> {
-    let paths =
-        match args.get("path").and_then(|v| v.as_str()).filter(|s| !s.is_empty()) {
-            Some(p) => vec![p.to_string()],
-            None => {
-                let picked = h.platform_pick_folders()?;
-                if picked.is_empty() {
-                    anyhow::bail!("cancelled");
-                }
-                picked
+    let paths = match args
+        .get("path")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+    {
+        Some(p) => vec![p.to_string()],
+        None => {
+            let picked = h.platform_pick_folders()?;
+            if picked.is_empty() {
+                anyhow::bail!("cancelled");
             }
-        };
+            picked
+        }
+    };
     // 显式 name 仅单路径注册（args.path + args.name）时生效；选择器多选按
     // 各自路径末段取默认名
     let explicit_name = args
@@ -1317,9 +2400,14 @@ fn mount_local_desktop(
     let entries: Vec<SharedRoot> = paths
         .into_iter()
         .map(|path| {
-            let name =
-                explicit_name.clone().unwrap_or_else(|| default_root_name(&path));
-            SharedRoot { id: roots_registry::root_id(&path), name, path }
+            let name = explicit_name
+                .clone()
+                .unwrap_or_else(|| default_root_name(&path));
+            SharedRoot {
+                id: roots_registry::root_id(&path),
+                name,
+                path,
+            }
         })
         .collect();
     let next = roots_registry::apply_and_push(h, |list| {
@@ -1344,6 +2432,11 @@ fn mount_local_desktop(
 ///
 /// 2026-10-13 功能级统一后走 core `host-platform.pick-folders`（多选形）；
 /// 移动宿主底层是 SAF 单选选择器，返回 0/1 项 ⇒ 取首项，空数组 = 用户取消。
+///
+/// **不写 `preauth_paths`**：那是「插件自报、要在启用期弹框授权」的数据目录清单
+/// （走 `host-fs` 的路径 IO）。SAF 树 URI 的访问权由 Android 的持久 URI 授权持有
+/// （`takePersistableUriPermission` 在选择时即落），既不需要也经不起这条路径授权
+/// ——把 `content://` 写进该清单只会让启用期拿着一条非路径去申请授权。
 fn mount_local_mobile(
     h: &(impl HostPlatform + HostPluginDatabase + HostPeer + HostStorage),
 ) -> Result<serde_json::Value> {
@@ -1354,15 +2447,20 @@ fn mount_local_mobile(
     // 展示名：树 URI 末段 URL 解码 + 去卷前缀（primary:Download → Download）；
     // 空则固定占位
     let name = tree_uri_display_name(&uri);
-    let name = if name.is_empty() { "共享目录".to_string() } else { name };
-    let entry = SharedRoot { id: roots_registry::root_id(&uri), name, path: uri.clone() };
+    let name = if name.is_empty() {
+        "共享目录".to_string()
+    } else {
+        name
+    };
+    let entry = SharedRoot {
+        id: roots_registry::root_id(&uri),
+        name,
+        path: uri.clone(),
+    };
     let next = roots_registry::apply_and_push(h, |list| {
         roots_registry::upsert(list, entry.clone());
     })?;
     let added = next.iter().find(|r| r.id == entry.id);
-    if let Some(r) = &added {
-        push_preauth_path(h, &r.path)?;
-    }
     Ok(added
         .map(|r| serde_json::json!({ "id": r.id, "name": r.name, "treeUri": r.path }))
         .unwrap_or_default())
@@ -1458,10 +2556,10 @@ mod tests {
     };
     use crate::platform::{self, Platform};
     use crate::transfer_store;
+    use std::cell::{Cell, RefCell};
     use wasmnest_plugin_api::host::{
         HostError, HostEvents, HostLog, HostPeer, HostPlatform, HostPluginDatabase, HostStorage,
     };
-    use std::cell::{Cell, RefCell};
 
     /// 历史视图口径：仅终态条目、按 updatedAtMs 降序（list-history 初始快照与
     /// flush 的 history-changed 派发共用本函数，防两路口径漂移）
@@ -1479,8 +2577,10 @@ mod tests {
             mk("pend", "pending", 8),
             mk("b-new", "failed", 5),
         ];
-        let ids: Vec<&str> =
-            super::history_view(&store).iter().map(|e| e.batch_id.as_str()).collect();
+        let ids: Vec<&str> = super::history_view(&store)
+            .iter()
+            .map(|e| e.batch_id.as_str())
+            .collect();
         assert_eq!(ids, vec!["b-new", "b-old"]);
     }
 
@@ -1490,7 +2590,10 @@ mod tests {
     fn split_root_rel_prefers_dir_id_and_keeps_root_relative_path() {
         // 根内子目录与根 id 同名：path 原样保留（旧实现误剥离成 ""，列出根目录）
         assert_eq!(super::split_root_rel("docs", "docs"), ("docs", "docs"));
-        assert_eq!(super::split_root_rel("docs", "docs/sub"), ("docs", "docs/sub"));
+        assert_eq!(
+            super::split_root_rel("docs", "docs/sub"),
+            ("docs", "docs/sub")
+        );
         assert_eq!(
             super::split_root_rel("local-downloads", "a/b.txt"),
             ("local-downloads", "a/b.txt")
@@ -1515,6 +2618,20 @@ mod tests {
         fail_params: Cell<bool>,
         /// 事务批执行故障注入（传输历史持久化断言用）
         fail_batch: Cell<bool>,
+        /// 台账装载故障注入（M1：载入失败禁用落盘断言用）
+        fail_transfer_query: Cell<bool>,
+        /// device_snapshot 读取次数（S2：progress 热路径不得读设备快照）
+        snapshot_reads: Cell<usize>,
+        /// peer_send_files 调用记录（每批首 path；dispatch FIFO 顺序断言用）
+        send_calls: RefCell<Vec<String>>,
+        /// peer_dial 调用记录（单地址拨号入参）
+        dial_calls: RefCell<Vec<serde_json::Value>>,
+        /// peer_dial_addrs 调用记录（多地址拨号入参）
+        dial_addrs_calls: RefCell<Vec<serde_json::Value>>,
+        /// peer_send_files 前 N 次注入失败（dispatch 失败路径断言用）
+        send_failures: Cell<usize>,
+        /// 拨号失败注入（宿主错误文本；None = 正常铸句柄）——T20 错误分类断言用
+        dial_failure: RefCell<Option<String>>,
         logs: RefCell<Vec<String>>,
     }
 
@@ -1528,6 +2645,13 @@ mod tests {
                 sql_log: RefCell::new(vec![]),
                 fail_params: Cell::new(false),
                 fail_batch: Cell::new(false),
+                fail_transfer_query: Cell::new(false),
+                snapshot_reads: Cell::new(0),
+                send_calls: RefCell::new(vec![]),
+                dial_calls: RefCell::new(vec![]),
+                dial_addrs_calls: RefCell::new(vec![]),
+                send_failures: Cell::new(0),
+                dial_failure: RefCell::new(None),
                 logs: RefCell::new(vec![]),
             }
         }
@@ -1539,6 +2663,9 @@ mod tests {
 
     impl HostStorage for MockHost {
         fn storage_get(&self, key: &str) -> Result<Option<serde_json::Value>, HostError> {
+            if key == "device_snapshot" {
+                self.snapshot_reads.set(self.snapshot_reads.get() + 1);
+            }
             Ok(self.kv.borrow().get(key).cloned())
         }
         fn storage_set(&self, key: &str, value: &serde_json::Value) -> Result<(), HostError> {
@@ -1590,7 +2717,13 @@ mod tests {
             if sql.contains("SELECT id, name, path FROM shared_roots") {
                 return Ok(Some(serde_json::Value::Array(self.rows.borrow().clone())));
             }
-            if sql.contains("SELECT payload FROM transfer_entries") {
+            if sql.contains("transfer_entries ORDER BY rowid") {
+                if self.fail_transfer_query.get() {
+                    return Err(HostError {
+                        code: -1,
+                        message: "injected transfer_entries read failure".to_string(),
+                    });
+                }
                 // 桌面台账读路径：行数据存在 kv 的 SQL 投影里（测试直接写行集）
                 return Ok(Some(serde_json::Value::Array(
                     self.rows
@@ -1603,7 +2736,11 @@ mod tests {
             }
             Ok(None)
         }
-        fn plugin_db_execute_params(&self, sql: &str, params: &[serde_json::Value]) -> Result<i32, HostError> {
+        fn plugin_db_execute_params(
+            &self,
+            sql: &str,
+            params: &[serde_json::Value],
+        ) -> Result<i32, HostError> {
             self.sql_log.borrow_mut().push(sql.to_string());
             if self.fail_params.get() {
                 return Err(HostError {
@@ -1640,18 +2777,38 @@ mod tests {
                     message: "injected batch failure".to_string(),
                 });
             }
+            // 共享根落盘也走事务批（桌面适配器 save_roots）：按「先删后整批插入」应用
+            crate::adapters::apply_shared_roots_batch(&mut self.rows.borrow_mut(), sqls);
             Ok(0)
         }
     }
 
     impl HostPeer for MockHost {
-        fn peer_dial(&self, _endpoint: &serde_json::Value) -> Result<String, HostError> {
-            unimplemented!()
+        fn peer_dial(&self, endpoint: &serde_json::Value) -> Result<String, HostError> {
+            self.dial_calls.borrow_mut().push(endpoint.clone());
+            if let Some(message) = self.dial_failure.borrow().clone() {
+                return Err(HostError::custom(-1, message));
+            }
+            Ok(format!("dial-handle-{}", self.dial_calls.borrow().len()))
+        }
+        fn peer_dial_addrs(&self, endpoint: &serde_json::Value) -> Result<String, HostError> {
+            self.dial_addrs_calls.borrow_mut().push(endpoint.clone());
+            if let Some(message) = self.dial_failure.borrow().clone() {
+                return Err(HostError::custom(-1, message));
+            }
+            Ok(format!(
+                "addrs-handle-{}",
+                self.dial_addrs_calls.borrow().len()
+            ))
         }
         fn peer_close(&self, _handle: &str) -> Result<bool, HostError> {
             unimplemented!()
         }
-        fn peer_respond_consent(&self, _request_id: &str, _accepted: bool) -> Result<bool, HostError> {
+        fn peer_respond_consent(
+            &self,
+            _request_id: &str,
+            _accepted: bool,
+        ) -> Result<bool, HostError> {
             unimplemented!()
         }
         fn peer_list_trusted(&self) -> Result<serde_json::Value, HostError> {
@@ -1660,8 +2817,34 @@ mod tests {
         fn peer_revoke_trusted(&self, _node_id: &str) -> Result<bool, HostError> {
             unimplemented!()
         }
-        fn peer_send_files(&self, _session: &str, _paths: &[serde_json::Value]) -> Result<String, HostError> {
+        fn peer_trust_node(
+            &self,
+            _node_id: &str,
+            _display_name: Option<&str>,
+        ) -> Result<bool, HostError> {
             unimplemented!()
+        }
+        fn peer_send_files(
+            &self,
+            _session: &str,
+            paths: &[serde_json::Value],
+        ) -> Result<String, HostError> {
+            let first = paths
+                .first()
+                .and_then(|v| v.get("path"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            self.send_calls.borrow_mut().push(first);
+            let fails = self.send_failures.get();
+            if fails > 0 {
+                self.send_failures.set(fails - 1);
+                return Err(HostError {
+                    code: -1,
+                    message: "injected send failure".to_string(),
+                });
+            }
+            Ok(format!("batch-{}", self.send_calls.borrow().len()))
         }
         fn peer_respond_transfer(&self, _batch_id: &str, _accept: bool) -> Result<(), HostError> {
             unimplemented!()
@@ -1672,7 +2855,11 @@ mod tests {
         fn peer_resume_transfer(&self, _batch_id: &str) -> Result<(), HostError> {
             unimplemented!()
         }
-        fn peer_set_receive_policy(&self, _mode: &str, _timeout_secs: u64) -> Result<(), HostError> {
+        fn peer_set_receive_policy(
+            &self,
+            _mode: &str,
+            _timeout_secs: u64,
+        ) -> Result<(), HostError> {
             unimplemented!()
         }
         fn peer_set_shared_roots(&self, dirs: &[serde_json::Value]) -> Result<(), HostError> {
@@ -1683,16 +2870,29 @@ mod tests {
         fn peer_list_shared_roots(&self, _session: &str) -> Result<serde_json::Value, HostError> {
             unimplemented!()
         }
-        fn peer_browse_directory(&self, _session: &str, _dir_id: &str, _rel_path: &str) -> Result<serde_json::Value, HostError> {
+        fn peer_browse_directory(
+            &self,
+            _session: &str,
+            _dir_id: &str,
+            _rel_path: &str,
+        ) -> Result<serde_json::Value, HostError> {
             unimplemented!()
         }
-        fn peer_pull_files(&self, _session: &str, _dir_id: &str, _files: &[serde_json::Value]) -> Result<u32, HostError> {
+        fn peer_pull_files(
+            &self,
+            _session: &str,
+            _dir_id: &str,
+            _files: &[serde_json::Value],
+        ) -> Result<u32, HostError> {
             unimplemented!()
         }
         fn peer_set_download_dir(&self, _path: &str) -> Result<(), HostError> {
             unimplemented!()
         }
-        fn peer_start_node(&self) -> Result<bool, HostError> {
+        fn peer_start_node(
+            &self,
+            _config: &wasmnest_plugin_api::host::PeerNodeConfig,
+        ) -> Result<bool, HostError> {
             unimplemented!()
         }
         fn peer_stop_node(&self) -> Result<bool, HostError> {
@@ -1701,7 +2901,20 @@ mod tests {
         fn peer_active_transfers(&self) -> Result<serde_json::Value, HostError> {
             unimplemented!()
         }
-        fn peer_collect_outgoing(&self, _paths: &[serde_json::Value]) -> Result<serde_json::Value, HostError> {
+        fn peer_collect_outgoing(
+            &self,
+            _paths: &[serde_json::Value],
+        ) -> Result<serde_json::Value, HostError> {
+            unimplemented!()
+        }
+        fn peer_node_info(&self) -> Result<wasmnest_plugin_api::host::PeerNodeInfo, HostError> {
+            unimplemented!()
+        }
+        fn peer_configure_relay(
+            &self,
+            _relay_addrs: &[String],
+            _enable: bool,
+        ) -> Result<wasmnest_plugin_api::host::PeerNodeInfo, HostError> {
             unimplemented!()
         }
     }
@@ -1738,21 +2951,40 @@ mod tests {
         let _g = platform::test_lock().lock().unwrap();
         platform::set_for_test(Platform::Desktop);
         let h = MockHost::new();
-        let r1 = mount_local(&h, &serde_json::json!({ "path": "/tmp/share-x", "name": "x" })).unwrap();
+        let r1 = mount_local(
+            &h,
+            &serde_json::json!({ "path": "/tmp/share-x", "name": "x" }),
+        )
+        .unwrap();
         assert_eq!(r1["added"][0]["path"], "/tmp/share-x");
         assert_eq!(h.preauth(), vec!["/tmp/share-x".to_string()]);
 
         // 同路径重复挂载：预授权不重复、注册表不重复
-        let r2 = mount_local(&h, &serde_json::json!({ "path": "/tmp/share-x", "name": "x" })).unwrap();
+        let r2 = mount_local(
+            &h,
+            &serde_json::json!({ "path": "/tmp/share-x", "name": "x" }),
+        )
+        .unwrap();
         assert_eq!(r2["added"][0]["id"], r1["added"][0]["id"]);
         assert_eq!(h.preauth(), vec!["/tmp/share-x".to_string()]);
         assert_eq!(roots_registry::load_all(&h).unwrap().len(), 1);
 
         // 第二个目录追加
-        mount_local(&h, &serde_json::json!({ "path": "/tmp/share-y", "name": "y" })).unwrap();
-        assert_eq!(h.preauth(), vec!["/tmp/share-x".to_string(), "/tmp/share-y".to_string()]);
+        mount_local(
+            &h,
+            &serde_json::json!({ "path": "/tmp/share-y", "name": "y" }),
+        )
+        .unwrap();
+        assert_eq!(
+            h.preauth(),
+            vec!["/tmp/share-x".to_string(), "/tmp/share-y".to_string()]
+        );
         // 注册表与预授权保持一致（宿主收集的就是共享目录）
-        let roots: Vec<String> = roots_registry::load_all(&h).unwrap().into_iter().map(|r| r.path).collect();
+        let roots: Vec<String> = roots_registry::load_all(&h)
+            .unwrap()
+            .into_iter()
+            .map(|r| r.path)
+            .collect();
         assert_eq!(roots, h.preauth());
     }
 
@@ -1763,8 +2995,7 @@ mod tests {
         let _g = platform::test_lock().lock().unwrap();
         platform::set_for_test(Platform::Desktop);
         let h = MockHost::new();
-        *h.picked.borrow_mut() =
-            vec!["/tmp/multi-a".to_string(), "/tmp/media/multi-b".to_string()];
+        *h.picked.borrow_mut() = vec!["/tmp/multi-a".to_string(), "/tmp/media/multi-b".to_string()];
         let out = mount_local(&h, &serde_json::json!({})).unwrap();
         let added = out["added"].as_array().unwrap();
         assert_eq!(added.len(), 2);
@@ -1791,13 +3022,17 @@ mod tests {
     }
 
     /// 移动 mount-local：SAF 单选 + 树 URI 展示名派生 + safTreeUri 推送字段
+    ///
+    /// 反向锁：树 URI **不得**进 `preauth_paths`——该清单是「启用期要弹框申请路径
+    /// 授权」的数据目录（`host-fs` 路径 IO），SAF 的访问权归 Android 持久 URI 授权。
     #[test]
     fn mount_local_mobile_registers_saf_tree_uri() {
         let _g = platform::test_lock().lock().unwrap();
         platform::set_for_test(Platform::Mobile);
         let h = MockHost::new();
-        *h.picked.borrow_mut() =
-            vec!["content://com.android.externalstorage.documents/tree/primary%3AShareX".to_string()];
+        *h.picked.borrow_mut() = vec![
+            "content://com.android.externalstorage.documents/tree/primary%3AShareX".to_string(),
+        ];
         let out = mount_local(&h, &serde_json::json!({})).unwrap();
         assert_eq!(out["name"], "ShareX", "展示名 = 树 URI 末段解码去卷前缀");
         assert_eq!(
@@ -1806,7 +3041,11 @@ mod tests {
         );
         // 推送 wire 用 safTreeUri（引擎按 SAF 树 URI 解析目录）
         assert_eq!(h.pushed_roots.borrow()[0]["safTreeUri"], out["treeUri"]);
-        assert_eq!(h.preauth(), vec![out["treeUri"].as_str().unwrap().to_string()]);
+        assert!(
+            h.preauth().is_empty(),
+            "SAF 树 URI 不得写入 preauth_paths（授权归 Android 持久 URI 授权），got {:?}",
+            h.preauth()
+        );
     }
 
     /// 移动 mount-local 取消：空串视为用户取消
@@ -1827,8 +3066,16 @@ mod tests {
         let _g = platform::test_lock().lock().unwrap();
         platform::set_for_test(Platform::Desktop);
         let h = MockHost::new();
-        mount_local(&h, &serde_json::json!({ "path": "/tmp/share-a", "name": "a" })).unwrap();
-        mount_local(&h, &serde_json::json!({ "path": "/tmp/share-b", "name": "b" })).unwrap();
+        mount_local(
+            &h,
+            &serde_json::json!({ "path": "/tmp/share-a", "name": "a" }),
+        )
+        .unwrap();
+        mount_local(
+            &h,
+            &serde_json::json!({ "path": "/tmp/share-b", "name": "b" }),
+        )
+        .unwrap();
         assert_eq!(h.preauth().len(), 2);
 
         let id_a = roots_registry::root_id("/tmp/share-a");
@@ -1848,7 +3095,11 @@ mod tests {
         let _g = platform::test_lock().lock().unwrap();
         platform::set_for_test(Platform::Desktop);
         let h = MockHost::new();
-        mount_local(&h, &serde_json::json!({ "path": "/tmp/share-c", "name": "c" })).unwrap();
+        mount_local(
+            &h,
+            &serde_json::json!({ "path": "/tmp/share-c", "name": "c" }),
+        )
+        .unwrap();
         let out = update_roots(&h, &serde_json::json!({ "remove": "root-deadbeef" })).unwrap();
         assert_eq!(out["removed"], false);
         assert_eq!(h.preauth(), vec!["/tmp/share-c".to_string()]);
@@ -1871,11 +3122,20 @@ mod tests {
         let h = MockHost::new();
         persist_entries(&h, &[entry_for("batch-a"), entry_for("batch-b")]).unwrap();
         let log = h.sql_log.borrow().clone();
-        assert_eq!(log.first().map(String::as_str), Some("DELETE FROM transfer_entries"));
-        assert_eq!(log.len(), 2, "DELETE + one multi-value INSERT stay in one batch");
+        assert_eq!(
+            log.first().map(String::as_str),
+            Some("DELETE FROM transfer_entries")
+        );
+        assert_eq!(
+            log.len(),
+            2,
+            "DELETE + one multi-value INSERT stay in one batch"
+        );
         assert!(log[1].starts_with("INSERT INTO transfer_entries"));
         assert!(log[1].contains("'batch-a'") && log[1].contains("'batch-b'"));
-        assert!(!log.iter().any(|s| s.starts_with("BEGIN") || s == "COMMIT" || s == "ROLLBACK"));
+        assert!(!log
+            .iter()
+            .any(|s| s.starts_with("BEGIN") || s == "COMMIT" || s == "ROLLBACK"));
     }
 
     /// 故障注入：execute-batch 失败必须向调用方返回错误，不得伪装成成功。
@@ -1901,7 +3161,10 @@ mod tests {
             "移动台账落 storage 键（换键 = 用户历史任务凭空消失）"
         );
         assert!(
-            !h.sql_log.borrow().iter().any(|s| s.contains("transfer_entries")),
+            !h.sql_log
+                .borrow()
+                .iter()
+                .any(|s| s.contains("transfer_entries")),
             "移动端不得发桌面台账 SQL"
         );
         // 读回一致
@@ -1932,6 +3195,220 @@ mod tests {
         assert_eq!(restore_entries(&h, &mut loaded), 0);
     }
 
+    /// M1：载入失败不得标记「已载入」——否则下一次 flush 的整表覆写会把
+    /// 持久层里的历史（还有重试凭证）DELETE 掉。
+    #[test]
+    fn failed_load_keeps_persistence_disabled() {
+        let _g = platform::test_lock().lock().unwrap();
+        platform::set_for_test(Platform::Desktop);
+        super::reset_store_for_test();
+        let h = MockHost::new();
+        h.fail_transfer_query.set(true);
+        {
+            let guard = super::ensure_loaded(&h);
+            assert!(guard.is_empty(), "载入失败不得把持久层当成空表");
+        }
+        h.sql_log.borrow_mut().clear();
+        super::store()
+            .lock()
+            .expect("transfer store lock")
+            .push(entry_for("live"));
+        let guard = super::store().lock().expect("transfer store lock");
+        super::flush(&h, guard, true, super::Persist::Now);
+        let log = h.sql_log.borrow().clone();
+        assert!(
+            !log.iter()
+                .any(|s| s.contains("DELETE FROM transfer_entries")),
+            "未载入成功前禁止落盘（否则整表覆写历史）: {log:?}"
+        );
+        assert!(
+            h.logs
+                .borrow()
+                .iter()
+                .any(|l| l.contains("persistence disabled") || l.contains("never loaded")),
+            "必须显性记错误，不能只 warn 后继续"
+        );
+        super::reset_store_for_test();
+    }
+
+    /// M1 同族：解析失败的持久行不得在下一次 flush 被删除，必须原样回写。
+    #[test]
+    fn unreadable_rows_survive_next_persist() {
+        let _g = platform::test_lock().lock().unwrap();
+        platform::set_for_test(Platform::Desktop);
+        super::reset_store_for_test();
+        let h = MockHost::new();
+        h.rows.borrow_mut().push(serde_json::json!({
+            "batch_id": "corrupt-1",
+            "direction": "send",
+            "status": "failed",
+            "payload": "{not-json",
+        }));
+        {
+            let guard = super::ensure_loaded(&h);
+            assert!(guard.is_empty(), "解析失败行不进内存表");
+        }
+        h.sql_log.borrow_mut().clear();
+        super::store()
+            .lock()
+            .expect("transfer store lock")
+            .push(entry_for("live"));
+        let guard = super::store().lock().expect("transfer store lock");
+        super::flush(&h, guard, true, super::Persist::Now);
+        let log = h.sql_log.borrow().join("\n");
+        assert!(log.contains("'corrupt-1'"), "不可解析行必须原样写回: {log}");
+        assert!(log.contains("{not-json"), "原始 payload 不得被改写: {log}");
+        assert!(log.contains("'live'"), "正常行照常写入: {log}");
+        super::reset_store_for_test();
+    }
+
+    /// S1：progress 只推进数值，不得每个事件全量重写台账；累计 N 次再兜底落盘。
+    #[test]
+    fn progress_events_defer_persistence() {
+        let _g = platform::test_lock().lock().unwrap();
+        platform::set_for_test(Platform::Desktop);
+        super::reset_store_for_test();
+        let h = MockHost::new();
+        drop(super::ensure_loaded(&h));
+        {
+            let mut guard = super::store().lock().expect("transfer store lock");
+            guard.clear();
+            guard.push(
+                serde_json::from_value::<super::TransferEntry>(serde_json::json!({
+                    "batchId": "batch-x", "direction": "receive", "status": "running",
+                    "nodeId": "aa", "files": [{ "path": "docs/a.bin", "size": 7 }],
+                    "totalBytes": 7u64, "transferredBytes": 0u64,
+                }))
+                .unwrap(),
+            );
+        }
+        h.sql_log.borrow_mut().clear();
+        let progress = serde_json::json!({
+            "kind": "progress", "batchId": "batch-x", "nodeId": "aa",
+            "transferred": 3u64, "total": 7u64, "rateBps": 1.0, "tsMs": 9u64,
+        });
+        super::reduce_and_emit(&h, "receive", &progress);
+        assert!(
+            !h.sql_log
+                .borrow()
+                .iter()
+                .any(|s| s.contains("DELETE FROM transfer_entries")),
+            "单个 progress 不得整表重写: {:?}",
+            h.sql_log.borrow()
+        );
+        for _ in 0..super::PROGRESS_PERSIST_EVERY {
+            super::reduce_and_emit(&h, "receive", &progress);
+        }
+        assert!(
+            h.sql_log
+                .borrow()
+                .iter()
+                .any(|s| s.contains("DELETE FROM transfer_entries")),
+            "累计 N 次进度必须兜底落盘一次（进程被杀不丢全部进度）"
+        );
+        // 兑底落盘后计数必须重置：否则阈值一旦达到就退化成「每个 progress 都写」
+        h.sql_log.borrow_mut().clear();
+        super::reduce_and_emit(&h, "receive", &progress);
+        assert!(
+            !h.sql_log
+                .borrow()
+                .iter()
+                .any(|s| s.contains("DELETE FROM transfer_entries")),
+            "落盘后计数未重置（写放大回归）: {:?}",
+            h.sql_log.borrow()
+        );
+        super::reset_store_for_test();
+    }
+
+    /// S2：progress 热路径不得读设备快照（建行锚点才需要展示名）。
+    #[test]
+    fn progress_does_not_read_device_snapshot() {
+        let _g = platform::test_lock().lock().unwrap();
+        platform::set_for_test(Platform::Desktop);
+        super::reset_store_for_test();
+        let h = MockHost::new();
+        drop(super::ensure_loaded(&h));
+        super::store().lock().expect("transfer store lock").push(
+            serde_json::from_value::<super::TransferEntry>(serde_json::json!({
+                "batchId": "batch-x", "direction": "receive", "status": "running",
+                "nodeId": "aa",
+            }))
+            .unwrap(),
+        );
+        h.snapshot_reads.set(0);
+        let progress = serde_json::json!({
+            "kind": "progress", "batchId": "batch-x", "nodeId": "aa",
+            "transferred": 3u64, "total": 7u64, "tsMs": 9u64,
+        });
+        super::reduce_and_emit(&h, "receive", &progress);
+        assert_eq!(h.snapshot_reads.get(), 0, "progress 不得读设备快照");
+
+        let offer = serde_json::json!({
+            "kind": "offer-pending", "batchId": "batch-y", "nodeId": "aa",
+            "files": [{ "path": "docs/b.bin", "size": 3 }], "totalSize": 3u64, "tsMs": 10u64,
+        });
+        super::reduce_and_emit(&h, "receive", &offer);
+        assert_eq!(h.snapshot_reads.get(), 1, "建行锚点才解析展示名");
+        super::reset_store_for_test();
+    }
+
+    /// S5：本地失败行 id 是跨进程持久键——重启后必须跳过已在册的 local-fail-N。
+    #[test]
+    fn failed_send_row_id_skips_persisted_collision() {
+        let _g = platform::test_lock().lock().unwrap();
+        platform::set_for_test(Platform::Desktop);
+        super::reset_store_for_test();
+        let h = MockHost::new();
+        drop(super::ensure_loaded(&h));
+        super::store()
+            .lock()
+            .expect("transfer store lock")
+            .push(entry_for("local-fail-1"));
+        let out =
+            super::insert_failed_send_entry(&h, "node-a", vec!["/tmp/a".into()], "dial refused")
+                .unwrap();
+        assert_eq!(out["batchId"], "local-fail-2", "必须跳过已在册的同名行");
+        let guard = super::store().lock().expect("transfer store lock");
+        assert!(
+            guard.iter().any(|e| e.batch_id == "local-fail-1"),
+            "上一进程的历史行不得被 upsert 覆盖"
+        );
+        assert!(guard.iter().any(|e| e.batch_id == "local-fail-2"));
+        drop(guard);
+        super::reset_store_for_test();
+    }
+
+    /// C5：拉取意图撤回按 node + meta 精确匹配，不误删其他意图。
+    #[test]
+    fn withdraw_pull_intent_removes_only_matching() {
+        let _g = platform::test_lock().lock().unwrap();
+        super::pending_pulls()
+            .lock()
+            .expect("pending pulls lock")
+            .clear();
+        let spec = |rel: &str| transfer_store::RetryMeta::Pull {
+            dir_id: "docs".into(),
+            files: vec![transfer_store::PullFileSpec {
+                rel_path: rel.into(),
+                size: 1,
+            }],
+        };
+        super::remember_pull_intent("aa", spec("docs/a.bin"));
+        super::remember_pull_intent("aa", spec("docs/b.bin"));
+        super::withdraw_pull_intent("aa", &spec("docs/a.bin"));
+        let pending = super::pending_pulls().lock().expect("pending pulls lock");
+        assert_eq!(pending.len(), 1, "只撤回匹配的那条");
+        let transfer_store::RetryMeta::Pull { files, .. } = &pending[0].1 else {
+            panic!("意图类型必须仍是 Pull");
+        };
+        assert_eq!(files[0].rel_path, "docs/b.bin");
+        drop(pending);
+        super::pending_pulls()
+            .lock()
+            .expect("pending pulls lock")
+            .clear();
+    }
+
     /// SAF 树 URI → 展示名：URL 解码 + 卷前缀剥离
     #[test]
     fn tree_uri_display_name_decodes_and_strips_volume() {
@@ -1956,7 +3433,10 @@ mod tests {
             "Music"
         );
         // 已解码段（无 %）直接剥离卷前缀；无卷前缀原样返回
-        assert_eq!(tree_uri_display_name("content://x/tree/primary:DCIM"), "DCIM");
+        assert_eq!(
+            tree_uri_display_name("content://x/tree/primary:DCIM"),
+            "DCIM"
+        );
         assert_eq!(tree_uri_display_name("content://x/tree/plain"), "plain");
         // 空/尾斜杠 → 空（尾斜杠被 trim 后取末段，非空段即其名）
         assert_eq!(tree_uri_display_name(""), "");
@@ -1984,7 +3464,9 @@ mod tests {
             }))
             .unwrap();
             if retry {
-                e.retry_meta = Some(super::RetryMeta::Send { paths: vec!["C:/a.txt".into()] });
+                e.retry_meta = Some(super::RetryMeta::Send {
+                    paths: vec!["C:/a.txt".into()],
+                });
             }
             e
         };
@@ -2031,8 +3513,7 @@ mod tests {
         assert!(row.is_terminal());
         assert_eq!(row.direction, "send");
         assert!(row.detail.as_deref().unwrap().contains("dial refused"));
-        let (node_id, meta) =
-            transfer_store::retry_source(&[row], &first).expect("可从历史重试");
+        let (node_id, meta) = transfer_store::retry_source(&[row], &first).expect("可从历史重试");
         assert_eq!(node_id, "aa");
         assert_eq!(
             meta,
@@ -2046,10 +3527,14 @@ mod tests {
     /// 事件即命中挂载；未入队的引擎批（对端发起的入站供流）如实不挂
     #[test]
     fn attach_pull_meta_mounts_only_after_intent_pushed() {
+        let _g = platform::test_lock().lock().unwrap();
         // 本端拉取意图先入队（票 08 修的顺序：先于 peer-pull-files）；入两条
         // 同 rel_path 意图：第二次 attach 不得越过 `retry_meta.is_none()`
         // 判据去消费第二条（否则同一批会被重复挂凭证）
-        let spec = transfer_store::PullFileSpec { rel_path: "docs/a.bin".into(), size: 7 };
+        let spec = transfer_store::PullFileSpec {
+            rel_path: "docs/a.bin".into(),
+            size: 7,
+        };
         for _ in 0..2 {
             transfer_store::push_pull_intent(
                 &mut super::pending_pulls().lock().expect("pending pulls lock"),
@@ -2060,15 +3545,15 @@ mod tests {
                 },
             );
         }
-        let mut store = vec![serde_json::from_value::<super::TransferEntry>(
-            serde_json::json!({
+        let mut store = vec![
+            serde_json::from_value::<super::TransferEntry>(serde_json::json!({
                 "batchId": "pull-aa-0", "direction": "receive", "status": "running",
                 "nodeId": "aa",
                 "files": [{"path": "docs/a.bin", "size": 7}],
                 "totalBytes": 7u64, "transferredBytes": 0u64,
-            }),
-        )
-        .unwrap()];
+            }))
+            .unwrap(),
+        ];
         let own = serde_json::json!({
             "kind": "pull-started", "batchId": "pull-aa-0", "nodeId": "aa",
             "files": [{ "path": "docs/a.bin", "size": 7 }], "totalSize": 7u64, "tsMs": 5u64,
@@ -2079,22 +3564,32 @@ mod tests {
         );
         assert!(store[0].retry_meta.is_some(), "挂载后行可回放");
         // 已挂载的行不重复消费（幂等）：第二条意图必须留在队列里
-        assert!(!super::attach_pull_meta(&mut store, &own), "已挂载再触发应无变化");
-        let left = super::pending_pulls().lock().expect("pending pulls lock").len();
+        assert!(
+            !super::attach_pull_meta(&mut store, &own),
+            "已挂载再触发应无变化"
+        );
+        let left = super::pending_pulls()
+            .lock()
+            .expect("pending pulls lock")
+            .len();
         assert_eq!(left, 1, "同 rel_path 的第二条意图不得被越判据消费");
         // 清理残留，避免污染后续用例
-        super::pending_pulls().lock().expect("pending pulls lock").clear();
+        super::pending_pulls()
+            .lock()
+            .expect("pending pulls lock")
+            .clear();
 
         // 对端发起的批：意图队列已空 / node 不匹配 → 如实不挂
-        let mut foreign_store = vec![serde_json::from_value::<super::TransferEntry>(
-            serde_json::json!({
-                "batchId": "pull-bb-0", "direction": "receive", "status": "running",
-                "nodeId": "bb",
-                "files": [{"path": "docs/a.bin", "size": 7}],
-                "totalBytes": 7u64, "transferredBytes": 0u64,
-            }),
-        )
-        .unwrap()];
+        let mut foreign_store =
+            vec![
+                serde_json::from_value::<super::TransferEntry>(serde_json::json!({
+                    "batchId": "pull-bb-0", "direction": "receive", "status": "running",
+                    "nodeId": "bb",
+                    "files": [{"path": "docs/a.bin", "size": 7}],
+                    "totalBytes": 7u64, "transferredBytes": 0u64,
+                }))
+                .unwrap(),
+            ];
         let foreign = serde_json::json!({
             "kind": "pull-started", "batchId": "pull-bb-0", "nodeId": "bb",
             "files": [{ "path": "docs/a.bin", "size": 7 }], "totalSize": 7u64, "tsMs": 6u64,
@@ -2110,6 +3605,7 @@ mod tests {
     /// 内存，留到下次激活就是「凭空冒出的旧任务」
     #[test]
     fn reset_volatile_intents_clears_both_queues() {
+        let _g = platform::test_lock().lock().unwrap();
         {
             let mut queue = super::pending_sends().lock().expect("pending sends lock");
             queue.push(super::PendingSend {
@@ -2127,11 +3623,785 @@ mod tests {
                 files: vec![],
             },
         );
+        crate::auth_center::remember_for_test(crate::auth_center::ConsentRequest {
+            request_id: "req-peer-reset".into(),
+            node_id: "aa".into(),
+            fingerprint_short: None,
+            device_name: None,
+            user_decision: None,
+        });
         let (queued, intents) = super::reset_volatile_intents();
         assert_eq!(queued, 1, "排队发送批随停用清空");
         assert_eq!(intents, 1, "待挂载拉取凭证随停用清空");
-        assert!(super::pending_sends().lock().expect("pending sends lock").is_empty());
-        assert!(super::pending_pulls().lock().expect("pending pulls lock").is_empty());
+        assert!(
+            !crate::auth_center::pending_contains_for_test("req-peer-reset"),
+            "consent 待确认登记表同属进程内意图，停用必须清空（C4）"
+        );
+        assert!(super::pending_sends()
+            .lock()
+            .expect("pending sends lock")
+            .is_empty());
+        assert!(super::pending_pulls()
+            .lock()
+            .expect("pending pulls lock")
+            .is_empty());
+    }
+
+    /// dispatch 放行语义（审查修复）：FIFO 出队（先提交先发）+ 失败批回队尾后
+    /// 继续放行其他批（重试不再依赖下一次 store 事件触发）
+    #[test]
+    fn dispatch_pending_sends_is_fifo_and_keeps_trying_after_failure() {
+        let _g = platform::test_lock().lock().unwrap();
+        platform::set_for_test(Platform::Desktop);
+        super::pending_sends()
+            .lock()
+            .expect("pending sends lock")
+            .clear();
+        super::toasted_receive_batches()
+            .lock()
+            .expect("toast dedup lock")
+            .clear();
+        let h = MockHost::new();
+        // 句柄直注（ensure_target 走 session_of 命中，不拨号）
+        let ep = |node: &str| super::DialEndpoint {
+            node_id: node.to_string(),
+            addr: "127.0.0.1".to_string(),
+            port: 1,
+            ..Default::default()
+        };
+        super::device_bridge::remember_session(&ep("node-a"), "handle-a".to_string());
+        super::device_bridge::remember_session(&ep("node-b"), "handle-b".to_string());
+        // 先 A 后 B 排队；仅首次派发注入失败
+        let mut queue = super::pending_sends().lock().expect("pending sends lock");
+        queue.push(super::PendingSend {
+            node_id: "node-a".to_string(),
+            endpoint: None,
+            paths: vec!["/tmp/a".to_string()],
+            attempts: 0,
+        });
+        queue.push(super::PendingSend {
+            node_id: "node-b".to_string(),
+            endpoint: None,
+            paths: vec!["/tmp/b".to_string()],
+            attempts: 0,
+        });
+        drop(queue);
+        h.send_failures.set(1);
+
+        super::dispatch_pending_sends(&h);
+
+        // 队头 A 先出（失败回队尾）→ B 成功 → 槽位仍空 → A 再试成功
+        assert_eq!(
+            h.send_calls.borrow().as_slice(),
+            ["/tmp/a", "/tmp/b", "/tmp/a"],
+            "FIFO 出队、失败回队尾继续放行"
+        );
+        let guard = super::store().lock().expect("transfer store lock");
+        assert_eq!(
+            guard
+                .iter()
+                .filter(|e| e.direction == "send" && e.status == "pending")
+                .count(),
+            2,
+            "两批均发起成功（占位行）"
+        );
+        drop(guard);
+        assert!(super::pending_sends()
+            .lock()
+            .expect("pending sends lock")
+            .is_empty());
+        super::device_bridge::drain_sessions();
+    }
+
+    /// dispatch 失败次数用尽落终态失败行（票 08）：本轮循环内直接结算，
+    /// 不再依赖下一次事件触发——历史可见、可重试
+    #[test]
+    fn dispatch_pending_sends_lands_terminal_row_when_attempts_exhausted() {
+        let _g = platform::test_lock().lock().unwrap();
+        platform::set_for_test(Platform::Desktop);
+        super::pending_sends()
+            .lock()
+            .expect("pending sends lock")
+            .clear();
+        super::toasted_receive_batches()
+            .lock()
+            .expect("toast dedup lock")
+            .clear();
+        let h = MockHost::new();
+        let ep = super::DialEndpoint {
+            node_id: "node-a".to_string(),
+            addr: "127.0.0.1".to_string(),
+            port: 1,
+            ..Default::default()
+        };
+        super::device_bridge::remember_session(&ep, "handle-a".to_string());
+        let mut queue = super::pending_sends().lock().expect("pending sends lock");
+        queue.push(super::PendingSend {
+            node_id: "node-a".to_string(),
+            endpoint: None,
+            paths: vec!["/tmp/a".to_string()],
+            attempts: 0,
+        });
+        drop(queue);
+        h.send_failures.set(usize::MAX);
+
+        super::dispatch_pending_sends(&h);
+
+        assert_eq!(h.send_calls.borrow().len(), 2, "MAX_SEND_ATTEMPTS=2 次尝试");
+        let guard = super::store().lock().expect("transfer store lock");
+        let failed: Vec<&super::TransferEntry> = guard
+            .iter()
+            .filter(|e| e.direction == "send" && e.is_terminal())
+            .collect();
+        assert_eq!(failed.len(), 1, "失败落终态行（历史可见）");
+        assert!(failed[0].retry_meta.is_some(), "终态行带回放凭证");
+        drop(guard);
+        assert!(super::pending_sends()
+            .lock()
+            .expect("pending sends lock")
+            .is_empty());
+        super::device_bridge::drain_sessions();
+    }
+
+    /// 接收方向「开始接收」toast（验收 S-10-08）：首个 progress 把 pending 行
+    /// 推进 running 时发射一次（mode=batch），同批不重复
+    #[test]
+    fn receive_first_progress_emits_batch_toast_once() {
+        let _g = platform::test_lock().lock().unwrap();
+        platform::set_for_test(Platform::Desktop);
+        super::pending_sends()
+            .lock()
+            .expect("pending sends lock")
+            .clear();
+        super::toasted_receive_batches()
+            .lock()
+            .expect("toast dedup lock")
+            .clear();
+        let h = MockHost::new();
+        drop(super::ensure_loaded(&h)); // 触发懒加载（空库），随后直接操作缓存
+        super::store().lock().expect("transfer store lock").clear();
+        let row: super::TransferEntry = serde_json::from_value(serde_json::json!({
+            "batchId": "batch-x", "direction": "receive", "status": "pending",
+            "nodeId": "aa", "peerName": "Phone",
+            "files": [{ "path": "docs/report.pdf", "size": 7 }],
+            "totalBytes": 7u64, "transferredBytes": 0u64,
+        }))
+        .unwrap();
+        super::store()
+            .lock()
+            .expect("transfer store lock")
+            .push(row);
+
+        let progress = serde_json::json!({
+            "kind": "progress", "batchId": "batch-x", "nodeId": "aa",
+            "transferred": 3u64, "total": 7u64, "rateBps": 1.0, "tsMs": 9u64,
+        });
+        super::reduce_and_emit(&h, "receive", &progress);
+        let count_toasts = |h: &MockHost| {
+            h.logs
+                .borrow()
+                .iter()
+                .filter(|l| l.contains("event plugin:file-transfer:toast"))
+                .count()
+        };
+        assert_eq!(count_toasts(&h), 1, "首个 progress 发射一次");
+        let first = h
+            .logs
+            .borrow()
+            .iter()
+            .find(|l| l.contains("event plugin:file-transfer:toast"))
+            .cloned()
+            .unwrap();
+        assert!(first.contains("\"mode\":\"batch\""), "批级 toast: {first}");
+        assert!(first.contains("report.pdf"), "首文件名: {first}");
+
+        super::reduce_and_emit(&h, "receive", &progress);
+        assert_eq!(count_toasts(&h), 1, "同批去重（行已 running + 集合已记）");
+        super::store().lock().expect("transfer store lock").clear();
+    }
+
+    /// 本端拉取批（pull-started 建行即 running）：由事件载荷直接发射 toast
+    #[test]
+    fn pull_started_emits_batch_toast() {
+        let _g = platform::test_lock().lock().unwrap();
+        platform::set_for_test(Platform::Desktop);
+        super::pending_sends()
+            .lock()
+            .expect("pending sends lock")
+            .clear();
+        super::toasted_receive_batches()
+            .lock()
+            .expect("toast dedup lock")
+            .clear();
+        let h = MockHost::new();
+        drop(super::ensure_loaded(&h));
+        super::store().lock().expect("transfer store lock").clear();
+        let ev = serde_json::json!({
+            "kind": "pull-started", "batchId": "pull-aa-0", "nodeId": "aa",
+            "files": [{ "path": "docs/a.bin", "size": 7 }], "totalSize": 7u64, "tsMs": 5u64,
+        });
+        super::reduce_and_emit(&h, "receive", &ev);
+        let first = h
+            .logs
+            .borrow()
+            .iter()
+            .find(|l| l.contains("event plugin:file-transfer:toast"))
+            .cloned();
+        assert!(first.is_some(), "拉取建行即提醒");
+        assert!(first.unwrap().contains("a.bin"));
+        super::store().lock().expect("transfer store lock").clear();
+    }
+
+    /// L15：Windows / 尾斜杠 / 控制字符不得给出空名或整串路径；空清单如实报 0。
+    #[test]
+    fn toast_payload_handles_path_edges() {
+        assert_eq!(super::display_basename("C:\\dir\\a.bin"), "a.bin");
+        assert_eq!(super::display_basename("docs/"), "docs");
+        assert_eq!(super::display_basename("dir/"), "dir");
+        assert_eq!(super::display_basename("a\n\u{7}b.bin"), "ab.bin");
+        assert_eq!(super::display_basename(""), "file");
+        let payload = super::toast_payload(&[], 0);
+        assert_eq!(payload["count"].as_u64(), Some(0));
+        assert_eq!(payload["name"].as_str(), Some("file"));
+    }
+
+    /// L13：终态行与已被淘汰的批次都要从 toast 去重集合移除。
+    #[test]
+    fn prune_toasted_batches_drops_terminal_and_evicted_ids() {
+        let _g = platform::test_lock().lock().unwrap();
+        {
+            let mut set = super::toasted_receive_batches().lock().unwrap();
+            set.clear();
+            set.insert("b-live".to_string());
+            set.insert("b-done".to_string());
+            set.insert("b-evicted".to_string());
+        }
+        let entry = |batch_id: &str, status: &str| -> super::TransferEntry {
+            serde_json::from_value(serde_json::json!({
+                "batchId": batch_id, "direction": "receive", "status": status,
+                "nodeId": "aa", "peerName": "Phone", "files": [],
+                "totalBytes": 0u64, "transferredBytes": 0u64,
+            }))
+            .unwrap()
+        };
+        super::prune_toasted_batches(&[entry("b-live", "running"), entry("b-done", "completed")]);
+        let set = super::toasted_receive_batches().lock().unwrap();
+        assert!(set.contains("b-live"));
+        assert!(!set.contains("b-done"), "终态批次应可被再次提醒");
+        assert!(!set.contains("b-evicted"), "已淘汰批次不应常驻");
+    }
+
+    /// M26：失败批回队尾立即重试时，单次回调的 launch_send 次数必须封顶。
+    #[test]
+    fn dispatch_pending_sends_caps_launches_per_callback() {
+        let _g = platform::test_lock().lock().unwrap();
+        platform::set_for_test(Platform::Desktop);
+        super::pending_sends()
+            .lock()
+            .expect("pending sends lock")
+            .clear();
+        super::toasted_receive_batches()
+            .lock()
+            .expect("toast dedup lock")
+            .clear();
+        super::store().lock().expect("transfer store lock").clear();
+        let h = MockHost::new();
+        let ep = super::DialEndpoint {
+            node_id: "node-x".to_string(),
+            addr: "127.0.0.1".to_string(),
+            port: 1,
+            ..Default::default()
+        };
+        super::device_bridge::remember_session(&ep, "handle-x".to_string());
+        {
+            let mut queue = super::pending_sends().lock().expect("pending sends lock");
+            for i in 0..8 {
+                queue.push(super::PendingSend {
+                    node_id: "node-x".to_string(),
+                    endpoint: None,
+                    paths: vec![format!("/tmp/{i}")],
+                    attempts: 0,
+                });
+            }
+        }
+        h.send_failures.set(usize::MAX);
+        super::dispatch_pending_sends(&h);
+        assert!(
+            h.send_calls.borrow().len() <= super::MAX_LAUNCH_PER_CALL,
+            "单次回调不得把整队列失败串行打满：{:?}",
+            h.send_calls.borrow()
+        );
+        assert!(
+            !super::pending_sends()
+                .lock()
+                .expect("pending sends lock")
+                .is_empty(),
+            "剩余批次留给下一次事件"
+        );
+        super::device_bridge::drain_sessions();
+    }
+
+    // ==================== T12：多地址 / 中继拨号 ====================
+
+    /// 体积预览只做元数据求和：缺 size / 非整数条目按 0，不因单条异常拒绝整批
+    #[test]
+    fn outgoing_total_bytes_sums_sizes_and_tolerates_missing_metadata() {
+        assert_eq!(
+            super::outgoing_total_bytes(&serde_json::json!([
+                { "path": "a", "size": 1024 },
+                { "path": "b", "size": 2048 },
+            ])),
+            3072
+        );
+        assert_eq!(
+            super::outgoing_total_bytes(&serde_json::json!([
+                { "path": "a" },
+                { "path": "b", "size": "big" },
+                { "path": "c", "size": 5 },
+            ])),
+            5
+        );
+        // 空表 / 非数组：0（预览失败不阻断发送）
+        assert_eq!(super::outgoing_total_bytes(&serde_json::json!([])), 0);
+        assert_eq!(super::outgoing_total_bytes(&serde_json::json!(null)), 0);
+    }
+
+    /// 配对串里的多地址（LAN 在前、relay 在后）：有 LAN 候选时默认只拨 LAN
+    /// （不自动烧中继），用户显式「尝试外网」才把 relay 追加进候选表。
+    #[test]
+    fn dial_peer_uses_multi_address_primitive_and_maps_transport_candidates() {
+        let _g = platform::test_lock().lock().unwrap();
+        platform::set_for_test(Platform::Desktop);
+        super::device_bridge::drain_sessions();
+        let h = MockHost::new();
+        let lan = "/ip4/192.168.1.5/tcp/47613";
+        let relay = "/ip4/203.0.113.9/tcp/4001/p2p/12D3KooWRelay/p2p-circuit/p2p/12D3KooWTarget";
+        let node = "t12-lan-first";
+
+        // 默认（无手动 WAN）：LAN 候选单独成表
+        super::dial_peer(
+            &h,
+            &serde_json::json!({
+                "endpoint": { "nodeId": node, "addrs": [lan, relay] }
+            }),
+        )
+        .unwrap();
+        assert!(
+            h.dial_calls.borrow().is_empty(),
+            "多地址端点不得走单地址原语"
+        );
+        assert_eq!(
+            h.dial_addrs_calls.borrow()[0],
+            serde_json::json!({ "nodeId": node, "addrs": [lan] }),
+            "默认只拨 LAN（§4.9 不自动切 WAN）"
+        );
+        let memo = super::device_bridge::resolve_endpoint(None, node).expect("memo");
+        assert!(!memo.wan, "未纳入 relay 时不得把会话标记为 WAN");
+
+        // 显式「尝试外网」：LAN 仍排最前，relay 追加在后
+        super::dial_peer(
+            &h,
+            &serde_json::json!({
+                "endpoint": { "nodeId": node, "addrs": [lan, relay] },
+                "wan": true
+            }),
+        )
+        .unwrap();
+        assert_eq!(
+            h.dial_addrs_calls.borrow()[1],
+            serde_json::json!({ "nodeId": node, "addrs": [lan, relay] })
+        );
+        assert!(
+            super::device_bridge::resolve_endpoint(None, node)
+                .unwrap()
+                .wan,
+            "纳入过 relay 的会话要能按同一路径重连"
+        );
+        super::device_bridge::drain_sessions();
+    }
+
+    /// 无 LAN 候选（远程设备只给了 relay 地址）⇒ 等价「明确不在内网」，直接拨 relay
+    #[test]
+    fn dial_peer_dials_relay_only_endpoint_when_no_lan_candidate_exists() {
+        let _g = platform::test_lock().lock().unwrap();
+        platform::set_for_test(Platform::Desktop);
+        super::device_bridge::drain_sessions();
+        let h = MockHost::new();
+        let relay = "/ip4/203.0.113.9/tcp/4001/p2p/12D3KooWRelay/p2p-circuit/p2p/12D3KooWTarget";
+        super::dial_peer(
+            &h,
+            &serde_json::json!({
+                "endpoint": { "nodeId": "t12-relay-only", "addrs": [relay] }
+            }),
+        )
+        .unwrap();
+        assert_eq!(
+            h.dial_addrs_calls.borrow()[0],
+            serde_json::json!({ "nodeId": "t12-relay-only", "addrs": [relay] })
+        );
+        super::device_bridge::drain_sessions();
+    }
+
+    /// allowWan=false：手动入口也不得纳入 relay；只剩 relay 候选时显性失败（不静默降级）
+    #[test]
+    fn dial_peer_respects_allow_wan_gate_and_keeps_encryption_untouched() {
+        let _g = platform::test_lock().lock().unwrap();
+        platform::set_for_test(Platform::Desktop);
+        super::device_bridge::drain_sessions();
+        let h = MockHost::new();
+        h.storage_set(
+            crate::settings_store::SETTINGS_KEY,
+            &serde_json::json!({
+                "receivingPolicy": "ask", "approvalTimeoutSec": 60,
+                "encryption": true, "allowWan": false
+            }),
+        )
+        .unwrap();
+
+        let lan = "/ip4/192.168.1.5/tcp/47613";
+        let relay = "/ip4/203.0.113.9/tcp/4001/p2p/12D3KooWRelay/p2p-circuit/p2p/12D3KooWTarget";
+        super::dial_peer(
+            &h,
+            &serde_json::json!({
+                "endpoint": { "nodeId": "t12-gate", "addrs": [lan, relay] },
+                "wan": true
+            }),
+        )
+        .unwrap();
+        assert_eq!(
+            h.dial_addrs_calls.borrow()[0],
+            serde_json::json!({ "nodeId": "t12-gate", "addrs": [lan] }),
+            "allowWan=false 时手动入口也不得纳入 relay"
+        );
+
+        // 只剩 relay 候选且闸门关着：显性分类终态（不静默降级成 LAN / 无地址）
+        let refused = super::dial_peer(
+            &h,
+            &serde_json::json!({
+                "endpoint": { "nodeId": "t12-gate", "addrs": [relay] },
+                "wan": true
+            }),
+        )
+        .unwrap();
+        assert_eq!(refused["status"], "relay-disabled");
+        assert!(
+            refused["detail"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("allow-wan=false"),
+            "实得 {refused}"
+        );
+        assert_eq!(h.dial_addrs_calls.borrow().len(), 1, "被拒拨号不得触达宿主");
+        // 中继开关与加密正交：设置读面仍恒为 true
+        assert!(crate::settings_store::load(&h).unwrap().encryption);
+        super::device_bridge::drain_sessions();
+    }
+
+    /// mDNS 单地址端点仍走旧 `peer-dial` 原语（与退役前逐字一致，不外泄内部字段）
+    #[test]
+    fn dial_peer_keeps_legacy_single_address_primitive_for_mdns_endpoint() {
+        let _g = platform::test_lock().lock().unwrap();
+        platform::set_for_test(Platform::Desktop);
+        super::device_bridge::drain_sessions();
+        let h = MockHost::new();
+        super::dial_peer(
+            &h,
+            &serde_json::json!({
+                "endpoint": { "nodeId": "t12-legacy", "addr": "192.168.1.7", "port": 47613 }
+            }),
+        )
+        .unwrap();
+        assert!(h.dial_addrs_calls.borrow().is_empty());
+        assert_eq!(
+            h.dial_calls.borrow()[0],
+            serde_json::json!({ "nodeId": "t12-legacy", "addr": "192.168.1.7", "port": 47613 }),
+            "旧原语入参不得夹带 addrs / wan 内部字段"
+        );
+        super::device_bridge::drain_sessions();
+    }
+
+    // ==================== T20：仅经中继 + 错误分类 ====================
+
+    /// 「仅经中继」：候选表只剩 relay（不先撞 LAN），memo 保留意图供数据面重拨
+    #[test]
+    fn dial_peer_relay_only_skips_lan_and_remembers_intent() {
+        let _g = platform::test_lock().lock().unwrap();
+        platform::set_for_test(Platform::Desktop);
+        super::device_bridge::drain_sessions();
+        let h = MockHost::new();
+        let lan = "/ip4/192.168.1.5/tcp/47613";
+        let relay = "/ip4/203.0.113.9/tcp/4001/p2p/12D3KooWRelay/p2p-circuit/p2p/12D3KooWTarget";
+        let node = "t20-relay-only";
+        let out = super::dial_peer(
+            &h,
+            &serde_json::json!({
+                "endpoint": { "nodeId": node, "addrs": [lan, relay] },
+                "relayOnly": true
+            }),
+        )
+        .unwrap();
+        assert_eq!(out["status"], "connected");
+        assert_eq!(out["relayOnly"], true);
+        assert!(
+            h.dial_calls.borrow().is_empty(),
+            "多候选路径不得走单地址原语"
+        );
+        assert_eq!(
+            h.dial_addrs_calls.borrow()[0],
+            serde_json::json!({ "nodeId": node, "addrs": [relay] }),
+            "仅经中继不得先试 LAN 候选"
+        );
+        let memo = super::device_bridge::resolve_endpoint(None, node).expect("memo");
+        assert!(memo.wan, "relay 纳入过 ⇒ 重连沿用");
+        assert!(memo.relay_only, "「仅经中继」意图必须写回 memo");
+        // 数据面静默重拨（ensure_target）沿用同一路径：不再回退 LAN
+        super::device_bridge::forget_session(node);
+        h.dial_addrs_calls.borrow_mut().clear();
+        super::ensure_target(&h, node, None).unwrap();
+        assert_eq!(
+            h.dial_addrs_calls.borrow()[0],
+            serde_json::json!({ "nodeId": node, "addrs": [relay] })
+        );
+        super::device_bridge::drain_sessions();
+    }
+
+    /// 「仅经中继」但无 relay 候选：no-endpoint（点名 relay-only，不静默改走 LAN）
+    #[test]
+    fn dial_peer_relay_only_without_candidate_is_no_endpoint() {
+        let _g = platform::test_lock().lock().unwrap();
+        platform::set_for_test(Platform::Desktop);
+        super::device_bridge::drain_sessions();
+        let h = MockHost::new();
+        let lan = "/ip4/192.168.1.5/tcp/47613";
+        let out = super::dial_peer(
+            &h,
+            &serde_json::json!({
+                "endpoint": { "nodeId": "t20-no-relay", "addrs": [lan] },
+                "relayOnly": true
+            }),
+        )
+        .unwrap();
+        assert_eq!(out["status"], "no-endpoint");
+        assert!(
+            out["detail"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("relay-only"),
+            "实得 {out}"
+        );
+        assert!(h.dial_calls.borrow().is_empty());
+        assert!(h.dial_addrs_calls.borrow().is_empty(), "无候选不得触达宿主");
+        super::device_bridge::drain_sessions();
+    }
+
+    /// allowWan=false 时「仅经中继」被策略挡下：relay-disabled（不静默改走 LAN）
+    #[test]
+    fn dial_peer_relay_only_respects_allow_wan_gate() {
+        let _g = platform::test_lock().lock().unwrap();
+        platform::set_for_test(Platform::Desktop);
+        super::device_bridge::drain_sessions();
+        let h = MockHost::new();
+        h.storage_set(
+            crate::settings_store::SETTINGS_KEY,
+            &serde_json::json!({
+                "receivingPolicy": "ask", "approvalTimeoutSec": 60,
+                "encryption": true, "allowWan": false
+            }),
+        )
+        .unwrap();
+        let lan = "/ip4/192.168.1.5/tcp/47613";
+        let relay = "/ip4/203.0.113.9/tcp/4001/p2p/12D3KooWRelay/p2p-circuit/p2p/12D3KooWTarget";
+        let out = super::dial_peer(
+            &h,
+            &serde_json::json!({
+                "endpoint": { "nodeId": "t20-gated", "addrs": [lan, relay] },
+                "relayOnly": true
+            }),
+        )
+        .unwrap();
+        assert_eq!(out["status"], "relay-disabled");
+        assert!(h.dial_addrs_calls.borrow().is_empty());
+        assert!(h.dial_calls.borrow().is_empty());
+        super::device_bridge::drain_sessions();
+    }
+
+    /// 宿主不可达的归因看候选表：只拨 LAN ⇒ lan-unreachable（给「仅经中继」出路）
+    #[test]
+    fn dial_peer_classifies_lan_only_failure_as_lan_unreachable() {
+        let _g = platform::test_lock().lock().unwrap();
+        platform::set_for_test(Platform::Desktop);
+        super::device_bridge::drain_sessions();
+        let h = MockHost::new();
+        *h.dial_failure.borrow_mut() = Some("dial endpoint failed: peer unreachable".into());
+        let out = super::dial_peer(
+            &h,
+            &serde_json::json!({
+                "endpoint": { "nodeId": "t20-lan", "addr": "192.168.1.7", "port": 47613 }
+            }),
+        )
+        .unwrap();
+        assert_eq!(out["status"], "lan-unreachable");
+        super::device_bridge::drain_sessions();
+    }
+
+    /// 纳入过 relay 的失败 ⇒ relay-unreachable（不报成 LAN，不静默回退）
+    #[test]
+    fn dial_peer_classifies_relay_failure_as_relay_unreachable() {
+        let _g = platform::test_lock().lock().unwrap();
+        platform::set_for_test(Platform::Desktop);
+        super::device_bridge::drain_sessions();
+        let h = MockHost::new();
+        *h.dial_failure.borrow_mut() = Some("dial addrs failed: peer unreachable".into());
+        let relay = "/ip4/203.0.113.9/tcp/4001/p2p/12D3KooWRelay/p2p-circuit/p2p/12D3KooWTarget";
+        let out = super::dial_peer(
+            &h,
+            &serde_json::json!({
+                "endpoint": { "nodeId": "t20-relay", "addrs": [relay] }
+            }),
+        )
+        .unwrap();
+        assert_eq!(out["status"], "relay-unreachable");
+        super::device_bridge::drain_sessions();
+    }
+
+    /// 对端拒绝 ⇒ denied（前端给「检查信任 / 首连确认」出路）
+    #[test]
+    fn dial_peer_classifies_peer_denied() {
+        let _g = platform::test_lock().lock().unwrap();
+        platform::set_for_test(Platform::Desktop);
+        super::device_bridge::drain_sessions();
+        let h = MockHost::new();
+        *h.dial_failure.borrow_mut() = Some("dial endpoint failed: peer denied".into());
+        let out = super::dial_peer(
+            &h,
+            &serde_json::json!({
+                "endpoint": { "nodeId": "t20-denied", "addr": "192.168.1.7", "port": 47613 }
+            }),
+        )
+        .unwrap();
+        assert_eq!(out["status"], "denied");
+        super::device_bridge::drain_sessions();
+    }
+
+    /// 未识别的宿主错误不得猜成 LAN / WAN / 成功：保持 Err（fail-visible）
+    #[test]
+    fn dial_peer_keeps_unrecognized_host_error_as_failure() {
+        let _g = platform::test_lock().lock().unwrap();
+        platform::set_for_test(Platform::Desktop);
+        super::device_bridge::drain_sessions();
+        let h = MockHost::new();
+        *h.dial_failure.borrow_mut() = Some("peer_dial_addrs: invalid multiaddr".into());
+        let err = super::dial_peer(
+            &h,
+            &serde_json::json!({
+                "endpoint": { "nodeId": "t20-raw", "addr": "192.168.1.7", "port": 47613 }
+            }),
+        )
+        .unwrap_err();
+        assert!(
+            err.to_string().contains("invalid multiaddr"),
+            "未识别错误必须原样上报，实得 {err}"
+        );
+        // 失败不铸句柄：数据面命令会重新解析目标
+        assert!(super::device_bridge::session_of("t20-raw").is_none());
+        super::device_bridge::drain_sessions();
+    }
+
+    /// 未识别的宿主拨号失败：`ensure_target` 原样上报（不伪造前缀）
+    #[test]
+    fn ensure_target_keeps_unrecognized_error_verbatim() {
+        let _g = platform::test_lock().lock().unwrap();
+        platform::set_for_test(Platform::Desktop);
+        super::device_bridge::drain_sessions();
+        let h = MockHost::new();
+        *h.dial_failure.borrow_mut() = Some("peer_dial: boom".into());
+        let ep = super::DialEndpoint {
+            node_id: "t20-raw-target".to_string(),
+            addr: "192.168.1.7".to_string(),
+            port: 47613,
+            ..Default::default()
+        };
+        super::device_bridge::remember_endpoint(&ep).unwrap();
+        let err = super::ensure_target(&h, "t20-raw-target", None).unwrap_err();
+        assert_eq!(err.to_string(), "host error -1: peer_dial: boom");
+        super::device_bridge::drain_sessions();
+    }
+
+    /// 数据面重拨的错误正文带 token 前缀（日志 / 移动端错误串可读）
+    #[test]
+    fn ensure_target_prefixes_classified_failure() {
+        let _g = platform::test_lock().lock().unwrap();
+        platform::set_for_test(Platform::Desktop);
+        super::device_bridge::drain_sessions();
+        let h = MockHost::new();
+        *h.dial_failure.borrow_mut() = Some("dial endpoint failed: peer unreachable".into());
+        let ep = super::DialEndpoint {
+            node_id: "t20-lan-target".to_string(),
+            addr: "192.168.1.7".to_string(),
+            port: 47613,
+            ..Default::default()
+        };
+        super::device_bridge::remember_endpoint(&ep).unwrap();
+        let err = super::ensure_target(&h, "t20-lan-target", None).unwrap_err();
+        assert!(
+            err.to_string().starts_with("lan-unreachable: "),
+            "实得 {err}"
+        );
+        super::device_bridge::drain_sessions();
+    }
+
+    // ==================== 穿透配置导入（qr / sync） ====================
+
+    /// 信任表判据：只认显式命中；缺字段 / 非数组 / 大小写差异都按各自语义处理
+    #[test]
+    fn trusted_list_contains_matches_only_explicit_node_ids() {
+        let list = serde_json::json!([
+            { "nodeId": "AABBCCDD", "displayName": "桌面" },
+            { "node_id": "11223344" },
+            { "id": "99887766" },
+        ]);
+        assert!(super::trusted_list_contains(&list, "aabbccdd"));
+        assert!(super::trusted_list_contains(&list, "11223344"));
+        assert!(super::trusted_list_contains(&list, "99887766"));
+        assert!(!super::trusted_list_contains(&list, "deadbeef"));
+        // 非数组 / 畸形条目 = 读不到 → 不当作已信任
+        assert!(!super::trusted_list_contains(
+            &serde_json::json!({}),
+            "aabbccdd"
+        ));
+        assert!(!super::trusted_list_contains(
+            &serde_json::json!([{ "nodeId": 42 }]),
+            "42"
+        ));
+        assert!(!super::trusted_list_contains(
+            &serde_json::json!([null]),
+            "aabbccdd"
+        ));
+    }
+
+    /// 快照载荷与分享载荷同字段：地址取生效视图、策略随开关、时间随导入渠道
+    #[test]
+    fn relay_config_snapshot_payload_mirrors_share_shape() {
+        let s = super::TransferSettings {
+            relay_addrs: vec!["/ip4/198.51.100.7/tcp/4001/p2p/12D3KooWCache".into()],
+            relay_room: "nest-abc".into(),
+            relay_origin: "sync".into(),
+            relay_synced_at: 1_734_000_000_000,
+            allow_wan: false,
+            ..Default::default()
+        };
+        let view = super::relay_center::RelayView {
+            addrs: vec!["/ip4/203.0.113.9/tcp/4001/p2p/12D3KooWRelay".into()],
+            source: super::relay_center::RelaySource::Center,
+            error: None,
+        };
+        let payload = super::relay_config_snapshot_payload(&s, &view);
+        assert_eq!(payload["v"], 1);
+        assert_eq!(payload["kind"], "ft-relay-config");
+        assert_eq!(payload["relayAddrs"][0], "/ip4/203.0.113.9/tcp/4001/p2p/12D3KooWRelay");
+        assert_eq!(payload["room"], "nest-abc");
+        assert_eq!(payload["wanPolicy"], "blocked");
+        assert_eq!(payload["generatedAt"], 1_734_000_000_000u64);
     }
 
     // 票 08 场景链 / 终态历史持久化往返（断点续传时序）拆至子模块

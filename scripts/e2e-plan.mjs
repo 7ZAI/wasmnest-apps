@@ -48,7 +48,10 @@ export function cargoHostBin({ platformRoot, binaryName = 'wasmnest-desktop' }) 
  *
  * packed / runtime：必须 `--out <staging plugins 根>` —— 不写平台宿主 resources，
  * 也不依赖各 app 的默认落点（默认落点属于开发者本机工作区，跑测试时不该互相踩）。
- * cargo：保持现状（产物写平台 resources，宿主读的就是那一份），因此**不传 --out**。
+ * cargo：**不传 --out**——产物落各 app 自己的默认输出（`apps/<slug>/desktop/.build/plugins/<id>`，
+ * G2 口径），随后由 `planArtifactCopy` 搬进 staging。注意：不要再假设「cargo 写平台
+ * resources」——那是 G2 之前的默认落点，沿用会让 E2E 测到平台 resources 里的陈旧副本
+ * （新 UI 全部不出现，而旧用例依旧全绿 = 假绿）。
  */
 export function planBuildArgs({ mode, full = false, pluginsDir }) {
   const args = full ? [] : ['--frontend-only']
@@ -103,22 +106,14 @@ export function planStagingCleanup({ mode }) {
  * - packed / runtime + 本次真构建了 ⇒ 构建已直接写进 staging，无需复制（`copy=false`）；
  * - packed / runtime + `--skip-build` ⇒ 从 app 的**默认产物目录** `.build/plugins/<id>`
  *   拷进 staging（缺就点名，让人去构建，而不是静默用上一份残留）；
- * - cargo ⇒ 从平台宿主 resources 拷进 staging（现状语义：宿主读的就是平台那一份）。
+ * - cargo ⇒ 同样从 `.build/plugins/<id>` 拷：cargo 模式的构建也不传 `--out`，
+ *   产物就在那里。**不要从平台宿主 resources 拷**——那是 `plugins:build` / `tauri dev`
+ *   的落点，未必是本次源码的构建产物；从那里拷会让「刚改的 UI 不出现」而旧用例全绿（假绿）。
  */
-export function planArtifactCopy({ mode, skipBuild, apps, pluginsDir, platformResourcesDir }) {
-  if (mode === 'cargo') {
-    if (!platformResourcesDir) {
-      throw new Error('[e2e] cargo 模式需要平台宿主 resources 目录（内部错误）')
-    }
-    return apps.map((app) => ({
-      pluginId: app.pluginId,
-      src: `${platformResourcesDir}/${app.pluginId}`,
-      dst: `${pluginsDir}/${app.pluginId}`,
-      copy: true,
-    }))
-  }
-  return apps.map((app) =>
-    skipBuild
+export function planArtifactCopy({ mode, skipBuild, apps, pluginsDir }) {
+  return apps.map((app) => {
+    const fromDefaultOutput = mode === 'cargo' || skipBuild
+    return fromDefaultOutput
       ? {
           pluginId: app.pluginId,
           src: `${app.dir}/.build/plugins/${app.pluginId}`,
@@ -130,8 +125,8 @@ export function planArtifactCopy({ mode, skipBuild, apps, pluginsDir, platformRe
           src: `${pluginsDir}/${app.pluginId}`,
           dst: `${pluginsDir}/${app.pluginId}`,
           copy: false,
-        },
-  )
+        }
+  })
 }
 
 /**

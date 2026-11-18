@@ -104,6 +104,13 @@ mod tests {
         ) -> Result<String, wasmnest_plugin_api::host::HostError> {
             unimplemented!()
         }
+        /// T11 `dial-peer-addrs`：本组用例不测多地址拨号
+        fn peer_dial_addrs(
+            &self,
+            _endpoint: &serde_json::Value,
+        ) -> Result<String, wasmnest_plugin_api::host::HostError> {
+            unimplemented!()
+        }
         fn peer_close(&self, _handle: &str) -> Result<bool, wasmnest_plugin_api::host::HostError> {
             unimplemented!()
         }
@@ -122,6 +129,13 @@ mod tests {
         fn peer_revoke_trusted(
             &self,
             _node_id: &str,
+        ) -> Result<bool, wasmnest_plugin_api::host::HostError> {
+            unimplemented!()
+        }
+        fn peer_trust_node(
+            &self,
+            _node_id: &str,
+            _display_name: Option<&str>,
         ) -> Result<bool, wasmnest_plugin_api::host::HostError> {
             unimplemented!()
         }
@@ -196,7 +210,10 @@ mod tests {
             self.pushed_dirs.borrow_mut().push(path.to_string());
             Ok(())
         }
-        fn peer_start_node(&self) -> Result<bool, wasmnest_plugin_api::host::HostError> {
+        fn peer_start_node(
+            &self,
+            _config: &wasmnest_plugin_api::host::PeerNodeConfig,
+        ) -> Result<bool, wasmnest_plugin_api::host::HostError> {
             unimplemented!()
         }
         fn peer_stop_node(&self) -> Result<bool, wasmnest_plugin_api::host::HostError> {
@@ -213,6 +230,20 @@ mod tests {
         ) -> Result<serde_json::Value, wasmnest_plugin_api::host::HostError> {
             unimplemented!()
         }
+        fn peer_node_info(
+            &self,
+        ) -> Result<wasmnest_plugin_api::host::PeerNodeInfo, wasmnest_plugin_api::host::HostError>
+        {
+            unimplemented!()
+        }
+        fn peer_configure_relay(
+            &self,
+            _relay_addrs: &[String],
+            _enable: bool,
+        ) -> Result<wasmnest_plugin_api::host::PeerNodeInfo, wasmnest_plugin_api::host::HostError>
+        {
+            unimplemented!()
+        }
     }
 
     fn sample() -> TransferSettings {
@@ -222,6 +253,7 @@ mod tests {
             download_dir: Some("D:/dl".into()),
             encryption: true,
             concurrency: 5,
+            ..Default::default()
         }
     }
 
@@ -304,6 +336,7 @@ mod tests {
                 download_dir: Some("D:/dl".into()),
                 encryption: true,
                 concurrency: 3,
+                ..Default::default()
             })
             .unwrap(),
         )

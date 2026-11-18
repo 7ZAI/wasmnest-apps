@@ -98,16 +98,65 @@ pub fn view_json(
     (serde_json::Value::Object(view), warning)
 }
 
+/// 运行视图（项目工作台的运行列表；**不是** `SessionInfoView`）
+///
+/// 两套形状刻意分开：
+/// - `SessionInfoView`（[`view_json`]）是移动端与前端命令面既有的线协议，有逐字
+///   锁，容器字段**不得**混进去（会让移动端 DTO 解析多出无关键，也让形状锁失效）；
+/// - 本形状带项目 / agent / 标题 / 模型 / 活跃位，只供桌面项目面（`run.list`）。
+///
+/// 缺值一律 `null`（键恒在）：运行列表要按字段排序与渲染，缺键会让前端到处判
+/// `undefined`；这是新形状，没有历史包袱，选稳定键集。
+pub fn run_json(record: &SessionRecord, now: &str) -> serde_json::Value {
+    let nullable = |value: &Option<String>| match value {
+        Some(text) => serde_json::json!(text),
+        None => serde_json::Value::Null,
+    };
+    serde_json::json!({
+        "id": record.id,
+        "projectId": nullable(&record.project_id),
+        "configId": record.config_id,
+        "agentId": nullable(&record.agent_id),
+        "agentSessionId": nullable(&record.agent_session_id),
+        "title": nullable(&record.title),
+        "name": record.name,
+        // 状态一律出**字符串标签**（`wire_name`）：`RunView` 的桌面类型与移动端
+        // 展示层都只认字符串（`isLiveRun` / 终端接入判据）。出 externally-tagged
+        // `{"error": "…"}` 会让终态运行（如宿主重启后被标记 interrupted）被当成
+        // 存活：项目工作台自动选中它 → 终端每 50ms 拉一个不存在的 PTY，
+        // 未处理 rejection 灌成全局「未知错误」风暴（2026-11-04 实测）。
+        // 错误描述仍留在记录本体与 `session-get` 视图，不经运行列表透出。
+        "status": record.status.wire_name(),
+        "model": nullable(&record.model),
+        "createdAt": record.created_at,
+        "startedAt": nullable(&record.started_at),
+        "stoppedAt": nullable(&record.stopped_at),
+        "updatedAt": record.updated_at,
+        // 活跃位 = 非终态：项目卡片的「活跃运行数」与运行列表状态点共用同一判据
+        "active": !record.status.is_terminal(),
+        // 事件账本被截断（历史不完整）：界面据此显示「已截断」，不静默
+        "truncated": record.truncated,
+        // 桥接状态：lastSeen 原样给出（排障），connected 由心跳窗口算好
+        // （前端不引时间解析，镜像模式标记直接读这个布尔）
+        "bridgeSeenAt": nullable(&record.bridge_seen_at),
+        "bridgeConnected": record.bridge_connected(now),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::session::model::SessionStatus;
-
     fn record() -> SessionRecord {
         SessionRecord {
             id: "s-1".to_string(),
             pty_id: Some("pty-9".to_string()),
             config_id: "cfg-1".to_string(),
+            project_id: Some("p-1".to_string()),
+            agent_id: Some("opencode".to_string()),
+            agent_session_id: Some("ses_abc".to_string()),
+            title: None,
+            model: None,
             name: "dev".to_string(),
             status: SessionStatus::Running,
             created_at: "2026-09-23T00:00:00Z".to_string(),
@@ -115,6 +164,8 @@ mod tests {
             stopped_at: None,
             canonical_renderer: Some(crate::actions::RendererSource::Desktop),
             owner: Some("com.wasmnest.bedcode".to_string()),
+            truncated: false,
+            bridge_seen_at: None,
             updated_at: "2026-09-23T00:00:05Z".to_string(),
         }
     }
@@ -244,5 +295,102 @@ mod tests {
         record.status = SessionStatus::Error(Some("pty closed".to_string()));
         let (view, _) = view_json(&record, &BTreeMap::new());
         assert_eq!(view["status"], serde_json::json!({ "error": "pty closed" }));
+    }
+
+    // ==================== 运行视图（run.list 的形状） ====================
+
+    /// 容器字段齐备：项目 / agent / agent 会话 id / 标题 / 模型 / 活跃位
+    #[test]
+    fn run_view_carries_container_fields() {
+        let view = run_json(&record(), "2026-09-23T00:00:06Z");
+        assert_eq!(view["id"], "s-1");
+        assert_eq!(view["projectId"], "p-1");
+        assert_eq!(view["agentId"], "opencode");
+        assert_eq!(view["agentSessionId"], "ses_abc");
+        assert_eq!(view["configId"], "cfg-1");
+        assert_eq!(view["name"], "dev");
+        assert_eq!(view["updatedAt"], "2026-09-23T00:00:05Z");
+        assert_eq!(view["active"], true, "Running 是活跃");
+        assert!(
+            view.get("title").is_some_and(|v| v.is_null()),
+            "未起标题 = null（键必须在）: {view}"
+        );
+        assert!(view.get("model").is_some_and(|v| v.is_null()));
+        assert_eq!(view["truncated"], false, "未截断 = false（键必须在）");
+        assert_eq!(
+            view["bridgeSeenAt"],
+            serde_json::Value::Null,
+            "从未连上 = null"
+        );
+        assert_eq!(view["bridgeConnected"], false, "无心跳 = 镜像模式");
+
+        let mut connected = record();
+        connected.bridge_seen_at = Some("2026-09-23T00:00:00Z".to_string());
+        let view = run_json(&connected, "2026-09-23T00:00:10Z");
+        assert_eq!(view["bridgeConnected"], true, "10s 内 = 在线");
+        let view = run_json(&connected, "2026-09-23T00:00:20Z");
+        assert_eq!(view["bridgeConnected"], false, "超过 15s 窗口 = 断开");
+
+        let mut ended = connected.clone();
+        ended.status = SessionStatus::Stopped;
+        let view = run_json(&ended, "2026-09-23T00:00:01Z");
+        assert_eq!(view["bridgeConnected"], false, "终态运行不标在线");
+        assert!(view.get("stoppedAt").is_some_and(|v| v.is_null()));
+    }
+
+    /// 活跃位与终态判据同源：Stopped / Error 都是非活跃（前端状态点不必再解析状态枚举）
+    #[test]
+    fn run_view_active_flag_follows_terminal_state() {
+        for (status, active) in [
+            (SessionStatus::Running, true),
+            (SessionStatus::Starting, true),
+            (SessionStatus::Stopping, true),
+            (SessionStatus::Stopped, false),
+            (SessionStatus::Error(None), false),
+        ] {
+            let mut record = record();
+            record.status = status.clone();
+            assert_eq!(
+                run_json(&record, "2026-09-23T00:00:06Z")["active"],
+                serde_json::json!(active),
+                "{status:?} 的活跃位"
+            );
+        }
+    }
+
+    /// 运行列表状态出字符串标签：错误态不得是 `{"error"}` 对象
+    /// （桌面 `RunView.status` / `isLiveRun` 只认字符串；对象会让终态运行被判存活，
+    /// 工作台据此把已结束的运行接上输出轮询 → 不存在的 PTY 每 tick 报错）
+    #[test]
+    fn run_view_status_is_wire_string() {
+        let mut record = record();
+        assert_eq!(
+            run_json(&record, "2026-09-23T00:00:06Z")["status"],
+            "running"
+        );
+
+        record.status =
+            SessionStatus::Error(Some("host process restarted; run interrupted".to_string()));
+        assert_eq!(run_json(&record, "2026-09-23T00:00:06Z")["status"], "error");
+
+        record.status = SessionStatus::Error(None);
+        assert_eq!(run_json(&record, "2026-09-23T00:00:06Z")["status"], "error");
+
+        record.status = SessionStatus::Stopped;
+        assert_eq!(
+            run_json(&record, "2026-09-23T00:00:06Z")["status"],
+            "stopped"
+        );
+    }
+
+    /// 标题有值即透传（标题归 agent / 首条用户消息，视图不加工）
+    #[test]
+    fn run_view_passes_title_and_model_through() {
+        let mut record = record();
+        record.title = Some("修支付回调".to_string());
+        record.model = Some("claude-sonnet-4".to_string());
+        let view = run_json(&record, "2026-09-23T00:00:06Z");
+        assert_eq!(view["title"], "修支付回调");
+        assert_eq!(view["model"], "claude-sonnet-4");
     }
 }

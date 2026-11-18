@@ -30,16 +30,73 @@ pub struct TransferSettings {
     pub approval_timeout_sec: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub download_dir: Option<String>,
-    /// 发送加密默认值（send 批参数携带；同时推送引擎全局开关兜底）
-    #[serde(default)]
+    /// 发送加密固定值（穿透方案不变量 12）：**恒为 `true`，无关闭开关**。
+    ///
+    /// 旧版本存过 `false` 的库在读取时收紧（见 [`load`]），任何写入口也只落 `true`
+    /// （见 [`save_and_push`]）；`set-settings` 传入 `false` 显性报错
+    /// （见 [`validate_encryption_patch`]）。
+    #[serde(default = "default_encryption")]
     pub encryption: bool,
     /// 发送方向并发上限（1–8）
     #[serde(default = "default_concurrency")]
     pub concurrency: u8,
+    /// 是否允许经中继（WAN）传输（T12，缺省开）。
+    ///
+    /// 关闭只影响**拨号候选**（relay circuit 不进候选表，见 [`crate::dial::dial_plan`]），
+    /// **不影响加密**：加密固定开（不变量 12），本字段没有也不得有「关明文」语义。
+    #[serde(default = "default_allow_wan")]
+    pub allow_wan: bool,
+    /// 经中继单任务的「可能较慢」提示阈值（字节，0 = 每次都提示）。
+    ///
+    /// 只是提示阈值，不是硬限额、不入加密/授权判定：§9.2#4 默认无阈值；用户可调高
+    /// 到指定大小以上才提示。真正的中继配额在 relay 服务端（单 circuit 字节 / 时长）。
+    #[serde(default)]
+    pub relay_max_bytes_per_task: u64,
+    /// 外网接入（relay）端点地址（file-transfer 独立化 T21）。
+    ///
+    /// 只保存 **relay 端点**（`.../tcp/<port>/p2p/<relay>`），不保存拨号目标；
+    /// 空 = 未配置外网接入（仅内网）。应用不自行建立预留——消费方仍是宿主
+    /// `host-peer`（见 T21）；本字段先落存储，宿主能力到位后由插件在激活时推送。
+    #[serde(default)]
+    pub relay_addrs: Vec<String>,
+    /// 中继会合空间码（跨 NAT 自动发现的隔离键；双端填同一个才互相可见）。
+    ///
+    /// 空 = 同一台中继上的所有设备互相可见（自建私有中继的默认口径）。非空时
+    /// 插件只把**原文**经本机总线交给宿主，宿主用 SHA-256 派生房间键后发给中继；
+    /// 中继永远看不到空间码明文。它不是密码，不参与授权——访问控制仍在目标
+    /// 宿主的信任表 + 首连确认。
+    #[serde(default)]
+    pub relay_room: String,
+    /// relay 地址来源：`""` = 手动 / 缓存，`"invite"` = 邀请导入。
+    ///
+    /// 只影响「中心明确未配置」时是否允许沿用本地缓存：邀请是显式用户动作，
+    /// 允许在中心为空时生效；手动缓存仍按 T21 语义不复活。中心已配置时始终
+    /// 中心优先（冲突由前端提示，不在后端静默覆盖）。
+    ///
+    /// 取值：`""`（手动 / 缓存）、`"invite"`（邀请导入）、`"qr"`（扫码导入
+    /// 穿透配置分享）、`"sync"`（内网连接成功后同步获取）。
+    #[serde(default)]
+    pub relay_origin: String,
+    /// 穿透配置最近一次从外部获取的时间（Unix 毫秒；0 = 从未获取）。
+    ///
+    /// 只服务「配置新鲜度」展示与「是否需要重新同步」判定；不参与寻址与
+    /// 信任。中心直读（`center`）不更新本字段——中心是实时真源，没有同步概念。
+    #[serde(default)]
+    pub relay_synced_at: u64,
 }
 
 fn default_concurrency() -> u8 {
     DEFAULT_CONCURRENCY
+}
+
+/// 中继缺省值（开；关闭 = 只走内网，不涉及加密）
+fn default_allow_wan() -> bool {
+    true
+}
+
+/// 加密缺省值（固定开；`serde(default)` 与 [`Default`] 共用同一常量）
+fn default_encryption() -> bool {
+    true
 }
 
 impl Default for TransferSettings {
@@ -48,8 +105,14 @@ impl Default for TransferSettings {
             receiving_policy: "ask".to_string(),
             approval_timeout_sec: 60,
             download_dir: None,
-            encryption: false,
+            encryption: default_encryption(),
             concurrency: default_concurrency(),
+            allow_wan: default_allow_wan(),
+            relay_max_bytes_per_task: 0,
+            relay_addrs: Vec::new(),
+            relay_room: String::new(),
+            relay_origin: String::new(),
+            relay_synced_at: 0,
         }
     }
 }
@@ -57,6 +120,149 @@ impl Default for TransferSettings {
 /// 钳制并发上限到合法区间（1–8）
 pub fn clamp_concurrency(n: u8) -> u8 {
     n.clamp(1, 8)
+}
+
+/// 规整并校验 relay 端点地址（`set-settings` 的唯一入口；纯函数，宿主无关）。
+///
+/// 判据（与能力仓 `wasmnest-p2p-engine/src/relay.rs::RelayEndpoint::parse` 的
+/// 端点形状同口径的最小集）：
+/// - 必须是以 `/` 开头的 multiaddr，且不含空白；
+/// - 必须含 `/tcp/<port>` 与 `/p2p/<relay>`（钉住 relay 身份）；
+/// - **不得**含 `/p2p-circuit`（这里存的是 relay 端点，不是经中继的拨号目标）；
+/// - 不允许未指定地址（`/ip4/0.0.0.0` / `/ip6/::`）。
+///
+/// 空列表合法（清除配置）。任何一条不合法整批拒绝并点名——静默丢弃会让
+/// 「保存了但没生效」变成不可归因的假故障。
+pub fn normalize_relay_addrs(raw: &[String]) -> Result<Vec<String>, String> {
+    let mut out: Vec<String> = Vec::with_capacity(raw.len());
+    for item in raw {
+        let addr = item.trim();
+        if addr.is_empty() {
+            return Err("relay address must not be empty".to_string());
+        }
+        if !addr.starts_with('/') || addr.chars().any(char::is_whitespace) {
+            return Err(format!("relay address is not a multiaddr: `{addr}`"));
+        }
+        if addr.contains("/p2p-circuit") {
+            return Err(format!(
+                "relay address must be a relay endpoint, not a circuit target: `{addr}`"
+            ));
+        }
+        if !addr.contains("/tcp/") || !addr.contains("/p2p/") {
+            return Err(format!(
+                "relay address must be `<transport>/tcp/<port>/p2p/<relay>`: `{addr}`"
+            ));
+        }
+        if addr.contains("/ip4/0.0.0.0") || addr.contains("/ip6/::") {
+            return Err(format!("relay address must not be unspecified: `{addr}`"));
+        }
+        if !out.iter().any(|existing| existing == addr) {
+            out.push(addr.to_string());
+        }
+    }
+    Ok(out)
+}
+
+/// 空间码校验：空白 = 关闭房间隔离（relay-wide）；非空只允许 `[A-Za-z0-9_-]`，
+/// 最长 64。非法值显性报错——静默截断会让两端算出不同房间键。
+pub fn normalize_relay_room(raw: &str) -> Result<String, String> {
+    let room = raw.trim();
+    if room.is_empty() {
+        return Ok(String::new());
+    }
+    if room.len() > 64
+        || !room
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+    {
+        return Err("relay room must be 1-64 chars of [A-Za-z0-9_-]".to_string());
+    }
+    Ok(room.to_string())
+}
+
+/// relay 来源校验与归一。
+///
+/// 允许值：空串（手动 / 缓存）、`invite`（邀请导入）、`qr`（扫码导入穿透
+/// 配置分享）、`sync`（内网连接成功后同步获取）。未知来源显性报错——静默
+/// 归成一类会让「中心为空时是否复活缓存」的判定漂移。
+pub fn normalize_relay_origin(raw: &str) -> Result<String, String> {
+    match raw.trim() {
+        "" => Ok(String::new()),
+        "invite" => Ok("invite".to_string()),
+        "qr" => Ok("qr".to_string()),
+        "sync" => Ok("sync".to_string()),
+        other => Err(format!(
+            "relay origin must be empty, `invite`, `qr` or `sync`: `{other}`"
+        )),
+    }
+}
+
+/// 对端穿透配置快照（`wasmnest://relay-config` v1 的引擎侧形态）
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RelayConfigSnapshot {
+    /// relay 端点（已归一化、非空）
+    pub relay_addrs: Vec<String>,
+    /// 空间码（空 = relay-wide）
+    pub room: String,
+    /// `allowed` / `blocked`（对端拨号策略，仅展示，不静默改本机开关）
+    pub wan_policy: String,
+    /// 生成时刻（Unix 毫秒；0 = 未提供）
+    pub generated_at: u64,
+}
+
+/// 解析对端配置快照（双端同构的 `ft-relay-config` v1 线格式）。
+///
+/// 校验与分享载荷同判据：版本 / kind 精确匹配，地址沿用
+/// [`normalize_relay_addrs`]（非空、禁 circuit、禁未指定地址），空间码沿用
+/// [`normalize_relay_room`]。任何不合法整批拒绝并点名——同步是信任设备之间的
+/// 显式动作，**不猜测**对端格式。
+pub fn parse_relay_config_snapshot(raw: &str) -> Result<RelayConfigSnapshot, String> {
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct RawSnapshot {
+        v: u64,
+        #[serde(default)]
+        kind: String,
+        #[serde(default)]
+        relay_addrs: Vec<String>,
+        #[serde(default)]
+        room: String,
+        #[serde(default)]
+        wan_policy: String,
+        #[serde(default)]
+        generated_at: u64,
+    }
+
+    let raw: RawSnapshot = serde_json::from_str(raw)
+        .map_err(|e| format!("relay config snapshot is not valid json: {e}"))?;
+    if raw.v != 1 {
+        return Err(format!(
+            "relay config snapshot version unsupported: {}",
+            raw.v
+        ));
+    }
+    if raw.kind != "ft-relay-config" {
+        return Err(format!(
+            "relay config snapshot kind mismatch: `{}`",
+            raw.kind
+        ));
+    }
+    // 空地址列表 = 对端明确「没有可同步的中继配置」（不是错误，也不清空本机）
+    let relay_addrs = normalize_relay_addrs(&raw.relay_addrs)?;
+    match raw.wan_policy.as_str() {
+        "allowed" | "blocked" => {}
+        other => {
+            return Err(format!(
+                "relay config snapshot wanPolicy must be `allowed` or `blocked`: `{other}`"
+            ))
+        }
+    }
+    Ok(RelayConfigSnapshot {
+        relay_addrs,
+        room: normalize_relay_room(&raw.room)?,
+        wan_policy: raw.wan_policy,
+        generated_at: raw.generated_at,
+    })
 }
 
 /// UI 词表 → 宿主策略词表
@@ -86,10 +292,18 @@ pub fn auto_answer(s: &TransferSettings) -> Option<bool> {
 // ==================== 存取编排 ====================
 
 /// 读取设置；存储为空返回默认值（纯读语义，不回填）
+///
+/// 旧版本可能存过 `encryption: false`：读取时一律收紧为 `true`——发送路径
+/// 只消费本函数的返回值，收紧发生在这里就能保证「无明文回退」不依赖调用点自觉。
 pub fn load<H: KvStore>(h: &H) -> PortResult<TransferSettings> {
     match h.storage_get(SETTINGS_KEY)? {
-        Some(v) => serde_json::from_value(v)
-            .map_err(|e| crate::ports::PortError::new(format!("transfer_settings corrupt: {e}"))),
+        Some(v) => {
+            let mut settings: TransferSettings = serde_json::from_value(v).map_err(|e| {
+                crate::ports::PortError::new(format!("transfer_settings corrupt: {e}"))
+            })?;
+            settings.encryption = true;
+            Ok(settings)
+        }
         None => Ok(TransferSettings::default()),
     }
 }
@@ -100,15 +314,37 @@ pub fn load_or_migrate<H: KvStore>(h: &H) -> PortResult<TransferSettings> {
     load(h)
 }
 
+/// 校验 `set-settings` 的加密补丁：禁止关闭（不变量 12），非布尔值也显性报错。
+///
+/// 这里刻意不「静默改成 true」：旧客户端仍带 `encryption:false` 时，静默改写会让
+/// 调用方以为关闭生效、实际仍在加密，行为不可解释；报错让旧入口暴露出来。
+pub fn validate_encryption_patch(requested: Option<&serde_json::Value>) -> PortResult<()> {
+    match requested {
+        None | Some(serde_json::Value::Bool(true)) => Ok(()),
+        Some(serde_json::Value::Bool(false)) => Err(crate::ports::PortError::new(
+            "encryption cannot be disabled (required)",
+        )),
+        Some(_) => Err(crate::ports::PortError::new("encryption must be a boolean")),
+    }
+}
+
 /// 保存设置并推送宿主配置原语（闸门 + 落点）。
 ///
 /// 任一宿主推送失败如实上抛：存储已写入，下次 set 重推即可收敛（不做回滚——策略闸门
 /// 宁可是旧值也不能是「存储说 A、闸门收 B」的分裂态）。
+///
+/// 加密列**强制落 `true`**：即使调用方传了 `false`（旧调用点 / 直写），存储也不会
+/// 留下可被后续读取利用的明文开关。
 pub fn save_and_push<H: KvStore + PeerPort + PluginProfile>(
     h: &H,
     s: &TransferSettings,
 ) -> PortResult<()> {
-    h.storage_set(SETTINGS_KEY, &serde_json::to_value(s).map_err(serde_err)?)?;
+    let mut persisted = s.clone();
+    persisted.encryption = true;
+    h.storage_set(
+        SETTINGS_KEY,
+        &serde_json::to_value(&persisted).map_err(serde_err)?,
+    )?;
     h.peer_set_receive_policy(
         policy_to_host(&s.receiving_policy),
         clamp_timeout(s.approval_timeout_sec),
@@ -242,6 +478,12 @@ mod tests {
             download_dir: Some("D:/dl".into()),
             encryption: true,
             concurrency: 5,
+            allow_wan: false,
+            relay_max_bytes_per_task: 1_073_741_824,
+            relay_addrs: Vec::new(),
+            relay_room: String::new(),
+            relay_origin: String::new(),
+            relay_synced_at: 0,
         };
         save_and_push(&h, &s).unwrap();
         assert_eq!(
@@ -338,6 +580,155 @@ mod tests {
         assert_eq!(load_or_migrate(&h).unwrap().receiving_policy, "reject");
     }
 
+    // ==================== 不变量 12：加密固定开启 ====================
+
+    #[test]
+    fn encryption_defaults_to_true() {
+        assert!(TransferSettings::default().encryption, "缺省必须加密");
+    }
+
+    #[test]
+    fn stored_disabled_encryption_is_tightened_on_load() {
+        // 旧版本存过 false：读取即使明明存量里的值不是 true 也收紧（不依赖调用点自觉）
+        let h = MockPorts::default();
+        h.storage_set(
+            SETTINGS_KEY,
+            &serde_json::json!({"receivingPolicy": "ask", "approvalTimeoutSec": 60, "encryption": false}),
+        )
+        .unwrap();
+        assert!(load(&h).unwrap().encryption, "存量 false 必须在读面收紧");
+    }
+
+    #[test]
+    fn save_and_push_never_persists_disabled_encryption() {
+        let h = MockPorts::default();
+        let s = TransferSettings {
+            encryption: false,
+            ..Default::default()
+        };
+        save_and_push(&h, &s).unwrap();
+        let raw = h.storage_get(SETTINGS_KEY).unwrap().expect("已写入");
+        assert_eq!(
+            raw.get("encryption").and_then(|v| v.as_bool()),
+            Some(true),
+            "写入面不得落明文开关，实际 {raw}"
+        );
+        assert!(load(&h).unwrap().encryption);
+    }
+
+    #[test]
+    fn validate_encryption_patch_rejects_disable_and_non_bool() {
+        assert!(
+            validate_encryption_patch(None).is_ok(),
+            "未指定加密时不应报错"
+        );
+        assert!(validate_encryption_patch(Some(&serde_json::json!(true))).is_ok());
+
+        let disabled = validate_encryption_patch(Some(&serde_json::json!(false))).unwrap_err();
+        assert!(
+            disabled.message().contains("cannot be disabled"),
+            "实得 {disabled}"
+        );
+
+        let wrong_type = validate_encryption_patch(Some(&serde_json::json!("false"))).unwrap_err();
+        assert!(
+            wrong_type.message().contains("must be a boolean"),
+            "实得 {wrong_type}"
+        );
+    }
+
+    // ==================== T12：中继设置 ====================
+
+    #[test]
+    fn relay_addrs_roundtrip_and_are_normalized() {
+        let h = MockPorts::default();
+        let s = TransferSettings {
+            relay_addrs: vec!["/ip4/203.0.113.9/tcp/4001/p2p/12D3KooWRelay".to_string()],
+            ..Default::default()
+        };
+        save_and_push(&h, &s).unwrap();
+        let back = load(&h).unwrap();
+        assert_eq!(back.relay_addrs, s.relay_addrs);
+        let raw = h.storage_get(SETTINGS_KEY).unwrap().expect("已写入");
+        assert_eq!(
+            raw["relayAddrs"],
+            serde_json::json!(["/ip4/203.0.113.9/tcp/4001/p2p/12D3KooWRelay"])
+        );
+    }
+
+    #[test]
+    fn relay_addrs_normalization_rejects_invalid_batches() {
+        assert_eq!(normalize_relay_addrs(&[]).unwrap(), Vec::<String>::new());
+        let ok = normalize_relay_addrs(&[
+            " /ip4/203.0.113.9/tcp/4001/p2p/12D3KooWRelay ".to_string(),
+            "/ip4/203.0.113.9/tcp/4001/p2p/12D3KooWRelay".to_string(),
+        ])
+        .unwrap();
+        assert_eq!(
+            ok,
+            vec!["/ip4/203.0.113.9/tcp/4001/p2p/12D3KooWRelay".to_string()]
+        );
+
+        for bad in [
+            "",
+            "203.0.113.9:4001",
+            "/ip4/203.0.113.9/udp/4001/p2p/12D3KooWRelay",
+            "/ip4/203.0.113.9/tcp/4001",
+            "/ip4/203.0.113.9/tcp/4001/p2p/12D3KooWRelay/p2p-circuit/p2p/target",
+            "/ip4/0.0.0.0/tcp/4001/p2p/12D3KooWRelay",
+            "/ip4/10 0 0 1/tcp/4001/p2p/12D3KooWRelay",
+        ] {
+            assert!(
+                normalize_relay_addrs(&[bad.to_string()]).is_err(),
+                "应拒绝非法 relay 地址：{bad}"
+            );
+        }
+    }
+
+    #[test]
+    fn wan_defaults_to_enabled_without_touching_encryption() {
+        let s = TransferSettings::default();
+        assert!(s.allow_wan, "中继缺省开（用户可关，但关的不是加密）");
+        assert_eq!(s.relay_max_bytes_per_task, 0, "§9.2#4：默认无阈值");
+        assert!(s.encryption, "中继开关与加密正交（不变量 12）");
+    }
+
+    #[test]
+    fn relay_settings_roundtrip_and_legacy_storage_defaults_them() {
+        let h = MockPorts::default();
+        // 旧库存没有两个新字段：读取不得报错（否则升级即丢设置）
+        h.storage_set(
+            SETTINGS_KEY,
+            &serde_json::json!({"receivingPolicy": "ask", "approvalTimeoutSec": 60, "encryption": true}),
+        )
+        .unwrap();
+        let l = load(&h).unwrap();
+        assert!(l.allow_wan);
+        assert_eq!(l.relay_max_bytes_per_task, 0);
+        assert!(
+            l.relay_addrs.is_empty(),
+            "旧库缺 relayAddrs = 未配置外网接入"
+        );
+
+        let s = TransferSettings {
+            allow_wan: false,
+            relay_max_bytes_per_task: 5_000_000_000,
+            ..Default::default()
+        };
+        save_and_push(&h, &s).unwrap();
+        let back = load(&h).unwrap();
+        assert!(!back.allow_wan);
+        assert_eq!(back.relay_max_bytes_per_task, 5_000_000_000);
+        assert!(back.encryption, "关闭中继不得把加密也关掉");
+        // 存储面同样保留两个字段（前端读回真源）
+        let raw = h.storage_get(SETTINGS_KEY).unwrap().expect("已写入");
+        assert_eq!(raw["allowWan"], serde_json::json!(false));
+        assert_eq!(
+            raw["relayMaxBytesPerTask"],
+            serde_json::json!(5_000_000_000u64)
+        );
+    }
+
     #[test]
     fn corrupt_storage_is_reported_not_silently_defaulted() {
         // 关键：损坏值必须显性报错，改成「解析失败就返回默认」会让用户设置被静默重置
@@ -381,5 +772,100 @@ mod tests {
         assert_eq!(policy_to_host("ask"), "ask");
         assert_eq!(clamp_timeout(5), 10);
         assert_eq!(clamp_timeout(700), 600);
+    }
+
+    #[test]
+    fn relay_origin_accepts_only_known_import_channels() {
+        assert_eq!(normalize_relay_origin("").expect("manual"), "");
+        assert_eq!(normalize_relay_origin("  ").expect("blank"), "");
+        assert_eq!(
+            normalize_relay_origin(" invite ").expect("invite"),
+            "invite"
+        );
+        assert_eq!(normalize_relay_origin("qr").expect("qr"), "qr");
+        assert_eq!(normalize_relay_origin(" sync ").expect("sync"), "sync");
+        assert!(normalize_relay_origin("center").is_err());
+        assert!(normalize_relay_origin("invite!").is_err());
+    }
+
+    #[test]
+    fn relay_synced_at_roundtrips_and_legacy_storage_defaults_to_zero() {
+        let h = MockPorts::default();
+        h.storage_set(
+            SETTINGS_KEY,
+            &serde_json::json!({"receivingPolicy": "ask", "approvalTimeoutSec": 60}),
+        )
+        .unwrap();
+        assert_eq!(load(&h).unwrap().relay_synced_at, 0, "旧库缺字段按未同步");
+
+        let s = TransferSettings {
+            relay_origin: "qr".into(),
+            relay_synced_at: 1_734_000_000_000,
+            ..Default::default()
+        };
+        save_and_push(&h, &s).unwrap();
+        let back = load(&h).unwrap();
+        assert_eq!(back.relay_origin, "qr");
+        assert_eq!(back.relay_synced_at, 1_734_000_000_000);
+    }
+
+    #[test]
+    fn relay_room_allows_empty_and_rejects_unsafe() {
+        assert_eq!(normalize_relay_room("").expect("empty"), "");
+        assert_eq!(normalize_relay_room("  ").expect("blank"), "");
+        assert_eq!(normalize_relay_room(" home_1 ").expect("valid"), "home_1");
+        assert_eq!(
+            normalize_relay_room(&"a".repeat(64)).expect("max"),
+            "a".repeat(64)
+        );
+        assert!(normalize_relay_room(&"a".repeat(65)).is_err());
+        assert!(normalize_relay_room("two words").is_err());
+        assert!(normalize_relay_room("斜杠/").is_err());
+    }
+
+    #[test]
+    fn relay_config_snapshot_parses_v1_payload() {
+        let raw = r#"{
+            "v": 1,
+            "kind": "ft-relay-config",
+            "relayAddrs": [" /ip4/203.0.113.9/tcp/4001/p2p/12D3KooWRelay "],
+            "room": " nest-1 ",
+            "wanPolicy": "allowed",
+            "generatedAt": 1734000000000
+        }"#;
+        let snapshot = parse_relay_config_snapshot(raw).expect("parse");
+        assert_eq!(
+            snapshot.relay_addrs,
+            vec!["/ip4/203.0.113.9/tcp/4001/p2p/12D3KooWRelay".to_string()]
+        );
+        assert_eq!(snapshot.room, "nest-1");
+        assert_eq!(snapshot.wan_policy, "allowed");
+        assert_eq!(snapshot.generated_at, 1_734_000_000_000);
+    }
+
+    #[test]
+    fn relay_config_snapshot_accepts_empty_addrs_as_no_config() {
+        let snapshot = parse_relay_config_snapshot(
+            r#"{"v":1,"kind":"ft-relay-config","relayAddrs":[],"wanPolicy":"blocked"}"#,
+        )
+        .expect("empty addrs is a valid no-config marker");
+        assert!(snapshot.relay_addrs.is_empty());
+        assert_eq!(snapshot.room, "");
+    }
+
+    #[test]
+    fn relay_config_snapshot_rejects_unknown_version_kind_and_bad_policy() {
+        for raw in [
+            r#"{"v":2,"kind":"ft-relay-config","relayAddrs":["/ip4/1.2.3.4/tcp/1/p2p/x"],"wanPolicy":"allowed"}"#,
+            r#"{"v":1,"kind":"other","relayAddrs":["/ip4/1.2.3.4/tcp/1/p2p/x"],"wanPolicy":"allowed"}"#,
+            r#"{"v":1,"kind":"ft-relay-config","relayAddrs":["/ip4/1.2.3.4/tcp/1/p2p/x"],"wanPolicy":"maybe"}"#,
+            r#"{"v":1,"kind":"ft-relay-config","relayAddrs":["/ip4/1.2.3.4/tcp/1/p2p/x/p2p-circuit/p2p/y"],"wanPolicy":"allowed"}"#,
+            r#"{"v":1,"kind":"ft-relay-config","relayAddrs":["/ip4/1.2.3.4/tcp/1/p2p/x"],"room":"two words","wanPolicy":"allowed"}"#,
+        ] {
+            assert!(
+                parse_relay_config_snapshot(raw).is_err(),
+                "should reject: {raw}"
+            );
+        }
     }
 }

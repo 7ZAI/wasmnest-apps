@@ -2,7 +2,7 @@
   <div class="h-full flex flex-col bg-[var(--bg-page)]" data-testid="chat-config-page">
     <!-- 顶栏：标题随视图流转（设置页/模板选择/表单）
          标题**左对齐**紧跟返回按钮，与宿主「← 返回 X」及各 wasm 应用
-         （agent-hub / bedcode）的页头一致。原先用 justify-between +
+         （bedcode）的页头一致。原先用 justify-between +
          右侧 w-20 空洞做居中，标题实际只在左侧按钮恰好 80px 宽时才真居中——
          i18n 换文案（EN 的 "Back to chat"）就偏。 -->
     <header
@@ -27,7 +27,9 @@
             : t('com.wasmnest.ai-chatbox.back')
         }}
       </button>
-      <h3 class="min-w-0 truncate text-sm font-medium text-[var(--text-primary)]">{{ headerTitle }}</h3>
+      <h3 class="min-w-0 truncate text-sm font-medium text-[var(--text-primary)]">
+        {{ headerTitle }}
+      </h3>
     </header>
 
     <!-- 视图切换：设置页 / 模板选择 / 表单。page-swap 单独包一层并承接高度链：
@@ -63,6 +65,8 @@
               v-for="preset in PROVIDER_PRESETS"
               :key="preset.id"
               class="flex flex-col items-center gap-2 px-3 py-4 rounded-card bg-[var(--bg-card)] border border-[var(--border)] hover:border-brand hover:bg-[var(--bg-hover)] transition-colors"
+              data-testid="chat-config-template"
+              :data-preset-id="preset.id"
               @click="choosePreset(preset)"
             >
               <ProviderAvatar :preset-id="preset.id" :name="preset.name" :size="40" />
@@ -72,6 +76,7 @@
             <!-- 自定义模板：全空表单入口 -->
             <button
               class="flex flex-col items-center gap-2 px-3 py-4 rounded-card bg-[var(--bg-card)] border border-dashed border-[var(--border)] hover:border-brand hover:bg-[var(--bg-hover)] transition-colors"
+              data-testid="chat-config-template-custom"
               @click="chooseCustom"
             >
               <span
@@ -110,7 +115,6 @@
         </div>
       </Transition>
     </div>
-
   </div>
 </template>
 

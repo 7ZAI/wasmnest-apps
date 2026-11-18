@@ -21,7 +21,7 @@
 //!   生命周期 / 输入监听并主动推进集成注入（编排反转），旧 auto-task 后端仍在
 //!   原位（contract 在票 17）；票 16 追加定时任务与 HTTP 面
 //!
-//! 形态：rust-ts（后端 WASM + 贡献式前端）；`sandbox: inline`；`kind` 取默认
+//! 形态：full（后端 WASM + 贡献式前端；语言无关三档，wasmnest-apps#21）；`kind` 取默认
 //! Application（带 UI 贡献、必须可停可删，故不用 System 形态）。
 //!
 //! **能力来源红线（D2）**：本插件后端只经宿主 `host-*` 基础服务取能力，缺口一律在
@@ -36,6 +36,8 @@
 
 /// 会话动作域（票 10）：重启 / 移除 / 改名编排 + 尺寸正统端裁决
 mod actions;
+/// Agent 池（编排的选人真源）：`agent.profile.*` 命令面 + 私有库 `agent_profiles`
+mod agent_pool;
 /// 认证中心互调消费面（issue #6 切换）：设备中心 / consent / 连接记录改指
 /// `com.wasmnest.auth-center`，本地六域副本停止作为数据源
 mod auth_center_client;
@@ -63,16 +65,34 @@ mod environment;
 pub mod file_browse;
 /// HTTP 路由代码注册（ABI v29 服务端域）：activate 期注册自身全部路由，单一事实源
 mod http_routes;
+/// Agent 管理域（原 agent-hub 插件并入）：探测/安装卸载/Node 引导/Skills/供应商/
+/// 用量统计与会话日志，`agent.*` 命令面 + 进程完成事件按 run_id 归属，见模块文档
+mod hub;
 /// 按键组合 → 转义字节翻译（票 06 下沉）：宿主 pty 只收裸字节，本插件自译自写
 mod keys;
 /// 会话创建编排（票 09）：命名唯一化 / config→launch spec 映射 / 两阶段启动决策
 mod launch;
+/// 互斥锁中毒的统一口径（`lock_or_recover`）
+mod lock;
+/// Agent 编排内核（v1）：计划 / 执行 / 证据三平面；命令面经 `orchestration.*` 接入
+mod orchestration;
 /// 终端输出拉取域（票 04）：经 host-session output-ring-fetch 原语拉取会话输出字节
 mod output;
 mod pairing;
 mod policy;
+/// 项目域（ADR 0003）：一级容器「项目 = 目录 + 执行环境」，含容器迁移
+/// （`sessions` → `runs`、配置 → 项目）与 `project.*` 命令面
+pub mod project;
+/// 项目 / 运行 / Agent 的移动端 REST 面（ABI v29）：`/api/projects`、`/api/runs*`、
+/// `/api/agents`——移动端项目视角的只读面 + 启动运行（项目写面仍在桌面）
+mod projects_http;
 /// 快捷指令域（票 02 第 4 域）：私有库持久化 + HTTP 查询面 + 迁移导入
 pub mod quick_actions;
+/// 网络配置中心消费域（T18）：relay 地址取中心（本地 KV 降级为缓存）+ 首启迁移
+pub mod relay_center;
+/// 运行域（ADR 0003）：从项目里启动一条运行（`run.start`）——项目给出执行环境
+/// 与目录，agent 选择是一次运行的决定；启动仍走 `launch` 的唯一那条链
+pub mod run;
 /// 私有库表名域前缀统一与幂等重命名迁移（票 16 / spec D5）
 pub mod schema;
 /// 会话登记域（会话引擎整体下沉 P1）：会话真源自宿主 `session/` 迁入本插件，
@@ -83,6 +103,8 @@ pub mod sessions_http;
 /// 任务域（票 15-16）：Agent 集成与会话状态 + 队列/定时后端（见模块文档）
 pub mod task;
 mod trust;
+/// 内网穿透域（T07 / T08）：通道配置、HTTP 面对等暴露、配对 `peer` 生产
+mod tunnel;
 /// WS 会话控制域（票 09b/09c）：动作词表分派 + 声明端点帧协议
 mod ws_control;
 /// WS 业务事件广播出口（移动端适配专项票 02）：`session-control` 端点广播的
@@ -90,14 +112,14 @@ mod ws_control;
 pub mod ws_events;
 mod ws_terminal;
 
+use pairing::code::PairingCode;
+use pairing::qr::QrTokenManager;
+use std::sync::{Mutex, OnceLock};
 use wasmnest_plugin_api::host::{HostBus, HostLog, HostStorage, HostTimer, HostWebsocket};
 use wasmnest_plugin_api::types::PluginManifest;
 use wasmnest_plugin_api::wasm::WasmPlugin;
 use wasmnest_plugin_api::wasm_host::WasmHost;
 use wasmnest_plugin_api::{plugin_api, BusMessage, CommandArgs};
-use pairing::code::PairingCode;
-use pairing::qr::QrTokenManager;
-use std::sync::{Mutex, OnceLock};
 
 /// 插件互调 api 声明（ADR 0017）：trait 方法名 ↔ manifest.api 条目
 /// （`com.wasmnest.bedcode.<method>`，`#[api(...)]` 覆盖为连字符名），宏在编译期
@@ -137,8 +159,9 @@ pub trait SessionApi {
     fn qr_code_status() -> Result<Option<serde_json::Value>, String>;
 
     /// 验证 QR token（一次性）→ `{valid, reason?}`；reason = 宿主错误分类同构
-    /// 文本（`QR token expired` / `QR token already used` / `No active QR token`），
-    /// 宿主 `auth_controller::qr_connect` 按子串匹配分类用户提示
+    /// 文本（`QR token expired` / `No active QR token` / `Invalid QR token`；
+    /// 消费即清除，重复使用落到「无活跃 token」），宿主 `auth_controller::
+    /// qr_connect` 按子串匹配分类用户提示
     #[api("qr-code-verify")]
     fn qr_code_verify(token: String) -> Result<serde_json::Value, String>;
 
@@ -287,6 +310,8 @@ pub trait SessionApi {
     /// 全部会话的对外视图 → `{sessions: SessionInfoView[]}`（按 `createdAt, id` 稳定序）。
     /// 形状与宿主 `SessionInfoView` 逐字段一致（产出口在 `session::view`，有形状锁）。
     /// 入参 `{filter: "running"}` 可选：只返回需要关窗确认的会话（判据见 `session/ops`）。
+    /// 入参 `{scope: "session"}` 可选：只返回终端会话面（无项目归属的行），
+    /// 列表类调用方用它把项目运行挡在外面（判据见 `session::is_session_scope`）。
     #[api("session-list")]
     fn session_list(draft: serde_json::Value) -> Result<serde_json::Value, String>;
 
@@ -303,8 +328,9 @@ pub trait SessionApi {
     fn session_close(draft: serde_json::Value) -> Result<serde_json::Value, String>;
 
     /// 写入输入：`{sessionId, data?, specialKey?}`；`specialKey`（字符串，非空）时
-    /// 绕过提交行重建直接写字节（对齐内核 `send_special_key` 的不对称，由
-    /// `keys.rs` 自译自写），默认走提交行重建 + 任务域观察。
+    /// 除 Enter 外绕过提交行重建直接写字节（对齐内核 `send_special_key` 的不对称，
+    /// 由 `keys.rs` 自译自写），Enter 仍把回车字节喂给重建器以建任务行；
+    /// 默认走提交行重建 + 任务域观察。
     ///
     /// 注：wire 字段是 `specialKey`（组合串），不是布尔 `special`——旧文档宣称
     /// 布尔形，按文档发的 `special: true` 会被静默忽略（走 commit-line 重建，
@@ -651,7 +677,8 @@ fn session_get_view(draft: &serde_json::Value) -> Result<Option<serde_json::Valu
 ///
 /// 互调 api（`session-input`）与插件命令面（`session.input`）共用同一实现：
 /// 缺 `sessionId` 显性报错；`data` 缺省为空串；票 06 起特殊键以组合串
-/// （`specialKey`）下发、由本插件 `keys.rs` 自译自写并**绕过提交行重建**，
+/// （`specialKey`）下发、由本插件 `keys.rs` 自译自写并**绕过提交行重建**
+/// （Enter 例外：仍喂回车字节给重建器以建任务行，见 `session::is_submit_key`），
 /// 缺省则按普通输入处理（走提交行重建 + 任务域观察）。
 fn session_input_write(draft: &serde_json::Value) -> Result<serde_json::Value, String> {
     let session_id = draft
@@ -718,7 +745,7 @@ fn pair_code_verify(input: &str) -> Result<bool, String> {
 /// 生成 QR token → `{token, ttl, remaining}`
 fn qr_generate(ttl: u64) -> Result<serde_json::Value, String> {
     let manager = qr_manager();
-    let token = manager.generate(ttl);
+    let token = manager.generate(ttl)?;
     // 刚生成的 token 必须活跃：若管理器实现异常（生成即不可见），显性报错而不
     // abort 整个插件（非测试路径 expect 会把 WASM 插件 trap）
     let (_, ttl, remaining) = manager
@@ -878,9 +905,68 @@ impl WasmPlugin for SessionPlugin {
                 e
             )),
         }
+        // ADR 0003 容器迁移（issue #23）：`sessions` → `runs`（补容器列）、
+        // `session_configs` → `projects`（同目录同执行环境合并）、运行归属回填、
+        // 无主运行丢弃、任务队列绑定键补列。
+        //
+        // **顺序**：在表名统一迁移之后（`task_*` 已是新名）、各域 `ensure_schema`
+        // 之前——先建 `runs` 会让重命名被跳过，旧 `sessions` 数据永久留在无人读的
+        // 名字下（现象是「升级后项目里一条运行都没有」）。
+        //
+        // **失败口径**：配置表可能因上一段降级而未建（此时 `configs()` 返回空，
+        // 迁移把全部运行判成无主并删除——这是最坏结果）。因此迁移失败**不阻断**
+        // 激活（配对 / 认证必须可用），但必须 warn 到位；而「配置面不可用」本身
+        // 已在上一步 warn 过，排障时两条日志连起来读。
+        match project::migrate_via_host() {
+            Ok(report) => {
+                if report.changed() {
+                    host.log_info(&format!(
+                        "project container migration: renamed={:?} projectsCreated={} runsAttributed={} runsDropped={:?} tasksBound={} tasksUnbound={}",
+                        report.renamed,
+                        report.projects_created.len(),
+                        report.runs_attributed,
+                        report.runs_dropped,
+                        report.tasks_bound,
+                        report.tasks_unbound
+                    ));
+                } else {
+                    host.log_debug("project container migration: nothing to do");
+                }
+                if !report.ambiguous.is_empty() {
+                    host.log_warn(&format!(
+                        "project container migration: both legacy and new table names present, untouched: {:?}",
+                        report.ambiguous
+                    ));
+                }
+                if !report.skipped_configs.is_empty() {
+                    host.log_warn(&format!(
+                        "project container migration: config(s) without workingDir cannot form a project, their runs were dropped: {:?}",
+                        report.skipped_configs
+                    ));
+                }
+                if !report.runs_unattributed.is_empty() {
+                    host.log_warn(&format!(
+                        "project container migration: config store unavailable, {} run(s) kept unattributed: {:?}",
+                        report.runs_unattributed.len(),
+                        report.runs_unattributed
+                    ));
+                }
+            }
+            Err(e) => host.log_warn(&format!(
+                "project container migration failed (runs stay unattributed; project face degraded): {}",
+                e
+            )),
+        }
+        match project::ensure_schema_via_host() {
+            Ok(()) => host.log_info("project store ready (private table projects)"),
+            Err(e) => host.log_warn(&format!(
+                "project schema init failed at activate (project face degraded): {}",
+                e
+            )),
+        }
         // 会话引擎整体下沉 P1-b（`.scratch/2026-09-23-session-engine-downsink`）：
-        // 会话登记域建表（幂等）+ 进程启动对账（清空上一进程遗留的会话行——会话与
-        // PTY 同生命周期，同为进程内存）。
+        // 运行表建表（幂等）+ 进程启动对账（把上一进程遗留的非终态运行收敛到
+        // Error 并清空 PTY 句柄——句柄是进程内存，行是历史，理由见 session 模块文档）。
         //
         // **P1-b 起失败必须阻断激活**：本域已是会话真源，建表失败 = 会话面不可用，
         // 继续激活只会让创建 / 停止 / 输入全线报「存储不可用」的半生不熟状态——
@@ -891,7 +977,7 @@ impl WasmPlugin for SessionPlugin {
             )
         })?;
         host.log_info(
-            "session registry store ready (private tables sessions / session_annotations)",
+            "run registry store ready (private tables runs / session_annotations / run_events / permission_audit)",
         );
         // 票 02：快捷指令域（第 4 域）建表（幂等）。与配置面同口径——失败只降级
         // 快捷指令面：配对 / 信任 / 会话 / 任务必须照常工作。迁移数据由宿主侧
@@ -930,6 +1016,34 @@ impl WasmPlugin for SessionPlugin {
                 e
             )),
         }
+        // Agent 池建表（幂等，一张表：agent_profiles）。池不可用只降级编排的选人面；
+        // 命令缺表会显性报错，不影响会话核心。
+        match agent_pool::ensure_schema() {
+            Ok(()) => host.log_info("agent pool schema ready (agent_profiles)"),
+            Err(e) => host.log_warn(&format!(
+                "agent pool schema init failed at activate (orchestration agents degraded): {}",
+                e
+            )),
+        }
+        // 编排域建表（幂等，四张表：orchestrations / orchestration_nodes /
+        // orchestration_events / orchestration_evidence）。失败只降级编排域（D7），
+        // 不阻断会话核心；tick 定时器仍在下方注册，缺表会以命令错误显性暴露。
+        //
+        // 2026-11-09 停用（用户裁定，先注释不删除）：编排入口（侧边栏菜单 + 路由）
+        // 摘除后激活期不再建表 / 恢复对账，避免后台空转。模块本体仍在
+        // （`agent_pool` 的 `AgentSnapshot` 引用其 model），回滚时取消注释。
+        // match orchestration::ensure_schema() {
+        //     Ok(()) => host.log_info(
+        //         "orchestration schema ready (orchestrations / orchestration_nodes / \
+        //          orchestration_events / orchestration_evidence)",
+        //     ),
+        //     Err(e) => host.log_warn(&format!(
+        //         "orchestration schema init failed at activate (orchestration degraded): {}",
+        //         e
+        //     )),
+        // }
+        // 编排恢复对账：只标失败 / 暂停，不重发 prompt（设计不变量 10）。
+        // orchestration::recover_on_activate();
         // 任务域启动恢复（与下方定时域 recover_creating_jobs 互补）：上一进程遗留的
         // 运行中任务行（in_progress / asking / retrying）与未终结队列项（pending /
         // waiting / executing）所属会话已随进程销毁（会话表刚被清空、agent 进程已死），
@@ -1046,12 +1160,49 @@ impl WasmPlugin for SessionPlugin {
             )),
         }
 
+        // 编排域定时器：驱动 ready set、桥接等待、证据结算与超时 / 预算。
+        // 单域失败只降级编排调度（D7），不影响任务队列的 tick。
+        //
+        // 2026-11-09 停用（用户裁定，先注释不删除）：入口摘除后不再注册 tick，
+        // 避免后台每秒空转；回滚时取消注释（与上方建表 / 恢复一并恢复）。
+        // orchestration::register_timer();
+
         // ABI v29（HTTP 路由代码注册下沉）：activate 期注册自身全部 HTTP 路由
         // （业务别名 + 任务域内部路径 + sessions REST + terminal-bg）。
         // 单条失败只 warn（该路由 404 可见，不把整个插件打成 Error——D7 故障隔离）。
         // issue #6 切换：认证七端点已随中心迁出（由 `com.wasmnest.auth-center`
         // 注册 `/api/auth/*`）；本插件不再登记任何认证路由，也不再注册认证中心。
         http_routes::register_all(&host);
+
+        // Agent 管理域（原 agent-hub 并入）激活：授权/建表失败不阻断整体激活
+        // （会话核心域独立可用），错误留痕 fail-visible。
+        if let Err(e) = hub::activate(&host) {
+            host.log_error(&format!(
+                "agent hub activate failed (agent management degraded): {e}"
+            ));
+        }
+
+        // T18：把本地 relay 配置迁移到网络配置中心（中心已有值则不覆盖）。
+        // **失败不阻断激活**：迁移只是补空，失败时本地键仍是可用的缓存；结果写入
+        // `network.relay.migration`，设置页据此显性提示「需重新导入」。
+        match relay_center::migrate_on_activate() {
+            Ok(status) => {
+                let state = status
+                    .get("state")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown");
+                if state == "failed" {
+                    host.log_warn(&format!(
+                        "relay config migration to net-config failed (local cache retained): {status}"
+                    ));
+                } else if state != "none" {
+                    host.log_info(&format!("relay config migration to net-config: {state}"));
+                }
+            }
+            Err(e) => host.log_warn(&format!(
+                "relay config migration skipped (net-config centre unavailable): {e}"
+            )),
+        }
 
         host.log_info(
             "WasmNest plugin activated (auth center role moved to com.wasmnest.auth-center)",
@@ -1062,6 +1213,14 @@ impl WasmPlugin for SessionPlugin {
     fn deactivate() -> anyhow::Result<()> {
         let host = WasmHost;
         host.log_info("WasmNest plugin deactivated");
+        // 隧道暴露面属于本插件：停用即撤规则，否则宿主侧租约 / relay 预留 /
+        // 对等面 listener 会一直挂到进程退出（H1）。失败只留痕（实例即将销毁，
+        // 不把停用流程打红）；成功时 `tunnel_unexpose` 会释放 net.tunnel 租约。
+        match tunnel::unexpose_via_host() {
+            Ok(true) => host.log_info("Tunnel expose rule revoked on deactivate"),
+            Ok(false) => {}
+            Err(e) => host.log_error(&format!("Tunnel expose cleanup on deactivate failed: {e}")),
+        }
         // ABI v29：路由回收依赖宿主停用 purge（同 host-websocket 先例）；
         // 此处留痕 + 状态自清（双保险）
         http_routes::unregister_all(&host);
@@ -1078,6 +1237,8 @@ impl WasmPlugin for SessionPlugin {
         // 票 07：清空设备接入期记忆（连接由宿主按属主回收关闭，断开事件可能
         // 不再投递；记忆不跨生命周期，避免重启后误关旧连接）
         devices_events::clear_connected();
+        // Agent 管理域（原 agent-hub 并入）停用：清在途归属，终止在途安装/引导进程
+        hub::deactivate(&host);
         Ok(())
     }
 
@@ -1203,6 +1364,14 @@ impl WasmPlugin for SessionPlugin {
         Ok(())
     }
 
+    /// 进程完成回调（hub 域）：按 run_id 归属消费安装/引导/探测/Skills/用量扫描；
+    /// 非 hub 的 run_id 放行（默认实现为空，转发后语义不变）。
+    fn on_process_done(
+        event: &wasmnest_plugin_api::events::ProcessDoneEvent,
+    ) -> anyhow::Result<()> {
+        hub::on_process_done(event)
+    }
+
     // v27（票 10）：`on_session_lifecycle` / `on_input_submitted` 两个导出已随
     // WIT 面退役（宿主派发源在票 03 就没了）。原先两条回调上的动作在**生产路径**
     // 上早已由本插件自驱覆盖，逐条对应关系：
@@ -1221,7 +1390,7 @@ impl WasmPlugin for SessionPlugin {
                 Ok(serde_json::json!({
                     "plugin": Self::ID,
                     "version": env!("CARGO_PKG_VERSION"),
-                    "domains": ["pairing", "trust", "consent", "config", "session", "devices", "environment", "task"],
+                    "domains": ["pairing", "trust", "consent", "config", "project", "session", "devices", "environment", "task"],
                     "permissions": manifest.permissions,
                     "api": manifest.api,
                     // P1 双写期诊断：会话登记域镜像规模（读取失败只降级该字段）
@@ -1234,9 +1403,7 @@ impl WasmPlugin for SessionPlugin {
             // 命令面保留供宿主闭环测试与调试直调。
 
             // 统一信任视图 → {devices, peerError}（issue #6：真源改指认证中心）
-            "session.trust.list" => {
-                auth_center_client::trust_list().map_err(anyhow::Error::msg)
-            }
+            "session.trust.list" => auth_center_client::trust_list().map_err(anyhow::Error::msg),
 
             // 撤销统一条目 {id} → {removed, kind}（认证中心统一裁决 pairing / peer）
             "session.trust.revoke" => {
@@ -1318,10 +1485,16 @@ impl WasmPlugin for SessionPlugin {
             // 插件前端不再有「借宿主通道读写会话」的路径：
             // - 列表 / 单查 → 本插件登记域视图（与互调 api `session-list` / `session-get` 同实现）
             // - 键盘输入 → 本插件写入管线（提交行重建 + 任务域 + `host-pty.write`，
-            //   与互调 api `session-input` 同实现；特殊键走 `specialKey` 直写）
+            //   与互调 api `session-input` 同实现；特殊键走 `specialKey` 直写，
+            //   Enter 仍触发提交行观察）
             // 身份令牌 + 激活门由 `plugin_invoke` 通道保证（迁移路由不放宽门禁）。
             "session.list" => {
-                session::list_views_via_host(&serde_json::json!({})).map_err(anyhow::Error::msg)
+                // `scope: "session"`：终端会话面只列无项目归属的会话。项目运行
+                // （带 `project_id` 的行）仍照常落库，只是不从这条读面透出——用户
+                // 2026-11-06 裁定两套入口不互相透出。互调 api `session-list` 不带
+                // 该入参，关窗守卫与 hub 安装判据仍看全量。
+                session::list_views_via_host(&serde_json::json!({ "scope": "session" }))
+                    .map_err(anyhow::Error::msg)
             }
 
             // 单会话视图：不在册 → `null`（命令面恒回 JSON 值，不区分「空」与「无」）
@@ -1418,6 +1591,96 @@ impl WasmPlugin for SessionPlugin {
             "session.qr.clear" => {
                 device_face::qr_clear_via_host().map_err(anyhow::Error::msg)?;
                 Ok(serde_json::json!({ "cleared": true }))
+            }
+
+            // ==================== 内网穿透（T07 / T08） ====================
+            // 通道配置 / 暴露规则 / 配对票据全部在宿主隧道管理器；这里只经
+            // `host-tunnel` 原语做应用侧编排（不新增产品语义到宿主）。
+
+            // 准备隧道（写通道配置 + 暴露本机 HTTP 面）→ 只读状态视图
+            "session.tunnel.prepare" => {
+                let port = device_face::network_port_via_host().map_err(anyhow::Error::msg)?;
+                // T18：地址由前端显式传入（它从 `session.relay.config` 取中心值）；
+                // 未传时后端取中心（缓存兜底），两者都拿不到则按「仅 LAN」继续并
+                // 把原因带回（LAN 入口不因中心故障失效，但界面必须能看见）。
+                let (mut relay_addrs, mut relay_error) = match args.get("relayAddrs") {
+                    Some(value) => {
+                        let list = value
+                            .as_array()
+                            .ok_or_else(|| anyhow::anyhow!("relayAddrs must be an array"))?;
+                        let mut addrs = Vec::with_capacity(list.len());
+                        for item in list {
+                            addrs.push(
+                                item.as_str()
+                                    .ok_or_else(|| {
+                                        anyhow::anyhow!("relayAddrs must contain strings")
+                                    })?
+                                    .to_string(),
+                            );
+                        }
+                        (
+                            // 空数组 = 前端已确认「仅 LAN」（中心未配置 / 用户关掉外网）
+                            tunnel::normalize_explicit_relay_addrs(&addrs)
+                                .map_err(anyhow::Error::msg)?,
+                            None,
+                        )
+                    }
+                    None => match relay_center::resolve_relay_addrs_via_host() {
+                        Ok(resolved) => (resolved.addrs, resolved.center_error),
+                        Err(e) => (Vec::new(), Some(e)),
+                    },
+                };
+                // T18：业务 WAN 注册表逐应用裁决（默认 true；显式 false = 仅 LAN）。
+                // `allowWan` 可显式传入（前端已从同一份中心回执取到）：显式值不再重复
+                // 读中心，避免中心挂起时页面连续等两次 5s；未传时保持后端自行裁决。
+                let (allow_wan, wan_error) = match args.get("allowWan") {
+                    Some(value) => (
+                        value
+                            .as_bool()
+                            .ok_or_else(|| anyhow::anyhow!("allowWan must be a boolean"))?,
+                        None,
+                    ),
+                    None => relay_center::allow_wan_via_host(),
+                };
+                if let Some(reason) = wan_error {
+                    relay_error = Some(match relay_error {
+                        Some(existing) => format!("{existing}; {reason}"),
+                        None => reason,
+                    });
+                }
+                if !allow_wan {
+                    relay_addrs.clear();
+                }
+                let mut view =
+                    tunnel::prepare_via_host(port, &relay_addrs).map_err(anyhow::Error::msg)?;
+                if let Some(reason) = relay_error {
+                    view["relayError"] = serde_json::Value::String(reason);
+                }
+                if !allow_wan {
+                    view["wanDisabledByPolicy"] = serde_json::Value::Bool(true);
+                }
+                Ok(view)
+            }
+
+            // ==================== 网络配置中心（T18） ====================
+            // 设置页「中转服务器」已退役为只读入口：地址真源在中心，本命令是
+            // 读取投影（`source` = center / cache，`centerError` 说明降级原因）。
+            "session.relay.config" => {
+                relay_center::relay_config_view_via_host().map_err(anyhow::Error::msg)
+            }
+
+            // 首启迁移结果（`{state: none|adopted|skipped|failed, ...}`）
+            "session.relay.migration" => {
+                relay_center::migration_status_via_host().map_err(anyhow::Error::msg)
+            }
+
+            // 隧道只读状态（设备页状态栏；不做配置 / 暴露）
+            "session.tunnel.status" => tunnel::status_via_host().map_err(anyhow::Error::msg),
+
+            // 撤销暴露规则（幂等：未准备过 = {removed: false}）
+            "session.tunnel.unexpose" => {
+                let removed = tunnel::unexpose_via_host().map_err(anyhow::Error::msg)?;
+                Ok(serde_json::json!({ "removed": removed }))
             }
 
             // 网络信息（端口 + 本机 IPv4）→ {port, addresses}
@@ -1546,6 +1809,17 @@ impl WasmPlugin for SessionPlugin {
                 task::state::task_history_stats(&WasmHost, &filter)
             }
 
+            // 任务日志详情 {task_id} → 任务行 + CLI 会话转写（对话事件流 / 原始 JSONL）
+            // 与 Agent 管理日志详情同源同解析（按 adapter + cli_session_id 复用
+            // hub usage 的读盘路径）；解析不到时用机器可读 reason 分类返回。
+            "session.task.log-session" => {
+                let task_id = CommandArgs::new(args).str_or("task_id", "");
+                if task_id.is_empty() {
+                    return Err(anyhow::anyhow!("log-session: missing task_id"));
+                }
+                task::log::read_task_log(&WasmHost, &task_id)
+            }
+
             // 运行中会话（含最新任务摘要）→ {sessions}
             "session.task.running-sessions" => {
                 let sessions = task::state::list_running_sessions(&WasmHost);
@@ -1607,17 +1881,30 @@ impl WasmPlugin for SessionPlugin {
                 Ok(serde_json::json!({ "configs": configs }))
             }
 
+            // 任务目标清单（项目 × 受支持 agent）→ {targets[]}
+            // 桌面 / 移动任务面的唯一选择源：有 active_session_id 直接投递，
+            // 没有则 pending_count 提示「等待运行」。
+            "session.task.targets" => {
+                let targets = task::list_targets_via_host()
+                    .map_err(|e| anyhow::anyhow!("task targets read failed: {e}"))?;
+                Ok(serde_json::json!({ "targets": targets }))
+            }
+
             // ==================== 预设任务 ====================
             "session.task.preset-list" => {
                 let presets = task::preset::list_presets(&WasmHost);
                 Ok(serde_json::json!({ "presets": presets }))
             }
             "session.task.preset-create" => {
-                let prompt = CommandArgs::new(args).str_or("prompt", "");
+                let a = CommandArgs::new(args);
+                let prompt = a.str_or("prompt", "");
+                let project_id = a.str_or("project_id", "");
+                let agent_id = a.str_or("agent_id", "");
                 if prompt.is_empty() {
                     return Err(anyhow::anyhow!("create-preset-task: missing prompt"));
                 }
-                let preset_id = task::preset::create_preset(&WasmHost, &prompt);
+                let preset_id =
+                    task::preset::create_preset(&WasmHost, &prompt, &project_id, &agent_id);
                 task::preset::broadcast_preset_changed(&WasmHost, &preset_id, "create");
                 Ok(serde_json::json!({ "preset_id": preset_id }))
             }
@@ -1644,7 +1931,15 @@ impl WasmPlugin for SessionPlugin {
                         "update-preset-task: missing preset_id or prompt"
                     ));
                 }
-                if !task::preset::update_preset(&WasmHost, &preset_id, &prompt) {
+                let project_id = a.str_or("project_id", "");
+                let agent_id = a.str_or("agent_id", "");
+                if !task::preset::update_preset(
+                    &WasmHost,
+                    &preset_id,
+                    &prompt,
+                    &project_id,
+                    &agent_id,
+                ) {
                     return Err(anyhow::anyhow!(
                         "update-preset-task: preset not found: {}",
                         preset_id
@@ -1658,18 +1953,30 @@ impl WasmPlugin for SessionPlugin {
                 let a = CommandArgs::new(args);
                 let session_id = a.str_or("session_id", "");
                 let preset_id = a.str_or("preset_id", "");
-                if session_id.is_empty() {
-                    return Err(anyhow::anyhow!("add-preset-to-queue: missing session_id"));
-                }
+                let project_id = a.str_or("project_id", "");
+                let agent_id = a.str_or("agent_id", "");
                 if preset_id.is_empty() {
                     return Err(anyhow::anyhow!("add-preset-to-queue: missing preset_id"));
                 }
-                let (task_id, position) =
-                    task::preset::add_preset_to_queue(&WasmHost, &session_id, &preset_id)
-                        .map_err(anyhow::Error::msg)?;
-                dispatch_if_eligible_and_broadcast(&session_id, "add", None, None);
+                let session_param = (!session_id.is_empty()).then_some(session_id.as_str());
+                let (task_id, position, bound_session) = task::preset::add_preset_to_queue(
+                    &WasmHost,
+                    &preset_id,
+                    &project_id,
+                    &agent_id,
+                    session_param,
+                )
+                .map_err(anyhow::Error::msg)?;
+                if !task::queue::is_pending_key(&bound_session) {
+                    dispatch_if_eligible_and_broadcast(&bound_session, "add", None, None);
+                }
                 task::preset::broadcast_preset_changed(&WasmHost, &preset_id, "enqueue");
-                Ok(serde_json::json!({ "task_id": task_id, "position": position }))
+                Ok(serde_json::json!({
+                    "task_id": task_id,
+                    "position": position,
+                    "session_id": bound_session,
+                    "pending": task::queue::is_pending_key(&bound_session),
+                }))
             }
 
             // ==================== 任务队列 ====================
@@ -1685,27 +1992,58 @@ impl WasmPlugin for SessionPlugin {
                     "session_id": session_id,
                 }))
             }
-            // 入队 {session_id, prompt} → {task_id, position}
+            // 入队 {session_id | project_id + agent_id, prompt} →
+            // {task_id, position, session_id}（无活跃运行时 session_id 为占位键）
             "session.task.queue-add" => {
                 let a = CommandArgs::new(args);
                 let session_id = a.str_or("session_id", "");
+                let project_id = a.str_or("project_id", "");
+                let agent_id = a.str_or("agent_id", "");
                 let prompt = a.str_or("prompt", "");
-                if session_id.is_empty() {
-                    return Err(anyhow::anyhow!("add-task: missing session_id"));
-                }
                 if prompt.is_empty() {
                     return Err(anyhow::anyhow!("add-task: missing prompt"));
                 }
-                let (task_id, position) = task::queue::add_task(&WasmHost, &session_id, &prompt)
+                if session_id.is_empty() && (project_id.is_empty() || agent_id.is_empty()) {
+                    return Err(anyhow::anyhow!(
+                        "add-task: missing session_id or project_id + agent_id"
+                    ));
+                }
+                let (task_id, position, bound_session) = if session_id.is_empty() {
+                    task::queue::add_task_for_target(
+                        &WasmHost,
+                        &project_id,
+                        &agent_id,
+                        &prompt,
+                        "queue",
+                    )
                     .map_err(|e| {
                         anyhow::anyhow!(
-                            "add-task enqueue failed (session_id={}): {}",
-                            session_id,
+                            "add-task enqueue failed (project_id={}, agent_id={}): {}",
+                            project_id,
+                            agent_id,
                             e
                         )
-                    })?;
-                dispatch_if_eligible_and_broadcast(&session_id, "add", None, None);
-                Ok(serde_json::json!({ "task_id": task_id, "position": position }))
+                    })?
+                } else {
+                    let (task_id, position) =
+                        task::queue::add_task(&WasmHost, &session_id, &prompt).map_err(|e| {
+                            anyhow::anyhow!(
+                                "add-task enqueue failed (session_id={}): {}",
+                                session_id,
+                                e
+                            )
+                        })?;
+                    (task_id, position, session_id.clone())
+                };
+                if !task::queue::is_pending_key(&bound_session) {
+                    dispatch_if_eligible_and_broadcast(&bound_session, "add", None, None);
+                }
+                Ok(serde_json::json!({
+                    "task_id": task_id,
+                    "position": position,
+                    "session_id": bound_session,
+                    "pending": task::queue::is_pending_key(&bound_session),
+                }))
             }
             // 新建任务任务队列（「创建新的 {配置} 会话」选项）：进按配置分组的
             // 队列，**不立即建会话**（启动/自动模式时才建）；队列存在则并入
@@ -1882,10 +2220,12 @@ impl WasmPlugin for SessionPlugin {
                 let jobs = task::scheduled::list_jobs(&WasmHost);
                 Ok(serde_json::json!({ "jobs": jobs }))
             }
-            // 创建 {name?, config_id, trigger_at, prompts[]} → {job_id}
+            // 创建 {name?, project_id, agent_id, config_id?, trigger_at, prompts[]} → {job_id}
             "session.task.scheduled-create" => {
                 let a = CommandArgs::new(args);
                 let name = a.str_or("name", "");
+                let project_id = a.str_or("project_id", "");
+                let agent_id = a.str_or("agent_id", "");
                 let config_id = a.str_or("config_id", "");
                 let trigger_at = a.str_or("trigger_at", "");
                 let prompts: Vec<String> = a
@@ -1898,8 +2238,10 @@ impl WasmPlugin for SessionPlugin {
                             .collect()
                     })
                     .unwrap_or_default();
-                if config_id.is_empty() {
-                    return Err(anyhow::anyhow!("create-scheduled-job: missing config_id"));
+                if (project_id.is_empty() || agent_id.is_empty()) && config_id.is_empty() {
+                    return Err(anyhow::anyhow!(
+                        "create-scheduled-job: missing project_id/agent_id (or legacy config_id)"
+                    ));
                 }
                 if trigger_at.is_empty() {
                     return Err(anyhow::anyhow!("create-scheduled-job: missing trigger_at"));
@@ -1910,14 +2252,17 @@ impl WasmPlugin for SessionPlugin {
                 match task::scheduled::create_job_with_broadcast(
                     &WasmHost,
                     &name,
+                    &project_id,
+                    &agent_id,
                     &config_id,
                     &trigger_at,
                     &prompts,
                 ) {
                     Some(job_id) => Ok(serde_json::json!({ "job_id": job_id })),
                     None => Err(anyhow::anyhow!(
-                        "create-scheduled-job: failed to create job for config {}",
-                        config_id
+                        "create-scheduled-job: failed to create job for project {} / agent {}",
+                        project_id,
+                        agent_id
                     )),
                 }
             }
@@ -1980,10 +2325,173 @@ impl WasmPlugin for SessionPlugin {
                 let device = a
                     .value_owned("device")
                     .unwrap_or_else(|| serde_json::json!({}));
+                // 票 08 裁决 3：宿主判定的三档调用方身份（device / localhost /
+                // anonymous）——桥接域的本机门禁吃它（issue #25 H3）
+                let caller = a.str_or("caller", "");
                 Ok(handle_http_endpoint(
-                    &WasmHost, &method, &path, &body, &query, &params, &device,
+                    &WasmHost, &method, &path, &body, &query, &params, &device, &caller,
                 ))
             }
+
+            // ==================== 项目容器命令面（ADR 0003 / issue #23） ====================
+            // `project.*` 是新能力唯一入口（`session.*` 冻结为运行的兼容投影）；
+            // 运行读取面只加 `run.list` 一条——运行写面（启动 / 停止 / 输入）继续走
+            // `session.*`，`sessionId` 即 `runId`，移动端形状不变。
+
+            // 项目列表 → {projects: ProjectView[]}（含 activeRuns / lastActivityAt 派生）
+            "project.list" => project::list_via_host().map_err(anyhow::Error::msg),
+
+            // 建项目 {environment, workingDir, name?, wslDistro?}
+            // → {project, created}；同目录同执行环境重复建不报错（created=false）
+            "project.create" => {
+                let draft: project::model::ProjectDraft = serde_json::from_value(args)
+                    .map_err(|e| anyhow::anyhow!("invalid project draft: {}", e))?;
+                project::create_via_host(&draft).map_err(anyhow::Error::msg)
+            }
+
+            // 打开项目 {id} → ProjectView（刷新 lastOpenedAt）
+            "project.open" => {
+                let id = args
+                    .get("id")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| anyhow::anyhow!("id required"))?;
+                project::open_via_host(id).map_err(anyhow::Error::msg)
+            }
+
+            // 项目详情 {id} → ProjectView | null
+            "project.get" => {
+                let id = args
+                    .get("id")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| anyhow::anyhow!("id required"))?;
+                project::get_via_host(id)
+                    .map(|found| found.unwrap_or(serde_json::Value::Null))
+                    .map_err(anyhow::Error::msg)
+            }
+
+            // 项目改名 {id, name} → ProjectView（空名显性报错）
+            "project.rename" => {
+                let id = args
+                    .get("id")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| anyhow::anyhow!("id required"))?;
+                let name = args
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| anyhow::anyhow!("name required"))?;
+                project::rename_via_host(id, name).map_err(anyhow::Error::msg)
+            }
+
+            // 移除项目 {id} → {removed, runsRemoved, configsRemoved}；连带清该目录启动配置
+            // 以免激活期迁移重建项目；有活跃运行时拒绝（不静默 kill）
+            "project.remove" => {
+                let id = args
+                    .get("id")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| anyhow::anyhow!("id required"))?;
+                project::remove_via_host(id).map_err(anyhow::Error::msg)
+            }
+
+            // 选项目目录 {} → {picked, path}（宿主对话框；取消 = picked:false）
+            "project.pick-dir" => project::pick_dir_via_host().map_err(anyhow::Error::msg),
+
+            // 项目文件树 {projectId, dirPath?, excludeDirs?} → {children}
+            // 单层懒加载（目录树展开一次读一层）；整树递归留给 HTTP 面的移动端。
+            "project.file-tree" => {
+                let project_id = args
+                    .get("projectId")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| anyhow::anyhow!("projectId required"))?;
+                let dir_path = args.get("dirPath").and_then(|v| v.as_str()).unwrap_or("");
+                let exclude_dirs: Option<Vec<String>> = args
+                    .get("excludeDirs")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|v| v.as_str().map(str::to_string))
+                            .collect()
+                    });
+                project::files::tree_via_host(project_id, dir_path, exclude_dirs.as_deref())
+                    .map_err(anyhow::Error::msg)
+            }
+
+            // 项目文件内容 {projectId, filePath} → {content, fileName}
+            "project.file-content" => {
+                let project_id = args
+                    .get("projectId")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| anyhow::anyhow!("projectId required"))?;
+                let file_path = args
+                    .get("filePath")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| anyhow::anyhow!("filePath required"))?;
+                project::files::content_via_host(project_id, file_path).map_err(anyhow::Error::msg)
+            }
+
+            // 项目 Git 提交图 {projectId, limit?} → {isGitRepo, currentBranch, commits, truncated}
+            // 只读提交历史（git log --all --topo-order，排除 stash / notes）；图形布局由前端纯函数完成。
+            "project.git-log" => {
+                let project_id = args
+                    .get("projectId")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| anyhow::anyhow!("projectId required"))?;
+                let limit = args
+                    .get("limit")
+                    .and_then(|v| v.as_u64())
+                    .map(|value| value as usize);
+                project::git::graph_via_host(project_id, limit).map_err(anyhow::Error::msg)
+            }
+
+            // 运行列表 {projectId?} → {runs: RunView[]}（缺 projectId = 全部；倒序由前端定）
+            "run.list" => {
+                let project_id = args.get("projectId").and_then(|v| v.as_str());
+                session::list_runs_via_host(project_id).map_err(anyhow::Error::msg)
+            }
+
+            // 启动运行 {projectId, agentId, cols?, rows?} → {runId, name, configId}
+            // 项目 + agent 决定启动参数（同项目同 agent 复用一条 session_configs），
+            // 启动本身仍走 `launch` 的唯一那条链（命名唯一化 / PTY spawn / 事件广播）
+            "run.start" => run::start_via_host(&args).map_err(anyhow::Error::msg),
+
+            // 运行事件账本 {runId, afterId?, limit?} → {runId, truncated, cursor, events[]}
+            // 对话面的唯一读面（ADR 0004）：归一事件按 seq 升序，cursor 做增量轮询
+            "run.events" => run::events::list_via_host(&args).map_err(anyhow::Error::msg),
+
+            // 发送消息 {runId, text} → {commandId}（经桥接命令队列；镜像模式显性拒绝）
+            "run.send" => run::bridge::send_via_host(&args).map_err(anyhow::Error::msg),
+
+            // ==================== Agent 编排域（2026-11-09 停用） ====================
+            // `orchestration.*` 命令面 + 宿主定时器回调；未知命令由编排域显性报错。
+            //
+            // 用户裁定先注释不删除：前端菜单 / 路由与后端接线同步摘除，调用 `orchestration.*`
+            // 一律落到末尾 `other => Unknown command`（fail-visible，不静默返回空）。
+            // 模块本体保留（`agent_pool` 引用其 model），回滚时取消注释。
+            // name if name.starts_with("orchestration.") || name == orchestration::TICK_COMMAND => {
+            //     orchestration::invoke_command(name, args).map_err(anyhow::Error::msg)
+            // }
+
+            // agent 控制面（唯一入口）：{runId} → 当前模型/思考等级 + 可选清单 + 能力
+            "run.agent.options" => {
+                run::agent_control::options_via_host(&args).map_err(anyhow::Error::msg)
+            }
+
+            // 切换模型 / 思考等级 {runId, model?, thinkingLevel?}（运行内生效，不重启）
+            "run.agent.set" => run::agent_control::set_via_host(&args).map_err(anyhow::Error::msg),
+
+            // ==================== Agent 池（编排的选人真源） ====================
+            // `agent.profile.*` 必须在下一行 `agent.*` 的 hub 转发**之前**截获：池是
+            // 业务实体（私有库 `agent_profiles`），不是 CLI 安装台的子路由（见
+            // `agent_pool` 模块文档）。顺序反过来就被 hub 兜底判成 `unknown command`，
+            // 用户面只看到「操作未完成，请稍后重试」。
+            name if name.starts_with("agent.profile.") => {
+                agent_pool::invoke_command(name, args).map_err(anyhow::Error::msg)
+            }
+
+            // ==================== Agent 管理域（原 agent-hub 并入） ====================
+            // `agent.*` 命令面整体转发到 hub 域路由（探测/安装/引导/Skills/供应商/
+            // 用量），未知 agent.* 命令由 hub 显性报错。**不含 `agent.profile.*`**
+            // ——它在上面已被池域截获。
+            name if name.starts_with("agent.") => hub::invoke_command(name, args),
 
             other => Err(anyhow::anyhow!("Unknown command: {}", other)),
         }
@@ -2120,11 +2628,28 @@ pub const GIT_HTTP_ENDPOINTS: &[&str] = &["git/branches", "git/status", "git/che
 /// 移动端 JWT 验签）。本清单是**仅有的**必须免凭证可达的端点，逐条理由：
 /// - `task-status` / `session-mode`：Claude Code / codex / pi / opencode 的 hook 脚本由
 ///   插件注入 PTY 环境，拿不到 JWT，只能按环回地址匿名调用（宿主转发的 `caller`
-///   字段给 `localhost`，插件据此可自行区分，裁决 3）。
+///   字段给 `localhost`，插件据此可自行区分，裁决 3）。**免凭证 ≠ LAN 公开**：两条
+///   都过 `task::caller_allowed_for_none_auth` 门禁（T17，宿主服务绑 `0.0.0.0`）——
+///   `task-status` 认 `localhost` 与隧道面 `peer`，`session-mode` 另认 `device`
+///   （移动端经宿主壳代发带 JWT）；LAN 匿名一律 403。
+/// - 桥接四条（`run-*`）：同环回先例，且**额外收紧为只接受 `localhost` 档**
+///   （`run::bridge::caller_allowed` 本机门禁，issue #25 H3）——`run-commands`
+///   会交出用户待发正文、`run-events` 可注入伪造对话，`auth: none` 只表达
+///   「不验签」，非本机档（含已验签远端设备）在分派前 403。
 ///
 /// 认证链七条（`auth/*`）曾是第三批，issue #6 切换后随认证中心迁出本插件，
 /// 由 `com.wasmnest.auth-center` 在注册成功后自行登记 `/api/auth/*`。
-pub const NO_AUTH_HTTP_ENDPOINTS: &[&str] = &["task-status", "session-mode"];
+pub const NO_AUTH_HTTP_ENDPOINTS: &[&str] = &[
+    "task-status",
+    "session-mode",
+    // ADR 0004 桥接：扩展在 agent 进程内，拿不到 JWT（与 task-status 同先例）；
+    // run-attach 是共享服务架构下的运行身份握手（同环回先例）。暴露面收口见
+    // run::bridge 模块文档：本机门禁（caller=localhost）+ 403 拒绝非本机档
+    "run-attach",
+    "run-events",
+    "run-commands",
+    "run-commands-ack",
+];
 
 /// 业务域 HTTP 分派入口（先业务域后任务域，路径全等匹配）
 ///
@@ -2138,6 +2663,7 @@ fn handle_http_endpoint(
     query: &serde_json::Value,
     params: &serde_json::Value,
     device: &serde_json::Value,
+    caller: &str,
 ) -> serde_json::Value {
     match path {
         // GET /api/configs（网关别名）→ 配置真源列表，wire 与宿主 ConfigItem 同形
@@ -2151,6 +2677,12 @@ fn handle_http_endpoint(
         | "git/branches" | "git/status" | "git/checkout" => {
             file_browse::handle_http_endpoint(host, method, path, body, query)
         }
+        // 桥接回环路由（ADR 0004）：运行身份握手 / 事件入站 / 命令领取 / 命令回执。
+        // 环回免凭证（扩展拿不到 JWT），且只接受本机调用方档（issue #25 H3：
+        // `run-commands` 暴露用户正文、`run-events` 可注入伪造对话）
+        "run-attach" | "run-events" | "run-commands" | "run-commands-ack" => {
+            run::bridge::handle_http_endpoint(host, method, path, body, caller)
+        }
         // 认证链七端点已随认证中心迁出（issue #6）：本插件不再登记、也不再分派
         // `auth/*`——宿主 `/api/auth/*` 由 `com.wasmnest.auth-center` 接管。
         // 票 11 下沉收尾（ABI v29）：sessions REST 七条（host 模板别名 /api/sessions*）
@@ -2159,7 +2691,12 @@ fn handle_http_endpoint(
         | "sessions/history" | "sessions/remove" => {
             sessions_http::handle_sessions_http(host, method, path, body, query, params, device)
         }
-        _ => task::handle_http_via_host(host, method, path, body, query),
+        // 项目 / 运行 / Agent 的移动端 REST 面（桌面项目化的消费投影）：项目列表、
+        // 项目内运行列表、启动运行、agent 清单。项目写面需要桌面目录选择，不在此开放。
+        "projects" | "runs" | "runs/start" | "agents" => {
+            projects_http::handle_projects_http(host, method, path, body, query, device)
+        }
+        _ => task::handle_http_via_host(host, method, path, body, query, caller),
     }
 }
 
@@ -2213,7 +2750,10 @@ fn handle_quick_actions_http(
         Ok(items) => items,
         Err(e) => {
             host.log_warn(&format!("quick-actions http: {}", e));
-            return wasmnest_plugin_api::http_response::error(500, "quick action store unavailable");
+            return wasmnest_plugin_api::http_response::error(
+                500,
+                "quick action store unavailable",
+            );
         }
     };
     wasmnest_plugin_api::http_response::ok_with_data(serde_json::json!({
@@ -2252,6 +2792,10 @@ mod tests {
     }
 
     /// issue #6 切换：本插件**不得**再注册 / 注销认证中心（K4 单中心）
+    ///
+    /// 结构锁（不是行为锁）：`activate` / `deactivate` 是 WIT 入口、纯宿主调用，
+    /// native 无端口可注入 ⇒ 只能钉「不得出现某个调用」这条否定型不变量；
+    /// 断言的失败后果就是它存在的理由（双中心 / 半死中心）。
     ///
     /// 认证中心已迁到 `com.wasmnest.auth-center`，它负责注册与 `/api/auth/*` 路由。
     /// BedCode 若仍调用 `auth-center-register`，按其加载顺序只有两种结局：抢在中心
@@ -2292,6 +2836,26 @@ mod tests {
         );
     }
 
+    /// H1：deactivate 必须撤销隧道暴露规则（否则租约 / relay 预留 / 对等面泄漏）
+    ///
+    /// 结构锁（同 `bedcode_does_not_register_or_unregister_auth_center`：WIT 入口
+    /// 直调宿主，native 没有端口可注入）。
+    #[test]
+    fn deactivate_revokes_tunnel_expose() {
+        let src = include_str!("lib.rs");
+        let start = src
+            .find("    fn deactivate() -> anyhow::Result<()> {")
+            .expect("deactivate fn found");
+        let end = src[start..]
+            .find("    /// 认证策略导出")
+            .map(|i| start + i)
+            .expect("deactivate 后的 verify_device_token_policy 文档锚点");
+        assert!(
+            src[start..end].contains("tunnel::unexpose_via_host()"),
+            "deactivate 必须撤销本插件的 expose 规则（H1）"
+        );
+    }
+
     /// 能力面声明只随已落地语义增长：票 05 = pairing 八项 + trust 两项 + consent 一项；
     /// 票 08 = config 三项（配置真源私有库）；票 09 = session-create（创建编排）；
     /// 票 10 = 会话动作四项 + 配置面只读化（v22，`session:config` 权限随写原语退役）；
@@ -2307,6 +2871,9 @@ mod tests {
         assert_eq!(
             manifest.permissions,
             vec![
+                // Agent 管理域（原 agent-hub 并入）：Node 引导经 host-app
+                // register-path 登记 PATH（`app:path` 原语）
+                "app:path".to_string(),
                 "auth".to_string(),
                 // 票 15 任务域按 D2 能力映射补的权限位：
                 // `fs:read` / `fs:write`（Agent 集成写项目 hook）、
@@ -2322,6 +2889,9 @@ mod tests {
                 // `host-connection.connections-list`，权限判据同步换挂 `connection:read`
                 // （审计单值化：谁能读连接清单只由本位回答，`session:read` 不再代答）
                 "connection:read".to_string(),
+                // Agent 管理域（原 agent-hub 并入）：工作目录/用量来源目录/技能
+                // 本地导入的系统目录选取对话框
+                "fs:pick".to_string(),
                 "fs:read".to_string(),
                 "fs:write".to_string(),
                 // ABI v29（HTTP 路由代码注册下沉）：host-http 服务端域
@@ -2350,6 +2920,10 @@ mod tests {
                 "task:run".to_string(),
                 "terminal:input".to_string(),
                 "timer:schedule".to_string(),
+                // T06/T07（内网穿透）：`tunnel:serve` = host-tunnel 的
+                // expose / unexpose / issue-pairing-ticket（本端是服务端）；
+                // `tunnel:connect` 不声明——桌面不拨号，声明即越权。
+                "tunnel:serve".to_string(),
                 // 票 17：任务队列弹窗的终端工具栏入口（`ui.registerTerminalToolbarItem`
                 // 与 `ui.registerInputExtension` 同权限门），纯前端贡献面
                 // 会话引擎下沉 P1-b：`pty:spawn`/`pty:io` 按词汇表 apiMap 归位
@@ -2403,6 +2977,8 @@ mod tests {
                 "trust",
                 "consent",
                 "config",
+                // ADR 0003：项目容器（一级容器 + 容器迁移）
+                "project",
                 "session",
                 "devices",
                 "environment",
@@ -2440,6 +3016,33 @@ mod tests {
             err.to_string().contains("invalid consent request"),
             "got: {err}"
         );
+    }
+
+    /// Agent 池命令面接线：`agent.profile.*` 必须**先于** `agent.*` 的 hub 转发
+    /// 被池域截获。
+    ///
+    /// 回归锁（2026-11-07 实机 bug）：分派表只写了 `agent.*` → hub，缺池域分支，
+    /// 于是五个池命令全被 hub 兜底判成 `unknown command: agent.profile.list`，
+    /// 前端只能报通用文案「操作未完成，请稍后重试」（agent 池整面不可用）。
+    /// native 下池命令依赖宿主私有库，实现体显性失败——断言的正是**这条错误
+    /// 文案**（区别于 hub 的 `unknown command`），证明分派落在池域而不是 hub。
+    #[test]
+    fn agent_profile_commands_route_to_pool_before_hub() {
+        for command in [
+            crate::agent_pool::LIST_COMMAND,
+            crate::agent_pool::CREATE_COMMAND,
+            crate::agent_pool::UPDATE_COMMAND,
+            crate::agent_pool::DELETE_COMMAND,
+            crate::agent_pool::OPTIONS_COMMAND,
+        ] {
+            let err = SessionPlugin::invoke_command(command, serde_json::json!({}))
+                .expect_err("native 下池命令不可用，必须显性失败");
+            let text = err.to_string();
+            assert!(
+                text.contains("only available in the wasm host"),
+                "{command} 必须派发到 agent_pool（而非 hub 的 unknown command）: {text}"
+            );
+        }
     }
 
     /// 票 05 命令面接线：`session.auth.rotate-key` 必须**派发到轮换实现体**而非
@@ -2500,8 +3103,9 @@ mod tests {
     /// 命令面在 native 下同样显性失败（转发层不可用，不落 Unknown command）
     #[test]
     fn center_status_command_fails_loudly_on_native() {
-        let err = SessionPlugin::invoke_command("session.auth.center-status", serde_json::json!({}))
-            .expect_err("native 无互调宿主，必须显性失败");
+        let err =
+            SessionPlugin::invoke_command("session.auth.center-status", serde_json::json!({}))
+                .expect_err("native 无互调宿主，必须显性失败");
         assert!(
             err.to_string().contains("unavailable outside wasm runtime"),
             "必须派发到认证中心转发层（而非 Unknown command）: {err}"

@@ -66,7 +66,7 @@
           <svg class="w-8 h-8 text-[var(--mobile-text-disabled)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
           </svg>
-          <p class="text-[var(--mobile-text-disabled)] text-sm mt-2">{{ t('codeViewer.selectFile') }}</p>
+          <p class="text-[var(--mobile-text-muted)] text-sm mt-2">{{ t('codeViewer.selectFile') }}</p>
         </div>
 
         <!-- 加载中 -->
@@ -639,7 +639,7 @@ watch(
 }
 
 .code-md-preview :deep(h1) {
-  font-size: clamp(1.25rem, 1.375rem + (100cqw - 360px) / 840 * 2, 1.5rem);
+  font-size: var(--font-size-2xl);
   font-weight: 700;
   color: var(--mobile-text-primary);
   margin: 0 0 0.75rem;
@@ -647,10 +647,11 @@ watch(
   border-bottom: 1px solid var(--mobile-border);
 }
 
+/* 标题层级靠字号与字重，不靠色相：h2 与 h1 同色，只在档位上低一阶 */
 .code-md-preview :deep(h2) {
   font-size: var(--font-size-xl);
   font-weight: 600;
-  color: var(--mobile-accent);
+  color: var(--mobile-text-primary);
   margin: 1.25rem 0 0.5rem;
   padding-bottom: 0.25rem;
   border-bottom: 1px solid var(--mobile-border);
@@ -685,8 +686,6 @@ watch(
   color: var(--mobile-text-primary);
   font-weight: 600;
   font-size: var(--font-size-sm);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
   border-bottom: 2px solid var(--mobile-border);
   white-space: nowrap;
 }

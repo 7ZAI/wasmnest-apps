@@ -7,11 +7,15 @@
 //! 不通过声明配置路由，插件代码运行时注册）。
 //!
 //! 三类路由：
-//! - **业务别名**（17 条）：内部段 + 对外别名（`/api/configs` … `/api/git/*`），
-//!   移动端经网关别名直达；
+//! - **业务别名**（21 条）：内部段 + 对外别名（`/api/configs` … `/api/git/*`），
+//!   移动端经网关别名直达；其中 4 条是项目视角的移动面（`/api/projects`、
+//!   `/api/runs`、`/api/runs/start`、`/api/agents`，见 `projects_http`）；
 //! - **任务域内部路径**（17 条）：只挂内部路径（`/api/plugin/<id>/<path>`），
 //!   hook 脚本 / 移动端任务面经插件代理前缀访问；
 //! - **sessions REST**（7 条）：内部段 + 模板别名（`/api/sessions/{id}/…`）；
+//! - **桥接回环**（4 条）：`run-attach` / `run-events` / `run-commands` /
+//!   `run-commands-ack`（只挂内部路径，auth:none——agent 进程内的扩展拿不到 JWT；
+//!   暴露面由 `run::bridge` 的本机调用方门禁收口，issue #25 H3）；
 //! - **terminal-bg**（1 条）：内部段 + `/static/terminal-bg`（auth:none）。
 //!
 //! **认证链七端点不在本表**（issue #6 切换）：`/api/auth/*` 随认证中心迁到
@@ -20,7 +24,9 @@
 //!
 //! 认证档位（票 08 裁决 1 沿革）：未显式 `none` 一律最严档 `jwt`（宿主要求验签）；
 //! 免凭证只有 `task-status` / `session-mode` / `terminal-bg`（环回 hook / CSS
-//! 无法携带凭证）。
+//! 无法携带凭证）。**免凭证 ≠ LAN 公开**：宿主服务绑 `0.0.0.0`，前两条由
+//! `task::caller_allowed_for_none_auth` 按调用方档位收口（T17）：只放行环回
+//! hook / 已验签设备（session-mode）/ 隧道对等面 peer，LAN 匿名调用一律 403。
 
 use crate::WasmHost;
 use wasmnest_plugin_api::host::{HostHttp, HostLog};
@@ -107,6 +113,9 @@ pub const ROUTES: &[HttpRouteDecl] = &[
         auth: JWT,
     },
     // ==================== 任务域内部路径（/api/plugin/<id>/<path> 可达） ====================
+    // task-status / session-mode 免凭证（hook 脚本拿不到 JWT），但**不是 LAN 公开**：
+    // 分派前过 `task::caller_allowed_for_none_auth` 门禁（T17）——前者认环回与隧道
+    // peer，后者另认已验签的 device（移动端经宿主壳代发带 JWT）
     HttpRouteDecl {
         path: "task-status",
         host: None,
@@ -117,6 +126,33 @@ pub const ROUTES: &[HttpRouteDecl] = &[
         path: "session-mode",
         host: None,
         methods: &["GET", "POST"],
+        auth: NONE,
+    },
+    // 桥接回环路由（ADR 0004，4 条）：agent 进程内的扩展拿不到 JWT，只能匿名回环
+    // 调用；run-attach 是共享服务架构下的运行身份握手（同环回先例）。auth:none 只
+    // 表达「不验签」：非本机调用方由 run::bridge 的本机门禁 403（issue #25 H3）
+    HttpRouteDecl {
+        path: "run-attach",
+        host: None,
+        methods: &["POST"],
+        auth: NONE,
+    },
+    HttpRouteDecl {
+        path: "run-events",
+        host: None,
+        methods: &["POST"],
+        auth: NONE,
+    },
+    HttpRouteDecl {
+        path: "run-commands",
+        host: None,
+        methods: &["POST"],
+        auth: NONE,
+    },
+    HttpRouteDecl {
+        path: "run-commands-ack",
+        host: None,
+        methods: &["POST"],
         auth: NONE,
     },
     HttpRouteDecl {
@@ -252,6 +288,34 @@ pub const ROUTES: &[HttpRouteDecl] = &[
         methods: &["DELETE"],
         auth: JWT,
     },
+    // ==================== 项目 / 运行 / Agent（移动端项目视角，ADR 0003） ====================
+    // 桌面以项目为一级容器后，移动端需要项目列表与项目内运行；写面（建/改名/删除/
+    // 选目录）留在桌面，不开放。响应口径与 sessions REST 一致（HTTP 200 +
+    // `{code:1002}` 业务错误），见 `projects_http`。
+    HttpRouteDecl {
+        path: "projects",
+        host: Some("/api/projects"),
+        methods: &["GET"],
+        auth: JWT,
+    },
+    HttpRouteDecl {
+        path: "runs",
+        host: Some("/api/runs"),
+        methods: &["GET"],
+        auth: JWT,
+    },
+    HttpRouteDecl {
+        path: "runs/start",
+        host: Some("/api/runs/start"),
+        methods: &["POST"],
+        auth: JWT,
+    },
+    HttpRouteDecl {
+        path: "agents",
+        host: Some("/api/agents"),
+        methods: &["GET"],
+        auth: JWT,
+    },
     // ==================== terminal-bg（/static/terminal-bg，auth:none——CSS 无法携带凭证） ====================
     HttpRouteDecl {
         path: "terminal-bg",
@@ -349,8 +413,16 @@ mod tests {
             .collect();
         assert_eq!(
             none_paths,
-            vec!["task-status", "session-mode", "terminal-bg"],
-            "none 档清单漂移必须显式交代（环回 hook / CSS 无凭证；认证链已随中心迁出）"
+            vec![
+                "task-status",
+                "session-mode",
+                "run-attach",
+                "run-events",
+                "run-commands",
+                "run-commands-ack",
+                "terminal-bg"
+            ],
+            "none 档清单漂移必须显式交代（环回 hook / 桥接含 run-attach 身份握手 / CSS 无凭证；认证链已随中心迁出）。\n             免凭证 ≠ 免门禁：task-status / session-mode 另过 task::caller_allowed_for_none_auth（T17）"
         );
     }
 
@@ -361,7 +433,7 @@ mod tests {
             .iter()
             .filter_map(|r| r.host.map(|h| (h, r.methods)))
             .collect();
-        // 旧 BUSINESS_ROUTES 的 17 条路径 + sessions 7 + terminal-bg 1
+        // 旧 BUSINESS_ROUTES 的 10 条 + sessions 7 + 项目/运行/Agent 4 + terminal-bg 1
         for (h, methods) in &aliases {
             assert!(
                 h.starts_with("/api/") || *h == "/static/terminal-bg",
@@ -374,8 +446,8 @@ mod tests {
                 .iter()
                 .filter(|(h, _)| h.starts_with("/api/"))
                 .count(),
-            17,
-            "别名表 = 业务 10 + sessions 7 = 17 条 /api 别名（auth 7 条已随中心迁出）"
+            21,
+            "别名表 = 业务 10 + sessions 7 + 项目/运行/Agent 4 = 21 条 /api 别名（auth 7 条已随中心迁出）"
         );
         assert!(
             aliases.iter().any(|(h, _)| *h == "/static/terminal-bg"),

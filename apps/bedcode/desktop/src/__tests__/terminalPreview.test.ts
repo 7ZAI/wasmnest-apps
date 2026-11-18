@@ -41,6 +41,7 @@ import {
 import type { TerminalSettingsAccessor } from '../composables/terminal/useTerminalSettingsSync'
 import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-desktop'
 import type { SessionInfo } from '../composables/terminal/model'
+import { OUTPUT_PULL_MAX_FAILURES } from '../utils/terminal/terminalPullPolicy'
 
 // ==================== mock 边界 ====================
 
@@ -303,6 +304,27 @@ describe('TerminalPreview（插件版组装）', () => {
     expect(vm(wrapper!).fontSize).toBe(12)
     expect(vm(wrapper!).terminalTheme).toBe('dracula')
     expect(vm(wrapper!).themeNames).toHaveProperty('dracula')
+  })
+
+  it('挂载终态会话：不发起 resize / 输出拉取（PTY 已回收，命令必然失败）', async () => {
+    const context = makeContext()
+    wrapper = mount(TerminalPreview, {
+      props: { session: { ...makeRunningSession(), status: 'error' } },
+      global: {
+        provide: {
+          pluginContext: context,
+          [TERMINAL_HOST_CAPABILITIES_KEY]: caps,
+        },
+      },
+      attachTo: document.body,
+    })
+
+    // 等挂载后的 fit / ResizeObserver / 轮询窗口都过去：终态会话不应发任何 PTY 命令
+    await flushAsync()
+    await new Promise((r) => setTimeout(r, 50))
+    expect(wrapper!.element.querySelector('.xterm')).toBeTruthy()
+    expect(countCalls(context, 'session.action.resize')).toBe(0)
+    expect(countCalls(context, 'session.output.pull')).toBe(0)
   })
 
   it('输出数据帧经写入管线渲染到 xterm buffer（DOM 渲染器文本可读）', async () => {
@@ -572,6 +594,114 @@ describe('TerminalPreview（插件版组装）', () => {
       timeout: 3000,
     })
     expect(renderedRowsText(wrapper!)).not.toContain('old-line')
+  })
+
+  it('换会话（两条 running 运行切换）：清屏 + 游标归零 + 从新会话环起点重放', async () => {
+    const context = makeContext()
+    context.__setPullResponses([textFrame('old-run\r\n', 0)])
+    wrapper = mount(TerminalPreview, {
+      props: { session: makeRunningSession() },
+      global: {
+        provide: {
+          pluginContext: context,
+          [TERMINAL_HOST_CAPABILITIES_KEY]: caps,
+        },
+      },
+      attachTo: document.body,
+    })
+    await vi.waitFor(() => expect(renderedRowsText(wrapper!)).toContain('old-run'), {
+      timeout: 3000,
+    })
+
+    // 切到另一条 running 运行：id 变、status 不变。只听 status 的旧实现不会重挂，
+    // 屏幕留着上一条的字节、游标停在旧偏移（B 的字节少于旧游标时永远空白）。
+    context.__setPullResponses([textFrame('new-run\r\n', 0)])
+    await wrapper.setProps({
+      session: { ...makeRunningSession(), id: 'sess-2', name: 'second run' },
+    })
+
+    await vi.waitFor(() => expect(renderedRowsText(wrapper!)).toContain('new-run'), {
+      timeout: 3000,
+    })
+    expect(renderedRowsText(wrapper!)).not.toContain('old-run')
+
+    // 换会话后的拉取：新会话 id + 从环起点重放（不复用上一条会话的游标）
+    const pulls = vi
+      .mocked(context.commands.execute)
+      .mock.calls.filter(([cmd]) => cmd === 'session.output.pull')
+      .map(([, args]) => args as { sessionId?: string; fromOffset?: number })
+    expect(pulls.some((args) => args.sessionId === 'sess-2' && args.fromOffset === 0)).toBe(true)
+  })
+
+  it('换到已停止的会话：清掉上一条会话的画面，且不为终态会话拉取输出', async () => {
+    const context = makeContext()
+    context.__setPullResponses([textFrame('old-run\r\n', 0)])
+    wrapper = mount(TerminalPreview, {
+      props: { session: makeRunningSession() },
+      global: {
+        provide: {
+          pluginContext: context,
+          [TERMINAL_HOST_CAPABILITIES_KEY]: caps,
+        },
+      },
+      attachTo: document.body,
+    })
+    await vi.waitFor(() => expect(renderedRowsText(wrapper!)).toContain('old-run'), {
+      timeout: 3000,
+    })
+
+    await wrapper.setProps({
+      session: { ...makeRunningSession(), id: 'sess-2', name: 'stopped run', status: 'stopped' },
+    })
+
+    await vi.waitFor(() => expect(renderedRowsText(wrapper!)).not.toContain('old-run'), {
+      timeout: 3000,
+    })
+    const pulls = vi
+      .mocked(context.commands.execute)
+      .mock.calls.filter(([cmd]) => cmd === 'session.output.pull')
+      .map(([, args]) => args as { sessionId?: string })
+    expect(pulls.some((args) => args.sessionId === 'sess-2')).toBe(false)
+  })
+
+  it('拉取命令持续失败：收敛为一次 warn + 达上限停机（不让 rejection 灌成全局提示风暴）', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const context = await mountRunning()
+      // 换成「会话已不在册 / 缺 PTY」的失败面：命令直接 reject（宿主信封形状）
+      vi.mocked(context.commands.execute).mockImplementation(async (cmd: string) => {
+        if (cmd === 'session.output.pull') {
+          throw { code: 'host.internal', params: { plugin: 'com.wasmnest.bedcode' } }
+        }
+        return null
+      })
+
+      await vi.waitFor(
+        () => {
+          const stopped = warn.mock.calls.some(([message]) =>
+            String(message).includes('已停止轮询'),
+          )
+          return expect(stopped).toBe(true)
+        },
+        { timeout: 3000 },
+      )
+      // 失败次数上限是「轮询 tick 级」的，只作下限 sanity（不绑死具体 tick 数）
+      expect(countCalls(context, 'session.output.pull')).toBeGreaterThanOrEqual(
+        OUTPUT_PULL_MAX_FAILURES,
+      )
+      const attempts = countCalls(context, 'session.output.pull')
+      // 达上限即停：等一个慢档周期后不再有新的 pull
+      await new Promise((resolve) => setTimeout(resolve, 300))
+      expect(countCalls(context, 'session.output.pull')).toBe(attempts)
+      // 失败只在首次与停机时各 warn 一次（不按 tick 刷日志）
+      const pullWarns = warn.mock.calls
+        .map(([message]) => String(message))
+        .filter((message) => message.includes('输出拉取'))
+      expect(pullWarns).toHaveLength(2)
+      expect(pullWarns.some((message) => message.includes('已停止轮询'))).toBe(true)
+    } finally {
+      warn.mockRestore()
+    }
   })
 
   it('过期世代响应丢弃：detach 前发出的 pull 迟到不写入终端', async () => {

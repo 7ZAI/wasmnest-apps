@@ -21,9 +21,63 @@ export function useTerminalResize(ctx: TerminalKernelContext) {
   let resizeInFlight = false
   let pendingResize: { cols: number; rows: number; force: boolean } | null = null
 
+  // ==================== 重试（P1-3） ====================
+  /**
+   * resize 失败（网络/会话创建竞态/服务端未返回裁决）后的退避重试。
+   *
+   * 没有重试时，首次 resize 恰好失败就会让 PTY 永久停在宿主默认 120×40，
+   * 直到用户旋转屏幕 / 改字号 / 重进页面。退避封顶 8s、最多 5 次后留 warn
+   * （fail-visible，不无限刷日志）。
+   */
+  const RESIZE_RETRY_BASE_MS = 1000
+  const RESIZE_RETRY_MAX = 5
+  let resizeRetryTimer: ReturnType<typeof setTimeout> | null = null
+  let resizeRetryAttempt = 0
+  let resizeRetrySize: { cols: number; rows: number } | null = null
+
+  function clearResizeRetry(): void {
+    if (resizeRetryTimer) {
+      clearTimeout(resizeRetryTimer)
+      resizeRetryTimer = null
+    }
+    resizeRetryAttempt = 0
+    resizeRetrySize = null
+  }
+
+  function scheduleResizeRetry(cols: number, rows: number): void {
+    // 尺寸变了 = 新意图：先重置退避计数，再判上限（否则耗尽后旋转屏幕仍不重试）
+    if (!resizeRetrySize || resizeRetrySize.cols !== cols || resizeRetrySize.rows !== rows) {
+      resizeRetryAttempt = 0
+      resizeRetrySize = { cols, rows }
+    }
+    if (resizeRetryAttempt >= RESIZE_RETRY_MAX) {
+      logger.warn(
+        `[TerminalView] resize retry exhausted (${cols}x${rows}): PTY 可能停在旧尺寸，等下一次尺寸变化/重进页面`,
+      )
+      return
+    }
+    resizeRetryAttempt += 1
+    if (resizeRetryTimer) clearTimeout(resizeRetryTimer)
+    const delay = Math.min(RESIZE_RETRY_BASE_MS * 2 ** (resizeRetryAttempt - 1), 8000)
+    resizeRetryTimer = setTimeout(() => {
+      resizeRetryTimer = null
+      if (!ctx.isConnected()) return
+      if (rejectedSize && rejectedSize.cols === cols && rejectedSize.rows === rows) return
+      void queueResize(cols, rows)
+    }, delay)
+  }
+
   // ==================== 正统渲染端裁决交互 ====================
   /** 用户拒绝覆盖的尺寸（成功后清空；同尺寸不再重发） */
   let rejectedSize: { cols: number; rows: number } | null = null
+
+  /**
+   * 「当前尺寸属于另一端」的持续提示（P1-3）
+   *
+   * 用户取消覆盖后不能只弹一次对话框就沉默：PTY 仍是对方尺寸，本端显示会持续
+   * 错乱，需要一条常驻提示 + 一键改用本机尺寸（成功/尺寸变化后消失）。
+   */
+  const rendererSizeMismatch = ref<{ cols: number; rows: number; rendererName: string } | null>(null)
 
   /** 待确认覆盖目标（弹窗内容源） */
   const rendererOverrideTarget = ref<{
@@ -41,23 +95,31 @@ export function useTerminalResize(ctx: TerminalKernelContext) {
 
   /** 用户确认覆盖：force 重发（尺寸移交服务端正统归属） */
   async function confirmRendererOverride() {
-    const target = rendererOverrideTarget.value
+    // 确认入口有两个：弹窗确认 / 取消后的常驻横幅。两者都走 force 重发。
+    const target = rendererOverrideTarget.value ?? rendererSizeMismatch.value
     showRendererOverrideDialog.value = false
     rendererOverrideTarget.value = null
+    rendererSizeMismatch.value = null
     if (target) await queueResize(target.cols, target.rows, true)
   }
 
-  /** 用户拒绝覆盖：记录被拒尺寸，同尺寸不再打扰 */
+  /** 用户拒绝覆盖：记录被拒尺寸 + 常驻提示（同尺寸不再弹窗打扰） */
   function cancelRendererOverride() {
     const target = rendererOverrideTarget.value
     showRendererOverrideDialog.value = false
+    // 弹窗源清空（否则 "同尺寸已在弹窗中" 守卫会永久拦下横幅的 force 重发）；
+    // 目标改存到常驻提示里，供「改用本机尺寸」复用
     rendererOverrideTarget.value = null
-    if (target) rejectedSize = { cols: target.cols, rows: target.rows }
+    if (target) {
+      rejectedSize = { cols: target.cols, rows: target.rows }
+      rendererSizeMismatch.value = { ...target }
+    }
   }
 
   /** 用户显式刷新 = 明确意图：清空「拒绝覆盖尺寸」记录，让尺寸仲裁重新走一遍 */
   function clearRejectedSize() {
     rejectedSize = null
+    rendererSizeMismatch.value = null
   }
 
   /**
@@ -74,8 +136,18 @@ export function useTerminalResize(ctx: TerminalKernelContext) {
     if (!ctx.gridCalibrated.value && cols === 80 && rows === 24) return
     // 用户刚拒绝过的相同尺寸：抑制（force 重发绕过，确认覆盖是明确意图）
     if (!force && rejectedSize && rejectedSize.cols === cols && rejectedSize.rows === rows) return
-    // 相同尺寸已在确认弹窗中：不再重复入队（防弹窗期间 RO 事件叠加）
+    // 尺寸变了：旧的「被拒/错位」提示已不适用
     if (
+      rendererSizeMismatch.value &&
+      (rendererSizeMismatch.value.cols !== cols || rendererSizeMismatch.value.rows !== rows)
+    ) {
+      rendererSizeMismatch.value = null
+      rejectedSize = null
+    }
+    // 相同尺寸已在确认弹窗中：不再重复入队（防弹窗期间 RO 事件叠加）；
+    // force = 用户明确决策，必须放行
+    if (
+      !force &&
       rendererOverrideTarget.value &&
       rendererOverrideTarget.value.cols === cols &&
       rendererOverrideTarget.value.rows === rows
@@ -96,18 +168,24 @@ export function useTerminalResize(ctx: TerminalKernelContext) {
         const result = await httpResizeSession(sid, next.cols, next.rows, next.force)
         if (result.code !== 0) {
           logger.warn('[TerminalView] Queue resize failed:', result.message)
+          scheduleResizeRetry(next.cols, next.rows)
           continue
         }
         const outcome = result.data
         if (!outcome) {
-          // 服务端未返回裁决数据（异常响应）：按失败处理，下次触发时重试
+          // 服务端未返回裁决数据（异常响应）：按失败处理，退避重试
           logger.warn('[TerminalView] Resize response missing outcome data')
+          scheduleResizeRetry(next.cols, next.rows)
           continue
         }
         if (outcome.status === 'applied') {
-          // 已应用：本端即位正统渲染端（请求方即正统），清空抑制记录
+          // 已应用：本端即位正统渲染端（请求方即正统），清空抑制/错位记录
           rejectedSize = null
+          rendererSizeMismatch.value = null
+          clearResizeRetry()
         } else if (outcome.status === 'needsConfirmation') {
+          // 已确定「另一端正在渲染」：不重试（重试只会再弹一次），等用户决策
+          clearResizeRetry()
           // 另一端正渲染输出：弹窗确认是否覆盖（未应用，PTY 尺寸保持对方设置）
           rendererOverrideTarget.value = {
             cols: next.cols,
@@ -164,11 +242,16 @@ export function useTerminalResize(ctx: TerminalKernelContext) {
   return {
     rendererOverrideTarget,
     showRendererOverrideDialog,
+    rendererSizeMismatch,
     confirmRendererOverride,
     cancelRendererOverride,
     clearRejectedSize,
     queueResize,
     syncTerminalSizeToHost,
     applyResize,
+    /** 页面卸载：作废退避重试定时器（否则僵尸定时器向已离开的会话发 resize） */
+    disposeResize() {
+      clearResizeRetry()
+    },
   }
 }

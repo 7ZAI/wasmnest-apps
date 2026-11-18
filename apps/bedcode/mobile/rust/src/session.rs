@@ -40,7 +40,7 @@ fn host() -> WasmHost {
 
 /// 会话列表（`GET /api/sessions`）
 pub(crate) fn list_sessions() -> anyhow::Result<serde_json::Value> {
-    http_call("GET", PATH_SESSIONS, None)
+    http_call("session", "GET", PATH_SESSIONS, None)
 }
 
 /// 启动会话（`POST /api/sessions/start`，body `{configId, cols?, rows?}`）
@@ -49,6 +49,7 @@ pub(crate) fn start_session(args: &serde_json::Value) -> anyhow::Result<serde_js
     let cols = args.get("cols").and_then(|v| v.as_u64());
     let rows = args.get("rows").and_then(|v| v.as_u64());
     http_call(
+        "session",
         "POST",
         PATH_SESSIONS_START,
         Some(build_start_body(&config_id, cols, rows)),
@@ -58,13 +59,18 @@ pub(crate) fn start_session(args: &serde_json::Value) -> anyhow::Result<serde_js
 /// 停止会话（`POST /api/sessions/{id}/stop`）
 pub(crate) fn stop_session(args: &serde_json::Value) -> anyhow::Result<serde_json::Value> {
     let session_id = require_str(args, "sessionId")?;
-    http_call("POST", &session_path(&session_id, "stop"), None)
+    http_call("session", "POST", &session_path(&session_id, "stop"), None)
 }
 
 /// 删除会话（`DELETE /api/sessions/{id}/remove`）
 pub(crate) fn remove_session(args: &serde_json::Value) -> anyhow::Result<serde_json::Value> {
     let session_id = require_str(args, "sessionId")?;
-    http_call("DELETE", &session_path(&session_id, "remove"), None)
+    http_call(
+        "session",
+        "DELETE",
+        &session_path(&session_id, "remove"),
+        None,
+    )
 }
 
 /// 写入终端输入（`POST /api/sessions/{id}/input`，body `{data, specialKey?}`）
@@ -76,6 +82,7 @@ pub(crate) fn send_http_input(args: &serde_json::Value) -> anyhow::Result<serde_
     let data = args.get("data").and_then(|v| v.as_str()).unwrap_or("");
     let special_key = args.get("specialKey").and_then(|v| v.as_str());
     http_call(
+        "session",
         "POST",
         &session_path(&session_id, "input"),
         Some(build_input_body(data, special_key)),
@@ -84,19 +91,27 @@ pub(crate) fn send_http_input(args: &serde_json::Value) -> anyhow::Result<serde_
 
 // ==================== HTTP 调用 ====================
 
-/// 经宿主 `host-http` 打一次桌面会话控制请求，返回前端消费形状
+/// 经宿主 `host-http` 打一次桌面业务请求，返回前端消费形状
 /// （`{code, message, data?}`）；网络层失败（未连接 / 权限 / egress / 传输）
 /// 一律 Err 上抛。
-fn http_call(method: &str, path: &str, body: Option<serde_json::Value>) -> anyhow::Result<serde_json::Value> {
+///
+/// `domain` 只进错误文案（`session` / `project`），便于两端日志各自归域；
+/// HTTP 信封语义只有这一份（[`classify_http_response`]），不按域分叉。
+pub(crate) fn http_call(
+    domain: &str,
+    method: &str,
+    path: &str,
+    body: Option<serde_json::Value>,
+) -> anyhow::Result<serde_json::Value> {
     let target = read_primary_target()?; // 未配置目标 → 显性错误（fail-visible）
     let url = format!("http://{}:{}{}", target.address, target.port, path);
     let request = build_request(method, &url, body);
     let resp = host()
         .http_fetch(&request)
-        .map_err(|e| anyhow::anyhow!("session http fetch failed ({method} {path}): {e}"))?;
+        .map_err(|e| anyhow::anyhow!("{domain} http fetch failed ({method} {path}): {e}"))?;
     let Some(resp) = resp else {
         return Err(anyhow::anyhow!(
-            "session http fetch returned empty response ({method} {path})"
+            "{domain} http fetch returned empty response ({method} {path})"
         ));
     };
     Ok(classify_http_response(&resp))
@@ -106,7 +121,11 @@ fn http_call(method: &str, path: &str, body: Option<serde_json::Value>) -> anyho
 
 /// `host-http.fetch` 请求 JSON：headers 固定 JSON；`jwtAuth: true` = 宿主代注
 /// Bearer（token 不落插件，C4）；body 以字符串承载（宿主契约）。
-pub(crate) fn build_request(method: &str, url: &str, body: Option<serde_json::Value>) -> serde_json::Value {
+pub(crate) fn build_request(
+    method: &str,
+    url: &str,
+    body: Option<serde_json::Value>,
+) -> serde_json::Value {
     let mut request = serde_json::json!({
         "method": method,
         "url": url,
@@ -119,18 +138,31 @@ pub(crate) fn build_request(method: &str, url: &str, body: Option<serde_json::Va
     request
 }
 
-/// 会话子路径 `/api/sessions/{id}/{action}`（stop / remove / input 共用；
-/// 与退役前前端模板拼接逐字一致，id 不做 URL 编码——桌面端 id 格式受控）
+/// 会话子路径 `/api/sessions/{id}/{action}`（stop / remove / input 共用）
+///
+/// id 做**路径组件编码**：与同仓 `project::runs_path` 的查询串编码同一口径。
+/// 拼裸串时 `sessionId = "../agents"` 这类值会改变目标端点（桌面端 id 格式
+/// 受控，但线协议不该依赖调用方的自觉）。
 pub(crate) fn session_path(session_id: &str, action: &str) -> String {
-    format!("{PATH_SESSIONS}/{session_id}/{action}")
+    format!(
+        "{PATH_SESSIONS}/{}/{action}",
+        crate::project::encode_query_component(session_id)
+    )
 }
 
 /// 启动会话 body：`configId` 必填；`cols/rows` 仅 Some 时出现
 /// （与退役前 `JSON.stringify({configId, cols: size?.cols, rows: size?.rows})`
 /// 的缺省省略形态一致——桌面端「两者齐备且 >0 才作 PTY 初始尺寸」）
-pub(crate) fn build_start_body(config_id: &str, cols: Option<u64>, rows: Option<u64>) -> serde_json::Value {
+pub(crate) fn build_start_body(
+    config_id: &str,
+    cols: Option<u64>,
+    rows: Option<u64>,
+) -> serde_json::Value {
     let mut body = serde_json::Map::new();
-    body.insert("configId".to_string(), serde_json::Value::String(config_id.to_string()));
+    body.insert(
+        "configId".to_string(),
+        serde_json::Value::String(config_id.to_string()),
+    );
     if let Some(cols) = cols {
         body.insert("cols".to_string(), serde_json::json!(cols));
     }
@@ -217,7 +249,10 @@ mod tests {
         assert!(body.get("rows").is_none());
 
         let sized = build_start_body("cfg-1", Some(120), Some(30));
-        assert_eq!(sized, serde_json::json!({ "configId": "cfg-1", "cols": 120, "rows": 30 }));
+        assert_eq!(
+            sized,
+            serde_json::json!({ "configId": "cfg-1", "cols": 120, "rows": 30 })
+        );
     }
 
     #[test]
@@ -261,8 +296,14 @@ mod tests {
         for status in [404u64, 500] {
             let resp = serde_json::json!({ "status": status, "body": "boom" });
             let out = classify_http_response(&resp);
-            assert_eq!(out["code"], status, "非 2xx 应透出 HTTP 状态码（前端按 code 分支）");
-            assert!(out["message"].as_str().unwrap().contains(&status.to_string()));
+            assert_eq!(
+                out["code"], status,
+                "非 2xx 应透出 HTTP 状态码（前端按 code 分支）"
+            );
+            assert!(out["message"]
+                .as_str()
+                .unwrap()
+                .contains(&status.to_string()));
         }
     }
 
@@ -273,7 +314,10 @@ mod tests {
             let resp = serde_json::json!({ "status": 200, "body": body });
             let out = classify_http_response(&resp);
             assert_eq!(out["code"], -1, "body={body} 应映射 code -1");
-            assert!(out["message"].as_str().unwrap().contains("invalid response JSON"));
+            assert!(out["message"]
+                .as_str()
+                .unwrap()
+                .contains("invalid response JSON"));
         }
     }
 

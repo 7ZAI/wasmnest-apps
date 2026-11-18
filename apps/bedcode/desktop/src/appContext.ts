@@ -93,6 +93,7 @@ export function createAppContext(env: AppMountEnv): PluginContext {
   const context = {
     id: env.appId,
     extensionPath: '',
+    appUpdate: env.appUpdate,
 
     commands: {
       async execute(id: string, ...args: unknown[]): Promise<any> {
@@ -164,6 +165,19 @@ export function createAppContext(env: AppMountEnv): PluginContext {
         // D5：消息 key 自带命名空间（旧「运行期自动加插件 ID 前缀」的静态化）
         return i18n.global.t(`${MESSAGE_NAMESPACE}.${key}`, params ?? {})
       },
+    },
+
+    /**
+     * 请求壳路由跳转（宿主 `AppMountEnv.onEvent('navigate', path)` 的窄封装）。
+     *
+     * 只用于「本应用已不承载该配置」的跨应用跳转（T18 中转设置 → `/network`）；
+     * 应用内部页面仍走自己的内存路由。旧宿主不注入 onEvent 时为 no-op（按钮不会
+     * 假装跳转成功，调用方可自行提示）。
+     */
+    navigate(path: string): boolean {
+      if (!env.onEvent) return false
+      env.onEvent('navigate', path)
+      return true
     },
   }
 

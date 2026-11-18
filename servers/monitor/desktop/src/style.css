@@ -113,13 +113,6 @@
   color: var(--text-primary);
 }
 
-.mn-page-sub {
-  margin: 0;
-  font-size: calc(13px * var(--ui-scale));
-  line-height: 1.4;
-  color: var(--text-secondary);
-}
-
 /* ==================== 运行时仪表（整幅墨色场） ==================== */
 
 .mn-hero {
@@ -286,6 +279,21 @@
   animation: mn-spin 900ms linear infinite;
 }
 
+/* 文案「刷新 / 刷新中…」同格叠放：切换时按钮宽度不变（否则整行跳） */
+.mn-refresh-label {
+  display: inline-grid;
+  place-items: center;
+}
+
+.mn-refresh-label > span {
+  grid-area: 1 / 1;
+  white-space: nowrap;
+}
+
+.mn-refresh-label > .is-hidden {
+  visibility: hidden;
+}
+
 .mn-proof {
   margin: 22px 0 0;
   max-width: 62ch;
@@ -444,14 +452,6 @@
   color: var(--text-primary);
 }
 
-.mn-section-hint {
-  margin: 8px 0 0;
-  max-width: 56ch;
-  font-size: calc(15px * var(--ui-scale));
-  line-height: 1.55;
-  color: var(--text-secondary);
-}
-
 .mn-role-summary {
   margin: 6px 0 0;
   font-size: calc(13px * var(--ui-scale));
@@ -516,6 +516,383 @@
   overflow-wrap: anywhere;
 }
 
+/* ==================== 平台总览 ==================== */
+
+.mn-overview-section {
+  padding-top: 72px;
+}
+
+.mn-overview-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.mn-overview-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: 18px 20px 16px;
+  border-radius: var(--radius-card);
+  background: var(--bg-card);
+}
+
+.mn-overview-label {
+  font-size: calc(12px * var(--ui-scale));
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+
+.mn-overview-value {
+  font-size: calc(30px * var(--ui-scale));
+  font-weight: 600;
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.mn-overview-unit {
+  font-size: calc(13px * var(--ui-scale));
+  font-weight: 500;
+  letter-spacing: 0;
+  color: var(--text-tertiary);
+}
+
+.mn-overview-note {
+  font-size: calc(12.5px * var(--ui-scale));
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+.mn-overview-gauge {
+  height: 4px;
+  margin-top: 6px;
+  border-radius: 2px;
+  background: var(--bg-hover);
+  overflow: hidden;
+}
+
+.mn-overview-gauge-fill {
+  width: 100%;
+  height: 100%;
+  transform-origin: left center;
+  transition:
+    transform 360ms cubic-bezier(0.2, 0.7, 0.2, 1),
+    background-color 240ms ease;
+}
+
+.mn-overview-gauge-fill.is-ok {
+  background: var(--color-success-ink);
+}
+
+.mn-overview-gauge-fill.is-warn {
+  background: var(--color-warning-ink);
+}
+
+.mn-overview-gauge-fill.is-danger {
+  background: var(--color-danger-ink);
+}
+
+.mn-overview-ratio {
+  font-size: calc(13px * var(--ui-scale));
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.mn-overview-ratio.is-warn {
+  color: var(--color-warning-ink);
+}
+
+.mn-overview-ratio.is-danger {
+  color: var(--color-danger-ink);
+}
+
+.mn-consumers {
+  margin-top: 20px;
+}
+
+.mn-consumers-title {
+  font-size: calc(12px * var(--ui-scale));
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+
+.mn-consumer-list {
+  display: grid;
+  gap: 8px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mn-consumer-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: baseline;
+  gap: 4px 16px;
+  font-size: calc(14px * var(--ui-scale));
+}
+
+.mn-consumer-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-primary);
+}
+
+.mn-consumer-value,
+.mn-consumer-share {
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.mn-consumer-bar {
+  grid-column: 1 / -1;
+  display: block;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--bg-hover);
+  overflow: hidden;
+}
+
+.mn-consumer-bar-fill {
+  display: block;
+  width: 100%;
+  height: 100%;
+  transform-origin: left center;
+  background: var(--color-primary);
+  opacity: 0.55;
+}
+
+.mn-overview-gap {
+  margin: 18px 0 0;
+  max-width: 78ch;
+  font-size: calc(12.5px * var(--ui-scale));
+  line-height: 1.55;
+  color: var(--text-tertiary);
+}
+
+/* ==================== 预警 ==================== */
+
+.mn-alerts-section {
+  padding-top: 56px;
+}
+
+.mn-alerts {
+  display: grid;
+  gap: 14px;
+}
+
+.mn-alert-list {
+  display: grid;
+  gap: 8px;
+}
+
+.mn-alert {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr);
+  gap: 16px;
+  padding: 14px 18px;
+  border-left: 3px solid var(--color-warning-ink);
+  border-radius: var(--radius-card);
+  background: var(--bg-card);
+}
+
+.mn-alert.is-critical {
+  border-left-color: var(--color-danger-ink);
+}
+
+.mn-alert-flag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: start;
+  font-size: calc(12px * var(--ui-scale));
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.mn-alert.is-critical .mn-alert-flag {
+  color: var(--color-danger-ink);
+}
+
+.mn-alert-flag.is-resolved {
+  color: var(--color-success-ink);
+}
+
+.mn-alert-body {
+  min-width: 0;
+}
+
+.mn-alert-title {
+  margin: 0;
+  font-size: calc(15px * var(--ui-scale));
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--text-primary);
+}
+
+.mn-alert-detail {
+  margin: 3px 0 0;
+  font-size: calc(14px * var(--ui-scale));
+  line-height: 1.45;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.mn-alert-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin: 6px 0 0;
+  font-size: calc(12px * var(--ui-scale));
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.mn-alert-target {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mn-alerts-empty {
+  margin: 0;
+  padding: 16px 18px;
+  border-radius: var(--radius-card);
+  background: var(--bg-card);
+  font-size: calc(14px * var(--ui-scale));
+  color: var(--text-secondary);
+}
+
+.mn-alerts-resolved {
+  padding: 4px 0;
+}
+
+.mn-alerts-resolved-title {
+  font-size: calc(12px * var(--ui-scale));
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+
+.mn-alerts-resolved-list {
+  display: grid;
+  gap: 6px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: calc(13px * var(--ui-scale));
+  color: var(--text-secondary);
+}
+
+.mn-alerts-resolved-list li {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.mn-alert-resolved-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.mn-alert-settings {
+  border-radius: var(--radius-card);
+  background: var(--bg-card);
+  padding: 0 18px;
+}
+
+.mn-alert-settings-summary {
+  padding: 14px 0;
+  font-size: calc(14px * var(--ui-scale));
+  font-weight: 600;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.mn-alert-settings-body {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 28px;
+  padding: 2px 0 18px;
+}
+
+.mn-alert-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: calc(13.5px * var(--ui-scale));
+  color: var(--text-primary);
+}
+
+.mn-alert-field.is-number {
+  justify-content: space-between;
+}
+
+.mn-alert-field input[type='number'] {
+  width: 104px;
+  padding: 6px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-button);
+  background: var(--bg-page);
+  color: var(--text-primary);
+  font-size: calc(13px * var(--ui-scale));
+  font-variant-numeric: tabular-nums;
+}
+
+.mn-alert-field-hint {
+  grid-column: 1 / -1;
+  margin: -4px 0 0;
+  font-size: calc(12px * var(--ui-scale));
+  line-height: 1.5;
+  color: var(--text-tertiary);
+}
+
+.mn-alert-warning {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: calc(13px * var(--ui-scale));
+  line-height: 1.5;
+  color: var(--color-warning-ink);
+}
+
+.mn-alert-warning.is-standalone {
+  padding: 10px 14px;
+  border-radius: var(--radius-card);
+  background: var(--bg-card);
+}
+
+.mn-alert-warning-detail {
+  display: block;
+  color: var(--text-tertiary);
+  overflow-wrap: anywhere;
+}
+
+.mn-alert-reset {
+  justify-self: start;
+  padding: 6px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-button);
+  background: var(--bg-page);
+  color: var(--text-secondary);
+  font-size: calc(12.5px * var(--ui-scale));
+  cursor: pointer;
+}
+
+.mn-alert-reset:hover {
+  border-color: var(--color-primary);
+  color: var(--text-primary);
+}
+
 .mn-ledger-section {
   padding-top: 88px;
   padding-bottom: 36px;
@@ -524,17 +901,27 @@
 .mn-ledger-layout {
   display: grid;
   grid-template-columns: minmax(320px, 0.78fr) minmax(0, 1.22fr);
-  grid-template-areas:
-    'ledger inspector'
-    'host inspector';
   gap: 28px 32px;
   align-items: start;
+}
+
+/*
+ * 左列自成一体（台账 + 宿主段）。
+ *
+ * 曾用 grid-template-areas 'ledger inspector' / 'host inspector' 让详情跨两行，
+ * 结果详情里展开「配额」下拉把右列撑高时，多余高度会被分摊到它跨的两行，
+ * 左下的宿主段被顶下去（实测 73px）。两列从此互不牵动。
+ */
+.mn-ledger-main {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  min-width: 0;
 }
 
 /* ==================== 插件台账 ==================== */
 
 .mn-ledger {
-  grid-area: ledger;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -738,7 +1125,6 @@
 /* ==================== 选中插件详情 ==================== */
 
 .mn-inspector-slot {
-  grid-area: inspector;
   min-width: 0;
 }
 
@@ -1230,18 +1616,9 @@
   font-variant-numeric: tabular-nums;
 }
 
-.mn-quota-note {
-  max-width: 66ch;
-  margin: 14px 0 0;
-  font-size: calc(13px * var(--ui-scale));
-  line-height: 1.5;
-  color: var(--text-secondary);
-}
-
 /* ==================== 宿主维度 ==================== */
 
 .mn-host-section {
-  grid-area: host;
   min-width: 0;
   padding: 20px;
   border-radius: var(--radius-card);
@@ -1254,10 +1631,6 @@
 
 .mn-host-section .mn-section-title {
   font-size: calc(22px * var(--ui-scale));
-}
-
-.mn-host-section .mn-section-hint {
-  font-size: calc(14px * var(--ui-scale));
 }
 
 .mn-host-section .mn-system-grid {
@@ -1321,22 +1694,74 @@
   color: var(--color-warning-ink);
 }
 
-/* ==================== 收束（脚注） ==================== */
+/* ==================== 宿主进程（WebView） ==================== */
 
-.mn-footer {
-  margin-top: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding-top: 56px;
-  padding-bottom: 40px;
-}
-
-.mn-footer-note {
+/* 段内提示（宿主未提供 / 采样不可用）：与卡片同处一段，不另外造壳 */
+.mn-process-note {
   margin: 0;
   font-size: calc(13px * var(--ui-scale));
   line-height: 1.5;
-  color: var(--text-tertiary);
+  color: var(--text-secondary);
+}
+
+/* 非数值态（WebView 未归属）：大字但不冒充数字 */
+.mn-overview-value.is-muted {
+  color: var(--text-secondary);
+}
+
+.mn-proc-detail {
+  display: grid;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.mn-proc-detail-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mn-proc-detail-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 1.1fr) auto auto minmax(80px, 1fr);
+  align-items: center;
+  gap: 12px;
+  font-size: calc(13px * var(--ui-scale));
+  font-variant-numeric: tabular-nums;
+}
+
+.mn-proc-detail-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-primary);
+}
+
+.mn-proc-detail-value {
+  color: var(--text-primary);
+}
+
+.mn-proc-detail-meta {
+  color: var(--text-secondary);
+}
+
+.mn-proc-detail-bar {
+  height: 3px;
+  border-radius: 2px;
+  background: var(--bg-hover);
+  overflow: hidden;
+}
+
+.mn-proc-detail-bar-fill {
+  display: block;
+  width: 100%;
+  height: 100%;
+  transform-origin: left center;
+  background: var(--color-success-ink);
+  opacity: 0.7;
 }
 
 /* ==================== 动效 ==================== */
@@ -1471,6 +1896,8 @@
   }
 
   .mn-waterline-fill,
+  .mn-overview-gauge-fill,
+  .mn-consumer-bar-fill,
   .mn-ledger-row,
   .mn-quota-summary,
   .mn-chevron,
@@ -1508,10 +1935,6 @@
     font-size: calc(30px * var(--ui-scale));
   }
 
-  .mn-host-section .mn-section-hint {
-    font-size: calc(15px * var(--ui-scale));
-  }
-
   .mn-host-section .mn-system-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 22px 28px;
@@ -1525,6 +1948,14 @@
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
+  .mn-overview-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .mn-alert-settings-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .mn-ledger-layout,
   .mn-loading-grid {
     grid-template-columns: minmax(0, 1fr);
@@ -1536,6 +1967,20 @@
 }
 
 @media (max-width: 760px) {
+  .mn-overview-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .mn-alert {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 6px;
+  }
+
+  .mn-alert-label,
+  .mn-alert-flag {
+    align-self: auto;
+  }
+
   .mn-topbar {
     padding: 18px 0 14px;
   }
@@ -1593,11 +2038,6 @@
 
   .mn-number.is-lead {
     grid-column: 1 / -1;
-  }
-
-  .mn-footer {
-    padding-top: 40px;
-    padding-bottom: 32px;
   }
 
   .mn-host-section .mn-system-grid {

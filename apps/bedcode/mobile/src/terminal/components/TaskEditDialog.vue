@@ -1,9 +1,9 @@
 <template>
   <Teleport to="body">
     <Transition name="center-modal">
-      <div v-if="visible" class="fixed inset-0 z-[100] flex items-center justify-center p-4 mobile-ui">
+      <div v-if="visible" class="fixed inset-0 z-[100] flex items-center justify-center p-4 mobile-ui" data-bedcode-surface>
         <div class="absolute inset-0 bg-[var(--mobile-overlay-heavy)]" @click="emit('close')"></div>
-        <div class="relative w-full max-w-lg bg-[var(--mobile-bg-card)] border border-[var(--mobile-border)] rounded-2xl p-6 shadow-xl max-h-[85vh] flex flex-col modal-panel">
+        <div class="relative w-full max-w-lg bg-[var(--mobile-bg-card)] border border-[var(--mobile-border)] rounded-[var(--bc-radius-card)] p-6 bc-overlay-panel max-h-[85vh] flex flex-col modal-panel">
           <div class="flex items-center justify-between mb-4 flex-shrink-0">
             <h3 class="text-lg font-semibold text-[var(--mobile-text-primary)]">
               {{ task ? t('toolbox.editTask') : t('toolbox.addTaskTitle') }}
@@ -35,7 +35,7 @@
                   </svg>
                 </button>
                 <Transition name="dropdown">
-                  <div v-if="showDirDropdown" class="absolute top-full right-0 mt-1 min-w-[clamp(140px,180px,220px)] max-h-[180px] overflow-y-auto bg-[var(--mobile-bg-tertiary)] border border-[var(--mobile-border)] rounded-lg shadow-[0_8px_24px_rgba(0,0,0,0.4)] z-30" @click.stop>
+                  <div v-if="showDirDropdown" class="bc-overlay-panel absolute top-full right-0 mt-1 min-w-[clamp(140px,180px,220px)] max-h-[180px] overflow-y-auto bg-[var(--mobile-bg-tertiary)] border border-[var(--mobile-border)] rounded-lg z-30" @click.stop>
                     <button
                       v-for="dir in projectDirs"
                       :key="dir"
@@ -68,8 +68,6 @@
           </div>
 
           <div class="space-y-4 flex-1 overflow-y-auto min-h-0">
-            <!-- 可重复/不可重复属性（创建时设置；编辑时可改，改属性不重置执行状态） -->
-            <RepeatableToggle v-model="form.repeatable" />
             <div class="flex-1 min-h-0 flex flex-col">
               <div class="flex items-center justify-between mb-1">
                 <label class="text-[var(--mobile-text-muted)] text-sm">{{ t('toolbox.taskContent') }}</label>
@@ -118,9 +116,9 @@
   <!-- File Explorer Dialog (层级高于 Edit Dialog) -->
   <Teleport to="body">
     <Transition name="center-modal">
-      <div v-if="showFileExplorer && fileExplorerSessionId" class="fixed inset-0 z-[100] flex items-center justify-center p-[10%] mobile-ui">
+      <div v-if="showFileExplorer && fileExplorerSessionId" class="fixed inset-0 z-[100] flex items-center justify-center p-[10%] mobile-ui" data-bedcode-surface>
         <div class="absolute inset-0 bg-[var(--mobile-overlay-heavy)]" @click="showFileExplorer = false"></div>
-        <div class="relative w-full h-full bg-[var(--mobile-bg-card)] border border-[var(--mobile-border)] rounded-2xl shadow-xl overflow-hidden flex flex-col modal-panel">
+        <div class="relative w-full h-full bg-[var(--mobile-bg-card)] border border-[var(--mobile-border)] rounded-[var(--bc-radius-card)] bc-overlay-panel overflow-hidden flex flex-col modal-panel">
           <FileExplorer
             :session-id="fileExplorerSessionId"
             mode="emit"
@@ -145,7 +143,6 @@
  */
 
 import { ref, computed, watch, nextTick } from 'vue'
-import RepeatableToggle from './RepeatableToggle.vue'
 // issue #24：FileExplorer 自宿主提供组件（wasmnestHostComponents provide/inject）迁入本 app
 // fileExplorer 域，改为直接 import；挂载契约（props / events）不变
 import FileExplorer from '../../fileExplorer/components/FileExplorer.vue'
@@ -176,8 +173,8 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  /** 保存：新增时传 { content, repeatable }，编辑时传完整 PresetTask */
-  save: [data: PresetTask | { content: string; repeatable: boolean }]
+  /** 保存：新增时传 { content }，编辑时传完整 PresetTask */
+  save: [data: PresetTask | { content: string }]
   close: []
 }>()
 
@@ -202,7 +199,7 @@ function insertAiTemplate() {
 // ==================== 表单状态 ====================
 
 const contentTextarea = ref<HTMLTextAreaElement | null>(null)
-const form = ref({ content: '', repeatable: true })
+const form = ref({ content: '' })
 const showDirDropdown = ref(false)
 const selectedDir = ref<string | null>(null)
 const showFileExplorer = ref(false)
@@ -219,9 +216,9 @@ const effectiveProjectDir = computed(() => !!props.lockedDir || props.projectDir
 watch(() => props.visible, (val) => {
   if (val) {
     if (props.task) {
-      form.value = { content: props.task.content, repeatable: props.task.repeatable }
+      form.value = { content: props.task.content }
     } else {
-      form.value = { content: '', repeatable: true }
+      form.value = { content: '' }
     }
     // 非锁定模式才重置用户选择
     if (!props.lockedDir) {
@@ -277,11 +274,10 @@ function handleSave() {
     emit('save', {
       ...props.task,
       content: form.value.content,
-      repeatable: form.value.repeatable,
     } as PresetTask)
   } else {
-    // 新增模式：返回表单数据（含可重复属性）
-    emit('save', { content: form.value.content, repeatable: form.value.repeatable })
+    // 新增模式：返回表单数据
+    emit('save', { content: form.value.content })
   }
 }
 </script>
@@ -290,7 +286,9 @@ function handleSave() {
 /* Dropdown transition */
 .dropdown-enter-active,
 .dropdown-leave-active {
-  transition: all 0.2s ease;
+  transition:
+    opacity var(--bc-dur-base) var(--bc-ease),
+    transform var(--bc-dur-base) var(--bc-ease);
 }
 
 .dropdown-enter-from,

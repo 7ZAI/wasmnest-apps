@@ -11,7 +11,6 @@
 export type MessageSchema = {
   // ==================== 页面壳 ====================
   'monitor.title': string
-  'monitor.subtitle': string
   'monitor.live': string
   'monitor.interval': string
   'monitor.updated': string
@@ -41,7 +40,6 @@ export type MessageSchema = {
   'monitor.kpi.pluginsUnavailable': string
   'monitor.kpi.calls': string
   'monitor.kpi.inFlight': string
-  'monitor.kpi.inFlightHint': string
   'monitor.kpi.traps': string
   'monitor.kpi.memoryPeak': string
 
@@ -83,7 +81,6 @@ export type MessageSchema = {
   'monitor.metric.quotaInstances': string
   'monitor.metric.quotaMemories': string
   'monitor.metric.quotaTables': string
-  'monitor.metric.quotaNote': string
   'monitor.metric.lastEvent': string
   'monitor.metric.memoryUsage': string
 
@@ -136,17 +133,14 @@ export type MessageSchema = {
   'monitor.hero.stale': string
   'monitor.hero.proofUnknown': string
   'monitor.hero.proofStale': string
-  'monitor.hero.proofMobile': string
   'monitor.signal.title': string
   'monitor.signal.perSecond': string
   'monitor.signal.window': string
   'monitor.signal.justStarted': string
   'monitor.signal.starting': string
   'monitor.signal.inFlight': string
-  'monitor.signal.note': string
   'monitor.signal.peak': string
   'monitor.ledger.title': string
-  'monitor.ledger.hint': string
   'monitor.ledger.calls': string
   'monitor.ledger.select': string
   'monitor.ledger.metricsUnavailable': string
@@ -162,9 +156,85 @@ export type MessageSchema = {
   'monitor.inspector.noTraps': string
   'monitor.inspector.noMetricsTitle': string
   'monitor.inspector.noMetricsHint': string
-  'monitor.host.hint': string
-  'monitor.footer.source': string
-  'monitor.footer.session': string
+
+  // ==================== 宿主进程（WebView） ====================
+  // 整机口径：宿主进程树的内存 / CPU；与 wasm 段（`plugins`）分开，不可相加
+  'monitor.process.title': string
+  'monitor.process.unavailable': string
+  'monitor.process.notSampled': string
+  'monitor.process.webviewShare': string
+  'monitor.process.scope.self': string
+  'monitor.process.scope.webview': string
+  'monitor.process.scope.other': string
+  'monitor.process.scope.tree': string
+  'monitor.process.pss': string
+  'monitor.process.rss': string
+  'monitor.process.cpu': string
+  'monitor.process.cpuPending': string
+  'monitor.process.cpuCores': string
+  'monitor.process.noCores': string
+  'monitor.process.processCount': string
+  'monitor.process.webviewAbsent': string
+  'monitor.process.webviewMissing': string
+  'monitor.process.noOtherChildren': string
+  'monitor.process.nProcesses': string
+  'monitor.process.webviewAbsentShort': string
+  'monitor.process.details': string
+
+  // ==================== 平台总览 ====================
+  'monitor.overview.title': string
+  'monitor.overview.memory': string
+  'monitor.overview.memoryUnbounded': string
+  'monitor.overview.peak': string
+  'monitor.overview.plugins': string
+  'monitor.overview.compute': string
+  'monitor.overview.fuelPerSecond': string
+  'monitor.overview.callsRate': string
+  'monitor.overview.callsNote': string
+  'monitor.overview.perSecond': string
+  'monitor.overview.consumers': string
+
+  // ==================== 预警 ====================
+  'monitor.alerts.title': string
+  'monitor.alerts.empty': string
+  'monitor.alerts.disabled': string
+  'monitor.alerts.recentResolved': string
+  'monitor.alerts.age': string
+  'monitor.alerts.level.warning': string
+  'monitor.alerts.level.critical': string
+  'monitor.alerts.level.resolved': string
+  'monitor.alerts.settings': string
+  'monitor.alerts.enabled': string
+  'monitor.alerts.notify': string
+  'monitor.alerts.notifyHint': string
+  'monitor.alerts.platformMemoryWarn': string
+  'monitor.alerts.platformMemoryCritical': string
+  'monitor.alerts.bytesHint': string
+  'monitor.alerts.pluginMemoryWarn': string
+  'monitor.alerts.computeWarn': string
+  'monitor.alerts.computeHint': string
+  'monitor.alerts.settingsWarning': string
+  'monitor.alerts.reset': string
+  'monitor.alerts.notifyTitle': string
+  'monitor.alerts.notifyBody': string
+  'monitor.alerts.notifyDenied': string
+  'monitor.alerts.notifyFailed': string
+  'monitor.alerts.resolved': string
+  'monitor.alerts.rule.platformMemory': string
+  'monitor.alerts.rule.pluginMemory': string
+  'monitor.alerts.rule.pluginState': string
+  'monitor.alerts.rule.traps': string
+  'monitor.alerts.rule.computeLoad': string
+  'monitor.alerts.rule.taskBackpressure': string
+  'monitor.alerts.body.platformMemory': string
+  'monitor.alerts.body.pluginMemory': string
+  'monitor.alerts.body.pluginState': string
+  'monitor.alerts.body.traps': string
+  'monitor.alerts.body.computeLoad': string
+  'monitor.alerts.body.taskBackpressure': string
+  'monitor.alerts.body.recovered': string
+  'monitor.hero.alertsCritical': string
+  'monitor.hero.alertsWarning': string
 
   // ==================== 预览面 ====================
   'monitor.preview.subtitle': string

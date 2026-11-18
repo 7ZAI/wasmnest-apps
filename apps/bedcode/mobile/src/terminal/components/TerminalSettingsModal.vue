@@ -4,11 +4,12 @@
       <div
         v-if="visible"
         class="fixed inset-0 z-[var(--mobile-z-sheet)] flex items-end justify-center mobile-ui"
+        data-bedcode-surface
         @click.self="emit('close')"
       >
         <div class="absolute inset-0 bg-[var(--mobile-overlay-light)]" @click="emit('close')"></div>
         <div
-          class="relative bg-[var(--mobile-bg-card)] border border-[var(--mobile-border)] rounded-t-2xl w-full max-w-lg h-[min(85vh,44rem)] flex flex-col shadow-xl modal-panel"
+          class="relative bg-[var(--mobile-bg-card)] border border-[var(--mobile-border)] rounded-t-[var(--bc-radius-sheet)] w-full max-w-lg h-[min(85vh,44rem)] flex flex-col bc-overlay-panel modal-panel"
           role="dialog"
           aria-modal="true"
           :aria-label="t('terminal.terminalSettings')"
@@ -92,18 +93,6 @@
           <!-- ==================== Tab: 杂项配置 ==================== -->
           <template v-else>
             <div class="settings-content" @touchstart="onTouchStart" @touchmove="onTouchMove" @touchend="onTouchEnd">
-              <!-- Quick Bar Count -->
-              <div class="settings-section">
-                <label class="settings-label">{{ t('terminal.shortcutCount') }}</label>
-                <StepperControl
-                  :model-value="quickBarCount"
-                  :min="3"
-                  :max="10"
-                  :label="t('terminal.shortcutCount')"
-                  @update:model-value="emitChange({ quickBarCount: $event })"
-                />
-              </div>
-
               <!-- Header Toolbar Items -->
               <div class="settings-section">
                 <label class="settings-label">{{ t('terminal.persistentToolbar') }}</label>
@@ -173,7 +162,6 @@ export interface TerminalSettings {
   isThemeUserSet: boolean
   /** 字间距（px，0-4）：映射 xterm letterSpacing 选项，格宽同步膨胀 */
   letterSpacing: number
-  quickBarCount: number
   toolbarItems: string[]
   /** 终端新手引导待展示：开启后下次进入终端页重新弹出 */
   onboardingPending: boolean
@@ -191,7 +179,6 @@ const props = defineProps<{
   theme: string
   isThemeUserSet: boolean
   letterSpacing: number
-  quickBarCount: number
   toolbarItems: string[]
   allToolbarItems: ToolbarItemConfig[]
   onboardingPending: boolean
@@ -223,7 +210,6 @@ function emitChange(patch: Partial<TerminalSettings>) {
     theme: props.theme,
     isThemeUserSet: props.isThemeUserSet,
     letterSpacing: props.letterSpacing,
-    quickBarCount: props.quickBarCount,
     toolbarItems: [...props.toolbarItems],
     onboardingPending: props.onboardingPending,
     ...patch,
@@ -264,9 +250,11 @@ function getThemePreviewStyle(themeName: string): { background: string; color: s
   justify-content: center;
   width: 2.25rem;
   height: 2.25rem;
-  border-radius: 0.625rem;
+  border-radius: var(--bc-radius-control);
   color: var(--mobile-text-muted);
-  transition: all 0.15s ease;
+  transition:
+    background-color var(--bc-dur-fast) var(--bc-ease),
+    color var(--bc-dur-fast) var(--bc-ease);
 }
 
 .icon-btn:hover,
@@ -304,7 +292,7 @@ function getThemePreviewStyle(themeName: string): { background: string; color: s
 .theme-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: clamp(0.375rem, 0.5rem, 0.75rem);
+  gap: 0.5rem;
 }
 
 .theme-btn {
@@ -312,35 +300,37 @@ function getThemePreviewStyle(themeName: string): { background: string; color: s
   flex-direction: column;
   align-items: center;
   gap: 0.375rem;
-  padding: clamp(0.5rem, 0.75rem, 1rem) clamp(0.375rem, 0.5rem, 0.75rem);
-  border-radius: 0.5rem;
+  padding: 0.75rem 0.5rem;
+  border-radius: var(--bc-radius-control);
   background: var(--mobile-bg-elevated);
   border: 2px solid transparent;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition:
+    background-color var(--bc-dur-base) var(--bc-ease),
+    border-color var(--bc-dur-base) var(--bc-ease);
 }
 
 .theme-btn:hover {
   background: var(--mobile-bg-hover);
 }
 
+/* 选中态只留边框 + 同色弱底：额外光晕是同色装饰，不增加信息 */
 .theme-btn.active {
   border-color: var(--mobile-accent);
   background: var(--mobile-accent-muted);
-  box-shadow: 0 0 12px var(--mobile-accent-muted);
 }
 
 .theme-preview {
   width: 100%;
   padding: 0.5rem;
-  border-radius: 0.375rem;
+  border-radius: 6px;
   text-align: center;
-  font-size: clamp(0.75rem, 0.875rem, 1rem);
+  font-size: var(--font-size-sm);
   font-weight: 600;
 }
 
 .theme-name {
-  font-size: clamp(0.625rem, 0.75rem, 0.875rem);
+  font-size: var(--font-size-xs);
   color: var(--mobile-text-muted);
 }
 
@@ -350,7 +340,7 @@ function getThemePreviewStyle(themeName: string): { background: string; color: s
 }
 
 .settings-hint {
-  font-size: clamp(0.625rem, 0.75rem, 0.875rem);
+  font-size: var(--font-size-xs);
   color: var(--mobile-text-muted);
   margin: 0 0 0.75rem;
 }
@@ -358,18 +348,21 @@ function getThemePreviewStyle(themeName: string): { background: string; color: s
 .toolbar-toggle-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: clamp(0.375rem, 0.5rem, 0.75rem);
+  gap: 0.5rem;
 }
 
 .toolbar-toggle-btn {
-  padding: clamp(0.375rem, 0.5rem, 0.75rem);
-  border-radius: 0.5rem;
+  padding: 0.5rem;
+  border-radius: var(--bc-radius-control);
   background: var(--mobile-bg-elevated);
   border: 2px solid transparent;
   color: var(--mobile-text-muted);
-  font-size: clamp(0.6875rem, 0.8rem, 0.9375rem);
+  font-size: var(--font-size-sm);
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition:
+    background-color var(--bc-dur-base) var(--bc-ease),
+    border-color var(--bc-dur-base) var(--bc-ease),
+    color var(--bc-dur-base) var(--bc-ease);
   text-align: center;
 }
 

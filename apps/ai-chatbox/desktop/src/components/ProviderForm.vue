@@ -1,5 +1,5 @@
 <template>
-  <div class="max-w-xl space-y-5">
+  <div class="max-w-xl space-y-5" data-testid="provider-form">
     <div class="flex items-center justify-between">
       <h4 class="text-base font-medium text-[var(--text-primary)]">
         {{
@@ -23,6 +23,7 @@
       <input
         v-model="form.name"
         type="text"
+        data-testid="provider-form-name"
         class="w-full h-[36px] px-3 text-sm bg-[var(--bg-input)] text-[var(--text-primary)] border border-[var(--border-input)] rounded-input placeholder:text-[var(--text-tertiary)] focus:outline-none focus:border-brand transition-colors"
       />
     </div>
@@ -36,6 +37,7 @@
         v-model="form.baseUrl"
         type="text"
         placeholder="https://api.example.com/v1"
+        data-testid="provider-form-base-url"
         class="w-full h-[36px] px-3 text-sm bg-[var(--bg-input)] text-[var(--text-primary)] border border-[var(--border-input)] rounded-input placeholder:text-[var(--text-tertiary)] focus:outline-none focus:border-brand transition-colors"
       />
     </div>
@@ -50,10 +52,12 @@
           v-model="form.apiKey"
           :type="showKey ? 'text' : 'password'"
           placeholder="sk-..."
+          data-testid="provider-form-api-key"
           class="flex-1 h-[36px] px-3 text-sm bg-[var(--bg-input)] text-[var(--text-primary)] border border-[var(--border-input)] rounded-input placeholder:text-[var(--text-tertiary)] focus:outline-none focus:border-brand transition-colors"
         />
         <button
           class="h-[36px] px-3 text-sm rounded-btn bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:bg-[var(--bg-input)] transition-colors flex-shrink-0"
+          data-testid="provider-form-api-key-toggle"
           @click="showKey = !showKey"
         >
           {{ showKey ? t('com.wasmnest.ai-chatbox.hide') : t('com.wasmnest.ai-chatbox.show') }}
@@ -69,6 +73,7 @@
       <button
         class="h-[36px] px-4 text-sm rounded-btn bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:bg-[var(--bg-input)] transition-colors disabled:opacity-50"
         :disabled="fetching || !form.baseUrl || !form.apiKey"
+        data-testid="provider-form-fetch-models"
         @click="onFetchModels"
       >
         {{
@@ -80,6 +85,7 @@
       <button
         class="h-[36px] px-4 text-sm rounded-btn bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:bg-[var(--bg-input)] transition-colors disabled:opacity-50"
         :disabled="testing || !form.baseUrl || !form.apiKey"
+        data-testid="provider-form-test-connection"
         @click="onTestConnection"
       >
         {{
@@ -121,6 +127,7 @@
         <button
           class="h-[36px] px-5 text-sm rounded-btn bg-brand text-[var(--color-primary-contrast)] hover:opacity-90 transition-opacity disabled:opacity-50"
           :disabled="!canSave"
+          data-testid="provider-form-save"
           @click="save"
         >
           {{ t('com.wasmnest.ai-chatbox.saveProvider') }}

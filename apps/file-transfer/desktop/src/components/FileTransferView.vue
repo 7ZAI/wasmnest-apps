@@ -15,12 +15,16 @@ import SettingsPanel from './SettingsPanel.vue'
 import PeerDevicesPanel from './PeerDevicesPanel.vue'
 import BatchRequestDialog from './BatchRequestDialog.vue'
 import ConfirmDialog from './ConfirmDialog.vue'
+
 import { useTasks } from '../composables/useTasks'
 import { useReceiving } from '../composables/useReceiving'
-import { useRemoteFs } from '../composables/useRemoteFs'
+import { rootsReadyKey, useRemoteFs } from '../composables/useRemoteFs'
 import { useSettings } from '../composables/useSettings'
 import { usePeerDevices } from '../composables/usePeerDevices'
+import { prepareDeviceSend } from '../composables/sendToDevice'
 import { useBatchPrompt } from '../composables/useBatchPrompt'
+import { revealLocalPath } from '../utils/revealLocal'
+
 import { toast } from 'vue-sonner'
 
 const context = inject<PluginContext>('pluginContext')!
@@ -32,6 +36,8 @@ const {
   peer,
   connectedIds,
   connect: connectDevice,
+
+  removeRemotePeer,
   disconnect: disconnectDevice,
   switchPeer,
   refresh: refreshDevices,
@@ -42,7 +48,8 @@ const {
   tasks,
   totalSpeed,
   refresh: refreshTasks,
-  sendPickedFiles,
+  pickFiles,
+  sendPaths,
   cancel,
   retry,
   pause,
@@ -74,8 +81,9 @@ const {
   pickDownloadDir,
   setReceivingPolicy,
   setApprovalTimeoutSec,
-  setEncryption,
   setConcurrency,
+  setAllowWan,
+  setRelayMaxBytes,
 } = useSettings(context)
 /** 插件自身对等连接：存在任一已建立的对等连接（≠ 宿主主连接） */
 const peerConnected = computed(() => connectedIds.value.size > 0)
@@ -160,15 +168,56 @@ async function handleDownload(): Promise<void> {
   }
 }
 
-/** 顶栏刷新：任务 + 当前目录层级 + 设备缓存清扫 */
-async function handleRefresh(): Promise<void> {
-  await Promise.all([refreshTasks(), fs.refresh(), refreshDevices()])
+function handleRemoveRemote(nodeId: string): void {
+  removeRemotePeer(nodeId)
 }
 
-/** 发送到手机：系统多文件选择器直发活跃对端（失败 → 友好 toast，原文只进日志） */
-async function handleUpload(): Promise<void> {
-  if (!peer.value.online) return
-  const r = await sendPickedFiles()
+/** 外网入口（显式）：跳过 LAN 候选，失败不回退（用户显式意图） */
+function handleRetryRelayOnly(nodeId: string): void {
+  void connectDevice(nodeId, { relayOnly: true })
+}
+
+/**
+ * 设备行直达发送（T23）：未连接先连、再显式切活跃，最后才弹文件选择器。
+ *
+ * 顺序是刻意的：连接失败不弹选择器（用户不会白选一堆文件）；`connect` 内部
+ * 的 `ensureActiveFallback` 可能把活跃对端留给旧设备，所以必须显式 `switchPeer`。
+ */
+async function handleSendToDevice(nodeId: string): Promise<void> {
+  const device = deviceRows.value.find((row) => row.nodeId === nodeId)
+  const prepared = await prepareDeviceSend(nodeId, device, {
+    connect: connectDevice,
+    switchPeer,
+  })
+  if (!prepared.ok) return
+  await handleUpload()
+}
+
+/**
+ * 经中继发送提示（T12 / §9.2#4）：**只提示一次、可取消**，不改变模式判定。
+ * 阈值 0 = 每次经中继发送都提示；阈值 > 0 时仅当本批总量达到阈值才提示。
+ * 体积预览失败不阻断发送（按「无阈值口径」提示）。
+ */
+const relayHintOpen = ref(false)
+const relayHintPaths = ref<string[]>([])
+
+async function relayHintNeeded(paths: string[]): Promise<boolean> {
+  const active = deviceRows.value.find((r) => r.nodeId === peer.value.id)
+  if (active?.transport !== 'wan-relay') return false
+  const threshold = settings.value.relayMaxBytesPerTask
+  if (threshold <= 0) return true
+  try {
+    const preview = await context.commands.execute('file-transfer.preview-outgoing', { paths })
+    const total = typeof preview?.totalBytes === 'number' ? preview.totalBytes : 0
+    return total >= threshold
+  } catch (e) {
+    console.error('[File Transfer] preview-outgoing failed:', e)
+    return true
+  }
+}
+
+async function dispatchSend(paths: string[]): Promise<void> {
+  const r = await sendPaths(paths)
   if (r.error) {
     toast.error(r.error)
     return
@@ -176,13 +225,57 @@ async function handleUpload(): Promise<void> {
   if (r.sent > 0) queueVisible.value = true
 }
 
-/** 下载完成 → 打开本地所在目录（插件自有命令 → 宿主原语 host-platform.reveal-in-dir） */
-async function handleOpenFolder(path: string): Promise<void> {
+async function confirmRelaySend(): Promise<void> {
+  const paths = relayHintPaths.value
+  relayHintOpen.value = false
+  relayHintPaths.value = []
+  await dispatchSend(paths)
+}
+
+function cancelRelaySend(): void {
+  relayHintOpen.value = false
+  relayHintPaths.value = []
+}
+
+/**
+ * 顶栏刷新：任务 + 设备缓存清扫；无活跃传输时再刷当前目录层级。
+ *
+ * 传输进行中不拉数据面目录：目录刷新经 `ensure_target` 可能重拨，而发现面
+ * 的自动重连也会对同一对端拨号；两路并发不同地址会触发引擎换址切换，
+ * 在飞传输会话随旧连接关闭直接失败（真机：进度停住 / 远端不弹窗）。
+ */
+async function handleRefresh(): Promise<void> {
+  const hasActiveTransfer = tasks.value.some(
+    (task) =>
+      task.state === 'transferring' || task.state === 'pending' || task.state === 'paused',
+  )
+  await Promise.all([refreshTasks(), refreshDevices()])
+  if (!hasActiveTransfer && peer.value.online) await fs.refresh()
+}
+
+/** 发送到手机：系统多文件选择器直发活跃对端（失败 → 友好 toast，原文只进日志） */
+async function handleUpload(): Promise<void> {
+  if (!peer.value.online) return
+  let paths: string[]
   try {
-    await context.commands.execute('file-transfer.reveal-in-dir', { path })
+    paths = await pickFiles()
   } catch (e) {
-    console.error('[File Transfer] open folder failed:', e)
+    console.error('[File Transfer] pick-files failed:', e)
+    toast.error(t('transfer.error.sendFailed'))
+    return
   }
+  if (paths.length === 0) return
+  if (await relayHintNeeded(paths)) {
+    relayHintPaths.value = paths
+    relayHintOpen.value = true
+    return
+  }
+  await dispatchSend(paths)
+}
+
+/** 下载完成 → 打开本地所在目录（插件自有命令 → 宿主原语 host-platform.reveal-in-dir；失败显性 toast） */
+function handleOpenFolder(path: string): Promise<boolean> {
+  return revealLocalPath(context, path)
 }
 
 /** 附近设备面板开合（点击外部关闭，见 onMounted 文档监听） */
@@ -194,8 +287,9 @@ const connectedCount = computed(
   () => deviceRows.value.filter((r) => r.status === 'connected').length,
 )
 
+/** 内网入口（显式）：不把上次外网记录隐式带进本次拨号 */
 function handleConnectDevice(nodeId: string): void {
-  void connectDevice(nodeId)
+  void connectDevice(nodeId, { lanOnly: true })
 }
 
 function handleDisconnectDevice(nodeId: string): void {
@@ -244,22 +338,40 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+
   document.removeEventListener('click', handleDocClick, true)
   stopPeer()
   stopTasks()
   stopReceiving()
 })
 
-/** 激活设备变化驱动目录加载/清空 */
+/**
+ * 目录加载的就绪键：活跃对端 + 已连接 + 有可用地址。
+ *
+ * 只看 id 会漏两种情况：①重连时 id 不变（连接态变化不触发重拉）；②被连侧首次
+ * 连入时还没发现对方（无地址），那次拉取必失败且后端不重试。地址随后续
+ * mdns-found 补齐时键才出现，届时再拉一次。
+ */
+const rootsSyncKey = computed(() => {
+  const row = deviceRows.value.find((item) => item.nodeId === peer.value.id)
+  return rootsReadyKey({
+    peerId: peer.value.id,
+    online: peer.value.online,
+    connectionModes: row?.connectionModes ?? 'none',
+  })
+})
+
+/** 就绪键变化驱动目录加载/清空 */
 watch(
-  () => peer.value.id,
-  (id) => {
-    if (id) {
+  rootsSyncKey,
+  (key) => {
+    if (key) {
       void fs.loadRoots()
     } else {
       fs.reset()
     }
   },
+  { immediate: true },
 )
 
 // ==================== 传入批请求弹窗（挂载包自持渲染） ====================
@@ -308,7 +420,7 @@ function handleClearHistoryConfirm(): void {
           "
         ></span>
         <span class="ft-peer-name">{{ peerDisplayName }}</span>
-        <span class="ft-peer-meta">
+        <span class="ft-peer-meta" data-testid="ft-peer-status" :data-online="peer.online">
           {{ peerStatusLabel }}
         </span>
       </div>
@@ -343,8 +455,11 @@ function handleClearHistoryConfirm(): void {
             :scanning="deviceScanning"
             data-testid="ft-peer-panel"
             @connect="handleConnectDevice"
+            @retry-relay-only="handleRetryRelayOnly"
             @disconnect="handleDisconnectDevice"
             @set-active="handleSetActiveDevice"
+            @remove-remote="handleRemoveRemote"
+            @send="handleSendToDevice"
             @scan="handleScanDevices"
           />
         </Transition>
@@ -354,6 +469,7 @@ function handleClearHistoryConfirm(): void {
         class="ft-btn"
         :disabled="!peer.online"
         :title="t('transfer.topbar.sendToPhone')"
+        data-testid="ft-upload"
         @click="handleUpload"
       >
         <svg class="ft-ico-btn" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -366,7 +482,12 @@ function handleClearHistoryConfirm(): void {
         </svg>
         <span class="ft-btn-text">{{ t('transfer.topbar.sendToPhone') }}</span>
       </button>
-      <button class="ft-btn ft-btn--primary" :disabled="!canDownload" @click="handleDownload">
+      <button
+        class="ft-btn ft-btn--primary"
+        :disabled="!canDownload"
+        data-testid="ft-download"
+        @click="handleDownload"
+      >
         <svg class="ft-ico-btn" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path
             stroke-linecap="round"
@@ -559,6 +680,17 @@ function handleClearHistoryConfirm(): void {
       @timeout="prompt.markTimeout()"
     />
 
+    <!-- 经中继发送提示（§9.2#4：无阈值口径下一次提示，可取消；不改变模式判定） -->
+    <ConfirmDialog
+      v-if="relayHintOpen"
+      :title="t('transfer.relayHint.title')"
+      :message="t('transfer.relayHint.body')"
+      :confirm-label="t('transfer.relayHint.confirm')"
+      :cancel-label="t('transfer.relayHint.cancel')"
+      @confirm="confirmRelaySend"
+      @cancel="cancelRelaySend"
+    />
+
     <!-- 清空历史确认（破坏性操作） -->
     <ConfirmDialog
       v-if="showClearHistoryConfirm"
@@ -618,8 +750,9 @@ function handleClearHistoryConfirm(): void {
         @pick-download-dir="pickDownloadDir"
         @set-receiving-policy="setReceivingPolicy"
         @set-approval-timeout-sec="setApprovalTimeoutSec"
-        @set-encryption="setEncryption"
         @set-concurrency="setConcurrency"
+        @set-allow-wan="setAllowWan"
+        @set-relay-max-bytes="setRelayMaxBytes"
         @close="showSettings = false"
       />
     </Transition>

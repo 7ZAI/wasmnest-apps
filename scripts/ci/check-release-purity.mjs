@@ -25,7 +25,7 @@ import { fileURLToPath } from 'node:url'
 /**
  * 黑名单（顺序即报告顺序）。
  *
- * 命中口径刻意是**整段路径名**而不是子串：`wasmnest_plugin_agent_hub.wasm` 这类 app
+ * 命中口径刻意是**整段路径名**而不是子串：`wasmnest_plugin_ai_chatbox.wasm` 这类 app
  * 自身产物不能被误判成宿主二进制（误判 = 发布链自己不敢动）。
  */
 export const RELEASE_PURITY_RULES = [

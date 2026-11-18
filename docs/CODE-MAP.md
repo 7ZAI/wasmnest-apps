@@ -41,8 +41,8 @@ wasmnest-apps/
 │   ├─ src/appContext.ts           AppMountEnv → PluginContext 适配层
 │   ├─ src/index.ts                dev-shell 兼容出口（仅导出 devMock；主宿主不加载）
 │   ├─ src/components|composables|utils|i18n|__tests__/
-│   ├─ rust/                       WASM 后端（file-transfer 例外：无本端 rust）
-│   ├─ scripts/build.js            vite → cargo → 复制产物到 .build/plugins/<id> → injectWasmHash
+│   ├─ rust/                       WASM 后端（file-transfer 例外：无本端 rust；Go 路线 app 另有 go/，见 BACKEND.md §9）
+│   ├─ scripts/build.js            vite → cargo/tinygo（双后端：--backend go|rust|both，默认 both 且装 rust）→ 复制产物 → injectWasmHash
 │   ├─ vite.config.ts / vitest.config.ts / tailwind.config.js / postcss.config.js
 │   ├─ package.json + pnpm-lock.yaml + pnpm-workspace.yaml    ← 独立 workspace
 │   └─ icon.svg
@@ -90,7 +90,8 @@ wasmnest-apps/
 ├─ .cargo/config.toml              共享 target-dir（target/wasm-apps）+ jobs=4 + sccache
 ├─ .husky/pre-commit               暂存前端文件 eslint --quiet（error 阻断）
 ├─ eslint.config.js                前端资源访问红线（双端共用一份）
-└─ docs/                           CODE-MAP.md / FRONTEND.md / BACKEND.md / E2E.md / CI.md
+└─ docs/                           CODE-MAP.md / FRONTEND.md / BACKEND.md / E2E.md / CI.md / wasm-app-dev/（wasm 应用开发指南：桌面主指南 + 桌面 API 参考 + 移动指南 + 红线清单，2026-11-11 自平台仓迁入并按现行代码核对）
+                                   / verification/（按 app 的端到端功能验证模板与报告口径）
 ```
 
 **每个 app 保留独立 pnpm workspace**（各有 `pnpm-lock.yaml` 与 `pnpm-workspace.yaml`，不合并）；根 `package.json` 只做编排，根 `node_modules` 只服务 lint / husky。
@@ -103,12 +104,12 @@ wasmnest-apps/
 
 | 目录 slug | 插件 id | 端 | 前端入口 | pluginType | rustLibrary | Rust crate（包名 / 位置） |
 | --- | --- | --- | --- | --- | --- | --- |
-| agent-hub | `com.wasmnest.agent-hub` | desktop | `desktop/src/entry.ts` | `rust-ts` | `wasmnest_plugin_agent_hub` | `wasmnest-plugin-agent-hub` @ `apps/agent-hub/desktop/rust` |
-| ai-chatbox | `com.wasmnest.ai-chatbox` | desktop + mobile | `entry.ts` / `index.ts` | 桌面 `rust-ts`；移动 `wasm` | `wasmnest_plugin_ai_chatbox`（两端同名） | `wasmnest-plugin-ai-chatbox` @ `desktop/rust`；`wasmnest_plugin_ai_chatbox` @ `mobile/rust` |
-| bedcode（显示名 BedCode） | `com.wasmnest.bedcode` | desktop + mobile | `entry.ts` / `index.ts` | 桌面 `rust-ts`；移动 `wasm` | `bedcode_plugin_terminal_session`（两端同名） | `bedcode-plugin-terminal-session` @ `desktop/rust`；`bedcode_plugin_terminal_session` @ `mobile/rust` |
-| file-transfer | `com.wasmnest.file-transfer` | desktop + mobile（`platform: "both"`） | `entry.ts` / `index.ts` | 桌面 `rust-ts`；移动 `wasm` | `wasmnest_plugin_file_transfer`（两端同名） | 单产物 `wasmnest-plugin-file-transfer` @ `apps/file-transfer/rust/plugin`；共享核 `wasmnest-file-transfer-core` @ `apps/file-transfer/rust/core` |
-| monitor（**`servers/` 分组**） | `com.wasmnest.monitor` | desktop + mobile | `entry.ts` / `index.ts` | 桌面 `rust-ts`；移动 `wasm` | `wasmnest_plugin_monitor`（两端同名） | `wasmnest-plugin-monitor` @ `servers/monitor/desktop/rust`；`wasmnest_plugin_monitor` @ `servers/monitor/mobile/rust` |
-| auth-center（**`servers/` 分组**） | `com.wasmnest.auth-center` | desktop | `servers/auth-center/desktop/src/entry.ts` | `rust-ts` | `wasmnest_plugin_auth_center` | `wasmnest-plugin-auth-center` @ `servers/auth-center/desktop/rust` |
+| ai-chatbox | `com.wasmnest.ai-chatbox` | desktop + mobile | `entry.ts` / `index.ts` | 双端 `full` | `wasmnest_plugin_ai_chatbox`（两端同名） | `wasmnest-plugin-ai-chatbox` @ `desktop/rust`（桌面产物改由 `desktop/go` TinyGo 构建，issue #21 试点；rust/ 源保留至合流清理）；`wasmnest_plugin_ai_chatbox` @ `mobile/rust` |
+| bedcode（显示名 BedCode） | `com.wasmnest.bedcode` | desktop + mobile | `entry.ts` / `index.ts` | 双端 `full` | `bedcode_plugin_terminal_session`（两端同名） | `bedcode-plugin-terminal-session` @ `desktop/rust`；`bedcode_plugin_terminal_session` @ `mobile/rust` |
+| file-transfer | `com.wasmnest.file-transfer` | desktop + mobile（`platform: "both"`） | `entry.ts` / `index.ts` | 双端 `full` | `wasmnest_plugin_file_transfer`（两端同名） | 单产物 `wasmnest-plugin-file-transfer` @ `apps/file-transfer/rust/plugin`；共享核 `wasmnest-file-transfer-core` @ `apps/file-transfer/rust/core` |
+| monitor（**`servers/` 分组**） | `com.wasmnest.monitor` | desktop + mobile | `entry.ts` / `index.ts` | 双端 `full` | `wasmnest_plugin_monitor`（两端同名） | `wasmnest-plugin-monitor` @ `servers/monitor/desktop/rust`；`wasmnest_plugin_monitor` @ `servers/monitor/mobile/rust` |
+| auth-center（**`servers/` 分组**） | `com.wasmnest.auth-center` | desktop | `servers/auth-center/desktop/src/entry.ts` | `full` | `wasmnest_plugin_auth_center` | `wasmnest-plugin-auth-center` @ `servers/auth-center/desktop/rust` |
+| net-config（**`servers/` 分组**，T18） | `com.wasmnest.net-config` | desktop | `servers/net-config/desktop/src/entry.ts` | `full` | `wasmnest_plugin_net_config` | `wasmnest-plugin-net-config` @ `servers/net-config/desktop/rust` |
 
 > **auth-center 现状（issue #6，已注册接管）**：六域全部就位——
 > `rust/src/{pairing,policy,trust,consent,auth_records,auth_http}`（用例自 bedcode 逐字
@@ -193,6 +194,8 @@ apps/<slug>/<end>/ 源码
 
 **发布产物（CI）**：`scripts/ci/build-app.mjs` 在上述构建链之后经 `package-plugins.mjs --skip-build` 打包为
 `dist/release/<slug>-<end>-v<version>.zip` + 同名元数据 JSON（详见 `docs/CI.md` §5）。
+多后端桌面 app（ai-chatbox：rust + go）另出变体包 `dist/release/<slug>-<end>-<backend>-v<version>.zip`
+（默认包 = 宿主默认后端 rust；元数据 `variants` 数组登记）。
 
 共享 Cargo target 目录 = `<appsRoot>/target/wasm-apps`（`.cargo/config.toml` 的 `build.target-dir` + 各 `build.js` 显式 `--target-dir`，两处注释互相指认）。
 
@@ -232,7 +235,7 @@ apps/<slug>/<end>/ 源码
 
 | 锁 | 钉住什么 |
 | --- | --- |
-| `wasmnest-desktop/src/__tests__/hostAppBoundaryLock.test.ts` | 宿主零 app 源码 import、零 `__WASMNEST_SHARED__`、零旧贡献面；逐字校验**六个**桌面 `entry.ts`（5 个 `apps/` + `servers/auth-center`）的 `mountApp` 契约；**L5** 预览契约锁（六个 entry 必须导出 `mountPreview` + 关键字段；预览路径禁 `refreshChannelToken` / 写存储） |
+| `wasmnest-desktop/src/__tests__/hostAppBoundaryLock.test.ts` | 宿主零 app 源码 import、零 `__WASMNEST_SHARED__`、零旧贡献面；逐字校验**七个**桌面 `entry.ts`（4 个 `apps/` + `servers/{auth-center,net-config,monitor}`）的 `mountApp` 契约；**L5** 预览契约锁（七个 entry 必须导出 `mountPreview` + 关键字段；预览路径禁 `refreshChannelToken` / 写存储） |
 | `wasmnest-desktop/src/__tests__/shell/appPreviewTile.test.ts` | 多任务预览面行为（缺失 / 成功 / 抛错 / 超时 / 卸载 / 晚到结果 / 不换发令牌 / 装饰层属性） |
 | `wasmnest-desktop/src/__tests__/shell/recentsWiring.test.ts` | 多任务接线：app 卡用 `AppPreviewTile`、system 卡保留 glyph、预览不在动作按钮内 |
 | `wasmnest-desktop/src/__tests__/i18nDriftLock.test.ts` | 宿主 `src/i18n/host-{zh-CN,en}.ts` ↔ `apps/bedcode/desktop/src/i18n/host-{zh-CN,en}.ts` **逐字一致** |

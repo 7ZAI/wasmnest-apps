@@ -139,9 +139,14 @@ function buttonByText(text: string) {
   return wrapper!.findAll('button').find((b) => b.text().trim() === text)!
 }
 
-/** 端口输入框（NETWORK 分区第一个 number 输入，DOM 顺序先于高级配置） */
+/**
+ * 端口输入框（NETWORK 分区第一个 spinbutton，DOM 顺序先于高级配置）。
+ *
+ * 断言的是 SDK `NumberField` 渲染出的输入元素：它用 `role="spinbutton"` +
+ * `type="text"`（取代原生 `type="number"` 的 spinner），故不能再按 `type` 定位。
+ */
 function portInput() {
-  return wrapper!.find('input[type="number"]').element as HTMLInputElement
+  return wrapper!.find('[role="spinbutton"]').element as HTMLInputElement
 }
 
 // ==================== 场景 ====================
@@ -162,7 +167,7 @@ describe('服务器流：useServer × ServerView（宿主设置经 invoke 只读
   it('保存端口：update_server_port 只落配置，下一次传输面启动生效', async () => {
     await mountView()
 
-    const input = wrapper!.find('input[type="number"]')
+    const input = wrapper!.find('[role="spinbutton"]')
     await input.setValue(8080)
     await buttonByText('保存').trigger('click')
     await flushAsync()

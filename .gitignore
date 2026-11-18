@@ -30,8 +30,13 @@
 # 该 feature 合流进主线后删掉本规则与目录，届时 Go 版源码按常规源码入库。
 apps/ai-chatbox/desktop/go/
 
-# AI agent
+# AI agent（工具本地的插件 / 扩展 / 会话状态，不入库）
 *.codebuddy/
+*.workbuddy/
+.claude/
+.opencode/
+.pi/
+
 
 # 日志与临时文件
 *.log
@@ -41,6 +46,10 @@ temp/
 *.tmp
 *.bak
 *.backup
+
+# 本机包管理器缓存 / 文件管理器回收站（pnpm store 落在仓根时）
+.pnpm-store/
+.Trash-*/
 
 # E2E 失败现场（截图 / logcat / 产物目录）：本地排查用，不入库
 e2e/artifacts/
@@ -69,3 +78,9 @@ desktop.ini
 
 # AI 工具的计划文件（zcode 生成的会话计划，不入库）
 .zcode/
+
+# 本地 AI 工具状态（codex hooks 等，不入库）
+.codex/
+
+# pi 工具产物（archify 工作目录与交付中间 json；成品 .html/.json/.png 走 docs/diagrams/ 正常入库）
+.archify/

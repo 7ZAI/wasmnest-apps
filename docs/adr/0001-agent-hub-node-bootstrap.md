@@ -1,6 +1,6 @@
 # agent-hub 的环境引导：插件侧在线安装 Node.js，宿主只提供 PATH 登记机制
 
-**状态**：accepted（2026-10-22）
+**状态**：superseded by 0002（2026-10-28）——agent-hub 已整体并入 bedcode；Node 引导逻辑原样迁入 bedcode Agent 管理域（rust/src/hub/env/），机制决策继续有效
 
 一台什么都没装的机器上，agent-hub 既探测不出「agent 未安装」，也没有任何装 node/npm 的通道。决定：把「引导 Node.js（含 npm）」作为 agent-hub 插件的职责——**不随包、不装 git/bash/python**，通过 shell 脚本在线下载官方产物并以钉死的 sha256 校验；PATH 采用**用户级**（Windows `HKCU\Environment`、Linux `~/.local/bin`），**不做机器级安装、不引入提权面**；宿主只新增一个纯机制原语 `host-app.register-path / unregister-path`（复用已有的 `REG_EXPAND_SZ` 保留与 `WM_SETTINGCHANGE` 广播实现），插件不自行 `reg add` 改写用户环境。同时把探测结果拆成三态（`not-installed` / `ready` / `unavailable`），禁止把「探测失败」显示成「未安装」。
 

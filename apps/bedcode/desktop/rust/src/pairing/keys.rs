@@ -57,17 +57,38 @@ pub trait SecretStore {
 ///
 /// 整环**一个** secret 值（见模块头「为什么是一个 secret 值」）。`keys` 只保留
 /// `MAX_GENERATIONS` 项；代次单调递增，作为 JWT `kid` 的取值来源。
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 struct KeyringFile {
     active: u64,
     keys: BTreeMap<u64, String>,
 }
 
+/// 手写 `Debug`：`keys` 的值是 hex 私钥，不得出现在 `{:?}` / `assert_eq!`
+/// 失败信息 / 宿主日志里（AGENTS §4.1「凭据禁止进日志」；C-DEBUG）
+impl std::fmt::Debug for KeyringFile {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("KeyringFile")
+            .field("active", &self.active)
+            .field("generations", &self.keys.keys().collect::<Vec<_>>())
+            .finish()
+    }
+}
+
 /// 内存态密钥环：代次 → 密钥字节 + 当前签发代次
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Keyring {
     active: u64,
     keys: BTreeMap<u64, Vec<u8>>,
+}
+
+/// 手写 `Debug`：只留代次，**绝不**输出密钥字节（同 `KeyringFile`）
+impl std::fmt::Debug for Keyring {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Keyring")
+            .field("active", &self.active)
+            .field("generations", &self.keys.keys().collect::<Vec<_>>())
+            .finish()
+    }
 }
 
 impl Keyring {
@@ -347,6 +368,7 @@ impl SecretStore for MockSecretStore {
 mod tests {
     use super::*;
     mod adr_0033_d4;
+    mod debug_redaction;
     mod first_call_generates_and;
     mod native;
     mod purge_legacy_key_is;

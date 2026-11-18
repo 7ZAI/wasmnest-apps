@@ -1,12 +1,31 @@
 <script setup lang="ts">
 /**
- * FileTransferView — 文件传输主页面（三段式布局）
+ * FileTransferView — 文件传输主页面（底部导航三页 + 设置二级页）
  *
- * 旧版架构：浏览为主页 + 传输队列/附近设备收进 bottom sheet。
- * 当前架构：传输 / 浏览 / 设备三段式主内容区，传输列表**直接铺出来**（默认页），
- *         底部行动条按「多选 / 活跃传输 / 上传」三态互斥收敛唯一入口。
- * 领域逻辑（useTasks / usePeerDevices / useRemoteFs / useSettings）完全复用，
- * 本文件只做编排与布局。
+ * 布局（v3）：
+ *   ┌──────────────────────────────────────┐
+ *   │ AppHeader   页面标题                  │
+ *   ├──────────────────────────────────────┤
+ *   │ 一级页面（可左右滑）                  │
+ *   │   探索连接 / 浏览 / 传输               │
+ *   ├──────────────────────────────────────┤
+ *   │ SummaryBar  多选或传输中才出现         │
+ *   ├──────────────────────────────────────┤
+ *   │ 发送条      整宽主操作（无对端置灰）   │
+ *   ├──────────────────────────────────────┤
+ *   │ BottomNav   探索连接 · 浏览 · 传输 · 设置 │
+ *   └──────────────────────────────────────┘
+ *
+ * 与上一版（顶部分段）的差异只在「入口位置」与「页面顺序」，领域逻辑
+ * （useTasks / usePeerDevices / useRemoteFs / useSettings）完全复用：
+ *   - 一级入口从顶部分段下沉到底栏，默认落在「探索连接」——没有可用对端时
+ *     传输页无事可做，先把设备找到才是第一步；
+ *   - 传输页内部仍是 全部 / 发送 / 接收 / 历史 四段，宽屏下占满整宽；
+ *   - 设置不再由顶栏齿轮进入（底栏第四项 → 宿主二级页整页跳转）。
+ *
+ * 探索连接页的扫描态由本层持有：宿主 `refresh-devices` 立即返回、mDNS 结果
+ * 随后陆续到达，动画至少跑完一轮用户才能把「扫描」与「设备出现」对上，
+ * 因此扫描态按「最短展示时长」收尾，而不是按命令返回时刻。
  */
 import { inject, ref, onMounted, onUnmounted, computed, watch } from 'vue'
 import type { PluginContext, Disposable } from '@binblink/wasmnest-plugin-sdk-mobile'
@@ -14,13 +33,15 @@ import { useSwipeTabs } from '@binblink/wasmnest-plugin-sdk-mobile/ui/swipe-tabs
 import { useTasks } from '../composables/useTasks'
 import { isNeedsAllFilesAccess, promptAllFilesAccess } from '../composables/useAllFilesAccess'
 import { usePeerDevices } from '../composables/usePeerDevices'
-import { useRemoteFs } from '../composables/useRemoteFs'
+import { prepareDeviceSend } from '../composables/sendToDevice'
+import { rootsReadyKey, useRemoteFs } from '../composables/useRemoteFs'
 import { useSettings } from '../composables/useSettings'
 import { formatBytes, formatSpeed } from '../utils/format'
+import { resolveMainSwipe } from '../utils/mainSwipe'
 import { isTerminalState } from '../types'
 import type { MainTab, FooterMode } from '../types'
-import PeerHeader from './PeerHeader.vue'
-import TabBar from './TabBar.vue'
+import AppHeader from './AppHeader.vue'
+import BottomNav from './BottomNav.vue'
 import TransfersTab from './TransfersTab.vue'
 import BrowseTab from './BrowseTab.vue'
 import DevicesTab from './DevicesTab.vue'
@@ -31,18 +52,29 @@ const t = (key: string, params?: Record<string, any>) => context.i18n.t(key, par
 
 const tasks = useTasks(context)
 const devices = usePeerDevices(context)
-const fs = useRemoteFs(context)
+const fs = useRemoteFs(context, () => devices.peer.value.id)
 const settings = useSettings(context)
 
-/** 主分段（传输列表默认可见——传输是第一目标） */
-const tab = ref<MainTab>('transfers')
+/** 一级页面（默认探索连接：没有对端时传输页无事可做） */
+const tab = ref<MainTab>('devices')
 
-/** 主分段顺序（滑动方向判定基准） */
-const TAB_ORDER: MainTab[] = ['transfers', 'browse', 'devices']
+/** 传输页句柄：横滑先步进它的四段筛选，到首/尾段才翻一级页面 */
+const transfersRef = ref<InstanceType<typeof TransfersTab> | null>(null)
+
+/** 页面顺序（底栏顺序，也是滑动方向判定基准） */
+const TAB_ORDER: MainTab[] = ['devices', 'browse', 'transfers']
+
+/** 底栏 / 页面标题文案（同一份，保证标题与选中项永远一致） */
+const navLabels = computed<Record<MainTab | 'settings', string>>(() => ({
+  devices: t('transfer.v2.tab.devices'),
+  browse: t('transfer.v2.tab.browse'),
+  transfers: t('transfer.v2.tab.transfers'),
+  settings: t('transfer.v2.nav.settings'),
+}))
 
 /**
  * 分段切换方向：next = 向右前进（新页自右推入、旧页向左退出），prev = 回退反向。
- * 点击 TabBar 与左右滑都经 tab 变化统一推断，动画方向始终与手势语义一致。
+ * 点击底栏与左右滑都经 tab 变化统一推断，动画方向始终与手势语义一致。
  */
 const slideDir = ref<'next' | 'prev'>('next')
 watch(tab, (next, prev) => {
@@ -66,10 +98,39 @@ watch(
   { deep: false, immediate: true },
 )
 
-/** 左右滑切换主分段（内容区手势，不与浏览 tab 内列表滚动冲突） */
+/**
+ * 左右滑：先在本页内步进（传输页四段筛选），到两端后才离开本页。
+ *
+ * 为什么先页内后翻页：传输页四个筛选是同一页里的并列视图，直接翻页会让用户
+ * 无法用最自然的横滑看「发送 / 接收 / 历史」；而筛选之外仍要能一眼滑到相邻页。
+ * 手势只在这里持有一次（触摸与 dev-shell 鼠标拖动共用），子页只回答「吃掉没有」。
+ *
+ * 两端语义（底栏顺序 devices → browse → transfers → settings）：
+ *   - 首段（全部）再右滑 → 退到上一页「浏览」；
+ *   - 尾段（历史）再左滑 → 前进到「设置」——设置是宿主二级页，不是第四张可滑页，
+ *     所以这里走与点击底栏第四项相同的 openPage（用户不必先松手去点底栏）。
+ */
 function switchTab(dir: 'left' | 'right'): void {
-  const next = TAB_ORDER.indexOf(tab.value) + (dir === 'left' ? 1 : -1)
-  if (next >= 0 && next < TAB_ORDER.length) tab.value = TAB_ORDER[next]!
+  if (tab.value === 'transfers') {
+    const transfers = transfersRef.value
+    // 切页过渡 / 首帧未挂载：整轮丢弃。宁可不动，也不要因为拿不到子页状态
+    // 把「历史」误判成已到端点而弹出设置页
+    if (!transfers) return
+    if (transfers.stepFilter(dir)) return
+  }
+  const action = resolveMainSwipe(TAB_ORDER, tab.value, dir)
+  if (action.type === 'tab') tab.value = action.tab
+  else if (action.type === 'settings') openSettingsFromSwipe()
+}
+
+/** 设置页入栈时间戳：滑动入口防连击重复入栈（连续两次 touchend 只开一次） */
+let settingsNavAt = 0
+/** 与底栏第四项同义的「前进到设置」 */
+function openSettingsFromSwipe(): void {
+  const now = Date.now()
+  if (now - settingsNavAt < 600) return
+  settingsNavAt = now
+  context.ui.openPage('settings')
 }
 const { onTouchStart, onTouchMove, onTouchEnd } = useSwipeTabs(switchTab)
 
@@ -102,30 +163,77 @@ function onMouseUp(): void {
 
 // ==================== 对端 / 设备 ====================
 
-/** 对端展示名：优先活跃对端名（三态真相），回落旧任务快照/占位链 */
-const peerLabel = computed(() => devices.peer.value.name || tasks.displayPeerName.value)
+/**
+ * 扫描最短展示时长：`refresh-devices` 是「触发宿主重查」的即时返回，
+ * 结果由 mDNS 事件陆续送达。动画与命令同时结束会让用户看不到过程，
+ * 因此至少跑满一轮雷达（约两圈扫描 + 一次脉冲）。
+ */
+const SCAN_MIN_MS = 2200
 
-/** 探索发现进行中（设备 tab 头部扫描按钮 spinner 态） */
+/** 探索发现进行中（雷达转动、按钮 spinner、防重复触发） */
 const deviceScanning = ref(false)
+let scanTimer: ReturnType<typeof setTimeout> | null = null
 
 async function handleScanDevices(): Promise<void> {
   if (deviceScanning.value) return
   deviceScanning.value = true
+  const startedAt = Date.now()
   try {
     await devices.refresh()
   } finally {
-    deviceScanning.value = false
+    const remain = Math.max(0, SCAN_MIN_MS - (Date.now() - startedAt))
+    if (scanTimer) clearTimeout(scanTimer)
+    scanTimer = setTimeout(() => {
+      scanTimer = null
+      deviceScanning.value = false
+    }, remain)
   }
 }
 
+/**
+ * 首次进入探索连接页自动扫一轮：真机上设备列表通常为空且用户不知道要手动点，
+ * 进页面即给出「正在找」的反馈（同时是真实 refresh，不是装饰动画）。
+ * 只做一次——用户自己点「重新扫描」时才再次触发，避免每次切页都打命令。
+ */
+let autoScanned = false
+function maybeAutoScan(): void {
+  if (autoScanned || tab.value !== 'devices') return
+  autoScanned = true
+  void handleScanDevices()
+}
+watch(tab, () => maybeAutoScan())
+
+/** 内网入口（显式）：不把上次外网记录隐式带进本次拨号 */
 function handleDeviceConnect(nodeId: string): void {
-  void devices.connect(nodeId)
+  void devices.connect(nodeId, { lanOnly: true })
+}
+/** 外网入口（显式）：跳过 LAN 候选，失败不回退（用户显式意图） */
+function handleDeviceRetryRelayOnly(nodeId: string): void {
+  void devices.connect(nodeId, { relayOnly: true })
+}
+
+function handleRemoveRemote(nodeId: string): void {
+  devices.removeRemotePeer(nodeId)
 }
 function handleDeviceDisconnect(nodeId: string): void {
   void devices.disconnect(nodeId)
 }
 function handleDeviceSetActive(nodeId: string): void {
   void devices.switchPeer(nodeId)
+}
+
+/**
+ * 设备行直达发送（T23）：未连接先连、再显式切活跃，最后复用上传流程
+ * （选文件 → 中继提示 → 入队 → 切到传输页）。连接失败不弹选择器。
+ */
+async function handleSendToDevice(nodeId: string): Promise<void> {
+  const row = devices.rows.value.find((item) => item.nodeId === nodeId)
+  const prepared = await prepareDeviceSend(nodeId, row, {
+    connect: devices.connect,
+    switchPeer: devices.switchPeer,
+  })
+  if (!prepared.ok) return
+  await uploadFile()
 }
 
 /** 历史「打开所在文件夹」：优先本地路径（wire 有 localPath，dev-shell 演示链路），
@@ -186,6 +294,33 @@ async function uploadFile(): Promise<void> {
     const raw = await context.commands.execute('file-transfer.pick-files', {})
     const paths: string[] = Array.isArray(raw) ? raw : []
     if (paths.length === 0) return
+    // 经中继发送提示（T12 / §9.2#4）：只提示一次、可取消，不改变模式判定。
+    // 阈值 0 = 每次经中继都提示；> 0 时按本批总量判定（预览失败按无阈值口径提示）
+    const activeRow = devices.rows.value.find((r) => r.nodeId === devices.peer.value.id)
+    if (activeRow?.transport === 'wan-relay') {
+      const threshold = settings.settings.value.relayMaxBytesPerTask
+      let total = 0
+      if (threshold > 0) {
+        try {
+          const preview = await context.commands.execute('file-transfer.preview-outgoing', {
+            paths,
+          })
+          total = typeof preview?.totalBytes === 'number' ? preview.totalBytes : 0
+        } catch (e) {
+          console.error('[File Transfer] preview-outgoing failed:', e)
+        }
+      }
+      if (threshold <= 0 || total >= threshold) {
+        const go = await context.dialogs.showConfirm({
+          title: t('transfer.relayHint.title'),
+          message: t('transfer.relayHint.body'),
+          confirmText: t('transfer.relayHint.confirm'),
+          cancelText: t('transfer.relayHint.cancel'),
+          variant: 'warning',
+        })
+        if (!go) return
+      }
+    }
     const ok = await tasks.sendFiles(paths)
     if (ok > 0) {
       context.dialogs.showToast(t('transfer.upload.enqueued'), 'success')
@@ -209,12 +344,29 @@ async function uploadFile(): Promise<void> {
  */
 const readyPeerId = computed(() => (devices.peer.value.online ? devices.peer.value.id : ''))
 
-/** 活跃对端就绪状态变化驱动目录加载（就绪加载共享根，未就绪清空浏览态）；
- *  immediate：挂载时按当前状态对齐一次，替代此前挂载无条件 loadRoots（无活跃对端必失败） */
+/**
+ * 根清单拉取就绪键：活跃对端 + 已连接 + 有可用地址。
+ *
+ * 不能只看 id：首次连接时被连侧往往还没发现对方（设备无任何地址），这一刻
+ * 发起拉取必失败，而后端没有重试；等 mdns-found 补齐地址后键随之变化，才会
+ * 再拉一次。键出现前不发起，避免把注定失败的请求留在界面上。
+ */
+const rootsSyncKey = computed(() => {
+  const peer = devices.peer.value
+  const row = devices.rows.value.find((item) => item.nodeId === peer.id)
+  return rootsReadyKey({
+    peerId: peer.id,
+    online: peer.online,
+    connectionModes: row?.connectionModes ?? 'none',
+  })
+})
+
+/** 就绪键变化驱动目录加载（就绪加载共享根，未就绪清空浏览态）；
+ *  immediate：挂载时按当前状态对齐一次 */
 watch(
-  readyPeerId,
-  (id) => {
-    if (id) void fs.loadRoots()
+  rootsSyncKey,
+  (key) => {
+    if (key) void fs.loadRoots()
     else fs.reset()
   },
   { immediate: true },
@@ -240,21 +392,23 @@ const overallPercent = computed(() => {
   return Math.min(100, Math.round((done / total) * 100))
 })
 
-/** 底栏三态：多选 > 活跃传输 > 上传 CTA */
+/** 行动条状态：多选 > 活跃传输 > idle（idle 时整条不渲染，列表多显示一张卡） */
 const footerMode = computed<FooterMode>(() => {
   if (tab.value === 'browse' && fs.selectedCount.value > 0) return 'select'
   if (activeTasks.value.length > 0) return 'active'
-  return 'upload'
+  return 'idle'
 })
-
-/** 队列残留条数（上传态提示：终态但仍可清理/重试的任务） */
-const queuedCount = computed(() => tasks.tasks.value.length)
 
 const downloadLabel = computed(() =>
   t('transfer.topbar.downloadSelected', {
     count: fs.selectedCount.value,
     size: formatBytes(fs.selectedTotalSize.value, t),
   }),
+)
+
+/** 总速率文案：0 = 尚无采样（宿主速率窗口未满 / 暂停），不渲染 0 B/s 以免误读为停转 */
+const totalSpeedLabel = computed(() =>
+  tasks.totalSpeed.value > 0 ? formatSpeed(tasks.totalSpeed.value, t) : '',
 )
 
 const activeLabel = computed(() => {
@@ -271,10 +425,9 @@ onMounted(() => {
   devices.start()
   void settings.load()
   disposeBackPress = context.ui.onBackPressed(() => {
-    // 返回键接管顺序：浏览 tab 逐级退目录 → 回到传输 tab → 交还平台。
+    // 返回键接管顺序：浏览页逐级退目录 → 回到首页（探索连接）→ 交还平台。
     // 已处理的分支返回 true（消费本次返回）：不消费则宿主壳兜底会同时退一屏，
-    // 一次返回变成「退目录 + 离开应用」；走到最后（传输 tab 根）返回 false 交还平台
-    // ——壳按屏栈退回主屏，主屏则由系统退出应用（而不是留在应用里按返回无反应）。
+    // 一次返回变成「退目录 + 离开应用」；走到最后返回 false 交还平台。
     if (tab.value === 'browse' && fs.crumbs.value.length > 1) {
       void fs.up()
       return true
@@ -283,18 +436,24 @@ onMounted(() => {
       void fs.goRoot()
       return true
     }
-    if (tab.value !== 'transfers') {
-      tab.value = 'transfers'
+    if (tab.value !== 'devices') {
+      tab.value = 'devices'
       return true
     }
     return false
   })
   // 挂载晚于设备事件时主动探测一次
   if (!tasks.peerOnline.value) void tasks.queryPeer()
+  // 首屏即探索（默认页就是探索连接）
+  maybeAutoScan()
 })
 
 onUnmounted(() => {
   disposeBackPress?.dispose()
+  if (scanTimer) {
+    clearTimeout(scanTimer)
+    scanTimer = null
+  }
   devices.stop()
   tasks.stop()
 })
@@ -303,40 +462,18 @@ onUnmounted(() => {
 <template>
   <!-- data-testid：真机 E2E 锚点（移动端统一 mobile- 前缀，见 docs/E2E.md §10.5 / §11.5） -->
   <div class="fv2-view mobile-ui ft-app" data-testid="mobile-ft-root">
-    <!-- 顶栏：活跃对端 + 连接状态 + 设置入口 -->
-    <PeerHeader
-      :peer-name="peerLabel"
-      :online="devices.peer.value.online"
-      :online-label="t('transfer.peer.online')"
-      :offline-label="t('transfer.peer.offline')"
-      :upload-label="t('transfer.v2.upload.cta')"
-      :settings-label="t('transfer.settings.title')"
-      :upload-disabled="!tasks.peerOnline.value"
-      @peer-tap="tab = 'devices'"
-      @upload="uploadFile()"
-      @settings="context.ui.openPage('settings')"
-    />
+    <!-- 顶栏：当前页面标题 -->
+    <AppHeader :title="navLabels[tab]" />
 
-    <!-- 主分段（传输 / 浏览 / 设备） -->
-    <TabBar
-      v-model="tab"
-      :transfers="t('transfer.v2.tab.transfers')"
-      :browse="t('transfer.v2.tab.browse')"
-      :devices="t('transfer.v2.tab.devices')"
-      :active-count="activeTasks.length"
-      :device-count="devices.rows.value.length"
-    />
-
-    <!-- 主内容区（左右滑切换分段）：data-swipe-zone 声明横滑区供宿主仲裁边界，
-         区在首尾边界时交还外层翻页（MobileSwipeContainer 协议，与 auto-task 同构）。
+    <!-- 一级页面（左右滑切换）：手势统一在本容器持有（.fv2-swipe-zone 只禁浏览器
+         水平手势、保留纵向滚动）。传输页先步进页内四段筛选，到首/尾段才翻页——
+         边界由 switchTab → TransfersTab.stepFilter 的返回值判定，不再经退役的宿主
+         MobileSwipeContainer 协议（原 data-swipe-zone / data-zone-at-* 标记已删除）。
          :style 注入分段切换方向位移量；Transition 为方向性推入（styles.css .fv2-tab-*），
          不用 out-in——离场分支绝对定位退出文档流，进场分支同帧接管，无空窗塌陷 -->
     <div
-      class="flex-1 min-h-0 flex flex-col fv2-swipe-zone"
-      data-swipe-zone
+      class="fv2-stage fv2-swipe-zone"
       :style="slideVars"
-      :data-zone-at-start="tab === 'transfers'"
-      :data-zone-at-end="tab === 'devices'"
       @touchstart.passive="onTouchStart"
       @touchmove.passive="onTouchMove"
       @touchend="onTouchEnd"
@@ -347,22 +484,20 @@ onUnmounted(() => {
       @pointercancel="onMouseUp"
     >
       <Transition name="fv2-tab">
-        <!-- 传输列表（默认，直接铺出） -->
-        <TransfersTab
-          v-if="tab === 'transfers'"
-          key="transfers"
-          :tasks="tasks.tasks.value"
-          :receiving="tasks.receivingTasks.value"
-          :history="tasks.history.value"
+        <!-- 探索连接（默认页）：雷达扫描 + 分组设备列表 -->
+        <DevicesTab
+          v-if="tab === 'devices'"
+          key="devices"
+          :rows="devices.rows.value"
+          :scanning="deviceScanning"
           :t="t"
-          @cancel="(id) => tasks.cancel(id)"
-          @retry="(id) => tasks.retry(id)"
-          @pause="(id) => tasks.pause(id)"
-          @resume="(id) => tasks.resume(id)"
-          @resume-all="() => tasks.resumeAll()"
-          @cancel-receiving="(sessionId) => tasks.cancelReceiving(sessionId)"
-          @clear-history="() => tasks.clearHistory()"
-          @open-location="handleOpenLocation"
+          @connect="handleDeviceConnect"
+          @retry-relay-only="handleDeviceRetryRelayOnly"
+          @disconnect="handleDeviceDisconnect"
+          @set-active="handleDeviceSetActive"
+          @remove-remote="handleRemoveRemote"
+          @send="handleSendToDevice"
+          @scan="handleScanDevices"
         />
 
         <!-- 浏览对端共享目录 -->
@@ -390,38 +525,73 @@ onUnmounted(() => {
           @query-peer="() => tasks.queryPeer()"
         />
 
-        <!-- 附近设备 -->
-        <DevicesTab
+        <!-- 传输：发送 / 接收 / 历史 -->
+        <TransfersTab
           v-else
-          key="devices"
-          :rows="devices.rows.value"
-          :scanning="deviceScanning"
+          ref="transfersRef"
+          key="transfers"
+          :tasks="tasks.tasks.value"
+          :receiving="tasks.receivingTasks.value"
+          :history="tasks.history.value"
+          :upload-label="t('transfer.v2.upload.cta')"
+          :can-upload="tasks.peerOnline.value"
           :t="t"
-          @connect="handleDeviceConnect"
-          @disconnect="handleDeviceDisconnect"
-          @set-active="handleDeviceSetActive"
-          @scan="handleScanDevices"
+          @cancel="(id) => tasks.cancel(id)"
+          @retry="(id) => tasks.retry(id)"
+          @pause="(id) => tasks.pause(id)"
+          @resume="(id) => tasks.resume(id)"
+          @resume-all="() => tasks.resumeAll()"
+          @cancel-receiving="(sessionId) => tasks.cancelReceiving(sessionId)"
+          @clear-history="() => tasks.clearHistory()"
+          @open-location="handleOpenLocation"
+          @upload="uploadFile()"
         />
       </Transition>
     </div>
 
-    <!-- 底部行动条（多选 / 活跃传输 / 上传 CTA 三态互斥） -->
+    <!-- 上下文行动条（多选批量下载 / 传输中总体进度）；空闲时整条不渲染 -->
     <SummaryBar
+      v-if="footerMode !== 'idle'"
       :mode="footerMode"
-      :upload-label="t('transfer.v2.upload.cta')"
-      :queue-hint="queuedCount > 0 ? t('transfer.v2.queue.hint', { count: queuedCount }) : ''"
       :download-label="downloadLabel"
       :clear-label="t('transfer.table.clearSelection')"
       :active-label="activeLabel"
-      :speed-label="formatSpeed(tasks.totalSpeed.value, t)"
+      :speed-label="totalSpeedLabel"
       :overall-label="t('transfer.v2.active.overall', { percent: overallPercent })"
       :overall-percent="overallPercent"
       :view-queue-label="t('transfer.v2.active.viewQueue')"
-      :offline="!tasks.peerOnline.value"
-      @upload="uploadFile()"
       @download="downloadSelected()"
       @clear-selection="() => fs.clearSelection()"
       @open-queue="tab = 'transfers'"
+    />
+
+    <!-- 发送：常驻底栏上方，整宽主操作（无对端时置灰，与传输页空态 CTA 同一条上传路径） -->
+    <div class="fv2-sendbar">
+      <button
+        class="fv2-btn-primary fv2-sendbar-btn"
+        :disabled="!tasks.peerOnline.value"
+        data-testid="mobile-ft-upload"
+        @click="uploadFile()"
+      >
+        <svg aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="2"
+            d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"
+          />
+        </svg>
+        <span>{{ t('transfer.v2.upload.cta') }}</span>
+      </button>
+    </div>
+
+    <!-- 底部导航：三个一级页面 + 设置（宿主二级页整页跳转） -->
+    <BottomNav
+      v-model="tab"
+      :labels="navLabels"
+      :active-count="activeTasks.length"
+      :device-count="devices.rows.value.length"
+      @settings="context.ui.openPage('settings')"
     />
   </div>
 </template>

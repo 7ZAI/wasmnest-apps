@@ -27,23 +27,61 @@ export type MessageSchema = {
   // ==================== 附近设备面板（bottom sheet） ====================
   'transfer.devices.title': string
   'transfer.devices.subtitle': string
+  'transfer.devices.relayEmptyHint': string
   'transfer.devices.empty': string
   'transfer.devices.online': string
   /** 快照恢复未被实时事件刷新的节点标注 */
   'transfer.devices.recentSeen': string
   'transfer.devices.connected': string
   'transfer.devices.connecting': string
+  'transfer.devices.connectingHint': string
+  'transfer.devices.sendFile': string
   'transfer.devices.capNone': string
   'transfer.devices.activeCurrent': string
   'transfer.devices.setActive': string
-  'transfer.devices.connect': string
   'transfer.devices.disconnect': string
   'transfer.devices.denied': string
   'transfer.devices.unreachable': string
   'transfer.devices.trustHint': string
   /** 探索发现：重新扫描同网节点（sheet 头部按钮） */
-  'transfer.devices.scan': string
-  'transfer.devices.scanning': string
+  'transfer.devices.discover': string
+  'transfer.devices.discovering': string
+  'transfer.devices.connectLan': string
+  'transfer.devices.connectLanHint': string
+  'transfer.devices.connectWan': string
+  'transfer.devices.connectWanHint': string
+  'transfer.devices.modeBoth': string
+  'transfer.devices.modeLanOnly': string
+  'transfer.devices.modeWanOnly': string
+  'transfer.devices.modeNone': string
+  'transfer.devices.modeNoneHint': string
+  // T12：中继 / 远程设备（传输形态、手动尝试外网）
+  'transfer.devices.remote': string
+  'transfer.devices.removeRemote': string
+  'transfer.devices.transportLan': string
+  'transfer.devices.transportWan': string
+  // T20：上次传输形态 / 跨网能力徽标 / 分类失败出路
+  'transfer.devices.lastTransportLan': string
+  'transfer.devices.lastTransportWan': string
+  'transfer.devices.relayTag': string
+  'transfer.devices.errorNoEndpoint': string
+  'transfer.devices.errorRelayDisabled': string
+  'transfer.devices.errorRelayUnreachable': string
+  'transfer.devices.errorTimeout': string
+  /** 未识别失败：`{detail}` 为命令原文，原样展示（fail-visible） */
+  'transfer.devices.errorUnknown': string
+
+  // ==================== 我的设备（设置页：设备名 / 指纹） ====================
+  'transfer.myDevice.title': string
+  'transfer.myDevice.loading': string
+  'transfer.myDevice.loadFailed': string
+  'transfer.myDevice.refresh': string
+  'transfer.myDevice.unsupportedTitle': string
+  'transfer.myDevice.unsupportedBody': string
+  'transfer.myDevice.deviceName': string
+  'transfer.myDevice.unnamed': string
+  'transfer.myDevice.fingerprint': string
+  'transfer.myDevice.hint': string
 
   // ==================== 顶栏 / 浏览 ====================
   'transfer.topbar.settings': string
@@ -235,10 +273,102 @@ export type MessageSchema = {
   'transfer.settings.receivingPolicyReject': string
   'transfer.settings.receivingPolicyHint': string
   'transfer.settings.encryption': string
-  'transfer.settings.encryptionOn': string
-  'transfer.settings.encryptionOff': string
+  'transfer.settings.encryptionAlwaysOn': string
   'transfer.settings.encryptionHint': string
   'transfer.settings.approvalTimeout': string
+  // T12：中继开关与提示阈值（关的是中继，不是加密）
+  'transfer.settings.relay': string
+  'transfer.settings.relayOn': string
+  'transfer.settings.relayOff': string
+  'transfer.settings.relayHint': string
+  'transfer.settings.relayThreshold': string
+  'transfer.settings.relayThresholdHint': string
+
+  // ==================== 中继发送提示（T12） ====================
+  'transfer.relayHint.title': string
+  'transfer.relayHint.body': string
+  'transfer.relayHint.confirm': string
+  'transfer.relayHint.cancel': string
+
+  // ==================== 内网穿透配置（设置页） ====================
+  'transfer.relayConfig.title': string
+  'transfer.relayConfig.loading': string
+  'transfer.relayConfig.loadFailed': string
+  'transfer.relayConfig.refresh': string
+  'transfer.relayConfig.emptyTitle': string
+  'transfer.relayConfig.empty': string
+  'transfer.relayConfig.addresses': string
+  'transfer.relayConfig.showAddr': string
+  'transfer.relayConfig.hideAddr': string
+  'transfer.relayConfig.source': string
+  'transfer.relayConfig.sourceCenter': string
+  'transfer.relayConfig.sourceCache': string
+  'transfer.relayConfig.sourceInvite': string
+  'transfer.relayConfig.sourceQr': string
+  'transfer.relayConfig.sourceSync': string
+  'transfer.relayConfig.sourceUnknown': string
+  'transfer.relayConfig.relayState': string
+  'transfer.relayConfig.stateIdle': string
+  'transfer.relayConfig.stateConnecting': string
+  'transfer.relayConfig.stateReserved': string
+  'transfer.relayConfig.stateLost': string
+  'transfer.relayConfig.stateUnknown': string
+  'transfer.relayConfig.room': string
+  'transfer.relayConfig.syncedAt': string
+  'transfer.relayConfig.centerError': string
+  'transfer.relayConfig.scanImport': string
+  'transfer.relayConfig.scanTitle': string
+  'transfer.relayConfig.scanHint': string
+  'transfer.relayConfig.scanHintSlow': string
+  'transfer.relayConfig.scanClose': string
+  'transfer.relayConfig.scanRetry': string
+  'transfer.relayConfig.scanFailed': string
+  'transfer.relayConfig.scanPermission': string
+  'transfer.relayConfig.confirmTitle': string
+  'transfer.relayConfig.confirmReplace': string
+  'transfer.relayConfig.import': string
+  'transfer.relayConfig.importing': string
+  'transfer.relayConfig.cancel': string
+  'transfer.relayConfig.importFailed': string
+  'transfer.relayConfig.imported': string
+  'transfer.relayConfig.syncNow': string
+  'transfer.relayConfig.syncing': string
+  'transfer.relayConfig.syncSynced': string
+  'transfer.relayConfig.syncNoPeer': string
+  'transfer.relayConfig.syncNotTrusted': string
+  'transfer.relayConfig.syncNotConnected': string
+  'transfer.relayConfig.syncNoConfig': string
+  'transfer.relayConfig.syncInvalidConfig': string
+  'transfer.relayConfig.syncUnsupported': string
+  'transfer.relayConfig.syncFailed': string
+  'transfer.relayCard.conflict.title': string
+  'transfer.relayCard.conflict.body': string
+  'transfer.relayCard.unconfigured.title': string
+  'transfer.relayCard.unconfigured.body': string
+  'transfer.relayCard.connecting.title': string
+  'transfer.relayCard.connecting.body': string
+  'transfer.relayCard.lost.title': string
+  'transfer.relayCard.lost.body': string
+  'transfer.relayCard.disabled.title': string
+  'transfer.relayCard.disabled.body': string
+  'transfer.relayCard.unsupported.title': string
+  'transfer.relayCard.unsupported.body': string
+  'transfer.relayCard.denied.title': string
+  'transfer.relayCard.denied.body': string
+  'transfer.relayCard.error.title': string
+  'transfer.relayCard.error.body': string
+  'transfer.relayCard.unavailable.title': string
+  'transfer.relayCard.unavailable.body': string
+
+  'transfer.relayCard.pending.title': string
+  'transfer.relayCard.pending.body': string
+  'transfer.relayCard.roomHint': string
+  'transfer.relayCard.stale': string
+  'transfer.relayCard.actionShareConfig': string
+  'transfer.relayCard.actionRefresh': string
+  'transfer.relayCard.actionCenter': string
+  'transfer.relayCard.actionSettings': string
+  'transfer.relayCard.openCenterUnavailable': string
 
   // ==================== 首连确认（全局对话框，spec 决策 7） ====================
   'transfer.consent.title': string
@@ -264,13 +394,15 @@ export type MessageSchema = {
   'transfer.trusted.revokeFailed': string
   'transfer.trusted.revokedToast': string
 
-  // ==================== 三段式主视图（传输/浏览/设备） ====================
-  /** 主分段：传输列表 */
+  // ==================== 底部导航 + 一级页面（传输/浏览/探索连接） ====================
+  /** 底栏一级页：传输列表（同时作页面标题） */
   'transfer.v2.tab.transfers': string
-  /** 主分段：浏览对端共享目录 */
+  /** 底栏一级页：浏览对端共享目录 */
   'transfer.v2.tab.browse': string
-  /** 主分段：附近设备 */
+  /** 底栏一级页：探索附近设备（同时作页面标题） */
   'transfer.v2.tab.devices': string
+  /** 底栏一级页：设置（宿主二级页入口） */
+  'transfer.v2.nav.settings': string
   /** 传输 tab 筛选 chip：全部（含双向） */
   'transfer.v2.filter.all': string
   /** 传输 tab 筛选 chip：仅本端发出 */
@@ -279,7 +411,7 @@ export type MessageSchema = {
   'transfer.v2.filter.receiving': string
   /** 传输 tab 筛选 chip：历史记录 */
   'transfer.v2.filter.history': string
-  /** 上传主按钮文案（底栏 CTA） */
+  /** 上传主按钮文案（底栏上方的整宽发送条 / 传输页空态 CTA） */
   'transfer.v2.upload.cta': string
   /** 底栏上传按钮副文案：队列仍有条目时提示 */
   'transfer.v2.queue.hint': string
@@ -289,6 +421,19 @@ export type MessageSchema = {
   'transfer.v2.active.viewQueue': string
   /** 设备 tab 空态：未发现节点 */
   'transfer.v2.devices.subtitle': string
+  /** 探索连接页：扫描进行中的标题（雷达动画旁的唯一状态文案） */
+  'transfer.v2.devices.scanningTitle': string
+  /** 探索连接页：扫描进行中的说明（引导同网条件） */
+  'transfer.v2.devices.scanningHint': string
+  /** 探索连接页：已发现数量的紧凑标题 */
+  'transfer.v2.devices.found': string
+  /** 探索连接页：重新扫描按钮 */
+  /** 探索连接页：已连接分组标题 */
+  'transfer.v2.devices.groupConnected': string
+  /** 探索连接页：附近设备分组标题 */
+  'transfer.v2.devices.groupNearby': string
+  /** 探索连接页：空态标题（未发现设备） */
+  'transfer.v2.devices.emptyTitle': string
   /** 批请求角标：N 个待处理请求 */
   'transfer.v2.pendingRequests': string
   /** 历史卡操作：打开所在文件夹（接收完成的条目带本机路径时） */

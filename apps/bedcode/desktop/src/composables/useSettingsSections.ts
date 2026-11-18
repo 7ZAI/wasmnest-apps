@@ -5,7 +5,8 @@
  * 授权 / 关于）；本 app 设置页承载**业务分组**：
  * - 外观（主题色板）——各 wasm-app 的样式主题独立，宿主不提供色板；
  * - 配对设置 / 会话设置（原经设置分组贡献面注册的 app 业务面）；
- * - 链路加密——终端业务数据面的设置（加密引擎仍是宿主平台原语）。
+ * - 链路加密——只读展示宿主下限（整机策略归宿主设置页，应用不能写；
+ *   应用的安全要求改为端点注册时声明 `encryption`）。
  *
  * 分组标题：分组只渲染正文（旧扩展点约定：外壳与标题由宿主统一渲染），
  * 本表为它们携带 titleKey（app 域相对 key），由设置页经 `useAppI18n()`
@@ -14,16 +15,20 @@
 
 import { computed, type ComputedRef } from 'vue'
 import AppearanceSettingsSection from '@/components/AppearanceSettingsSection.vue'
+import AppUpdateSettingsSection from '@/components/AppUpdateSettingsSection.vue'
 import LinkCryptoSettingsSection from '@/components/LinkCryptoSettingsSection.vue'
 import PairingSettingsSection from '@/components/PairingSettingsSection.vue'
+import RelayMovedSection from '@/components/RelayMovedSection.vue'
 import SessionSettingsSection from '@/components/SessionSettingsSection.vue'
 
-/** 业务分组排序槽位（沿用旧贡献面槽位：外观 100 / 配对 200 / 链路加密 300 / 会话 400） */
+/** 业务分组排序槽位（沿用旧贡献面槽位：外观 100 / 配对 200 / 中转服务器 250 / 链路加密 300 / 会话 400） */
 export const SECTION_ORDERS = {
   appearance: 100,
   pairing: 200,
+  relay: 250,
   linkCrypto: 300,
   session: 400,
+  appUpdate: 500,
 } as const
 
 /** 设置分组条目（与宿主 useSettingsSections 同形状，app 侧自持） */
@@ -50,6 +55,13 @@ export const settingsSections: Omit<SettingsSectionEntry, 'props'>[] = [
     titleKey: 'pairing.settings.title',
   },
   {
+    // T18：可编辑卡片已迁入网络配置中心；本分组保留只读入口（不复制编辑器）
+    key: 'relay',
+    order: SECTION_ORDERS.relay,
+    component: RelayMovedSection,
+    titleKey: 'relay.title',
+  },
+  {
     key: 'linkCrypto',
     order: SECTION_ORDERS.linkCrypto,
     component: LinkCryptoSettingsSection,
@@ -60,6 +72,12 @@ export const settingsSections: Omit<SettingsSectionEntry, 'props'>[] = [
     order: SECTION_ORDERS.session,
     component: SessionSettingsSection,
     titleKey: 'session.settings.title',
+  },
+  {
+    key: 'appUpdate',
+    order: SECTION_ORDERS.appUpdate,
+    component: AppUpdateSettingsSection,
+    titleKey: 'settings.appUpdate.title',
   },
 ]
 

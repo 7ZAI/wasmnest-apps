@@ -199,7 +199,7 @@ describe('终端流：terminalBuffer store × useTerminalBuffer × xterm × 输�
     expect(store.getBuffer('s1')!.lastRenderedOffset).toBe(7)
   })
 
-  it('重锚（ring_resync）：有在屏内容时清屏 + 计数归零后续拉，无重复无缺口', async () => {
+  it('重锚（ring_resync）：不再前端清屏，带内清屏字节与重播按序上屏', async () => {
     const store = useTerminalBufferStore()
     await store.subscribeSession('s1')
     emitState('s1', 'live', 'subscribed')
@@ -212,14 +212,18 @@ describe('终端流：terminalBuffer store × useTerminalBuffer × xterm × 输�
     await flushAsync()
     expect(store.getBuffer('s1')!.lastRenderedOffset).toBe(5)
 
-    // 环淘汰重锚：清屏 + 计数归零；重播继续
+    // 环淘汰重锚：计数归零；**不碰 xterm**（P0-3）
     emitResync('s1', 4096)
-    expect(terminal.clear).toHaveBeenCalledTimes(1)
+    expect(terminal.clear).not.toHaveBeenCalled()
     expect(store.getBuffer('s1')!.lastRenderedOffset).toBeNull()
 
+    // 桌面插件在重锚字节前带内下发清屏前缀，随后重播
+    const clearPrefix = '\x1b[2J\x1b[H\x1b[3J'
+    emitRaw('s1', clearPrefix)
     emitRaw('s1', 'fresh')
     await flushAsync()
-    expect(store.getBuffer('s1')!.lastRenderedOffset).toBe(5)
+    expect(writtenText(terminal)).toBe(`stale${clearPrefix}fresh`)
+    expect(store.getBuffer('s1')!.lastRenderedOffset).toBe(clearPrefix.length + 5)
   })
 
   it('尾帧与停止帧顺序：停止前已到达的输出帧先渲染，停止后字节丢弃', async () => {

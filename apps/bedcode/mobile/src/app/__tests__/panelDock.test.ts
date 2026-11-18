@@ -29,7 +29,7 @@ import {
 } from '../panelDock'
 import type { AppTab } from '../useAppTabs'
 
-const ORDER: AppTab[] = ['connection', 'sessions', 'tasks', 'settings']
+const ORDER: AppTab[] = ['connection', 'projects', 'tasks', 'settings']
 
 describe('C-PD1 当前页停靠', () => {
   it('should_dockActive_when_panelIsCurrentTab', () => {
@@ -59,17 +59,17 @@ describe('C-PD3/C-PD4 入场停靠', () => {
     // 新面板此刻就是当前页：若按「当前页 → 居中」渲染，新元素没有过渡起点，
     // 切页会变成硬切。入场侧必须压过当前页判定。
     expect(
-      dockClassOf({ id: 'sessions', active: 'sessions', order: ORDER, enterFrom: 'right' }),
+      dockClassOf({ id: 'projects', active: 'projects', order: ORDER, enterFrom: 'right' }),
     ).toBe(RIGHT_DOCK)
     expect(
-      dockClassOf({ id: 'sessions', active: 'sessions', order: ORDER, enterFrom: 'left' }),
+      dockClassOf({ id: 'projects', active: 'projects', order: ORDER, enterFrom: 'left' }),
     ).toBe(LEFT_DOCK)
   })
 
   it('should_fallBackToRelativeDock_when_noEnterSide', () => {
     // 反例：常驻停靠（无入场）不得被误判成入场侧
     expect(
-      dockClassOf({ id: 'settings', active: 'sessions', order: ORDER, enterFrom: null }),
+      dockClassOf({ id: 'settings', active: 'projects', order: ORDER, enterFrom: null }),
     ).toBe(RIGHT_DOCK)
   })
 })
@@ -86,11 +86,11 @@ describe('C-PD5 入场侧判定', () => {
 
 describe('C-PD6/C-PD7 相邻页签与越界', () => {
   it('should_stepForward_when_swipingLeft', () => {
-    expect(neighborTabId(ORDER, 0, 'left')).toBe('sessions')
+    expect(neighborTabId(ORDER, 0, 'left')).toBe('projects')
   })
 
   it('should_stepBackward_when_swipingRight_fromMiddle', () => {
-    expect(neighborTabId(ORDER, 2, 'right')).toBe('sessions')
+    expect(neighborTabId(ORDER, 2, 'right')).toBe('projects')
   })
 
   it('should_returnNull_when_swipingRightOnFirstTab', () => {
@@ -104,9 +104,9 @@ describe('C-PD6/C-PD7 相邻页签与越界', () => {
 
   it('should_stayInsideSubset_when_someTabsUnavailable', () => {
     // 可用集只有两页时，取邻不得跳到被过滤掉的页签
-    const subset: AppTab[] = ['connection', 'sessions']
+    const subset: AppTab[] = ['connection', 'projects']
 
-    expect(neighborTabId(subset, 0, 'left')).toBe('sessions')
+    expect(neighborTabId(subset, 0, 'left')).toBe('projects')
     expect(neighborTabId(subset, 1, 'left')).toBeNull()
   })
 })

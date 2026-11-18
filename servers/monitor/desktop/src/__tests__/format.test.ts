@@ -8,6 +8,7 @@ import {
   formatBytes,
   formatDurationUs,
   formatNumber,
+  formatPercent,
   formatRatio,
   formatUnixTime,
   latestLifecycle,
@@ -150,26 +151,26 @@ describe('mergePluginRows（指标 + 宿主清单）', () => {
     ])
   })
 
-  it('宿主有、快照无的 wasm 插件补无指标行；ts-only 与正常未运行不补', () => {
+  it('宿主有、快照无的 wasm 插件补无指标行；纯前端与正常未运行不补', () => {
     const rows = mergePluginRows(snapshot({ live: metrics() }), [
       info({ id: 'live', name: 'Live' }),
       info({
         id: 'auth',
         name: 'Auth Center',
         kind: 'internal-business',
-        pluginType: 'rust-ts',
+        pluginType: 'full',
         state: { state: 'error', error: 'auth center not registered' },
       }),
       info({
         id: 'ts',
-        name: 'TS only',
-        pluginType: 'ts-only',
+        name: 'Frontend only',
+        pluginType: 'frontend',
         state: { state: 'error', error: 'frontend failed' },
       }),
       info({
         id: 'idle',
         name: 'Idle app',
-        pluginType: 'rust-ts',
+        pluginType: 'full',
         state: { state: 'deactivated' },
       }),
     ])
@@ -207,6 +208,11 @@ describe('collectSystemSections（系统维度段）', () => {
       jobsActive: 1,
     })
   })
+
+  it('process 段不进裸键名列表（它是专用面板的数据源，不去重会出现两份）', () => {
+    const snap = snapshot({ a: metrics() }, { process: { available: true }, task: {} })
+    expect(collectSystemSections(snap).map((s) => s.id)).toEqual(['task'])
+  })
 })
 
 describe('数值 / 时间格式化', () => {
@@ -216,6 +222,14 @@ describe('数值 / 时间格式化', () => {
     expect(formatNumber(null)).toBe('—')
     expect(formatNumber(undefined)).toBe('—')
     expect(formatNumber(Number.NaN)).toBe('—')
+  })
+
+  it('formatPercent：已是百分数，保留一位小数（0.4% 不得取整成 0%）', () => {
+    expect(formatPercent(12.34)).toBe('12.3%')
+    expect(formatPercent(0.4)).toBe('0.4%')
+    expect(formatPercent(250)).toBe('250.0%')
+    expect(formatPercent(null)).toBe('—')
+    expect(formatPercent(Number.NaN)).toBe('—')
   })
 
   it('formatBytes：B / KiB / MiB / GiB', () => {
@@ -281,23 +295,27 @@ describe('callRate（相邻采样差值）', () => {
 })
 
 describe('summarize（KPI 合计）', () => {
-  it('汇总插件数 / 调用 / 在飞 / 内存峰值 / trap 总数', () => {
+  it('汇总插件数 / 调用 / 在飞 / 内存 / 燃料 / trap 总数', () => {
     const s = summarize(
       snapshot({
         a: metrics({
           calls_total: 10,
           calls_in_flight: 2,
+          memory_current_bytes: 512,
           memory_peak_bytes: 1024,
+          fuel_consumed_total: 900,
           trap_reasons: { fuel_exhausted: 1, other: 2 },
         }),
-        b: metrics({ calls_total: 5, memory_peak_bytes: 2048 }),
+        b: metrics({ calls_total: 5, memory_current_bytes: 256, memory_peak_bytes: 2048 }),
       }),
     )
     expect(s).toEqual({
       pluginCount: 2,
       callsTotal: 15,
       callsInFlight: 2,
+      memoryCurrentBytes: 768,
       memoryPeakBytes: 3072,
+      fuelTotal: 900,
       trapsTotal: 3,
     })
   })
@@ -307,7 +325,9 @@ describe('summarize（KPI 合计）', () => {
       pluginCount: 0,
       callsTotal: 0,
       callsInFlight: 0,
+      memoryCurrentBytes: 0,
       memoryPeakBytes: 0,
+      fuelTotal: 0,
       trapsTotal: 0,
     })
   })

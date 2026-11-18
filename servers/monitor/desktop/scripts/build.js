@@ -2,7 +2,7 @@
  * Monitor 插件统一构建脚本
  *
  * 串联：vite build → cargo build (WASM) → 复制产物到本仓默认产物目录 `.build/plugins`
- * （与 agent-hub 同构，仅插件 ID / crate 名不同）
+ * （与桌面 app 同构，仅插件 ID / crate 名不同）
  */
 
 import { execSync } from 'child_process'

@@ -15,8 +15,15 @@
 //! ## P1-b 的诚实记账（不再有「镜像」）
 //!
 //! 双写期的 note_* 门面语义升级：从「按宿主事实记账的镜像」变为「真源写入」——
-//! 宿主不再持有会话登记，本域记录是唯一事实；`sessions` / `session_annotations`
+//! 宿主不再持有会话登记，本域记录是唯一事实；`runs` / `session_annotations`
 //! 两张私有库表是落盘真源，内存注册表是它的镜像（写库先行）。
+//!
+//! ## 容器：会话记录就是「运行」（ADR 0003）
+//!
+//! 表名由 `sessions` 账本式重命名为 `runs`（容器迁移见 `project::migrate`），
+//! 记录多出项目 / agent 归属列。**行不再随进程清空**：运行是历史，重启后仍要能
+//! 打开看完整对话；启动对账只把上一进程的非终态运行收敛成 `Error` 并清空
+//! `pty_id`（PTY 句柄是进程内存，句柄失效即不可能再有后续事件）。
 //!
 //! ## 生命周期驱动（P1-b 起由本域自持）
 //!
@@ -53,6 +60,10 @@ use model::{SessionRecord, SessionStatus};
 use std::sync::Mutex;
 
 #[cfg(target_arch = "wasm32")]
+use registry::Registry;
+#[cfg(target_arch = "wasm32")]
+use store::SessionStore;
+#[cfg(target_arch = "wasm32")]
 use wasmnest_plugin_api::host::bus::owned_topic;
 #[cfg(target_arch = "wasm32")]
 use wasmnest_plugin_api::host::{HostBus, HostEvents, HostLog, HostPty};
@@ -60,10 +71,6 @@ use wasmnest_plugin_api::host::{HostBus, HostEvents, HostLog, HostPty};
 use wasmnest_plugin_api::user_facing_string;
 #[cfg(target_arch = "wasm32")]
 use wasmnest_plugin_api::wasm_host::WasmHost;
-#[cfg(target_arch = "wasm32")]
-use registry::Registry;
-#[cfg(target_arch = "wasm32")]
-use store::SessionStore;
 
 /// 进程级注册表实例（wasm 侧全插件共用一份；同实例串行访问，无需额外并发协议）
 #[cfg(target_arch = "wasm32")]
@@ -80,28 +87,65 @@ fn line_tracker() -> &'static input_line::SubmittedLineTracker {
     LINE_TRACKER.get_or_init(input_line::SubmittedLineTracker::new)
 }
 
+/// 特殊键中只有 Enter 是「提交」语义，需喂给提交行重建器让任务域建任务行。
+///
+/// 其余组合键（Ctrl+C、方向键、Shift+Enter 等）是控制键或行内换行，直写不观察；
+/// 与 [`crate::keys::special_key_to_pty_bytes`] 的 `enter` = `\r` 对应。移动端常把
+/// 内容与 Enter 拆成两次写入，只有把回车字节喂回重建器，任务域才能看到提交行，
+/// `task_history` 才会有记录（2026-11-13 回归）。
+#[must_use]
+pub fn is_submit_key(combo: &str) -> bool {
+    combo == "enter"
+}
+
+/// 普通输入写入：提交行观察 → 任务域分发 → PTY 直写
+#[cfg(target_arch = "wasm32")]
+fn observe_and_write(session_id: &str, pty_id: &str, data: &str) -> Result<(), String> {
+    for line in line_tracker().feed(session_id, data) {
+        crate::task::state::handle_submitted_input(&WasmHost, session_id, &line);
+    }
+    WasmHost
+        .pty_write(pty_id, data.as_bytes())
+        .map_err(|e| format!("host pty write failed: {}", e.message))
+}
+
+/// 是否有未提交草稿（PTY 斜杠命令注入前的闸门）：有草稿时宁可显性拒绝，
+/// 也不把 `/model …` 拼进用户输入行后当 prompt 提交。
+#[cfg(target_arch = "wasm32")]
+pub fn has_pending_input(session_id: &str) -> bool {
+    line_tracker().has_pending_input(session_id)
+}
+
 // ==================== 激活期装配（建表 + 进程域对账） ====================
 
-/// 建表（幂等）+ 进程启动对账（清空上一进程遗留的会话行）
+/// 建表（幂等）+ 进程启动对账（把上一进程遗留的非终态运行收敛到 Error）
 ///
-/// 对账理由：会话与其 PTY 同生命周期（P1-b 起 PTY 在宿主引擎注册表，同为进程
-/// 内存），进程重启后旧会话记录不可回收，留着只会让读取面看到幽灵会话。清表后
-/// 本域记录集合与当次进程的会话集合同域。
+/// 对账理由：PTY 句柄在宿主进程内存里，进程重启后旧句柄必然失效——旧记录若仍
+/// 标着 `Running`，列表会显示幽灵「运行中」，任务域的启动恢复也会误判「仍在册」
+/// 而不收敛悬挂任务。收敛（而非删除）保证「关掉再打开历史还在」。
 ///
 /// **P1-b 起失败必须阻断激活**（不再是双写期的「降级镜像」）：本域已是会话真源，
-/// 建表失败 = 会话面不可用，继续激活只会让创建/停止/输入全线报「存储不可用」的
+/// 建表失败 = 会话面不可用，继续激活只会让创建 / 停止 / 输入全线报「存储不可用」的
 /// 半生不熟状态——显性失败让宿主把插件标记为不可用，用户路径立刻可见。
 #[cfg(target_arch = "wasm32")]
 pub fn ensure_schema_via_host() -> Result<(), String> {
     SessionStore::ensure_schema(&WasmHost)?;
-    let stale = REGISTRY.clear(&WasmHost)?;
-    if stale > 0 {
+    let converged = REGISTRY.converge_orphans(
+        &WasmHost,
+        &crate::config::model::now_rfc3339(),
+        ORPHAN_RUN_REASON,
+    )?;
+    if converged > 0 {
         WasmHost.log_warn(&format!(
-            "session registry: dropped {stale} stale session row(s) from previous process (sessions are process-scoped)"
+            "session registry: converged {converged} run(s) left non-terminal by the previous \
+             host process to Error (pty handles are process-scoped)"
         ));
     }
     Ok(())
 }
+
+/// 启动对账写入的结束原因（`Error` 载荷；用户可见文案由前端按状态渲染，不解析它）
+pub const ORPHAN_RUN_REASON: &str = "host process restarted; run interrupted";
 
 #[cfg(not(target_arch = "wasm32"))]
 pub fn ensure_schema_via_host() -> Result<(), String> {
@@ -174,6 +218,10 @@ pub fn summary_for(session_id: &str) -> Result<wasmnest_plugin_api::wire::Sessio
 /// `start` / `source_device` 与宿主 `create_session_from_spec` 同参：决定初始
 /// 状态（P1-b 起 `host-pty.spawn` 即起进程，恒 `Running`）与正统渲染端初始
 /// 归属。`pty_id` 由调用方传入（spawn 回执）。
+///
+/// `project_id` / `agent_id` 是容器归属（ADR 0003）：从启动配置的目录与命令推断，
+/// 由 `launch` 传入（配置 → 项目在 `project::ensure_for_directory_via_host` 里
+/// 按需创建/复用）。缺省为空 = 未归属（仅配置目录为空的边缘配置会出现）。
 #[cfg(target_arch = "wasm32")]
 pub fn note_created(
     session_id: &str,
@@ -182,6 +230,8 @@ pub fn note_created(
     name: &str,
     start: bool,
     source_device: Option<&str>,
+    project_id: Option<&str>,
+    agent_id: Option<&str>,
 ) -> Result<(), String> {
     let record = ops::new_record(
         session_id,
@@ -194,6 +244,8 @@ pub fn note_created(
     );
     let mut record = record;
     record.pty_id = Some(pty_id.to_string());
+    record.project_id = project_id.map(str::to_string);
+    record.agent_id = agent_id.map(str::to_string);
     REGISTRY.record(&WasmHost, &record)
 }
 
@@ -268,6 +320,148 @@ pub fn note_annotation(session_id: &str, key: &str, value: &str) -> Result<(), S
     }
 }
 
+/// 桥接心跳（`run-events` / `run-commands` 入站时刷新）
+///
+/// 只改 `bridge_seen_at`，**不**碰 `updated_at`（桥接在跑不是用户活动）。
+/// 相同秒内的重复轮询不写库（`Registry::update` 的比较短路）；未知运行显性报错，
+/// 调用方（路由）已经在入口校验过存在性，走到这里说明运行刚被移除。
+#[cfg(target_arch = "wasm32")]
+pub fn note_bridge_seen(session_id: &str, at: &str) -> Result<(), String> {
+    let updated = REGISTRY.update(&WasmHost, session_id, |current| {
+        let mut next = current.clone();
+        next.bridge_seen_at = Some(at.to_string());
+        Ok(next)
+    })?;
+    match updated {
+        Some(_) => Ok(()),
+        None => Err(format!("session not found: {session_id}")),
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn note_bridge_seen(_session_id: &str, _at: &str) -> Result<(), String> {
+    Err("session registry store unavailable outside wasm runtime".to_string())
+}
+
+/// 运行 meta 回填（agent 会话 id / 标题 / 模型；只写非空且有变化的字段）
+///
+/// 有变化时刷新 `updated_at`：meta 更新来自 agent 的真实活动（首条消息 / 标题），
+/// 与桥接心跳不同。字段无变化时 `Registry::update` 不落库。
+#[cfg(target_arch = "wasm32")]
+pub fn note_run_meta(
+    session_id: &str,
+    agent_session_id: Option<&str>,
+    title: Option<&str>,
+    model: Option<&str>,
+) -> Result<(), String> {
+    let now = crate::config::model::now_rfc3339();
+    let updated = REGISTRY.update(&WasmHost, session_id, |current| {
+        let mut next = current.clone();
+        if let Some(value) = agent_session_id.filter(|value| !value.is_empty()) {
+            if next.agent_session_id.as_deref() != Some(value) {
+                next.agent_session_id = Some(value.to_string());
+            }
+        }
+        if let Some(value) = title.filter(|value| !value.is_empty()) {
+            if next.title.as_deref() != Some(value) {
+                next.title = Some(value.to_string());
+            }
+        }
+        if let Some(value) = model.filter(|value| !value.is_empty()) {
+            if next.model.as_deref() != Some(value) {
+                next.model = Some(value.to_string());
+            }
+        }
+        if next != *current {
+            next.updated_at = now.clone();
+        }
+        Ok(next)
+    })?;
+    match updated {
+        Some(_) => Ok(()),
+        None => Err(format!("session not found: {session_id}")),
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn note_run_meta(
+    _session_id: &str,
+    _agent_session_id: Option<&str>,
+    _title: Option<&str>,
+    _model: Option<&str>,
+) -> Result<(), String> {
+    Err("session registry store unavailable outside wasm runtime".to_string())
+}
+
+/// 某会话的全部注解槽（键值对；不在册返回 `None`）
+///
+/// 供运行域读 `agent.thinking` 这类「不属于运行行形状」的控制状态：注解槽是
+/// 既有唯一通用槽位，不为单个字段加库列（迁移成本 > 收益）。
+#[cfg(target_arch = "wasm32")]
+pub fn annotations_via_host(session_id: &str) -> Result<Option<Vec<(String, String)>>, String> {
+    match REGISTRY.get(&WasmHost, session_id)? {
+        Some(_) => Ok(Some(
+            REGISTRY
+                .annotations(&WasmHost, session_id)?
+                .into_iter()
+                .collect(),
+        )),
+        None => Ok(None),
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn annotations_via_host(_session_id: &str) -> Result<Option<Vec<(String, String)>>, String> {
+    Err("session registry store unavailable outside wasm runtime".to_string())
+}
+
+/// REGISTRY 快照（桥接 run-attach 列举可服务运行用； Registry 是本域私有）
+#[cfg(target_arch = "wasm32")]
+pub fn records_snapshot_via_host() -> Result<Vec<model::SessionRecord>, String> {
+    REGISTRY.all(&WasmHost)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn records_snapshot_via_host() -> Result<Vec<model::SessionRecord>, String> {
+    Err("session registry store unavailable outside wasm runtime".to_string())
+}
+
+/// 桥接认领（`run-attach` 的存储面）：把 agent 会话绑定到本项目一条可服务运行上
+///
+/// 候选裁决（纯逻辑在 [`crate::run::bridge::claim_bridge_run`]，native 可测）由
+/// 本函数喂 `REGISTRY` 快照并落库：幂等重绑只刷心跳；新认领（`claim = true`，
+/// 仅事件驱动路径）写 `agent_session_id`（绑定即认领，先到先得）+ `bridge_seen_at`。
+/// 无可认领运行返回 `None`（调用方显性回给扩展，扩展稍后重试）。
+#[cfg(target_arch = "wasm32")]
+pub fn bind_bridge_via_host(
+    project_ids: &[String],
+    agent_session_id: Option<&str>,
+    claim: bool,
+    now: &str,
+) -> Result<Option<String>, String> {
+    let records = REGISTRY.all(&WasmHost)?;
+    let Some(record) =
+        crate::run::bridge::claim_bridge_run(&records, project_ids, agent_session_id, claim)
+    else {
+        return Ok(None);
+    };
+    if agent_session_id.is_some() && record.agent_session_id.is_none() {
+        note_run_meta(&record.id, agent_session_id, None, None)?;
+    }
+    note_bridge_seen(&record.id, now)?;
+    Ok(Some(record.id.clone()))
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn bind_bridge_via_host(
+    _project_ids: &[String],
+    _agent_session_id: Option<&str>,
+    _claim: bool,
+    _now: &str,
+) -> Result<Option<String>, String> {
+    Err("session registry store unavailable outside wasm runtime".to_string())
+}
+
 /// 诊断快照（`session.status` 命令面）：`{count, active}`；读取失败只降级该字段
 #[cfg(target_arch = "wasm32")]
 pub fn diagnostics_via_host() -> serde_json::Value {
@@ -285,18 +479,44 @@ pub fn diagnostics_via_host() -> serde_json::Value {
 
 // ==================== 读取面（互调 api `session-list` / `session-get` 的实现） ====================
 
+/// 是否属于**终端会话面**（无项目归属的会话）
+///
+/// 项目运行的会话带 `project_id`（`launch.rs` 按配置目录 + 执行环境推断，
+/// ADR 0003），它们在 `runs` 表里与终端会话同表共存，但归 `run.list` 消费。
+/// 终端会话面（`session.list { scope: "session" }`）只列无归属的行——用户
+/// 2026-11-06 裁定两套入口不互相透出。
+///
+/// 纯函数：不过滤链、不碰注册表，native 可全量断言（`list_views_via_host`
+/// 是 wasm-gated 的）。
+pub fn is_session_scope(project_id: Option<&str>) -> bool {
+    !project_id.is_some_and(|v| !v.is_empty())
+}
+
 /// 全部会话的对外视图（`SessionInfoView` 形状，见 [`view`]）→ `{sessions: [...]}`
 ///
 /// 可选入参 `{filter: "running"}`：只返回需要关窗确认的会话
 /// （[`ops::needs_close_confirmation`]，Running / Starting / WaitingInput）——
 /// 宿主窗口关闭守卫的专用过滤，判据语义在本域（2026-09-25 自宿主下沉）。
 /// 缺省 / 其他值 = 全量（向后兼容，老调用方无感知）。
+///
+/// 可选入参 `{scope: "session"}`：**只返回终端会话面**（[`is_session_scope`]）。
+/// 项目运行的会话行照常落库（项目工作台 / 任务队列 / agent 桥接都读它），但不再
+/// 出现在终端会话列表里。
+///
+/// 两个入参正交：`filter=running` 是守卫判据（必须看全部，含项目运行——正在跑的
+/// 项目会话同样要阻止关窗），`scope=session` 是列表面的可见性裁剪
+/// （`hub/install` 也走 running 过滤且不需要裁剪）。
 #[cfg(target_arch = "wasm32")]
 pub fn list_views_via_host(draft: &serde_json::Value) -> Result<serde_json::Value, String> {
     let records = REGISTRY.all(&WasmHost)?;
     let filter_running = draft.get("filter").and_then(|v| v.as_str()) == Some("running");
+    let session_scope = draft.get("scope").and_then(|v| v.as_str()) == Some("session");
     let mut sessions = Vec::with_capacity(records.len());
     for record in records {
+        // 终端会话面只认无项目归属的行；带 project_id 的属于项目运行，归 run.list
+        if session_scope && !is_session_scope(record.project_id.as_deref()) {
+            continue;
+        }
         if filter_running && !ops::needs_close_confirmation(&record.status) {
             continue;
         }
@@ -363,6 +583,84 @@ pub fn internal_records_json() -> Result<serde_json::Value, String> {
         out.push(json);
     }
     Ok(serde_json::json!(out))
+}
+
+/// 「仍在册」的运行 id（**非终态**）——任务域启动恢复的判据面
+///
+/// 与 [`internal_records_json`] 的区别：后者含历史（终态）运行，用它判 live 会把
+/// 上一进程的运行误当成「还活着」，悬挂任务因此永不被收敛。
+#[cfg(target_arch = "wasm32")]
+pub fn live_ids_via_host() -> Result<Vec<String>, String> {
+    REGISTRY.live_ids(&WasmHost)
+}
+
+/// 运行活动快照（项目列表的派生统计输入：活跃数 / 最近活动 / 最近 agent）
+#[cfg(target_arch = "wasm32")]
+pub fn run_activity_via_host() -> Result<Vec<model::RunActivity>, String> {
+    Ok(REGISTRY
+        .all(&WasmHost)?
+        .into_iter()
+        .map(|record| model::RunActivity {
+            project_id: record.project_id.clone(),
+            agent_id: record.agent_id.clone(),
+            updated_at: record.updated_at.clone(),
+            active: !record.status.is_terminal(),
+        })
+        .collect())
+}
+
+/// 某项目下的运行列表（`project.list` 的派生面与项目工作台的运行列表）
+///
+/// 与 `session-list`（`SessionInfoView`，有逐字形状锁、服务移动端）**不同形状**：
+/// 这里带项目 / agent / 标题 / 模型等容器字段，只供桌面项目面消费。
+///
+/// 顺序 = **最新在前**（工作台要的是「刚才那条跑完了吗」，不是考古）。注册表给的是
+/// `created_at, id` 升序，这里整体反转即可（同一稳定序的逆序仍稳定）。
+#[cfg(target_arch = "wasm32")]
+pub fn list_runs_via_host(project_id: Option<&str>) -> Result<serde_json::Value, String> {
+    let records = REGISTRY.all(&WasmHost)?;
+    let now = crate::config::model::now_rfc3339();
+    let mut runs = Vec::new();
+    for record in records.into_iter().rev() {
+        if let Some(project) = project_id {
+            if record.project_id.as_deref() != Some(project) {
+                continue;
+            }
+        }
+        runs.push(view::run_json(&record, &now));
+    }
+    Ok(serde_json::json!({ "runs": runs }))
+}
+
+/// 移除某项目下的全部运行（项目移除的级联面）
+///
+/// 调用方（`project::remove_via_host`）必须先确认没有非终态运行——本函数只做删除，
+/// 不做「先杀进程」的编排：静默 kill 用户正在跑的 agent 比拒绝删除更坏。
+#[cfg(target_arch = "wasm32")]
+pub fn remove_runs_of_project_via_host(project_id: &str) -> Result<usize, String> {
+    // 输出背压水位/驻留态按运行 id 记账：删除后同 id 新运行会误判驻留，先收集再回收
+    let doomed: Vec<String> = REGISTRY
+        .all(&WasmHost)?
+        .into_iter()
+        .filter(|r| r.project_id.as_deref() == Some(project_id))
+        .map(|r| r.id)
+        .collect();
+    let removed = REGISTRY.remove_by_project(&WasmHost, project_id)?;
+    for id in doomed {
+        crate::output::forget_via_host(&id);
+        line_tracker().remove_session(&id);
+    }
+    Ok(removed)
+}
+
+/// 某项目下是否有非终态运行（项目删除的前置校验）
+#[cfg(target_arch = "wasm32")]
+pub fn active_runs_of_project_via_host(project_id: &str) -> Result<usize, String> {
+    Ok(REGISTRY
+        .all(&WasmHost)?
+        .into_iter()
+        .filter(|r| r.project_id.as_deref() == Some(project_id) && !r.status.is_terminal())
+        .count())
 }
 
 // ==================== 停止编排（互调 api `session-close` / 队列超时关闭共用） ====================
@@ -458,9 +756,11 @@ fn drain_pending_stop(session_id: &str) -> Option<String> {
 /// - 写入后的状态恒 `Running`（P1-b 起会话创建即 Running，无需迁移）。
 ///
 /// 特殊键（票 06 下沉）：`special_key` 为按键组合串（如 `"ctrl+c"`）时，
-/// 本插件自译（[`crate::keys`]）成 ANSI/ASCII 转义字节后**直写**——绕过提交行
-/// 重建与任务域观察（用户裁定统一直写语义：Ctrl+C 就是 `\x03` 直接进 pty），
-/// 宿主不再消费按键组合类型。`data` 仅在普通输入时使用。
+/// 本插件自译（[`crate::keys`]）成 ANSI/ASCII 转义字节后**直写**——除 Enter 外
+/// 绕过提交行重建与任务域观察（用户裁定统一直写语义：Ctrl+C 就是 `\x03` 直接进 pty），
+/// 宿主不再消费按键组合类型。Enter 是提交键，额外把 `\r` 喂给重建器，让任务域
+/// 观察到「用户刚提交的那一行」（见 [`is_submit_key`]）。提交键与 `data` 同来时
+/// 先按普通输入写，不丢内容；其余控制键维持直写语义。
 #[cfg(target_arch = "wasm32")]
 pub fn input_via_pty(
     session_id: &str,
@@ -476,22 +776,27 @@ pub fn input_via_pty(
     let Some(pty_id) = record.pty_id.as_deref() else {
         return Err(format!("会话缺少 PTY 句柄，无法写入：{session_id}"));
     };
-    // 特殊键：本插件自译自写（绕过提交行重建与任务域观察）；未知名/不支持显式报错
+    // 特殊键：自译自写；Enter 额外触发提交行观察，其余键仍绕过（见模块文档）
     if let Some(combo) = special_key {
         let bytes = crate::keys::special_key_to_pty_bytes(combo)
             .ok_or_else(|| format!("unsupported special key: {combo}"))?;
+        // Enter 的回车字节要喂回重建器：HTTP / WS 通道常把内容与 Enter 拆成
+        // 两次写入，第一次的 data 已在缓冲里，这次的 \r 让它成为完整提交行 →
+        // 任务域建 task_history 行。空提交产出空行，由 handle_submitted_input 过滤。
+        if is_submit_key(combo) {
+            // data 与 Enter 同来时（未拆分的通道）按普通输入先写，避免丢内容
+            if !data.is_empty() {
+                observe_and_write(session_id, pty_id, data)?;
+            }
+            for line in line_tracker().feed(session_id, "\r") {
+                crate::task::state::handle_submitted_input(&WasmHost, session_id, &line);
+            }
+        }
         return WasmHost
             .pty_write(pty_id, &bytes)
             .map_err(|e| format!("host pty write failed: {}", e.message));
     }
-    // 普通输入：提交行重建 → 任务域分发 → 直写
-    let submitted = line_tracker().feed(session_id, data);
-    for line in submitted {
-        crate::task::state::handle_submitted_input(&WasmHost, session_id, &line);
-    }
-    WasmHost
-        .pty_write(pty_id, data.as_bytes())
-        .map_err(|e| format!("host pty write failed: {}", e.message))
+    observe_and_write(session_id, pty_id, data)
 }
 
 // ==================== pty:exit 事件 → 终态收尾（唯一 SessionStopped 广播点） ====================
@@ -594,6 +899,8 @@ pub fn note_created(
     _name: &str,
     _start: bool,
     _source_device: Option<&str>,
+    _project_id: Option<&str>,
+    _agent_id: Option<&str>,
 ) -> Result<(), String> {
     Err("session registry store unavailable outside wasm runtime".to_string())
 }
@@ -659,6 +966,31 @@ pub fn internal_records_json() -> Result<serde_json::Value, String> {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
+pub fn live_ids_via_host() -> Result<Vec<String>, String> {
+    Err("session registry store unavailable outside wasm runtime".to_string())
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn run_activity_via_host() -> Result<Vec<model::RunActivity>, String> {
+    Err("session registry store unavailable outside wasm runtime".to_string())
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn list_runs_via_host(_project_id: Option<&str>) -> Result<serde_json::Value, String> {
+    Err("session registry store unavailable outside wasm runtime".to_string())
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn remove_runs_of_project_via_host(_project_id: &str) -> Result<usize, String> {
+    Err("session registry store unavailable outside wasm runtime".to_string())
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn active_runs_of_project_via_host(_project_id: &str) -> Result<usize, String> {
+    Err("session registry store unavailable outside wasm runtime".to_string())
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 pub fn close_via_pty(_session_id: &str, _source_device: Option<&str>) -> Result<(), String> {
     Err("session close unavailable outside wasm runtime".to_string())
 }
@@ -674,3 +1006,53 @@ pub fn input_via_pty(
 
 #[cfg(not(target_arch = "wasm32"))]
 pub fn on_pty_exit(_pty_id: &str, _reason: &str, _exit_code: Option<i32>) {}
+
+// ==================== 回归锁（移动端执行键不建任务行） ====================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_enter_counts_as_submit_key() {
+        assert!(is_submit_key("enter"), "Enter 必须触发任务行创建");
+        for key in [
+            "ctrl+c",
+            "ctrl_c",
+            "shift+enter",
+            "backspace",
+            "escape",
+            "tab",
+            "up",
+            "",
+        ] {
+            assert!(!is_submit_key(key), "{key} 是控制键，不得触发提交行观察");
+        }
+    }
+
+    /// Enter 特殊键必须把提交符喂给提交行重建器并交给任务域，否则移动端
+    /// 「预设执行 / 输入栏执行」只写一个回车字节、不产生提交行，task_history
+    /// 永远缺这一行（任务日志为空）。wasm-only 函数体在 native 测试里编译不到，
+    /// 故锁接线形状而非运行结果。
+    #[test]
+    fn enter_special_key_must_observe_submitted_line() {
+        // 只锁生产代码：测试模块里的字面量本身也会被 include_str! 读进来
+        let source = include_str!("mod.rs");
+        let production = source
+            .split("// ==================== 回归锁")
+            .next()
+            .expect("生产代码段缺失");
+        let guard = production
+            .find("if is_submit_key(combo)")
+            .expect("特殊键分支必须按提交键判定，不能一律直写");
+        let window = &production[guard..guard + 400];
+        assert!(
+            window.contains("handle_submitted_input"),
+            "提交键必须把提交行交给任务域，否则 task_history 不建行"
+        );
+        assert!(
+            window.contains("line_tracker().feed"),
+            "提交键必须把回车字节喂给提交行重建器"
+        );
+    }
+}

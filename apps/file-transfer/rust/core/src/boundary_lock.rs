@@ -16,7 +16,7 @@
 //! - **剥注释**（引号感知）：注释里点名 SDK 解释「为什么」是正常的，当代码判会产出噪音锁；
 //! - **剥测试区**：文件内首个 `#[cfg(test…)]` 之后的内容不算生产代码；
 //! - **自排除本锁文件**：本锁含被禁 needle 的**字面量常量表**，不自排除会扫到
-//!    自己而恒红（它们由 `#[cfg(test)] mod` 引入，本就是测试面）。
+//!   自己而恒红（它们由 `#[cfg(test)] mod` 引入，本就是测试面）。
 //!
 //! 位置说明：本文件在 `src/` 而非 crate 根 `tests/`——治理面按 `packages/wasmnest-*` 目录约定
 //! 推导，crate 根出现 `tests/` 目录即被宿主侧 `capability_crates_unit_tests_only.rs` 判红
@@ -68,6 +68,15 @@ fn strip_line_comments(line: &str) -> String {
     let (mut in_str, mut in_char, mut escaped) = (false, false, false);
     while i < bytes.len() {
         let b = bytes[i];
+        // 非 ASCII 字节：按完整 UTF-8 字符复制。逐字节 `b as char` 会把中文 /
+        // emoji 变成 mojibake（当前 needle 全 ASCII 不影响判据，但将来加中文
+        // needle 会静默失配）。
+        if b >= 0x80 {
+            let ch = line[i..].chars().next().expect("非空切片必有字符");
+            out.push(ch);
+            i += ch.len_utf8();
+            continue;
+        }
         if escaped {
             out.push(b as char);
             escaped = false;
@@ -110,7 +119,14 @@ fn prod_lines(path: &Path) -> Option<Vec<String>> {
     if SELF_LOCK_FILES.contains(&file_name) {
         return None;
     }
-    let text = fs::read_to_string(path).ok()?;
+    let text = fs::read_to_string(path).unwrap_or_else(|e| {
+        // 读不到 = 该文件整条跳过 = 锁对它完全失效（fail-open）。宁可测试
+        // 响亮失败并点名文件，也不允许「扫描不了就当干净」。
+        panic!(
+            "boundary lock: 读不到源文件 {}（跳过即放行，不允许）: {e}",
+            path.display()
+        )
+    });
     let mut lines = Vec::new();
     for line in text.lines() {
         if opens_cfg_test(line) {
@@ -140,18 +156,30 @@ fn collect_rs(dir: &Path, out: &mut Vec<PathBuf>) {
 #[test]
 fn scanner_is_not_vacuous() {
     // 正例：代码里的命中必须留下
-    let kept = strip_line_comments("let u = \"http://a\"; use wasmnest_plugin_api::host::PeerPort;");
+    let kept =
+        strip_line_comments("let u = \"http://a\"; use wasmnest_plugin_api::host::PeerPort;");
     assert!(
         kept.contains("wasmnest_plugin_api"),
         "字符串内的 `//` 不得被当注释起点：{kept:?}"
     );
     // 反例：注释里的命中必须被剥掉
-    for src in ["// use wasmnest_plugin_api", "let a = 1; // wasmnest_plugin_api"] {
+    for src in [
+        "// use wasmnest_plugin_api",
+        "let a = 1; // wasmnest_plugin_api",
+    ] {
         assert!(
             !strip_line_comments(src).contains("wasmnest_plugin_api"),
             "注释必须被剥掉，否则锁会被解释性注释淹没：{src:?}"
         );
     }
+    // 非 ASCII 必须原样保留（逐字节重建会 mojibake，将来加中文 needle 会静默失配）
+    let zh = strip_line_comments("// 共享目录：勿回接 use wasmnest_plugin_api");
+    assert!(zh.is_empty(), "中文注释同样要被剥掉：{zh:?}");
+    let zh_code = strip_line_comments("let 路径 = \"共享/目录\"; // 说明");
+    assert!(
+        zh_code.contains("共享/目录"),
+        "非 ASCII 不得损坏：{zh_code:?}"
+    );
     // 测试区必须被截断
     let dir = tempfile::tempdir().expect("临时目录");
     let file = dir.path().join("probe.rs");
@@ -160,15 +188,26 @@ fn scanner_is_not_vacuous() {
         "use wasmnest_plugin_api::x;\n// wasmnest_plugin_api\n#[cfg(test)]\nmod t { use wasmnest_plugin_api::y; }\n",
     )
     .expect("写夹具");
-    let text = prod_lines(&file).expect("非测试路径必须能取出生产行").join("\n");
-    assert!(text.contains("wasmnest_plugin_api"), "生产区命中必须保留：{text:?}");
-    assert!(!text.contains("mod t"), "`#[cfg(test)]` 之后必须截断：{text:?}");
+    let text = prod_lines(&file)
+        .expect("非测试路径必须能取出生产行")
+        .join("\n");
+    assert!(
+        text.contains("wasmnest_plugin_api"),
+        "生产区命中必须保留：{text:?}"
+    );
+    assert!(
+        !text.contains("mod t"),
+        "`#[cfg(test)]` 之后必须截断：{text:?}"
+    );
     assert!(!text.contains("//"), "注释必须被剥掉：{text:?}");
     // 路径含 tests 段整个跳过
     let tdir = dir.path().join("tests");
     fs::create_dir_all(&tdir).expect("建 tests");
     fs::write(tdir.join("x.rs"), "use wasmnest_plugin_api::z;").expect("写");
-    assert!(prod_lines(&tdir.join("x.rs")).is_none(), "tests 路径下的文件必须整个跳过");
+    assert!(
+        prod_lines(&tdir.join("x.rs")).is_none(),
+        "tests 路径下的文件必须整个跳过"
+    );
     // 本锁文件自排除（否则扫到自己的 needle 常量表即恒红）
     assert!(
         prod_lines(&crate_root().join("src/boundary_lock.rs")).is_none(),
@@ -181,6 +220,21 @@ fn scanner_is_not_vacuous() {
     );
 }
 
+/// 读不到的源码必须响亮失败：跳过 = 该文件的锁失效（fail-open）
+#[cfg(unix)]
+#[test]
+fn unreadable_source_fails_loudly_instead_of_skipping() {
+    let dir = tempfile::tempdir().expect("临时目录");
+    // 目录冒充 .rs：read_to_string 在 unix 上直接失败（EISDIR）
+    let bogus = dir.path().join("broken.rs");
+    fs::create_dir(&bogus).expect("建目录冒充源文件");
+    let result = std::panic::catch_unwind(|| prod_lines(&bogus));
+    assert!(
+        result.is_err(),
+        "读不到的源文件必须 panic 点名，不得静默跳过"
+    );
+}
+
 #[test]
 fn core_carries_no_sdk_or_platform_dependency() {
     let mut files = Vec::new();
@@ -190,7 +244,9 @@ fn core_carries_no_sdk_or_platform_dependency() {
     let mut scanned = 0usize;
     let mut hits = Vec::new();
     for file in &files {
-        let Some(lines) = prod_lines(file) else { continue };
+        let Some(lines) = prod_lines(file) else {
+            continue;
+        };
         scanned += 1;
         let text = lines.join("\n");
         for needle in FORBIDDEN_NEEDLES {
@@ -215,7 +271,9 @@ fn core_carries_no_product_identity_literal() {
 
     let mut hits: BTreeSet<String> = BTreeSet::new();
     for file in &files {
-        let Some(lines) = prod_lines(file) else { continue };
+        let Some(lines) = prod_lines(file) else {
+            continue;
+        };
         let text = lines.join("\n");
         let mut rest = text.as_str();
         while let Some(at) = rest.find(PRODUCT_ID_PREFIX) {
@@ -257,8 +315,14 @@ fn dependency_surface_stays_minimal() {
             deps.push(name.trim().to_string());
         }
     }
-    assert!(!deps.is_empty(), "依赖段解析为空 — 判据失效，须修锁而不是放行");
-    let unexpected: Vec<&String> = deps.iter().filter(|d| !ALLOWED_DEPS.contains(&d.as_str())).collect();
+    assert!(
+        !deps.is_empty(),
+        "依赖段解析为空 — 判据失效，须修锁而不是放行"
+    );
+    let unexpected: Vec<&String> = deps
+        .iter()
+        .filter(|d| !ALLOWED_DEPS.contains(&d.as_str()))
+        .collect();
     assert!(
         unexpected.is_empty(),
         "共享核的第三方依赖必须收口在 {ALLOWED_DEPS:?}（引入新依赖 = 双端一起背，\
@@ -282,6 +346,9 @@ fn locked_surface_files_stay_present() {
         "src/boundary_lock.rs",
     ] {
         let path = crate_root().join(rel);
-        assert!(path.is_file(), "锁定的核内文件缺席：{rel}（删文件不能变成绕过内容锁的手段）");
+        assert!(
+            path.is_file(),
+            "锁定的核内文件缺席：{rel}（删文件不能变成绕过内容锁的手段）"
+        );
     }
 }

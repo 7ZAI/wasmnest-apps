@@ -308,6 +308,31 @@ describe('连接后静默换新 JWT（返回用户免配对）', () => {
 
     expect(called).toBe(0)
   })
+
+  it('thost_pairingOnly_forwardedToEngine_andSkipsSilentAuth', async () => {
+    const calls: Array<[unknown, unknown]> = []
+    let silent = 0
+    const api = installMockMobileApi({
+      connectDevice: async (device: unknown, options: unknown) => {
+        calls.push([device, options])
+      },
+      authenticateWithStoredToken: async () => {
+        silent += 1
+        return false
+      },
+    })
+    api.connectionStatus.value = 'connected'
+    const host = makeHost()
+
+    // 隧道首次配对：只设目标（宿主不探测），不碰旧凭据
+    await expect(
+      host.connectDevice({ address: '10.0.0.9', port: 47613 }, { pairingOnly: true }),
+    ).resolves.toEqual({ authenticated: false })
+    expect(calls).toEqual([
+      [{ address: '10.0.0.9', port: 47613 }, { pairingOnly: true }],
+    ])
+    expect(silent).toBe(0)
+  })
 })
 
 describe('取消连接', () => {

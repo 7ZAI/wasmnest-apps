@@ -3,6 +3,7 @@ import { createHighlighterCore } from 'shiki/core'
 import { createOnigurumaEngine } from 'shiki/engine/oniguruma'
 // issue #24：FileDiffLine 随宿主 useHttpApi 消费面迁入本域 api.ts
 import type { FileDiffLine } from '../api'
+import { useFileExplorerHost } from '../host'
 
 /** HTML 转义（降级时使用） */
 function escapeHtml(text: string): string {
@@ -221,6 +222,8 @@ export function useCodeHighlight() {
   async function highlight(code: string, lang: string, theme?: string): Promise<void> {
     isLoading.value = true
     error.value = null
+    // 先清空：切文件时不得把上一份高亮结果留在画面上
+    highlightedHtml.value = ''
 
     try {
       const highlighter = await ensureHighlighter()
@@ -241,6 +244,9 @@ export function useCodeHighlight() {
     } catch (e) {
       error.value = e instanceof Error ? e.message : String(e)
       highlightedHtml.value = ''
+      // fail-visible：高亮引擎（shiki oniguruma wasm）装载失败时调用方只会拿到空
+      // `highlightedHtml`，不记日志就是「点了文件一片空白」——必须留下证据
+      useFileExplorerHost().logger.error('[CodeHighlight] highlight failed:', e)
     } finally {
       isLoading.value = false
     }
@@ -257,6 +263,7 @@ export function useCodeHighlight() {
   async function highlightDiff(lines: FileDiffLine[], lang: string, theme?: string, fullContent?: string): Promise<void> {
     isLoading.value = true
     error.value = null
+    highlightedHtml.value = ''
 
     try {
       const highlighter = await ensureHighlighter()
@@ -309,6 +316,7 @@ export function useCodeHighlight() {
     } catch (e) {
       error.value = e instanceof Error ? e.message : String(e)
       highlightedHtml.value = ''
+      useFileExplorerHost().logger.error('[CodeHighlight] diff highlight failed:', e)
     } finally {
       isLoading.value = false
     }

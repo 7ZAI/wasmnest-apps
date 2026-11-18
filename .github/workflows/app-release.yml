@@ -117,6 +117,8 @@ jobs:
             echo "| --- | --- | --- | --- |"
             for f in release-assets/*.json; do
               jq -r '"| \(.end) | `\(.artifact.file)` | \(.artifact.bytes) B | `\(.artifact.sha256)` |"' "$f"
+              # 多后端变体包（如 ai-chatbox 的 Go 后端）：默认包 = 宿主默认后端，变体包只换 wasm
+              jq -r '(.variants // [])[] | "| \(.backend) 变体 | `\(.file)` | \(.bytes) B | `\(.sha256)` |"' "$f"
             done
             echo
             echo "插件 id：$(jq -r '.plugin.id' release-assets/*.json | sort -u | paste -sd ', ' -)"

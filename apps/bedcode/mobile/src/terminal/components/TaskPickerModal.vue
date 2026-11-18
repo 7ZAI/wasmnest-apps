@@ -8,6 +8,7 @@
 import { ref, computed } from 'vue'
 import { getMobileApi } from '@binblink/wasmnest-plugin-sdk-mobile'
 import { usePresetTasks } from '../../task/presetApi'
+import { getDirectorySessions } from '../../host/sessionDirectory'
 import type { PresetTask } from '../model'
 import { t } from '../host'
 import TaskEditDialog from './TaskEditDialog.vue'
@@ -38,7 +39,9 @@ const editingTask = ref<PresetTask | null>(null)
 
 const isConnected = computed(() => connection.isConnected.value)
 const activeSessionId = computed(() => connection.activeSessionId.value || '')
-const activeSessions = computed(() => connection.activeSessions.value || [])
+// 会话目录（宿主 activeSessions + 项目运行）：项目运行不在 /api/sessions 投影里，
+// 任务选择器必须经合并视图才能对上当前运行的 config_id / 工作目录
+const activeSessions = computed(() => getDirectorySessions())
 const projectDirs = computed(() => {
   const configs = connection.sessionConfigs.value || []
   const dirs = configs
@@ -101,7 +104,7 @@ async function handleEditSave(data: PresetTask | { content: string }) {
 <template>
   <Teleport to="body">
     <Transition name="bottom-sheet">
-    <div v-if="visible" class="modal-overlay mobile-ui" @click.self="emit('close')">
+    <div v-if="visible" class="modal-overlay mobile-ui" data-bedcode-surface @click.self="emit('close')">
       <div class="modal-content modal-panel">
         <div class="modal-header">
           <h3>{{ t('taskPicker.title') }}</h3>
@@ -216,7 +219,7 @@ async function handleEditSave(data: PresetTask | { content: string }) {
 
 .modal-header h3 {
   margin: 0;
-  font-size: clamp(0.875rem, 1rem, 1.125rem);
+  font-size: var(--font-size-lg);
   color: var(--mobile-text-primary);
 }
 
@@ -249,7 +252,7 @@ async function handleEditSave(data: PresetTask | { content: string }) {
   background: none;
   border: none;
   color: var(--mobile-text-muted);
-  font-size: clamp(1.25rem, 1.5rem, 1.75rem);
+  font-size: var(--font-size-2xl);
   cursor: pointer;
   padding: 0 4px;
   line-height: 1;
@@ -269,7 +272,7 @@ async function handleEditSave(data: PresetTask | { content: string }) {
   text-align: center;
   color: var(--mobile-text-muted);
   padding: 24px 0;
-  font-size: clamp(0.75rem, 0.875rem, 1rem);
+  font-size: var(--font-size-base);
 }
 
 .empty-add-btn {
@@ -279,7 +282,7 @@ async function handleEditSave(data: PresetTask | { content: string }) {
   border: 1px dashed var(--mobile-accent);
   background: transparent;
   color: var(--mobile-accent);
-  font-size: clamp(0.75rem, 0.875rem, 1rem);
+  font-size: var(--font-size-base);
   cursor: pointer;
   transition: background 0.15s;
 }
@@ -326,7 +329,7 @@ async function handleEditSave(data: PresetTask | { content: string }) {
 }
 
 .task-content-preview {
-  font-size: clamp(0.8125rem, 0.875rem, 1rem);
+  font-size: var(--font-size-base);
   color: var(--mobile-text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -413,7 +416,11 @@ async function handleEditSave(data: PresetTask | { content: string }) {
 
 .content-expand-enter-active,
 .content-expand-leave-active {
-  transition: all 0.2s ease;
+  transition:
+    opacity var(--bc-dur-base) var(--bc-ease),
+    max-height var(--bc-dur-base) var(--bc-ease),
+    padding-top var(--bc-dur-base) var(--bc-ease),
+    padding-bottom var(--bc-dur-base) var(--bc-ease);
   overflow: hidden;
 }
 

@@ -102,8 +102,8 @@ function buildRust() {
 const HOOK_SCRIPTS = [
   'auto_task_hook.py',
   'codex_task_hook.py',
-  'pi_task_hook.ts',
-  'opencode_task_hook.ts',
+  'wasmnest_bridge_pi.ts',
+  'wasmnest_bridge_opencode.ts',
 ]
 
 /** 复制存在的可选随包资源（缺失即跳过）；flatten 时压平一级路径，落资源目录根 */

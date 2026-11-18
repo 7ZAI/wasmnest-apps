@@ -13,10 +13,13 @@ import { useMonitor } from '../composables/useMonitor'
 import {
   formatBytes,
   formatNumber,
+  formatRatio,
+  formatRate,
   formatUnixTime,
   isServiceKind,
   sumValues,
 } from '../utils/format'
+import HostProcessCard from './HostProcessCard.vue'
 import PluginCardMobile from './PluginCardMobile.vue'
 import MiniSignal from './MiniSignal.vue'
 
@@ -31,7 +34,10 @@ const {
   rows,
   panels,
   systems,
+  hostProcess,
+  webviewHeap,
   summary,
+  platform,
   error,
   loading,
   lastUpdated,
@@ -60,6 +66,14 @@ const updatedText = computed(() =>
   lastUpdated.value === null
     ? tx('monitor.never')
     : tx('monitor.updated', { time: formatUnixTime(lastUpdated.value / 1000, localeTag.value) }),
+)
+
+/** 平台内存压力（各插件配额之和为分母；无配额 → 不判压力） */
+const memoryCritical = computed(
+  () => platform.value.memoryRatio !== null && platform.value.memoryRatio >= 0.95,
+)
+const memoryHigh = computed(
+  () => platform.value.memoryRatio !== null && platform.value.memoryRatio >= 0.8,
 )
 
 const trapTotalOf = (row: PluginMetricRow): number => sumValues(row.metrics.trap_reasons)
@@ -185,6 +199,12 @@ const heroLead = computed(() => {
     return rows.value.length > 0 ? tx('monitor.hero.stale') : tx('monitor.error.title')
   if (initialLoading.value) return tx('monitor.loading')
   if (rows.value.length === 0) return tx('monitor.empty.title')
+  if (memoryCritical.value) {
+    return tx('monitor.hero.memoryCritical', { ratio: formatRatio(platform.value.memoryRatio) })
+  }
+  if (memoryHigh.value) {
+    return tx('monitor.hero.memoryHigh', { ratio: formatRatio(platform.value.memoryRatio) })
+  }
   if (attentionCount.value > 0) return tx('monitor.hero.attention', { count: attentionCount.value })
   // 正常态不显示标题：正常情况默认什么都不说（用户口径）。
   return ''
@@ -202,7 +222,8 @@ const heroProof = computed(() => {
 const heroTone = computed(() => {
   if (error.value) return 'is-danger'
   if (initialLoading.value || rows.value.length === 0) return 'is-neutral'
-  if (attentionCount.value > 0) return 'is-warning'
+  if (memoryCritical.value) return 'is-danger'
+  if (memoryHigh.value || attentionCount.value > 0) return 'is-warning'
   return 'is-success'
 })
 
@@ -258,7 +279,6 @@ onBeforeUnmount(() => {
           <h1 v-else class="mnm-page-title" data-testid="mobile-monitor-page-title">
             {{ tx('monitor.title') }}
           </h1>
-          <p class="mnm-page-sub">{{ tx('monitor.subtitle') }}</p>
         </header>
 
         <template v-if="activePanel === null">
@@ -369,7 +389,6 @@ onBeforeUnmount(() => {
             <div class="mnm-vital" data-testid="mobile-monitor-kpi-inflight">
               <span class="mnm-vital-value">{{ formatNumber(summary.callsInFlight) }}</span>
               <span class="mnm-vital-label">{{ tx('monitor.kpi.inFlight') }}</span>
-              <span class="mnm-vital-note">{{ tx('monitor.kpi.inFlightHint') }}</span>
             </div>
             <div class="mnm-vital" data-testid="mobile-monitor-kpi-traps">
               <span class="mnm-vital-value" :class="{ 'is-danger': summary.trapsTotal > 0 }">
@@ -382,6 +401,46 @@ onBeforeUnmount(() => {
               <span class="mnm-vital-label">{{ tx('monitor.kpi.memoryPeak') }}</span>
             </div>
           </section>
+
+          <!-- ==================== 平台总览（全部 wasm 合计） ==================== -->
+          <section
+            v-if="!initialLoading && rows.length > 0"
+            class="mnm-overview mnm-rise"
+            data-ui
+            data-testid="mobile-monitor-overview"
+            aria-labelledby="mnm-overview-title"
+          >
+            <header class="mnm-section-head">
+              <h2 id="mnm-overview-title" class="mnm-section-title">
+                {{ tx('monitor.overview.title') }}
+              </h2>
+            </header>
+            <div class="mnm-overview-grid">
+              <div class="mnm-vital" data-testid="mobile-monitor-overview-memory">
+                <span class="mnm-vital-value">{{ formatBytes(platform.memoryCurrentBytes) }}</span>
+                <span class="mnm-vital-label">{{ tx('monitor.overview.memory') }}</span>
+                <span class="mnm-vital-note">
+                  {{
+                    platform.memoryRatio === null
+                      ? tx('monitor.overview.unbounded')
+                      : `${formatRatio(platform.memoryRatio)} · ${formatBytes(platform.memoryQuotaBytes)}`
+                  }}
+                </span>
+              </div>
+              <div class="mnm-vital" data-testid="mobile-monitor-overview-compute">
+                <span class="mnm-vital-value">{{ formatRate(platform.fuelPerSecond) }}</span>
+                <span class="mnm-vital-label">{{ tx('monitor.overview.compute') }}</span>
+                <span class="mnm-vital-note">{{ tx('monitor.overview.perSecond') }}</span>
+              </div>
+            </div>
+          </section>
+
+          <!-- ==================== 宿主进程 / WebView（整机口径，与上方 wasm 指标分开） ==================== -->
+          <HostProcessCard
+            v-if="!initialLoading && rows.length > 0"
+            :metrics="hostProcess"
+            :heap="webviewHeap"
+          />
 
           <!-- ==================== 加载骨架 ==================== -->
           <div
@@ -400,7 +459,6 @@ onBeforeUnmount(() => {
             <section class="mnm-plugins">
               <header class="mnm-section-head">
                 <h2 class="mnm-section-title">{{ tx('monitor.ledger.title') }}</h2>
-                <p class="mnm-section-note">{{ tx('monitor.hero.proofMobile') }}</p>
               </header>
               <div class="mnm-filter" role="group" :aria-label="tx('monitor.filter.aria')" data-ui>
                 <button
@@ -449,13 +507,6 @@ onBeforeUnmount(() => {
               </div>
             </section>
           </template>
-
-          <!-- ==================== 收束（脚注：数据来源 / 采样口径 / 会话寿命） ==================== -->
-          <footer class="mnm-footer">
-            <p class="mnm-footer-note">{{ tx('monitor.footer.source') }}</p>
-            <p class="mnm-footer-note">{{ tx('monitor.signal.note') }}</p>
-            <p class="mnm-footer-note">{{ tx('monitor.footer.session') }}</p>
-          </footer>
         </template>
 
         <!-- ==================== 提供方面板（整页；由宿主中介装载） ==================== -->
@@ -554,13 +605,6 @@ onBeforeUnmount(() => {
   line-height: 1.15;
   letter-spacing: -0.03em;
   color: var(--mnm-ink);
-}
-
-.mnm-page-sub {
-  margin: 4px 0 0;
-  font-size: 13px;
-  line-height: 1.4;
-  color: var(--mnm-ink-2);
 }
 
 /* ==================== 页头整页页签（有提供方面板时才出现） ==================== */
@@ -845,6 +889,21 @@ onBeforeUnmount(() => {
   margin-top: 0;
 }
 
+/* ==================== 平台总览 ==================== */
+
+.mnm-overview {
+  margin-top: 26px;
+}
+
+.mnm-overview-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px 18px;
+  padding: 16px;
+  border-radius: 14px;
+  background: var(--mobile-bg-card);
+}
+
 /* ==================== 台账 ==================== */
 
 .mnm-plugins {
@@ -862,13 +921,6 @@ onBeforeUnmount(() => {
   line-height: 1.2;
   letter-spacing: -0.03em;
   color: var(--mnm-ink);
-}
-
-.mnm-section-note {
-  margin: 4px 0 0;
-  font-size: 15px;
-  line-height: 1.5;
-  color: var(--mnm-ink-2);
 }
 
 .mnm-filter {
@@ -1014,18 +1066,6 @@ onBeforeUnmount(() => {
 
 .mnm-skeleton.is-panel {
   height: 380px;
-}
-
-.mnm-footer {
-  margin-top: auto;
-  padding: 28px 2px 0;
-}
-
-.mnm-footer-note {
-  margin: 3px 0 0;
-  font-size: 13px;
-  line-height: 1.5;
-  color: var(--mnm-ink-3);
 }
 
 .mnm-visually-hidden {

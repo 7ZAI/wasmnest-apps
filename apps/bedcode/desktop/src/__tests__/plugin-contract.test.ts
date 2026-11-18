@@ -19,7 +19,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { readFileSync, readdirSync } from 'node:fs'
 import { resolve, join } from 'node:path'
-import router from '@/router'
+import router, { DEFAULT_ROUTE } from '@/router'
 import { messages } from '@/i18n'
 import { mechanismZhCN, mechanismEn } from '@/i18n/mechanism'
 import { createAppContext } from '@/appContext'
@@ -86,8 +86,8 @@ describe('C1 工程身份五处一致', () => {
     expect(cargoToml).toContain('name = "bedcode-plugin-terminal-session"')
   })
 
-  it('产物形态：rust-ts + cdylib（wasip3 直出 Component），sandbox 字段已退役', () => {
-    expect(manifest.pluginType).toBe('rust-ts')
+  it('产物形态：full + cdylib（wasip3 直出 Component），sandbox 字段已退役', () => {
+    expect(manifest.pluginType).toBe('full')
     // `sandbox` 已退役（审计票 06 裁决 2）：前端不做隔离，安全边界只在 Rust 端与 WASM 端。
     // 产物 manifest 不得再声明它——否则等于把「沙箱模式」重新写成安全承诺
     expect('sandbox' in manifest).toBe(false)
@@ -97,16 +97,20 @@ describe('C1 工程身份五处一致', () => {
     expect(cargoToml).toContain('crate-type = ["cdylib"]')
   })
 
-  it('权限与 api/commands 声明面（八域权限 + 廿九项 api + 任务域命令族）', () => {
+  it('权限与 api/commands 声明面（八域权限 + 廿九项 api + 任务域/Agent管理命令族）', () => {
     // 权限清单与 D2 能力映射一一对应（auth / peer / storage / connection:read /
     // session:read / pty:* / ui:* / broadcast / fs:* / network:http / process:run /
-    // task:run / terminal:input / timer:schedule / ws:server）。
+    // task:run / terminal:input / timer:schedule / ws:server / app:path）。
     // 清单按 manifest-gen 的排序口径（ASCII 升序）落定：release 构建路径会重排，
     // 人工写成别的顺序即「构建一次即 git dirty」的漂移。
     expect(manifest.permissions).toEqual([
+      // Agent 管理域（原 agent-hub 并入）：Node 引导经 host-app register-path
+      'app:path',
       'auth',
       'broadcast',
       'connection:read',
+      // Agent 管理域（原 agent-hub 并入）：工作目录/用量来源/技能本地导入选取框
+      'fs:pick',
       'fs:read',
       'fs:write',
       'network:http',
@@ -121,6 +125,9 @@ describe('C1 工程身份五处一致', () => {
       'task:run',
       'terminal:input',
       'timer:schedule',
+      // T06/T07：host-tunnel 服务端原语（expose / unexpose / issue-pairing-ticket）。
+      // 桌面是被访问方，不声明 tunnel:connect（声明即越权）。
+      'tunnel:serve',
       'ui:input',
       'ui:settings',
       'ui:sidebar',
@@ -190,12 +197,14 @@ describe('C1 工程身份五处一致', () => {
       'session.task.get-status',
       'session.task.history-list',
       'session.task.history-stats',
+      'session.task.log-session',
       'session.task.running-sessions',
       'session.task.set-platform',
       'session.task.set-auto-mode',
       'session.task.session-settings',
       'session.task.supported-agents',
       'session.task.session-configs',
+      'session.task.targets',
       'session.task.preset-list',
       'session.task.preset-create',
       'session.task.preset-delete',
@@ -213,6 +222,102 @@ describe('C1 工程身份五处一致', () => {
       'session.task.scheduled-create',
       'session.task.scheduled-delete',
       'session.task.scheduled-reset',
+      // T18：网络配置中心消费面（只读投影 + 迁移状态）
+      'session.relay.config',
+      'session.relay.migration',
+      // Agent 管理域（原 agent-hub 并入）：hub/mod.rs 分派臂逐条对应；
+      // `agent.add/remove-usage-source-path` 为并入时补齐的漏声明（旧 agent-hub
+      // manifest 未登记但路由在，生产不可调）
+      // ADR 0003 / issue #23：项目容器命令面（新能力只进 project.* / run.*；
+      // session.* 冻结为运行的兼容投影，不再新增）
+      'project.create',
+      'project.file-content',
+      'project.file-tree',
+      'project.get',
+      'project.git-log',
+      'project.list',
+      'project.open',
+      'project.pick-dir',
+      'project.remove',
+      'project.rename',
+      'run.agent.options',
+      'run.agent.set',
+      'run.events',
+      'run.list',
+      'run.send',
+      'run.start',
+      'agent.add-custom-source',
+      'agent.add-usage-source',
+      'agent.add-usage-source-path',
+      'agent.apply-mirror',
+      'agent.apply-provider',
+      'agent.bootstrap-env',
+      'agent.cancel-bootstrap',
+      'agent.cancel-run',
+      'agent.check-updates',
+      'agent.clear-usage-data',
+      'agent.delete-preset',
+      'agent.delete-skill',
+      'agent.describe-install',
+      'agent.detect',
+      'agent.distribute-skill',
+      'agent.fetch-models',
+      'agent.get-bootstrap-state',
+      'agent.get-install-state',
+      'agent.get-providers-state',
+      'agent.get-resume-command',
+      'agent.get-run-output',
+      'agent.get-skills-state',
+      'agent.get-state',
+      'agent.get-usage-state',
+      'agent.get-usage-stats',
+      'agent.import-presets',
+      'agent.import-providers',
+      'agent.import-skill',
+      'agent.install',
+      'agent.install-github-skill',
+      'agent.list-agents',
+      'agent.list-usage-sessions',
+      'agent.list-usage-sources',
+      'agent.pick-source-dir',
+      'agent.read-skill',
+      'agent.read-usage-session',
+      'agent.remove-custom-source',
+      'agent.remove-env',
+      'agent.remove-usage-source',
+      'agent.remove-usage-source-path',
+      'agent.request-auth',
+      'agent.restore-npmrc',
+      'agent.save-preset',
+      'agent.save-skill',
+      'agent.scan-skills',
+      'agent.scan-usage',
+      // skills.sh 联网搜索（Skills 分区搜索行）
+      'agent.search-skills',
+      'agent.speed-test',
+      'agent.uninstall',
+      // Agent 编排（v1）：命令面 + 宿主定时器回调（manifest_gen 以 invoke_command
+      // 匹配臂为准；这里锁 declaration 顺序与 Rust 分派面同步）
+      'agent.profile.list',
+      'agent.profile.create',
+      'agent.profile.update',
+      'agent.profile.delete',
+      'agent.profile.options',
+      'orchestration.meta',
+      'orchestration.list',
+      'orchestration.get',
+      'orchestration.create',
+      'orchestration.plan',
+      'orchestration.update-plan',
+      'orchestration.approve',
+      'orchestration.start',
+      'orchestration.pause',
+      'orchestration.resume',
+      'orchestration.cancel',
+      'orchestration.retry-node',
+      'orchestration.skip-node',
+      'orchestration.events',
+      'session.orchestration.tick',
     ])
     // ABI v29（HTTP 路由代码注册下沉）：manifest `contributes.httpEndpoints` 静态声明面
     // 已退役（用户裁定 ④：不通过声明配置路由，插件代码运行时注册）。
@@ -328,7 +433,8 @@ function makeEnv(overrides: Partial<Parameters<typeof createAppContext>[0]> = {}
     appStorageDelete: vi.fn(async () => {}),
     locale: 'zh-CN',
     theme: 'dark',
-    initialRoute: '/sessions',
+    // 宿主传入的应用内路由（默认落地面；用户裁定：初始进入落地「设备配对」）
+    initialRoute: '/pairing',
     ...overrides,
   }
 }
@@ -357,12 +463,24 @@ describe('C3 入口契约（挂载包形态：mountApp + 直连上下文 + 内�
     expect(ctx.http).toBeUndefined()
   })
 
-  it('静态路由表：菜单四项 + 诊断/深链页 + not-found 兜底（内存路由，宿主 history 归宿主）', () => {
+  it('静态路由表：菜单项 + 诊断/深链页 + not-found 兜底（内存路由，宿主 history 归宿主）', () => {
     const routes = router.getRoutes()
     const byName = new Map(routes.map((r) => (r.name ? [r.name, r] : [null, r])))
     // 菜单页（D3 静态表）
     expect(byName.get('pairing')?.path).toBe('/pairing')
-    expect(byName.get('sessions')?.path).toBe('/sessions')
+    // 项目（ADR 0003：一级容器）+ 项目工作台（id = 项目 id）
+    expect(byName.get('projects')?.path).toBe('/projects')
+    expect(byName.get('project-workbench')?.path).toBe('/projects/:id')
+    // 终端会话面已于 2026-11-06 停用（路由整条注释保留以便回滚）；宿主落地目录
+    // 仍登记 `/sessions`，app 侧显式重定向到落地页（初始进入显示「设备配对」）
+    expect(byName.get('sessions')).toBeUndefined()
+    expect(byName.get('sessions-legacy')?.redirect).toBe('/pairing')
+    // Agent 管理域（原 agent-hub 并入）
+    expect(byName.get('agents')?.path).toBe('/agents')
+    // Agent 编排（v1）已于 2026-11-09 停用（用户裁定，先注释不删除）：菜单、路由与
+    // 后端接线同时注释，深链落 not-found（fail-visible）
+    expect(byName.get('orchestrations')).toBeUndefined()
+    expect(byName.get('orchestration-detail')).toBeUndefined()
     expect(byName.get('tasks')?.path).toBe('/tasks')
     expect(byName.get('settings')?.path).toBe('/settings')
     // 诊断页（URL 直达不进导航）
@@ -371,9 +489,11 @@ describe('C3 入口契约（挂载包形态：mountApp + 直连上下文 + 内�
     expect(byName.get('history')?.path).toBe('/history')
     expect(byName.get('terminal-window')?.path).toBe('/terminal-window/:id')
     expect(byName.get('terminal-window')?.meta.bareWindow).toBe(true)
-    // 默认落地 = 应用主面（/sessions；宿主 '/' 壳主屏由宿主路由表承载）
+    // 默认落地 = 设备配对（用户裁定：初始点击进入的首页显示「设备配对」；
+    // 宿主 '/' 壳主屏由宿主路由表承载）
     const root = routes.find((r) => r.path === '/')
-    expect(root?.redirect).toBe('/sessions')
+    expect(root?.redirect).toBe('/pairing')
+    expect(DEFAULT_ROUTE).toBe('/pairing')
     // 遗留深链：/settings/authorization 显性重定向到 /settings（授权管理归宿主 /sys/perms）
     expect(byName.get('settings-authorization-legacy')?.redirect).toBe('/settings')
     // not-found 兜底在位（D3 fail-visible）
@@ -447,17 +567,34 @@ describe('C4 退役锁（D8 fail-visible：插件运行时回接零命中）', (
 })
 
 describe('C5 静态侧边栏菜单表与设置分组表（D3/D4）', () => {
-  it('侧边栏 = 静态表：四项、顺序槽位、路由与路由表一一对应', () => {
-    expect(sidebarMenuItems.map((i) => i.id)).toEqual(['pairing', 'sessions', 'tasks', 'settings'])
-    expect(sidebarMenuItems.map((i) => i.order)).toEqual([100, 200, 210, 9999])
+  it('侧边栏 = 静态表：五项（终端会话 / Agent 编排已停用）、顺序槽位、路由与路由表一一对应', () => {
+    expect(sidebarMenuItems.map((i) => i.id)).toEqual([
+      'pairing',
+      'projects',
+      'agents',
+      'tasks',
+      'settings',
+    ])
+    // sessions（200）/ orchestrations（207）槽位保留在常量里但表中无项：
+    // 2026-11-06 停用终端会话面，2026-11-09 停用 Agent 编排面
+    expect(sidebarMenuItems.map((i) => i.order)).toEqual([100, 190, 205, 210, 9999])
     expect(sidebarMenuItems.map((i) => i.path)).toEqual([
       '/pairing',
-      '/sessions',
+      '/projects',
+      '/agents',
       '/tasks',
       '/settings',
     ])
     // 槽位常量即表内 order（改常量不改表 = 漂移，锁同值）
-    expect(MENU_ORDERS).toEqual({ pairing: 100, sessions: 200, tasks: 210, settings: 9999 })
+    expect(MENU_ORDERS).toEqual({
+      pairing: 100,
+      projects: 190,
+      sessions: 200,
+      agents: 205,
+      orchestrations: 207,
+      tasks: 210,
+      settings: 9999,
+    })
     // 菜单路径全部命中路由表（静态表与静态路由互为真源）
     const paths = new Set(router.getRoutes().map((r) => r.path))
     for (const item of sidebarMenuItems) {
@@ -465,26 +602,53 @@ describe('C5 静态侧边栏菜单表与设置分组表（D3/D4）', () => {
     }
     // 菜单 key 一律为 app 域相对键（渲染处经 useAppI18n 补命名空间）
     expect(sidebarMenuItems[0].labelKey).toBe('pairing.sidebar.title')
-    expect(sidebarMenuItems[3].labelKey).toBe('sidebar.settings')
+    // 项目是一级容器（ADR 0003），排在原本的终端会话槽位之前
+    expect(sidebarMenuItems[1].labelKey).toBe('project.sidebar.title')
+    // Agent 管理域（原 agent-hub 并入）：hub.* 键随 i18n 三件套并入
+    expect(sidebarMenuItems[2].labelKey).toBe('hub.sidebar.title')
+    expect(sidebarMenuItems[4].labelKey).toBe('sidebar.settings')
   })
 
-  it('设置分组 = 静态表：业务四分组、order 升序、带标题 key（平台分组归宿主系统页）', () => {
+  it('设置分组 = 静态表：业务六分组、order 升序、带标题 key（平台分组归宿主系统页）', () => {
     const sorted = [...settingsSections].sort((a, b) => a.order - b.order)
-    expect(sorted.map((s) => s.key)).toEqual(['appearance', 'pairing', 'linkCrypto', 'session'])
-    expect(sorted.map((s) => s.order)).toEqual([100, 200, 300, 400])
+    expect(sorted.map((s) => s.key)).toEqual([
+      'appearance',
+      'pairing',
+      'relay',
+      'linkCrypto',
+      'session',
+      'appUpdate',
+    ])
+    expect(sorted.map((s) => s.order)).toEqual([100, 200, 250, 300, 400, 500])
     // 业务分组携带标题 key（仅正文组件，外壳由设置页统一渲染）
     expect(sorted[0].titleKey).toBe('appearance.settings.title')
     expect(sorted[1].titleKey).toBe('pairing.settings.title')
-    expect(sorted[2].titleKey).toBe('linkCrypto.title')
-    expect(sorted[3].titleKey).toBe('session.settings.title')
-    expect(SECTION_ORDERS).toEqual({ appearance: 100, pairing: 200, linkCrypto: 300, session: 400 })
+    expect(sorted[2].titleKey).toBe('relay.title')
+    expect(sorted[3].titleKey).toBe('linkCrypto.title')
+    expect(sorted[4].titleKey).toBe('session.settings.title')
+    expect(sorted[5].titleKey).toBe('settings.appUpdate.title')
+    expect(SECTION_ORDERS).toEqual({
+      appearance: 100,
+      pairing: 200,
+      relay: 250,
+      linkCrypto: 300,
+      session: 400,
+      appUpdate: 500,
+    })
   })
 })
 
 describe('C6 前端调用面与后端/文案同源（票 17）', () => {
   const rustDispatch = readFileSync(resolve(PLUGIN_ROOT, 'rust/src/lib.rs'), 'utf-8')
+  // Agent 管理域（原 agent-hub 并入）：`agent.*` 臂在 hub/mod.rs 路由（缩进 8 空格）
+  const hubDispatch = readFileSync(resolve(PLUGIN_ROOT, 'rust/src/hub/mod.rs'), 'utf-8')
   /** Rust `invoke_command` 的匹配臂（含宿主桥接与调试臂，非仅 manifest 声明面） */
-  const rustArms = new Set([...rustDispatch.matchAll(/^\s{12}"([\w.-]+)"\s*=>/gm)].map((m) => m[1]))
+  const rustArms = new Set(
+    [
+      ...rustDispatch.matchAll(/^\s{12}"([\w.-]+)"\s*=>/gm),
+      ...hubDispatch.matchAll(/^\s{8}"([\w.-]+)"\s*=>/gm),
+    ].map((m) => m[1]),
+  )
 
   it('前端调用的每条命令在 Rust 分派表里有同名臂（改名/漏臂即红）', () => {
     // 票 15/16 把 28 条任务命令从 `auto-task.*` 改指 `session.task.*`：调用点与

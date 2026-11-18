@@ -48,3 +48,16 @@ impl WasmPlugin for MonitorPlugin {
 }
 
 wasmnest_plugin_api_mobile::wasm_entry!(MonitorPlugin);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 未知命令显性报错（snapshot 依赖宿主 metrics 原语，native 只测分派兜底）
+    #[test]
+    fn unknown_command_is_rejected() {
+        let err = MonitorPlugin::invoke_command("monitor.nope", serde_json::json!({}))
+            .expect_err("未知命令必须报错");
+        assert!(err.to_string().contains("Unknown command"), "got: {err}");
+    }
+}

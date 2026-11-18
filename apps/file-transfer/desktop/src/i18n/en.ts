@@ -21,30 +21,75 @@ const en: MessageSchema = {
   // ==================== Nearby devices panel ====================
   'transfer.devices.title': 'Nearby Devices',
   'transfer.devices.subtitle': 'WasmNest nodes on this network',
+  'transfer.devices.relayEmptyHint':
+    'Devices on the same relay appear automatically (configure the same relay on both ends; the relay must support auto-discovery).',
   'transfer.devices.empty':
     'No nearby devices found; make sure the other device has WasmNest open and is on the same network',
   'transfer.devices.online': 'Online',
   'transfer.devices.recentSeen': 'Recently seen',
   'transfer.devices.connected': 'Connected',
   'transfer.devices.connecting': 'Connecting…',
+  'transfer.devices.connectingHint': 'Connecting… (the other side may need to confirm)',
+  'transfer.devices.sendFile': 'Send file',
   'transfer.devices.capNone': 'No transfer',
   'transfer.devices.activeCurrent': 'Current',
   'transfer.devices.setActive': 'Set active',
-  'transfer.devices.connect': 'Connect',
   'transfer.devices.disconnect': 'Disconnect',
   'transfer.devices.denied': 'Connection rejected by the other device',
   'transfer.devices.unreachable': 'Cannot connect; the device may be offline',
   'transfer.devices.trustHint':
     'First-time connections need approval on the other side; manage trust in Settings → Trusted peers',
-  'transfer.devices.scan': 'Discover',
-  'transfer.devices.scanning': 'Discovering…',
+  'transfer.devices.discover': 'Rediscover',
+  'transfer.devices.discovering': 'Discovering…',
+  'transfer.devices.discoverHint': 'Re-run LAN discovery and relay discovery together',
+  'transfer.devices.connectLan': 'LAN',
+  'transfer.devices.connectLanHint':
+    'Use LAN addresses only; failures never switch to relay automatically',
+  'transfer.devices.connectWan': 'Relay',
+  'transfer.devices.connectWanHint': 'Dial through the relay directly (only when you ask)',
+  'transfer.devices.modeBoth': 'LAN + relay',
+  'transfer.devices.modeLanOnly': 'LAN only',
+  'transfer.devices.modeWanOnly': 'Relay only',
+  'transfer.devices.modeNone': 'No path',
+  'transfer.devices.modeNoneHint':
+    'No dialable address yet; rediscover or forget the device and retry',
+  // T12: relay / remote devices (transport shape, manual WAN attempt)
+  'transfer.devices.remote': 'Remote',
+  'transfer.devices.removeRemote': 'Forget',
+  'transfer.devices.transportLan': 'LAN direct',
+  'transfer.devices.transportWan': 'Relay',
+  // T20: last transport / WAN capability / classified failure exits
+  'transfer.devices.lastTransportLan': 'Last: LAN direct',
+  'transfer.devices.lastTransportWan': 'Last: relay',
+  'transfer.devices.relayTag': 'Relay',
+  'transfer.devices.errorNoEndpoint':
+    'No dialable address; rediscover or forget the device and retry',
+  'transfer.devices.errorRelayDisabled': 'Relay is off: enable "Relay (WAN)" in settings and retry',
+  'transfer.devices.errorRelayUnreachable':
+    'Relay path unreachable: check the relay and whether the peer is online',
+  'transfer.devices.errorTimeout': 'Connection timed out, please retry',
+  'transfer.devices.errorUnknown': 'Connection failed: {detail}',
 
   // ==================== Top bar ====================
-  'transfer.topbar.sendToPhone': 'Send to phone…',
+  'transfer.topbar.sendToPhone': 'Send to current device…',
   'transfer.topbar.downloadSelected': 'Download selected ({count})',
   'transfer.topbar.refresh': 'Refresh',
   'transfer.topbar.settings': 'Settings',
   'transfer.topbar.closeSettings': 'Back',
+
+  // ==================== My device (settings: name / fingerprint) ====================
+  'transfer.myDevice.title': 'My device',
+  'transfer.myDevice.loading': 'Reading device info…',
+  'transfer.myDevice.loadFailed': 'Failed to read device info, please retry',
+  'transfer.myDevice.refresh': 'Retry',
+  'transfer.myDevice.unsupportedTitle': 'Host not supported',
+  'transfer.myDevice.unsupportedBody':
+    'This host does not expose device identity; upgrade the host and retry.',
+  'transfer.myDevice.deviceName': 'Device name',
+  'transfer.myDevice.unnamed': 'Unnamed device',
+  'transfer.myDevice.fingerprint': 'Fingerprint',
+  'transfer.myDevice.hint':
+    'The other device identifies this one by name and fingerprint in its nearby-device list.',
 
   // ==================== File table ====================
   'transfer.table.name': 'Name',
@@ -57,7 +102,8 @@ const en: MessageSchema = {
   // ==================== Task states ====================
   'transfer.task.state.queued': 'Queued',
   'transfer.task.state.awaitingPeer': 'Waiting for peer',
-  'transfer.task.awaitingPeerHint': 'Waiting for the other device to accept — transfer starts automatically once accepted.',
+  'transfer.task.awaitingPeerHint':
+    'Waiting for the other device to accept — transfer starts automatically once accepted.',
   'transfer.task.state.transferring': 'Transferring',
   'transfer.task.state.paused': 'Paused',
   'transfer.task.state.resumable': 'Resumable',
@@ -108,27 +154,31 @@ const en: MessageSchema = {
   'transfer.consent.title': 'Connection request',
   'transfer.consent.body': '{name} wants to connect for file transfer',
   'transfer.consent.namelessHint':
-    "Device name unavailable — verify the fingerprint below before deciding",
+    'Device name unavailable — verify the fingerprint below before deciding',
   'transfer.consent.fingerprintLabel': 'Device fingerprint',
   'transfer.consent.copy': 'Copy fingerprint',
   'transfer.consent.copied': 'Copied',
   'transfer.consent.copyHint': 'Copy the full fingerprint to compare on another device',
   'transfer.consent.countdown': 'Auto-reject in {seconds}s',
-  'transfer.consent.accept': 'Accept',
+  'transfer.consent.accept': 'Accept and trust',
+  'transfer.consent.trustHint':
+    'Accepting adds this device to the trust list; future connections will not ask again.',
   'transfer.consent.deny': 'Reject',
   'transfer.consent.close': 'Close (same as reject)',
 
   // ==================== Trusted peers (spec decision 8) ====================
   'transfer.trusted.title': 'Trusted peers',
   'transfer.trusted.loading': 'Loading...',
-  'transfer.trusted.empty': 'No trusted peers yet; trust is established after the other side approves your first connection',
+  'transfer.trusted.empty':
+    'No trusted peers yet; trust is established after the other side approves your first connection',
   'transfer.trusted.loadFailed': 'Failed to load trusted peers',
   'transfer.trusted.retry': 'Retry',
   'transfer.trusted.addedAt': 'Added: {time}',
   'transfer.trusted.revoke': 'Revoke',
   'transfer.trusted.cancel': 'Cancel',
   'transfer.trusted.revokeTitle': 'Revoke trust',
-  'transfer.trusted.revokeBody': 'After revoking, {name} will need your approval again on the next connection. Revoke trust for this device?',
+  'transfer.trusted.revokeBody':
+    'After revoking, {name} will need your approval again on the next connection. Revoke trust for this device?',
   'transfer.trusted.revokeFailed': 'Revoke failed; please try again later',
 
   // ==================== Queue summary ====================
@@ -151,8 +201,8 @@ const en: MessageSchema = {
     'Number of simultaneous transfers; increasing it may use more bandwidth',
   'transfer.settings.concurrencyMinus': 'Decrease concurrency',
   'transfer.settings.concurrencyPlus': 'Increase concurrency',
-  'transfer.settings.plainWarning':
-    'Files are transferred unencrypted on your local network. Only use this on trusted WiFi.',
+  'transfer.settings.encryptionNotice':
+    'Transfers are always end-to-end encrypted (AES-256-GCM). Older peers without encryption support fail visibly instead of falling back to plaintext.',
   'transfer.settings.receivingPolicy': 'Receiving policy',
   'transfer.settings.receivingPolicyAsk': 'Ask every time',
   'transfer.settings.receivingPolicyAccept': 'Accept automatically',
@@ -160,10 +210,63 @@ const en: MessageSchema = {
   'transfer.settings.receivingPolicyHint': 'Whether to ask before receiving files from peers',
   'transfer.settings.approvalTimeout': 'Approval timeout (s)',
   'transfer.settings.encryption': 'Transfer encryption',
-  'transfer.settings.encryptionOn': 'On',
-  'transfer.settings.encryptionOff': 'Off',
+  'transfer.settings.encryptionAlwaysOn': 'Always encrypted',
   'transfer.settings.encryptionHint':
-    'When enabled, sent files are end-to-end encrypted with AES-256-GCM; the peer must also run a recent WasmNest version to decrypt them automatically',
+    'Every transfer (LAN or relay) is encrypted and cannot be turned off; the peer must support encryption',
+  // T12: 中继开关与提示阈值（关的是中继，不是加密）
+  'transfer.settings.relay': 'Relay (WAN)',
+  'transfer.settings.relayOn': 'Allow',
+  'transfer.settings.relayOff': 'LAN only',
+  'transfer.settings.relayThreshold': 'Relay prompt threshold (MB)',
+  'transfer.settings.relayThresholdHint':
+    'Warn once before sending over relay when the batch is at least this large; 0 = warn every time',
+
+  // ==================== Relay send hint ====================
+  'transfer.relayHint.title': 'Sending over relay',
+  'transfer.relayHint.body':
+    'This connection goes through a relay, so large files may be slower. Encryption stays on. Continue?',
+  'transfer.relayHint.confirm': 'Continue',
+  'transfer.relayHint.cancel': 'Cancel',
+
+  // ==================== Relay config (settings, read-only + share) ====================
+  'transfer.relayConfig.title': 'Relay configuration',
+  'transfer.relayConfig.loading': 'Loading relay configuration…',
+  'transfer.relayConfig.loadFailed': 'Failed to load relay configuration, please retry',
+  'transfer.relayConfig.refresh': 'Reload',
+  'transfer.relayConfig.empty':
+    'No relay yet: import one in the network center, or scan a share QR generated on another device.',
+  'transfer.relayConfig.source': 'Source',
+  'transfer.relayConfig.sourceCenter': 'Network center',
+  'transfer.relayConfig.sourceCache': 'Local cache (center unavailable)',
+  'transfer.relayConfig.sourceInvite': 'Imported invite',
+  'transfer.relayConfig.sourceQr': 'Imported QR',
+  'transfer.relayConfig.sourceSync': 'Synced on LAN',
+  'transfer.relayConfig.sourceUnknown': 'Unspecified',
+  'transfer.relayConfig.relayState': 'Relay state',
+  'transfer.relayConfig.stateIdle': 'Disabled',
+  'transfer.relayConfig.stateConnecting': 'Connecting…',
+  'transfer.relayConfig.stateReserved': 'Ready',
+  'transfer.relayConfig.stateLost': 'Lost (retrying)',
+  'transfer.relayConfig.stateUnknown': 'Unknown',
+  'transfer.relayConfig.wanPolicy': 'Relay policy',
+  'transfer.relayConfig.wanAllowed': 'Allowed',
+  'transfer.relayConfig.wanBlocked': 'LAN only (relay off)',
+  'transfer.relayConfig.room': 'Room code',
+  'transfer.relayConfig.syncedAt': 'Fetched at',
+  'transfer.relayConfig.copy': 'Copy',
+  'transfer.relayConfig.copied': 'Copied',
+  'transfer.relayConfig.copyFailed': 'Copy failed',
+  'transfer.relayConfig.showAddr': 'Show address',
+  'transfer.relayConfig.hideAddr': 'Hide address',
+  'transfer.relayConfig.centerError': 'Network center unavailable; using local cache: {message}',
+  'transfer.relayConfig.openCenter': 'Open network center',
+  'transfer.relayConfig.openCenterUnavailable':
+    'This host cannot navigate between apps; open the network center from the sidebar.',
+  'transfer.relayConfig.share': 'Generate share QR',
+  'transfer.relayConfig.shareRelayMissing': 'No relay address to share yet',
+  'transfer.relayConfig.shareHint':
+    'Scan this QR with File Transfer → Settings → Relay configuration → Scan on your phone.',
+  'transfer.relayConfig.shareFailed': 'Failed to generate the share QR, please retry',
 
   // ==================== Errors (spec §10 + v2 reject reasons) ====================
   'transfer.error.duplicateName':
@@ -183,9 +286,14 @@ const en: MessageSchema = {
   'transfer.history.title': 'History',
   'transfer.history.clear': 'Clear history',
   'transfer.history.clearConfirmTitle': 'Clear transfer history?',
-  'transfer.history.clearConfirmBody': 'All completed, failed and cancelled records will be deleted (in-progress tasks are unaffected). This cannot be undone.',
+  'transfer.history.clearConfirmBody':
+    'All completed, failed and cancelled records will be deleted (in-progress tasks are unaffected). This cannot be undone.',
   'transfer.history.empty': 'No transfer history',
   'transfer.history.openFolder': 'Show in folder',
+  'transfer.history.openFolderFailed':
+    'Could not open the containing folder: file not found (it may have been moved, deleted, or the download folder has changed)',
+  'transfer.history.openFolderNoDir':
+    'No download folder configured — choose one in Settings to locate the file',
   'transfer.history.results.completed': 'Completed',
   'transfer.history.results.failed': 'Failed',
   'transfer.history.results.rejected': 'Rejected',

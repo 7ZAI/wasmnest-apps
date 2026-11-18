@@ -113,3 +113,42 @@ export function sessionStatusKey(status: string): string {
 export function isSessionActive(status: string): boolean {
   return status === 'running' || status === 'waitingInput'
 }
+
+/** 会话活动时间（毫秒）：updatedAt → startedAt → createdAt 取首个可解析值；缺失/非法 → 0 */
+function sessionActivityMs(session: {
+  updatedAt?: unknown
+  startedAt?: unknown
+  createdAt?: unknown
+}): number {
+  for (const value of [session.updatedAt, session.startedAt, session.createdAt]) {
+    if (typeof value !== 'string' || !value) continue
+    const ts = new Date(value).getTime()
+    if (!Number.isNaN(ts)) return ts
+  }
+  return 0
+}
+
+/**
+ * 存活会话里「最近活跃」的一个（快捷卡片点击的入口目标）
+ *
+ * 判定口径：status 存活（与 {@link isSessionActive} 同一判据）且活动时间最大；
+ * 时间相同 / 都缺时保留列表里靠前的一个（稳定，不随机）。没有存活会话 →
+ * undefined（调用方据此不给入口意图，而不是猜一个不存在的会话）。
+ *
+ * 纯函数、不读模块状态：调用方传会话目录快照，便于单测钉边界。
+ */
+export function latestLiveSession<
+  T extends { status?: string; updatedAt?: unknown; startedAt?: unknown; createdAt?: unknown },
+>(sessions: readonly T[]): T | undefined {
+  let best: T | undefined
+  let bestMs = -1
+  for (const session of sessions) {
+    if (!isSessionActive(session.status ?? '')) continue
+    const ms = sessionActivityMs(session)
+    if (ms > bestMs) {
+      best = session
+      bestMs = ms
+    }
+  }
+  return best
+}

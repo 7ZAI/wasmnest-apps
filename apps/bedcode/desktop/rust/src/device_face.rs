@@ -47,6 +47,30 @@ pub fn network_info_via_host() -> Result<serde_json::Value, String> {
     Err("network info unavailable outside wasm runtime".to_string())
 }
 
+/// 宿主实际运行端口（隧道暴露规则的端口 = 本应用 HTTP 面端口）
+///
+/// 端口缺失 / 非法 / 越界一律显性失败：`0` 会产出一条无意义的暴露规则，
+/// 让「已暴露」的界面说法与事实不符。
+#[cfg(target_arch = "wasm32")]
+pub fn network_port_via_host() -> Result<u16, String> {
+    let port = config_seconds(ConfigKey::NetworkPort, 0)?;
+    u16::try_from(port)
+        .map_err(|_| format!("network port out of range: {port}"))
+        .and_then(|p| {
+            if p == 0 {
+                Err("network port unavailable (config missing/invalid)".to_string())
+            } else {
+                Ok(p)
+            }
+        })
+}
+
+/// 宿主运行端口（native 无宿主环境）
+#[cfg(not(target_arch = "wasm32"))]
+pub fn network_port_via_host() -> Result<u16, String> {
+    Err("network info unavailable outside wasm runtime".to_string())
+}
+
 // ==================== 有效期设置（设置分组） ====================
 
 /// 读两项有效期：`{pairingCodeTtl, qrTokenTtl}`（秒）
@@ -194,6 +218,11 @@ pub fn qr_clear_via_host() -> Result<(), String> {
 }
 
 /// 组装 QR 连接信息（host 缺省回退本机首个可用 IPv4；端口取宿主运行端口）
+///
+/// T08：载荷在 `{host, port, token, remainingSecs}` 之上追加
+/// `peer: {nodeId, addrs, ticket}`（QR v2 的隧道入口）。`peer` 只在宿主能给出
+/// **完整且可拨**信息时才出现——半份 `peer` 会让对端拨不通，属于禁止的静默降级；
+/// 生产失败时改为在回执里带 `peerError`（前端显性提示「仅内网」，载荷保持 v1）。
 #[cfg(target_arch = "wasm32")]
 fn qr_connection_info(
     host: Option<&str>,
@@ -223,12 +252,64 @@ fn qr_connection_info(
         .get("remaining")
         .and_then(|v| v.as_u64())
         .unwrap_or(0);
-    Ok(serde_json::json!({
+
+    let mut payload = serde_json::json!({
         "host": resolved_host,
         "port": port,
         "token": token,
         "remainingSecs": remaining,
-    }))
+    });
+    // host-config 读回的是 u64：隧道契约端口是 u16，越界必须显性失败
+    // （截断会签出一张「绑定到另一个端口」的票据，配对窗口对不上）
+    let tunnel_port =
+        u16::try_from(port).map_err(|_| format!("network port out of range: {port}"))?;
+    // T18：中继地址从网络配置中心取（本地缓存兜底）。取不到**不阻断 LAN 配对**：
+    // 退化为仅 LAN 并把原因带出（`relayError`），不伪造 WAN 可用。
+    let (mut relay_addrs, mut relay_error) =
+        match crate::relay_center::resolve_relay_addrs_via_host() {
+            Ok(resolved) => (resolved.addrs, resolved.center_error),
+            Err(e) => (Vec::new(), Some(e)),
+        };
+    // T18：注册表显式关闭本业务时只产出 LAN 地址（不建中继预留）；
+    // 注册表读不到时保持默认 true，但把原因带出（不静默关外网）。
+    let (allow_wan, wan_error) = crate::relay_center::allow_wan_via_host();
+    if let Some(reason) = wan_error {
+        relay_error = Some(match relay_error {
+            Some(existing) => format!("{existing}; {reason}"),
+            None => reason,
+        });
+    }
+    if !allow_wan {
+        relay_addrs.clear();
+        payload["wanDisabledByPolicy"] = serde_json::Value::Bool(true);
+    }
+    if let Some(reason) = relay_error {
+        payload["relayError"] = serde_json::Value::String(reason);
+    }
+    match crate::tunnel::pairing_peer_via_host(tunnel_port, &relay_addrs) {
+        Ok(peer) => {
+            payload["peer"] = peer;
+            // 二维码倒计时必须反映真实的**最短**有效期：QR token（默认 300s）
+            // 与隧道票据（120s）不同寿，只按 token 展示会让用户在第 120s 后
+            // 扫到一张已失效的票据（M6）。peer 在生产失败时不出现，保持 v1 口径。
+            payload["remainingSecs"] = serde_json::Value::from(qr_remaining_secs(remaining, true));
+        }
+        Err(reason) => {
+            // 不产出残缺 peer：退回 v1 载荷，但原因必须可见（前端据此提示仅内网）
+            payload["peerError"] = serde_json::Value::String(reason);
+        }
+    }
+    Ok(payload)
+}
+
+/// QR 展示倒计时：存在隧道 `peer` 时不得超过票据 TTL（否则界面显示「仍有效」
+/// 而票据已过期）。纯函数，便于 native 单测锁定。
+pub fn qr_remaining_secs(token_remaining: u64, tunnel_peer: bool) -> u64 {
+    if tunnel_peer {
+        token_remaining.min(crate::tunnel::PAIRING_TICKET_TTL_SECS as u64)
+    } else {
+        token_remaining
+    }
 }
 
 // ==================== 已配对设备（活跃记录） ====================
@@ -419,6 +500,7 @@ mod tests {
     fn command_faces_fail_loudly_on_native() {
         for (name, result) in [
             ("network.info", network_info_via_host().map(|_| ())),
+            ("network.port", network_port_via_host().map(|_| ())),
             ("ttl.get", ttl_get_via_host().map(|_| ())),
             ("ttl.set", ttl_set_via_host("qrTokenTtl", 600).map(|_| ())),
             ("paired-list", paired_list_via_host().map(|_| ())),
@@ -427,7 +509,10 @@ mod tests {
             ("pairing.generate", pairing_generate_via_host().map(|_| ())),
             ("pairing.status", pairing_status_via_host().map(|_| ())),
             ("pairing.clear", pairing_clear_via_host()),
-            ("qr.generate", qr_generate_via_host(Some("192.168.1.10")).map(|_| ())),
+            (
+                "qr.generate",
+                qr_generate_via_host(Some("192.168.1.10")).map(|_| ()),
+            ),
             ("qr.info", qr_info_via_host(None).map(|_| ())),
             ("qr.clear", qr_clear_via_host()),
         ] {
@@ -450,6 +535,19 @@ mod tests {
             auth_setting_key("pairing_code_ttl"),
             None,
             "宿主键字面量不是前端键（映射是唯一转换点）"
+        );
+    }
+
+    /// M6：有隧道 `peer` 时倒计时取 token 与票据 TTL 的较小值
+    #[test]
+    fn qr_countdown_never_exceeds_pairing_ticket_ttl() {
+        let ticket_ttl = crate::tunnel::PAIRING_TICKET_TTL_SECS as u64;
+        assert_eq!(qr_remaining_secs(300, true), ticket_ttl);
+        assert_eq!(qr_remaining_secs(ticket_ttl - 1, true), ticket_ttl - 1);
+        assert_eq!(
+            qr_remaining_secs(300, false),
+            300,
+            "v1 载荷不受票据 TTL 限制"
         );
     }
 }

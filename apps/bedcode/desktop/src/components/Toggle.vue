@@ -18,7 +18,7 @@
         ]"
       ></div>
       <div
-        class="absolute top-[3px] w-3 h-3 rounded-[2px] transition-all"
+        class="absolute top-[3px] w-3 h-3 rounded-[2px] transition-[left,background-color]"
         :class="[
           modelValue
             ? 'left-[22px] bg-[var(--color-primary-contrast)]'

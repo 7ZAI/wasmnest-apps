@@ -18,6 +18,16 @@
  * - C5b 已有活跃 QR：进入页面恢复展示（不重新生成 token）
  * - C5c Tab 切走再切回：canvas 元素重建后按现有载荷重绘（不重绘 → 空白，2026-09-26 修复）
  * - C5d 路由 KeepAlive 切回（重新激活）时重绘二维码
+ * - C5e 宿主提供 peer：默认「局域网」Tab 出 v1 码；切「外网」Tab 出 v3 紧凑隧道载荷
+ * - C5f peer 残缺：局域网 Tab 不受影响仍出 v1 码；外网 Tab 显性错误（不静默退回）
+ * - C5g 恢复路径的 peer 残缺：外网 Tab 显性失败，局域网 Tab 仍可出码
+ * - C5h 复制连接串：剪贴板收到与 QR 同载荷的 `wasmnest://pair/…` 链接
+ * - C5i 剪贴板不可用：显性失败提示，不假装已复制
+ * - C5j QR 内部分页默认局域网；无 peer 时外网 Tab 不出码、无组装错误
+ * - C5k QR 页签紧跟标题（同一头部）；外网页有自己的生成按钮，生成前先 prepare 隧道
+ * - C5l 外网页生成命令失败：toast + 可见错误（不静默停在占位态）
+ * - C5m 外网页 peer 未产出：不出码但原因可见（toast + 提示）
+ * - C5n 真实宿主形状（地址尾部 PeerId ≠ nodeId）：外网 Tab 出 v2 完整载荷，不误报地址不可拨号
  * - C6 在线判定：`device:connected` 事件把设备移入在线区
  * - C7 离线判定：`device:disconnected` 事件把设备移回离线区
  * - C8 设备接入即清除已使用配对码（后端事件驱动状态流转）
@@ -40,7 +50,11 @@ vi.mock('vue-sonner', () => ({
 }))
 
 vi.mock('qrcode', () => ({
-  default: { toCanvas: vi.fn(async () => {}) },
+  default: {
+    toCanvas: vi.fn(async () => {}),
+    // 组件按真实矩阵尺寸选画布规格：给出 v2 典型模块数（85）
+    create: vi.fn(() => ({ modules: { size: 85 } })),
+  },
 }))
 
 const routerPush = vi.hoisted(() => vi.fn(async () => {}))
@@ -54,6 +68,10 @@ vi.mock('@/router', () => ({
 }))
 
 const seed = devMock.pairing
+
+/** T18：中心下发的 relay 地址（`session.relay.config` 回执） */
+const RELAY_ADDR =
+  '/dns4/relay.example.com/tcp/4001/p2p/12D3KooWEgB32or8rjD4jBv6KdABzehxstZ4oFVJV934U9GU387H'
 
 /** 命令面路由：按命令 id 返演示数据，并记录调用（断言入参） */
 /**
@@ -88,6 +106,19 @@ async function defaultExecute(command: string, args?: unknown): Promise<unknown>
       return { rotated: true, kid: 'g2', previousKid: 'g1' }
     case 'session.auth.center-status':
       return { registered: true, centerId: 'authc-1234' }
+    // T18：relay 地址真源 = 网络配置中心（本用例给中心值）
+    case 'session.relay.config':
+      return {
+        configured: true,
+        relayAddrs: [RELAY_ADDR],
+        source: 'center',
+        centerError: null,
+        allowWan: true,
+        wanPolicyError: null,
+      }
+    case 'session.tunnel.prepare':
+    case 'session.tunnel.status':
+      return seed.tunnel
     default:
       throw new Error(`unexpected command: ${command} (args=${JSON.stringify(args)})`)
   }
@@ -107,7 +138,12 @@ function makeContext(): PluginContext {
   return {
     id: 'com.wasmnest.bedcode',
     i18n: {
-      t: (key: string) => key,
+      // 带 {message} 的降级文案按真实 i18n 语义替换：否则桩只返回 key，
+      // 用例锁不住「降级原因必须进可见文案」这条行为
+      t: (key: string, params?: Record<string, unknown>) =>
+        key === 'pairing.qr.relayDegraded' && params?.message
+          ? `中继配置降级：${String(params.message)}`
+          : key,
       getI18n: () => ({ global: { locale: { value: 'zh-CN' }, t: (key: string) => key } }),
       registerMessages: vi.fn(),
     },
@@ -240,6 +276,25 @@ describe('DeviceCenterView（设备与配对页面）', () => {
     })
   })
 
+  it('C5h 画布按**实际模块数**定尺寸（扫码识别回归锁：固定 192px 时每模块只剩 ~2.2px）', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+
+    await findButton(wrapper, 'pairing.qr.generate')!.trigger('click')
+    await flushPromises()
+
+    const QRCode = (await import('qrcode')).default
+    const options = (QRCode.toCanvas as any).mock.calls.at(-1)[2]
+    const totalModules = 85 + options.margin * 2
+    // 每模块 ≥ 4 CSS px（测试环境 DPR = 1，设备像素与 CSS 像素同值）
+    expect(options.width / totalModules).toBeGreaterThanOrEqual(4)
+    // 模块边界落在整像素上（非整数比例会把模块画成粗细交替的条纹）
+    expect(options.width % totalModules).toBe(0)
+    // CSS 尺寸按 DPR 还原，不直接沿用设备像素值（DPR > 1 时会被浏览器插值放大）
+    const canvas = wrapper.find('canvas').element as HTMLCanvasElement
+    expect(canvas.style.width).toBe(`${options.width}px`)
+  })
+
   it('C5b 已有活跃 QR：进入页面恢复展示（不重新生成 token）', async () => {
     execute.mockImplementation(async (command: string) => {
       if (command === 'session.qr.info') return seed.qr
@@ -279,6 +334,176 @@ describe('DeviceCenterView（设备与配对页面）', () => {
     expect(calls[calls.length - 1][0]).toBe(wrapper.find('canvas').element)
   })
 
+  it('C30 Tab 切换复位内容区滚动：过渡叠层与新页同以顶部对齐', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+
+    const scroll = wrapper.find('[data-testid="pairing-tab-scroll"]').element as HTMLElement
+    scroll.scrollTop = 240
+
+    await findButton(wrapper, 'pairing.tab.devices')!.trigger('click')
+    await flushPromises()
+    expect(scroll.scrollTop).toBe(0)
+
+    scroll.scrollTop = 180
+    await findButton(wrapper, 'pairing.tab.pairing')!.trigger('click')
+    await flushPromises()
+    expect(scroll.scrollTop).toBe(0)
+  })
+
+  it('C5j QR 内部分页：默认选中「局域网」；无 peer 时外网 Tab 不出码、无组装错误', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+
+    await findButton(wrapper, 'pairing.qr.generate')!.trigger('click')
+    await flushPromises()
+
+    // 默认分页 = 局域网（与历史出码行为一致）
+    expect(wrapper.find('[data-testid="pairing-qr-tab-lan"]').attributes('aria-selected')).toBe(
+      'true',
+    )
+    expect(wrapper.find('[data-testid="pairing-qr-tab-wan"]').attributes('aria-selected')).toBe(
+      'false',
+    )
+
+    // seed.qr 无 peer：外网 Tab 不出隧道码；后端没给 peer 不是「组装失败」，
+    // 不显示残缺错误（那是外网能力提示的职责）
+    await wrapper.find('[data-testid="pairing-qr-tab-wan"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('canvas').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="pairing-qr-error"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="pairing-qr-peer-error"]').exists()).toBe(false)
+
+    // 切回局域网：码照常
+    await wrapper.find('[data-testid="pairing-qr-tab-lan"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('canvas').exists()).toBe(true)
+  })
+
+  it('C5k QR 页签与标题同行；外网页有自己的生成按钮（先 prepare 隧道再生成，出 v3 码）', async () => {
+    const peer = {
+      nodeId: '12D3KooWTarget',
+      addrs: ['/ip4/192.168.1.5/tcp/47613/p2p/12D3KooWTarget'],
+      ticket: 'ticket-once',
+    }
+    execute.mockImplementation(async (command: string) => {
+      if (command === 'session.qr.generate') return { ...seed.qr, peer }
+      return defaultExecute(command)
+    })
+    const wrapper = mountView()
+    await flushPromises()
+
+    // 页签在 QR 卡片头部（紧跟标题），不是独占一整行的分段控件
+    const header = wrapper.find('[data-testid="pairing-qr-header"]')
+    expect(header.text()).toContain('pairing.qr.title')
+    expect(header.text()).toContain('pairing.qr.tabLan')
+    expect(header.text()).toContain('pairing.qr.tabWan')
+
+    execute.mockClear()
+    await wrapper.find('[data-testid="pairing-qr-tab-wan"]').trigger('click')
+    await flushPromises()
+
+    // 外网页无码时按钮是本页的「生成外网二维码」，不是共享的「刷新」
+    const generateWan = wrapper.find('[data-testid="pairing-qr-generate-wan"]')
+    expect(generateWan.exists()).toBe(true)
+    expect(generateWan.text()).toBe('pairing.qr.generateWan')
+
+    await generateWan.trigger('click')
+    await flushPromises()
+
+    // 外网码依赖隧道通道：生成前必须先幂等 prepare（否则换网 / 重激活后拿不到 peer）
+    const order = execute.mock.calls.map((c) => c[0])
+    const prepareAt = order.indexOf('session.tunnel.prepare')
+    expect(prepareAt).toBeGreaterThanOrEqual(0)
+    expect(prepareAt).toBeLessThan(order.indexOf('session.qr.generate'))
+
+    const QRCode = (await import('qrcode')).default
+    expect(wrapper.find('canvas').exists()).toBe(true)
+    const payload = JSON.parse((QRCode.toCanvas as any).mock.calls.at(-1)[1])
+    expect(payload.v).toBe(3)
+    expect(payload.n).toBe(peer.nodeId)
+  })
+
+  it('C5l 外网页生成命令失败：toast + 可见错误上屏（不静默停在占位态）', async () => {
+    execute.mockImplementation(async (command: string) => {
+      if (command === 'session.qr.generate') throw new Error('auth center unavailable')
+      return defaultExecute(command)
+    })
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.find('[data-testid="pairing-qr-tab-wan"]').trigger('click')
+    await wrapper.find('[data-testid="pairing-qr-generate-wan"]').trigger('click')
+    await flushPromises()
+
+    const { toast } = await import('vue-sonner')
+    expect(toast.error).toHaveBeenCalledWith('pairing.qr.generateFailed')
+
+    const error = wrapper.find('[data-testid="pairing-qr-generate-error"]')
+    expect(error.exists()).toBe(true)
+    expect(error.text()).toBe('pairing.qr.generateFailed')
+    // 命令原文进 title：可见文案给用户，细节留给排障
+    expect(error.attributes('title')).toBe('auth center unavailable')
+    expect(wrapper.find('canvas').exists()).toBe(false)
+  })
+
+  it('C5m 外网页 peer 未产出：不出码但原因可见（toast + 提示），不是空占位', async () => {
+    execute.mockImplementation(async (command: string) => {
+      if (command === 'session.qr.generate') {
+        return { ...seed.qr, peerError: 'tunnel node has no dialable address' }
+      }
+      return defaultExecute(command)
+    })
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.find('[data-testid="pairing-qr-tab-wan"]').trigger('click')
+    await wrapper.find('[data-testid="pairing-qr-generate-wan"]').trigger('click')
+    await flushPromises()
+
+    const { toast } = await import('vue-sonner')
+    expect(toast.error).toHaveBeenCalledWith('pairing.tunnel.onlyLan')
+
+    // 无隧道码就不出码（不假装外网可达），但原因必须上屏
+    expect(wrapper.find('canvas').exists()).toBe(false)
+    const hint = wrapper.find('[data-testid="pairing-qr-peer-error"]')
+    expect(hint.exists()).toBe(true)
+    expect(hint.text()).toBe('pairing.tunnel.onlyLan')
+  })
+
+  it('C5n 真实宿主形状（地址尾部 PeerId ≠ nodeId）：外网 Tab 出 v2 完整载荷，不报地址不可拨号', async () => {
+    // 2026-11-14 现场：nodeId 是应用层指纹，addrs 尾部是 libp2p PeerId
+    const peer = {
+      nodeId: '56bc2e94ca6a1f119d014c6bd491ef2a7a6fc68f9354c4c9e9c1354446d31e94',
+      addrs: [
+        '/ip4/192.168.1.10/tcp/47613/p2p/12D3KooWSFCWtAtXSKNhNAr7D6iYPnEJFfUjSrUTFJqopHuD4UDx',
+        '/ip4/113.45.43.60/tcp/4001/p2p/12D3KooWBSCkgKRqQWpPhGGC61TfEWno22bcEGXxQvohhPbQBkud/p2p-circuit/p2p/12D3KooWSFCWtAtXSKNhNAr7D6iYPnEJFfUjSrUTFJqopHuD4UDx',
+      ],
+      ticket: 'ticket-once',
+    }
+    execute.mockImplementation(async (command: string) => {
+      if (command === 'session.qr.generate') return { ...seed.qr, peer }
+      return defaultExecute(command)
+    })
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.find('[data-testid="pairing-qr-tab-wan"]').trigger('click')
+    await wrapper.find('[data-testid="pairing-qr-generate-wan"]').trigger('click')
+    await flushPromises()
+
+    // 不再出现「隧道地址不可拨号」的显性失败
+    expect(wrapper.find('[data-testid="pairing-qr-error"]').exists()).toBe(false)
+
+    const QRCode = (await import('qrcode')).default
+    expect(wrapper.find('canvas').exists()).toBe(true)
+    const payload = JSON.parse((QRCode.toCanvas as any).mock.calls.at(-1)[1])
+    // v2 完整地址载荷：nodeId 与地址尾部各自保留原值（移动端按地址直接拨号）
+    expect(payload.v).toBe(2)
+    expect(payload.peer.nodeId).toBe(peer.nodeId)
+    expect(payload.peer.addrs).toEqual(peer.addrs)
+  })
+
   it('C5d 路由 KeepAlive 切回（重新激活）时重绘二维码', async () => {
     execute.mockImplementation(async (command: string) => {
       if (command === 'session.qr.info') return seed.qr
@@ -313,6 +538,176 @@ describe('DeviceCenterView（设备与配对页面）', () => {
 
     expect(wrapper.find('canvas').exists()).toBe(true)
     expect((QRCode.toCanvas as any).mock.calls.length).toBeGreaterThan(before)
+  })
+
+  it('C5e 宿主提供 peer：默认局域网 Tab 出 v1；外网 Tab 出 v3 紧凑隧道载荷', async () => {
+    const peer = {
+      nodeId: '12D3KooWTarget',
+      addrs: [
+        '/ip4/192.168.1.5/tcp/47613/p2p/12D3KooWTarget',
+        '/ip4/203.0.113.10/tcp/4001/p2p/12D3KooWRelay/p2p-circuit/p2p/12D3KooWTarget',
+      ],
+      ticket: 'ticket-once',
+    }
+    execute.mockImplementation(async (command: string) => {
+      if (command === 'session.qr.generate') return { ...seed.qr, peer }
+      return defaultExecute(command)
+    })
+    const wrapper = mountView()
+    await flushPromises()
+
+    await findButton(wrapper, 'pairing.qr.generate')!.trigger('click')
+    await flushPromises()
+
+    const QRCode = (await import('qrcode')).default
+
+    // 默认「局域网」Tab：v1 三要素载荷（与 peer 无关）
+    let payload = JSON.parse((QRCode.toCanvas as any).mock.calls.at(-1)[1])
+    expect(payload).toEqual({
+      host: seed.qr.host,
+      port: seed.qr.port,
+      token: seed.qr.token,
+    })
+
+    // 切「外网」Tab：v3 紧凑隧道载荷
+    await wrapper.find('[data-testid="pairing-qr-tab-wan"]').trigger('click')
+    await flushPromises()
+
+    payload = JSON.parse((QRCode.toCanvas as any).mock.calls.at(-1)[1])
+    expect(payload).toEqual({
+      v: 3,
+      h: seed.qr.host,
+      p: seed.qr.port,
+      t: seed.qr.token,
+      n: peer.nodeId,
+      a: [
+        '/ip4/192.168.1.5/tcp/47613',
+        '/ip4/203.0.113.10/tcp/4001/p2p/12D3KooWRelay/p2p-circuit',
+      ],
+      tk: peer.ticket,
+    })
+  })
+
+  it('C5f peer 残缺：局域网 Tab 不受影响仍出 v1 码；外网 Tab 显性报错（不静默退回）', async () => {
+    execute.mockImplementation(async (command: string) => {
+      if (command === 'session.qr.generate') {
+        return { ...seed.qr, peer: { nodeId: 'n', addrs: [], ticket: 't' } }
+      }
+      return defaultExecute(command)
+    })
+    const wrapper = mountView()
+    await flushPromises()
+
+    await findButton(wrapper, 'pairing.qr.generate')!.trigger('click')
+    await flushPromises()
+
+    // 核心修复：peer 残缺不再连坐——局域网 Tab 照常出码，载荷为 v1
+    expect(wrapper.find('canvas').exists()).toBe(true)
+    const QRCode = (await import('qrcode')).default
+    const payload = JSON.parse((QRCode.toCanvas as any).mock.calls.at(-1)[1])
+    expect(payload).toEqual({
+      host: seed.qr.host,
+      port: seed.qr.port,
+      token: seed.qr.token,
+    })
+
+    // 外网 Tab：不出隧道码 + 显性错误文案
+    await wrapper.find('[data-testid="pairing-qr-tab-wan"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('canvas').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="pairing-qr-error"]').text()).toBe(
+      'pairing.qr.errorPeerIncomplete',
+    )
+  })
+
+  it('C5g 恢复路径的 peer 残缺：外网 Tab 显性失败，局域网 Tab 仍可出码', async () => {
+    execute.mockImplementation(async (command: string) => {
+      if (command === 'session.qr.info') {
+        return { ...seed.qr, peer: { nodeId: 'n', addrs: ['/ip4/0.0.0.0/tcp/1/p2p/x'], ticket: 't' } }
+      }
+      return defaultExecute(command)
+    })
+    const wrapper = mountView()
+    await flushPromises()
+
+    // 默认局域网 Tab：恢复出的码照常出（v1）
+    expect(wrapper.find('canvas').exists()).toBe(true)
+
+    // 外网 Tab：显性错误文案
+    await wrapper.find('[data-testid="pairing-qr-tab-wan"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('canvas').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="pairing-qr-error"]').text()).toBe(
+      'pairing.qr.errorPeerAddressInvalid',
+    )
+  })
+
+  it('C5h 复制连接串：剪贴板收到与 QR 同载荷的 wasmnest://pair 链接', async () => {
+    const peer = {
+      nodeId: '12D3KooWTarget',
+      addrs: ['/ip4/192.168.1.5/tcp/47613/p2p/12D3KooWTarget'],
+      ticket: 'ticket-once',
+    }
+    execute.mockImplementation(async (command: string) => {
+      if (command === 'session.qr.generate') return { ...seed.qr, peer }
+      return defaultExecute(command)
+    })
+    const writeText = vi.fn(async () => {})
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    })
+    const { toast } = await import('vue-sonner')
+
+    const wrapper = mountView()
+    await flushPromises()
+    await findButton(wrapper, 'pairing.qr.generate')!.trigger('click')
+    await flushPromises()
+
+    // 外网 Tab 的连接串：含 peer 的 v3 载荷
+    await wrapper.find('[data-testid="pairing-qr-tab-wan"]').trigger('click')
+    await flushPromises()
+
+    await wrapper.find('[data-testid="pairing-qr-copy-link"]').trigger('click')
+    await flushPromises()
+
+    expect(writeText).toHaveBeenCalledTimes(1)
+    const uri = writeText.mock.calls[0][0] as string
+    expect(uri.startsWith('wasmnest://pair/')).toBe(true)
+
+    // 解回 JSON：连接串与 QR 同载荷（不额外夹带长期密钥）
+    const base64 = uri.slice('wasmnest://pair/'.length).replace(/-/g, '+').replace(/_/g, '/')
+    const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4)
+    const binary = atob(padded)
+    const decoded = JSON.parse(
+      new TextDecoder().decode(Uint8Array.from(binary, (ch) => ch.charCodeAt(0))),
+    )
+    expect(decoded).toEqual({
+      v: 3,
+      h: seed.qr.host,
+      p: seed.qr.port,
+      t: seed.qr.token,
+      n: peer.nodeId,
+      a: ['/ip4/192.168.1.5/tcp/47613'],
+      tk: peer.ticket,
+    })
+    expect(toast.success).toHaveBeenCalledWith('pairing.qr.copyLinkDone')
+  })
+
+  it('C5i 剪贴板不可用：显性失败提示，不假装已复制', async () => {
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: undefined })
+    const { toast } = await import('vue-sonner')
+
+    const wrapper = mountView()
+    await flushPromises()
+    await findButton(wrapper, 'pairing.qr.generate')!.trigger('click')
+    await flushPromises()
+
+    await wrapper.find('[data-testid="pairing-qr-copy-link"]').trigger('click')
+    await flushPromises()
+
+    expect(toast.error).toHaveBeenCalledWith('pairing.qr.copyLinkFailed')
+    expect(toast.success).not.toHaveBeenCalled()
   })
 
   it('C6/C7 在线与离线判定由后端事件驱动（同一台设备在两个分区之间迁移）', async () => {
@@ -717,5 +1112,173 @@ describe('DeviceCenterView（设备与配对页面）', () => {
     expect(wrapper.text()).not.toContain(`${seed.network.addresses[0]}:${seed.network.port}`)
     // 二维码载荷随新地址重组（token 不变）
     expect(commandsTo('session.qr.info').at(-1)![1]).toEqual({ host: '10.9.9.9' })
+  })
+
+  it('C27 隧道状态栏：宿主快照 → 传输模式文案 + 「已加密」常量徽标', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+
+    // prepare 只在进入页面时调一次（幂等写配置 + 暴露）
+    expect(commandsTo('session.tunnel.prepare')).toHaveLength(1)
+    expect(wrapper.find('[data-testid="pairing-tunnel-status"]').text()).toBe(
+      'pairing.tunnel.ready',
+    )
+    // 加密不可关闭：徽标是常量事实，不是开关
+    const badge = wrapper.find('[data-testid="pairing-tunnel-encryption"]')
+    expect(badge.text()).toBe('pairing.tunnel.encryption')
+    expect(badge.attributes('title')).toBe('pairing.tunnel.encryptionHint')
+  })
+
+  it('C27b 隧道 prepare 显式携带中心下发的 relay 地址（T18）', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+
+    const prepare = commandsTo('session.tunnel.prepare')
+    expect(prepare).toHaveLength(1)
+    expect(prepare[0][1]).toEqual({ relayAddrs: [RELAY_ADDR], allowWan: true })
+    expect(wrapper.find('[data-testid="pairing-tunnel-relay-source"]').exists()).toBe(false)
+  })
+
+  it('C27b2 未配置中心地址时显式传空数组 + allowWan（不再让后端重复等中心）', async () => {
+    execute.mockImplementation(async (command: string, args?: unknown) => {
+      if (command === 'session.relay.config') {
+        return {
+          configured: false,
+          relayAddrs: [],
+          source: 'center',
+          centerError: null,
+          allowWan: true,
+          wanPolicyError: null,
+        }
+      }
+      return defaultExecute(command, args)
+    })
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(commandsTo('session.tunnel.prepare').at(-1)![1]).toEqual({
+      relayAddrs: [],
+      allowWan: true,
+    })
+    expect(wrapper.find('[data-testid="pairing-tunnel-relay-source"]').exists()).toBe(false)
+  })
+
+  it('C27b3 WAN 注册表读不到时显性可见（策略按默认 true 继续）', async () => {
+    execute.mockImplementation(async (command: string, args?: unknown) => {
+      if (command === 'session.relay.config') {
+        return {
+          configured: true,
+          relayAddrs: [RELAY_ADDR],
+          source: 'center',
+          centerError: null,
+          allowWan: true,
+          wanPolicyError: 'wan policy unreadable: timeout',
+        }
+      }
+      return defaultExecute(command, args)
+    })
+    const wrapper = mountView()
+    await flushPromises()
+
+    const badge = wrapper.find('[data-testid="pairing-tunnel-wan-policy-error"]')
+    expect(badge.exists()).toBe(true)
+    expect(badge.attributes('title')).toBe('wan policy unreadable: timeout')
+  })
+
+  it('C27c 中心不可用、正在用缓存时显性提示（T18）', async () => {
+    execute.mockImplementation(async (command: string, args?: unknown) => {
+      if (command === 'session.relay.config') {
+        return {
+          configured: true,
+          relayAddrs: [RELAY_ADDR],
+          source: 'cache',
+          centerError: 'api call host error: timeout',
+        }
+      }
+      return defaultExecute(command, args)
+    })
+    const wrapper = mountView()
+    await flushPromises()
+
+    const badge = wrapper.find('[data-testid="pairing-tunnel-relay-source"]')
+    expect(badge.exists()).toBe(true)
+    expect(badge.text()).toBe('pairing.tunnel.relayCache')
+    expect(badge.attributes('title')).toBe('api call host error: timeout')
+    // 缓存地址仍要传给后端，否则「缓存兜底」只停在界面上
+    expect(commandsTo('session.tunnel.prepare').at(-1)![1]).toEqual({
+      relayAddrs: [RELAY_ADDR],
+      allowWan: true,
+    })
+  })
+
+  it('C28 隧道不可用：命令失败 → 显性「隧道不可用」，不退化成「就绪」', async () => {
+    execute.mockImplementation(async (command: string, args?: unknown) => {
+      if (command === 'session.tunnel.prepare' || command === 'session.tunnel.status') {
+        throw new Error('tunnel unavailable outside wasm runtime')
+      }
+      return defaultExecute(command, args)
+    })
+    const wrapper = mountView()
+    await flushPromises()
+
+    const strip = wrapper.find('[data-testid="pairing-tunnel-status"]')
+    expect(strip.text()).toBe('pairing.tunnel.unavailable')
+    expect(strip.attributes('title')).toBe('tunnel unavailable outside wasm runtime')
+  })
+
+  it('C29 peer 未产出：局域网 Tab 出 v1 码；外网 Tab 显示「仅内网」原因（不静默）', async () => {
+    execute.mockImplementation(async (command: string, args?: unknown) => {
+      if (command === 'session.qr.generate') {
+        // 后端不产出残缺 peer：只有 peerError
+        return { ...seed.qr, peerError: 'tunnel node addrs unavailable' }
+      }
+      return defaultExecute(command, args)
+    })
+    const wrapper = mountView()
+    await flushPromises()
+
+    await findButton(wrapper, 'pairing.qr.generate')!.trigger('click')
+    await flushPromises()
+
+    // 默认局域网 Tab：v1 载荷仍可用（能扫，只是仅内网）
+    expect(wrapper.find('[data-testid="pairing-qr-copy-link"]').exists()).toBe(true)
+
+    // 外网 Tab：无隧道码，显性提示仅内网
+    await wrapper.find('[data-testid="pairing-qr-tab-wan"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('canvas').exists()).toBe(false)
+    const hint = wrapper.find('[data-testid="pairing-qr-peer-error"]')
+    expect(hint.exists()).toBe(true)
+    expect(hint.text()).toBe('pairing.tunnel.onlyLan')
+  })
+
+  it('C29b QR 载荷里的中继降级 / 关闭外网不再是死字段', async () => {
+    execute.mockImplementation(async (command: string, args?: unknown) => {
+      if (command === 'session.qr.generate') {
+        return {
+          ...seed.qr,
+          relayError: 'api call host error: timeout',
+          wanDisabledByPolicy: true,
+        }
+      }
+      return defaultExecute(command, args)
+    })
+    const wrapper = mountView()
+    await flushPromises()
+
+    await findButton(wrapper, 'pairing.qr.generate')!.trigger('click')
+    await flushPromises()
+
+    // 提示在外网 Tab 展示（说明该码的外网可达性）
+    await wrapper.find('[data-testid="pairing-qr-tab-wan"]').trigger('click')
+    await flushPromises()
+
+    const degraded = wrapper.find('[data-testid="pairing-qr-relay-error"]')
+    expect(degraded.exists()).toBe(true)
+    expect(degraded.attributes('title')).toBe('api call host error: timeout')
+    // 降级原因必须进 {message} 插值：只放 title 会让用户看到未替换的占位符
+    expect(degraded.text()).toContain('api call host error: timeout')
+    expect(degraded.text()).not.toContain('{message}')
+    expect(wrapper.find('[data-testid="pairing-qr-wan-disabled"]').exists()).toBe(true)
   })
 })

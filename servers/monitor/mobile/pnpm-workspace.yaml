@@ -5,5 +5,3 @@ packages:
   - .
 allowBuilds:
   esbuild: true
-minimumReleaseAgeExclude:
-  - '@binblink/wasmnest-plugin-sdk-mobile@0.0.1'

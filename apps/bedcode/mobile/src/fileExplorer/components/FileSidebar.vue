@@ -218,7 +218,7 @@
 
     <!-- 分支切换确认弹窗 -->
     <Modal v-model="showBranchConfirm" :title="t('file.switchConfirmTitle')" size="sm">
-      <p class="text-[var(--mobile-text-disabled)] text-sm">{{ branchConfirmMsg }}</p>
+      <p class="text-[var(--mobile-text-secondary)] text-sm">{{ branchConfirmMsg }}</p>
       <template #footer>
         <div class="flex justify-end gap-3">
           <Button variant="ghost" @click="showBranchConfirm = false">{{ t('common.button.cancel') }}</Button>
@@ -739,7 +739,7 @@ onUnmounted(() => {
 }
 
 .branch-label--no-git {
-  color: var(--mobile-text-disabled);
+  color: var(--mobile-text-muted);
   font-weight: 400;
   cursor: default;
 }
@@ -772,9 +772,10 @@ onUnmounted(() => {
   max-height: 240px;
   background: var(--mobile-bg-tertiary);
   border: 1px solid var(--mobile-border);
-  border-radius: 0.5rem;
+  border-radius: var(--bc-radius-control);
   z-index: 40;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  /* 分层跟随应用口径：深色无投影，浅色一层小投影（悬浮列表不靠硬投影抬起来） */
+  box-shadow: var(--bc-overlay-shadow);
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -783,10 +784,9 @@ onUnmounted(() => {
 .branch-dropdown-title {
   padding: 0.5rem 0.75rem;
   font-size: var(--font-size-sm);
-  font-weight: 600;
+  font-weight: 500;
   color: var(--mobile-text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.01em;
   border-bottom: 1px solid var(--mobile-border);
   flex-shrink: 0;
 }
@@ -878,10 +878,10 @@ onUnmounted(() => {
   right: 0.5rem;
   background: var(--mobile-bg-tertiary);
   border: 1px solid var(--mobile-border);
-  border-radius: 0.75rem;
+  border-radius: var(--bc-radius-card);
   padding: 0.75rem;
   z-index: 30;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--bc-overlay-shadow);
 }
 
 .settings-panel-section {
@@ -1017,13 +1017,13 @@ onUnmounted(() => {
   border-radius: 50%;
   background: var(--mobile-accent);
   transform: translate(-50%, -50%);
-  box-shadow: 0 0 0 3px rgba(0, 212, 255, 0.2);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--mobile-accent) 15%, transparent);
   transition: box-shadow 0.15s ease;
   z-index: 2;
 }
 
 .slider-thumb:hover {
-  box-shadow: 0 0 0 5px rgba(0, 212, 255, 0.3);
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--mobile-accent) 25%, transparent);
 }
 
 .slider-dots {
@@ -1044,7 +1044,7 @@ onUnmounted(() => {
   height: 4px;
   border-radius: 50%;
   background: var(--mobile-border);
-  transition: background 0.15s ease;
+  transition: background-color var(--bc-dur-fast) var(--bc-ease);
 }
 
 .slider-dot.active {
@@ -1056,7 +1056,7 @@ onUnmounted(() => {
   justify-content: space-between;
   margin-top: 0.25rem;
   font-size: var(--font-size-sm);
-  color: var(--mobile-text-disabled);
+  color: var(--mobile-text-muted);
 }
 
 .settings-panel-actions {
@@ -1067,11 +1067,14 @@ onUnmounted(() => {
 .settings-panel-btn {
   flex: 1;
   padding: 0.5rem;
-  border-radius: 0.375rem;
+  border-radius: var(--bc-radius-control);
   font-size: var(--font-size-sm);
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition:
+    background-color var(--bc-dur-base) var(--bc-ease),
+    color var(--bc-dur-base) var(--bc-ease),
+    opacity var(--bc-dur-base) var(--bc-ease);
 }
 
 .settings-panel-btn.cancel {
@@ -1104,7 +1107,9 @@ onUnmounted(() => {
 /* Dropdown transition */
 .dropdown-enter-active,
 .dropdown-leave-active {
-  transition: all 0.2s ease;
+  transition:
+    opacity var(--bc-dur-base) var(--bc-ease),
+    transform var(--bc-dur-base) var(--bc-ease);
 }
 
 .dropdown-enter-from,
@@ -1140,7 +1145,7 @@ onUnmounted(() => {
 }
 
 .sidebar-body::-webkit-scrollbar-thumb:hover {
-  background: rgba(0, 212, 255, 0.4);
+  background: var(--mobile-border-active);
 }
 
 /* Sidebar States */
@@ -1175,22 +1180,24 @@ onUnmounted(() => {
 .go-settings-btn {
   margin-top: 0.5rem;
   padding: 0.5rem 1rem;
-  border-radius: 0.5rem;
+  border-radius: var(--bc-radius-control);
   background: var(--mobile-accent);
   color: var(--mobile-text-on-accent);
-  font-size: 0.75rem;
+  font-size: var(--font-size-sm);
   font-weight: 500;
 }
 
 .retry-btn {
   padding: 0.375rem 1rem;
-  border-radius: 0.375rem;
+  border-radius: var(--bc-radius-control);
   background: var(--mobile-bg-elevated);
   border: 1px solid var(--mobile-border);
   color: var(--mobile-text-secondary);
   font-size: var(--font-size-sm);
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition:
+    border-color var(--bc-dur-base) var(--bc-ease),
+    color var(--bc-dur-base) var(--bc-ease);
 }
 
 .retry-btn:hover {

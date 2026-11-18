@@ -251,9 +251,9 @@ pub fn connect_list_via_host() -> Result<serde_json::Value, String> {
 /// 缺字段或非数组一律显性报错——静默跳过会让「已配对」在在线列表里随机消失。
 /// 条目全部来自活跃记录，故 `is_active` 恒 true。
 pub fn pairings_from_auth_center(view: &serde_json::Value) -> Result<Vec<PairingRow>, String> {
-    let arr = view.as_array().ok_or_else(|| {
-        format!("auth center devices-list must be an array, got: {view}")
-    })?;
+    let arr = view
+        .as_array()
+        .ok_or_else(|| format!("auth center devices-list must be an array, got: {view}"))?;
     arr.iter()
         .map(|row| {
             let field = |key: &str| {

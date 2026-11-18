@@ -66,6 +66,16 @@ impl SubmittedLineTracker {
         let mut map = self.buffers.lock().unwrap_or_else(|e| e.into_inner());
         map.remove(session_id);
     }
+
+    /// 是否存在未提交草稿（含未闭合的转义序列 / 括号粘贴块）。
+    ///
+    /// 程序化注入 `/model …` 经普通输入路径写入时会与草稿拼成一行，
+    /// 既让命令失效、又会把用户草稿当 prompt 提交；调用方据此显性拒绝。
+    pub fn has_pending_input(&self, session_id: &str) -> bool {
+        let map = self.buffers.lock().unwrap_or_else(|e| e.into_inner());
+        map.get(session_id)
+            .is_some_and(LineBuffer::has_pending_input)
+    }
 }
 
 /// ESC 转义序列解析状态
@@ -99,6 +109,12 @@ struct LineBuffer {
 }
 
 impl LineBuffer {
+    /// 是否还有未提交内容；`prev_cr` 只是 `\r\n` 去重标志，不算草稿
+    /// （刚提交完一行的会话仍允许程序化注入）。
+    fn has_pending_input(&self) -> bool {
+        !self.text.is_empty() || self.in_paste || self.esc != EscState::Ground
+    }
+
     /// 喂入一块，返回产生的提交行列表
     fn feed(&mut self, data: &str) -> Vec<String> {
         let mut submitted = Vec::new();
@@ -324,6 +340,21 @@ mod tests {
         assert_eq!(out, vec!["claude fix the bug"]);
     }
 
+    /// 2026-11-13 回归：HTTP / WS 通道把内容与 Enter 拆成两次写入，
+    /// 第二次的回车字节必须把第一次的草稿变成完整提交行。
+    #[test]
+    fn test_split_data_then_enter_submits_pending_line() {
+        let t = SubmittedLineTracker::new();
+        assert!(feed_chunks(&t, "s1", &["跑一遍单测"]).is_empty());
+        assert_eq!(
+            feed_chunks(&t, "s1", &["\r"]),
+            vec!["跑一遍单测"],
+            "拆分写入的 Enter 必须产出完整提交行"
+        );
+        // 空 Enter（用户只按回车）产出空行，由 handle_submitted_input 过滤
+        assert_eq!(feed_chunks(&t, "s1", &["\r"]), vec![String::new()]);
+    }
+
     #[test]
     fn test_accumulate_across_chunks() {
         // xterm onData 按击键块提交，缓冲跨块累积
@@ -530,5 +561,23 @@ mod tests {
         let t = SubmittedLineTracker::new();
         let out = feed_chunks(&t, "s1", &["typed\x03", "ok\r"]);
         assert_eq!(out, vec!["ok"]);
+    }
+
+    #[test]
+    fn test_has_pending_input_tracks_drafts_not_submitted_lines() {
+        let tracker = SubmittedLineTracker::new();
+        assert!(!tracker.has_pending_input("s1"));
+        assert!(tracker.feed("s1", "draft").is_empty());
+        assert!(tracker.has_pending_input("s1"));
+        assert!(!tracker.has_pending_input("s2"));
+
+        // 提交后只剩 \r\n 去重标志，不算草稿：注入不应被永久拒绝
+        assert_eq!(tracker.feed("s1", "\r"), vec!["draft".to_string()]);
+        assert!(!tracker.has_pending_input("s1"));
+
+        tracker.feed("s1", "abc\x15");
+        assert!(!tracker.has_pending_input("s1"));
+        assert!(tracker.feed("s1", "\x1b[200~").is_empty());
+        assert!(tracker.has_pending_input("s1"), "unclosed paste is a draft");
     }
 }

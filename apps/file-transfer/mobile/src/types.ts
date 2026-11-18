@@ -99,8 +99,44 @@ export interface Settings {
   receivingPolicy: 'ask' | 'accept' | 'reject'
   /** v2 同意超时秒（10–600，仅 ask 策略生效） */
   approvalTimeoutSec: number
-  /** 发送加密开关（应用层 AES-256-GCM；默认关，接收端经 Offer 加密头自动解密） */
+  /** 发送加密开关（应用层 AES-256-GCM；**固定 true**，UI 无关闭入口——不变量 12） */
   encryption?: boolean
+  /** 是否允许经中继（WAN）传输（T12；缺省开；关闭 ≠ 关闭加密） */
+  allowWan: boolean
+  /** 经中继传输的提示阈值（字节；0 = 每次发送都提示） */
+  relayMaxBytesPerTask: number
+  /** 外网接入 relay 端点（T21；空 = 仅内网；`configure-relay` 已就绪，保存即收敛预留） */
+  relayAddrs: string[]
+}
+
+/** 宿主 peer 能力（file-transfer 独立化 T21；false = 宿主未提供对应原语） */
+export interface HostCapabilities {
+  nodeInfo: boolean
+  relayReservation: boolean
+}
+
+/** 「我的设备」读面（get-my-device） */
+export interface MyDeviceInfo {
+  supported: boolean
+  reason?: string | null
+  capabilities: HostCapabilities
+  relayAddrs: string[]
+  /** 中继会合空间码（空 = 同一中继所有设备可见；双端必须一致） */
+  relayRoom?: string
+  /** relay 地址来源：center / cache / invite / qr / sync（移动端通常 cache / qr / sync） */
+  relaySource?: 'center' | 'cache' | 'invite' | 'qr' | 'sync'
+  /** 导入渠道原值（"" / invite / qr / sync；设置页溯源） */
+  relayOrigin?: string
+  /** 最近一次外部获取配置的时刻（Unix 毫秒；0 = 未记录） */
+  relaySyncedAt?: number
+  /** 本应用对外网策略（T12 拨号开关；分享载荷标注用） */
+  wanPolicy?: 'allowed' | 'blocked'
+  /** 读取配置中心的错误（移动端恒空；保留同构形状） */
+  relayError?: string | null
+  nodeId?: string
+  deviceName?: string
+  addrs?: string[]
+  relayState?: string
 }
 
 /** 接收策略取值常量（与宿主 policy mode 映射一致） */
@@ -184,6 +220,8 @@ export interface ReceivingTask {
   remotePath: string
   size: number
   offset: number
+  /** 接收方向即时速率（B/s；任务卡与总速率展示用，0 = 无采样） */
+  rateBps?: number
   /** running / completed / failed / rejected / cancelled */
   state: string
   reason?: string | null
@@ -229,11 +267,16 @@ export interface TransferToastPayload {
 /** 拒绝原因 wire → 展示文案 key 后缀（§8.4 映射；unknown 兜底） */
 export function mapRejectReasonKey(reason: string | null | undefined): string {
   switch (reason) {
-    case 'duplicate-name': return 'duplicateName'
-    case 'user-rejected': return 'rejectedByUser'
-    case 'timeout': return 'noResponse'
-    case 'policy-denied': return 'policyDenied'
-    default: return 'unknown'
+    case 'duplicate-name':
+      return 'duplicateName'
+    case 'user-rejected':
+      return 'rejectedByUser'
+    case 'timeout':
+      return 'noResponse'
+    case 'policy-denied':
+      return 'policyDenied'
+    default:
+      return 'unknown'
   }
 }
 
@@ -242,16 +285,17 @@ export function mapRejectReasonKey(reason: string | null | undefined): string {
 /** 任务卡上的操作按钮描述（调用方决定语义，卡内只渲染） */
 export interface TaskAction {
   /** 操作语义：cancel / retry / cancel-receiving / clear-history / open-location */
-  kind: 'cancel' | 'retry' | 'pause' | 'resume' | 'cancel-receiving' | 'clear-history' | 'open-location'
+  kind:
+    'cancel' | 'retry' | 'pause' | 'resume' | 'cancel-receiving' | 'clear-history' | 'open-location'
   label: string
   /** neutral = 灰底（取消）；tint = accent 浅底（重试等需被看见的次级操作） */
   variant: 'neutral' | 'tint'
 }
 
-/** 底部行动条三态 */
-export type FooterMode = 'upload' | 'select' | 'active'
+/** 底部行动条状态（idle = 整条不渲染；发送入口常驻底栏上方） */
+export type FooterMode = 'idle' | 'select' | 'active'
 
-/** 主分段 tab 键 */
+/** 底部导航一级页面键 */
 export type MainTab = 'transfers' | 'browse' | 'devices'
 
 /** 传输 tab 筛选键 */

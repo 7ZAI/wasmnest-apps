@@ -66,9 +66,28 @@ function asString(value: unknown): string {
   return typeof value === 'string' ? value : ''
 }
 
-/** 运行中口径与主界面 `isRunningStatus` 同源：只有 stopped / error 不算运行中 */
+/**
+ * 运行状态线形状 → 展示字符串
+ *
+ * `session.list` 的错误态是宿主 externally-tagged **对象** `{ "error": "…" }`；
+ * 早先这里用 `asString()` 转成空串再兜底 `'unknown'`，而 `isRunning('unknown')`
+ * 恒真 → 每条历史错误会话都被算成运行中（与主界面「运行中的会话」虚报同源）。
+ *
+ * 口径与 `composables/useSessionCenter.ts::normalizeSessionStatus` 逐字一致；
+ * 卡片受「不引入主 composables」约束（本文件头 D2/D4），故在此就地实现。
+ */
+function normalizeStatus(value: unknown): string {
+  if (typeof value === 'string' && value) return value
+  if (value && typeof value === 'object' && 'error' in value) return 'error'
+  return 'idle'
+}
+
+/**
+ * 「运行中」口径与主界面 `isRunningStatusCounted` 同源：
+ * 只认 running / starting / waitingInput（后端 `list_running_sessions` 同款）。
+ */
 function isRunning(status: string): boolean {
-  return status !== 'stopped' && status !== 'error'
+  return status === 'running' || status === 'starting' || status === 'waitingInput'
 }
 
 /** `session.list` → 只保留预览需要的字段（不引入主 composables） */
@@ -85,7 +104,7 @@ function mapSessions(raw: unknown): PreviewSession[] {
     out.push({
       id,
       name: asString(session.name).trim() || id.slice(0, 8),
-      status: asString(session.status) || 'unknown',
+      status: normalizeStatus(session.status),
       configId: asString(session.configId),
     })
   }

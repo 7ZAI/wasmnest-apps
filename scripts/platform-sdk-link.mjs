@@ -26,7 +26,7 @@ export const MARKER_FILE_NAME = '.platform-sdk-link.json'
 export const LINK_BLOCK_BEGIN = '# >>> wasmnest-platform-sdk-link（scripts/link-platform-sdk.mjs 写入，unlink 删除） >>>'
 export const LINK_BLOCK_END = '# <<< wasmnest-platform-sdk-link <<<'
 
-/** bedcode dev-deps 里对能力仓的 git tag 依赖（逐个列出以生成本地 patch） */
+/** bedcode dev-deps 里对能力仓的 crates.io 依赖（逐个列出以生成本地 patch） */
 export const LIB_CRATES = Object.freeze([
   'wasmnest-server-base',
   'wasmnest-server-core',
@@ -106,10 +106,10 @@ export function resolvePlatformRoot({ envRoot, mainWorktreeRoot, exists = exists
 }
 
 /**
- * 能力仓本地源码解析（可选）：bedcode 的 dev-deps 是 `wasmnest-lib` 的 git tag 依赖，
- * link 时用 `[patch."https://github.com/7ZAI/wasmnest-lib"]` 指回本地源码。
+ * 能力仓本地源码解析（可选）：bedcode 的 dev-deps 按 crates.io 精确版本依赖能力仓 crate，
+ * link 时用 `[patch.crates-io]` 指回本地源码。
  * 顺序：`WASMNEST_LIB_ROOT` → 平台根兄弟 `wasmnest-lib` → 主工作树兄弟 `wasmnest-lib`；
- * 都没有返回 null（git tag 依赖仍可用，只是不走本地源码）。
+ * 都没有返回 null（crates.io 发布版本仍可用，只是不走本地源码）。
  */
 export function resolveLibRoot({ envRoot, platformRoot, mainWorktreeRoot, exists = existsSync }) {
   if (envRoot) {
@@ -143,8 +143,6 @@ export function renderLinkBlock({ sdkDir, libRoot }) {
   ]
   if (libRoot) {
     lines.push(
-      '',
-      '[patch."https://github.com/7ZAI/wasmnest-lib"]',
       ...LIB_CRATES.map((crate) => `${crate} = { path = "${tomlPath(join(libRoot, crate))}" }`),
     )
   }
@@ -249,7 +247,7 @@ export function createLinkPlan({ appsRoot, platformRoot, libRoot }) {
   } else {
     warnings.push(
       '未找到能力仓本地源码（WASMNEST_LIB_ROOT / 平台根兄弟 wasmnest-lib）：' +
-        'bedcode 的 lib dev-deps 将按 git tag lib-v0.0.2 解析，不写 [patch."https://github.com/7ZAI/wasmnest-lib"]。',
+        'bedcode 的 lib dev-deps 将按 crates.io 发布版本解析，不写能力仓的 [patch.crates-io] 条目。',
     )
   }
 

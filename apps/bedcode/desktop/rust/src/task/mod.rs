@@ -33,14 +33,17 @@
 pub mod agent;
 pub mod config_queue;
 pub mod hooks;
+pub mod log;
 pub mod preset;
 pub mod queue;
 pub mod scheduled;
 pub mod state;
 
-use wasmnest_plugin_api::host::{ConfigKey, HostConfig, HostLog, HostPluginDatabase};
-use wasmnest_plugin_api::wasm_host::WasmHost;
 use serde::Serialize;
+use serde_json::Value;
+use wasmnest_plugin_api::host::{ConfigKey, HostConfig, HostLog, HostPluginDatabase};
+use wasmnest_plugin_api::sql_params;
+use wasmnest_plugin_api::wasm_host::WasmHost;
 
 /// 长循环让出护栏（WASI 0.3 async 语义）
 ///
@@ -129,7 +132,9 @@ pub const SCHEDULED_JOBS_SCHEMA: &[&str] = &[
 CREATE TABLE IF NOT EXISTS task_scheduled (
     id          TEXT PRIMARY KEY,
     name        TEXT,
-    config_id   TEXT NOT NULL,
+    project_id  TEXT,
+    agent_id    TEXT,
+    config_id   TEXT,
     trigger_at  TEXT NOT NULL,
     prompts     TEXT NOT NULL,
     status      TEXT NOT NULL DEFAULT 'pending',
@@ -192,6 +197,151 @@ pub fn ensure_schema_via_host(host: &WasmHost) -> Result<(), String> {
             host.plugin_db_execute(stmt)
                 .map_err(|e| format!("task schema init failed on {}: {}", name, e))?;
         }
+    }
+
+    // 老库补绑定键列（新库建表已带；`ALTER TABLE ADD COLUMN` 非幂等，逐列查
+    // `PRAGMA table_info` 后再补）。必须在上面的建表循环之后——新库表刚建出来。
+    for (table, column, ddl) in [
+        (
+            "task_queue",
+            "project_id",
+            "ALTER TABLE task_queue ADD COLUMN project_id TEXT",
+        ),
+        (
+            "task_queue",
+            "agent_id",
+            "ALTER TABLE task_queue ADD COLUMN agent_id TEXT",
+        ),
+        (
+            "task_preset",
+            "project_id",
+            "ALTER TABLE task_preset ADD COLUMN project_id TEXT",
+        ),
+        (
+            "task_preset",
+            "agent_id",
+            "ALTER TABLE task_preset ADD COLUMN agent_id TEXT",
+        ),
+        (
+            "task_scheduled",
+            "project_id",
+            "ALTER TABLE task_scheduled ADD COLUMN project_id TEXT",
+        ),
+        (
+            "task_scheduled",
+            "agent_id",
+            "ALTER TABLE task_scheduled ADD COLUMN agent_id TEXT",
+        ),
+        (
+            "task_config_queues",
+            "project_id",
+            "ALTER TABLE task_config_queues ADD COLUMN project_id TEXT",
+        ),
+        (
+            "task_config_queues",
+            "agent_id",
+            "ALTER TABLE task_config_queues ADD COLUMN agent_id TEXT",
+        ),
+    ] {
+        ensure_column_if_missing(host, table, column, ddl)?;
+    }
+
+    // 升级兼容：旧定时任务只有 `config_id`，按配置的目录 + 命令回填项目 + agent。
+    // 失败只记日志（不阻断建表）：列表里会显示「未绑定」，用户仍可删除/重置。
+    if let Err(e) = backfill_scheduled_targets(host) {
+        host.log_warn(&format!(
+            "task schema: scheduled target backfill failed: {e}"
+        ));
+    }
+    Ok(())
+}
+
+/// 列是否已存在（`PRAGMA table_info`；表不存在返回空集合）
+fn table_columns(
+    host: &WasmHost,
+    table: &str,
+) -> Result<std::collections::HashSet<String>, String> {
+    let rows = host
+        .plugin_db_query(&format!("PRAGMA table_info({table})"))
+        .map_err(|e| format!("pragma table_info({table}) failed: {}", e.message))?;
+    Ok(rows
+        .and_then(|v| v.as_array().cloned())
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|row| row.get("name").and_then(|v| v.as_str()).map(str::to_string))
+        .collect())
+}
+
+/// 缺列时补列（幂等）
+fn ensure_column_if_missing(
+    host: &WasmHost,
+    table: &str,
+    column: &str,
+    ddl: &str,
+) -> Result<(), String> {
+    if table_columns(host, table)?.contains(column) {
+        return Ok(());
+    }
+    host.plugin_db_execute(ddl).map_err(|e| {
+        format!(
+            "task schema add column {table}.{column} failed: {}",
+            e.message
+        )
+    })?;
+    Ok(())
+}
+
+/// 旧定时任务按 `config_id` 回填 `(project_id, agent_id)`（幂等，只补空行）
+fn backfill_scheduled_targets(host: &WasmHost) -> Result<(), String> {
+    let configs = match crate::config::list_via_host() {
+        Ok(value) => value.as_array().cloned().unwrap_or_default(),
+        Err(_) => return Ok(()), // native / 配置面不可用：没有可回填的依据
+    };
+    if configs.is_empty() {
+        return Ok(());
+    }
+    let projects = crate::project::list_via_host()
+        .ok()
+        .and_then(|v| v.get("projects").and_then(|p| p.as_array()).cloned())
+        .unwrap_or_default();
+    let project_for = |environment: &str, working_dir: &str| -> Option<String> {
+        let key = crate::project::ops::project_key(environment, working_dir);
+        projects.iter().find_map(|project| {
+            let env = project.get("environment")?.as_str()?;
+            let dir = project.get("workingDir")?.as_str()?;
+            (crate::project::ops::project_key(env, dir) == key)
+                .then(|| project.get("id")?.as_str().map(str::to_string))
+                .flatten()
+        })
+    };
+    let mut targets: std::collections::HashMap<String, (String, Option<String>)> =
+        std::collections::HashMap::new();
+    for config in &configs {
+        let Some(id) = config.get("id").and_then(|v| v.as_str()) else {
+            continue;
+        };
+        let environment = config
+            .get("environment")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let working_dir = config
+            .get("workingDir")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let command = config.get("command").and_then(|v| v.as_str()).unwrap_or("");
+        let Some(project_id) = project_for(environment, working_dir) else {
+            continue;
+        };
+        let agent = agent::detect_agent(command);
+        let agent_id = (agent != "unknown").then(|| agent.to_string());
+        targets.insert(id.to_string(), (project_id, agent_id));
+    }
+    for (config_id, (project_id, agent_id)) in targets {
+        let _ = host.plugin_db_execute_params(
+            "UPDATE task_scheduled SET project_id = ?1, agent_id = ?2 \
+             WHERE config_id = ?3 AND (project_id IS NULL OR project_id = '')",
+            &sql_params![project_id, agent_id, config_id],
+        );
     }
     Ok(())
 }
@@ -331,6 +481,10 @@ pub fn tick_via_host(host: &WasmHost, now_utc: &str) -> serde_json::Value {
 /// `has_active_task` 恒真堵死），定时域的 `creating` 任务（否则 Created 事件永不到达）。
 /// 任缺一条都不会编译报错、不会让测试变红，只在真实重启后留下悬挂项——故以结构锁
 /// 钉住 activate 的调用面（native 无法跑 activate：无宿主 import）。
+/// 结构锁（不是行为锁，理由必须写清）：`activate()` 是 WIT 入口、直接调宿主，
+/// native 构建里整段被 cfg 掉，没有可注入的端口 ⇒ 只能钉「调用存在且有序」。
+/// 锁住的是两条启动恢复的**顺序不变量**（建表 < 恢复；会话清空 < 任务恢复），
+/// 不是实现写法——函数搬家 / 重命名调用仍成立。
 #[test]
 fn activate_runs_both_restart_recoveries() {
     let src = include_str!("../lib.rs");
@@ -457,6 +611,29 @@ mod tests {
         }
     }
 
+    /// 任务域四张表的新库建表必须自带绑定键列
+    ///
+    /// 老库走 `ALTER TABLE ADD COLUMN`（`ensure_schema_via_host` 的补列循环），
+    /// 新库走 `CREATE TABLE`——两条路径必须落下同一组列，否则「新装能用、升级后
+    /// 少列」的缺陷要等线上才炸。
+    #[test]
+    fn binding_columns_are_in_fresh_schemas() {
+        for (table, schema) in [
+            ("task_queue", queue::TASK_QUEUE_SCHEMA),
+            ("task_config_queues", config_queue::CONFIG_QUEUE_SCHEMA),
+            ("task_preset", preset::PRESET_TASKS_SCHEMA),
+            ("task_scheduled", SCHEDULED_JOBS_SCHEMA),
+        ] {
+            let ddl = schema.join("\n");
+            for column in ["project_id", "agent_id"] {
+                assert!(
+                    ddl.contains(&format!("{column} ")),
+                    "{table} 新库建表缺绑定键列 {column}"
+                );
+            }
+        }
+    }
+
     /// 任务域全部模块源码（`(文件名, 内容)`）——源码扫描类用例共用
     ///
     /// 不含本文件：护栏自身的字面量（旧表名等）会自匹配。
@@ -563,11 +740,13 @@ mod tests {
         expected.extend(crate::BUSINESS_HTTP_ENDPOINTS.iter().copied());
         expected.extend(crate::FILE_BROWSE_HTTP_ENDPOINTS.iter().copied());
         expected.extend(crate::sessions_http::SESSIONS_HTTP_PATHS.iter().copied());
+        expected.extend(crate::projects_http::PROJECTS_HTTP_PATHS.iter().copied());
+        expected.extend(crate::run::bridge::HTTP_ENDPOINTS.iter().copied());
         expected.push("terminal-bg");
         expected.sort();
         assert_eq!(
             declared, expected,
-            "http_routes::ROUTES 必须与 task::HTTP_ENDPOINTS + BUSINESS_HTTP_ENDPOINTS + FILE_BROWSE_HTTP_ENDPOINTS + SESSIONS_HTTP_PATHS + terminal-bg 逐项一致（auth 七条已随认证中心迁出）"
+            "http_routes::ROUTES 必须与 task::HTTP_ENDPOINTS + BUSINESS_HTTP_ENDPOINTS + FILE_BROWSE_HTTP_ENDPOINTS + SESSIONS_HTTP_PATHS + PROJECTS_HTTP_PATHS + run::bridge::HTTP_ENDPOINTS + terminal-bg 逐项一致（auth 七条已随认证中心迁出）"
         );
         assert_eq!(HTTP_ENDPOINTS.len(), 17);
         assert_eq!(crate::BUSINESS_HTTP_ENDPOINTS.len(), 2);
@@ -577,6 +756,16 @@ mod tests {
             "票 03 五条 + 票 04 git 三条"
         );
         assert_eq!(crate::sessions_http::SESSIONS_HTTP_PATHS.len(), 7);
+        assert_eq!(
+            crate::projects_http::PROJECTS_HTTP_PATHS.len(),
+            4,
+            "项目 / 运行 / Agent 四条移动面"
+        );
+        assert_eq!(
+            crate::run::bridge::HTTP_ENDPOINTS.len(),
+            4,
+            "run-attach + 三条桥接路由"
+        );
         for endpoint in crate::GIT_HTTP_ENDPOINTS {
             assert!(
                 declared.iter().any(|d| d == endpoint),
@@ -611,8 +800,14 @@ mod tests {
             "auth:none 的端点集合必须与 NO_AUTH_HTTP_ENDPOINTS + terminal-bg 一致"
         );
 
-        // 「拿不到 JWT 的调用方」：hook 两条必须全在免凭证清单里
-        for endpoint in ["task-status", "session-mode"] {
+        // 「拿不到 JWT 的调用方」：任务 hook 与桥接扩展必须全在免凭证清单里
+        for endpoint in [
+            "task-status",
+            "session-mode",
+            "run-events",
+            "run-commands",
+            "run-commands-ack",
+        ] {
             assert!(
                 expected_none.contains(&endpoint),
                 "{endpoint} 的调用方拿不到 JWT（hook 脚本），必须声明 auth:none"
@@ -621,6 +816,76 @@ mod tests {
         assert!(
             expected_none.contains(&"terminal-bg"),
             "terminal-bg 的调用方（CSS）拿不到 JWT"
+        );
+    }
+
+    /// T17：免凭证端点的调用方门禁（LAN 匿名调用被拒，hook / 已验签设备 / 隧道 peer 照常）
+    ///
+    /// 宿主对每条 `/api/plugin/*` 与网关别名请求都传 `caller`（四档：`peer` / `device` /
+    /// `localhost` / `anonymous`；空串 = 宿主未传 / 直接命令调用）。本用例锁住
+    /// 「auth:none 只表达不验签」与「最小可达面」两件事的映射：
+    /// - `task-status`：hook 脚本与桌面 WebView 都走 127.0.0.1 → `localhost`；隧道
+    ///   对等面入站的已匹配远端（`peer`，设计 §0.4 裁定）由隧道层匹配校验授权，本层
+    ///   放行；LAN 匿名与普通面上的未验签调用无消费方 → 拒。
+    /// - `session-mode`：hook（`localhost`）+ 移动端经宿主壳代发带 JWT（`device`）+
+    ///   隧道 peer 三种消费方并存 → 三档放行，匿名仍拒。
+    /// - 缺失 `caller` → 拒绝（fail-closed，与桥接本机门禁同口径）。
+    #[test]
+    fn none_auth_endpoints_gate_by_caller() {
+        // task-status：环回 + 隧道对等面；LAN 匿名 / 普通面未验签拒绝
+        assert!(caller_allowed_for_none_auth(
+            "task-status",
+            CALLER_LOCALHOST
+        ));
+        assert!(caller_allowed_for_none_auth("task-status", CALLER_PEER));
+        assert!(!caller_allowed_for_none_auth("task-status", CALLER_DEVICE));
+        assert!(!caller_allowed_for_none_auth("task-status", "anonymous"));
+        assert!(!caller_allowed_for_none_auth("task-status", ""));
+
+        // session-mode：环回 + 已验签设备（移动端 LAN 远程控制）+ 隧道对等面
+        assert!(caller_allowed_for_none_auth(
+            "session-mode",
+            CALLER_LOCALHOST
+        ));
+        assert!(caller_allowed_for_none_auth("session-mode", CALLER_DEVICE));
+        assert!(caller_allowed_for_none_auth("session-mode", CALLER_PEER));
+        assert!(!caller_allowed_for_none_auth("session-mode", "anonymous"));
+        assert!(!caller_allowed_for_none_auth("session-mode", ""));
+
+        // 清单外端点不经本门禁（JWT 档由宿主判，业务门禁各自负责）
+        for path in [
+            "session-settings",
+            "task-history/current",
+            "task-queue/add",
+            "scheduled-jobs/create",
+        ] {
+            assert!(
+                caller_allowed_for_none_auth(path, "anonymous"),
+                "{path} 不在门禁清单内，判定必须放行（否则会无声改写 JWT 档的准入）"
+            );
+        }
+    }
+
+    /// T17 契约：门禁清单必须是本域端点清单的子集，且全部标 auth:none
+    ///
+    /// 两侧同源锁：漏标 none → hook 静默 401（宿主先拦）；把业务端点误入清单 →
+    /// LAN 匿名可写的面被无声砍断。清单任何变动都必须两张表同时改。
+    #[test]
+    fn caller_gated_endpoints_are_none_auth_task_endpoints() {
+        for path in CALLER_GATED_ENDPOINTS {
+            assert!(
+                HTTP_ENDPOINTS.contains(path),
+                "门禁端点 {path} 必须在本域端点清单里"
+            );
+            assert!(
+                crate::NO_AUTH_HTTP_ENDPOINTS.contains(path),
+                "门禁端点 {path} 必须声明 auth:none（否则宿主先判 JWT，门禁无意义）"
+            );
+        }
+        assert_eq!(
+            CALLER_GATED_ENDPOINTS,
+            &["task-status", "session-mode"],
+            "门禁清单变动必须逐条交代消费方（环回 hook / 移动端）"
         );
     }
 
@@ -842,13 +1107,11 @@ mod tests {
     #[test]
     fn shipped_hook_scripts_point_at_this_plugin() {
         use super::hooks::{
-            CLAUDE_HOOK_TEMPLATE_VERSION, CODEX_HOOK_TEMPLATE_VERSION,
-            OPENCODE_PLUGIN_TEMPLATE_VERSION, PI_EXTENSION_TEMPLATE_VERSION,
+            CLAUDE_HOOK_TEMPLATE_VERSION, CODEX_HOOK_TEMPLATE_VERSION, OPENCODE_BRIDGE_SCRIPT_NAME,
+            OPENCODE_BRIDGE_SOURCE, OPENCODE_PLUGIN_TEMPLATE_VERSION, PI_BRIDGE_SCRIPT_NAME,
+            PI_BRIDGE_SOURCE, PI_EXTENSION_TEMPLATE_VERSION,
         };
-        use wasmnest_plugin_api::constants::{
-            CODEX_HOOK_SCRIPT_NAME, HOOK_SCRIPT_NAME, OPENCODE_HOOK_SCRIPT_NAME,
-            PI_HOOK_SCRIPT_NAME,
-        };
+        use wasmnest_plugin_api::constants::{CODEX_HOOK_SCRIPT_NAME, HOOK_SCRIPT_NAME};
         let shipped: [(&str, &str, &str, &str); 4] = [
             (
                 HOOK_SCRIPT_NAME,
@@ -863,18 +1126,23 @@ mod tests {
                 CODEX_HOOK_TEMPLATE_VERSION,
             ),
             (
-                PI_HOOK_SCRIPT_NAME,
-                "pi_task_hook.ts",
-                include_str!("../../../scripts/pi_task_hook.ts"),
+                PI_BRIDGE_SOURCE,
+                "wasmnest_bridge_pi.ts",
+                include_str!("../../../scripts/wasmnest_bridge_pi.ts"),
                 PI_EXTENSION_TEMPLATE_VERSION,
             ),
             (
-                OPENCODE_HOOK_SCRIPT_NAME,
-                "opencode_task_hook.ts",
-                include_str!("../../../scripts/opencode_task_hook.ts"),
+                OPENCODE_BRIDGE_SOURCE,
+                "wasmnest_bridge_opencode.ts",
+                include_str!("../../../scripts/wasmnest_bridge_opencode.ts"),
                 OPENCODE_PLUGIN_TEMPLATE_VERSION,
             ),
         ];
+        assert_eq!(
+            PI_BRIDGE_SCRIPT_NAME, "wasmnest_bridge.ts",
+            "部署名必须是 wasmnest_bridge.ts（与 spec 的合并命名一致）"
+        );
+        assert_eq!(OPENCODE_BRIDGE_SCRIPT_NAME, PI_BRIDGE_SCRIPT_NAME);
         for (constant, file, content, template_version) in shipped {
             assert_eq!(
                 constant, file,
@@ -913,7 +1181,7 @@ mod tests {
     /// 锁的是**行为分支的存在性**（而非逐字符快照）：把任一分支改回旧形态即转红。
     #[test]
     fn hook_adapters_keep_error_classification_contracts() {
-        let opencode = include_str!("../../../scripts/opencode_task_hook.ts");
+        let opencode = include_str!("../../../scripts/wasmnest_bridge_opencode.ts");
         assert!(
             opencode.contains("} else if (isRetryableError(error)) {"),
             "opencode 的 retrying 分支必须由可重试判定守卫（不可重试错误要收敛 interrupted）"
@@ -933,7 +1201,7 @@ mod tests {
             "StopFailure 缺 background_tasks 守卫（与 handle_stop 不对称，后台任务会被提前判死）"
         );
 
-        let pi = include_str!("../../../scripts/pi_task_hook.ts");
+        let pi = include_str!("../../../scripts/wasmnest_bridge_pi.ts");
         assert!(
             pi.contains("\\b5\\d\\d\\b"),
             "pi 可重试状态码需加词边界（否则 512/52000 等数字片段误命中）"
@@ -958,8 +1226,8 @@ mod tests {
     /// agent 自己的收敛事件给，适配器抢推终态会与之分叉。
     #[test]
     fn hook_adapters_reject_quota_errors_before_marking_retrying() {
-        let pi = include_str!("../../../scripts/pi_task_hook.ts");
-        let opencode = include_str!("../../../scripts/opencode_task_hook.ts");
+        let pi = include_str!("../../../scripts/wasmnest_bridge_pi.ts");
+        let opencode = include_str!("../../../scripts/wasmnest_bridge_opencode.ts");
 
         for (file, content) in [("pi", pi), ("opencode", opencode)] {
             assert!(
@@ -993,6 +1261,50 @@ mod tests {
         assert!(
             opencode.contains("} else if (isRetryableError(error)) {"),
             "opencode 的 retrying 分支必须由带非重试守卫的判定函数守卫"
+        );
+    }
+
+    /// 桥接扩展的协议接线（随包脚本无运行时测试，这里锁存在性）
+    ///
+    /// 三条通道缺一条就是静默失效：事件不推 → 对话面空；命令不取 → 发送无反应；
+    /// 回执不送 → 命令永远停在 claimed（30s 后被重投，重复发送）。任务状态推送
+    /// 仍是既有职责，不能因合并而丢。
+    #[test]
+    fn bridge_scripts_speak_the_loopback_protocol() {
+        let pi = include_str!("../../../scripts/wasmnest_bridge_pi.ts");
+        let opencode = include_str!("../../../scripts/wasmnest_bridge_opencode.ts");
+        for (file, content) in [("pi", pi), ("opencode", opencode)] {
+            for marker in [
+                "WASMNEST_SESSION_ID",
+                "run-events",
+                "run-commands",
+                "run-commands-ack",
+                "startCommandLoop",
+                "flushBridge",
+                "task-status",
+            ] {
+                assert!(content.contains(marker), "{file} 桥接缺协议接线: {marker}");
+            }
+            assert!(
+                content.matches("startCommandLoop").count() >= 2,
+                "{file} 必须真的启动命令轮询（声明了函数却没调用 = 死代码）"
+            );
+        }
+        assert!(
+            opencode.contains("run-attach"),
+            "opencode 桥接必须经 run-attach 握手取运行身份（共享服务架构下进程 env 不可信）"
+        );
+        assert!(
+            pi.contains("pi.sendUserMessage"),
+            "pi 发送必须走扩展自定义消息 API（ADR 0004）"
+        );
+        assert!(
+            opencode.contains("sessionApi.prompt") && opencode.contains("sessionApi.chat"),
+            "opencode 发送需兼容两代 session API（v2 prompt / v1 chat；V1/V2 共享核经 sessionApi 注入）"
+        );
+        assert!(
+            opencode.contains("message.part.updated") && opencode.contains("enqueueStream"),
+            "opencode 的 part 快照必须按身份合并后上行"
         );
     }
 }
@@ -1052,17 +1364,69 @@ pub fn classify_http_path(path: &str) -> HttpRoute<'_> {
     }
 }
 
+// ==================== 免凭证端点的调用方门禁（T17） ====================
+
+/// 宿主判定的调用方档位（`_http_endpoint` 的 `caller` 字段）：环回调用方
+/// （hook 脚本 / 桌面 WebView，都固定走 `127.0.0.1`）
+pub const CALLER_LOCALHOST: &str = "localhost";
+/// 宿主判定的调用方档位：已验签设备（移动端经宿主壳 `mobileApi.httpRequest` 代发，
+/// 宿主壳会附带 JWT，认证闸门验签后即此档）
+pub const CALLER_DEVICE: &str = "device";
+/// 宿主判定的调用方档位：经对等 HTTP/WS 面入站的隧道流量（穿透 T03；TCP 对端虽是
+/// 127.0.0.1 也不得当 `localhost`）
+pub const CALLER_PEER: &str = "peer";
+
+/// 免凭证但受调用方门禁约束的端点（契约用例锁死：必须是 [`HTTP_ENDPOINTS`] 子集，
+/// 且都在 `http_routes::ROUTES` 里标 `auth: "none"`——档位与门禁同源）
+pub const CALLER_GATED_ENDPOINTS: &[&str] = &["task-status", "session-mode"];
+
+/// 免凭证端点的调用方准入（纯判定，native 可测）
+///
+/// `auth: none` 只表达「不验签」，不等于「LAN 面公开」：宿主 HTTP 服务绑
+/// `0.0.0.0`（`wasmnest-server-base::constants::BIND_ADDRESS`），本机之外的同网段
+/// 设备今天就能匿名直调。按**最小可达面**收口（T17）：
+/// - `task-status`：消费方只有 hook 脚本与桌面 WebView（都固定环回）→ 认 `localhost`；
+/// - `session-mode`：hook 之外还有移动端（`mobileApi.httpRequest` 由宿主壳代发、
+///   带 JWT → `device`）→ 认 `localhost` 与 `device`。
+///
+/// 两条另认 `peer`（对等面隧道流量）：设计 §0.4 裁定「经隧道的已匹配远端保持可达」，
+/// 授权点是隧道层的匹配校验（T05/T07），本层不得重复拦成死路。
+///
+/// `caller` 缺失（宿主未按协议传档 / 直接命令调用）落空串 → 拒绝（fail-closed，
+/// 与 [`crate::run::bridge::caller_allowed`] 同口径）。清单外端点不经本门禁
+/// （JWT 档由宿主判，业务门禁各自负责）。
+pub fn caller_allowed_for_none_auth(path: &str, caller: &str) -> bool {
+    match path {
+        "task-status" => matches!(caller, CALLER_LOCALHOST | CALLER_PEER),
+        "session-mode" => matches!(caller, CALLER_LOCALHOST | CALLER_DEVICE | CALLER_PEER),
+        _ => true,
+    }
+}
+
 /// HTTP 端点入口（宿主 `_http_endpoint` command 调用）
 ///
 /// 返回体形状固定为 `{status, body, contentType?}`——由三域各自的 handler 产出
 /// （`http_response::{ok, ok_with_data, error}`），宿主 `plugin_controller` 提取。
+/// `caller` 是宿主判定的调用方档位，只用于免凭证端点的门禁（见
+/// [`caller_allowed_for_none_auth`]）。
 pub fn handle_http_via_host(
     host: &WasmHost,
     method: &str,
     path: &str,
     body: &serde_json::Value,
     query: &serde_json::Value,
+    caller: &str,
 ) -> serde_json::Value {
+    // T17：免凭证端点不等于 LAN 公开——层/档不对一律 403（fail-closed）
+    if !caller_allowed_for_none_auth(path, caller) {
+        host.log_warn(&format!(
+            "task http {path} denied: caller={caller:?}（免凭证端点只对环回 / 已验签设备 / 隧道 peer 开放）"
+        ));
+        return wasmnest_plugin_api::http_response::error(
+            403,
+            &format!("forbidden caller for {path}"),
+        );
+    }
     match classify_http_path(path) {
         HttpRoute::Queue(sub) => queue::handle_queue_http(host, method, sub, body, query),
         HttpRoute::Scheduled(sub) => {
@@ -1087,16 +1451,191 @@ pub fn list_configs_with_support_via_host() -> Result<Vec<serde_json::Value>, St
         .as_array()
         .cloned()
         .ok_or_else(|| format!("config list did not return an array: {configs}"))?;
+    let projects = project_views()?;
     let mut counter = 0u64;
     Ok(configs
         .into_iter()
         .map(|mut c| {
             if let Some(cmd) = c.get("command").and_then(|v| v.as_str()) {
                 let agent = agent::detect_agent(cmd);
+                c["agent"] = serde_json::Value::String(agent.to_string());
                 c["is_supported"] = serde_json::Value::Bool(agent::is_supported(agent));
+            }
+            if let (Some(env), Some(dir)) = (
+                c.get("environment").and_then(|v| v.as_str()),
+                c.get("workingDir").and_then(|v| v.as_str()),
+            ) {
+                if let Some(project) = find_project(&projects, env, dir) {
+                    c["project_id"] = project.get("id").cloned().unwrap_or(Value::Null);
+                    c["project_name"] = project.get("name").cloned().unwrap_or(Value::Null);
+                }
             }
             yield_guard(&host, &mut counter);
             c
         })
         .collect())
+}
+
+/// 项目视图数组（读失败 → 空；任务目标列表是辅助面，不阻断任务域本身）
+fn project_views() -> Result<Vec<Value>, String> {
+    let value = crate::project::list_via_host()?;
+    Ok(value
+        .get("projects")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default())
+}
+
+/// 按执行环境 + 目录（归一化）找项目视图
+fn find_project<'a>(
+    projects: &'a [Value],
+    environment: &str,
+    working_dir: &str,
+) -> Option<&'a Value> {
+    let key = crate::project::ops::project_key(environment, working_dir);
+    projects.iter().find(|project| {
+        let env = project.get("environment").and_then(|v| v.as_str());
+        let dir = project.get("workingDir").and_then(|v| v.as_str());
+        matches!((env, dir), (Some(env), Some(dir)) if crate::project::ops::project_key(env, dir) == key)
+    })
+}
+
+/// 任务目标清单（项目 × 受支持 agent）——桌面 / 移动任务面的唯一选择源
+///
+/// 目标来自两条线：
+/// 1. `session_configs`（项目 × agent 的启动参数，`run.start` 取或建）；
+/// 2. `runs` 里已有归属的运行（防止配置被删后活跃运行从选择器消失）。
+///
+/// 每个目标带 `active_session_id`（有活跃运行时直接投递）与 `pending_count`
+/// （无活跃运行时挂起的任务数，界面显性提示「等待运行」）。只列任务域支持的
+/// agent（claude / codex / opencode / pi），未适配的 agent 不伪装成可选目标。
+pub fn list_targets_via_host() -> Result<Vec<Value>, String> {
+    let configs = crate::config::list_via_host()?;
+    let configs = configs
+        .as_array()
+        .cloned()
+        .ok_or_else(|| format!("config list did not return an array: {configs}"))?;
+    let projects = project_views()?;
+    let mut targets: std::collections::BTreeMap<(String, String), Value> =
+        std::collections::BTreeMap::new();
+
+    let mut push_target = |project: &Value, agent_id: &str, config_id: Option<&str>| {
+        let project_id = project
+            .get("id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        if project_id.is_empty() || !agent::is_supported(agent_id) {
+            return;
+        }
+        targets
+            .entry((project_id.clone(), agent_id.to_string()))
+            .or_insert_with(|| {
+                serde_json::json!({
+                    "project_id": project_id,
+                    "project_name": project.get("name").cloned().unwrap_or(Value::Null),
+                    "environment": project.get("environment").cloned().unwrap_or(Value::Null),
+                    "working_dir": project.get("workingDir").cloned().unwrap_or(Value::Null),
+                    "agent_id": agent_id,
+                    "agent_name": crate::hub::display_name_for(agent_id),
+                    "supported": true,
+                    "config_id": config_id,
+                })
+            });
+    };
+
+    for config in &configs {
+        let Some(environment) = config.get("environment").and_then(|v| v.as_str()) else {
+            continue;
+        };
+        let Some(working_dir) = config.get("workingDir").and_then(|v| v.as_str()) else {
+            continue;
+        };
+        let Some(command) = config.get("command").and_then(|v| v.as_str()) else {
+            continue;
+        };
+        let agent_id = agent::detect_agent(command);
+        let Some(project) = find_project(&projects, environment, working_dir) else {
+            continue;
+        };
+        let config_id = config.get("id").and_then(|v| v.as_str());
+        push_target(project, agent_id, config_id);
+    }
+
+    // 项目 × 全部受支持 agent：即使该项目还没建过配置 / 没跑过运行，也允许
+    // 提前建任务（触发时 `run.start` 会按需取或建配置）。配置目标已入表时
+    // `or_insert_with` 保留 config_id。
+    for project in &projects {
+        for agent_id in agent::list_supported() {
+            push_target(project, agent_id, None);
+        }
+    }
+
+    // 活跃运行兜底：配置被删 / 历史运行仍活着时目标不能从选择器消失
+    if let Ok(rows) = WasmHost.plugin_db_query(
+        // `runs.status` 是 `SessionStatus` 的 JSON 文本（带引号）
+        "SELECT DISTINCT project_id, agent_id FROM runs \
+         WHERE project_id IS NOT NULL AND project_id <> '' \
+           AND agent_id IS NOT NULL AND agent_id <> '' \
+           AND status IN ('\"starting\"', '\"running\"', '\"waitingInput\"')",
+    ) {
+        for row in rows.and_then(|v| v.as_array().cloned()).unwrap_or_default() {
+            let project_id = row.get("project_id").and_then(|v| v.as_str());
+            let agent_id = row.get("agent_id").and_then(|v| v.as_str());
+            let Some(project) = project_id.and_then(|id| {
+                projects
+                    .iter()
+                    .find(|p| p.get("id").and_then(|v| v.as_str()) == Some(id))
+            }) else {
+                continue;
+            };
+            if let Some(agent_id) = agent_id {
+                push_target(project, agent_id, None);
+            }
+        }
+    }
+
+    let mut result: Vec<Value> = targets
+        .into_values()
+        .map(|mut target| {
+            let project_id = target
+                .get("project_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let agent_id = target
+                .get("agent_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let active = queue::find_active_run(&WasmHost, &project_id, &agent_id);
+            target["active_session_id"] = active.clone().map(Value::String).unwrap_or(Value::Null);
+            target["active_status"] = active
+                .as_deref()
+                .and_then(|id| crate::session::view_via_host(id).ok().flatten())
+                .and_then(|view| view.get("status").cloned())
+                .unwrap_or(Value::Null);
+            let pending_session_id = queue::pending_key(&project_id, &agent_id);
+            target["pending_count"] = Value::from(queue::pending_count_for_target(
+                &WasmHost,
+                &project_id,
+                &agent_id,
+            ));
+            target["pending_session_id"] = Value::String(pending_session_id.clone());
+            target["pending_tasks"] =
+                Value::Array(queue::list_queue(&WasmHost, &pending_session_id));
+            target
+        })
+        .collect();
+    result.sort_by(|a, b| {
+        let key = |v: &Value| {
+            format!(
+                "{}|{}",
+                v.get("project_name").and_then(|x| x.as_str()).unwrap_or(""),
+                v.get("agent_name").and_then(|x| x.as_str()).unwrap_or("")
+            )
+        };
+        key(a).cmp(&key(b))
+    });
+    Ok(result)
 }

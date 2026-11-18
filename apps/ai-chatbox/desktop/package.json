@@ -6,7 +6,9 @@
   "type": "module",
   "scripts": {
     "build:frontend": "vite build",
-    "build:rust": "cargo build --target wasm32-wasip3 --no-default-features --features wasm --manifest-path rust/Cargo.toml --release",
+    "build:go": "node scripts/build.js --go-only",
+    "build:rust": "node scripts/build.js --backend rust --backend-only",
+    "build:both": "node scripts/build.js --backend both --backend-only",
     "build": "node scripts/build.js",
     "dev:host": "node scripts/dev-host.js",
     "dev": "node scripts/build.js --watch",
@@ -14,7 +16,7 @@
     "test": "vitest"
   },
   "dependencies": {
-    "@binblink/wasmnest-plugin-sdk-desktop": "0.0.1",
+    "@binblink/wasmnest-plugin-sdk-desktop": "file:../../../../wasmnest/wasmnest-desktop/packages/plugin-sdk-desktop",
     "vue-i18n": "^9.14.0",
     "@tauri-apps/api": "^2.11.0"
   },

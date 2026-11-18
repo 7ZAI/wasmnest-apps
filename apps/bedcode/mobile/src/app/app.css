@@ -65,3 +65,92 @@
   /* 100 = bottom sheet（设置 / 配置 / 帮助） */
   --mobile-z-sheet: 100;
 }
+
+/* ==================== 应用自有形制（2026-11-11 unslop） ====================
+ * 宿主 token 只给颜色与字号；「圆角几档 / 图标底怎么铺 / 弹层要不要阴影」是
+ * 本应用的外观裁决，收在这里一份，避免每个组件各写一套（审计时同一屏出现过
+ * 0.375 / 0.625 / 0.75 / 1 / 1.25rem 五档圆角与 8 处 shadow-xl）。
+ *
+ * 口径：
+ *   · 圆角三档：面板（group-card 由宿主 1rem 承担）/ 卡片 12 / 控件 10；
+ *     状态胶囊才用全圆角。
+ *   · 图标底一律中性（文字色的 6% 底），颜色只留给真正的状态点；
+ *   · 深色下弹层不做投影，靠 surface step + 发丝边分层；浅色保留一层小投影。
+ */
+[data-bedcode-surface] {
+  --bc-radius-card: 12px;
+  --bc-radius-control: 10px;
+  --bc-radius-sheet: 16px;
+  --bc-icon-bg: color-mix(in srgb, var(--mobile-text-primary) 6%, transparent);
+  --bc-icon-fg: var(--mobile-text-secondary);
+  --bc-quiet-bg: color-mix(in srgb, var(--mobile-text-primary) 5%, transparent);
+  --bc-quiet-fg: var(--mobile-text-secondary);
+  --bc-overlay-shadow: none;
+  --bc-ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --bc-dur-fast: 140ms;
+  --bc-dur-base: 200ms;
+
+  /* 快捷键面板键帽：宿主那套 `--mobile-*-bg` 是 135° 双档透明渐变，一屏十来个
+     键帽会显出塑料高光（与已平色化的 QuickBar 不在同一个世界）。只在应用作用域
+     把它们压成同色平色：语义色只留在文字 / 边框上，底只做「按得下去」的层次。
+     值全部由主题 token 派生，深浅两档自动跟随，浅色档只把中性键帽抬一档。 */
+  --mobile-shortcut-bg: color-mix(in srgb, var(--mobile-text-primary) 8%, transparent);
+  --mobile-shortcut-active-bg: color-mix(in srgb, var(--mobile-text-primary) 16%, transparent);
+  --mobile-custom-cmd-bg: color-mix(in srgb, var(--mobile-text-primary) 8%, transparent);
+  --mobile-custom-cmd-active-bg: color-mix(in srgb, var(--mobile-text-primary) 16%, transparent);
+  --mobile-add-cmd-bg: color-mix(in srgb, var(--mobile-text-primary) 8%, transparent);
+  --mobile-add-cmd-active-bg: color-mix(in srgb, var(--mobile-text-primary) 16%, transparent);
+  --mobile-arrow-bg: color-mix(in srgb, var(--mobile-warning) 10%, transparent);
+  --mobile-arrow-active-bg: color-mix(in srgb, var(--mobile-warning) 20%, transparent);
+  --mobile-edit-cmd-bg: color-mix(in srgb, var(--mobile-warning) 10%, transparent);
+  --mobile-edit-cmd-active-bg: color-mix(in srgb, var(--mobile-warning) 20%, transparent);
+  --mobile-confirm-bg: color-mix(in srgb, var(--mobile-success) 18%, transparent);
+  --mobile-danger-bg: color-mix(in srgb, var(--mobile-error) 14%, transparent);
+  /* 实底危险按钮不是键帽：保持实底（原值 90% 透明只是渐变口径的遗留） */
+  --mobile-danger-solid-bg: var(--mobile-error);
+}
+
+html:not(.dark) [data-bedcode-surface] {
+  --bc-icon-bg: color-mix(in srgb, var(--mobile-text-primary) 5%, transparent);
+  --bc-quiet-bg: color-mix(in srgb, var(--mobile-text-primary) 4%, transparent);
+  --bc-overlay-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  /* 浅色底上 8% 墨色压成的键帽偏淡（近白面抬高对比才看得出按键范围） */
+  --mobile-shortcut-bg: color-mix(in srgb, var(--mobile-text-primary) 10%, transparent);
+  --mobile-shortcut-active-bg: color-mix(in srgb, var(--mobile-text-primary) 18%, transparent);
+  --mobile-custom-cmd-bg: color-mix(in srgb, var(--mobile-text-primary) 10%, transparent);
+  --mobile-custom-cmd-active-bg: color-mix(in srgb, var(--mobile-text-primary) 18%, transparent);
+  --mobile-add-cmd-bg: color-mix(in srgb, var(--mobile-text-primary) 10%, transparent);
+  --mobile-add-cmd-active-bg: color-mix(in srgb, var(--mobile-text-primary) 18%, transparent);
+}
+
+/* 图标底：行首图标统一这一块（不随分类换色） */
+.bc-icon-box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--bc-radius-control);
+  background: var(--bc-icon-bg);
+  color: var(--bc-icon-fg);
+}
+
+/* 中性小标签：环境名 / 计数 / 次要元信息（不是状态，不该抢颜色） */
+.bc-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: var(--bc-quiet-bg);
+  color: var(--bc-quiet-fg);
+  font-size: var(--font-size-sm);
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+/* 弹层面板：统一分层方式（深色无投影） */
+.bc-overlay-panel {
+  box-shadow: var(--bc-overlay-shadow);
+}

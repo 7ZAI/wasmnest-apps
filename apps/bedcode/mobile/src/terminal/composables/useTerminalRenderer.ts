@@ -21,18 +21,19 @@ import { ATLAS_PREHEAT_DELAY_MS, resolveGridResize } from '../utils/resizePolicy
 import type { Terminal } from '@xterm/xterm'
 
 /**
- * 渲染器开关：移动端默认 DOM（xterm 内置 canvas）——
- * Android WebView 的 WebGL 常为软件渲染（SwiftShader），双缓冲纹理交换
- * 在 TUI 全屏重绘（opencode/vim 每帧清屏+重绘）时可能闪烁/撕裂；
- * WebGL 不可用（context loss / 初始化失败）时自动回退 DOM 渲染器。
- * 切换为 true 即启用 WebGL addon，仅影响移动端；桌面端不受此开关影响。
+ * 渲染器开关：移动端默认 WebGL 优先（对齐桌面端 / VS Code 口径），加载失败或
+ * context loss 时自动回退 DOM 渲染器（xterm 内置 canvas），1s 后尝试重建
+ * （见 initWebGL）。仅影响移动端；桌面端不受此开关影响。
  *
- * 默认关闭：addon-webgl 0.19 无公开调优 API（DPR 强制跟随设备、图集页数无上限、
- * 新字符动态光栅化），长会话下 GPU 显存膨胀 + 图集光栅化卡顿 + context loss 重建
- * 是移动端越用越卡的来源之一。内置 DOM 渲染器（canvas 2D 行渲染）对 ~40 行可视区
- * 性能足够，且无上述开销；如需验证可临时切回 true 做 A/B 对比。
+ * 历史取舍（2026-11-10 按用户指令放开为 true，此前默认 DOM）：Android WebView
+ * 的 WebGL 常为软件渲染（SwiftShader），双缓冲纹理交换在 TUI 全屏重绘
+ * （opencode/vim 每帧清屏+重绘）时可能闪烁/撕裂；且 addon-webgl 0.19 无公开
+ * 调优 API（DPR 强制跟随设备、图集页数无上限、新字符动态光栅化），长会话下
+ * GPU 显存膨胀 + 图集光栅化卡顿 + context loss 重建是潜在的越用越卡来源。
+ * 这些风险仍在：真机若观察到闪烁/撕裂或长会话卡顿，切回 false 即还原 DOM
+ * 默认做 A/B 对比。
  */
-export const USE_WEBGL_RENDERER = false
+export const USE_WEBGL_RENDERER = true
 
 export function useTerminalRenderer(ctx: TerminalKernelContext) {
   // WebGL 字符图集重建后的补刷定时器（仅 WebGL 渲染器；DOM 下不排）

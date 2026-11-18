@@ -54,10 +54,11 @@
             tab 条不跟着限就会在宽屏下比内容列宽出一截、两端脱节。
          早前是 inline-flex 收缩条浮在页面底色上（整条 214px、两项各 80/122px），
          读起来像一对工具按钮而不是页签导航。 -->
-    <div
-      class="px-6 pt-3 pb-3 flex-shrink-0 bg-[var(--bg-card)] border-b border-[var(--border)]"
-    >
-      <div class="flex items-center gap-1 p-1 rounded-lg bg-[var(--bg-hover)] max-w-5xl mx-auto" role="tablist">
+    <div class="px-6 pt-3 pb-3 flex-shrink-0 bg-[var(--bg-card)] border-b border-[var(--border)]">
+      <div
+        class="flex items-center gap-1 p-1 rounded-lg bg-[var(--bg-hover)] max-w-5xl mx-auto"
+        role="tablist"
+      >
         <button
           v-for="tab in sessionTabs"
           :key="tab.key"
@@ -149,13 +150,13 @@
                       {{ config.name }}
                     </h4>
                     <span
-                      class="wb-mono text-[calc(10.5px*var(--ui-scale))] uppercase px-1.5 py-0.5 rounded border border-[var(--border-strong)] text-[var(--text-secondary)] flex-shrink-0"
+                      class="wb-mono text-[calc(11px*var(--ui-scale))] uppercase px-1.5 py-0.5 rounded border border-[var(--border-strong)] text-[var(--text-secondary)] flex-shrink-0"
                     >
                       {{ envBadge(config.environment) }}
                     </span>
                     <span
                       v-if="config.autoStart"
-                      class="wb-mono text-[calc(10.5px*var(--ui-scale))] uppercase px-1.5 py-0.5 rounded border border-[var(--border-strong)] text-[var(--text-secondary)] flex-shrink-0"
+                      class="wb-mono text-[calc(11px*var(--ui-scale))] uppercase px-1.5 py-0.5 rounded border border-[var(--border-strong)] text-[var(--text-secondary)] flex-shrink-0"
                       >auto</span
                     >
                   </div>
@@ -287,7 +288,7 @@
                         </svg>
                       </button>
                       <button
-                        class="w-6 h-6 rounded-[6px] flex items-center justify-center text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] hover:text-red-600 dark:hover:text-red-400 transition-colors flex-shrink-0"
+                        class="w-6 h-6 rounded-[6px] flex items-center justify-center text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] hover:text-[var(--color-danger-ink)] transition-colors flex-shrink-0"
                         :title="t('session.button.delete')"
                         @click.stop="confirmDeleteSession(session)"
                       >
@@ -324,16 +325,16 @@
                     <span class="flex-1"></span>
                     <span
                       v-if="runningOf(config.id).length > 0"
-                      class="wb-mono text-[calc(11px*var(--ui-scale))] text-green-600 dark:text-green-400 flex items-center gap-1.5"
+                      class="wb-mono text-[calc(11px*var(--ui-scale))] text-[var(--color-success-ink)] flex items-center gap-1.5"
                     >
-                      <span class="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span>
+                      <span class="w-1.5 h-1.5 rounded-full bg-[var(--color-success)]"></span>
                       {{ runningOf(config.id).length }}
                     </span>
                     <button class="wb-btn-ghost" @click="openEditDialog(config)">
                       {{ t('session.button.edit') }}
                     </button>
                     <button
-                      class="wb-btn-ghost hover:!text-red-600 dark:hover:!text-red-400"
+                      class="wb-btn-ghost hover:!text-[var(--color-danger-ink)]"
                       @click="confirmDeleteConfig(config.id)"
                     >
                       {{ t('session.button.delete') }}
@@ -433,7 +434,7 @@
                 </button>
                 <!-- 删除 -->
                 <button
-                  class="w-7 h-7 rounded-[6px] flex items-center justify-center text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] hover:text-red-600 dark:hover:text-red-400 transition-colors flex-shrink-0"
+                  class="w-7 h-7 rounded-[6px] flex items-center justify-center text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] hover:text-[var(--color-danger-ink)] transition-colors flex-shrink-0"
                   :title="t('session.button.delete')"
                   @click.stop="confirmDeleteSession(session)"
                 >
@@ -467,10 +468,14 @@
       />
       <template #footer>
         <div class="flex justify-end gap-3">
-          <button class="wb-btn-ghost" data-testid="session-config-cancel" @click="showCreateDialog = false">
+          <button
+            class="wb-btn-ghost"
+            data-testid="session-config-cancel"
+            @click="showCreateDialog = false"
+          >
             {{ t('session.button.cancel') }}
           </button>
-          <button class="wb-btn-primary" @click="submitForm">
+          <button class="wb-btn-primary" data-testid="session-config-submit" @click="submitForm">
             {{ editingConfig ? t('session.button.save') : t('session.button.create') }}
           </button>
         </div>
@@ -615,6 +620,14 @@
 /**
  * SessionCenterView — 会话中心页面（宿主 `SessionsConfigView.vue` 的插件版，票 13）
  *
+ * **2026-11-06 停用**：本组件已从路由表与侧边栏菜单摘除（用户裁定——项目运行是
+ * 唯一一级容器，终端会话面不再作为入口）。文件整体保留未改内部实现，便于回滚：
+ * 恢复时同时取消注释 `router/index.ts` 的 `/sessions` 路由、`useSidebarMenu.ts`
+ * 的菜单项，并去掉 `lib.rs` 里 `session.list` 的 `{ scope: "session" }`。
+ *
+ * 停用后本页面不再可达，但组件与其单测仍保留（`sessionCenter.test.ts`），
+ * 用于守护「若回滚，行为仍符合原契约」。
+ *
  * What to build（票面）：侧边栏出现插件贡献的会话目录，宿主内置入口让位，页面外观、
  * 排序、交互、快捷键与今天一致；页内数据全部经插件上下文 → 插件后端 → 宿主原语取得。
  *
@@ -635,7 +648,12 @@ import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-desktop'
 import { resolvePluginErrorText } from '../utils/pluginError'
 import PluginModal from './PluginModal.vue'
 import SessionConfigForm, { type SessionConfigFormData } from './SessionConfigForm.vue'
-import { useSessionCenter, isRunningStatus, type SessionDto } from '../composables/useSessionCenter'
+import {
+  useSessionCenter,
+  isRunningStatus,
+  isRunningStatusCounted,
+  type SessionDto,
+} from '../composables/useSessionCenter'
 import { formatDateTime } from '../utils/format'
 
 const context = inject<PluginContext>('pluginContext')!
@@ -723,11 +741,19 @@ function sessionsOf(configId: string): SessionDto[] {
   return sessions.value.filter((s) => s.configId === configId && s.status !== 'stopped')
 }
 
+/**
+ * 配置卡片上的「运行中」徽标计数：与 Tab 计数同口径（running/starting/
+ * waitingInput），避免卡片显示 3 而 Tab 汇总只算 2 的自相矛盾。
+ */
 function runningOf(configId: string): SessionDto[] {
-  return sessionsOf(configId).filter((s) => isRunningStatus(s.status))
+  return sessionsOf(configId).filter((s) => isRunningStatusCounted(s.status))
 }
 
-function isRunning(status: string): boolean {
+/**
+ * 会话行是否「仍活着」（非 stopped/error）：决定行内操作语义——删除是否需要先
+ * 停止、状态点是否显示活跃色。**不是**计数口径，别拿去数「运行中的会话」。
+ */
+function isRunning(status: unknown): boolean {
   return isRunningStatus(status)
 }
 
@@ -745,11 +771,11 @@ function envBadge(env: string | undefined | null): string {
 function statusDot(status: string): string {
   switch (status) {
     case 'running':
-      return 'bg-green-500 animate-pulse'
+      return 'bg-[var(--color-success)]'
     case 'waitingInput':
-      return 'bg-amber-500'
+      return 'bg-[var(--color-warning)]'
     case 'error':
-      return 'bg-red-500'
+      return 'bg-[var(--color-danger)]'
     default:
       return 'bg-[var(--text-tertiary)]'
   }

@@ -35,7 +35,6 @@ const BASE_PROPS = {
   theme: 'dark',
   isThemeUserSet: false,
   letterSpacing: 0,
-  quickBarCount: 6,
   toolbarItems: ['folder'],
   allToolbarItems: ALL_TOOLBAR_ITEMS,
   onboardingPending: false,
@@ -83,7 +82,7 @@ describe('TerminalSettingsModal 即改即存（#17）', () => {
   it('字号步进：点「+」立即 change 全量设置（其余字段原样带回）', async () => {
     await click('.size-btn', 1) // 外观页：[0]=字号- [1]=字号+
     const payload = lastChange(wrapper)
-    expect(payload).toMatchObject({ fontSize: 15, letterSpacing: 0, quickBarCount: 6, toolbarItems: ['folder'], onboardingPending: false })
+    expect(payload).toMatchObject({ fontSize: 15, letterSpacing: 0, toolbarItems: ['folder'], onboardingPending: false })
     expect(wrapper.emitted('close')).toBeUndefined()
   })
 
@@ -133,5 +132,9 @@ describe('TerminalSettingsModal 即改即存（#17）', () => {
     await nextTick()
     const active = document.querySelector('.segmented-btn.active')
     expect(active?.textContent?.trim()).toBe('terminal.tabMisc')
+  })
+
+  it('快捷栏数量已迁出本弹窗（#19：归 ShortcutConfigModal 单一入口）', () => {
+    expect(document.querySelector('[aria-label="terminal.shortcutCount +1"]')).toBeNull()
   })
 })

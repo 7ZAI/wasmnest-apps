@@ -56,14 +56,19 @@ app 也不需要去 Settings → Branches 维护检查列表。
 | `<group>/<slug>/<end>/package.json` → `version`              | 同上                                       |
 
 - **日常开发不动版本号**（平台仓 `docs/public/versioning.md` §1）；bump 只在发布时做。
+- **变更记录**：每个可独立发布的工程在 `<group>/<slug>/CHANGELOG.md` 维护变更记录（结构参考
+  Keep a Changelog）。日常开发只往 `[Unreleased]` 追加；发布时把 `[Unreleased]` 收为
+  `## [<version>] - <YYYY-MM-DD>`，与版本号 bump、tag 在同一批提交内完成。新增工程时同步
+  创建 `CHANGELOG.md`（骨架从现有工程复制）。
 - **工作流不写版本文件**：`version` 输入 / tag 里的版本必须等于已提交的清单版本，否则
   在 `resolve` 阶段直接失败（防止发出错版本的包）。判据实现：`scripts/ci/app-info.mjs`。
 - 发布动作顺序（本地）：
 
   ```bash
-  node scripts/ci/set-app-version.mjs agent-hub 0.0.2   # 写 plugin.json + package.json
-  git add apps/agent-hub && git commit -m "chore(agent-hub): 发布 v0.0.2"
-  git tag agent-hub-v0.0.2 && git push origin dev agent-hub-v0.0.2
+  # 先把 apps/bedcode/CHANGELOG.md 的 [Unreleased] 收为 0.0.2
+  node scripts/ci/set-app-version.mjs bedcode 0.0.2     # 写 plugin.json + package.json
+  git add apps/bedcode && git commit -m "chore(bedcode): 发布 v0.0.2"
+  git tag bedcode-v0.0.2 && git push origin dev bedcode-v0.0.2
   ```
 
   tag 推到 origin 后 `app-release.yml` 自动构建 + 发布。
@@ -72,7 +77,7 @@ app 也不需要去 Settings → Branches 维护检查列表。
 
 | tag                                        | 语义                                                            | 是否触发 app 发布            |
 | ------------------------------------------ | --------------------------------------------------------------- | ---------------------------- |
-| `<slug>-v<X.Y.Z>`（如 `agent-hub-v0.0.2`） | **单个 app 的分发版本**                                         | ✅ `app-release.yml`         |
+| `<slug>-v<X.Y.Z>`（如 `bedcode-v0.0.2`） | **单个 app 的分发版本**                                         | ✅ `app-release.yml`         |
 | `apps-v<X.Y.Z>`                            | 应用仓**整仓** tag（平台仓 `release-manifest.json` 的装配口径） | ❌ 被 `resolve` 的 `if` 排除 |
 
 `apps-vX.Y.Z` 仍是「平台装配取应用仓哪一版」的唯一表达（见 `AGENTS.md` §3）；
@@ -176,7 +181,10 @@ dist/release/<slug>-<end>-v<version>.json  元数据
 
 - **zip**：由 `scripts/package-plugins.mjs --skip-build` 生成（桌面产物另做 `wasmHash` 复核；
   移动端该字段无生产者，见该脚本头注）。zip 根含 `index.js` / `plugin.json` / `icon.svg` / `<rustLibrary>.wasm`。
-- **元数据**：`plugin`（id / version / rustLibrary）、`artifact`（大小 / sha256）、
+- **元数据**：`plugin`（id / version / rustLibrary）、`compat`（宿主兼容声明，
+  构建时从仓根 `host-runtime.lock.json` 盖章：hostRuntime / mountContract / sdkVersion /
+  witVersion——宿主更新检查据此判断「这个包能否装进当前平台」，缺段即判不兼容，
+  生产者见 `scripts/lib/host-compat.mjs`）、`artifact`（大小 / sha256）、
   `wasm`（大小 / sha256；桌面带构建期注入的 `wasmHash`）、`source`（三仓 ref + commit + 构建时间）。
 - GitHub Release 附件 = 该 app 各端的 zip + json；Release 说明里的 sha256 直接来自元数据。
 - **可复现**：CI 把 `SOURCE_DATE_EPOCH` 设为本次提交时间（`package-plugins.mjs` 用它固定 zip
@@ -202,13 +210,13 @@ pnpm install --frozen-lockfile
 node scripts/ci/prepare-platform.mjs --ends all
 
 # 2) 单 app 单端依赖 + 构建 + 打包
-(cd apps/agent-hub/desktop && pnpm install --frozen-lockfile)
-node scripts/ci/build-app.mjs --app agent-hub --end desktop
-# → dist/release/agent-hub-desktop-v0.0.1.zip / .json
+(cd apps/bedcode/desktop && pnpm install --frozen-lockfile)
+node scripts/ci/build-app.mjs --app bedcode --end desktop
+# → dist/release/bedcode-desktop-v0.0.1.zip / .json
 
 # 3) 只算/校验版本，不构建
-node scripts/ci/app-info.mjs --app agent-hub
-node scripts/ci/set-app-version.mjs agent-hub 0.0.2 --dry-run
+node scripts/ci/app-info.mjs --app bedcode
+node scripts/ci/set-app-version.mjs bedcode 0.0.2 --dry-run
 ```
 
 > `fetch-cross-repo.mjs` **不会覆盖**已存在的 `../wasmnest`、`../wasmnest-lib`（保护本地改动）。

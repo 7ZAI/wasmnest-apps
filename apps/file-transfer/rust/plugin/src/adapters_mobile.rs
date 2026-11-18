@@ -208,7 +208,7 @@ impl<H: HostPeer + ?Sized> PeerPort for MobilePorts<'_, H> {
 /// 失效）时 fail-visible 报错，不会静默无操作。无需 `HostPeer` 约束——本实现不
 /// 委派任何宿主原语（委派才需要约束，桌面侧同理见 `adapters.rs`）。
 impl<H: ?Sized> NodePower for MobilePorts<'_, H> {
-    fn peer_start_node(&self) -> PortResult<bool> {
+    fn peer_start_node(&self, _listen_port: u16) -> PortResult<bool> {
         Err(PortError::new(
             "unsupported on mobile: peer node power is driven by the host shell \
              (plugin does not own node lifecycle)",
@@ -345,8 +345,7 @@ mod tests {
     #[test]
     fn corrupt_stored_roots_degrade_to_empty() {
         let h = FakeHost::default();
-        h.kv
-            .borrow_mut()
+        h.kv.borrow_mut()
             .insert("shared_roots".into(), serde_json::json!("broken"));
         assert!(MobilePorts(&h).load_roots().unwrap().is_empty());
     }
@@ -373,7 +372,7 @@ mod tests {
         // 差异面④：移动不接管电源；误调用必须 fail-visible（静默无操作会让
         // 「节点没起」表现成「插件坏了」却无线索）
         let h = FakeHost::default();
-        let err = MobilePorts(&h).peer_start_node().unwrap_err();
+        let err = MobilePorts(&h).peer_start_node(0).unwrap_err();
         assert!(err.message().contains("unsupported on mobile"), "{err}");
         assert!(err.message().contains("host shell"), "{err}");
     }
@@ -382,7 +381,10 @@ mod tests {
     fn profile_bits_are_mobile_shaped() {
         let h = FakeHost::default();
         let p = MobilePorts(&h);
-        assert!(!p.supports_custom_download_dir(), "移动固定 MediaStore.Downloads");
+        assert!(
+            !p.supports_custom_download_dir(),
+            "移动固定 MediaStore.Downloads"
+        );
         assert!(!p.uses_legacy_snapshot(), "移动旧快照通路已退役");
     }
 
@@ -414,10 +416,18 @@ mod tests {
         fn peer_dial(&self, _endpoint: &serde_json::Value) -> Result<String, HostError> {
             unreachable!("ConsentGate 不发起拨号")
         }
+        /// T11 `dial-peer-addrs`：ConsentGate 不发起拨号
+        fn peer_dial_addrs(&self, _endpoint: &serde_json::Value) -> Result<String, HostError> {
+            unreachable!("ConsentGate 不发起拨号")
+        }
         fn peer_close(&self, _handle: &str) -> Result<bool, HostError> {
             unreachable!("ConsentGate 不关闭会话")
         }
-        fn peer_respond_consent(&self, request_id: &str, accepted: bool) -> Result<bool, HostError> {
+        fn peer_respond_consent(
+            &self,
+            request_id: &str,
+            accepted: bool,
+        ) -> Result<bool, HostError> {
             self.hit(request_id, accepted)
         }
         fn peer_list_trusted(&self) -> Result<serde_json::Value, HostError> {
@@ -429,6 +439,14 @@ mod tests {
         fn peer_revoke_trusted(&self, _node_id: &str) -> Result<bool, HostError> {
             unreachable!("撤销不经本端口（两端都走宿主原语直通）")
         }
+        /// 信任写入是宿主原语直通（与撤销对称），ConsentGate 不持有信任表
+        fn peer_trust_node(
+            &self,
+            _node_id: &str,
+            _display_name: Option<&str>,
+        ) -> Result<bool, HostError> {
+            unreachable!("信任写入不经本端口")
+        }
         fn peer_send_files(
             &self,
             _session: &str,
@@ -436,14 +454,14 @@ mod tests {
         ) -> Result<String, HostError> {
             unreachable!()
         }
-        fn peer_respond_transfer(
-            &self,
-            _batch_id: &str,
-            _accept: bool,
-        ) -> Result<(), HostError> {
+        fn peer_respond_transfer(&self, _batch_id: &str, _accept: bool) -> Result<(), HostError> {
             unreachable!()
         }
-        fn peer_set_receive_policy(&self, _mode: &str, _timeout_secs: u64) -> Result<(), HostError> {
+        fn peer_set_receive_policy(
+            &self,
+            _mode: &str,
+            _timeout_secs: u64,
+        ) -> Result<(), HostError> {
             unreachable!()
         }
         fn peer_pause_transfer(&self, _batch_id: &str) -> Result<(), HostError> {
@@ -477,7 +495,10 @@ mod tests {
         fn peer_set_download_dir(&self, _path: &str) -> Result<(), HostError> {
             unreachable!()
         }
-        fn peer_start_node(&self) -> Result<bool, HostError> {
+        fn peer_start_node(
+            &self,
+            _config: &wasmnest_plugin_api::host::PeerNodeConfig,
+        ) -> Result<bool, HostError> {
             unreachable!("移动端电源由宿主外壳驱动，插件不调（差异面④）")
         }
         fn peer_stop_node(&self) -> Result<bool, HostError> {
@@ -490,6 +511,16 @@ mod tests {
             &self,
             _paths: &[serde_json::Value],
         ) -> Result<serde_json::Value, HostError> {
+            unreachable!()
+        }
+        fn peer_node_info(&self) -> Result<wasmnest_plugin_api::host::PeerNodeInfo, HostError> {
+            unreachable!()
+        }
+        fn peer_configure_relay(
+            &self,
+            _relay_addrs: &[String],
+            _enable: bool,
+        ) -> Result<wasmnest_plugin_api::host::PeerNodeInfo, HostError> {
             unreachable!()
         }
     }

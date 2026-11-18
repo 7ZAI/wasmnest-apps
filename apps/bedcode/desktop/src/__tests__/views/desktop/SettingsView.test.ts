@@ -2,7 +2,7 @@
  * 设置页渲染契约（业务分组；设置归属修正 2026-10-19 改写）
  *
  * 被测行为（外部可见输出）：
- * - 渲染四个应用分组（外观 / 配对 / 链路加密 / 会话），标题 = app 域或宿主机制
+ * - 渲染五个应用分组（外观 / 配对 / 链路加密 / 会话 / 版本更新），标题 = app 域或宿主机制
  *   文案副本，顺序 = order 升序（外观 100 → 配对 200 → 链路加密 300 → 会话 400）；
  * - 分组正文经注入的 app 直连上下文 / 宿主 env 取数（与旧贡献分组的 provide 形态同构）；
  * - 宿主平台分组（系统 / 日志 / 关于）不在本页渲染——仍归宿主系统页 /sys/settings。
@@ -15,6 +15,7 @@ import i18n from '@/i18n'
 import SettingsView from '@/views/SettingsView.vue'
 import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-desktop'
 import type { AppMountEnv } from '@/entry'
+import manifest from '../../../../plugin.json'
 import { invoke } from '@tauri-apps/api/core'
 
 // Mock Tauri APIs（业务分组经注入上下文取数，无宿主 store 依赖）
@@ -27,12 +28,14 @@ vi.mock('@tauri-apps/api/event', () => ({
   listen: vi.fn(async () => () => {}),
 }))
 
-/** 业务分组的标题序列（顺序与静态表一一对应：外观 100 → 配对 200 → 链路加密 300 → 会话 400） */
+/** 业务分组的标题序列（顺序与静态表一一对应：外观 100 → 配对 200 → 中转服务器 250 → 链路加密 300 → 会话 400 → 版本更新 500） */
 const SECTION_TITLES = [
   i18n.global.t('com.wasmnest.bedcode.appearance.settings.title'),
   i18n.global.t('com.wasmnest.bedcode.pairing.settings.title'),
+  i18n.global.t('com.wasmnest.bedcode.relay.title'),
   i18n.global.t('com.wasmnest.bedcode.linkCrypto.title'),
   i18n.global.t('com.wasmnest.bedcode.session.settings.title'),
+  i18n.global.t('com.wasmnest.bedcode.settings.appUpdate.title'),
 ]
 
 /** app 直连上下文（配对 / 会话两分组经 inject('pluginContext') 取数与取文案） */
@@ -89,9 +92,17 @@ afterEach(() => {
 })
 
 describe('SettingsView 业务分组渲染', () => {
-  it('渲染四个应用分组，标题序列 = order 升序（外观 → 配对 → 链路加密 → 会话）', async () => {
+  it('渲染六个应用分组，标题序列 = order 升序（外观 → 配对 → 中转服务器 → 链路加密 → 会话 → 版本更新）', async () => {
     const wrapper = await mountView()
     expect(titles(wrapper)).toEqual(SECTION_TITLES)
+  })
+
+  it('版本更新分组固定在最后，且检查前就显示当前版本号', async () => {
+    const wrapper = await mountView()
+    const sections = wrapper.findAll('[data-testid^="settings-section-"]')
+    expect(sections.at(-1)?.attributes('data-testid')).toBe('settings-section-appUpdate')
+    const update = wrapper.get('[data-testid="settings-section-appUpdate"]')
+    expect(update.text()).toContain(`v${manifest.version}`)
   })
 
   it('不渲染宿主平台分组（系统 / 日志 / 关于仍归宿主系统页）', async () => {

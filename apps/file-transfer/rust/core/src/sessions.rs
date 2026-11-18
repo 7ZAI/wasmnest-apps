@@ -54,6 +54,34 @@ impl SessionTable {
             .insert(endpoint.node_id.clone(), endpoint.clone());
     }
 
+    /// `allowWan=false` 生效时降级候选表（M7）：清掉所有 memo 的 relay 候选与
+    /// `wan` 标记，并返回**需要关闭**的 WAN 会话句柄。
+    ///
+    /// 数据面重拨只认会话句柄里记忆的候选表；宿主侧那份表在铸句柄时已含 relay，
+    /// 不重铸就会绕过 `allowWan` 闸门继续走中继。因此只保留 LAN 记忆不够，必须
+    /// 让含 relay 的会话重新拨号（下次 `ensure_target` 按当前设置重新计划）。
+    pub fn drop_wan_candidates(&mut self) -> Vec<String> {
+        let wan_nodes: Vec<String> = self
+            .endpoints
+            .iter()
+            .filter(|(_, endpoint)| endpoint.wan)
+            .map(|(node, _)| node.clone())
+            .collect();
+        for endpoint in self.endpoints.values_mut() {
+            endpoint.wan = false;
+            // 「仅经中继」同理：关了中继还把 memo 留在 relay-only，下次数据面重拨
+            // 会因无 relay 候选而失败（且报错成「设备没地址」）
+            endpoint.relay_only = false;
+            endpoint
+                .addrs
+                .retain(|addr| !crate::dial::is_relay_addr(addr));
+        }
+        wan_nodes
+            .into_iter()
+            .filter_map(|node| self.sessions.remove(&node))
+            .collect()
+    }
+
     /// 空 `node_id` 拒绝：写入会污染 memo（后续任意查询均不命中但长期驻留）且掩盖前端缺字段 bug
     pub fn remember_endpoint_checked(&mut self, endpoint: &DialEndpoint) -> PortResult<()> {
         if endpoint.node_id.is_empty() {
@@ -147,6 +175,7 @@ mod tests {
             node_id: node.into(),
             addr: format!("10.0.0.{port}"),
             port,
+            ..Default::default()
         }
     }
 
@@ -181,6 +210,39 @@ mod tests {
         t.remember_endpoint_checked(&ep("inbound", 9)).unwrap();
         assert_eq!(t.resolve_endpoint(None, "inbound"), Some(ep("inbound", 9)));
         assert_eq!(t.session_of("inbound"), None, "memo-only：不得铸出句柄");
+    }
+
+    /// M7：allowWan 关闭 → memo 去 relay / 清 wan，返回含 relay 的会话句柄
+    #[test]
+    fn drop_wan_candidates_strips_relay_and_returns_wan_sessions() {
+        let mut t = SessionTable::new();
+        let relay = "/ip4/203.0.113.9/tcp/4001/p2p/12D3KooWPbYEEfpRvnRKk2YLu43F28fLZgU22wic2M5m6Spkv9ZA/p2p-circuit/p2p/12D3KooWD3eckifWpRn9wQpMG9R9hX3sD158z7EqHWmweQAJU5SA";
+        let mut wan = ep("wan-node", 7);
+        wan.addrs = vec![relay.to_string(), "/ip4/10.0.0.7/tcp/47613".to_string()];
+        wan.wan = true;
+        wan.relay_only = true;
+        t.remember_session(&wan, "sess-wan".into());
+
+        let lan = ep("lan-node", 8);
+        t.remember_session(&lan, "sess-lan".into());
+
+        let closed = t.drop_wan_candidates();
+        assert_eq!(closed, vec!["sess-wan".to_string()]);
+        let memo = t.resolve_endpoint(None, "wan-node").unwrap();
+        assert!(!memo.wan, "wan 标记必须清掉");
+        assert!(
+            !memo.relay_only,
+            "「仅经中继」意图同样清掉（否则重拨必失败）"
+        );
+        assert!(
+            memo.addrs.iter().all(|a| !crate::dial::is_relay_addr(a)),
+            "relay 候选必须移除: {memo:?}"
+        );
+        assert_eq!(
+            t.session_of("lan-node").as_deref(),
+            Some("sess-lan"),
+            "LAN 会话保留"
+        );
     }
 
     #[test]
@@ -235,9 +297,19 @@ mod tests {
             capabilities_hex: "1".into(),
             instance_name: "inst".into(),
             last_seen_ms: 1234,
+            addrs: vec!["/ip4/10.0.0.1/tcp/47821".into()],
+            paired: true,
+            last_transport: Some("wan-relay".into()),
+            relay: true,
         }];
         save_snapshot(&h, &entries).unwrap();
         assert_eq!(load_snapshot(&h).unwrap(), entries);
+        // 上次传输形态随快照落盘（重启后前端才能显示「上次：外网中继」）
+        assert_eq!(
+            load_snapshot(&h).unwrap()[0].last_transport.as_deref(),
+            Some("wan-relay")
+        );
+        assert!(load_snapshot(&h).unwrap()[0].relay, "中继来源随快照落盘");
     }
 
     #[test]

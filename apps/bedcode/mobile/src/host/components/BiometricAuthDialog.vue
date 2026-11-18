@@ -4,54 +4,58 @@
       <div
         v-if="modelValue"
         class="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto mobile-ui"
+        data-bedcode-surface
       >
         <!-- Backdrop -->
         <div class="absolute inset-0 bg-[var(--mobile-overlay-heavy)]" @click="close"></div>
 
         <!-- Panel -->
         <div
-          class="relative w-full max-w-[clamp(280px,384px,440px)] bg-[var(--mobile-bg-card)] border border-[var(--mobile-border)] rounded-2xl p-6 m-4"
+          class="relative w-full max-w-[clamp(280px,384px,440px)] bg-[var(--mobile-bg-card)] border border-[var(--mobile-border)] rounded-[var(--bc-radius-card)] p-6 m-4"
         >
           <!-- Close button -->
           <button
-            class="absolute top-4 right-4 p-2 text-[var(--mobile-text-muted)] hover:text-[var(--mobile-accent)] transition-colors"
+            class="absolute top-3 right-3 flex items-center justify-center w-11 h-11 rounded-[var(--bc-radius-control)] text-[var(--mobile-text-muted)] active:opacity-70 transition-colors"
             @click="close"
           >
-            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+            <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
 
-          <!-- Fingerprint icon -->
+          <!-- 指纹图标：直接给图标本身（不再套一层主色圆角框——
+               弹窗里真正的动作是下面那颗按钮，图标不该先抢一次颜色） -->
           <div class="flex justify-center mt-2 mb-4">
-            <span
-              class="flex items-center justify-center w-16 h-16 rounded-2xl bg-[color:color-mix(in_srgb,var(--mobile-accent)_12%,transparent)] text-[var(--mobile-accent)]"
+            <svg
+              class="w-7 h-7"
+              style="color: var(--mobile-text-secondary)"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
             >
-              <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="1.75"
-                  d="M12 11c0 3.517-1.009 6.799-2.753 9.571m-3.44-2.04l.054-.09A13.916 13.916 0 008 8a4 4 0 118 0c0 1.017-.07 2.019-.203 3m-2.118 6.844A21.88 21.88 0 0015.171 17m3.839 1.132c.645-2.266.99-4.659.99-7.132A8 8 0 008 4.07M3 15.364c.64-1.319 1-2.8 1-4.364 0-1.457.39-2.823 1.07-4"
-                />
-              </svg>
-            </span>
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.5"
+                d="M12 11c0 3.517-1.009 6.799-2.753 9.571m-3.44-2.04l.054-.09A13.916 13.916 0 008 8a4 4 0 118 0c0 1.017-.07 2.019-.203 3m-2.118 6.844A21.88 21.88 0 0015.171 17m3.839 1.132c.645-2.266.99-4.659.99-7.132A8 8 0 008 4.07M3 15.364c.64-1.319 1-2.8 1-4.364 0-1.457.39-2.823 1.07-4"
+              />
+            </svg>
           </div>
 
           <!-- Title -->
-          <h3 class="text-xl font-semibold text-[var(--mobile-text-primary)] text-center mb-2">
+          <h3 class="text-[var(--font-size-xl)] font-semibold text-[var(--mobile-text-primary)] text-center mb-2">
             {{ t('hub.authBiometric') }}
           </h3>
-          <p class="text-[var(--mobile-text-muted)] text-center text-sm mb-6">
+          <p class="text-[var(--mobile-text-muted)] text-center text-[var(--font-size-base)] mb-6 leading-relaxed">
             {{ t('hub.authBiometricDesc') }}
           </p>
 
           <!-- Error message -->
-          <p v-if="error" class="text-[var(--mobile-error)] text-center text-sm mb-4">{{ error }}</p>
+          <p v-if="error" class="text-[var(--mobile-error)] text-center text-[var(--font-size-base)] mb-4">{{ error }}</p>
 
           <!-- Verify button -->
           <button
-            class="w-full py-3 rounded-xl text-sm font-medium transition-opacity duration-200 active:opacity-80"
+            class="w-full h-12 rounded-[var(--bc-radius-control)] text-[var(--font-size-base)] font-medium transition-opacity duration-200 active:opacity-80"
             :class="
               loading
                 ? 'bg-[var(--mobile-bg-elevated)] text-[var(--mobile-text-muted)]'
@@ -77,8 +81,8 @@
           <!-- 切换认证方式：配对码是兜底方式，随时可切回 -->
           <div class="text-center mt-4">
             <button
-              class="text-sm transition-colors active:opacity-80"
-              style="color: var(--mobile-accent)"
+              class="text-[var(--font-size-sm)] underline underline-offset-2 transition-colors active:opacity-70"
+              style="color: var(--mobile-text-secondary)"
               :disabled="loading"
               @click="emit('switch-to-pairing')"
             >

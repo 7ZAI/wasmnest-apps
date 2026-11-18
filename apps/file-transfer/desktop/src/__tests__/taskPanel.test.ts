@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
 import TaskPanel from '../components/TaskPanel.vue'
 import i18n, { MESSAGE_NAMESPACE } from '../i18n'
-import type { Task } from '../types'
+import type { HistoryEntry, Task } from '../types'
 
 const context = {
   i18n: {
@@ -36,18 +36,40 @@ function makeTask(overrides: Partial<Task> = {}): Task {
   }
 }
 
-function mountPanel(tasks: Task[]) {
+function mountPanel(
+  tasks: Task[],
+  overrides: { history?: HistoryEntry[]; downloadDir?: string } = {},
+) {
   return mount(TaskPanel, {
     props: {
       tasks,
       totalSpeed: 0,
       receiving: [],
-      history: [],
+      history: overrides.history ?? [],
       peerNames: {},
-      downloadDir: '',
+      downloadDir: overrides.downloadDir ?? '',
     },
     global: { provide: { pluginContext: context } },
   })
+}
+
+/** 下载完成的历史条目（「打开所在文件夹」按钮只在 completed + download 时出现） */
+function makeHistory(overrides: Partial<HistoryEntry> = {}): HistoryEntry {
+  return {
+    id: 'history-1',
+    direction: 'download',
+    initiator: 'peer',
+    fileName: '从水猴子开始成神（1523）.txt',
+    relPath: '从水猴子开始成神（1523）.txt',
+    size: 1024,
+    state: 'completed',
+    reason: null,
+    peerName: '手机',
+    localPath: null,
+    createdAt: 1,
+    updatedAt: 1,
+    ...overrides,
+  }
 }
 
 beforeEach(() => {
@@ -87,5 +109,26 @@ describe('TaskPanel — 上传批等待对端确认', () => {
 
     expect(wrapper.text()).toContain('排队')
     expect(wrapper.text()).not.toContain('等待对方确认')
+  })
+})
+
+describe('TaskPanel — 历史「打开所在文件夹」路径', () => {
+  async function clickOpenFolder(downloadDir: string): Promise<unknown[][]> {
+    const wrapper = mountPanel([], { history: [makeHistory()], downloadDir })
+    await wrapper.get('[data-testid="ft-queue-tab-history"]').trigger('click')
+    await wrapper.get('button[title="打开所在文件夹"]').trigger('click')
+    return wrapper.emitted('openFolder') ?? []
+  }
+
+  it('有下载目录时发出「目录 + 相对路径」的绝对路径', async () => {
+    const emitted = await clickOpenFolder('/home/u/Downloads')
+
+    expect(emitted).toEqual([['/home/u/Downloads/从水猴子开始成神（1523）.txt']])
+  })
+
+  it('未配置下载目录时发出空路径（不静默吞掉，由视图弹提示）', async () => {
+    const emitted = await clickOpenFolder('')
+
+    expect(emitted).toEqual([['']])
   })
 })

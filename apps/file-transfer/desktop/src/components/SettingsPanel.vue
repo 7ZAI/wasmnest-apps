@@ -10,6 +10,11 @@ import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-desktop'
 import type { Settings } from '../types'
 import type { RootItem } from '../composables/useSettings'
 import TrustedPeersSection from './TrustedPeersSection.vue'
+import MyDeviceSection from './MyDeviceSection.vue'
+import RelayConfigSection from './RelayConfigSection.vue'
+import AppUpdateSection from '@binblink/wasmnest-plugin-sdk-desktop/ui/app-update'
+import manifest from '../../plugin.json'
+import NumberField from '@binblink/wasmnest-plugin-sdk-desktop/ui/number-field'
 
 const context = inject<PluginContext>('pluginContext')!
 const t = (key: string, params?: Record<string, any>) => context.i18n.t(key, params)
@@ -26,10 +31,22 @@ const emit = defineEmits<{
   (e: 'pickDownloadDir'): void
   (e: 'setReceivingPolicy', policy: 'ask' | 'accept' | 'reject'): void
   (e: 'setApprovalTimeoutSec', secs: number): void
-  (e: 'setEncryption', enabled: boolean): void
   (e: 'setConcurrency', n: number): void
+  (e: 'setAllowWan', allow: boolean): void
+  /** 中继提示阈值（字节；0 = 每次发送都提示） */
+  (e: 'setRelayMaxBytes', bytes: number): void
   (e: 'close'): void
 }>()
+
+/** 中继提示阈值的 UI 单位：MB（存储面是字节；0 = 不设阈值/每次都提示） */
+const RELAY_THRESHOLD_MAX_MB = 102_400
+function relayThresholdMb(bytes: number): number {
+  return Math.max(0, Math.round((bytes || 0) / (1024 * 1024)))
+}
+function onRelayThresholdCommit(mb: number): void {
+  const clamped = Math.min(RELAY_THRESHOLD_MAX_MB, Math.max(0, Math.round(mb)))
+  emit('setRelayMaxBytes', clamped * 1024 * 1024)
+}
 
 // ==================== v2 接收策略（自绘分段控件，禁原生 select） ====================
 
@@ -40,15 +57,16 @@ const POLICY_OPTIONS: Array<{ value: 'ask' | 'accept' | 'reject'; key: string }>
   { value: 'reject', key: 'transfer.settings.receivingPolicyReject' },
 ]
 
-/** 加密开关选项（复用分段控件标记结构；布尔二值） */
-const ENCRYPTION_OPTIONS: Array<{ value: boolean; key: string }> = [
-  { value: false, key: 'transfer.settings.encryptionOff' },
-  { value: true, key: 'transfer.settings.encryptionOn' },
-]
-
 /** 并发上限（1–8，spec §7） */
 const MIN_CONCURRENCY = 1
 const MAX_CONCURRENCY = 8
+
+/** 同意超时范围（10–600 秒，与 `useSettings.setApprovalTimeoutSec` 的钳制同界） */
+const MIN_APPROVAL_TIMEOUT = 10
+const MAX_APPROVAL_TIMEOUT = 600
+
+/** 超时输入框 id（与上方 `<label for>` 配对，点标签能聚焦输入框） */
+const timeoutInputId = 'ft-approval-timeout'
 
 /** 步进：钳制在 1–8 后 emit */
 function stepConcurrency(delta: number): void {
@@ -58,10 +76,9 @@ function stepConcurrency(delta: number): void {
   )
   emit('setConcurrency', next)
 }
-/** 超时输入：数字键盘 + 失焦提交（钳制在 composable 内） */
-function onTimeoutBlur(e: Event): void {
-  const v = Number((e.target as HTMLInputElement).value)
-  if (Number.isFinite(v)) emit('setApprovalTimeoutSec', v)
+/** 超时提交（失焦 / 回车即写；`commit` 已按 10–600 钳制，composable 内再做一次同口径收敛） */
+function onTimeoutCommit(secs: number): void {
+  emit('setApprovalTimeoutSec', secs)
 }
 </script>
 
@@ -78,7 +95,7 @@ function onTimeoutBlur(e: Event): void {
 
       <div class="ft-settings-body">
         <!-- 共享目录 -->
-        <section class="ft-settings-section">
+        <section class="ft-settings-section" data-testid="ft-settings-section-roots">
           <h3 class="ft-settings-section-title">{{ t('transfer.settings.sharedRoots') }}</h3>
           <div
             v-if="rootItems.length === 0"
@@ -116,7 +133,7 @@ function onTimeoutBlur(e: Event): void {
         </section>
 
         <!-- 下载目录 -->
-        <section class="ft-settings-section">
+        <section class="ft-settings-section" data-testid="ft-settings-section-download-dir">
           <h3 class="ft-settings-section-title">{{ t('transfer.settings.downloadDir') }}</h3>
           <div class="ft-settings-row">
             <span
@@ -132,7 +149,7 @@ function onTimeoutBlur(e: Event): void {
         </section>
 
         <!-- 接收策略（自绘分段控件，禁原生 select；超时输入仅 ask 时显示） -->
-        <section class="ft-settings-section">
+        <section class="ft-settings-section" data-testid="ft-settings-section-policy">
           <h3 class="ft-settings-section-title">{{ t('transfer.settings.receivingPolicy') }}</h3>
           <div class="ft-segmented" role="tablist">
             <button
@@ -142,6 +159,7 @@ function onTimeoutBlur(e: Event): void {
               :class="{ 'ft-segmented-item--active': settings.receivingPolicy === opt.value }"
               role="tab"
               :aria-selected="settings.receivingPolicy === opt.value"
+              :data-testid="`ft-policy-${opt.value}`"
               @click="emit('setReceivingPolicy', opt.value)"
             >
               {{ t(opt.key) }}
@@ -151,25 +169,26 @@ function onTimeoutBlur(e: Event): void {
           <div
             v-if="settings.receivingPolicy === 'ask'"
             class="ft-settings-row ft-settings-timeout"
+            data-testid="ft-settings-timeout"
           >
-            <label class="ft-timeout-label" for="ft-approval-timeout">
+            <label class="ft-timeout-label" :for="timeoutInputId">
               {{ t('transfer.settings.approvalTimeout') }}
             </label>
-            <input
-              id="ft-approval-timeout"
-              class="ft-timeout-input"
-              type="number"
-              min="10"
-              max="600"
-              step="1"
-              :value="settings.approvalTimeoutSec"
-              @blur="onTimeoutBlur"
+            <NumberField
+              :input-id="timeoutInputId"
+              :model-value="settings.approvalTimeoutSec"
+              :min="MIN_APPROVAL_TIMEOUT"
+              :max="MAX_APPROVAL_TIMEOUT"
+              size="md"
+              width="104px"
+              data-testid="ft-approval-timeout-input"
+              @commit="onTimeoutCommit"
             />
           </div>
         </section>
 
         <!-- 发送并发上限（同时传输任务数，1–8；增大占用更多带宽） -->
-        <section class="ft-settings-section">
+        <section class="ft-settings-section" data-testid="ft-settings-section-concurrency">
           <h3 class="ft-settings-section-title">{{ t('transfer.settings.concurrency') }}</h3>
           <div class="ft-stepper" role="group" :aria-label="t('transfer.settings.concurrency')">
             <button
@@ -180,7 +199,9 @@ function onTimeoutBlur(e: Event): void {
             >
               −
             </button>
-            <span class="ft-stepper-value" aria-live="polite">{{ settings.concurrency }}</span>
+            <span class="ft-stepper-value" aria-live="polite" data-testid="ft-concurrency-value">{{
+              settings.concurrency
+            }}</span>
             <button
               class="ft-stepper-btn"
               :disabled="settings.concurrency >= MAX_CONCURRENCY"
@@ -193,30 +214,78 @@ function onTimeoutBlur(e: Event): void {
           <p class="ft-settings-helper">{{ t('transfer.settings.concurrencyHint') }}</p>
         </section>
 
-        <!-- 传输加密（默认关；发送侧生效，接收端经 Offer 头自动解密） -->
-        <section class="ft-settings-section">
-          <h3 class="ft-settings-section-title">{{ t('transfer.settings.encryption') }}</h3>
+        <!-- 我的设备（形态改造）：本机身份只读展示（设备名 / 指纹）；
+             手工配对入口已从探索面板下线，扫码添加随之退役 -->
+        <MyDeviceSection />
+
+        <!-- 内网穿透配置（形态改造）：真源 = 穿透配置中心；只读展示 + 分享，
+             与下方 T12「中继」开关语义隔离（怎么接入 vs 用不用外网） -->
+        <RelayConfigSection />
+
+        <!-- 中继（T12）：关的是「经 relay 拨号」，不是加密；默认开 -->
+        <section class="ft-settings-section" data-testid="ft-settings-section-relay">
+          <h3 class="ft-settings-section-title">{{ t('transfer.settings.relay') }}</h3>
           <div class="ft-segmented" role="tablist">
             <button
-              v-for="opt in ENCRYPTION_OPTIONS"
-              :key="opt.key"
               class="ft-segmented-item"
-              :class="{ 'ft-segmented-item--active': settings.encryption === opt.value }"
+              :class="{ 'ft-segmented-item--active': settings.allowWan }"
               role="tab"
-              :aria-selected="settings.encryption === opt.value"
-              @click="emit('setEncryption', opt.value)"
+              :aria-selected="settings.allowWan"
+              data-testid="ft-relay-on"
+              @click="emit('setAllowWan', true)"
             >
-              {{ t(opt.key) }}
+              {{ t('transfer.settings.relayOn') }}
             </button>
+            <button
+              class="ft-segmented-item"
+              :class="{ 'ft-segmented-item--active': !settings.allowWan }"
+              role="tab"
+              :aria-selected="!settings.allowWan"
+              data-testid="ft-relay-off"
+              @click="emit('setAllowWan', false)"
+            >
+              {{ t('transfer.settings.relayOff') }}
+            </button>
+          </div>
+
+          <div class="ft-settings-row ft-settings-row--push">
+            <label class="ft-timeout-label" for="ft-relay-threshold">
+              {{ t('transfer.settings.relayThreshold') }}
+            </label>
+            <NumberField
+              input-id="ft-relay-threshold"
+              :model-value="relayThresholdMb(settings.relayMaxBytesPerTask)"
+              :min="0"
+              :max="RELAY_THRESHOLD_MAX_MB"
+              size="md"
+              width="120px"
+              data-testid="ft-relay-threshold-input"
+              @commit="onRelayThresholdCommit"
+            />
+          </div>
+          <p class="ft-settings-helper">{{ t('transfer.settings.relayThresholdHint') }}</p>
+        </section>
+
+        <!-- 传输加密（固定开启，无关闭开关——穿透方案不变量 12） -->
+        <section class="ft-settings-section" data-testid="ft-settings-section-encryption">
+          <h3 class="ft-settings-section-title">{{ t('transfer.settings.encryption') }}</h3>
+          <div class="ft-segmented">
+            <span
+              class="ft-segmented-item ft-segmented-item--active ft-segmented-item--static"
+              role="status"
+              data-testid="ft-encryption-required"
+            >
+              {{ t('transfer.settings.encryptionAlwaysOn') }}
+            </span>
           </div>
           <p class="ft-settings-helper">{{ t('transfer.settings.encryptionHint') }}</p>
         </section>
 
         <!-- 可信对端管理（spec 决策 8）：独立分区，列表/撤销自包含 -->
-        <TrustedPeersSection />
+        <TrustedPeersSection data-testid="ft-settings-section-trusted" />
 
         <!-- 安全告知（spec §10 常驻） -->
-        <div class="ft-warning">
+        <div class="ft-warning" data-testid="ft-settings-warning">
           <svg class="ft-warning-ico" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path
               stroke-linecap="round"
@@ -225,8 +294,14 @@ function onTimeoutBlur(e: Event): void {
               d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0zM12 9v4M12 17h.01"
             />
           </svg>
-          <span>{{ t('transfer.settings.plainWarning') }}</span>
+          <span>{{ t('transfer.settings.encryptionNotice') }}</span>
         </div>
+
+        <!-- 版本更新（SDK 默认实现；宿主统一 GitHub Release 判定）——
+             固定放在最后；版本号随包内联，检查前也能看到 -->
+        <section class="ft-settings-section" data-testid="ft-settings-section-update">
+          <AppUpdateSection :current-version="manifest.version" />
+        </section>
       </div>
     </div>
   </div>

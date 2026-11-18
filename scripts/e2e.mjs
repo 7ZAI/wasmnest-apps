@@ -4,8 +4,8 @@
  *
  * 一条命令把「宿主 + 被测 app + 驱动链」拉起来，跑完收干净：
  *
- *   node scripts/e2e.mjs --app agent-hub                       # packed（默认，G2 形态）
- *   node scripts/e2e.mjs --app agent-hub --host-mode cargo     # 平台集成形态
+ *   node scripts/e2e.mjs --app bedcode                         # packed（默认，G2 形态）
+ *   node scripts/e2e.mjs --app bedcode --host-mode cargo       # 平台集成形态
  *
  * ## 为什么需要这个运行器（而不是直接 `wdio run`）
  *
@@ -26,7 +26,7 @@
  * | 模式 | 宿主来源 | dev server | app 产物 / staging |
  * | --- | --- | --- | --- |
  * | `packed`（默认） | `scripts/host-runtime.mjs`：显式 → 本机 host:pack → 下载缓存 | 不启 | `build.js --out <mkdtemp>`，就地使用 |
- * | `cargo` | `<平台仓>/wasmnest-desktop/src-tauri/target/debug/wasmnest-desktop` | 启 | 写平台宿主 resources（现状） |
+ * | `cargo` | `<平台仓>/wasmnest-desktop/src-tauri/target/debug/wasmnest-desktop` | 启 | app 默认产物 `.build/plugins/<id>` → 拷进 `target/debug/resources/plugins/e2e` |
  * | `runtime` | L2 通用 runtime crate 装出来的二进制（`WASMNEST_HOST_BIN` 等显式指定） | 不启 | 同 packed |
  *
  * packed / runtime 全程**不碰平台工作树**：这是「只拿到应用仓也能做完整前后端验证」的
@@ -34,7 +34,7 @@
  *
  * ## 参数
  *
- *   --app <slug>       被测 app（目录 slug，如 agent-hub）；省略 = 跑全部已有用例的 app
+ *   --app <slug>       被测 app（目录 slug，如 bedcode）；省略 = 跑全部已有用例的 app
  *   --skip-build       不重新构建被测 app（复用现有产物；改过前端就别用）
  *   --build-full       连 wasm 后端一起构建（默认只重建前端：E2E 关注交互层，
  *                      wasm 全量构建慢）
@@ -46,7 +46,15 @@
  */
 
 import { spawn, spawnSync } from 'node:child_process'
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import {
@@ -71,6 +79,16 @@ import {
 } from './e2e-plan.mjs'
 
 const HOST_DEV_URL = 'http://localhost:1420/'
+
+/**
+ * 数据根落在 `$HOME` 的应用（插件经 `ConfigKey::HomeDir` 拼数据目录）。
+ *
+ * 这些 app 的 E2E 必须把宿主 `HOME` 指到临时目录：否则用例会写进开发者真实用户
+ * 目录（lanbitou 的笔记就在 `~/.wasmnest/lanbitou`），既污染数据又让「本机已有
+ * 多少笔记」影响用例。**不能全局改 HOME**：bedcode 的 E2E 依赖真实
+ * `~/bedcode-e2e-project`（spec 进程与宿主进程必须看到同一路径）。
+ */
+const HOME_SCOPED_APPS = new Set(['lanbitou'])
 
 // ==================== 参数 ====================
 
@@ -105,7 +123,7 @@ function usage() {
     [
       '用法：node scripts/e2e.mjs --app <slug> [选项]',
       '',
-      '  --app <slug>    被测 app 目录 slug（agent-hub / ai-chatbox / bedcode / file-transfer / monitor / auth-center）',
+      '  --app <slug>    被测 app 目录 slug（ai-chatbox / bedcode / file-transfer / monitor / auth-center）',
       '  --skip-build    不重建被测 app（复用现有产物）',
       '  --build-full    连 wasm 后端一起构建（默认只重建前端）',
       '  --spec <path>   透传给 wdio --spec',
@@ -188,14 +206,22 @@ function preflightHost({ mode, hostFlag }) {
         fail(e.message)
       }
       if (!existsSync(result.bin)) {
-        console.error(runtimeMissingHint({ version: result.version || '<lock 版本>', channel: 'crates-io' }))
+        console.error(
+          runtimeMissingHint({ version: result.version || '<lock 版本>', channel: 'crates-io' }),
+        )
         process.exit(1)
       }
       bin = result.bin
     }
-    if (!existsSync(bin)) fail(`宿主 runtime 二进制不存在：${bin}`, '安装：node scripts/install-runtime.mjs --from <平台仓根>')
+    if (!existsSync(bin))
+      fail(
+        `宿主 runtime 二进制不存在：${bin}`,
+        '安装：node scripts/install-runtime.mjs --from <平台仓根>',
+      )
     console.log(`[e2e] 宿主产物（runtime crate）：${bin}`)
-    console.log('[e2e]   注：runtime 通道无 host-version.json，版本在安装时按 lock 钉住；挂载契约由宿主装载时校验')
+    console.log(
+      '[e2e]   注：runtime 通道无 host-version.json，版本在安装时按 lock 钉住；挂载契约由宿主装载时校验',
+    )
     return { bin, dir: dirname(bin), meta: null, source: 'runtime' }
   }
 
@@ -292,7 +318,10 @@ function platformDirsOrDie() {
   }
   const hostDir = `${platformRoot}/wasmnest-desktop`
   if (!existsSync(hostDir)) {
-    fail(`平台宿主工程不存在：${hostDir}`, '改用 --host-mode packed（宿主来自下载缓存 / host:pack 产物）')
+    fail(
+      `平台宿主工程不存在：${hostDir}`,
+      '改用 --host-mode packed（宿主来自下载缓存 / host:pack 产物）',
+    )
   }
   return { platformRoot, hostDir }
 }
@@ -349,7 +378,9 @@ function buildApp(app, { mode, skip, full, pluginsDir }) {
     return
   }
   const args = planBuildArgs({ mode, full, pluginsDir })
-  console.log(`[e2e] 构建 ${app.slug}（${full ? '前端 + wasm' : '仅前端'}${mode === 'cargo' ? '' : ` → ${pluginsDir}`}）…`)
+  console.log(
+    `[e2e] 构建 ${app.slug}（${full ? '前端 + wasm' : '仅前端'}${mode === 'cargo' ? '' : ` → ${pluginsDir}`}）…`,
+  )
   const r = spawnSync('node', ['scripts/build.js', ...args], {
     cwd: app.dir,
     stdio: 'inherit',
@@ -368,12 +399,13 @@ function buildApp(app, { mode, skip, full, pluginsDir }) {
  * 目录与复制方式由 `planArtifactCopy` / `planStaging` 决定（纯函数，已单测）：
  * - packed / runtime 且本次真构建 ⇒ 产物已在临时 staging，就地使用（不复制 = 不会拿到陈旧副本）；
  * - packed / runtime 且 --skip-build ⇒ 从 app 的 `.build/plugins/<id>` 搬进 staging，缺失点名；
- * - cargo ⇒ 从平台宿主 resources 搬进 `target/debug/resources/plugins/e2e`（历史行为）。
+ * - cargo ⇒ 同样从 `.build/plugins/<id>` 搬（**不从平台 resources 搬**：那里是
+ *   `plugins:build` / `tauri dev` 的落点，未必是本次源码的产物）。
  */
-function stagePlugins(apps, { mode, skipBuild, pluginsDir, platformResourcesDir }) {
+function stagePlugins(apps, { mode, skipBuild, pluginsDir }) {
   if (planStagingCleanup({ mode })) rmSync(pluginsDir, { recursive: true, force: true })
   mkdirSync(pluginsDir, { recursive: true })
-  const plans = planArtifactCopy({ mode, skipBuild, apps, pluginsDir, platformResourcesDir })
+  const plans = planArtifactCopy({ mode, skipBuild, apps, pluginsDir })
   for (const plan of plans) {
     if (plan.copy) {
       if (!existsSync(plan.src)) {
@@ -436,7 +468,9 @@ async function main() {
     )
   }
   const host = preflightHost({ mode, hostFlag: args.host })
-  console.log(`[e2e] 宿主模式：${mode}${needsDevServer(mode) ? '（需要平台前端 dev server）' : '（不启 dev server，前端已嵌入宿主二进制）'}`)
+  console.log(
+    `[e2e] 宿主模式：${mode}${needsDevServer(mode) ? '（需要平台前端 dev server）' : '（不启 dev server，前端已嵌入宿主二进制）'}`,
+  )
   for (const app of apps) {
     console.log(`[e2e] 被测 app：${app.slug}（${app.name} / ${app.pluginId}）`)
   }
@@ -444,11 +478,8 @@ async function main() {
   // staging 方案先定：packed / runtime 用临时目录（跑完整体删除，平台工作树零写入），
   // cargo 用平台 target 下的 e2e 目录（历史行为）。
   const platform = needsDevServer(mode) ? platformDirsOrDie() : null
-  const stagingDir =
-    mode === 'cargo' ? null : mkdtempSync(join(tmpdir(), 'wasmnest-e2e-plugins-'))
+  const stagingDir = mode === 'cargo' ? null : mkdtempSync(join(tmpdir(), 'wasmnest-e2e-plugins-'))
   const staging = planStaging({ mode, stagingDir, platformRoot: platform?.platformRoot })
-  const platformResourcesDir =
-    mode === 'cargo' ? `${platform.hostDir}/src-tauri/resources/plugins/desktop` : null
 
   for (const app of apps) {
     buildApp(app, {
@@ -484,27 +515,64 @@ async function main() {
         mode,
         skipBuild: args.skipBuild,
         pluginsDir: staging.pluginsDir,
-        platformResourcesDir,
       })
-      const runEnv = { ...env, WASMNEST_PLUGINS_DIR: staging.pluginsDir }
 
-      const wdioArgs = ['exec', 'wdio', 'run', 'e2e/wdio.conf.ts']
-      // 用例按 app 分文件；传了 --spec 则以调用方的为准。
-      if (args.spec) {
-        wdioArgs.push('--spec', args.spec)
-      } else {
-        wdioArgs.push('--spec', `e2e/specs/${app.slug}.spec.ts`)
+      // packed / runtime：全量模式下 base staging 会按需装多个 app；每个 wdio 仍只应
+      // 看到被测 app。这里为每个 app 复制到独立临时目录，跑完删除——单跑与全量同语义。
+      let isolatedDir = null
+      let isolatedHome = null
+      let appPluginsDir = staging.pluginsDir
+      if (mode !== 'cargo') {
+        isolatedDir = mkdtempSync(join(tmpdir(), `wasmnest-e2e-${app.slug}-`))
+        cpSync(join(staging.pluginsDir, app.pluginId), join(isolatedDir, app.pluginId), {
+          recursive: true,
+        })
+        appPluginsDir = isolatedDir
       }
 
-      console.log(`[e2e] 启动 wdio：${app.slug}`)
-      const r = spawnSync('pnpm', wdioArgs, {
-        cwd: APPS_ROOT,
-        stdio: 'inherit',
-        env: runEnv,
-      })
-      if (r.status !== 0) {
-        failed += 1
-        console.error(`[e2e] ✗ ${app.slug} 用例未全绿`)
+      try {
+        const runEnv = { ...env, WASMNEST_PLUGINS_DIR: appPluginsDir }
+        if (HOME_SCOPED_APPS.has(app.slug)) {
+          isolatedHome = mkdtempSync(join(tmpdir(), `wasmnest-e2e-home-${app.slug}-`))
+          if (process.platform === 'win32') {
+            // Windows 无 sh：只能把 HOME / USERPROFILE 传给 wdio 进程（tauri-driver 继承）
+            runEnv.HOME = isolatedHome
+            runEnv.USERPROFILE = isolatedHome
+          } else {
+            // 只给宿主换 HOME：包装脚本经 WASMNEST_E2E_HOST_BIN 注入，wdio / pnpm /
+            // tauri-driver 仍用真实 HOME（pnpm store 与用户配置不受影响）。
+            const hostWrapper = join(isolatedHome, 'host-with-home.sh')
+            writeFileSync(
+              hostWrapper,
+              `#!/bin/sh\nHOME=${JSON.stringify(isolatedHome)} exec ${JSON.stringify(host.bin)} "$@"\n`,
+              { mode: 0o755 },
+            )
+            runEnv.WASMNEST_E2E_HOST_BIN = hostWrapper
+          }
+          console.log(`[e2e] ${app.slug} 数据根隔离：HOME=${isolatedHome}`)
+        }
+
+        const wdioArgs = ['exec', 'wdio', 'run', 'e2e/wdio.conf.ts']
+        // 用例按 app 分文件；传了 --spec 则以调用方的为准。
+        if (args.spec) {
+          wdioArgs.push('--spec', args.spec)
+        } else {
+          wdioArgs.push('--spec', `e2e/specs/${app.slug}.spec.ts`)
+        }
+
+        console.log(`[e2e] 启动 wdio：${app.slug}`)
+        const r = spawnSync('pnpm', wdioArgs, {
+          cwd: APPS_ROOT,
+          stdio: 'inherit',
+          env: runEnv,
+        })
+        if (r.status !== 0) {
+          failed += 1
+          console.error(`[e2e] ✗ ${app.slug} 用例未全绿`)
+        }
+      } finally {
+        if (isolatedDir) rmSync(isolatedDir, { recursive: true, force: true })
+        if (isolatedHome) rmSync(isolatedHome, { recursive: true, force: true })
       }
     }
   } finally {

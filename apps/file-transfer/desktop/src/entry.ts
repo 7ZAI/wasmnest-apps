@@ -27,6 +27,15 @@ export interface AppMountEnv {
   /** 挂载契约版本（本包声明值；宿主装载时据此判定兼容性） */
   mountContract: string
   invoke: <T = unknown>(command: string, args?: Record<string, unknown>) => Promise<T>
+  /** 应用更新检查（宿主统一默认实现；appId 与宿主面凭证已绑定） */
+  appUpdate?: {
+    check: () => Promise<{
+      status: 'idle' | 'checking' | 'up-to-date' | 'available' | 'incompatible' | 'error'
+      latestVersion?: string
+      currentVersion?: string
+      reason?: { key: string; params?: Record<string, string> }
+    }>
+  }
   appInvoke: <T = unknown>(command: string, ...args: unknown[]) => Promise<T>
   appStorageGet: <T = unknown>(key: string) => Promise<T | undefined>
   appStorageSet: (key: string, value: unknown) => Promise<void>

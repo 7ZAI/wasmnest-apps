@@ -4,6 +4,7 @@
       <div
         v-if="modelValue"
         class="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto mobile-ui"
+        data-bedcode-surface
       >
         <!-- Backdrop -->
         <div class="absolute inset-0 bg-[var(--mobile-overlay-heavy)]"></div>
@@ -85,8 +86,8 @@
           <!-- 切换认证方式：生物认证是便捷方式，可随时切过去（未绑定时父组件提示） -->
           <div class="text-center mt-4">
             <button
-              class="text-sm transition-colors active:opacity-80"
-              style="color: var(--mobile-accent)"
+              class="text-[var(--font-size-sm)] underline underline-offset-2 transition-colors active:opacity-70"
+              style="color: var(--mobile-text-secondary)"
               :disabled="loading"
               @click="emit('switch')"
             >
@@ -181,7 +182,7 @@ function submit() {
   max-width: clamp(280px, 384px, 440px);
   background: var(--mobile-bg-card);
   border: 1px solid var(--mobile-border);
-  border-radius: 1rem;
+  border-radius: var(--bc-radius-card);
   padding: clamp(1rem, 1.5rem, 2rem);
   margin: 1rem 0;
 }
@@ -209,11 +210,11 @@ function submit() {
 .code-cell--filled {
   color: var(--mobile-accent);
   border-color: var(--mobile-accent);
-  box-shadow: 0 0 10px var(--mobile-accent-muted);
+  background: var(--mobile-accent-muted);
 }
 
 .code-cell--empty {
-  color: var(--mobile-text-disabled);
+  color: var(--mobile-text-muted);
 }
 
 .keypad {
@@ -227,23 +228,23 @@ function submit() {
   height: var(--key-h);
   background: var(--mobile-bg-primary);
   border: 1px solid var(--mobile-border);
-  border-radius: 0.75rem;
+  border-radius: var(--bc-radius-control);
   font-size: var(--key-font);
   font-weight: 500;
   color: var(--mobile-text-primary);
   cursor: pointer;
-  transition: border-color 0.2s ease;
+  transition: background-color var(--bc-dur-fast) var(--bc-ease);
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
-.key-btn:hover {
-  border-color: var(--mobile-accent);
+.key-btn:active {
+  background: var(--mobile-group-row-active);
 }
 
 .key-btn--small-text {
-  font-size: clamp(0.6875rem, 0.875rem + (100vw - 360px) / 840 * 2, 1rem);
+  font-size: var(--font-size-sm);
   color: var(--mobile-text-secondary);
 }
 
@@ -256,19 +257,21 @@ function submit() {
   height: clamp(1.25rem, 1.5rem, 1.75rem);
 }
 
+/* 确认是这一步的主操作：实底 accent。原先用「主色描边 + 主色字」的次级形态，
+   一屏里最像按钮的东西反而点不得，用户会先去找那个描边框 */
 .submit-btn {
   width: 100%;
-  background: var(--mobile-accent-muted);
-  border: 1px solid var(--mobile-accent);
-  color: var(--mobile-accent);
-  padding: clamp(0.625rem, 0.75rem, 1rem) 0;
-  border-radius: 0.75rem;
+  background: var(--mobile-accent);
+  color: var(--mobile-text-on-accent);
+  padding: clamp(0.625rem, 0.75rem, 0.875rem) 0;
+  border-radius: var(--bc-radius-control);
+  font-size: var(--font-size-base);
   font-weight: 500;
   cursor: pointer;
-  transition: opacity 0.2s ease;
+  transition: opacity var(--bc-dur-fast) var(--bc-ease);
 }
 
-.submit-btn:hover {
+.submit-btn:active {
   opacity: 0.8;
 }
 

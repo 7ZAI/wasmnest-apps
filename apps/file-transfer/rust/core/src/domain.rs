@@ -22,12 +22,34 @@ pub struct SharedRoot {
 }
 
 /// 拨号 endpoint（camelCase wire 形状，前端自建设备缓存的真源）
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DialEndpoint {
     pub node_id: String,
+    /// 单地址来源（mDNS 发现）：配对串带来的端点只有 `addrs`，故该字段可缺省
+    #[serde(default)]
     pub addr: String,
+    #[serde(default)]
     pub port: u16,
+    /// 已知的多地址候选（multiaddr；LAN 直连在前、relay circuit 在后）。
+    ///
+    /// 来源 = 配对连接串 / 历史快照；顺序即调用方的拨号策略顺序，核内不重排
+    /// （§4.9 的「何时纳入 relay」判据见 [`crate::dial`]）。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub addrs: Vec<String>,
+    /// 上次拨号是否纳入了 relay 候选：重连沿用同一路径（缺省 = 从未走 WAN）。
+    ///
+    /// 不是「当前传输形态」——真实形态以宿主 `peer:connection` 事件的
+    /// `transport` 字段为准，本字段只服务重拨策略。
+    #[serde(default)]
+    pub wan: bool,
+    /// 只拨 relay 候选（用户显式「仅经中继」；缺省 false）。
+    ///
+    /// 与 `wan` 的区别：`wan` = 「把 relay 排进候选表，LAN 仍先试」；本字段 =
+    /// 「跳过内网直连，只走中继」。成功后随 endpoint memo 保留，数据面断线
+    /// 重拨不再回头撞已失效的 LAN 地址。
+    #[serde(default)]
+    pub relay_only: bool,
 }
 
 /// 单条设备快照（前端缓存条目的落盘形状；`lastSeenMs` 由前端 `Date.now` 盖章）
@@ -51,6 +73,25 @@ pub struct DeviceSnapshotEntry {
     pub instance_name: String,
     #[serde(default)]
     pub last_seen_ms: u64,
+    /// 配对/历史保留的 multiaddr 候选（LAN 直连在前、relay circuit 在后）。
+    ///
+    /// 旧快照没有该字段 ⇒ 空表（退回单地址拨号），不因缺字段整条丢弃。
+    #[serde(default)]
+    pub addrs: Vec<String>,
+    /// 手动添加的远程设备（无 mDNS 发现，TTL 清扫不得移除；前端展示「远程」标记）
+    #[serde(default)]
+    pub paired: bool,
+    /// 上次连接成功时宿主上报的传输形态（`lan-direct` / `wan-relay`；未知 = None）。
+    ///
+    /// 断开后**保留**：行内展示「上次：外网中继」并让下次重连默认把 relay 纳入
+    /// 候选（LAN 仍优先）。旧快照缺字段 ⇒ None（行为与引入前一致）。
+    #[serde(default)]
+    pub last_transport: Option<String>,
+    /// 中继会合发现（跨 NAT；重启后仍标「中继」，等下一次宿主快照刷新）。
+    ///
+    /// 旧快照缺字段 ⇒ false（行为与引入前一致）。
+    #[serde(default)]
+    pub relay: bool,
 }
 
 #[cfg(test)]
@@ -86,12 +127,26 @@ mod tests {
             node_id: "aa".into(),
             addr: "192.168.1.5".into(),
             port: 47821,
+            addrs: vec!["/ip4/192.168.1.5/tcp/47821".into()],
+            wan: true,
+            relay_only: true,
         };
         let v = serde_json::to_value(&ep).unwrap();
         assert_eq!(v["nodeId"], "aa");
         assert_eq!(v["addr"], "192.168.1.5");
         assert_eq!(v["port"], 47821);
+        assert_eq!(v["addrs"][0], "/ip4/192.168.1.5/tcp/47821");
+        assert_eq!(v["wan"], true);
+        assert_eq!(v["relayOnly"], true);
         assert_eq!(serde_json::from_value::<DialEndpoint>(v).unwrap(), ep);
+        // 旧载荷（无 addrs / wan / relayOnly）按缺省解析，不整条拒绝
+        let legacy: DialEndpoint = serde_json::from_value(serde_json::json!({
+            "nodeId": "aa", "addr": "192.168.1.5", "port": 47821
+        }))
+        .unwrap();
+        assert!(legacy.addrs.is_empty());
+        assert!(!legacy.wan);
+        assert!(!legacy.relay_only, "旧调用不带 relayOnly = 行为不变");
     }
 
     #[test]
@@ -105,5 +160,47 @@ mod tests {
         assert_eq!(e.capabilities_hex, "");
         assert_eq!(e.device_name, "");
         assert_eq!(e.instance_name, "");
+        assert!(e.addrs.is_empty());
+        assert!(!e.paired);
+        assert_eq!(e.last_transport, None, "旧快照缺字段 = 从未连过");
+    }
+
+    #[test]
+    fn snapshot_entry_carries_pairing_candidates_and_paired_flag() {
+        let e: DeviceSnapshotEntry = serde_json::from_value(serde_json::json!({
+            "nodeId": "abc",
+            "deviceName": "远端",
+            "addrs": ["/ip4/10.0.0.2/tcp/47613", "/ip4/203.0.113.9/tcp/4001/p2p/12D3KooWRelay/p2p-circuit/p2p/abc"],
+            "paired": true,
+            "lastSeenMs": 7
+        }))
+        .unwrap();
+        assert_eq!(e.addrs.len(), 2);
+        assert!(e.paired, "手动添加的远程设备必须落盘 paired 标记");
+        // 回写形状保持 camelCase
+        let v = serde_json::to_value(&e).unwrap();
+        assert_eq!(v["addrs"][0], "/ip4/10.0.0.2/tcp/47613");
+        assert_eq!(v["paired"], true);
+    }
+
+    #[test]
+    fn snapshot_entry_remembers_last_transport_across_restarts() {
+        let e: DeviceSnapshotEntry = serde_json::from_value(serde_json::json!({
+            "nodeId": "abc",
+            "addrs": ["/ip4/203.0.113.9/tcp/4001/p2p/12D3KooWRelay/p2p-circuit/p2p/abc"],
+            "paired": true,
+            "lastTransport": "wan-relay"
+        }))
+        .unwrap();
+        assert_eq!(e.last_transport.as_deref(), Some("wan-relay"));
+        // 落盘形状保持 camelCase（旧客户端读旧字段不受影响）
+        let v = serde_json::to_value(&e).unwrap();
+        assert_eq!(v["lastTransport"], "wan-relay");
+        // 未知形态不猜：原样保留字符串，判定在消费侧（前端 normalizes）
+        let odd: DeviceSnapshotEntry = serde_json::from_value(serde_json::json!({
+            "nodeId": "abc", "lastTransport": "something-new"
+        }))
+        .unwrap();
+        assert_eq!(odd.last_transport.as_deref(), Some("something-new"));
     }
 }

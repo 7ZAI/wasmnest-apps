@@ -25,22 +25,49 @@ export type MessageSchema = {
   // ==================== 附近设备面板 ====================
   'transfer.devices.title': string
   'transfer.devices.subtitle': string
+  'transfer.devices.relayEmptyHint': string
   'transfer.devices.empty': string
   'transfer.devices.online': string
   'transfer.devices.recentSeen': string
   'transfer.devices.connected': string
   'transfer.devices.connecting': string
+  'transfer.devices.connectingHint': string
+  'transfer.devices.sendFile': string
   'transfer.devices.capNone': string
   'transfer.devices.activeCurrent': string
   'transfer.devices.setActive': string
-  'transfer.devices.connect': string
   'transfer.devices.disconnect': string
   'transfer.devices.denied': string
   'transfer.devices.unreachable': string
   'transfer.devices.trustHint': string
   /** 探索发现：重新扫描同网节点（面板头部按钮） */
-  'transfer.devices.scan': string
-  'transfer.devices.scanning': string
+  'transfer.devices.discover': string
+  'transfer.devices.discovering': string
+  'transfer.devices.discoverHint': string
+  'transfer.devices.connectLan': string
+  'transfer.devices.connectLanHint': string
+  'transfer.devices.connectWan': string
+  'transfer.devices.connectWanHint': string
+  'transfer.devices.modeBoth': string
+  'transfer.devices.modeLanOnly': string
+  'transfer.devices.modeWanOnly': string
+  'transfer.devices.modeNone': string
+  'transfer.devices.modeNoneHint': string
+  // T12：中继 / 远程设备（传输形态、手动尝试外网）
+  'transfer.devices.remote': string
+  'transfer.devices.removeRemote': string
+  'transfer.devices.transportLan': string
+  'transfer.devices.transportWan': string
+  // T20：上次传输形态 / 跨网能力徽标 / 分类失败出路
+  'transfer.devices.lastTransportLan': string
+  'transfer.devices.lastTransportWan': string
+  'transfer.devices.relayTag': string
+  'transfer.devices.errorNoEndpoint': string
+  'transfer.devices.errorRelayDisabled': string
+  'transfer.devices.errorRelayUnreachable': string
+  'transfer.devices.errorTimeout': string
+  /** 未识别失败：`{detail}` 为命令原文，原样展示（fail-visible） */
+  'transfer.devices.errorUnknown': string
 
   // ==================== 顶栏 ====================
   'transfer.topbar.sendToPhone': string
@@ -48,6 +75,18 @@ export type MessageSchema = {
   'transfer.topbar.refresh': string
   'transfer.topbar.settings': string
   'transfer.topbar.closeSettings': string
+
+  // ==================== 我的设备（设置页：设备名 / 指纹） ====================
+  'transfer.myDevice.title': string
+  'transfer.myDevice.loading': string
+  'transfer.myDevice.loadFailed': string
+  'transfer.myDevice.refresh': string
+  'transfer.myDevice.unsupportedTitle': string
+  'transfer.myDevice.unsupportedBody': string
+  'transfer.myDevice.deviceName': string
+  'transfer.myDevice.unnamed': string
+  'transfer.myDevice.fingerprint': string
+  'transfer.myDevice.hint': string
 
   // ==================== 目录表格 ====================
   'transfer.table.name': string
@@ -115,6 +154,7 @@ export type MessageSchema = {
   'transfer.consent.copy': string
   'transfer.consent.copied': string
   'transfer.consent.copyHint': string
+  'transfer.consent.trustHint': string
   'transfer.consent.countdown': string
   'transfer.consent.accept': string
   'transfer.consent.deny': string
@@ -150,7 +190,7 @@ export type MessageSchema = {
   'transfer.settings.chooseDir': string
   'transfer.settings.concurrency': string
   'transfer.settings.concurrencyHint': string
-  'transfer.settings.plainWarning': string
+  'transfer.settings.encryptionNotice': string
   'transfer.settings.concurrencyMinus': string
   'transfer.settings.concurrencyPlus': string
   'transfer.settings.receivingPolicy': string
@@ -160,9 +200,57 @@ export type MessageSchema = {
   'transfer.settings.receivingPolicyHint': string
   'transfer.settings.approvalTimeout': string
   'transfer.settings.encryption': string
-  'transfer.settings.encryptionOn': string
-  'transfer.settings.encryptionOff': string
+  'transfer.settings.encryptionAlwaysOn': string
   'transfer.settings.encryptionHint': string
+  // T12：中继开关与提示阈值（关的是中继，不是加密）
+  'transfer.settings.relay': string
+  'transfer.settings.relayOn': string
+  'transfer.settings.relayOff': string
+  'transfer.settings.relayThreshold': string
+  'transfer.settings.relayThresholdHint': string
+
+  // ==================== 中继发送提示（T12） ====================
+  'transfer.relayHint.title': string
+  'transfer.relayHint.body': string
+  'transfer.relayHint.confirm': string
+  'transfer.relayHint.cancel': string
+
+  // ==================== 内网穿透配置（设置页） ====================
+  'transfer.relayConfig.title': string
+  'transfer.relayConfig.loading': string
+  'transfer.relayConfig.loadFailed': string
+  'transfer.relayConfig.refresh': string
+  'transfer.relayConfig.empty': string
+  'transfer.relayConfig.source': string
+  'transfer.relayConfig.sourceCenter': string
+  'transfer.relayConfig.sourceCache': string
+  'transfer.relayConfig.sourceInvite': string
+  'transfer.relayConfig.sourceQr': string
+  'transfer.relayConfig.sourceSync': string
+  'transfer.relayConfig.sourceUnknown': string
+  'transfer.relayConfig.relayState': string
+  'transfer.relayConfig.stateIdle': string
+  'transfer.relayConfig.stateConnecting': string
+  'transfer.relayConfig.stateReserved': string
+  'transfer.relayConfig.stateLost': string
+  'transfer.relayConfig.stateUnknown': string
+  'transfer.relayConfig.wanPolicy': string
+  'transfer.relayConfig.wanAllowed': string
+  'transfer.relayConfig.wanBlocked': string
+  'transfer.relayConfig.room': string
+  'transfer.relayConfig.syncedAt': string
+  'transfer.relayConfig.copy': string
+  'transfer.relayConfig.copied': string
+  'transfer.relayConfig.copyFailed': string
+  'transfer.relayConfig.showAddr': string
+  'transfer.relayConfig.hideAddr': string
+  'transfer.relayConfig.centerError': string
+  'transfer.relayConfig.openCenter': string
+  'transfer.relayConfig.openCenterUnavailable': string
+  'transfer.relayConfig.share': string
+  'transfer.relayConfig.shareRelayMissing': string
+  'transfer.relayConfig.shareFailed': string
+  'transfer.relayConfig.shareHint': string
 
   // ==================== 错误（spec §10 + v2 拒绝原因） ====================
   'transfer.error.duplicateName': string
@@ -184,6 +272,8 @@ export type MessageSchema = {
   'transfer.history.clearConfirmBody': string
   'transfer.history.empty': string
   'transfer.history.openFolder': string
+  'transfer.history.openFolderFailed': string
+  'transfer.history.openFolderNoDir': string
   'transfer.history.results.completed': string
   'transfer.history.results.failed': string
   'transfer.history.results.rejected': string

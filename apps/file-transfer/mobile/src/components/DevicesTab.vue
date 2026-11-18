@@ -1,43 +1,107 @@
 <script setup lang="ts">
 /**
- * DevicesTab — 附近设备 tab
+ * DevicesTab — 探索连接（附近设备）一级页面
  *
- * 与旧版功能等价（PeerDevicesSheet 的内容改为一等 tab，不再收进 bottom sheet）：
- * 已连接 / 连接中 / 未连接三态可区分，拨号失败（拒绝/不可达）行内呈现，
- * 已连接可断开、可设为当前活跃对端，无传输能力节点可见但不可连接。
- * 头部提供「探索发现」重扫，尾部统一给出信任提示。
+ * 结构：
+ *   1. 顶部「扫描带」——雷达图元 + 状态文案 + 重新扫描；扫描进行中雷达转动，
+ *      没有设备时雷达放大成整页主视觉。用户任何时刻都能看出「在搜 / 搜完了」。
+ *   2. 分组列表——已连接（含活跃对端标记）与附近设备分开，连接动作就近呈现。
+ *
+ * 本页是**纯发现层**：设备只来自中继自动发现 + mDNS；身份信息、穿透配置与
+ * 中继状态统一收敛到设置页，发现流里不混入配置管理。
+ *
  * 纯展示：行状态由 usePeerDevices 派生的 rows 传入，操作以事件上抛。
  */
-import type { DeviceRow } from '../composables/deviceState'
+import { computed } from 'vue'
+import type { DeviceRow, DialFailureCode } from '../composables/deviceState'
+import ScanRadar from './ScanRadar.vue'
 
 type Translate = (key: string, params?: Record<string, any>) => string
 
 const props = defineProps<{
   rows: DeviceRow[]
-  /** 探索发现进行中（按钮转 spinner、防重复点击） */
+  /** 探索发现进行中（雷达转动、按钮转 spinner、防重复点击） */
   scanning: boolean
   t: Translate
 }>()
 
 const emit = defineEmits<{
   (e: 'connect', nodeId: string): void
+  /** 外网入口：跳过 LAN 候选直接拨 relay（显式点击，不回退；T20 §4.2） */
+  (e: 'retry-relay-only', nodeId: string): void
   (e: 'disconnect', nodeId: string): void
   (e: 'set-active', nodeId: string): void
+  /** 移除历史手动配对的远程设备 */
+  (e: 'remove-remote', nodeId: string): void
+  /** 直达发送（T23）：未连接时先连后选文件；已连接时切活跃 + 选文件 */
+  (e: 'send', nodeId: string): void
   (e: 'scan'): void
 }>()
 
 const t = props.t
+
+// ==================== 分组 ====================
+
+/**
+ * 行分组：已连接 / 附近。握手中的行留在「附近」——它还没建立起可用的数据面，
+ * 提前归进「已连接」会让用户以为已经能发文件。两个分组按行数自动隐显。
+ */
+const groups = computed(() => {
+  const connected = props.rows.filter((row) => row.status === 'connected')
+  const nearby = props.rows.filter((row) => row.status !== 'connected')
+  return [
+    { key: 'connected', title: t('transfer.v2.devices.groupConnected'), rows: connected },
+    { key: 'nearby', title: t('transfer.v2.devices.groupNearby'), rows: nearby },
+  ].filter((group) => group.rows.length > 0)
+})
+
+// ==================== 行内文案 ====================
+
+/** 传输形态文案（宿主 transport 词表；未知形态不渲染） */
+function transportLabel(row: DeviceRow): string {
+  if (row.transport === 'lan-direct') return t('transfer.devices.transportLan')
+  if (row.transport === 'wan-relay') return t('transfer.devices.transportWan')
+  return ''
+}
+
+/** 上次传输形态文案（T20：idle 态展示，让用户知道默认重拨会带 relay） */
+function lastTransportLabel(row: DeviceRow): string {
+  if (row.lastTransport === 'lan-direct') return t('transfer.devices.lastTransportLan')
+  if (row.lastTransport === 'wan-relay') return t('transfer.devices.lastTransportWan')
+  return ''
+}
+
+/** 拨号失败分类 → 文案 key（未识别原样展示原文，不猜成因） */
+const DIAL_ERROR_KEYS: Record<DialFailureCode, string> = {
+  denied: 'transfer.devices.denied',
+  'no-endpoint': 'transfer.devices.errorNoEndpoint',
+  'relay-disabled': 'transfer.devices.errorRelayDisabled',
+  'relay-unreachable': 'transfer.devices.errorRelayUnreachable',
+  'lan-unreachable': 'transfer.devices.unreachable',
+  timeout: 'transfer.devices.errorTimeout',
+  unknown: 'transfer.devices.errorUnknown',
+}
+
+/** 行内错误文案（unknown 带原文，其余只给分类文案） */
+function dialErrorText(row: DeviceRow): string {
+  const failure = row.dialError
+  if (!failure) return ''
+  if (failure.code === 'unknown' && failure.detail) {
+    return t(DIAL_ERROR_KEYS.unknown, { detail: failure.detail })
+  }
+  return t(DIAL_ERROR_KEYS[failure.code])
+}
 
 /** 短指纹（前 8 位） */
 function shortFingerprint(nodeId: string): string {
   return nodeId.slice(0, 8)
 }
 
-/** 状态点样式：绿=已连接、琥珀=握手中、降饱和绿=在线未连接、灰=离线/无能力 */
+/** 状态点样式：绿=已连接、琥珀=握手中、降饱和绿=在线未连接、灰=离线/失败 */
 function dotClass(row: DeviceRow): string {
   if (row.status === 'connected') return 'fv2-dev-dot--connected'
   if (row.status === 'connecting') return 'fv2-dev-dot--connecting'
-  if (row.dialError === 'unreachable') return 'fv2-dev-dot--offline'
+  if (row.dialError) return 'fv2-dev-dot--offline'
   if (!row.fileTransfer) return 'fv2-dev-dot--nocap'
   return 'fv2-dev-dot--reachable'
 }
@@ -55,7 +119,7 @@ function metaText(row: DeviceRow): string {
         ? `${t('transfer.devices.connected')} · ${row.addr}`
         : t('transfer.devices.connected')
     case 'connecting':
-      return t('transfer.devices.connecting')
+      return t('transfer.devices.connectingHint')
     default:
       if (row.recent) {
         return row.addr
@@ -70,155 +134,240 @@ function metaText(row: DeviceRow): string {
 </script>
 
 <template>
-  <div class="flex-1 min-h-0 flex flex-col">
-    <!-- 标题行：标题 + 副标题 + 行尾探索发现（空态时隐藏，避免与空态内标题/CTA 重复） -->
-    <div v-if="rows.length > 0" class="fv2-section-head flex-shrink-0">
-      <div class="flex-1 min-w-0">
-        <h2 class="fv2-section-title">{{ t('transfer.devices.title') }}</h2>
-        <p class="fv2-section-sub truncate">{{ t('transfer.v2.devices.subtitle') }}</p>
+  <div class="fv2-page">
+    <!-- 空态：雷达占主视觉，扫描入口在这里（不渲染状态带，避免重复标题） -->
+    <div v-if="rows.length === 0" class="fv2-discover fv2-discover--empty">
+      <ScanRadar :active="scanning" size="lg" />
+      <h2 class="fv2-discover-title">
+        {{
+          scanning ? t('transfer.v2.devices.scanningTitle') : t('transfer.v2.devices.emptyTitle')
+        }}
+      </h2>
+      <p class="fv2-discover-hint">
+        {{ scanning ? t('transfer.v2.devices.scanningHint') : t('transfer.devices.empty') }}
+      </p>
+      <p v-if="!scanning" class="fv2-discover-hint" data-testid="mobile-dev-relay-hint">
+        {{ t('transfer.devices.relayEmptyHint') }}
+      </p>
+      <div class="fv2-discover-actions">
+        <button
+          class="fv2-btn-primary"
+          :disabled="scanning"
+          data-testid="mobile-dev-scan"
+          @click="emit('scan')"
+        >
+          <svg aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.8"
+              d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+            />
+          </svg>
+          {{ scanning ? t('transfer.devices.discovering') : t('transfer.devices.discover') }}
+        </button>
       </div>
-      <button
-        class="fv2-btn-text fv2-btn-text--accent flex-shrink-0"
-        :disabled="scanning"
-        @click="emit('scan')"
-      >
-        <svg
-          v-if="scanning"
-          class="w-4 h-4 flex-shrink-0 fv2-scan-icon"
-          aria-hidden="true"
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-        >
-          <path
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            stroke-width="1.8"
-            d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-          />
-        </svg>
-        <svg
-          v-else
-          class="w-4 h-4 flex-shrink-0"
-          aria-hidden="true"
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-        >
-          <path
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            stroke-width="1.8"
-            d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-          />
-        </svg>
-        {{ scanning ? t('transfer.devices.scanning') : t('transfer.devices.scan') }}
-      </button>
     </div>
 
-    <!-- 列表滚动区 -->
-    <div class="flex-1 min-h-0 overflow-y-auto overscroll-behavior-none px-4 pb-2">
-      <!-- 空态：发现缓存无节点 -->
-      <div v-if="rows.length === 0" class="h-full flex flex-col">
-        <div class="fv2-empty">
-          <div class="fv2-empty-icon">
-            <svg aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="1.5"
-                d="M4.72 4.39a9.5 9.5 0 0114.56 0M7.82 5.52a6.5 6.5 0 018.36 0M10.8 7.21a3.5 3.5 0 012.4 0M12 20h.01"
-              />
-            </svg>
-          </div>
-          <p class="fv2-empty-title">{{ t('transfer.devices.title') }}</p>
-          <p class="fv2-empty-hint">{{ t('transfer.devices.empty') }}</p>
-          <button class="fv2-empty-action fv2-btn-primary" @click="emit('scan')">
-            <svg
-              class="w-4 h-4 flex-shrink-0"
-              aria-hidden="true"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="1.8"
-                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-              />
-            </svg>
-            {{ t('transfer.devices.scan') }}
-          </button>
+    <template v-else>
+      <!-- 扫描带：紧凑态只占一行，扫描中雷达转动 + 文案切换 -->
+      <div class="fv2-discover fv2-discover--compact">
+        <ScanRadar :active="scanning" size="sm" />
+        <div class="fv2-discover-copy">
+          <p class="fv2-discover-title">
+            {{
+              scanning
+                ? t('transfer.v2.devices.scanningTitle')
+                : t('transfer.v2.devices.found', { count: rows.length })
+            }}
+          </p>
+          <p class="fv2-discover-hint">
+            {{
+              scanning ? t('transfer.v2.devices.scanningHint') : t('transfer.v2.devices.subtitle')
+            }}
+          </p>
         </div>
+        <button
+          class="fv2-discover-btn"
+          :disabled="scanning"
+          data-testid="mobile-dev-scan"
+          @click="emit('scan')"
+        >
+          <svg
+            class="fv2-discover-btn-icon"
+            :class="{ 'fv2-scan-icon': scanning }"
+            aria-hidden="true"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.8"
+              d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+            />
+          </svg>
+          {{ t('transfer.devices.discover') }}
+        </button>
       </div>
 
-      <template v-else>
-        <div class="fv2-device-list">
-          <div v-for="row in rows" :key="row.nodeId" class="fv2-device-row">
-            <!-- 状态点：绿=已连接 / 琥珀=握手中 / 淡绿=在线未连接 / 灰=离线 -->
-            <span
-              class="fv2-dev-dot flex-shrink-0"
-              :class="dotClass(row)"
-              aria-hidden="true"
-            ></span>
+      <!-- 分组列表 -->
+      <div class="fv2-page-scroll">
+        <section v-for="group in groups" :key="group.key" class="fv2-group">
+          <h3 class="fv2-group-title">
+            {{ group.title }}
+            <span class="fv2-group-count">{{ group.rows.length }}</span>
+          </h3>
+          <div class="fv2-device-list">
+            <div v-for="row in group.rows" :key="row.nodeId" class="fv2-device-row">
+              <div class="fv2-device-main">
+                <!-- 状态点：绿=已连接 / 琥珀=握手中 / 淡绿=在线未连接 / 灰=离线 -->
+                <div class="fv2-device-head">
+                  <span class="fv2-dev-dot" :class="dotClass(row)" aria-hidden="true"></span>
+                  <span class="fv2-device-name">{{ row.deviceName }}</span>
+                  <span class="fv2-device-fp">{{ shortFingerprint(row.nodeId) }}</span>
+                </div>
 
-            <div class="flex-1 min-w-0">
-              <div class="fv2-device-line">
-                <span class="fv2-device-name truncate">{{ row.deviceName }}</span>
-                <span class="fv2-device-fp">{{ shortFingerprint(row.nodeId) }}</span>
-                <span v-if="row.isActive" class="fv2-device-tag">
-                  {{ t('transfer.devices.activeCurrent') }}
-                </span>
+                <!-- 标签独立成行：信息多时折行，不与设备名 / 操作按钮抢同一行 -->
+                <div
+                  v-if="row.paired || row.relay || row.isActive || row.fileTransfer"
+                  class="fv2-device-tags"
+                >
+                  <span v-if="row.paired" class="fv2-device-tag" data-testid="mobile-remote-tag">
+                    {{ t('transfer.devices.remote') }}
+                  </span>
+                  <span v-if="row.relay" class="fv2-device-tag" data-testid="mobile-relay-tag">
+                    {{ t('transfer.devices.relayTag') }}
+                  </span>
+                  <span v-if="row.isActive" class="fv2-device-tag fv2-device-tag--active">
+                    {{ t('transfer.devices.activeCurrent') }}
+                  </span>
+                  <!-- 连接方式标注：内网+外网 / 仅内网 / 仅外网（不把单一通路说成通用可达） -->
+                  <span
+                    v-if="row.fileTransfer"
+                    class="fv2-device-tag"
+                    :class="{ 'fv2-device-tag--wan': row.wanAvailable }"
+                    data-testid="mobile-dev-relay-badge"
+                  >
+                    {{
+                      row.connectionModes === 'both'
+                        ? t('transfer.devices.modeBoth')
+                        : row.connectionModes === 'lan'
+                          ? t('transfer.devices.modeLanOnly')
+                          : row.connectionModes === 'wan'
+                            ? t('transfer.devices.modeWanOnly')
+                            : t('transfer.devices.modeNone')
+                    }}
+                  </span>
+                </div>
+                <!-- 状态 / 地址 / 传输形态：超宽折行而不是截断，长地址也能读全 -->
+                <p class="fv2-device-meta">
+                  <span class="fv2-device-meta-text">{{ metaText(row) }}</span>
+                  <span
+                    v-if="transportLabel(row)"
+                    class="fv2-device-transport"
+                    :class="{ 'fv2-device-transport--wan': row.transport === 'wan-relay' }"
+                    data-testid="mobile-dev-transport"
+                    >{{ transportLabel(row) }}</span
+                  >
+                  <!-- 上次传输形态（断开后仍保留，决定下次重连默认路径） -->
+                  <span
+                    v-if="lastTransportLabel(row)"
+                    class="fv2-device-transport"
+                    :class="{ 'fv2-device-transport--wan': row.lastTransport === 'wan-relay' }"
+                    data-testid="mobile-dev-last-transport"
+                    >{{ lastTransportLabel(row) }}</span
+                  >
+                </p>
+                <!-- 拨号终态反馈：按分类给可操作出路 -->
+                <p
+                  v-if="row.dialError"
+                  class="fv2-device-error"
+                  data-testid="mobile-dev-dial-error"
+                >
+                  {{ dialErrorText(row) }}
+                </p>
               </div>
-              <p class="fv2-device-meta truncate">{{ metaText(row) }}</p>
-              <!-- 拨号终态反馈：拒绝 / 不可达 -->
-              <p v-if="row.dialError" class="fv2-device-error">
-                {{
-                  row.dialError === 'denied'
-                    ? t('transfer.devices.denied')
-                    : t('transfer.devices.unreachable')
-                }}
-              </p>
-            </div>
 
-            <!-- 行内操作：连接 / 设为当前 / 断开，全部为文字按钮（44px 命中区） -->
-            <div class="fv2-device-actions">
-              <template v-if="row.status === 'connected'">
+              <!-- 行内操作：发送 / 连接 / 设为当前 / 断开，全部为文字按钮（44px 命中区）；
+                   窄屏折行右对齐，不挤压左侧设备信息 -->
+              <div class="fv2-device-actions">
+                <!-- T23：直达发送 = 连接（如需要）+ 选文件 + 发送 -->
                 <button
-                  v-if="!row.isActive"
-                  class="fv2-btn-text"
-                  @click="emit('set-active', row.nodeId)"
+                  class="fv2-btn-text fv2-btn-text--accent"
+                  :disabled="!row.fileTransfer || row.status === 'connecting'"
+                  data-testid="mobile-dev-send"
+                  @click="emit('send', row.nodeId)"
                 >
-                  {{ t('transfer.devices.setActive') }}
+                  {{ t('transfer.devices.sendFile') }}
                 </button>
-                <button
-                  class="fv2-btn-text fv2-btn-text--danger"
-                  @click="emit('disconnect', row.nodeId)"
-                >
-                  {{ t('transfer.devices.disconnect') }}
-                </button>
-              </template>
-              <span v-else-if="row.status === 'connecting'" class="fv2-device-meta">
-                {{ t('transfer.devices.connecting') }}
-              </span>
-              <button
-                v-else
-                class="fv2-btn-text fv2-btn-text--accent"
-                :disabled="!row.fileTransfer"
-                @click="emit('connect', row.nodeId)"
-              >
-                {{ t('transfer.devices.connect') }}
-              </button>
+                <template v-if="row.status === 'connected'">
+                  <button
+                    v-if="!row.isActive"
+                    class="fv2-btn-text"
+                    @click="emit('set-active', row.nodeId)"
+                  >
+                    {{ t('transfer.devices.setActive') }}
+                  </button>
+                  <button
+                    v-if="row.paired"
+                    class="fv2-btn-text fv2-btn-text--danger"
+                    @click="emit('remove-remote', row.nodeId)"
+                  >
+                    {{ t('transfer.devices.removeRemote') }}
+                  </button>
+                  <button
+                    class="fv2-btn-text fv2-btn-text--danger"
+                    @click="emit('disconnect', row.nodeId)"
+                  >
+                    {{ t('transfer.devices.disconnect') }}
+                  </button>
+                </template>
+                <span v-else-if="row.status === 'connecting'" class="fv2-device-note">
+                  {{ t('transfer.devices.connectingHint') }}
+                </span>
+                <template v-else>
+                  <!-- 无任何候选：不猜路径，给「等重新发现」的显性说明 -->
+                  <span
+                    v-if="row.connectionModes === 'none'"
+                    class="fv2-device-note"
+                    data-testid="mobile-dev-no-endpoint"
+                  >
+                    {{ t('transfer.devices.modeNoneHint') }}
+                  </span>
+                  <!-- 内网入口（默认路径；LAN 失败后不自动切外网） -->
+                  <button
+                    v-if="row.lanAvailable"
+                    class="fv2-btn-text"
+                    :class="{ 'fv2-btn-text--accent': !row.relayOnlyRecommended }"
+                    :disabled="!row.fileTransfer"
+                    :title="t('transfer.devices.connectLanHint')"
+                    data-testid="mobile-dev-connect-lan"
+                    @click="emit('connect', row.nodeId)"
+                  >
+                    {{ t('transfer.devices.connectLan') }}
+                  </button>
+                  <!-- 外网入口：显式点击才经中继（relay-only，不回退 LAN） -->
+                  <button
+                    v-if="row.wanAvailable"
+                    class="fv2-btn-text"
+                    :class="{
+                      'fv2-btn-text--accent': row.relayOnlyRecommended || !row.lanAvailable,
+                    }"
+                    :disabled="!row.fileTransfer"
+                    :title="t('transfer.devices.connectWanHint')"
+                    data-testid="mobile-dev-connect-wan"
+                    @click="emit('retry-relay-only', row.nodeId)"
+                  >
+                    {{ t('transfer.devices.connectWan') }}
+                  </button>
+                </template>
+              </div>
             </div>
           </div>
-        </div>
-
-        <!-- 信任提示（列表尾部一次性说明） -->
-        <p class="fv2-device-meta px-1 pt-3 pb-2 fv2-trust-hint">
-          {{ t('transfer.devices.trustHint') }}
-        </p>
-      </template>
-    </div>
+        </section>
+      </div>
+    </template>
   </div>
 </template>

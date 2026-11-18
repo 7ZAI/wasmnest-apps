@@ -79,8 +79,9 @@ type PeerDevMockWithTrusted = Omit<PeerDevMock, 'consent'> & {
 /** SDK PluginDevMock 协议包装（loader 按 .peer / .transfer 读取；桌面同构） */
 type DevMockWithPeer = PluginDevMock & { peer?: PeerDevMockWithTrusted }
 
-export const NODE_XIAOMI = 'f3a91c07e5d24b18a7c60f12d94b8e55'
-export const NODE_PIXEL = '8b02d641c9ae4f77b3e15a90dd276c84'
+// 64 位 hex nodeId（与 Rust 侧 node_id 生成口径对齐；parseFoundPayload 校验 64 位）
+export const NODE_XIAOMI = 'f3a91c07e5d24b18a7c60f12d94b8e55f3a91c07e5d24b18a7c60f12d94b8e55'
+export const NODE_PIXEL = '8b02d641c9ae4f77b3e15a90dd276c848b02d641c9ae4f77b3e15a90dd276c84'
 
 /** 单台设备种子（mdns:found 载荷形状 + 拨号行为标注；桌面同构） */
 function deviceSeed(nodeId: string, name: string, ip: string, port: number, capable = true) {
@@ -102,16 +103,16 @@ const peerDevMock: PeerDevMockWithTrusted = {
   deviceSeeds: [
     { ...deviceSeed(NODE_XIAOMI, '小米 14 Pro', '192.168.1.108', 47821), dialBehavior: 'connected' as const },
     { ...deviceSeed(NODE_PIXEL, 'Pixel 9', '192.168.1.132', 51044), dialBehavior: 'connected' as const },
-    { ...deviceSeed('51c8aa93e07b4d2f96d3b1c45f8ea720', '客厅电视 BedBox', '192.168.1.120', 47613), dialBehavior: 'denied' as const },
-    { ...deviceSeed('9d64b2f08c1e4735ae02d7b6cc4910e3', 'Old Laptop', '192.168.1.77', 47613), dialBehavior: 'unreachable' as const },
-    { ...deviceSeed('c47d19f2ab354e6180d92b7ce30a5f16', 'HomeNAS', '192.168.1.2', 47613, false) },
+    { ...deviceSeed('51c8aa93e07b4d2f96d3b1c45f8ea72051c8aa93e07b4d2f96d3b1c45f8ea720', '客厅电视 BedBox', '192.168.1.120', 47613), dialBehavior: 'denied' as const },
+    { ...deviceSeed('9d64b2f08c1e4735ae02d7b6cc4910e39d64b2f08c1e4735ae02d7b6cc4910e3', 'Old Laptop', '192.168.1.77', 47613), dialBehavior: 'unreachable' as const },
+    { ...deviceSeed('c47d19f2ab354e6180d92b7ce30a5f16c47d19f2ab354e6180d92b7ce30a5f16', 'HomeNAS', '192.168.1.2', 47613, false) },
   ],
   connectedNodeIds: [NODE_XIAOMI],
   activeNodeId: NODE_XIAOMI,
   dialBehavior: {
     [NODE_PIXEL]: 'connected',
-    '51c8aa93e07b4d2f96d3b1c45f8ea720': 'denied',
-    '9d64b2f08c1e4735ae02d7b6cc4910e3': 'unreachable',
+    '51c8aa93e07b4d2f96d3b1c45f8ea72051c8aa93e07b4d2f96d3b1c45f8ea720': 'denied',
+    '9d64b2f08c1e4735ae02d7b6cc4910e39d64b2f08c1e4735ae02d7b6cc4910e3': 'unreachable',
   },
   dialLatencyMs: 800,
   consent: {
@@ -133,7 +134,7 @@ const peerDevMock: PeerDevMockWithTrusted = {
         delayMs: 6000,
         request: {
           requestId: 'demo-consent-dialog',
-          nodeId: '44f19b7c8d23e5a16094b7c2f1d3e5a7',
+          nodeId: '44f19b7c8d23e5a16094b7c2f1d3e5a744f19b7c8d23e5a16094b7c2f1d3e5a7',
           fingerprintShort: '44f19b7c',
           deviceName: 'iPad Pro',
         },
@@ -143,7 +144,7 @@ const peerDevMock: PeerDevMockWithTrusted = {
         delayMs: 14000,
         request: {
           requestId: 'demo-consent-nameless',
-          nodeId: '9a3c57e1b04d42f89d6ce21ba75f0d38',
+          nodeId: '9a3c57e1b04d42f89d6ce21ba75f0d389a3c57e1b04d42f89d6ce21ba75f0d38',
           deviceName: null,
         },
       },
@@ -159,13 +160,13 @@ const peerDevMock: PeerDevMockWithTrusted = {
       addedAt: '2026-07-12T09:24:00+08:00',
     },
     {
-      nodeId: '44f19b7c8d23e5a16094b7c2f1d3e5a7',
+      nodeId: '44f19b7c8d23e5a16094b7c2f1d3e5a744f19b7c8d23e5a16094b7c2f1d3e5a7',
       displayName: 'iPad Pro',
       fingerprintShort: '44f19b7c',
       addedAt: '2026-08-02T18:47:00+08:00',
     },
     {
-      nodeId: '9a3c57e1b04d42f89d6ce21ba75f0d38',
+      nodeId: '9a3c57e1b04d42f89d6ce21ba75f0d389a3c57e1b04d42f89d6ce21ba75f0d38',
       displayName: null,
       fingerprintShort: '9a3c57e1',
       addedAt: '2026-08-20T11:05:00+08:00',
@@ -273,7 +274,7 @@ const devMock: DevMockWithPeer = {
           // 携带 retryMeta（发起方）→ 历史卡可一键重试
           batchId: 'demo-send-doc-02',
           direction: 'send',
-          nodeId: '51c8aa93e07b4d2f96d3b1c45f8ea720',
+          nodeId: '51c8aa93e07b4d2f96d3b1c45f8ea72051c8aa93e07b4d2f96d3b1c45f8ea720',
           peerName: '客厅电视 BedBox',
           files: [
             { path: '/微信文件/产品需求文档_v3.docx', size: 248320 },
@@ -307,7 +308,7 @@ const devMock: DevMockWithPeer = {
         {
           batchId: 'demo-hist-failed-01',
           direction: 'send',
-          nodeId: '51c8aa93e07b4d2f96d3b1c45f8ea720',
+          nodeId: '51c8aa93e07b4d2f96d3b1c45f8ea72051c8aa93e07b4d2f96d3b1c45f8ea720',
           peerName: '客厅电视 BedBox',
           files: [{ path: '/Download/Backup_20240801.zip', size: 4820000000 }],
           totalBytes: 4820000000,

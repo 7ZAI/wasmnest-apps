@@ -19,13 +19,16 @@
 //! ```
 //! 客户端 → 插件（binary）：原始输入字节（可含控制字符，Ctrl-C 等）
 //! 插件 → 客户端（binary）：输出字节（ring-fetch 原始数据，不 JSON 化）
+//!   ——每次 fresh subscribe / 环淘汰重锚的首帧是**带内清屏前缀**
+//!   （`ESC[2J ESC[H ESC[3J`，见 `REPLAY_CLEAR_SEQUENCE`）：清屏与重放同序，
+//!   客户端不需要（也不应该）在带外事件里 `terminal.clear()`。
 //! 插件 → 客户端（text JSON）：
 //! ```json
 //! {"type":"subscribed","sessionId":"...","mode":"..."}
 //! {"type":"unsubscribed"}
 //! {"type":"ring_resync","offset":N}              // 环已淘汰：N 之前数据不可恢复
 //! {"type":"session_stopped","sessionId":"...","reason":"stopped|killed|error","exitCode":N?}
-//! {"type":"error","message":"..."}
+//! {"type":"error","code":"session_missing|other","message":"..."}
 //! ```
 //!
 //! ## 输出泵（有界 drain，不在宿主回调内形成长链）
@@ -82,10 +85,15 @@
 use wasmnest_plugin_api::host::ws::{ws_event_topic, WS_CLIENT_DISCONNECT};
 #[cfg(target_arch = "wasm32")]
 use wasmnest_plugin_api::host::{HostEvents, HostLog, HostPty, HostWebsocket};
-#[cfg(target_arch = "wasm32")]
-use wasmnest_plugin_api::wasm_host::WasmHost;
+// `PtyRingFetch` 在 `DrainPort` 签名里（native 单测也要构造它）
 #[cfg(target_arch = "wasm32")]
 use std::sync::Mutex;
+use wasmnest_plugin_api::host::PtyRingFetch;
+#[cfg(target_arch = "wasm32")]
+use wasmnest_plugin_api::wasm_host::WasmHost;
+
+#[cfg(target_arch = "wasm32")]
+use crate::lock::lock_or_recover;
 
 // 背压裁决与阈值直接复用插件前端拉取路径的**同一纯函数 / 同一对常量**
 // （`output` 域）：两条消费路径若各持一套窗口，解释不了「桌面前端不卡而手机卡」。
@@ -97,6 +105,65 @@ pub const ENDPOINT_PATH: &str = "terminal";
 /// 单次 ring-fetch 上限（对齐宿主 `PLUGIN_PTY_RING_FETCH_MAX_BYTES` = 16 KiB；
 /// 宿主侧仍会钳位）
 const MAX_FETCH_BYTES: u32 = 16 * 1024;
+
+/// 重放开始前的**带内清屏**（P0-3）：与重放字节同一条流、同一顺序下发。
+///
+/// 为什么不能用带外事件让前端 `terminal.clear()`：xterm 的 `write()` 是异步
+/// 解析，`clear()` 只重置 buffer，**取消不了已入 WriteBuffer 的在飞分块**；
+/// 而前端「收到字节」与「重锚事件」走两条投递通道，谁先到不确定。结果就是
+/// 重放头被清掉（丢头）或旧字节在清屏后回刷（两代叠加）。把清屏编进字节流，
+/// 顺序由 WS 帧序保证：旧内容 → 清屏 → 重放，最终屏必为最后一代。
+/// `3J` 一并清 scrollback（否则普通缓冲区的历史行仍留在上面）。
+const REPLAY_CLEAR_SEQUENCE: &[u8] = b"\x1b[2J\x1b[H\x1b[3J";
+
+/// 进页重放的尾部窗口（issue #1 F6）：只回放环内最后 1 MiB。
+///
+/// xterm scrollback 10000 行约 0.7 MiB（80 列），而会话环可驻留 10 MiB——
+/// 每次进页整段重放纯属浪费（移动端尤其明显）。1 MiB 给宽行 / CJK 留了余量；
+/// 超出窗口的历史由 「环淘汰 → ring_resync」同款语义显性截断（客户端清屏从
+/// 窗口起点续画），不会假装历史完整。
+///
+/// **仅用于非 agent 会话**：行式 shell 的尾部重放按行首对齐后基本自洽。
+/// agent/TUI 走差分全屏重绘，任意后缀切片都不是自洽帧，见
+/// [`TerminalConnection::replay_from_start`]。
+const REPLAY_TAIL_BYTES: u64 = 1024 * 1024;
+
+/// 重放起点对齐的扫描窗口（issue #1 F3）：在这段字节里找行首 / ESC 边界。
+///
+/// 起始游标可能落在转义序列或 UTF-8 多字节字符中段（环淘汰点、尾部窗口起点
+/// 都是任意字节位置），直接从那里重放会在顶部留半行脏字 / 半个控制序列。
+const REPLAY_ALIGN_SCAN_BYTES: u32 = 4 * 1024;
+
+/// 重放尾部窗口起点（F6）：环累计产出往前推 `REPLAY_TAIL_BYTES`
+fn replay_tail_start(producer: u64) -> u64 {
+    producer.saturating_sub(REPLAY_TAIL_BYTES)
+}
+
+/// 重放起点对齐（F3）：返回应从 `bytes` 起跳过的字节数。
+///
+/// 优先级：**行首**（相对下一个 `\n`）> **ESC 边界**（避免半条转义序列）>
+/// **UTF-8 字符边界**（跳过续字节，避免半个字符）。都找不到就原地起步——
+/// 对齐是显示优化，宁可顶部脏半行，也不能把整块重放吞掉。
+fn replay_align_skip(bytes: &[u8]) -> usize {
+    if bytes.is_empty() {
+        return 0;
+    }
+    // 1) 行首：第一个换行之后（块尾刚好是换行则整块跳过，下一块本就从行首起）
+    if let Some(i) = bytes.iter().position(|b| *b == b'\n') {
+        return i + 1;
+    }
+    // 2) 无换行（进度条 / alt-screen 重绘）：从第一个 ESC 起，避开半条序列
+    if let Some(i) = bytes.iter().position(|b| *b == 0x1b) {
+        return i;
+    }
+    // 3) 纯文本：跳过 UTF-8 续字节（0b10xx_xxxx），从完整字符起
+    let mut i = 0;
+    while i < bytes.len() && (bytes[i] & 0b1100_0000) == 0b1000_0000 {
+        i += 1;
+    }
+    i
+}
+
 /// 单轮 drain 的最大 fetch 次数（≈128 KiB 预算：每帧回调不无限拉取，
 /// 慢消费的积压靠下一轮 drain 续拉）
 const MAX_FETCHES_PER_CYCLE: u32 = 8;
@@ -138,7 +205,7 @@ pub enum Gate {
 ///
 /// | 插件动作 | 客户端动作 | `base` |
 /// |---|---|---|
-/// | `subscribe` → `conn.cursor = 0` | 收 `subscribed` → 本地计数归零 | [`Watermark::reset`] |
+/// | `subscribe` → 首拉前裁到尾部窗口并对齐起点 | 收 `subscribed` → 本地计数归零 | [`Watermark::reset`] → [`Watermark::reanchor`] |
 /// | 发 `ring_resync` → 游标跳新基准 | 收 `ring_resync` → 本地计数归零 | [`Watermark::reanchor`] |
 ///
 /// 换算偏差的两个方向安全性不同（这是 `acked` 取单调 max 的理由）：
@@ -315,6 +382,21 @@ struct TerminalConnection {
     /// 交付水位（背压记账；`Watermark` 是 Copy，drain 期间在局部副本上推进，
     /// 轮末 / 早退时整体回写——**不跨宿主调用持锁**）
     watermark: Watermark,
+    /// 全新订阅的首拉待做「尾部裁剪 + 起点对齐」（issue #1 F3/F6）。
+    /// 宿主 fetch 放在锁外的 [`prepare_replay`] 里做；无论成败都清标记，
+    /// 只在订阅后的第一轮 drain 生效。
+    replay_pending: bool,
+    /// 本会话是 agent/TUI（差分全屏重绘）：重放**从环起点整段回放**，不裁尾巴。
+    ///
+    /// 差分 TUI 只在会话开始时发一次 `?1049h`（备用屏）/ `?7l`（关自动换行）/
+    /// `2J`（清屏），之后是「基于上一帧的差分重绘」。从任意后缀切片重放会让
+    /// 新 xterm 停在普通缓冲区、开启自动换行、缺半帧；之后 agent 的 diff 假设
+    /// 客户端屏幕等于自己上一帧的屏幕，未被更新的错行永久保留、不自愈。
+    /// 环上限 10 MiB 且 xterm scrollback 有限，整段回放的代价可接受。
+    replay_from_start: bool,
+    /// 首轮 drain 先下发 [`REPLAY_CLEAR_SEQUENCE`]（带内清屏）再送重放字节。
+    /// 发送失败保持置位，下一轮重发（宁可多清一次，不可丢清屏）。
+    replay_clear_pending: bool,
     mode: TerminalMode,
 }
 
@@ -323,13 +405,16 @@ static CONNECTIONS: Mutex<Vec<TerminalConnection>> = Mutex::new(Vec::new());
 
 // ==================== 连接状态 ====================
 
-/// 以锁内可变引用执行操作（不存在 → `None`；锁损坏显性上抛）。
+/// 以锁内可变引用执行操作（不存在 → `None`；锁中毒 → 恢复内部值）。
 ///
 /// wasm 单线程（同实例串行）：锁只作进程级静态表的互斥纪律，回调内不再嵌套
 /// 取锁（发送等宿主调用不重入本表），闭包执行期间不会产生重入死锁。
+///
+/// 中毒（持锁期间 panic）按 [`crate::lock::lock_or_recover`] 的统一口径恢复，
+/// **不**显性上抛：wasm 里 `expect` 是整插件 trap，比「连接表继续用」更糟。
 #[cfg(target_arch = "wasm32")]
 fn with_conn<R>(client_id: &str, f: impl FnOnce(&mut TerminalConnection) -> R) -> Option<R> {
-    let mut table = CONNECTIONS.lock().unwrap_or_else(|e| e.into_inner());
+    let mut table = lock_or_recover(&CONNECTIONS);
     let conn = table.iter_mut().find(|c| c.client_id == client_id)?;
     Some(f(conn))
 }
@@ -337,7 +422,7 @@ fn with_conn<R>(client_id: &str, f: impl FnOnce(&mut TerminalConnection) -> R) -
 /// 连接接入时登记空状态（client-connect 事件驱动；幂等）
 #[cfg(target_arch = "wasm32")]
 pub fn on_client_connect(client_id: &str, endpoint_id: &str) {
-    let mut table = CONNECTIONS.lock().unwrap_or_else(|e| e.into_inner());
+    let mut table = lock_or_recover(&CONNECTIONS);
     if !table.iter().any(|c| c.client_id == client_id) {
         table.push(TerminalConnection {
             client_id: client_id.to_string(),
@@ -346,6 +431,9 @@ pub fn on_client_connect(client_id: &str, endpoint_id: &str) {
             pty_id: None,
             cursor: 0,
             watermark: Watermark::default(),
+            replay_pending: false,
+            replay_from_start: false,
+            replay_clear_pending: false,
             mode: TerminalMode::Live,
         });
     }
@@ -354,7 +442,7 @@ pub fn on_client_connect(client_id: &str, endpoint_id: &str) {
 /// 连接断开：摘除该连接的订阅态（client-disconnect 事件驱动；幂等）
 #[cfg(target_arch = "wasm32")]
 pub fn on_client_disconnect(client_id: &str) {
-    let mut table = CONNECTIONS.lock().unwrap_or_else(|e| e.into_inner());
+    let mut table = lock_or_recover(&CONNECTIONS);
     let before = table.len();
     table.retain(|c| c.client_id != client_id);
     if table.len() != before {
@@ -365,7 +453,7 @@ pub fn on_client_disconnect(client_id: &str) {
 /// 插件停用：清空全部订阅态（不残留连接级任务/状态）
 #[cfg(target_arch = "wasm32")]
 pub fn purge_all() {
-    let mut table = CONNECTIONS.lock().unwrap_or_else(|e| e.into_inner());
+    let mut table = lock_or_recover(&CONNECTIONS);
     if !table.is_empty() {
         WasmHost.log_info(&format!(
             "ws terminal: purged {} connection(s)",
@@ -384,6 +472,52 @@ fn tracing_dbg_disconnect(client_id: &str) {
 }
 
 // ==================== 入站帧处理（events-ws 回调） ====================
+
+/// 错误帧机器可读码：会话不存在（启动竞态 / 已停止）
+///
+/// **跨端只认这个字段**：移动端据此决定「计 strikes / 退避重试」。靠中文文案
+/// 匹配时，桌面改一个字（英文 / i18n / 标点）就静默失效 → strikes 永远到不了
+/// 上限 → 前端 3s 重试循环无限打，终端永久「重连中」。
+#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+pub const ERR_CODE_SESSION_MISSING: &str = "session_missing";
+
+/// 错误帧机器可读码：其余一切（帧形状非法 / 未订阅 / 宿主调用失败）
+#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+pub const ERR_CODE_OTHER: &str = "other";
+
+/// 入站帧处理错误：`code` 是跨端 wire 契约，`message` 仅供人读
+#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TerminalError {
+    code: &'static str,
+    message: String,
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+impl TerminalError {
+    fn new(code: &'static str, message: impl Into<String>) -> Self {
+        Self {
+            code,
+            message: message.into(),
+        }
+    }
+
+    fn other(message: impl Into<String>) -> Self {
+        Self::new(ERR_CODE_OTHER, message)
+    }
+}
+
+impl From<String> for TerminalError {
+    fn from(message: String) -> Self {
+        Self::other(message)
+    }
+}
+
+/// 错误帧载荷（`code` 必须在：跨端行为不得绑在人类可读文案上）
+#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+fn error_frame_json(err: &TerminalError) -> String {
+    serde_json::json!({ "type": "error", "code": err.code, "message": err.message }).to_string()
+}
 
 /// 帧 JSON 的词表（小写 `type` 字段；未知/畸形 → 显性 error 帧）
 #[derive(Debug, serde::Deserialize)]
@@ -408,7 +542,7 @@ struct TerminalFrame {
 fn handle_text_frame(
     conn: &mut TerminalConnection,
     frame: &serde_json::Value,
-) -> Result<bool, String> {
+) -> Result<bool, TerminalError> {
     let parsed: TerminalFrame = serde_json::from_value(frame.clone())
         .map_err(|e| format!("invalid terminal frame: {e}"))?;
     match parsed.frame_type.as_str() {
@@ -416,12 +550,16 @@ fn handle_text_frame(
             let session_id = parsed
                 .session_id
                 .filter(|s| !s.is_empty())
-                .ok_or_else(|| "subscribe: missing sessionId".to_string())?;
-            let record = crate::session::record_via_host(&session_id)?
-                .ok_or_else(|| format!("会话不存在：{session_id}"))?;
+                .ok_or_else(|| TerminalError::other("subscribe: missing sessionId"))?;
+            let record = crate::session::record_via_host(&session_id)?.ok_or_else(|| {
+                TerminalError::new(
+                    ERR_CODE_SESSION_MISSING,
+                    format!("会话不存在：{session_id}"),
+                )
+            })?;
             let pty_id = record
                 .pty_id
-                .ok_or_else(|| format!("会话缺少 PTY 句柄：{session_id}"))?;
+                .ok_or_else(|| TerminalError::other(format!("会话缺少 PTY 句柄：{session_id}")))?;
             let mode = match parsed.mode.as_deref() {
                 Some("poll") => TerminalMode::Poll,
                 _ => TerminalMode::Live,
@@ -437,6 +575,13 @@ fn handle_text_frame(
             conn.pty_id = Some(pty_id);
             conn.cursor = 0;
             conn.watermark.reset();
+            // 首轮 drain 前做「尾部窗口裁剪 + 起点对齐」（F3/F6）；宿主调用在
+            // 锁外的 prepare_replay 里执行
+            conn.replay_pending = true;
+            // agent/TUI 会话整段回放（P0-2）：差分全屏重绘没有自洽的后缀切片
+            conn.replay_from_start = record.agent_id.is_some();
+            // 带内清屏（P0-3）：与重放字节同序，前端不再依赖带外事件清屏
+            conn.replay_clear_pending = true;
             conn.mode = mode;
             Ok(true)
         }
@@ -452,6 +597,9 @@ fn handle_text_frame(
             conn.session_id = None;
             conn.pty_id = None;
             conn.cursor = 0;
+            conn.replay_pending = false;
+            conn.replay_from_start = false;
+            conn.replay_clear_pending = false;
             Ok(false)
         }
         // 流控信号：客户端按 **xterm 解析完成水位**确认已消费的本地累计字节。
@@ -468,7 +616,7 @@ fn handle_text_frame(
         "ack" => {
             let offset = parsed
                 .offset
-                .ok_or_else(|| "ack: missing offset".to_string())?;
+                .ok_or_else(|| TerminalError::other("ack: missing offset"))?;
             conn.watermark.note_acked_local(offset);
             Ok(true)
         }
@@ -476,7 +624,7 @@ fn handle_text_frame(
         "resync" => {
             let offset = parsed
                 .offset
-                .ok_or_else(|| "resync: missing offset".to_string())?;
+                .ok_or_else(|| TerminalError::other("resync: missing offset"))?;
             conn.cursor = offset;
             conn.watermark.reanchor(offset);
             Ok(true)
@@ -484,33 +632,38 @@ fn handle_text_frame(
         "input" => {
             let data = parsed
                 .data
-                .ok_or_else(|| "input: missing data".to_string())?;
+                .ok_or_else(|| TerminalError::other("input: missing data"))?;
             let pty_id = conn
                 .pty_id
                 .clone()
-                .ok_or_else(|| "input: 未订阅会话".to_string())?;
-            WasmHost
-                .pty_write(&pty_id, data.as_bytes())
-                .map_err(|e| format!("host pty write failed: {}", e.message))?;
+                .ok_or_else(|| TerminalError::other("input: 未订阅会话"))?;
+            WasmHost.pty_write(&pty_id, data.as_bytes()).map_err(|e| {
+                TerminalError::other(format!("host pty write failed: {}", e.message))
+            })?;
             // 输入后立即 drain（回声与随输入产生的输出即时返回）
             Ok(true)
         }
         "poll" => Ok(true),
-        other => Err(format!("unknown terminal frame type: {other}")),
+        other => Err(TerminalError::other(format!(
+            "unknown terminal frame type: {other}"
+        ))),
     }
 }
 
 /// 二进制帧 = 原始输入字节（可含控制字符）→ 直写 PTY（特殊键由插件 keys.rs
 /// 翻译，但客户端也可直接发送原始控制字节；这里不做二次解释）
 #[cfg(target_arch = "wasm32")]
-fn handle_binary_frame(conn: &mut TerminalConnection, payload: &[u8]) -> Result<bool, String> {
+fn handle_binary_frame(
+    conn: &mut TerminalConnection,
+    payload: &[u8],
+) -> Result<bool, TerminalError> {
     let pty_id = conn
         .pty_id
         .clone()
-        .ok_or_else(|| "binary input: 未订阅会话".to_string())?;
+        .ok_or_else(|| TerminalError::other("binary input: 未订阅会话"))?;
     WasmHost
         .pty_write(&pty_id, payload)
-        .map_err(|e| format!("host pty write failed: {}", e.message))?;
+        .map_err(|e| TerminalError::other(format!("host pty write failed: {}", e.message)))?;
     Ok(true)
 }
 
@@ -532,26 +685,24 @@ pub fn on_client_message(
                 let text = String::from_utf8_lossy(payload);
                 match serde_json::from_str::<serde_json::Value>(&text) {
                     Ok(frame) => handle_text_frame(conn, &frame),
-                    Err(e) => Err(format!("terminal frame 非 JSON: {e}")),
+                    Err(e) => Err(TerminalError::other(format!("terminal frame 非 JSON: {e}"))),
                 }
             }
             "binary" => handle_binary_frame(conn, payload),
-            other => Err(format!("unknown frame kind: {other}")),
+            other => Err(TerminalError::other(format!("unknown frame kind: {other}"))),
         };
         match result {
             Ok(need) => need,
             Err(e) => {
-                let _ = send_text(
-                    endpoint_id,
-                    client_id,
-                    &serde_json::json!({ "type": "error", "message": e }).to_string(),
-                );
+                let _ = send_text(endpoint_id, client_id, &error_frame_json(&e));
                 false
             }
         }
     })
     .unwrap_or(false);
     if need_drain {
+        // 首拉（subscribe 后第一轮）：先把重放窗口裁到尾部并对齐起点
+        prepare_replay(client_id);
         drain_for(endpoint_id, client_id).map_err(anyhow::Error::msg)?;
     }
     Ok(())
@@ -559,24 +710,183 @@ pub fn on_client_message(
 
 // ==================== 输出泵（有界 drain） ====================
 
-/// 对指定连接做一轮有界 drain：背压裁决 → 逐次 ring-fetch 直到追平 / 预算用尽 /
-/// 环淘汰（truncated → 先发 `ring_resync` 再照发本块驻留数据）
+/// 探测环生产端累计偏移（宿主只暴露 `fetch`，没有水位查询接口）。
+///
+/// 语义依据（宿主 `pty_ring_fetch`）：`fetch(offset)` 在 `offset ≥ max_offset`
+/// 时返回 `Ok(None)`，否则返回 `Some`（含「游标落后于驻留起点」的 truncated 块）。
+/// 因此用「指数扩张找上界 + 二分找边界」即可，约 `2·log2(环字节数)` 次宿主调用、
+/// 每次 1 字节（10 MiB 环约 13 次），不必为拿一个偏移把整个环拉一遍。
+///
+/// 返回 `None` = 探测失败（宿主错误 / 溢出），调用方放弃裁剪、按原样从游标回放。
 #[cfg(target_arch = "wasm32")]
-fn drain_for(endpoint_id: &str, client_id: &str) -> Result<(), String> {
-    // 水位在局部副本上推进，轮末 / 早退时整体回写（不跨宿主调用持连接表锁）
-    let (session_id, pty_id, mut cursor, mut watermark) = match with_conn(client_id, |c| {
+fn probe_producer(pty_id: &str, cursor: u64) -> Option<u64> {
+    let has_data = |offset: u64| -> Option<bool> {
+        WasmHost
+            .pty_ring_fetch(pty_id, offset, 1)
+            .ok()
+            .map(|fetched| fetched.is_some())
+    };
+
+    // 已追平：生产端就是游标（空环 / 无新输出）
+    if !has_data(cursor)? {
+        return Some(cursor);
+    }
+
+    let mut lo = cursor;
+    let mut hi = cursor.saturating_add(REPLAY_ALIGN_SCAN_BYTES as u64);
+    loop {
+        if !has_data(hi)? {
+            break;
+        }
+        lo = hi;
+        hi = hi.checked_mul(2)?;
+    }
+    while hi.saturating_sub(lo) > 1 {
+        let mid = lo + (hi - lo) / 2;
+        if has_data(mid)? {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    Some(hi)
+}
+
+/// 全新订阅的首拉准备（issue #1 F3/F6）：把重放窗口裁到环尾部，并让起点落在
+/// 行首 / ESC / UTF-8 字符边界上。
+///
+/// 必须在 `CONNECTIONS` 锁外执行（含两次宿主 fetch），状态回写再取一次锁。
+/// 只在订阅后的第一轮 drain 前调用一次（`replay_pending` 门控）；失败也清标记
+/// ——重放对齐是体验优化，不能因为它让订阅永久停在未拉取状态。
+///
+/// 两类会话的起点口径（P0-2）：
+/// - agent/TUI（[`TerminalConnection::replay_from_start`]）：**从环起点 0 回放**，
+///   不做尾部裁剪也不做对齐（对齐会吞掉开头那几条建立帧）；
+/// - 其余（行式 shell）：保留 1 MiB 尾窗 + 行首/ESC 对齐（issue #1 F3/F6）。
+#[cfg(target_arch = "wasm32")]
+fn prepare_replay(client_id: &str) {
+    let state = with_conn(client_id, |c| {
         (
-            c.session_id.clone(),
+            c.replay_pending,
             c.pty_id.clone(),
             c.cursor,
-            c.watermark,
+            c.replay_from_start,
         )
-    }) {
-        Some((Some(session_id), Some(pty_id), cursor, watermark)) => {
-            (session_id, pty_id, cursor, watermark)
+    })
+    .and_then(|(pending, pty, cursor, from_start)| {
+        if pending {
+            pty.map(|p| (p, cursor, from_start))
+        } else {
+            None
         }
-        _ => return Ok(()), // 未订阅 / 无句柄：无事可拉
+    });
+    let Some((pty_id, cursor, from_start)) = state else {
+        return;
     };
+
+    let (aligned, producer) = if from_start {
+        // 差分 TUI：从 0 整段回放（`?1049h` / `?7l` / `2J` 都在头部）
+        (0, None)
+    } else {
+        // 生产端累计偏移（宿主无水位查询，用 fetch 边界二分探测）
+        let Some(producer) = probe_producer(&pty_id, cursor) else {
+            let _ = with_conn(client_id, |c| c.replay_pending = false);
+            return;
+        };
+
+        let desired = replay_tail_start(producer).max(cursor);
+        let aligned = match WasmHost.pty_ring_fetch(&pty_id, desired, REPLAY_ALIGN_SCAN_BYTES) {
+            Ok(Some(f)) if !f.data.is_empty() => {
+                let block_start = f.next_offset.saturating_sub(f.data.len() as u64);
+                if block_start == 0 {
+                    // 会话起点（环未被裁过、也未做尾部裁剪）：本身就从第一行开始，
+                    // 对齐反而会吞掉首行（提示符 / 首条输出）
+                    0
+                } else {
+                    block_start.saturating_add(replay_align_skip(&f.data) as u64)
+                }
+            }
+            _ => desired,
+        };
+        (aligned, Some(producer))
+    };
+
+    let changed = aligned > cursor;
+    let _ = with_conn(client_id, |c| {
+        c.replay_pending = false;
+        if aligned > c.cursor {
+            c.cursor = aligned;
+            // 客户端收到的第一个字节就在 aligned：本地 ack 零点 = 该偏移
+            // （与 subscribe 归零 / ring_resync 重锚同一套换算，见 Watermark 头注）
+            c.watermark.reanchor(aligned);
+        }
+    });
+    if changed || from_start {
+        WasmHost.log_debug(&format!(
+            "ws terminal: 重放窗口对齐（client_id={client_id}, producer={}, start={aligned}, from_start={from_start}, tail_cap={REPLAY_TAIL_BYTES}）",
+            producer.map_or_else(|| "-".to_string(), |p| p.to_string())
+        ));
+    }
+}
+
+/// 单轮 drain 依赖的宿主面（wasm = `WasmHost`，native 单测 = 假实现）
+///
+/// 抽这一层的唯一目的是让「一轮推进到哪」可**行为**测：M2 那类「早退跳过轮末
+/// 回写 → 已送达字节重发」的缺陷用源码文本断言测不出来（旧测试反而把错误行为
+/// 钉成了契约）。native 构建里只有测试会实现它。
+#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+trait DrainPort {
+    fn fetch(&self, pty_id: &str, from: u64, max: u32) -> Result<Option<PtyRingFetch>, String>;
+    fn send_binary(&self, endpoint_id: &str, client_id: &str, data: &[u8]) -> Result<(), String>;
+    fn send_text(&self, endpoint_id: &str, client_id: &str, text: &str) -> Result<(), String>;
+    fn log_debug(&self, msg: &str);
+    fn log_warn(&self, msg: &str);
+}
+
+/// 一轮 drain 的局部推进态（不跨宿主调用持连接表锁）
+///
+/// **只在成功下发后推进**：调用方拿到它以后必须**无条件**回写连接表——早退也
+/// 不豁免。不回写 = 下一轮从旧游标重发已送达字节（客户端重复输出，M2）。
+#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+#[derive(Debug, Clone, Copy)]
+struct DrainState {
+    cursor: u64,
+    watermark: Watermark,
+    /// 本轮先发带内清屏前缀（订阅首拉置位；下发成功才清）
+    clear_pending: bool,
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+impl DrainState {
+    /// 本块（及其重锚帧）已送达 → 推进游标与推送水位
+    ///
+    /// 截断块的重锚基准 = **块起点**（`next_offset - data.len()`）而不是
+    /// `next_offset`：多算一整块会让客户端把从未收到的字节当成已确认。
+    fn commit_block(&mut self, block_start: u64, next_offset: u64, truncated: bool) {
+        // 带内清屏不推进游标/水位：它是合成字节，不属于环。客户端 ack 里会把这
+        // 十几个字节计入本地累计（`acked` 轻微偏大 = 少抑制），方向安全。
+        if truncated {
+            self.watermark.reanchor(block_start);
+        }
+        self.cursor = next_offset;
+        self.watermark.note_pushed(next_offset);
+    }
+}
+
+/// 有界 drain 一轮：背压裁决 → 逐次 ring-fetch 直到追平 / 预算用尽 / 环淘汰
+/// （truncated → 先发 `ring_resync` 再照发本块驻留数据）
+///
+/// **只推进 `state`，不碰连接表**：宿主调用全部发生在这一层，调用方在锁内取
+/// 快照、锁外驱动、结束后回写（不跨宿主调用持锁，也保证早退不丢进度）。
+#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+fn drain_round<P: DrainPort>(
+    port: &P,
+    endpoint_id: &str,
+    client_id: &str,
+    session_id: &str,
+    pty_id: &str,
+    state: &mut DrainState,
+) -> Result<(), String> {
     let mut fetches = 0;
     loop {
         if fetches >= MAX_FETCHES_PER_CYCLE {
@@ -586,13 +896,13 @@ fn drain_for(endpoint_id: &str, client_id: &str) -> Result<(), String> {
         // 背压：未确认积压达上沿 → 本轮不拉不推（数据留在宿主环内等 ack 回落）。
         // 每轮重裁而不是只在轮首裁一次：轮内多次 fetch 会推高 `pushed`。
         // 驻留 / 解除只在**状态翻转**那一轮打日志（驻留期每轮都打会刷屏）。
-        let was_parked = watermark.parked;
-        match watermark.gate(cursor) {
+        let was_parked = state.watermark.parked;
+        match state.watermark.gate(state.cursor) {
             Gate::Allow => {
                 if was_parked {
-                    WasmHost.log_debug(&format!(
+                    port.log_debug(&format!(
                         "ws terminal: 输出背压解除驻留（client_id={client_id}, session_id={session_id}, unacked={}, low={LOW_WATER_BYTES}）",
-                        watermark.unacked()
+                        state.watermark.unacked()
                     ));
                 }
             }
@@ -600,22 +910,33 @@ fn drain_for(endpoint_id: &str, client_id: &str) -> Result<(), String> {
                 // 抗死锁强放行：正常背压下不可能发生（ack 会逐格推进），
                 // 发生即意味着 base 换算 / 客户端基准归零与插件重锚失配。
                 // **必须 warn**（不是 debug）：这是「背压机制本身出错」的唯一信号。
-                WasmHost.log_warn(&format!(
+                port.log_warn(&format!(
                     "ws terminal: 背压逃生强制放行（client_id={client_id}, session_id={session_id}, 连续 {PARK_MAX_CYCLES} 轮抑制仍无 ack 回落，base={}——基准换算错位?）",
-                    watermark.base
+                    state.watermark.base
                 ));
             }
             Gate::Throttle { unacked } => {
                 if !was_parked {
-                    WasmHost.log_debug(&format!(
+                    port.log_debug(&format!(
                         "ws terminal: 输出背压驻留（client_id={client_id}, session_id={session_id}, unacked={unacked}, high={HIGH_WATER_BYTES}）"
                     ));
                 }
                 break;
             }
         }
+        // 带内清屏（P0-3）：与重放字节同序，必须先于首块数据。发送失败就停在
+        // 本轮不拉数据（否则旧内容继续叠在新流上），下一轮重发。
+        if state.clear_pending {
+            if let Err(e) = port.send_binary(endpoint_id, client_id, REPLAY_CLEAR_SEQUENCE) {
+                port.log_debug(&format!(
+                    "ws terminal: 重放清屏发送失败，本轮不拉数据待重试（client_id={client_id}）: {e}"
+                ));
+                return Ok(());
+            }
+            state.clear_pending = false;
+        }
         fetches += 1;
-        match WasmHost.pty_ring_fetch(&pty_id, cursor, MAX_FETCH_BYTES) {
+        match port.fetch(pty_id, state.cursor, MAX_FETCH_BYTES) {
             Ok(Some(fetched)) => {
                 // 本块起点（环绝对偏移）= 客户端即将收到的第一个字节：未截断时
                 // 就是请求游标，截断时是环驻留起点（`next_offset - data.len()`）。
@@ -625,27 +946,40 @@ fn drain_for(endpoint_id: &str, client_id: &str) -> Result<(), String> {
                         .next_offset
                         .saturating_sub(fetched.data.len() as u64)
                 } else {
-                    cursor
+                    state.cursor
                 };
                 if fetched.truncated {
                     // 环已淘汰游标之前的字节：显式重锚协议（客户端清屏续拉）。
                     //
                     // **必须先把重锚帧发出去**：客户端的本地计数基准只在重锚时
                     // 归零，发不出去就等于双方基准失配（后续 ack 全是错值）。
-                    // 发不出去（邮箱满）时**不持久化本轮任何状态**直接返回：
-                    // 截断只可能发生在本轮第一次 fetch（`min_offset` 单调，
-                    // 游标一旦 ≥ min_offset 就不再截断），所以此刻没有「已成功
-                    // 下发的前缀」需要保留，游标停在旧值 → 下轮重新截断 → 重锚
-                    // 帧重发。宁可多拉一轮，不可丢了重锚信号。
-                    if let Err(e) = send_text(
+                    // 发不出去（邮箱满）时直接结束本轮且不推进任何状态：截断只
+                    // 可能发生在本轮第一次 fetch（`min_offset` 单调，游标一旦
+                    // ≥ min_offset 就不再截断），所以此刻没有「已成功下发的前缀」
+                    // 需要保留，游标停在旧值 → 下轮重新截断 → 重锚帧重发。
+                    // 宁可多拉一轮，不可丢了重锚信号。
+                    if let Err(e) = port.send_text(
                         endpoint_id,
                         client_id,
-                        &ring_resync_payload(cursor, block_start).to_string(),
+                        &ring_resync_payload(state.cursor, block_start).to_string(),
                     ) {
-                        WasmHost.log_warn(&format!(
+                        port.log_warn(&format!(
                             "ws terminal: ring_resync 发送失败，游标不前进待下轮重试（client_id={client_id}）: {e}"
                         ));
                         return Ok(());
+                    }
+                    // 环淘汰后的续拉起点同样是任意字节位置：带内清屏与重锚帧
+                    // 同序下发，客户端不再靠带外事件清屏（P0-3）。清屏发不出去
+                    // 同样不推进（与重锚帧一致：宁可多拉一轮，不可留脏屏）。
+                    if !fetched.data.is_empty() {
+                        if let Err(e) =
+                            port.send_binary(endpoint_id, client_id, REPLAY_CLEAR_SEQUENCE)
+                        {
+                            port.log_debug(&format!(
+                                "ws terminal: 重锚清屏发送失败，游标不前进待下轮重试（client_id={client_id}）: {e}"
+                            ));
+                            return Ok(());
+                        }
                     }
                 }
                 // 本块取到的 [block_start, next_offset) 是**有效连续字节**：
@@ -657,26 +991,18 @@ fn drain_for(endpoint_id: &str, client_id: &str) -> Result<(), String> {
                 // 本块却没发出去时若照旧推进，客户端被告知从 block_start 续拉，
                 // 而这段字节永远不会再发 = 转义序列中段的静默洞。
                 if !fetched.data.is_empty() {
-                    if let Err(e) =
-                        WasmHost.ws_send_binary_to_client(endpoint_id, client_id, &fetched.data)
-                    {
+                    if let Err(e) = port.send_binary(endpoint_id, client_id, &fetched.data) {
                         // 慢客户端/队列满：只停本人（fail-visible debug 留痕），
-                        // 不阻塞 PTY 产出与其他连接。**不回写任何推进**：游标与
-                        // 基准停在旧值，下轮必然重新截断 → 重发重锚帧 + 本块。
-                        WasmHost.log_debug(&format!(
-                            "ws terminal: send to slow client failed (client_id={client_id}): {}",
-                            e.message
+                        // 不阻塞 PTY 产出与其他连接。本块不 commit → 游标停在块
+                        // 起点，下轮重发本块；本轮此前已送达的块照旧回写（否则
+                        // 重发 = 重复输出，M2）。
+                        port.log_debug(&format!(
+                            "ws terminal: send to slow client failed (client_id={client_id}): {e}"
                         ));
                         return Ok(());
                     }
                 }
-                if fetched.truncated {
-                    // 重锚帧与块数据都已送达，此刻才切换基准（#10：基准 = 块起点，
-                    // 且 acked 抬到新基准，否则下一轮立刻假驻留）
-                    watermark.reanchor(block_start);
-                }
-                cursor = fetched.next_offset;
-                watermark.note_pushed(fetched.next_offset);
+                state.commit_block(block_start, fetched.next_offset, fetched.truncated);
                 // 无新数据（fetch 返回空块但未追平）→ 停止本轮，防空转
                 if fetched.data.is_empty() {
                     break;
@@ -699,11 +1025,82 @@ fn drain_for(endpoint_id: &str, client_id: &str) -> Result<(), String> {
             }
         }
     }
-    with_conn(client_id, |c| {
-        c.cursor = cursor;
-        c.watermark = watermark;
-    });
     Ok(())
+}
+
+/// 对指定连接做一轮有界 drain（wasm 路径：锁内快照 → 锁外一轮 → 无条件回写）
+#[cfg(target_arch = "wasm32")]
+fn drain_for(endpoint_id: &str, client_id: &str) -> Result<(), String> {
+    // 水位在局部副本上推进，轮末整体回写（不跨宿主调用持连接表锁）
+    let snapshot = with_conn(client_id, |c| {
+        Some((
+            c.session_id.clone()?,
+            c.pty_id.clone()?,
+            c.cursor,
+            c.watermark,
+            c.replay_clear_pending,
+        ))
+    })
+    .flatten();
+    let Some((session_id, pty_id, cursor, watermark, clear_pending)) = snapshot else {
+        return Ok(()); // 未订阅 / 无句柄：无事可拉
+    };
+    let mut state = DrainState {
+        cursor,
+        watermark,
+        clear_pending,
+    };
+    let result = drain_round(
+        &HostDrain,
+        endpoint_id,
+        client_id,
+        &session_id,
+        &pty_id,
+        &mut state,
+    );
+    // **无条件回写**（进度、早退、硬错误都不豁免）：已成功下发的块必须落地。
+    // 漏写的后果是下一轮从旧游标重发已送达字节 —— 客户端重复输出（M2）。
+    with_conn(client_id, |c| {
+        c.cursor = state.cursor;
+        c.watermark = state.watermark;
+        c.replay_clear_pending = state.clear_pending;
+    });
+    result
+}
+
+/// `DrainPort` 的 wasm 生产实现
+///
+/// 刻意用零宽 newtype 而不是直接 `impl DrainPort for WasmHost`：后者的
+/// `log_debug` / `log_warn` 会与 `HostLog` 的同名方法形成 E0034 多候选歧义
+/// （本文件其余地方全部用 `WasmHost.log_*` 的方法调用写法）。
+#[cfg(target_arch = "wasm32")]
+struct HostDrain;
+
+#[cfg(target_arch = "wasm32")]
+impl DrainPort for HostDrain {
+    fn fetch(&self, pty_id: &str, from: u64, max: u32) -> Result<Option<PtyRingFetch>, String> {
+        WasmHost
+            .pty_ring_fetch(pty_id, from, max)
+            .map_err(|e| e.message)
+    }
+
+    fn send_binary(&self, endpoint_id: &str, client_id: &str, data: &[u8]) -> Result<(), String> {
+        WasmHost
+            .ws_send_binary_to_client(endpoint_id, client_id, data)
+            .map_err(|e| format!("ws terminal: send-binary-to-client failed: {}", e.message))
+    }
+
+    fn send_text(&self, endpoint_id: &str, client_id: &str, text: &str) -> Result<(), String> {
+        send_text(endpoint_id, client_id, text)
+    }
+
+    fn log_debug(&self, msg: &str) {
+        WasmHost.log_debug(msg);
+    }
+
+    fn log_warn(&self, msg: &str) {
+        WasmHost.log_warn(msg);
+    }
 }
 
 /// 宿主限频唤醒驱动：某会话的环有新字节 → 该会话全部 live 订阅连接各拉一轮
@@ -716,7 +1113,7 @@ fn drain_for(endpoint_id: &str, client_id: &str) -> Result<(), String> {
 #[cfg(target_arch = "wasm32")]
 pub fn drain_session(session_id: &str) {
     let targets: Vec<(String, String)> = {
-        let table = CONNECTIONS.lock().unwrap_or_else(|e| e.into_inner());
+        let table = lock_or_recover(&CONNECTIONS);
         table
             .iter()
             .filter(|c| c.session_id.as_deref() == Some(session_id) && c.mode == TerminalMode::Live)
@@ -731,7 +1128,7 @@ pub fn drain_session(session_id: &str) {
 #[cfg(target_arch = "wasm32")]
 pub fn drain_all_on_tick() {
     let targets: Vec<(String, String)> = {
-        let table = CONNECTIONS.lock().unwrap_or_else(|e| e.into_inner());
+        let table = lock_or_recover(&CONNECTIONS);
         table
             .iter()
             .filter(|c| c.session_id.is_some() && c.mode == TerminalMode::Live)
@@ -759,7 +1156,7 @@ fn run_drains(targets: Vec<(String, String)>, trigger: &str) {
 /// 纯读：不建条目、不改状态。
 #[cfg(target_arch = "wasm32")]
 pub fn watermark_rows() -> Vec<WsWatermarkRow> {
-    let table = CONNECTIONS.lock().unwrap_or_else(|e| e.into_inner());
+    let table = lock_or_recover(&CONNECTIONS);
     table
         .iter()
         .filter_map(|c| {
@@ -794,7 +1191,7 @@ pub fn on_session_terminated(session_id: &str, reason: &str, exit_code: Option<i
     // pty_ring_fetch / ws_send_* 是宿主调用，持 CONNECTIONS 锁执行会在
     // 单线程运行时下被宿主重入（send 触发 client-disconnect）卡死整张表
     let mut snapshots: Vec<(String, String, String, String, u64)> = {
-        let mut table = CONNECTIONS.lock().unwrap_or_else(|e| e.into_inner());
+        let mut table = lock_or_recover(&CONNECTIONS);
         table
             .iter_mut()
             .filter(|c| c.session_id.as_deref() == Some(session_id))
@@ -860,8 +1257,8 @@ pub fn on_session_terminated(session_id: &str, reason: &str, exit_code: Option<i
                         }
                     }
                     if !fetched.data.is_empty() {
-                        if let Err(e) = WasmHost
-                            .ws_send_binary_to_client(endpoint_id, client_id, &fetched.data)
+                        if let Err(e) =
+                            WasmHost.ws_send_binary_to_client(endpoint_id, client_id, &fetched.data)
                         {
                             // 慢客户端：停本人（已重锚的先告警留痕），不空转重发同段
                             WasmHost.log_warn(&format!(
@@ -964,6 +1361,7 @@ pub fn on_session_terminated(_session_id: &str, _reason: &str, _exit_code: Optio
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::RefCell;
 
     // ---------- 测试工具：按花括号配平提取函数体（结构锁用） ----------
 
@@ -1240,112 +1638,326 @@ mod tests {
         );
     }
 
-    // ==================== 结构锁（三处修复不可静默回退） ====================
+    // ==================== drain 一轮（行为级：脚本化宿主面） ====================
 
-    /// S1 `drain_for` 的截断分支：**先发重锚帧 → 再发本块数据**，中间不得 break
+    /// 脚本化宿主：一个内存环 + 可注入的发送 / 拉取失败
     ///
-    /// 锁住的具体缺陷：早前实现把游标跳到 `next_offset` 后直接 `break`，
-    /// 本块取到的驻留字节从未下发而游标已跳过 → 每次重锚留一个客户端无从知晓
-    /// 的 ≤16 KiB 洞。行为路径是 wasm-only（native 跑不到），故钉源码结构。
-    #[test]
-    fn drain_sends_reanchor_frame_before_and_data_after() {
-        let body = fn_body(&source(), "fn drain_for(");
-        let resync = body
-            .find("ring_resync_payload(")
-            .unwrap_or_else(|| panic!("drain_for 必须用 ring_resync_payload 发重锚帧"));
-        let data_send = body
-            .find("ws_send_binary_to_client(")
-            .unwrap_or_else(|| panic!("drain_for 必须下发本块数据"));
-        assert!(
-            resync < data_send,
-            "重锚帧必须先于数据下发（客户端靠它先清屏再收新基准的字节）"
-        );
-        let between = &body[resync..data_send];
-        assert!(
-            !between.contains("break;"),
-            "重锚与补发数据之间不得 break：截断块里的驻留字节是有效连续字节，\
-             跳过它就是客户端无从知晓的字节洞（实测缺陷）"
-        );
+    /// 用真环而不是「块队列」：跨轮重复投递是 M2 的缺陷形态（第二轮从旧游标
+    /// 重拉），只有按 `from_offset` 读同一份字节才能观察到「重复输出」。
+    struct ScriptedDrain {
+        ring: Vec<u8>,
+        /// 环淘汰起点（`from_offset < min_offset` → truncated）
+        min_offset: u64,
+        fetch_offsets: RefCell<Vec<u64>>,
+        binary: RefCell<Vec<Vec<u8>>>,
+        text: RefCell<Vec<String>>,
+        /// 交付事件序（`text:...` / `binary:<len>`），用于断言帧序
+        events: RefCell<Vec<String>>,
+        sends: std::cell::Cell<usize>,
+        fetches: std::cell::Cell<usize>,
+        /// 第 N 次二进制发送（1-based）失败
+        fail_send_at: std::cell::Cell<Option<usize>>,
+        /// 第 N 次 fetch（1-based）硬失败
+        fail_fetch_at: std::cell::Cell<Option<usize>>,
+        fail_text: std::cell::Cell<bool>,
+        logs: RefCell<Vec<String>>,
     }
 
-    /// S2 `drain_for` 环淘汰时先发重锚帧，发不出去就**不推进游标**（保重试）
-    #[test]
-    fn failed_reanchor_frame_does_not_advance_cursor() {
-        let body = fn_body(&source(), "fn drain_for(");
-        let resync = body.find("ring_resync_payload(").expect("重锚帧");
-        let reanchor = body
-            .find("watermark.reanchor(")
-            .unwrap_or_else(|| panic!("重锚成功后必须推进基准"));
-        let persist = body
-            .find("c.watermark = watermark")
-            .unwrap_or_else(|| panic!("轮末必须回写水位"));
-        assert!(
-            resync < reanchor && reanchor < persist,
-            "重锚帧发送成功 → 推进基准 → 轮末回写；顺序颠倒会让客户端基准失配"
-        );
-        // 发送失败分支必须早退且不回写（游标停在旧值 → 下轮重新截断 → 重锚重发）
-        let fail_branch = &body[resync..reanchor];
-        assert!(
-            fail_branch.contains("ring_resync 发送失败") && fail_branch.contains("return Ok(())"),
-            "重锚帧发不出去必须显性留痕并早退，不得静默推进游标"
-        );
+    impl Default for ScriptedDrain {
+        fn default() -> Self {
+            Self {
+                ring: Vec::new(),
+                min_offset: 0,
+                fetch_offsets: RefCell::new(Vec::new()),
+                binary: RefCell::new(Vec::new()),
+                text: RefCell::new(Vec::new()),
+                events: RefCell::new(Vec::new()),
+                sends: std::cell::Cell::new(0),
+                fetches: std::cell::Cell::new(0),
+                fail_send_at: std::cell::Cell::new(None),
+                fail_fetch_at: std::cell::Cell::new(None),
+                fail_text: std::cell::Cell::new(false),
+                logs: RefCell::new(Vec::new()),
+            }
+        }
     }
 
-    /// S3 退出路径必须上报截断（尾帧缺口不得静默）
-    #[test]
-    fn exit_path_reports_truncation_before_stopped_frame() {
-        let body = fn_body(&source(), "pub fn on_session_terminated(");
-        let fetch = body.find("pty_ring_fetch(").expect("尾帧 fetch");
-        let resync = body.find("ring_resync_payload(").unwrap_or_else(|| {
-            panic!("退出路径必须检查 truncated 并发重锚帧（实测缺陷：尾帧缺口静默）")
-        });
-        let tail_send = body.find("ws_send_binary_to_client(").expect("尾帧下发");
-        assert!(
-            fetch < resync && resync < tail_send,
-            "顺序：fetch → 重锚帧 → 尾帧 → 停止帧"
-        );
-        // 停止帧发不出去必须留痕（客户端会一直等终态）
-        assert!(
-            body.contains("session_stopped 帧发送失败"),
-            "停止帧发送失败必须留痕，不得静默丢弃（客户端会永远等不到终态）"
-        );
+    impl ScriptedDrain {
+        fn with_ring(len: usize) -> Self {
+            Self {
+                ring: (0..len).map(|i| (i % 251) as u8).collect(),
+                ..Default::default()
+            }
+        }
+
+        /// 客户端实际收到的字节（跨轮拼接）
+        fn delivered(&self) -> Vec<u8> {
+            self.binary.borrow().concat()
+        }
     }
 
-    /// S7 截断 + 块发送失败：不得推进游标 / 基准（#11）
+    impl DrainPort for ScriptedDrain {
+        fn fetch(&self, _pty: &str, from: u64, max: u32) -> Result<Option<PtyRingFetch>, String> {
+            let n = self.fetches.get() + 1;
+            self.fetches.set(n);
+            self.fetch_offsets.borrow_mut().push(from);
+            if self.fail_fetch_at.get() == Some(n) {
+                return Err("pty ring fetch exploded".to_string());
+            }
+            let producer = self.ring.len() as u64;
+            if from >= producer {
+                return Ok(None);
+            }
+            let start = from.max(self.min_offset);
+            let end = (start + u64::from(max)).min(producer);
+            Ok(Some(PtyRingFetch {
+                data: self.ring[start as usize..end as usize].to_vec(),
+                next_offset: end,
+                truncated: from < start,
+            }))
+        }
+
+        fn send_binary(&self, _endpoint: &str, _client: &str, data: &[u8]) -> Result<(), String> {
+            let n = self.sends.get() + 1;
+            self.sends.set(n);
+            if self.fail_send_at.get() == Some(n) {
+                return Err("mailbox full".to_string());
+            }
+            self.binary.borrow_mut().push(data.to_vec());
+            self.events
+                .borrow_mut()
+                .push(format!("binary:{}", data.len()));
+            Ok(())
+        }
+
+        fn send_text(&self, _endpoint: &str, _client: &str, text: &str) -> Result<(), String> {
+            if self.fail_text.get() {
+                return Err("mailbox full".to_string());
+            }
+            self.text.borrow_mut().push(text.to_string());
+            self.events.borrow_mut().push(format!("text:{text}"));
+            Ok(())
+        }
+
+        fn log_debug(&self, msg: &str) {
+            self.logs.borrow_mut().push(format!("debug: {msg}"));
+        }
+
+        fn log_warn(&self, msg: &str) {
+            self.logs.borrow_mut().push(format!("warn: {msg}"));
+        }
+    }
+
+    fn fresh_state() -> DrainState {
+        DrainState {
+            cursor: 0,
+            watermark: Watermark::default(),
+            // 重放路径才打开；drain_round 单测默认不发清屏前缀（保持帧序断言简单）
+            clear_pending: false,
+        }
+    }
+
+    /// 带内清屏（P0-3）：开启后第一帧必须是清屏前缀，且只发一次
     ///
-    /// 反例：重锚帧已发（客户端已清屏、基准切到新位置）而本块二进制没发出去，
-    /// 若照旧推进游标，`[旧游标, next_offset)` 永远不会再发送——转义序列中段
-    /// 的静默洞，TUI 脏屏。判据：重锚只能在块数据送达后切换，失败分支直接
-    /// 返回且不写回任何推进。
+    /// 清屏与重放字节同一条 WS 流，顺序由帧序保证——这是替代「带外事件 +
+    /// terminal.clear()」的唯一可靠顺序。
     #[test]
-    fn failed_block_send_does_not_advance_after_reanchor() {
-        let body = fn_body(&source(), "fn drain_for(");
-        let data_send = body.find("ws_send_binary_to_client(").expect("数据下发");
-        let reanchor = body.find("watermark.reanchor(").expect("重锚基准切换");
-        assert!(
-            data_send < reanchor,
-            "重锚基准只能在块数据送达后切换（否则发送失败即静默丢块）"
+    fn replay_clear_prefix_is_sent_once_before_data() {
+        let port = ScriptedDrain::with_ring(1024);
+        let mut state = fresh_state();
+        state.clear_pending = true;
+
+        run_round(&port, &mut state).expect("首轮成功");
+        assert_eq!(
+            port.binary.borrow()[0],
+            REPLAY_CLEAR_SEQUENCE,
+            "首帧必须是清屏前缀（旧内容 → 清屏 → 重放）"
         );
-        assert!(
-            body.contains("ring_resync_payload(cursor, block_start)"),
-            "重锚 offset 必须是本块起点（next_offset 会把整块多算进已确认窗口）"
+        assert_eq!(
+            port.binary.borrow().len(),
+            2,
+            "清屏 + 一块数据；清屏不得重复"
         );
-        let fail_at = body[data_send..]
-            .find("send to slow client failed")
-            .expect("失败必须留痕");
-        let fail_branch = &body[data_send + fail_at..reanchor];
-        assert!(
-            fail_branch.contains("return Ok(());"),
-            "块发送失败必须早退（下轮重新截断 → 重发重锚帧 + 数据）"
+        assert!(!state.clear_pending, "发送成功后必须落地（已在轮末回写）");
+        assert_eq!(
+            port.delivered(),
+            [REPLAY_CLEAR_SEQUENCE, &port.ring[..]].concat(),
+            "清屏是合成字节，不得扰动环字节拼接"
         );
-        assert!(
-            !fail_branch.contains("c.cursor = cursor"),
-            "失败分支不得回写已推进的游标"
+        assert_eq!(state.cursor, 1024, "游标只按环字节推进");
+
+        // 第二轮不再重发清屏
+        let mut state = state;
+        run_round(&port, &mut state).expect("追平轮");
+        assert_eq!(port.binary.borrow().len(), 2);
+    }
+
+    /// 重放清屏发送失败：本轮不拉数据、保持 pending 待重试（不可丢清屏）
+    #[test]
+    fn replay_clear_send_failure_keeps_pending_and_sends_no_data() {
+        let port = ScriptedDrain::with_ring(1024);
+        port.fail_send_at.set(Some(1));
+        let mut state = fresh_state();
+        state.clear_pending = true;
+
+        run_round(&port, &mut state).expect("慢客户端不是硬错误");
+        assert_eq!(state.cursor, 0, "没有数据下发时游标不得推进");
+        assert!(state.clear_pending, "清屏未送达 → 下轮重发");
+        assert_eq!(port.fetch_offsets.borrow().len(), 0, "清屏失败就不该拉数据");
+
+        port.fail_send_at.set(None);
+        run_round(&port, &mut state).expect("重试成功");
+        assert_eq!(port.binary.borrow()[0], REPLAY_CLEAR_SEQUENCE);
+        assert_eq!(state.cursor, 1024);
+    }
+
+    fn run_round(port: &ScriptedDrain, state: &mut DrainState) -> Result<(), String> {
+        drain_round(port, "ep-1", "client-1", "session-1", "pty-1", state)
+    }
+
+    /// M2 回归（**行为级**）：第 1 块送达、第 2 块发送失败 → 本轮推进态必须停在
+    /// 第 1 块末尾；下一轮只补发第 2 块。
+    ///
+    /// 缺陷形态（旧实现）：慢客户端分支 `return Ok(())` 跳过轮末回写 → 连接表
+    /// 游标仍是 0 → 下一轮把第 1 块重发一遍，客户端看到重复输出（单轮上限
+    /// 7 × 16 KiB，反复失败持续累积）。旧测试只断言源码里有 `return`，反而把
+    /// 这个错误行为钉成了契约。
+    #[test]
+    fn delivered_prefix_is_kept_when_later_block_send_fails() {
+        let port = ScriptedDrain::with_ring(32_768);
+        port.fail_send_at.set(Some(2)); // 第 2 次二进制发送失败
+        let mut state = fresh_state();
+
+        run_round(&port, &mut state).expect("慢客户端不是硬错误");
+        assert_eq!(
+            state.cursor, 16_384,
+            "已成功下发的第 1 块必须留在推进态里（否则下一轮重发 = 重复输出）"
         );
-        assert!(
-            !fail_branch.contains("c.watermark = watermark"),
-            "失败分支不得回写已推进的水位"
+        assert_eq!(port.binary.borrow().len(), 1);
+
+        run_round(&port, &mut state).expect("续拉成功");
+        assert_eq!(
+            port.fetch_offsets.borrow()[..3],
+            [0, 16_384, 16_384],
+            "第二轮必须从第 1 块末尾续拉（第三拉 = 16 384，不是 0）"
         );
+        assert_eq!(state.cursor, 32_768);
+        assert_eq!(
+            port.delivered(),
+            port.ring,
+            "跨轮投递必须是环字节的原样拼接：重复 = 缺陷，缺失 = 字节洞"
+        );
+    }
+
+    /// M2 同族（硬错误）：fetch 中途硬失败不豁免回写——已下发的前缀照样落地
+    #[test]
+    fn hard_fetch_error_still_keeps_delivered_prefix() {
+        let port = ScriptedDrain::with_ring(32_768);
+        port.fail_fetch_at.set(Some(2));
+        let mut state = fresh_state();
+
+        let err = run_round(&port, &mut state).expect_err("fetch 硬失败必须上抛");
+        assert!(err.contains("pty ring fetch failed"), "{err}");
+        assert_eq!(state.cursor, 16_384, "错误上抛不等于丢弃已送达进度");
+        assert_eq!(port.delivered().len(), 16_384);
+    }
+
+    /// 环淘汰：先发重锚帧（offset = **块起点**）再发本块数据；推进基准 = 块起点
+    ///
+    /// 旧实现把游标跳到 `next_offset` 后直接 break，本块驻留字节从未下发 →
+    /// 每次重锚留一个客户端无从知晓的 ≤16 KiB 洞。
+    #[test]
+    fn truncated_block_sends_reanchor_frame_first_then_its_bytes() {
+        let mut port = ScriptedDrain::with_ring(5_000);
+        port.min_offset = 4_900;
+        let mut state = fresh_state();
+
+        run_round(&port, &mut state).expect("重锚轮成功");
+
+        assert_eq!(
+            port.events.borrow().len(),
+            3,
+            "一轮 = 重锚帧 + 带内清屏 + 一块数据：{:?}",
+            port.events.borrow()
+        );
+        assert_eq!(
+            port.binary.borrow()[0],
+            REPLAY_CLEAR_SEQUENCE,
+            "重锚后的续拉起点是任意字节位置：必须先清屏再续画"
+        );
+        let resync: serde_json::Value =
+            serde_json::from_str(&port.text.borrow()[0]).expect("重锚帧是 JSON");
+        assert_eq!(resync["type"], "ring_resync");
+        assert_eq!(
+            resync["offset"], 4_900,
+            "重锚基准必须是块起点（next_offset 会把整块多算进已确认窗口）"
+        );
+        assert_eq!(resync["gapFrom"], 0, "缺口起点 = 被淘汰前的请求游标");
+        assert_eq!(
+            port.delivered(),
+            [REPLAY_CLEAR_SEQUENCE, &port.ring[4_900..]].concat(),
+            "盒内驻留字节是有效连续字节，必须随重锚帧之后下发（不得跳过）"
+        );
+        assert_eq!(state.cursor, 5_000);
+        assert_eq!(state.watermark.base, 4_900, "基准 = 客户端收到的第一个字节");
+    }
+
+    /// 重锚帧发不出去：本轮不推进任何状态（游标停在旧值 → 下轮重新截断 →
+    /// 重锚帧重发）。宁可多拉一轮，不可丢了重锚信号。
+    #[test]
+    fn reanchor_frame_failure_does_not_advance_or_deliver() {
+        let mut port = ScriptedDrain::with_ring(5_000);
+        port.min_offset = 4_900;
+        port.fail_text.set(true);
+        let mut state = fresh_state();
+
+        run_round(&port, &mut state).expect("邮箱满不是硬错误");
+        assert_eq!(state.cursor, 0);
+        assert_eq!(state.watermark, Watermark::default());
+        assert!(port.delivered().is_empty(), "重锚帧没送达时不得下发数据");
+        assert!(
+            port.logs
+                .borrow()
+                .iter()
+                .any(|l| l.contains("ring_resync 发送失败")),
+            "失败必须留痕（fail-visible）"
+        );
+    }
+
+    /// #11 回归（**行为级**）：截断块的重锚帧与清屏已送达、块数据却发不出去 →
+    /// 基准与游标都不得推进。
+    ///
+    /// 反例：重锚帧已让客户端清屏并把基准切到新位置，若照旧推进游标，
+    /// `[旧游标, next_offset)` 永远不会再发送——转义序列中段的静默洞 + 脏屏。
+    #[test]
+    fn truncated_block_send_failure_rolls_back_reanchor() {
+        let mut port = ScriptedDrain::with_ring(5_000);
+        port.min_offset = 4_900;
+        // 第 1 次二进制 = 重锚清屏，第 2 次 = 块数据（让块数据失败）
+        port.fail_send_at.set(Some(2));
+        let mut state = fresh_state();
+
+        run_round(&port, &mut state).expect("慢客户端不是硬错误");
+        assert_eq!(state.cursor, 0, "块数据没送达时游标不得推进");
+        assert_eq!(state.watermark.base, 0, "基准不得先于块数据切换");
+        assert_eq!(state.watermark.acked, 0);
+        assert_eq!(port.delivered(), REPLAY_CLEAR_SEQUENCE, "只送达了清屏前缀");
+
+        // 下一轮恢复：重锚帧重发 + 驻留字节补发（与客户端基准一致）
+        port.fail_send_at.set(None);
+        run_round(&port, &mut state).expect("重试成功");
+        assert_eq!(state.cursor, 5_000);
+        assert_eq!(
+            port.delivered(),
+            [
+                REPLAY_CLEAR_SEQUENCE,
+                REPLAY_CLEAR_SEQUENCE,
+                &port.ring[4_900..]
+            ]
+            .concat(),
+            "重锚帧重试会再清一次（多清安全，不可漏清）"
+        );
+        assert_eq!(port.text.borrow().len(), 2, "重锚帧按重试语义重发");
     }
 
     /// S4 背压接线：ack 真参与记账 + 三个 drain 触发源齐备
@@ -1439,6 +2051,27 @@ mod tests {
         assert_eq!(parsed.mode.as_deref(), Some("poll"));
     }
 
+    /// 错误帧必须带机器可读 `code`（跨端行为不得绑在中文文案上）
+    ///
+    /// 反例（S5）：移动端靠 `message.contains("会话不存在")` 分类——桌面一改
+    /// 文案就静默退化成 `Other`，strikes 永远到不了上限，终端永久「重连中」。
+    #[test]
+    fn error_frame_carries_machine_readable_code() {
+        let session_missing =
+            TerminalError::new(ERR_CODE_SESSION_MISSING, "会话不存在：s-1".to_string());
+        let frame: serde_json::Value =
+            serde_json::from_str(&error_frame_json(&session_missing)).expect("error 帧是 JSON");
+        assert_eq!(frame["type"], "error");
+        assert_eq!(frame["code"], "session_missing");
+        assert_eq!(frame["message"], "会话不存在：s-1");
+
+        // `?` 传播的裸 String（宿主 / 发送失败）一律归到 other，不得误报会话缺失
+        let other: TerminalError = "host pty write failed: boom".to_string().into();
+        let frame: serde_json::Value =
+            serde_json::from_str(&error_frame_json(&other)).expect("error 帧是 JSON");
+        assert_eq!(frame["code"], ERR_CODE_OTHER);
+    }
+
     /// 结构锁一：终端协议生产路径**不经宿主会话/终端业务类型**——本文件实现段
     /// 不得出现 `Message::` / `SyncEvent::` / `SessionControlAction` / `hostBroadcastSessionId`
     #[test]
@@ -1470,6 +2103,92 @@ mod tests {
             violations.is_empty(),
             "ws_terminal 实现段不得出现宿主业务类型（票 04）：\n{}",
             violations.join("\n")
+        );
+    }
+
+    // ==================== 重放窗口（issue #1 F3/F6） ====================
+
+    /// F6：重放窗口裁到环尾部 1 MiB；不足上限时从头回放
+    #[test]
+    fn replay_tail_start_caps_window_and_keeps_short_history() {
+        assert_eq!(replay_tail_start(10 * 1024 * 1024), 9 * 1024 * 1024);
+        assert_eq!(replay_tail_start(REPLAY_TAIL_BYTES), 0);
+        assert_eq!(replay_tail_start(1234), 0, "短历史必须从头回放，不得裁空");
+        assert_eq!(replay_tail_start(0), 0);
+    }
+
+    /// F3：起点优先对齐行首（顶部不留半行）
+    #[test]
+    fn replay_align_skip_prefers_line_start() {
+        // 从行中段开始：跳过到下一个换行之后
+        assert_eq!(replay_align_skip(b"alf-line\r\nnext"), 10);
+        // 块尾刚好是换行：整块跳过（下一块本就从行首起）
+        assert_eq!(replay_align_skip(b"tail\n"), 5);
+        // 空块：不动
+        assert_eq!(replay_align_skip(b""), 0);
+    }
+
+    /// F3：无换行时退到 ESC 边界（进度条 / alt-screen 重绘常见）
+    #[test]
+    fn replay_align_skip_falls_back_to_escape_boundary() {
+        assert_eq!(
+            replay_align_skip(b"35mred\x1b[0m"),
+            6,
+            "首个 ESC 之前的前缀应当丢弃"
+        );
+        assert_eq!(replay_align_skip(b"abc\x1b[2J"), 3);
+    }
+
+    /// F3：纯文本退到 UTF-8 字符边界（不从中文字节中段开始）
+    #[test]
+    fn replay_align_skip_falls_back_to_utf8_boundary() {
+        // "中" = E4 B8 AD；从第二个续字节起 → 跳过 1 个续字节
+        assert_eq!(replay_align_skip(&[0xB8, 0xAD, b'a']), 2);
+        // 完整字符开头：不动
+        assert_eq!(replay_align_skip("中文".as_bytes()), 0);
+    }
+
+    /// 结构锁：订阅后首轮 drain 前必须做窗口准备，且宿主 fetch 不在连接锁内
+    #[test]
+    fn subscribe_prepares_replay_window_before_first_drain() {
+        let src = source();
+        assert!(
+            src.contains("conn.replay_pending = true"),
+            "全新订阅必须标记待准备（否则重放仍从环起点整段灌入）"
+        );
+
+        let on_message = fn_body(&src, "pub fn on_client_message(");
+        let prepare = on_message
+            .find("prepare_replay(client_id)")
+            .expect("首拉准备调用");
+        let drain = on_message.find("drain_for(").expect("drain 调用");
+        assert!(prepare < drain, "窗口准备必须先于首轮 drain");
+
+        let body = fn_body(&src, "fn prepare_replay(");
+        let fetch = body.find("pty_ring_fetch(").expect("生产端水位探测");
+        let reanchor = body
+            .find("watermark.reanchor(aligned)")
+            .expect("对齐后重锚");
+        assert!(fetch < reanchor, "必须先取到块起点再重锚");
+        assert!(
+            body.contains("replay_tail_start(producer)"),
+            "裁剪窗口必须取尾部窗口起点"
+        );
+        assert!(
+            body.contains("replay_align_skip(&f.data)"),
+            "起点必须做边界对齐"
+        );
+        assert!(
+            body.contains("if from_start"),
+            "agent/TUI 会话必须走「从环起点整段回放」分支（P0-2）"
+        );
+        assert!(
+            src.contains("conn.replay_from_start = record.agent_id.is_some()"),
+            "订阅时必须按 agent 归属判定是否差分 TUI"
+        );
+        assert!(
+            src.contains("conn.replay_clear_pending = true"),
+            "订阅首拉必须带内清屏（P0-3）"
         );
     }
 }

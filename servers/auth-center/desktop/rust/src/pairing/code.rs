@@ -41,17 +41,18 @@ impl PairingCode {
     /// 命令面走 `generate_with_ttl_at`（注入时间戳）；本方法保留为语义完整
     /// API（对照测试 + 后续票命令面扩展），wasm 产物路径未调用
     #[allow(dead_code)]
-    pub fn generate() -> Self {
+    pub fn generate() -> Result<Self, String> {
         Self::generate_with_ttl_at(PAIRING_CODE_TTL_SECS, crate::pairing::jwt::now_secs())
     }
 
-    /// 生成新的 6 位数字配对码，指定 TTL（注入时间戳，测试用）
-    pub fn generate_with_ttl_at(ttl_secs: u64, now_secs: u64) -> Self {
-        Self {
-            code: random_digits(PAIRING_CODE_DIGITS),
+    /// 生成新的 6 位数字配对码，指定 TTL（注入时间戳，测试用）。
+    /// 熵不可用 → `Err` 上抛（生产路径禁止 panic：expect 会把 WASM 插件 trap）
+    pub fn generate_with_ttl_at(ttl_secs: u64, now_secs: u64) -> Result<Self, String> {
+        Ok(Self {
+            code: random_digits(PAIRING_CODE_DIGITS)?,
             created_at_secs: now_secs,
             expires_in: ttl_secs,
-        }
+        })
     }
 
     /// 检查是否过期：`elapsed > ttl`（严格大于；宿主 `is_expired` 快路径
@@ -64,11 +65,7 @@ impl PairingCode {
     /// （宿主快路径 `elapsed >= ttl → 0` 语义）
     pub fn remaining_secs_at(&self, now_secs: u64) -> u64 {
         let elapsed = now_secs.saturating_sub(self.created_at_secs);
-        if elapsed >= self.expires_in {
-            0
-        } else {
-            self.expires_in - elapsed
-        }
+        self.expires_in.saturating_sub(elapsed)
     }
 
     /// 验证配对码：`!is_expired && code == input` — 语义同宿主 `verify`
@@ -123,16 +120,16 @@ impl<'de> Deserialize<'de> for PairingCode {
 /// 生成 `digits` 位随机数字配对码（拒绝采样保证无偏 digit：字节 < 250 时
 /// `byte % 10`，256 = 10×25 + 6 的余数偏差被拒绝；宿主 rand gen_range 无偏，
 /// 生成分布非对照范围，此处对齐无偏性）
-fn random_digits(digits: usize) -> String {
+fn random_digits(digits: usize) -> Result<String, String> {
     let mut out = String::with_capacity(digits);
     while out.len() < digits {
         let mut byte = [0u8; 1];
-        getrandom::fill(&mut byte).expect("getrandom fill for pairing code digit");
+        getrandom::fill(&mut byte).map_err(|e| format!("pairing code entropy unavailable: {e}"))?;
         if byte[0] < 250 {
             out.push(char::from(b'0' + (byte[0] % 10)));
         }
     }
-    out
+    Ok(out)
 }
 
 /// unix 秒 → RFC3339 UTC（秒级，无小数）— 与宿主 chrono `DateTime<Utc>` 的
@@ -167,8 +164,9 @@ pub(crate) fn parse_rfc3339_utc(s: &str) -> Option<u64> {
     let min: i64 = time_it.next()?.parse().ok()?;
     let sec: i64 = time_it.next()?.parse().ok()?;
     let days = days_from_civil(year, month, day)?;
-    let local = (days as i64) * 86_400 + hour * 3600 + min * 60 + sec;
-    Some((local - offset_secs) as u64)
+    let local = days * 86_400 + hour * 3600 + min * 60 + sec;
+    // 1970 前的日期归一结果为负：u64 表达不了 → None（try_from 拒绝回绕成巨大值）
+    u64::try_from(local - offset_secs).ok()
 }
 
 /// 解析时区后缀：`Z` → 0 偏移；`±HH:MM` → 秒偏移（符号以「本地 = UTC + offset」
@@ -228,14 +226,14 @@ mod tests {
     fn code_with_created_at(created_at_secs: u64, ttl: u64) -> PairingCode {
         PairingCode {
             code: "123456".to_string(),
-            created_at_secs: created_at_secs,
+            created_at_secs,
             expires_in: ttl,
         }
     }
 
     #[test]
     fn generate_creates_six_digit_code() {
-        let code = PairingCode::generate();
+        let code = PairingCode::generate().expect("generate pairing code");
         assert_eq!(code.code.len(), PAIRING_CODE_DIGITS);
         assert!(code.code.chars().all(|c| c.is_ascii_digit()));
     }
@@ -243,7 +241,7 @@ mod tests {
     #[test]
     fn fresh_code_not_expired() {
         let now = crate::pairing::jwt::now_secs();
-        let code = PairingCode::generate();
+        let code = PairingCode::generate().expect("generate pairing code");
         assert!(!code.is_expired_at(now));
         assert!(code.remaining_secs_at(now) > 0);
         assert!(code.remaining_secs_at(now) <= PAIRING_CODE_TTL_SECS);
@@ -270,14 +268,14 @@ mod tests {
     #[test]
     fn verify_accepts_correct_code() {
         let now = crate::pairing::jwt::now_secs();
-        let code = PairingCode::generate();
+        let code = PairingCode::generate().expect("generate pairing code");
         assert!(code.verify_at(&code.code, now));
     }
 
     #[test]
     fn verify_rejects_wrong_code() {
         let now = crate::pairing::jwt::now_secs();
-        let code = PairingCode::generate();
+        let code = PairingCode::generate().expect("generate pairing code");
         let wrong = if code.code == "000000" {
             "111111"
         } else {
@@ -384,6 +382,11 @@ mod tests {
         assert_eq!(format_rfc3339_utc(1709164800), "2024-02-29T00:00:00Z");
         assert_eq!(parse_rfc3339_utc("2024-02-29T00:00:00Z"), Some(1709164800));
         assert_eq!(parse_rfc3339_utc("garbage"), None);
+        assert_eq!(
+            parse_rfc3339_utc("1969-12-31T23:59:59Z"),
+            None,
+            "1970 前日期拒绝（不回绕成巨大 u64）"
+        );
         assert_eq!(
             parse_rfc3339_utc("2023-13-01T00:00:00Z"),
             None,

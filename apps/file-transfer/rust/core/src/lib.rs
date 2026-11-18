@@ -53,6 +53,7 @@
 #[cfg(test)]
 mod boundary_lock;
 
+pub mod dial;
 pub mod domain;
 pub mod identity;
 pub mod ports;

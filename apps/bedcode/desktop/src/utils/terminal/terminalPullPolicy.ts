@@ -36,6 +36,16 @@ export const OUTPUT_IDLE_INTERVAL_MS = 250
 /** 连续空闲（追平）达到该次数后降为慢档（对齐迁移前 `ENGINE_IDLE_THRESHOLD`） */
 export const OUTPUT_IDLE_THRESHOLD = 5
 
+/**
+ * 连续拉取失败上限：达到即停止轮询。
+ *
+ * 会话已不在册 / 记录无 PTY（宿主重启后被标记 interrupted 的运行）属永久错误，
+ * 继续按快档重试只会每 tick 抛一次 rejection（未处理 rejection → 全局「未知
+ * 错误」提示风暴）。失败由组件层捕获并有限重试；达上限后停轮询，由会话状态
+ * 变化 / 重新接入恢复。
+ */
+export const OUTPUT_PULL_MAX_FAILURES = 5
+
 /** `decidePollIntervalMs` 的输入（三个维度可独立触发，用于覆盖冲突组合） */
 export interface PollIntervalInput {
   /** 连续追平次数（本 tick 无数据即 +1，有数据清零） */

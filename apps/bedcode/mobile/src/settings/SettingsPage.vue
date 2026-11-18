@@ -5,28 +5,26 @@
     </p>
 
     <!-- ==================== 业务设置分组 ==================== -->
-    <section v-for="group in SETTING_GROUPS" :key="group.id" class="flex flex-col gap-1.5">
-      <h2 class="text-xs px-1" :style="{ color: 'var(--mobile-text-secondary)' }">
-        {{ t(group.titleKey) }}
-      </h2>
+    <section v-for="group in SETTING_GROUPS" :key="group.id" class="flex flex-col gap-2">
+      <h2 class="settings-group-title px-1">{{ t(group.titleKey) }}</h2>
       <div
-        class="rounded-xl overflow-hidden"
+        class="rounded-[var(--bc-radius-card)] overflow-hidden"
         :style="{ background: 'var(--mobile-bg-card)', border: '1px solid var(--mobile-border)' }"
       >
         <div
           v-for="(item, index) in group.items"
           :key="item.key"
-          class="flex items-center justify-between gap-3 px-3 min-h-[48px] py-2"
+          class="flex items-center justify-between gap-3 px-4 min-h-[52px] py-2.5"
           :style="index > 0 ? { borderTop: '1px solid var(--mobile-group-border)' } : {}"
         >
           <!-- 标签列：选项多到一行放不下时（主色色板 5 档）纵向堆叠，说明文字才不会被挤没 -->
           <div class="flex-1 min-w-0">
-            <div class="text-sm" :style="{ color: 'var(--mobile-text-primary)' }">
+            <div class="text-[var(--font-size-base)]" :style="{ color: 'var(--mobile-text-primary)' }">
               {{ t(item.labelKey) }}
             </div>
             <div
               v-if="item.hintKey"
-              class="text-[var(--font-size-xs)] mt-0.5"
+              class="settings-hint mt-1"
               :style="{ color: 'var(--mobile-text-muted)' }"
             >
               {{ t(item.hintKey) }}
@@ -41,7 +39,7 @@
             @update:model-value="onToggle(item.key, $event)"
           />
 
-          <!-- 数值项：步进器（StepperControl 收敛件，#18；44px 触控目标） -->
+          <!-- 数值项：步进器（StepperControl 收敛件，#18；尺寸随视口流式缩放） -->
           <StepperControl
             v-else-if="item.kind === 'number'"
             :model-value="Number(ctrl.values[item.key])"
@@ -68,7 +66,7 @@
                 v-for="opt in item.options ?? []"
                 :key="opt.value"
                 type="button"
-                class="flex flex-col items-center gap-1 min-w-[56px] px-2 pt-2 pb-1.5 rounded-lg transition-colors focus-visible:ring-2 focus-visible:ring-[var(--mobile-accent)] active:opacity-80"
+                class="flex flex-col items-center gap-1.5 min-w-[56px] px-2 pt-2 pb-1.5 rounded-[var(--bc-radius-control)] transition-colors focus-visible:ring-2 focus-visible:ring-[var(--mobile-accent)] active:opacity-80"
                 :aria-pressed="ctrl.values[item.key] === opt.value"
                 :data-palette-option="opt.value"
                 :disabled="ctrl.saving.value"
@@ -94,7 +92,7 @@
                   </svg>
                 </span>
                 <span
-                  class="text-[11px] leading-none whitespace-nowrap"
+                  class="text-[var(--font-size-sm)] leading-none whitespace-nowrap"
                   :style="{ color: ctrl.values[item.key] === opt.value ? 'var(--mobile-text-primary)' : 'var(--mobile-text-secondary)' }"
                 >
                   {{ t(opt.labelKey) }}
@@ -106,7 +104,7 @@
                 v-for="opt in item.options ?? []"
                 :key="opt.value"
                 type="button"
-                class="min-h-[32px] px-3 rounded-lg text-xs transition-colors"
+                class="min-h-[36px] px-3 rounded-[var(--bc-radius-control)] text-[var(--font-size-sm)] transition-colors"
                 :aria-pressed="ctrl.values[item.key] === opt.value"
                 :style="segmentStyle(ctrl.values[item.key] === opt.value)"
                 :disabled="ctrl.saving.value"
@@ -123,7 +121,7 @@
     <!-- ==================== 重置 ==================== -->
     <button
       type="button"
-      class="min-h-[48px] rounded-xl text-sm font-medium transition-colors active:opacity-80"
+      class="min-h-[52px] rounded-[var(--bc-radius-card)] text-[var(--font-size-base)] font-medium transition-colors active:opacity-80"
       :style="{ background: 'var(--mobile-bg-card)', border: '1px solid var(--mobile-border)', color: 'var(--mobile-error)' }"
       :disabled="ctrl.saving.value"
       @click="onReset"
@@ -131,9 +129,9 @@
       {{ t('settings.actions.reset') }}
     </button>
 
-    <p class="text-xs px-1" :style="{ color: 'var(--mobile-text-secondary)' }">
-      {{ t('settings.platformHint') }}
-    </p>
+    <!-- 版本更新（SDK 默认实现；宿主统一 GitHub Release 判定）——
+         固定放在页面最后；版本号随包内联，检查前也能看到 -->
+    <AppUpdateSection :current-version="manifest.version" />
   </div>
 </template>
 
@@ -143,11 +141,13 @@
  *
  * 本页只管**业务设置**（连接策略 / 通知 / 终端上限 / 首选认证）。
  * 平台设置（外观、语言、字号缩放、关于、出站授权、链路加密）由宿主壳持有，
- * 见 spec §2 设置切分口径——本页底部给出去处说明，不重复实现一套。
+ * 见 spec §2 设置切分口径——本页不重复实现，也不另加底部去处说明。
  *
  * 数据面：useAppSettings（宿主通用 KV 桥）；本组件不直连任何 Tauri 命令。
  */
 import { onMounted } from 'vue'
+import AppUpdateSection from '@binblink/wasmnest-plugin-sdk-mobile/ui/app-update'
+import manifest from '../../plugin.json'
 import Toggle from '../terminal/components/Toggle.vue'
 import StepperControl from '../terminal/components/StepperControl.vue'
 import { SETTING_GROUPS, SETTINGS_BY_KEY } from './settingsModel'
@@ -242,3 +242,18 @@ if (import.meta.env.DEV) {
   }
 }
 </script>
+
+<style scoped>
+/* 分组标题：走与应用其它分组头同一档（小字 / 中等字重 / muted），
+   不用 all-caps + 字距，也不靠加粗来分层 */
+.settings-group-title {
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  color: var(--mobile-text-muted);
+}
+
+.settings-hint {
+  font-size: var(--font-size-sm);
+  line-height: 1.45;
+}
+</style>

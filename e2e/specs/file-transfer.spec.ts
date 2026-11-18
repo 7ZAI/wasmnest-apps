@@ -4,7 +4,7 @@
  * 跑法（应用仓根）：
  *   node scripts/e2e.mjs --app file-transfer
  *
- * 判据纪律与 `agent-hub.spec.ts` 同：
+ * 判据纪律见 docs/E2E.md（原 agent-hub 套件随应用并入 bedcode 退役）：
  * - 不依赖机器状态（本机有没有在线对端 / 有没有传输任务）；
  * - 文案断言跨语言；
  * - 等状态不 sleep。
@@ -14,12 +14,14 @@ import {
   attr,
   click,
   exists,
+  isDisabled,
+  text,
   visible,
   waitFor,
+  waitForAttr,
   waitForHostReady,
   waitGone,
 } from '../harness/driver'
-import { browser } from '@wdio/globals'
 import { expectEqual } from '../harness/expect'
 import { goHome, openApp } from '../harness/shell'
 
@@ -39,6 +41,27 @@ describe('File Transfer（桌面端 · 宿主内挂载）', () => {
     for (const id of ['ft-peer-switch', 'ft-queue', 'ft-settings']) {
       expectEqual(await exists(id), true, `顶栏动作 ${id} 存在`)
     }
+    // 形态改造：手工配对入口下线，「我的设备」只在设置页出现
+    expectEqual(await exists('ft-my-device-open'), false, '顶栏不再有我的设备入口')
+    expectEqual(await exists('ft-my-device'), false, '主界面不再渲染我的设备弹层')
+  })
+
+  it('设置页「我的设备」：设备名 / 指纹区块可读（或显性不支持）', async () => {
+    await click('ft-settings')
+    await waitFor('ft-settings-panel')
+    await waitFor('ft-settings-section-my-device')
+
+    // 宿主提供设备身份 → 展示指纹；未提供 → 显性 unsupported（不伪造）
+    const hasFingerprint = await exists('ft-my-device-fingerprint')
+    const hasUnsupported = await exists('ft-my-device-unsupported')
+    const hasLoadError = await exists('ft-my-device-load-error')
+    expectEqual(
+      hasFingerprint || hasUnsupported || hasLoadError,
+      true,
+      '我的设备区块给出身份、显性不支持或读取失败之一',
+    )
+    await click('ft-settings-close')
+    await waitGone('ft-settings-panel')
   })
 
   it('附近设备面板可展开可收起', async () => {
@@ -77,15 +100,67 @@ describe('File Transfer（桌面端 · 宿主内挂载）', () => {
     expectEqual(await exists('ft-settings-panel'), false, '设置面板已关闭')
   })
 
-  it('刷新动作：未连接对端时按钮禁用（不误触发）', async () => {
-    // 刷新依赖活跃对端（:disabled="!peer.online"）：未连接时应禁用，
-    // 连接时应可用——两种状态下断言都成立。
-    const disabled = await browser.execute(() => {
-      const el = document.querySelector('[data-testid="ft-refresh"]') as
-        (HTMLElement & { disabled?: boolean }) | null
-      return el ? el.disabled === true : null
-    })
-    expectEqual(disabled !== null, true, '刷新按钮存在')
+
+  it('刷新动作：按钮禁用态与对端在线态一致', async () => {
+    const online = (await attr('ft-peer-status', 'data-online')) === 'true'
+    expectEqual(await isDisabled('ft-refresh'), !online, '刷新禁用与对端在线态一致')
+    expectEqual(await isDisabled('ft-upload'), !online, '上传禁用与对端在线态一致')
     expectEqual((await attr('ft-refresh', 'title')) !== null, true, '刷新按钮有 title')
+  })
+
+  it('附近设备面板：点击面板外收起', async () => {
+    await click('ft-peer-switch')
+    await waitFor('ft-peer-panel')
+    // 点主界面空白根节点（在面板 wrap 之外）；document 监听应收起
+    await click('ft-view')
+    await waitGone('ft-peer-panel')
+    expectEqual(await exists('ft-peer-panel'), false, '面板外点击后收起')
+  })
+
+  it('传输队列：四个页签互斥切换，关闭按钮可收起', async () => {
+    await click('ft-queue')
+    await waitFor('ft-queue-panel')
+    expectEqual(await attr('ft-queue-tab-all', 'aria-selected'), 'true', '默认全部页签')
+    let previous = 'all'
+    for (const tab of ['sending', 'receiving', 'history', 'all']) {
+      await click(`ft-queue-tab-${tab}`)
+      await waitForAttr(`ft-queue-tab-${tab}`, 'aria-selected', 'true', 5_000)
+      expectEqual(
+        await attr(`ft-queue-tab-${previous}`, 'aria-selected'),
+        'false',
+        '前一页签解除选中',
+      )
+      previous = tab
+    }
+    await click('ft-queue-close')
+    await waitGone('ft-queue-panel')
+  })
+
+  it('设置面板：业务分区与策略/并发/加密结构完整（只读）', async () => {
+    await click('ft-settings')
+    await waitFor('ft-settings-panel')
+    for (const key of ['roots', 'download-dir', 'policy', 'concurrency', 'encryption', 'trusted']) {
+      await waitFor(`ft-settings-section-${key}`)
+    }
+    expectEqual(await visible('ft-settings-warning'), true, '加密强制提示可见')
+    expectEqual(await visible('ft-encryption-required'), true, '固定加密只读档位可见')
+    expectEqual(await exists('ft-encryption-true'), false, '不得提供开启按钮（始终加密，无开关）')
+    expectEqual(await exists('ft-encryption-false'), false, '不得提供关闭加密选项')
+
+    const selectedCount = (
+      await Promise.all(
+        ['ask', 'accept', 'reject'].map(async (p) =>
+          (await attr(`ft-policy-${p}`, 'aria-selected')) === 'true' ? 1 : 0,
+        ),
+      )
+    ).reduce<number>((a, b) => a + b, 0)
+    expectEqual(selectedCount, 1, '接收策略恰有一个选中')
+    const askSelected = (await attr('ft-policy-ask', 'aria-selected')) === 'true'
+    expectEqual(await exists('ft-settings-timeout'), askSelected, '超时输入仅在 ask 时显示')
+
+    const concurrency = Number(await text('ft-concurrency-value'))
+    expectEqual(concurrency >= 1 && concurrency <= 8, true, '并发数落在 1–8')
+    await click('ft-settings-close')
+    await waitGone('ft-settings-panel')
   })
 })

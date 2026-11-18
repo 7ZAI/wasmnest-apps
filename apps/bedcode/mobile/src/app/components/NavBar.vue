@@ -4,25 +4,20 @@
     :style="{ background: 'var(--mobile-nav-bg)', borderTop: '1px solid var(--mobile-group-border)', paddingBottom: `${bottomInset}px` }"
     :aria-label="t('app.nav.label')"
   >
-    <div class="flex justify-around relative">
+    <div class="flex justify-around">
       <button
         v-for="tab in tabs"
         :key="tab.id"
         type="button"
-        class="flex flex-col items-center gap-1 px-4 pt-2.5 pb-2 rounded-xl transition-colors relative min-h-[var(--mobile-nav-item-height)]"
+        class="flex flex-col items-center gap-1 px-4 pt-2 pb-2 rounded-[var(--bc-radius-control)] transition-colors min-h-[var(--mobile-nav-item-height)]"
         :class="tab.id === active ? 'text-[var(--mobile-nav-active)]' : ''"
         :style="tab.id === active ? {} : { color: 'var(--mobile-nav-inactive)' }"
         :aria-current="tab.id === active ? 'page' : undefined"
+        :data-testid="`mobile-nav-${tab.id}`"
+        :data-active="tab.id === active ? 'true' : 'false'"
         @click="emit('select', tab.id)"
       >
-        <!-- 激活态顶部指示条：与图标严格等宽同轴（left/right 锚定 + margin auto，不依赖 transform 精度） -->
-        <span
-          v-if="tab.id === active"
-          class="absolute top-0 left-0 right-0 mx-auto w-6 h-[2px] rounded-full"
-          :style="{ background: 'var(--mobile-nav-active)' }"
-          aria-hidden="true"
-        />
-        <span class="relative flex-shrink-0">
+        <span class="flex-shrink-0">
           <!-- 图标按页签分支而非 v-html：路径数据留在模板里可被静态检查，且不引入 innerHTML 注入面 -->
           <svg
             v-if="tab.id === 'connection'"
@@ -30,7 +25,7 @@
             fill="none"
             stroke="currentColor"
             viewBox="0 0 24 24"
-            stroke-width="2"
+            stroke-width="1.75"
             stroke-linecap="round"
             stroke-linejoin="round"
           >
@@ -44,16 +39,17 @@
             <path d="M8.5 22.5h7" />
           </svg>
           <svg
-            v-else-if="tab.id === 'sessions'"
+            v-else-if="tab.id === 'projects'"
             class="w-6 h-6"
             fill="none"
             stroke="currentColor"
             viewBox="0 0 24 24"
-            stroke-width="2"
+            stroke-width="1.75"
             stroke-linecap="round"
             stroke-linejoin="round"
           >
-            <path d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2z" />
+            <!-- 项目 = 目录（ADR 0003）：文件夹主体 + 标签页；几何居中（x=12） -->
+            <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" />
           </svg>
           <svg
             v-else-if="tab.id === 'tasks'"
@@ -61,12 +57,11 @@
             fill="none"
             stroke="currentColor"
             viewBox="0 0 24 24"
-            stroke-width="2"
+            stroke-width="1.75"
             stroke-linecap="round"
             stroke-linejoin="round"
           >
-            <!-- 任务板：板身 x=5..19 几何中心落 x=12、y=6..19 中心落 12.5，与会话 / 设置同一纵横标尺；
-                 顶部夹子 x=8..16 同样居中于 x=12，指示条才能严格压在图标头顶正中 -->
+            <!-- 任务板：板身 x=5..19 几何中心落 x=12、y=6..19 中心落 12.5，与连接 / 设置同一纵横标尺 -->
             <path d="M9 4h6a1 1 0 0 1 1 1v1h1a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h1V5a1 1 0 0 1 1-1z" />
             <!-- 完成勾：板身内 (9,13)→(11,15)→(15,11)，几何中心 (12,13) -->
             <path d="m9 13 2 2 4-4" />
@@ -77,7 +72,7 @@
             fill="none"
             stroke="currentColor"
             viewBox="0 0 24 24"
-            stroke-width="2"
+            stroke-width="1.75"
             stroke-linecap="round"
             stroke-linejoin="round"
           >
@@ -85,10 +80,7 @@
             <path d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
           </svg>
         </span>
-        <span
-          class="text-[var(--font-size-sm)]"
-          :class="tab.id === active ? 'font-semibold' : 'font-medium'"
-        >
+        <span class="text-[var(--font-size-sm)] font-medium">
           {{ t(tab.labelKey) }}
         </span>
       </button>
@@ -107,8 +99,11 @@
  * 2. 插件页签绿点随旧宿主 PluginView 退役一并删除——应用清单由宿主壳承担，
  *    不再由导航条承载插件入口
  *
- * 图标几何注释全部保留：连接/任务图标是对称构图（几何中心与顶部重心均落 x=12），
- * 指示条才能严格压在图标头顶正中——换形前先读注释。
+ * 图标几何注释全部保留：连接 / 项目 / 任务图标是居中构图（几何中心落 x=12），
+ * 四个图标的视觉重量才能对齐成一列——换形前先读注释。
+ *
+ * 2026-11-11 unslop：去掉图标头顶的 2px 激活指示条。激活态只留「图标+文字转 accent」
+ * 一个信号（原先颜色 + 字重 + 指示条三处同时强调，导航比内容还吵）。
  */
 import { computed, inject, type Ref } from 'vue'
 import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-mobile'

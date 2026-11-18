@@ -1,10 +1,10 @@
-//! trust 数据模型 —— 统一视图 DTO 与内核原始记录（票 05 搬迁）
+//! trust 数据模型 —— 统一视图 DTO 与认证记录原始行（票 05 搬迁）
 //!
-//! 数据真源自票 05 起是**内核表**（`pairings`，经 host-auth `trusted-devices-list`
-//! 原语读取；spec D3「不动」表），插件不再自持镜像——消除「宿主与插件各记一账」
-//! 的口径漂移（Problem Statement 5）。
+//! 数据真源 = 认证中心**私有库** `auth_pairings`（2026-09-22 认证记录下沉起；
+//! 内核 `pairings` 表与 host-auth `trusted-devices-list` 原语已退役，见
+//! [`super::source`]）——消除「宿主与插件各记一账」的口径漂移（Problem Statement 5）。
 //!
-//! - [`PairingRecord`] 字段与宿主原语返回的**原始记录**逐字段对齐（camelCase）；
+//! - [`PairingRecord`] 字段与认证记录域原始行逐字段对齐（camelCase）；
 //!   含软删行（`isActive = false`）——撤销检测依赖「已撤销记录仍可见」
 //! - [`TrustedDeviceDto`] 为统一视图 wire 形状（消费方按 `kind` 判别两条来源）
 
@@ -14,15 +14,15 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum TrustKind {
-    /// 已配对设备（内核 `pairings` 表语义）
+    /// 已配对设备（认证中心私有库 `auth_pairings` 语义）
     Pairing,
     /// 可信对端（宿主 peer trust_store 语义）
     Peer,
 }
 
-/// 已配对设备原始记录（host-auth `trusted-devices-list` 元素）
+/// 已配对设备原始记录（认证记录域 `auth_pairings` 行的视图投影）
 ///
-/// 字段与宿主原语返回的记录 JSON 逐字段对齐（camelCase）。**不做任何解读**：
+/// 字段与认证记录域原始行逐字段对齐（camelCase）。**不做任何解读**：
 /// `is_active = false` 是软删行（撤销），过滤与排序归本模块。
 /// 凭据列（session token / public key）不在记录面内（宿主 §8 红线）。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -34,6 +34,9 @@ pub struct PairingRecord {
     pub device_fingerprint: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub address: Option<String>,
+    /// 对等网络节点 id（T08：仅经隧道配对时有值；撤销时据此级联撤销传输层信任）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub peer_node_id: Option<String>,
     /// 配对时刻（RFC3339，UTC）
     pub paired_at: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -77,6 +80,10 @@ pub struct TrustedDeviceDto {
     /// 连接次数（仅 pairing 来源）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub connect_count: Option<u32>,
+    /// 对等网络节点 id（仅 pairing 来源、仅经隧道配对时有值；T07/T08：
+    /// 撤销时按它级联 `revoke-trusted`，前端也可据此展示「隧道已匹配」）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub peer_node_id: Option<String>,
     /// 是否仍受信任（列表恒为 true——列表即信任集合；撤销即从列表消失）
     pub active: bool,
 }
@@ -98,6 +105,7 @@ impl TrustedDeviceDto {
             added_at: record.paired_at.clone(),
             last_seen: record.last_seen.clone(),
             connect_count: Some(record.connect_count),
+            peer_node_id: record.peer_node_id.clone(),
             active: true,
         }
     }
@@ -135,6 +143,8 @@ impl TrustedDeviceDto {
             added_at: added_at.to_string(),
             last_seen: None,
             connect_count: None,
+            // 仅 pairing 来源有该字段；peer 来源的寻址 id 本身就是 node id
+            peer_node_id: None,
             active: true,
         })
     }
@@ -190,6 +200,7 @@ mod tests {
             device_name: "Pixel 9".to_string(),
             device_fingerprint: "fp-abc".to_string(),
             address: Some("192.168.1.5:9000".to_string()),
+            peer_node_id: Some("a".repeat(64)),
             paired_at: "2026-09-19T00:00:00Z".to_string(),
             last_seen: Some("2026-09-19T01:00:00Z".to_string()),
             connect_count: 3,
@@ -203,6 +214,11 @@ mod tests {
         assert_eq!(dto.added_at, "2026-09-19T00:00:00Z");
         assert_eq!(dto.last_seen.as_deref(), Some("2026-09-19T01:00:00Z"));
         assert_eq!(dto.connect_count, Some(3));
+        assert_eq!(
+            dto.peer_node_id.as_deref(),
+            Some("a".repeat(64).as_str()),
+            "已验证 nodeId 必须进统一视图（撤销级联与「隧道已匹配」展示的判据）"
+        );
         assert!(dto.fingerprint_short.is_none(), "pairing 不展示短指纹");
     }
 

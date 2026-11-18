@@ -18,10 +18,7 @@
               </span>
             </template>
             <template v-else>
-              <span
-                class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full border"
-                style="border-color: color-mix(in srgb, var(--mobile-accent) 30%, transparent)"
-              >
+              <span class="inline-flex items-center gap-1.5">
                 <span
                   class="status-dot"
                   :style="{
@@ -37,18 +34,21 @@
           </p>
         </div>
         <button
-          class="flex-shrink-0 p-2 -mr-2 rounded-lg transition-colors active:opacity-80"
-          style="color: var(--mobile-accent)"
-          :class="{ 'opacity-50': isConnecting, 'bg-[var(--mobile-accent-muted)]': showDiscovery }"
+          class="flex shrink-0 items-center justify-center w-11 h-11 -mr-2 rounded-[var(--bc-radius-control)] transition-colors active:opacity-80"
+          :style="{
+            color: showDiscovery ? 'var(--mobile-accent)' : 'var(--mobile-text-secondary)',
+            background: showDiscovery ? 'var(--mobile-accent-muted)' : 'transparent',
+          }"
+          :class="{ 'opacity-50': isConnecting }"
           :disabled="isConnecting"
           :title="t('hub.discoverDevices')"
           @click="toggleDiscovery"
         >
-          <!-- 雷达扫描图标：完整同心圆 + 45° 扫描射线 + 中心点（声呐式） -->
-          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <circle cx="12" cy="12" r="10" />
-            <circle cx="12" cy="12" r="6" />
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 12l7.07-7.07" />
+          <!-- 局域网发现：同心圆 + 扫描射线 + 中心点（声呐式），统一 18px / 1.75 描边 -->
+          <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="9" stroke-width="1.75" />
+            <circle cx="12" cy="12" r="4.5" stroke-width="1.75" />
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M12 12l5.2-5.2" />
             <circle cx="12" cy="12" r="1.2" fill="currentColor" stroke="none" />
           </svg>
         </button>
@@ -86,6 +86,57 @@
         </div>
       </Transition>
 
+      <!-- 穿透状态（T09）：拨号失败（如内网不可达）也要可见，否则用户只看到「连接失败」
+           而不知道可以尝试外网。状态文字才是判据，颜色仅是提示。 -->
+      <Transition name="fade">
+        <div
+          v-if="!isConnected && tunnelAttempted && tunnelView"
+          class="mb-4"
+          data-testid="mobile-tunnel-status"
+        >
+          <div class="group-card">
+            <div class="group-row flex-wrap gap-x-2 gap-y-1">
+              <span
+                class="text-[var(--font-size-sm)] font-medium"
+                :style="{ color: tunnelToneColor }"
+                data-testid="mobile-tunnel-mode"
+                :title="tunnelReasonText"
+                >{{ t(tunnelView.modeKey) }}</span
+              >
+              <span
+                class="text-[var(--font-size-sm)]"
+                style="color: var(--mobile-text-muted)"
+                data-testid="mobile-tunnel-encryption"
+                :title="t('hub.tunnelEncryptionNote')"
+                >{{ t('hub.tunnelEncrypted') }}</span
+              >
+              <span
+                v-if="tunnelView.wanOff"
+                class="text-[var(--font-size-sm)]"
+                style="color: var(--mobile-text-muted)"
+                data-testid="mobile-tunnel-wan-off"
+                >{{ t('hub.tunnelWanOff') }}</span
+              >
+              <button
+                v-if="tunnelView.manualWan"
+                class="ml-auto h-9 px-3 rounded-[var(--bc-radius-control)] text-[var(--font-size-sm)] font-medium active:opacity-80"
+                style="
+                  color: var(--mobile-text-primary);
+                  background: var(--mobile-bg-elevated);
+                  border: 1px solid var(--mobile-border);
+                "
+                data-testid="mobile-tunnel-try-wan"
+                :disabled="isConnecting"
+                :class="{ 'opacity-50': isConnecting }"
+                @click="handleTryWan"
+              >
+                {{ t('hub.tunnelTryWan') }}
+              </button>
+            </div>
+          </div>
+        </div>
+      </Transition>
+
       <!-- 主内容区互斥分支（已连接 / 扫描面板 / mDNS 发现 / 历史列表）：切换时淡入淡出（mode="out-in"），
           避免卡片硬切闪动；分支均需显式 key（同标签 div 复用会跳过过渡） -->
       <Transition name="fade" mode="out-in">
@@ -95,11 +146,11 @@
             <!-- Connected device info + disconnect（同行，断开按钮位于卡片右侧） -->
             <div
               v-if="currentDevice"
-              class="bg-[var(--mobile-bg-card)] border border-[var(--mobile-border)] rounded-xl p-4 transition-colors duration-300"
+              class="bg-[var(--mobile-bg-card)] border border-[var(--mobile-border)] rounded-[var(--bc-radius-card)] p-4"
             >
               <div class="flex items-center gap-3">
-                <span class="device-icon chip-emerald">
-                  <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <span class="bc-icon-box">
+                  <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path
                       stroke-linecap="round"
                       stroke-linejoin="round"
@@ -109,16 +160,21 @@
                   </svg>
                 </span>
                 <div class="flex-1 min-w-0">
-                  <span class="text-base font-medium text-[var(--mobile-text-primary)] truncate block">
+                  <span class="text-[var(--font-size-lg)] font-medium text-[var(--mobile-text-primary)] truncate block">
                     {{ currentDevice.name || currentDevice.address }}
                   </span>
-                  <p class="text-xs mt-1 font-mono text-[var(--mobile-text-muted)]">
+                  <p class="text-[var(--font-size-sm)] mt-1 font-mono text-[var(--mobile-text-muted)]">
                     {{ currentDevice.address }}:{{ currentDevice.port }}
                   </p>
                 </div>
-                <!-- 断开按钮：与连接信息同行，不独占一行 -->
+                <!-- 断开：中性按钮。红色留给确认弹窗里的那一下，不挂在常驻入口上 -->
                 <button
-                  class="flex-shrink-0 h-11 px-3.5 rounded-xl flex items-center gap-1.5 chip-red font-medium text-sm transition-opacity duration-300 active:opacity-80 hover:opacity-90"
+                  class="flex-shrink-0 h-11 px-3 rounded-[var(--bc-radius-control)] flex items-center gap-1.5 text-[var(--font-size-sm)] font-medium transition-colors active:opacity-80"
+                  style="
+                    color: var(--mobile-text-secondary);
+                    background: var(--mobile-bg-primary);
+                    border: 1px solid var(--mobile-border);
+                  "
                   @click="handleDisconnect"
                 >
                   <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -126,22 +182,51 @@
                       stroke-linecap="round"
                       stroke-linejoin="round"
                       stroke-width="1.75"
-                      d="M13 10V3L4 14h7v7l9-11h-7z"
+                      d="M18.36 6.64a9 9 0 1 1-12.73 0M12 2v9"
                     />
                   </svg>
                   <span>{{ t('hub.disconnect') }}</span>
                 </button>
               </div>
 
-              <!-- 会话页入口：连接 → 会话的联动（旧宿主由底部导航承担，此处就近给入口） -->
-              <button
-                v-if="isAuthenticated"
-                class="mt-3 w-full h-11 rounded-xl text-sm font-medium transition-colors active:opacity-80"
-                style="background: var(--mobile-bg-secondary); color: var(--mobile-text-primary)"
-                @click="$emit('open-sessions')"
+              <!-- 穿透状态（T09）：模式是宿主事实；「已加密」是常量标记（不可关闭），
+                   两者都是小字事实，不给底色（原先是两条胶囊比设备名还显眼） -->
+              <div
+                v-if="tunnelView && tunnelView.viaTunnel"
+                class="mt-3 flex items-center gap-x-2 gap-y-1 flex-wrap"
+                data-testid="mobile-tunnel-status-connected"
               >
-                {{ t('hub.sessions') }}
-              </button>
+                <span
+                  class="text-[var(--font-size-sm)] font-medium"
+                  :style="{ color: tunnelToneColor }"
+                  data-testid="mobile-tunnel-mode-connected"
+                  :title="tunnelReasonText"
+                  >{{ t(tunnelView.modeKey) }}</span
+                >
+                <span
+                  class="text-[var(--font-size-sm)]"
+                  style="color: var(--mobile-text-muted)"
+                  data-testid="mobile-tunnel-encryption-connected"
+                  :title="t('hub.tunnelEncryptionNote')"
+                  >{{ t('hub.tunnelEncrypted') }}</span
+                >
+                <span
+                  v-if="tunnelView.wanOff"
+                  class="text-[var(--font-size-sm)]"
+                  style="color: var(--mobile-text-muted)"
+                  data-testid="mobile-tunnel-wan-off-connected"
+                  >{{ t('hub.tunnelWanOff') }}</span
+                >
+                <button
+                  v-if="tunnelView.manualWan"
+                  class="text-[var(--font-size-sm)] font-medium underline underline-offset-2"
+                  style="color: var(--mobile-accent)"
+                  data-testid="mobile-tunnel-try-wan-connected"
+                  @click="handleTryWan"
+                >
+                  {{ t('hub.tunnelTryWan') }}
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -159,18 +244,15 @@
             class="sticky top-0 z-10 -mx-4 px-4 pt-2 pb-2 flex items-center justify-between"
             style="background: var(--mobile-bg-primary)"
           >
-            <span class="text-sm font-semibold text-[var(--mobile-text-muted)]">
+            <span class="text-[var(--font-size-sm)] font-medium text-[var(--mobile-text-muted)]">
               {{ t('hub.discoverTitle') }}
-              <span
-                v-if="discoveredServices.length > 0"
-                class="ml-1 px-1.5 py-0.5 rounded-full text-xs"
-                style="background: var(--mobile-bg-elevated); color: var(--mobile-text-secondary)"
-                >{{ discoveredServices.length }}</span
-              >
+              <span v-if="discoveredServices.length > 0" class="ml-1 font-mono">
+                {{ discoveredServices.length }}
+              </span>
             </span>
             <div class="flex items-center -mr-2 flex-shrink-0">
               <button
-                class="h-11 px-3 rounded-lg text-sm font-medium transition-colors duration-200 active:opacity-80"
+                class="h-11 px-3 rounded-[var(--bc-radius-control)] text-[var(--font-size-sm)] font-medium transition-colors active:opacity-80"
                 style="color: var(--mobile-text-secondary)"
                 :disabled="isConnecting"
                 :class="{ 'opacity-50': isConnecting }"
@@ -179,29 +261,30 @@
                 {{ mdnsScanning ? t('hub.discoverStopScan') : t('hub.discoverRestartScan') }}
               </button>
               <button
-                class="h-11 w-11 rounded-lg flex items-center justify-center transition-colors duration-200 active:opacity-80"
+                class="h-11 w-11 rounded-[var(--bc-radius-control)] flex items-center justify-center transition-colors active:opacity-80"
                 style="color: var(--mobile-text-muted)"
                 :title="t('hub.actionClose')"
                 @click="closeDiscovery"
               >
-                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </button>
             </div>
           </div>
 
-          <!-- Scanning status（扫描动画：spinner + 状态文字 + 已发现数） -->
-          <div v-if="mdnsScanning" class="pb-3 flex items-center gap-3">
+          <!-- 扫描状态：一行事实（spinner + 文字 + 已发现数）。原先这里下面还画了一个
+               112px 的雷达扫射插图，和这一行的语义完全重复：扫描本身已经在转，插图只是装饰 -->
+          <div v-if="mdnsScanning" class="pb-3 flex items-center gap-2.5">
             <div
               class="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin"
-              style="color: var(--mobile-accent)"
+              style="color: var(--mobile-text-muted)"
             />
             <span class="group-row-sub">{{ t('hub.discoverScanning') }}</span>
             <span
               v-if="discoveredServices.length > 0"
-              class="text-sm font-medium ml-auto"
-              style="color: var(--mobile-accent)"
+              class="text-[var(--font-size-sm)] font-mono ml-auto"
+              style="color: var(--mobile-text-muted)"
             >
               {{ t('hub.discoverDeviceFound', { count: discoveredServices.length }) }}
             </span>
@@ -213,7 +296,7 @@
             class="flex flex-col items-center justify-center py-12"
           >
             <svg
-              class="w-12 h-12 mb-4"
+              class="w-10 h-10 mb-4"
               style="color: var(--mobile-text-disabled)"
               fill="none"
               stroke="currentColor"
@@ -227,42 +310,9 @@
               />
             </svg>
             <p class="group-row-sub mb-1">{{ t('hub.discoverNoDevices') }}</p>
-            <p class="text-sm" style="color: var(--mobile-text-disabled)">
+            <p class="text-[var(--font-size-sm)]" style="color: var(--mobile-text-secondary)">
               {{ t('hub.discoverNoDevicesHint') }}
             </p>
-          </div>
-
-          <!-- 扫描空态动画（雷达扫射） -->
-          <div
-            v-if="discoveredServices.length === 0 && mdnsScanning"
-            class="flex flex-col items-center justify-center py-12"
-          >
-            <div class="relative mb-6">
-              <div
-                class="w-28 h-28 rounded-full relative"
-                style="border: 2px solid color-mix(in srgb, var(--mobile-accent) 20%, transparent)"
-              >
-                <div
-                  class="absolute inset-2 rounded-full"
-                  style="border: 1px solid color-mix(in srgb, var(--mobile-accent) 10%, transparent)"
-                ></div>
-                <div
-                  class="absolute inset-4 rounded-full"
-                  style="border: 1px solid color-mix(in srgb, var(--mobile-accent) 5%, transparent)"
-                ></div>
-                <div class="absolute inset-0 radar-sweep origin-center">
-                  <div
-                    class="w-1/2 h-0.5 absolute top-1/2 left-1/2 -translate-y-1/2"
-                    style="background: linear-gradient(to right, var(--mobile-accent), transparent)"
-                  ></div>
-                </div>
-                <div
-                  class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-3 h-3 rounded-full"
-                  style="background: var(--mobile-accent)"
-                ></div>
-              </div>
-            </div>
-            <p class="group-row-sub">{{ t('hub.discoverScanning') }}</p>
           </div>
 
           <!-- 扫描结果（发现的设备列表） -->
@@ -270,16 +320,16 @@
             <div
               v-for="service in discoveredServices"
               :key="service.instance_name"
-              class="group-row device-row"
+              class="group-row"
               :class="isDiscoverCurrentDevice(service) ? 'is-connected' : 'group-row-btn cursor-pointer'"
               @click="handleDiscoverConnect(service)"
             >
-              <span class="device-chip" :class="isDiscoverCurrentDevice(service) ? '' : 'chip-cyan'">
+              <span class="device-chip">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path
                     stroke-linecap="round"
                     stroke-linejoin="round"
-                    stroke-width="2"
+                    stroke-width="1.75"
                     d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
                   />
                 </svg>
@@ -287,11 +337,20 @@
               <div class="flex-1 min-w-0">
                 <div class="flex items-center gap-2 min-w-0">
                   <span class="device-name truncate">{{ service.device_name || service.instance_name }}</span>
+                  <!-- 已连：绿点 + 文字；可连：只给文字。两者都不需要底色 -->
                   <span
-                    class="status-badge ml-auto"
-                    :class="isDiscoverCurrentDevice(service) ? 'badge-emerald' : 'badge-cyan'"
+                    class="ml-auto flex-shrink-0 flex items-center gap-1.5 text-[var(--font-size-sm)]"
+                    :style="{
+                      color: isDiscoverCurrentDevice(service)
+                        ? 'var(--mobile-text-primary)'
+                        : 'var(--mobile-text-muted)',
+                    }"
                   >
-                    <span v-if="isDiscoverCurrentDevice(service)" class="status-dot dot-emerald"></span>
+                    <span
+                      v-if="isDiscoverCurrentDevice(service)"
+                      class="status-dot dot-emerald"
+                      aria-hidden="true"
+                    />
                     {{
                       isDiscoverCurrentDevice(service)
                         ? t('hub.discoverConnected')
@@ -307,24 +366,99 @@
           </div>
         </div>
 
-        <!-- Not Connected: Connection History + Scan Result。
+        <!-- Not Connected: 远程设备（中继）+ Connection History + Scan Result。
+             远程列表是持久化对端记录（重启后仍在）：跨网重连不再依赖桌面用户重发二维码。
              历史为空时整个历史区块（标题/条数/清除/列表）不渲染——空历史只剩标题与
              「暂无」文案纯属噪音；与扫码结果都为空时本分支整体不渲染，不留空内容区 -->
-        <div v-else-if="hasHistoryOrScanResult" key="history" class="pb-8">
+        <div
+          v-else-if="hasHistoryOrScanResult || relayTargets.length > 0"
+          key="history"
+          class="pb-8"
+        >
           <div class="pt-2 space-y-3">
-            <!-- Connection History（仅非空时渲染，带条数与清除入口） -->
-            <template v-if="hasConnectionHistory">
-              <div class="flex items-center justify-between pt-2">
-                <span class="text-sm font-semibold text-[var(--mobile-text-muted)]">
-                  {{ t('hub.history') }}
-                  <span
-                    class="ml-1 px-1.5 py-0.5 rounded-full text-xs"
-                    style="background: var(--mobile-bg-elevated); color: var(--mobile-text-secondary)"
-                    >{{ connectionHistory.length }}</span
+            <!-- 远程连接（中继）：只列具备 relay 候选与逻辑端口的记录（没条件的点必失败，
+                 不展示假入口）；桌面端需保持运行且已配置中继 -->
+            <template v-if="relayTargets.length > 0">
+              <div class="flex items-baseline justify-between pt-2">
+                <span class="text-[var(--font-size-sm)] font-medium text-[var(--mobile-text-muted)]">
+                  {{ t('hub.relayTargetsTitle') }}
+                  <span class="ml-1 font-mono">{{ relayTargets.length }}</span>
+                </span>
+              </div>
+              <p
+                class="text-[var(--font-size-sm)] leading-relaxed"
+                style="color: var(--mobile-text-muted)"
+                data-testid="mobile-relay-hint"
+              >
+                {{ t('hub.relayTargetsHint') }}
+              </p>
+              <div class="group-card" data-testid="mobile-relay-targets">
+                <div
+                  v-for="(target, index) in relayTargets"
+                  :key="target.nodeId"
+                  class="group-row"
+                  :data-testid="`mobile-relay-target-${index}`"
+                >
+                  <span class="device-chip">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="1.75"
+                        d="M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-9c2.5 2.3 4 5.5 4 9s-1.5 6.7-4 9c-2.5-2.3-4-5.5-4-9s1.5-6.7 4-9zM3 12h18"
+                      />
+                    </svg>
+                  </span>
+                  <div class="flex-1 min-w-0">
+                    <div class="flex items-center gap-2 min-w-0">
+                      <span class="device-name truncate">{{ target.deviceName || 'Desktop' }}</span>
+                    </div>
+                    <div class="device-addr font-mono truncate">
+                      {{
+                        t('hub.relayTargetMeta', {
+                          node: shortNodeId(target.nodeId),
+                          port: target.port,
+                        })
+                      }}
+                    </div>
+                    <div
+                      v-if="target.lastMode"
+                      class="text-[var(--font-size-sm)] mt-0.5"
+                      style="color: var(--mobile-text-muted)"
+                    >
+                      {{ t('hub.relayTargetLastMode', { mode: t(modeLabelKey(target.lastMode)) }) }}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    class="flex-shrink-0 h-9 px-3 rounded-[var(--bc-radius-control)] text-[var(--font-size-sm)] font-medium transition-colors active:opacity-80"
+                    style="
+                      color: var(--mobile-text-primary);
+                      background: var(--mobile-bg-elevated);
+                      border: 1px solid var(--mobile-border);
+                    "
+                    :class="{ 'opacity-50': isConnecting }"
+                    :disabled="isConnecting"
+                    :data-testid="`mobile-relay-connect-${index}`"
+                    @click="handleRelayConnect(target)"
                   >
+                    {{ t('hub.relayTargetConnect') }}
+                  </button>
+                </div>
+              </div>
+            </template>
+
+            <!-- Connection History（仅非空时渲染，带条数与清除入口）
+                 一张分组卡装全部历史，不再每条一张卡：条与条之间靠分隔线，密度与
+                 上面的中继列表一致（原先卡片套卡片，一屏只放得下三条） -->
+            <template v-if="hasConnectionHistory">
+              <div class="flex items-baseline justify-between pt-2">
+                <span class="text-[var(--font-size-sm)] font-medium text-[var(--mobile-text-muted)]">
+                  {{ t('hub.history') }}
+                  <span class="ml-1 font-mono">{{ connectionHistory.length }}</span>
                 </span>
                 <button
-                  class="text-sm transition-colors active:opacity-80"
+                  class="text-[var(--font-size-sm)] transition-colors active:opacity-80"
                   style="color: var(--mobile-text-muted)"
                   @click="showClearHistoryConfirm = true"
                 >
@@ -332,18 +466,22 @@
                 </button>
               </div>
 
-              <TransitionGroup name="config-list" tag="div" class="space-y-3">
-                <button
+              <TransitionGroup name="config-list" tag="div" class="group-card">
+                <div
                   v-for="item in connectionHistory"
                   :key="item.address"
-                  class="w-full bg-[var(--mobile-bg-card)] border border-[var(--mobile-border)] rounded-xl p-4 text-left cursor-pointer transition-[border-color,opacity] duration-300 active:opacity-90 hover:border-[var(--mobile-border-hover)]"
-                  :disabled="isConnecting"
+                  class="group-row"
                   :class="{ 'opacity-50 pointer-events-none': isConnecting }"
-                  @click="handleConnectFromHistory(item)"
                 >
-                  <div class="flex items-center gap-3">
-                    <span class="device-icon chip-cyan">
-                      <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <!-- 主区独立按钮：删除键是它的兄弟而不是子元素（按钮不得嵌套） -->
+                  <button
+                    type="button"
+                    class="flex flex-1 min-w-0 items-center gap-3 text-left cursor-pointer active:opacity-80 disabled:cursor-not-allowed"
+                    :disabled="isConnecting"
+                    @click="handleConnectFromHistory(item)"
+                  >
+                    <span class="device-chip">
+                      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path
                           stroke-linecap="round"
                           stroke-linejoin="round"
@@ -352,36 +490,40 @@
                         />
                       </svg>
                     </span>
-                    <div class="flex-1 min-w-0">
-                      <div class="text-base font-medium text-[var(--mobile-text-primary)] truncate">
+                    <span class="flex-1 min-w-0 block">
+                      <span class="device-name truncate block">
                         {{ item.name || item.address }}
-                      </div>
-                      <p class="text-xs mt-1 font-mono text-[var(--mobile-text-muted)]">
+                      </span>
+                      <span class="device-addr font-mono truncate block">
                         {{ item.address }}
-                      </p>
-                      <p class="text-xs mt-0.5" style="color: var(--mobile-text-disabled)">
-                        {{ formatLastConnected(item.lastConnected, t) }}
-                      </p>
-                    </div>
-                    <button
-                      class="p-1.5 rounded-lg transition-colors active:opacity-80 flex-shrink-0"
-                      style="color: var(--mobile-text-disabled)"
-                      :disabled="isConnecting"
-                      :aria-label="t('hub.remove')"
-                      :title="t('hub.remove')"
-                      @click.stop="removeFromHistory(item.address)"
+                      </span>
+                    </span>
+                    <span
+                      class="flex-shrink-0 text-[var(--font-size-sm)] font-mono"
+                      style="color: var(--mobile-text-muted)"
                     >
-                      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                          stroke-width="2"
-                          d="M6 18L18 6M6 6l12 12"
-                        />
-                      </svg>
-                    </button>
-                  </div>
-                </button>
+                      {{ formatLastConnected(item.lastConnected, t) }}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    class="flex items-center justify-center rounded-[var(--bc-radius-control)] transition-colors active:opacity-80 flex-shrink-0 min-w-[var(--mobile-touch-target-min)] min-h-[var(--mobile-touch-target-min)]"
+                    style="color: var(--mobile-text-muted)"
+                    :disabled="isConnecting"
+                    :aria-label="t('hub.remove')"
+                    :title="t('hub.remove')"
+                    @click.stop="removeFromHistory(item.address)"
+                  >
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="1.75"
+                        d="M6 18L18 6M6 6l12 12"
+                      />
+                    </svg>
+                  </button>
+                </div>
               </TransitionGroup>
             </template>
 
@@ -390,47 +532,45 @@
             <Transition name="fade">
               <div v-if="scanResult" :class="hasConnectionHistory ? 'pt-4' : 'pt-0'">
                 <div class="flex items-center justify-between pb-2">
-                  <span class="text-sm font-semibold text-[var(--mobile-text-muted)]">
+                  <span class="text-[var(--font-size-sm)] font-medium text-[var(--mobile-text-muted)]">
                     {{ t('hub.scanResultTitle') }}
                   </span>
                   <button
-                    class="p-2 -mr-2 rounded-lg transition-colors active:opacity-80 flex-shrink-0"
+                    class="flex items-center justify-center w-11 h-11 -mr-2 rounded-[var(--bc-radius-control)] transition-colors active:opacity-80 flex-shrink-0"
                     style="color: var(--mobile-text-muted)"
                     :title="t('hub.actionClose')"
                     @click="scanResult = null"
                   >
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path
                         stroke-linecap="round"
                         stroke-linejoin="round"
-                        stroke-width="2"
+                        stroke-width="1.75"
                         d="M6 18L18 6M6 6l12 12"
                       />
                     </svg>
                   </button>
                 </div>
                 <button
-                  class="w-full bg-[var(--mobile-bg-card)] border border-[var(--mobile-border)] rounded-xl p-4 text-left cursor-pointer transition-[border-color,opacity] duration-300 active:opacity-90 hover:border-[var(--mobile-border-hover)]"
+                  class="w-full bg-[var(--mobile-bg-card)] border border-[var(--mobile-border)] rounded-[var(--bc-radius-card)] p-4 text-left cursor-pointer transition-colors active:opacity-90 hover:border-[var(--mobile-border-hover)]"
                   :disabled="isConnecting"
                   :class="{ 'opacity-50 pointer-events-none': isConnecting }"
                   @click="onQrConnect"
                 >
                   <div class="flex items-center gap-3">
-                    <span class="device-icon chip-emerald">
-                      <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                          stroke-width="1.75"
-                          d="M12 4v1m6 11h2m-6 0h-2m0 0H8m4 0h4m-4-8a1 1 0 011-1h1.586a1 1 0 01.707.293l3.828 3.828a1 1 0 01.293.707V17a1 1 0 01-1 1H8a1 1 0 01-1-1V7a1 1 0 011-1z"
-                        />
+                    <span class="bc-icon-box">
+                      <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <rect x="3.5" y="3.5" width="6" height="6" rx="1" stroke-width="1.75" />
+                        <rect x="14.5" y="3.5" width="6" height="6" rx="1" stroke-width="1.75" />
+                        <rect x="3.5" y="14.5" width="6" height="6" rx="1" stroke-width="1.75" />
+                        <path stroke-linecap="round" stroke-width="1.75" d="M14.5 14.5h2.5v2.5h-2.5zM20 18h.5v2.5H18" />
                       </svg>
                     </span>
                     <div class="flex-1 min-w-0">
-                      <div class="text-base font-medium text-[var(--mobile-text-primary)] truncate">
+                      <div class="text-[var(--font-size-lg)] font-medium text-[var(--mobile-text-primary)] truncate">
                         Desktop
                       </div>
-                      <p class="text-xs mt-1 font-mono text-[var(--mobile-text-muted)]">
+                      <p class="text-[var(--font-size-sm)] mt-1 font-mono text-[var(--mobile-text-muted)]">
                         {{ scanResult.host }}:{{ scanResult.port }}
                       </p>
                     </div>
@@ -456,13 +596,17 @@
         <button
           v-if="showScanner"
           key="scan"
-          class="w-full h-11 rounded-xl text-base font-medium transition-colors active:opacity-80 flex items-center justify-center gap-2"
-          style="background: var(--mobile-chip-red-bg); color: var(--mobile-chip-red); border: 1px solid color-mix(in srgb, var(--mobile-chip-red) 25%, transparent)"
+          class="w-full h-12 rounded-[var(--bc-radius-control)] text-[var(--font-size-base)] font-medium transition-colors active:opacity-80 flex items-center justify-center gap-2"
+          style="
+            background: var(--mobile-bg-card);
+            color: var(--mobile-error);
+            border: 1px solid var(--mobile-border);
+          "
           :class="{ 'opacity-50': isConnecting }"
           :disabled="isConnecting"
           @click="toggleScanner"
         >
-          <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+          <svg class="w-[18px] h-[18px]" fill="currentColor" viewBox="0 0 24 24">
             <rect x="6" y="6" width="12" height="12" rx="2" />
           </svg>
           {{ t('hub.scanStop') }}
@@ -470,35 +614,33 @@
 
         <div v-else key="default" class="space-y-3">
           <button
-            class="w-full h-11 rounded-xl text-base font-medium transition-colors active:opacity-80 flex items-center justify-center gap-2"
+            class="w-full h-12 rounded-[var(--bc-radius-control)] text-[var(--font-size-base)] font-medium transition-colors active:opacity-80 flex items-center justify-center gap-2"
             style="background: var(--mobile-accent); color: var(--mobile-text-on-accent)"
             :class="{ 'opacity-50': isConnecting }"
             :disabled="isConnecting"
             @click="toggleScanner"
           >
-            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M12 4v1m6 11h2m-6 0h-2m0 0H8m4 0h4m-4-8a1 1 0 011-1h1.586a1 1 0 01.707.293l3.828 3.828a1 1 0 01.293.707V17a1 1 0 01-1 1H8a1 1 0 01-1-1V7a1 1 0 011-1z"
-              />
+            <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <rect x="3.5" y="3.5" width="6" height="6" rx="1" stroke-width="1.75" />
+              <rect x="14.5" y="3.5" width="6" height="6" rx="1" stroke-width="1.75" />
+              <rect x="3.5" y="14.5" width="6" height="6" rx="1" stroke-width="1.75" />
+              <path stroke-linecap="round" stroke-width="1.75" d="M14.5 14.5h2.5v2.5h-2.5zM20 18h.5v2.5H18" />
             </svg>
             {{ t('hub.qrConnect') }}
           </button>
           <button
-            class="w-full h-11 rounded-xl text-base font-medium transition-colors active:opacity-80 flex items-center justify-center gap-2"
-            style="background: var(--mobile-group-bg); color: var(--mobile-text-secondary); border: 1px solid var(--mobile-group-border)"
+            class="w-full h-12 rounded-[var(--bc-radius-control)] text-[var(--font-size-base)] font-medium transition-colors active:opacity-80 flex items-center justify-center gap-2"
+            style="background: var(--mobile-bg-card); color: var(--mobile-text-secondary); border: 1px solid var(--mobile-border)"
             :class="{ 'opacity-50': isConnecting }"
             :disabled="isConnecting"
             data-testid="mobile-manual-connect"
             @click="showManualConnect = true"
           >
-            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path
                 stroke-linecap="round"
                 stroke-linejoin="round"
-                stroke-width="2"
+                stroke-width="1.75"
                 d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"
               />
             </svg>
@@ -544,7 +686,7 @@
 
     <!-- Clear History Confirmation Modal -->
     <Modal v-model="showClearHistoryConfirm" :title="t('hub.clearHistory')" size="sm">
-      <p style="color: var(--mobile-text-disabled)">{{ t('hub.historyClearConfirm') }}</p>
+      <p style="color: var(--mobile-text-secondary)">{{ t('hub.historyClearConfirm') }}</p>
       <template #footer>
         <div class="flex justify-end gap-3">
           <Button variant="ghost" @click="showClearHistoryConfirm = false">
@@ -557,7 +699,7 @@
 
     <!-- Disconnect Confirmation Modal -->
     <Modal v-model="showDisconnectConfirm" :title="t('hub.disconnect')" size="sm">
-      <p style="color: var(--mobile-text-disabled)">{{ t('hub.disconnectConfirm') }}</p>
+      <p style="color: var(--mobile-text-secondary)">{{ t('hub.disconnectConfirm') }}</p>
       <template #footer>
         <div class="flex justify-end gap-3">
           <Button variant="ghost" @click="showDisconnectConfirm = false">
@@ -574,17 +716,18 @@
         <div
           v-if="showPairingLoading"
           class="fixed inset-0 z-[100] flex items-center justify-center backdrop-blur-sm mobile-ui"
+          data-bedcode-surface
           style="background: var(--mobile-overlay)"
         >
           <div
-            class="rounded-2xl p-6 shadow-xl flex flex-col items-center gap-4 min-w-[200px]"
-            style="background: var(--mobile-group-bg)"
+            class="bc-overlay-panel rounded-[var(--bc-radius-card)] p-6 flex flex-col items-center gap-4 min-w-[200px]"
+            style="background: var(--mobile-bg-card); border: 1px solid var(--mobile-border)"
           >
             <div
-              class="w-10 h-10 border-4 border-current border-t-transparent rounded-full animate-spin"
-              style="color: var(--mobile-accent)"
+              class="w-8 h-8 border-2 border-current border-t-transparent rounded-full animate-spin"
+              style="color: var(--mobile-text-muted)"
             />
-            <p class="text-sm font-medium" style="color: var(--mobile-text-secondary)">
+            <p class="text-[var(--font-size-base)] font-medium" style="color: var(--mobile-text-secondary)">
               {{ t('hub.pairingRequesting') }}
             </p>
           </div>
@@ -626,7 +769,15 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useHostPage, type HostDeviceTarget } from '../useHostPage'
 import { connectionErrorKey } from '../errors'
 import { formatLastConnected, parseAddressWithDefault } from '../utils'
-import type { QrPayload } from '../qr'
+import { parseQrText, type QrPayload } from '../qr'
+import {
+  buildTunnelView,
+  modeLabelKey,
+  relayTargetsOf,
+  shortNodeId,
+  shouldRecordHistory,
+  type PeerTarget,
+} from '../tunnel'
 import BottomSheet from './ui/BottomSheet.vue'
 import Button from './ui/Button.vue'
 import LoadingDialog from './ui/LoadingDialog.vue'
@@ -644,10 +795,6 @@ interface DiscoveredService {
 }
 
 const props = withDefaults(defineProps<{ active?: boolean }>(), { active: true })
-defineEmits<{
-  /** 打开会话页（连接 → 会话联动入口） */
-  (e: 'open-sessions'): void
-}>()
 
 const ctrl = useHostPage()
 const t = ctrl.t
@@ -714,6 +861,37 @@ const discoveredServices = computed<DiscoveredService[]>(() =>
   Array.isArray(ctrl.mdnsServices.value) ? (ctrl.mdnsServices.value as DiscoveredService[]) : [],
 )
 
+
+// ── 内网穿透（T09）：状态栏事实全部来自宿主；本组件不推断传输路径 ──
+const tunnelStatus = computed(() => ctrl.tunnelStatus.value)
+/** 本会话试过拨号（句柄或对端 id 存在）：失败态也要能展示「内网不可达 + 尝试外网」 */
+const tunnelAttempted = computed(() => !!ctrl.tunnelNodeId.value)
+const tunnelView = computed(() => buildTunnelView(tunnelStatus.value, !!ctrl.tunnelHandle.value))
+/** 持久化的对端记录里具备中继拨号条件的设备（重启后仍可免扫码重连） */
+const relayTargets = computed(() => relayTargetsOf(tunnelStatus.value))
+/**
+ * 穿透状态的文字色（只给文字上色，不给底色）
+ *
+ * 原先返回 `chip-*` 类名，除了把「模式」渲染成一条胶囊，default 分支的 `chip-slate`
+ * 在宿主词表里根本不存在——归因缺失时那条胶囊会掉成透明（显示成无样式文字）。
+ * 现在返回 CSS 颜色：ok 中立、warn 琥珀、error 红、其余取次要文字色。
+ */
+const tunnelToneColor = computed(() => {
+  switch (tunnelView.value?.tone) {
+    case 'ok':
+      return 'var(--mobile-text-primary)'
+    case 'warn':
+      return 'var(--mobile-warning)'
+    case 'error':
+      return 'var(--mobile-error)'
+    default:
+      return 'var(--mobile-text-secondary)'
+  }
+})
+const tunnelReasonText = computed(() =>
+  tunnelView.value?.reasonKey ? t(tunnelView.value.reasonKey) : '',
+)
+
 /** 手动连接的默认端口（旧实现读 `mobile-settings.defaultPort`，缺省 8765） */
 const defaultPort = computed(() => {
   const value = Number(ctrl.mobileSettings.value?.defaultPort)
@@ -754,12 +932,16 @@ function onPageActivated(): void {
   void ctrl
     .loadHistory(true)
     .catch((e) => logger.warn(`[host] load connection history failed: ${errText(e)}`))
+  // 远端设备列表来自持久化对端记录：切回连接页时刷新（别的连接 / 事件可能已更新）
+  void ctrl.refreshTunnelStatus()
   if (showDiscovery.value) void startMdnsScan({ keepResults: true })
 }
 
 onMounted(() => {
   onPageActivated()
   void ctrl.refreshBiometric()
+  // 重启后对账：模式 / 对端记录以宿主 `status` 为准（事件不重放）
+  void ctrl.refreshTunnelStatus()
 })
 
 // 页签容器常驻挂载（AppRoot 首次访问后不卸载面板）：用 active 复刻旧
@@ -798,7 +980,21 @@ watch(isConnected, (connected) => {
 watch(isAuthenticated, (authenticated, wasAuthenticated) => {
   if (!authenticated || wasAuthenticated) return
   const device = pendingDevice.value ?? currentDevice.value
-  if (device) void ctrl.addHistory(`${device.address}:${device.port}`, device.name || device.address)
+  if (device) {
+    // 回环代理是本连接的临时端口（隧道 connect 每次新建、关闭即失效）：写进历史会让
+    // 下次点击连到死端口，且每次重连都多一条垃圾记录。设备寻址的真历史由扫码 /
+    // 连接串路径按原始 LAN 地址写入。
+    if (shouldRecordHistory(device.address)) {
+      void ctrl.addHistory(
+        `${device.address}:${device.port}`,
+        device.name || device.address,
+      )
+    } else {
+      logger.info(
+        `[tunnel] history skipped for loopback proxy ${device.address}:${device.port}`,
+      )
+    }
+  }
   pendingDevice.value = null
   void ctrl
     .refreshSessions()
@@ -1027,9 +1223,27 @@ async function handleConnectFromHistory(item: { address: string; name?: string }
   await startConnection({ ...parsed, name: item.name || parsed.address }, true)
 }
 
-/** 手动连接（必须走配对流程；未写端口回落默认端口） */
+/**
+ * 手动连接（必须走配对流程；未写端口回落默认端口）
+ *
+ * 同一输入框也接受桌面「复制连接串」产出的 `wasmnest://pair/…`：解析走扫码的
+ * 同一个纯函数 `parseQrText`，成功后的路径与扫码完全一致（结果卡片 → token 认证），
+ * 不为连接串另开一条绕过 token 的明文捷径。
+ */
 async function handleConnectManual(address: string): Promise<void> {
   if (isConnecting.value) return
+  if (address.trim().startsWith('wasmnest://')) {
+    const result = parseQrText(address)
+    if (!result.ok) {
+      // 连接串含 token：只记结论，不落原文
+      logger.warn(`[host] manual pair link rejected: reason=${result.reason}`)
+      toast.showToast(t('hub.pairLinkInvalid'), 'error')
+      return
+    }
+    showManualConnect.value = false
+    handleScanResult(result.payload)
+    return
+  }
   const parsed = parseAddressWithDefault(address, defaultPort.value)
   if (!parsed) {
     // 格式错误是本地校验失败（非引擎错误）：明确告知期望格式，同时落日志便于排障
@@ -1087,13 +1301,23 @@ async function onQrConnect(): Promise<void> {
   qrFlowActive = true
 
   try {
-    // Step 1: 建立连接（扫码自带一次性 token：跳过「旧凭据静默换新」）
-    await ctrl.connectDevice(device, { silentAuth: false })
+    // Step 0: QR v2 带 `peer` → 先建隧道，后续一切业务都走 127.0.0.1 回环代理；
+    // 旧版载荷（无 `peer`）保持原 LAN 直连路径不回归
+    const proxy = await ctrl.openTunnel(result)
+    const target: HostDeviceTarget = proxy
+      ? { address: proxy.address, port: proxy.port, name: 'Desktop' }
+      : device
+    // `pendingDevice` 保留**原设备**（连接历史 / 配对展示用原 host:port）；
+    // 只有传输层拨号改走回环代理，不能把 127.0.0.1 写进历史（重连会失效）。
+    pendingDevice.value = device
 
-    // Step 2: 等待连接建立完成（旧实现 200ms × 最多 10s 轮询，解决竞态）
-    await waitForConnected(10000)
+    // Step 1: 配对窗口只放行 `/api/auth/*`——先只设目标（不探测、不建通道）。
+    // 否则 `/api/health` 会先消费隧道的一次性票据，真正的认证请求反而被
+    // `ticket-expired` 拒绝（C1）。认证成功（桌面写 trust）后宿主 supervisor
+    // 自动建立事件 WS，不需要再 `connectDevice` 一次。
+    await ctrl.connectDevice(target, { pairingOnly: true, silentAuth: false })
 
-    // Step 3: 用 QR token 认证
+    // Step 2: 用 QR token 认证（HTTP `/api/auth/qr-connect`）
     const ok = await ctrl.authenticateWithQr(result.token)
     if (!ok) throw new Error(t('hub.scanQrExpired'))
     scanResult.value = null
@@ -1102,21 +1326,13 @@ async function onQrConnect(): Promise<void> {
     connectionError.value = ctrl.deviceError.value || msg
     logger.error(`[host] QR connect failed: ${msg}`)
     toast.showToast(t(connectionErrorKey(msg)), 'error')
-    // 连接失败时确保前后端状态一致：断开后端连接 + 重置前端状态
+    // 连接失败时确保前后端状态一致：先关通道（避免遗留回环监听）再断连接
+    await ctrl.closeTunnel()
     await ctrl.disconnect().catch(() => {})
     await ctrl.loadHistory(true).catch(() => {})
   } finally {
     qrFlowActive = false
     showConnectLoading.value = false
-  }
-}
-
-/** 等传输层连上（旧 QR 路径轮询口径：200ms 一次，超时抛错） */
-async function waitForConnected(timeoutMs: number): Promise<void> {
-  const start = Date.now()
-  while (!ctrl.api.isConnected.value && !isAuthenticated.value) {
-    if (Date.now() - start > timeoutMs) throw new Error(t('hub.scanTimeout'))
-    await new Promise((resolve) => setTimeout(resolve, 200))
   }
 }
 
@@ -1180,9 +1396,66 @@ function handleDisconnect(): void {
   showDisconnectConfirm.value = true
 }
 
+/**
+ * 经中继连接一个已记录的对端（远程设备列表 / 失败态「尝试外网」共用）
+ *
+ * - 先用持久化的 relay 候选重建通道（已配对无需新票据）；
+ * - 通道建好后走与扫码相同的连接编排：连回环代理 → 存量凭据静默换新
+ *   （换新失败时按既有流程回落配对码 / 生物认证入口）；
+ * - 失败按宿主错误码给文案；失败路径先关通道，不留本地监听。
+ */
+async function connectViaRelay(target: PeerTarget): Promise<void> {
+  // 对话框已开（拨号中）或宿主正在连接：重复点击会建两条通道
+  if (isConnecting.value || showConnectLoading.value) return
+  showConnectLoading.value = true
+  try {
+    const proxy = await ctrl.tryWan(target)
+    await startConnection(
+      { address: proxy.address, port: proxy.port, name: target.deviceName || 'Desktop' },
+      true,
+    )
+  } catch (e) {
+    const message = errText(e)
+    connectionError.value = t(message)
+    logger.error(`[tunnel] relay connect failed: ${message}`)
+    toast.showToast(t(message), 'error')
+    await ctrl.closeTunnel()
+  } finally {
+    showConnectLoading.value = false
+  }
+}
+
+/** 远程设备列表点选：用持久化 relay 候选重连，不需要桌面用户重发二维码 */
+async function handleRelayConnect(target: PeerTarget): Promise<void> {
+  await connectViaRelay(target)
+}
+
+/**
+ * 手动「尝试外网」：拿已记录对端的 relay 候选让宿主重拨。
+ *
+ * 用户意图就是判据（宿主归因 `user`）；本组件不自己把 lan-unreachable 改判成外网。
+ * 失败按宿主错误码给文案，不弹模态。
+ */
+async function handleTryWan(): Promise<void> {
+  const nodeId = ctrl.tunnelNodeId.value
+  // 只认**当前这次**拨号的对端记录：拿别的对端（如 targets[0]）兜底会把「尝试外网」
+  // 拨到另一台设备，认证必然失败且界面给出的原因全部指向错误的设备。
+  const target: PeerTarget | undefined = nodeId
+    ? tunnelStatus.value?.targets?.find((item) => item.nodeId === nodeId)
+    : undefined
+  if (!target) {
+    connectionError.value = t('hub.tunnelErrorNoPeerRecord')
+    toast.showToast(t('hub.tunnelErrorNoPeerRecord'), 'error')
+    return
+  }
+  await connectViaRelay(target)
+}
+
 async function confirmDisconnect(): Promise<void> {
   showDisconnectConfirm.value = false
   try {
+    // 先关通道再断 WS：反序会让宿主自动重连去拨已关闭的回环端口（静默重试）
+    await ctrl.closeTunnel()
     await ctrl.disconnect()
   } catch (e) {
     logger.error(`[host] disconnect failed: ${errText(e)}`)
@@ -1195,20 +1468,10 @@ function errText(e: unknown): string {
 </script>
 
 <style scoped>
-/* 标题下连接状态小字：比 page-subtitle 默认更小，手机上 10px、平板 11px */
+/* 标题下连接状态小字：取根级最小字阶（11 / 12 / 14px）。
+   原先这里写 9px 起，手机上「已连接」比说明文字还小一档，读不动也随字号设置不走。 */
 .connection-status-subtitle {
-  font-size: clamp(0.5625rem, 0.625rem + (100vw - 360px) / 840, 0.6875rem);
-}
-
-/* 设备图标容器：与 PluginIcon md 尺寸一致（48px, rounded-xl） */
-.device-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 3rem;
-  height: 3rem;
-  border-radius: 0.75rem;
-  flex-shrink: 0;
+  font-size: var(--font-size-sm);
 }
 
 .fade-enter-active,
@@ -1222,11 +1485,11 @@ function errText(e: unknown): string {
 }
 
 .config-list-enter-active {
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1), transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .config-list-leave-active {
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: opacity 0.2s cubic-bezier(0.4, 0, 0.2, 1), transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .config-list-enter-from {
@@ -1256,20 +1519,23 @@ function errText(e: unknown): string {
 
 /* ==================== mDNS 发现设备列表（融合自原扫描页 DiscoverView） ==================== */
 
-.device-row {
-  gap: clamp(0.5rem, 0.625rem + (100vw - 360px) / 840 * 2, 0.75rem);
-  padding: clamp(0.5rem, 0.625rem + (100vw - 360px) / 840 * 2, 0.75rem) 0.75rem;
-  min-height: 3rem;
-}
+/* 尺寸 / 内边距 / 行高一律交给 .group-row：发现列表此前自带一套 clamp 内边距
+   （12px 边、48 高），与下面的中继 / 历史行（16px 边、56 高）对不齐，
+   同一屏两张卡里的行首图标差了 4px。 */
 
+/* 行首图标：中性底（与 DeviceSection 里的 .bc-icon-box 同形，尺寸小一档）。
+   颜色此前按列表分别取 cyan / amber / emerald——同一台设备在「发现」「历史」
+   「已连接」三处是三种颜色，颜色因此不再表达任何东西。 */
 .device-chip {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: clamp(1.5rem, 1.75rem + (100vw - 360px) / 840 * 4, 2rem);
-  height: clamp(1.5rem, 1.75rem + (100vw - 360px) / 840 * 4, 2rem);
-  border-radius: clamp(0.375rem, 0.4375rem + (100vw - 360px) / 840, 0.5rem);
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
   flex-shrink: 0;
+  background: var(--bc-icon-bg);
+  color: var(--bc-icon-fg);
 }
 
 .device-name {
@@ -1286,38 +1552,12 @@ function errText(e: unknown): string {
   color: var(--mobile-row-sub);
 }
 
-/* 已连接设备：非交互行，无按压反馈 */
-.device-row.is-connected {
+/* 已连接设备：非交互行，无按压反馈（状态由行尾的绿点承担，图标底保持中性） */
+.group-row.is-connected {
   cursor: default;
 }
 
-.device-row.is-connected:active {
+.group-row.is-connected:active {
   background: none;
-}
-
-.device-row.is-connected .device-chip {
-  color: var(--mobile-chip-emerald);
-  background: var(--mobile-chip-emerald-bg);
-}
-
-/* 发现区雷达扫射：旧实现用 Tailwind 任意值 animate-[spin_3s_linear_infinite]，
-   插件构建不含该任意值动画类，改为 scoped keyframes（等价 3s 线性无限旋转） */
-.radar-sweep {
-  animation: radar-sweep-spin 3s linear infinite;
-}
-
-@keyframes radar-sweep-spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .radar-sweep {
-    animation: none;
-  }
 }
 </style>

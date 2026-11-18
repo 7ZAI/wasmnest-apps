@@ -9,7 +9,9 @@
 import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { MonitorAppContext } from '../appContext'
 import type { MonitorPanelHandle } from '../entry'
-import type { MonitorPanelRegistration, PluginRow } from '../types'
+import type { AlertSettings, MonitorPanelRegistration, PluginRow } from '../types'
+import { useAlertSettings } from '../composables/useAlertSettings'
+import { useAlerts, type AlertNotifyPayload } from '../composables/useAlerts'
 import { useMonitor } from '../composables/useMonitor'
 import {
   formatBytes,
@@ -22,7 +24,12 @@ import {
   sumValues,
   usageRatio,
 } from '../utils/format'
+import { hostProcessOf } from '../utils/process'
+import { topMemoryConsumers } from '../utils/platform'
 import i18n from '../i18n'
+import AlertPanel from './AlertPanel.vue'
+import HostProcessPanel from './HostProcessPanel.vue'
+import PlatformOverview from './PlatformOverview.vue'
 import PluginInspector from './PluginInspector.vue'
 import RuntimeSignal from './RuntimeSignal.vue'
 import SystemPanel from './SystemPanel.vue'
@@ -31,10 +38,12 @@ const context = inject<MonitorAppContext>('pluginContext')!
 const t = (key: string, params?: Record<string, unknown>): string => context.i18n.t(key, params)
 
 const {
+  snapshot,
   rows,
   panels,
   systems,
   summary,
+  platform,
   error,
   hostInfoWarning,
   loading,
@@ -45,8 +54,80 @@ const {
   stop,
 } = useMonitor(context, { intervalMs: 1000 })
 
+/**
+ * 宿主进程 / WebView 指标（快照 `process` 段）：整机口径，**不并入** wasm 台账。
+ *
+ * `null` = 快照没有这一段（旧宿主）——面板据此显示「未提供」，不伪造数字。
+ */
+const hostProcess = computed(() => hostProcessOf(snapshot.value))
+
+// ==================== 平台总览 / 预警（每次成功采样驱动） ====================
+//
+// 阈值设置存本应用 KV；预警引擎是纯函数（`utils/alerts.ts`），此处只负责把
+// 采样、设置与通知通道接起来。宿主通知是锦上添花：失败只记提示，页内告警不变。
+const {
+  settings: alertSettings,
+  ready: alertSettingsReady,
+  warning: alertSettingsWarning,
+  load: loadAlertSettings,
+  update: updateAlertSettings,
+  reset: resetAlertSettings,
+} = useAlertSettings(context)
+
+const nameOfPlugin = (id: string): string => rows.value.find((row) => row.id === id)?.name ?? id
+
+const {
+  active: activeAlerts,
+  resolved: resolvedAlerts,
+  summary: alertSummary,
+  notifyWarning,
+} = useAlerts({
+  totals: platform,
+  rows,
+  samples,
+  lastUpdated,
+  settings: alertSettings,
+  ready: alertSettingsReady,
+  t,
+  nameOf: nameOfPlugin,
+  notify: (payload: AlertNotifyPayload) =>
+    context.commands.execute('monitor.notify', {
+      title: payload.title,
+      body: payload.body,
+    }),
+})
+
+const memoryConsumers = computed(() =>
+  topMemoryConsumers(rows.value, 3, platform.value.memoryCurrentBytes),
+)
+
+function handleAlertUpdate(patch: Partial<AlertSettings>): void {
+  void updateAlertSettings(patch)
+}
+
+function handleAlertReset(): void {
+  void resetAlertSettings()
+}
+
 const localeTag = computed(() => (i18n.global.locale.value === 'en' ? 'en-US' : 'zh-CN'))
 const initialLoading = computed(() => loading.value && lastUpdated.value === null)
+
+/**
+ * 手动刷新中：只有用户点击才驱动按钮加载态。
+ *
+ * 后台 1s 轮询也走 `refresh`，若按钮直接绑 `loading`，按钮会每秒
+ * 禁停 / 换文案 / 转图标 → 肉眼可见的闪烁跳动（用户 2026-11-01 反馈）。
+ */
+const manualRefreshing = ref(false)
+async function manualRefresh(): Promise<void> {
+  if (manualRefreshing.value) return
+  manualRefreshing.value = true
+  try {
+    await refresh()
+  } finally {
+    manualRefreshing.value = false
+  }
+}
 
 const updatedText = computed(() =>
   lastUpdated.value === null
@@ -94,6 +175,12 @@ const heroLead = computed(() => {
   if (error.value) return rows.value.length > 0 ? t('monitor.hero.stale') : t('monitor.error.title')
   if (initialLoading.value) return t('monitor.loading')
   if (rows.value.length === 0) return t('monitor.empty.title')
+  if (alertSummary.value.critical > 0) {
+    return t('monitor.hero.alertsCritical', { count: alertSummary.value.critical })
+  }
+  if (alertSummary.value.warning > 0) {
+    return t('monitor.hero.alertsWarning', { count: alertSummary.value.warning })
+  }
   if (attentionCount.value > 0) return t('monitor.hero.attention', { count: attentionCount.value })
   if (!statesKnown.value) return t('monitor.hero.unknown')
   // 正常态不显示标题：仪表本身已经说明「一切正常」，再补一句「无需关注」只是噪音。
@@ -114,7 +201,8 @@ const heroTone = computed(() => {
   if (error.value) return 'is-danger'
   if (initialLoading.value) return 'is-neutral'
   if (rows.value.length === 0) return 'is-neutral'
-  if (attentionCount.value > 0) return 'is-warning'
+  if (alertSummary.value.critical > 0) return 'is-danger'
+  if (alertSummary.value.warning > 0 || attentionCount.value > 0) return 'is-warning'
   if (!statesKnown.value) return 'is-warning'
   return 'is-success'
 })
@@ -249,7 +337,11 @@ function trapTotalOf(row: PluginRow): number {
   return sumValues(row.metrics.trap_reasons)
 }
 
-onMounted(start)
+onMounted(() => {
+  // 设置读取与轮询并行：未读完时引擎不评估（`ready` 门），不会用默认值误报
+  void loadAlertSettings()
+  start()
+})
 onBeforeUnmount(() => {
   stop()
   // 先让在途装载作废（晚到结果会自卸），再卸已挂载实例
@@ -260,9 +352,9 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="mn-view mn-page" data-testid="monitor-view">
-    <!-- ==================== 页头（身份 / 标题 / 只读说明） ==================== -->
-    <!-- 标题原先只在页脚出现：滚动到底才知道自己在哪一页。页头承载身份与只读
-         口径，页脚只留数据来源 / 采样口径等脚注。 -->
+    <!-- ==================== 页头（身份 / 标题） ==================== -->
+    <!-- 标题原先只在页脚出现：滚动到底才知道自己在哪一页。页头只承载身份与标题，
+         不再补「运行时指标 · 只读」这类说明（各分区同理，只留标题与数据）。 -->
     <header class="mn-topbar">
       <div class="mn-wrap mn-topbar-inner">
         <div class="mn-topbar-id">
@@ -306,7 +398,6 @@ onBeforeUnmount(() => {
             {{ t('monitor.title') }}
           </h1>
         </div>
-        <p class="mn-page-sub">{{ t('monitor.subtitle') }}</p>
       </div>
     </header>
 
@@ -340,13 +431,14 @@ onBeforeUnmount(() => {
               <button
                 type="button"
                 class="mn-refresh"
-                :disabled="loading"
+                :disabled="manualRefreshing"
+                :aria-busy="manualRefreshing || undefined"
                 data-testid="monitor-refresh"
-                @click="refresh"
+                @click="manualRefresh"
               >
                 <svg
                   class="mn-refresh-icon"
-                  :class="{ 'is-spinning': loading }"
+                  :class="{ 'is-spinning': manualRefreshing }"
                   viewBox="0 0 24 24"
                   fill="none"
                   stroke="currentColor"
@@ -360,7 +452,13 @@ onBeforeUnmount(() => {
                     d="M20 9a8 8 0 0 0-14.9-2M4 15a8 8 0 0 0 14.9 2"
                   />
                 </svg>
-                {{ loading ? t('monitor.refreshing') : t('monitor.refresh') }}
+                <!-- 两个文案同格叠放：切换时按钮宽度不变，避免整行左右跳 -->
+                <span class="mn-refresh-label">
+                  <span :class="{ 'is-hidden': manualRefreshing }">{{ t('monitor.refresh') }}</span>
+                  <span :class="{ 'is-hidden': !manualRefreshing }">{{
+                    t('monitor.refreshing')
+                  }}</span>
+                </span>
               </button>
             </div>
           </div>
@@ -418,7 +516,6 @@ onBeforeUnmount(() => {
             <div class="mn-vital" data-testid="monitor-kpi-inflight">
               <span class="mn-vital-value">{{ formatNumber(summary.callsInFlight) }}</span>
               <span class="mn-vital-label">{{ t('monitor.kpi.inFlight') }}</span>
-              <span class="mn-vital-note">{{ t('monitor.kpi.inFlightHint') }}</span>
             </div>
             <div class="mn-vital" data-testid="monitor-kpi-traps">
               <span class="mn-vital-value" :class="{ 'is-danger': summary.trapsTotal > 0 }">
@@ -432,6 +529,36 @@ onBeforeUnmount(() => {
             </div>
           </div>
         </div>
+      </section>
+
+      <!-- ==================== 平台总览（全部 wasm 的合计） ==================== -->
+      <section
+        v-if="!initialLoading && rows.length > 0"
+        class="mn-wrap mn-overview-section"
+        aria-labelledby="overview-title"
+        data-ui
+      >
+        <header class="mn-section-head mn-rise">
+          <div>
+            <h2 id="overview-title" class="mn-section-title">{{ t('monitor.overview.title') }}</h2>
+          </div>
+        </header>
+        <PlatformOverview :totals="platform" :consumers="memoryConsumers" />
+      </section>
+
+      <!-- ==================== 宿主进程 / WebView（整机口径，与上方 wasm 段分开） ==================== -->
+      <section
+        v-if="!initialLoading && rows.length > 0"
+        class="mn-wrap mn-overview-section"
+        aria-labelledby="process-title"
+        data-ui
+      >
+        <header class="mn-section-head mn-rise">
+          <div>
+            <h2 id="process-title" class="mn-section-title">{{ t('monitor.process.title') }}</h2>
+          </div>
+        </header>
+        <HostProcessPanel :metrics="hostProcess" />
       </section>
 
       <!-- ==================== 加载骨架 ==================== -->
@@ -459,7 +586,6 @@ onBeforeUnmount(() => {
         <header class="mn-section-head mn-rise">
           <div>
             <h2 id="plugins-title" class="mn-section-title">{{ t('monitor.ledger.title') }}</h2>
-            <p class="mn-section-hint">{{ t('monitor.ledger.hint') }}</p>
             <div class="mn-filter" role="group" :aria-label="t('monitor.filter.aria')" data-ui>
               <button
                 v-for="option in filterOptions"
@@ -486,72 +612,89 @@ onBeforeUnmount(() => {
         </header>
 
         <div class="mn-ledger-layout">
-          <div class="mn-ledger" data-testid="monitor-plugin-list" data-ui>
-            <button
-              v-for="(row, index) in filteredRows"
-              :key="row.id"
-              type="button"
-              class="mn-ledger-row"
-              :class="{ 'is-selected': row.id === selectedId }"
-              :style="{ '--row-index': index }"
-              :data-testid="`monitor-plugin-${row.id}`"
-              :data-plugin-id="row.id"
-              :data-state="row.state"
-              :data-metrics-available="row.metricsAvailable"
-              :aria-current="row.id === selectedId ? 'true' : undefined"
-              aria-controls="monitor-inspector"
-              @click="selectedId = row.id"
-            >
-              <div class="mn-ledger-top">
-                <span class="mn-state-dot" :class="`is-${row.state}`" aria-hidden="true"></span>
-                <span class="mn-ledger-name">{{ row.name }}</span>
-                <span v-if="row.version" class="mn-ledger-version">{{ row.version }}</span>
-                <span
-                  v-if="serviceRoleText(row)"
-                  class="mn-role"
-                  :data-testid="`monitor-role-${row.id}`"
-                  >{{ serviceRoleText(row) }}</span
-                >
-                <span v-if="row.id === context.id" class="mn-tag">{{ t('monitor.self') }}</span>
-                <span class="mn-ledger-state" :data-testid="`monitor-state-${row.id}`">
-                  {{ t(`monitor.state.${row.state}`) }}
-                </span>
-              </div>
-
-              <div class="mn-ledger-id">{{ row.id }}</div>
-
-              <div v-if="row.metricsAvailable" class="mn-ledger-meta">
-                <span class="mn-ledger-mem">
-                  {{ formatBytes(row.metrics.memory_current_bytes) }}
-                  <span class="mn-muted">
-                    / {{ quotaMemoryOf(row) === null ? '—' : formatBytes(quotaMemoryOf(row)) }}
+          <div class="mn-ledger-main">
+            <div class="mn-ledger" data-testid="monitor-plugin-list" data-ui>
+              <button
+                v-for="(row, index) in filteredRows"
+                :key="row.id"
+                type="button"
+                class="mn-ledger-row"
+                :class="{ 'is-selected': row.id === selectedId }"
+                :style="{ '--row-index': index }"
+                :data-testid="`monitor-plugin-${row.id}`"
+                :data-plugin-id="row.id"
+                :data-state="row.state"
+                :data-metrics-available="row.metricsAvailable"
+                :aria-current="row.id === selectedId ? 'true' : undefined"
+                aria-controls="monitor-inspector"
+                @click="selectedId = row.id"
+              >
+                <div class="mn-ledger-top">
+                  <span class="mn-state-dot" :class="`is-${row.state}`" aria-hidden="true"></span>
+                  <span class="mn-ledger-name">{{ row.name }}</span>
+                  <span v-if="row.version" class="mn-ledger-version">{{ row.version }}</span>
+                  <span
+                    v-if="serviceRoleText(row)"
+                    class="mn-role"
+                    :data-testid="`monitor-role-${row.id}`"
+                    >{{ serviceRoleText(row) }}</span
+                  >
+                  <span v-if="row.id === context.id" class="mn-tag">{{ t('monitor.self') }}</span>
+                  <span class="mn-ledger-state" :data-testid="`monitor-state-${row.id}`">
+                    {{ t(`monitor.state.${row.state}`) }}
                   </span>
-                </span>
-                <span class="mn-muted">
-                  {{ memoryRatioOf(row) === null ? '—' : formatRatio(memoryRatioOf(row)) }}
-                </span>
-                <span class="mn-ledger-calls">
-                  {{ t('monitor.ledger.calls', { n: formatNumber(row.metrics.calls_total) }) }}
-                </span>
-                <span v-if="trapTotalOf(row) > 0" class="mn-ledger-alert">
-                  {{ formatNumber(trapTotalOf(row)) }} Trap
-                </span>
-              </div>
-              <div v-else class="mn-ledger-meta">
-                <span class="mn-ledger-unavailable">
-                  {{ t('monitor.ledger.metricsUnavailable') }}
-                </span>
-              </div>
+                </div>
 
-              <div v-if="row.metricsAvailable" class="mn-waterline is-compact" aria-hidden="true">
-                <div
-                  v-if="memoryRatioOf(row) !== null"
-                  class="mn-waterline-fill"
-                  :class="`is-${memoryToneOf(row)}`"
-                  :style="{ transform: `scaleX(${memoryScaleOf(row)})` }"
-                ></div>
-              </div>
-            </button>
+                <div class="mn-ledger-id">{{ row.id }}</div>
+
+                <div v-if="row.metricsAvailable" class="mn-ledger-meta">
+                  <span class="mn-ledger-mem">
+                    {{ formatBytes(row.metrics.memory_current_bytes) }}
+                    <span class="mn-muted">
+                      / {{ quotaMemoryOf(row) === null ? '—' : formatBytes(quotaMemoryOf(row)) }}
+                    </span>
+                  </span>
+                  <span class="mn-muted">
+                    {{ memoryRatioOf(row) === null ? '—' : formatRatio(memoryRatioOf(row)) }}
+                  </span>
+                  <span class="mn-ledger-calls">
+                    {{ t('monitor.ledger.calls', { n: formatNumber(row.metrics.calls_total) }) }}
+                  </span>
+                  <span v-if="trapTotalOf(row) > 0" class="mn-ledger-alert">
+                    {{ formatNumber(trapTotalOf(row)) }} Trap
+                  </span>
+                </div>
+                <div v-else class="mn-ledger-meta">
+                  <span class="mn-ledger-unavailable">
+                    {{ t('monitor.ledger.metricsUnavailable') }}
+                  </span>
+                </div>
+
+                <div v-if="row.metricsAvailable" class="mn-waterline is-compact" aria-hidden="true">
+                  <div
+                    v-if="memoryRatioOf(row) !== null"
+                    class="mn-waterline-fill"
+                    :class="`is-${memoryToneOf(row)}`"
+                    :style="{ transform: `scaleX(${memoryScaleOf(row)})` }"
+                  ></div>
+                </div>
+              </button>
+            </div>
+
+            <!-- 左列 = 台账 + 宿主段：与右列详情互不牵动（打开详情里的下拉不得顶动这里） -->
+            <section
+              v-if="systems.length > 0"
+              class="mn-host-section"
+              data-ui
+              data-testid="monitor-system-list"
+            >
+              <header class="mn-section-head">
+                <div>
+                  <h2 class="mn-section-title">{{ t('monitor.section.host') }}</h2>
+                </div>
+              </header>
+              <SystemPanel :sections="systems" />
+            </section>
           </div>
 
           <div id="monitor-inspector" class="mn-inspector-slot">
@@ -562,30 +705,32 @@ onBeforeUnmount(() => {
               :self-id="context.id"
             />
           </div>
-
-          <section
-            v-if="systems.length > 0"
-            class="mn-host-section"
-            data-ui
-            data-testid="monitor-system-list"
-          >
-            <header class="mn-section-head">
-              <div>
-                <h2 class="mn-section-title">{{ t('monitor.section.host') }}</h2>
-                <p class="mn-section-hint">{{ t('monitor.host.hint') }}</p>
-              </div>
-            </header>
-            <SystemPanel :sections="systems" />
-          </section>
         </div>
       </section>
 
-      <!-- ==================== 收束（脚注：数据来源 / 采样口径 / 会话寿命） ==================== -->
-      <footer class="mn-wrap mn-footer">
-        <p class="mn-footer-note">{{ t('monitor.footer.source') }}</p>
-        <p class="mn-footer-note">{{ t('monitor.signal.note') }}</p>
-        <p class="mn-footer-note">{{ t('monitor.footer.session') }}</p>
-      </footer>
+      <!-- ==================== 预警（阈值 + 活动条目 + 最近解除） ==================== -->
+      <section
+        v-if="!initialLoading && rows.length > 0"
+        class="mn-wrap mn-alerts-section"
+        aria-labelledby="alerts-title"
+        data-ui
+      >
+        <header class="mn-section-head mn-rise">
+          <div>
+            <h2 id="alerts-title" class="mn-section-title">{{ t('monitor.alerts.title') }}</h2>
+          </div>
+        </header>
+        <AlertPanel
+          :alerts="activeAlerts"
+          :resolved="resolvedAlerts"
+          :settings="alertSettings"
+          :rows="rows"
+          :settings-warning="alertSettingsWarning"
+          :notify-warning="notifyWarning"
+          @update="handleAlertUpdate"
+          @reset="handleAlertReset"
+        />
+      </section>
     </template>
 
     <!-- ==================== 提供方面板（整页；由宿主中介装载） ==================== -->

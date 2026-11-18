@@ -2,6 +2,7 @@ import { defineConfig, type Plugin } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { resolve } from 'path'
 import { wasmnestPlugin } from '@binblink/wasmnest-plugin-sdk-mobile/vite'
+import { i18nPrecompile } from '../../../scripts/lib/i18n-precompile.mjs'
 
 /**
  * 库模式构建下 Vite 不会把提取出的 CSS 注入 JS：产物中的 style.css 无人引用，
@@ -46,7 +47,15 @@ function inlinePluginCss(): Plugin {
 }
 
 export default defineConfig({
-  plugins: [vue(), wasmnestPlugin(), inlinePluginCss()],
+  // i18n 消息构建期预编译成 `(ctx) => string`：移动端 vue-i18n 由宿主提供，
+  // 预编译后宿主的消息编译器不再处理本应用文案（安全审查 #50：CSP 撤 'unsafe-eval'）。
+  // 新增语言文件必须加进 include 清单。
+  plugins: [
+    vue(),
+    i18nPrecompile({ include: ['src/i18n/zh-CN.ts', 'src/i18n/en.ts'] }),
+    wasmnestPlugin(),
+    inlinePluginCss(),
+  ],
   define: {
     'process.env.NODE_ENV': JSON.stringify('production'),
   },

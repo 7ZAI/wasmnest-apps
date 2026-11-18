@@ -11,6 +11,7 @@
 | 写或改前端（桌面挂载包 / 移动壳运行面 / i18n / 样式 / 红线 / 测试） | **`docs/FRONTEND.md`** |
 | 写或改 Rust 后端（crate / 命令面 / 权限 / 构建目标 / 日志错误 / 测试） | **`docs/BACKEND.md`** |
 | 做桌面端 E2E（真实宿主内脚本点界面 / 加测试锚点 / 判据纪律） | **`docs/E2E.md`** |
+| 开发 / 修改 wasm 应用（双端指南 / plugin.json / 权限 / 契约 / 红线清单） | **`docs/wasm-app-dev/`**（`wasm-app-dev-desktop.md` + `wasm-app-dev-guide.md` + `wasm-app-dev-mobile.md` + `wasm-app-development-checklist.md`） |
 | 判断优先级、安全红线、提交与完成定义 | 本文件 |
 | 通用规范：git 提交 / 注释命名 / 测试与验证 / 版本号管理 / issue 管理（四仓共享真源） | **`../wasmnest/docs/public/`**（`git.md` / `commenting.md` / `testing.md` / `versioning.md` / `issues.md`） |
 
@@ -36,6 +37,17 @@
 - **文档字面 ≠ 事实**：引用任何路径 / 命令 / 锁名 / 版本前先用 `ls` / `rg` 核对；与实际不符先修文档再继续。（本仓已多次出现文档滞后于目录迁移的情况，file-transfer 的 rust 层尤甚。）
 - **最小改动**：只改任务必要文件；禁止顺手重构相邻代码、擅自升级依赖；设计取舍不猜，先问用户。
 - **项目阶段（研发起步期）**：无真实用户、无对外 ABI 兼容义务——破坏性变更可直接进行，但跨仓契约按 tag 钉住（§3），退役面必须 **fail-visible**（点名缺失 + 给出路），禁止静默降级成「查不到就返回空」。
+
+### 1.1 交流准则（格赖斯合作原则）
+
+面向本仓人类与 AI 协作者（含 vibe coding）的沟通规则，以格赖斯（H. P. Grice）合作原则与四项会话准则为纲：**在不牺牲准确性与必要深度的前提下提高沟通效率**。任何回复、评审意见、任务汇报、交付说明均适用。
+
+- **量的准则（信息充分而不冗余）**：提供接收方完成行动所需的信息量，不多不少——既不遗漏关键结论 / 依据 / 风险 / 未跑项，也不堆砌无关背景、重复已知结论、贴大段代码或日志凑篇幅。判据：接收方能据此行动且无需再追问。
+- **质的准则（论述真实且有依据）**：不说无依据、无法核实或不信为真的话；凡论断必有依据（命令输出、源码引用、文档指针、可复现实验），并区分「事实 / 推断 / 猜测 / 待验证」，禁止把猜测包装成结论。数据、路径、版本、锁名引用前先核实（文档字面 ≠ 事实）。
+- **关系准则（回应紧扣问题）**：回应与所问直接相关，被问什么就答什么；不答非所问、不借题发挥、不夹带与当前任务无关的改动或建议。
+- **方式准则（表达清晰有序）**：避免晦涩、歧义与冗长；结论先行、要点编号、按逻辑顺序组织；术语一致，路径 / 命令 / 锁名 / 版本用可复制的准确字面；先给结论与证据，再给过程与细节。
+
+**底线而非上限**：这些准则是沟通下限，不是压缩上限——涉及准确性、安全、契约、跨仓同步、必要深度时，不得以「简洁」为由省略；与本文档其他硬约束冲突时，以对应硬约束为准。
 
 ---
 
@@ -80,8 +92,19 @@
 
 > **通用注释 / 命名规范真源 = `../wasmnest/docs/public/commenting.md`；通用 git 提交规范真源 = `../wasmnest/docs/public/git.md`**（不复制）。本段只保留本仓特有补充：
 
+- **注释禁止引用内部文档章节**（commenting.md §1，硬约束）：注释必须自解释，读者只读代码 + 注释即可理解。以下引用一律禁止，出现即不合格：`§x.y` / `§x`（spec §、ADR §、设计 §、AGENTS §）、`票 NN` / `票据 NN` / `T0X`、`ADR ####` / `ADR-0017`、`issue NN`、`spec v2` / `spec Decision N` 等内部标签。**唯一豁免**：外部标准 RFC 引用（`RFC 6762 §8.3`）与代码路径坐标。引用被禁时改写为直接描述代码逻辑 / 动机，不保留标签名。
+
 - Commit scope 用 app slug（如 `(file-transfer)`）；commit 格式、禁止 AI 标记、--force 禁令、开工自检、在途改动不碰、只提交源码、锁文件只经包管理器变更等**全部通用于 `../wasmnest/docs/public/git.md`**。
+- **git worktree 的 target 共享桶（硬规范，四仓统一）**：本仓在 worktree 里同样按仓根 `.cargo/config.toml` 的 `target-dir = "target/wasm-apps"` 落盘，于是每棵 worktree 各自长出一整套 wasm 构建桶。**新建 / 启用 worktree 后先做这一步再构建**：在平台仓根跑 `pnpm run target:worktrees`（= `wasmnest/scripts/worktree-shared-target.mjs`）——它把该 worktree 的 `target`（含 `target/wasm-apps`）软链到 `<容器根>/target-shared/wasmnest-apps/…`。脚本幂等、构建中的 worktree 自动跳过（勿在活构建里换链）；已有实体目录用 `--migrate`；清理删共享桶内容（删 worktree 里的 `target` 只删链接、不省空间）。规范真源：`../wasmnest/docs/public/git.md` §8。
 - 组件 PascalCase、composable `use` 前缀 camelCase、文件名与导出一致（命名通则见 public/commenting.md §2）。
+
+### 4.4 Rust 编写与审核（强制 skill）
+
+> **规则**：任何 Rust 后端的**编写与审核**（crate / 命令面 / `plugin.json` 宏面 / `Cargo.toml` / 测试 / rustdoc），动手前与完成审核时**必须**显式加载并遵循 `/skill:rust-best-practices`（skill 落点 `~/.agents/skills/rust-best-practices/SKILL.md`）；未加载即开始写或评审 = 流程违规，视为未完成交付 / 无效评审。该 skill 是通用惯用法与 API 设计判据层（占 §1 裁决第 5 档「通用工程经验」），与本仓硬约束（`docs/BACKEND.md` / 权限词汇 / 契约 / §4.1 安全）冲突时**以本仓为准**；其自带的自检命令（fmt / clippy）不替代 §7 的验证清单。
+
+### 4.5 前端现代 Web 指南（强制前置 skill）
+
+> **规则**：任何前端 UI / CSS / 客户端 JS 的**编写与审核**（含新增界面、布局、表单、性能、无障碍），动手前与完成审核时**必须**先加载并遵循 `/skill:modern-web-guidance`，按 `docs/FRONTEND.md` §0 检索并裁决；未加载即开始写或评审 = 流程违规。该 skill 是通用平台能力判据层（占 §1 裁决第 5 档「通用工程经验」），与本仓硬约束冲突时**以本仓为准**——尤其是原生 UI 禁令（指南推荐原生 `<dialog>` / `<select>`，本仓禁用）、资源访问红线、token-bound 与移动端单文件产物（完整对照表见 `docs/FRONTEND.md` §0.2）。它不替代 `ui-ux-pro-max` / `frontend-styles` 的各自职责。
 
 ---
 
@@ -106,7 +129,7 @@
 
 | 命令 | 说明 | 例外 |
 | --- | --- | --- |
-| `pnpm run test:run` | 该 app 的 vitest | `file-transfer/mobile` 无此脚本（也无 `vitest.config.ts`） |
+| `pnpm run test:run` | 该 app 的 vitest | 无（全部 app 均有 `vitest.config.ts`） |
 | `pnpm run build` | 桌面 = `node scripts/build.js`；移动 = SDK CLI / 平台包装脚本 | `file-transfer/mobile` 的 build 直接指向 `wasmnest-mobile/scripts/plugin-build.js` |
 | `pnpm run build:frontend` / `build:rust` | 桌面分段构建 | `bedcode/desktop` 的 `build:rust` = `build.js --rust-only`；移动端无分段脚本 |
 | `pnpm run dev` | 桌面 = `build.js --watch`；移动 = SDK dev-shell（HMR） | **`bedcode/desktop` 无 dev 脚本**（前端最重，dev 期不参与 watch） |
@@ -114,6 +137,7 @@
 | `pnpm run dev:host`（桌面各 app 工程内） | **应用工程内起真实桌面宿主**：宿主来源统一走 `scripts/host-runtime.mjs`（显式 `--host`/`WASMNEST_HOST_BIN` → 本机 `host:pack` 产物 → 下载缓存），启动前按 lock 比对 `sdkVersion` / `witVersion` / `mountContract`（不匹配即退出，不再只是 warning）；本 app 产物写 `--plugins-dir`（默认 `.dev-host/plugins`），经 `WASMNEST_PLUGINS_DIR` 递给宿主 → 宿主 watcher 触发前端热重载，**不依赖平台仓源码** | **bedcode 例外**：前端不参与 watch（既有口径），dev:host 只预构建 + 起宿主，改前端需重跑 |
 | `node scripts/build.js` | **默认产物写本仓 `apps/<slug>/desktop/.build/plugins/<appId>/`**（G2：不再写平台宿主 resources；刻意不落 `dist/`——vite `emptyOutDir` 会把它清空） | 桌面各 app |
 | `node scripts/build.js --out <dir>` | 产物目录改到 `<dir>/<appId>/`（也可用 env `WASMNEST_PLUGINS_DIR`）；写平台宿主 resources 必须走这条显式路径 | 桌面各 app 均支持 |
+| `node scripts/build.js --backend go\|rust\|both` / `--install <go\|rust>` | 多后端 app（ai-chatbox）：编哪些后端（默认 both）/ 装哪一份（默认 rust）；`--variants <dir>` 额外物化未安装后端供打包链各打一份 zip；其他 app 忽略这些参数 | 仅 `apps/ai-chatbox/desktop`（Go 工具链缺失时缺省 both 告警降级为 rust，显式点名 go 则硬失败） |
 | `cargo test --manifest-path <crate>/Cargo.toml` | 该 crate 的 Rust 单测（native） | `bedcode/desktop` 另有 `pnpm run test:rust` |
 
 > 桌面 app 的 `build` 直接把产物写平台宿主 resources；移动 app 的 `build` 默认只产出自身 `dist/`，**写进宿主 resources 以平台仓移动构建为准**。
@@ -151,9 +175,10 @@
 
 | 任务 | 动手前必读 |
 | --- | --- |
-| 改桌面应用界面 / 交互 | `docs/FRONTEND.md` §1 + 该 app `entry.ts` / `appContext.ts` + 平台 `src/shell/mount/useAppMount.ts`；多任务卡片预览面另读 `docs/FRONTEND.md` §1.2.1（可选 `mountPreview`，平台 L5 锁钉契约）；跑该 app vitest + 真实宿主目验 |
-| 改移动应用界面 / 运行面 | `docs/FRONTEND.md` §2 + 平台 `plugin-sdk-mobile/src/types.ts`（`UIRegistry`）+ `wasmnest-mobile/src/shell/registry.ts`；优先 dev-shell 预览 |
-| 写 / 改 Rust 后端 / 新增命令 | `docs/BACKEND.md`（尤其 §8 检查清单）+ 该 crate + SDK rust crate；命令面与 `plugin.json` 同步 |
+| 前端 UI / CSS / 客户端 JS（新增或修改界面 / 布局 / 表单 / 性能 / 无障碍） | **先加载 `/skill:modern-web-guidance`**，按 `docs/FRONTEND.md` §0 检索并按 §0.2 裁决（本仓红线优先）；再按端读 §1 / §2 与对应 app 源码 |
+| 改桌面应用界面 / 交互 | 先过上一行 §0 前置；再读 `docs/FRONTEND.md` §1 + 该 app `entry.ts` / `appContext.ts` + 平台 `src/shell/mount/useAppMount.ts`；多任务卡片预览面另读 `docs/FRONTEND.md` §1.2.1（可选 `mountPreview`，平台 L5 锁钉契约）；跑该 app vitest + 真实宿主目验 |
+| 改移动应用界面 / 运行面 | 先过 §0 前置；再读 `docs/FRONTEND.md` §2 + 平台 `plugin-sdk-mobile/src/types.ts`（`UIRegistry`）+ `wasmnest-mobile/src/shell/registry.ts`；优先 dev-shell 预览 |
+| 写 / 改 Rust 后端 / 新增命令 | **先加载 `/skill:rust-best-practices`**，再读 `docs/BACKEND.md`（尤其 §8 检查清单）+ 该 crate + SDK rust crate；命令面与 `plugin.json` 同步 |
 | 改 manifest / 权限 | `docs/BACKEND.md` §5 + SDK `rust/src/permission.rs`（唯一词汇真源）——**不得自造词汇表外的权限字符串** |
 | 改 i18n | `docs/FRONTEND.md` §3（注意 `bedcode/mobile` 按域分散；宿主不装应用文案，桌面仅 `errors.*` 机制副本） |
 | 改 WIT / ABI / 契约 | **不在本仓改**：去能力仓（WIT 真源）与平台仓（端组合 / SDK 生成物）；改完重拼并按当前 SDK **全量重建**本仓相关 app 产物（版本进入 import 名，旧产物实例化期被点名） |
@@ -193,6 +218,7 @@
 | 前端规范（双端） | 本仓 `docs/FRONTEND.md` |
 | 后端规范（Rust / WASM） | 本仓 `docs/BACKEND.md` |
 | 桌面端 E2E（怎么跑 / 锚点约定 / 判据纪律 / 排障） | 本仓 `docs/E2E.md` |
+| 按 app 的功能验收模板（功能清单 / 勾叉步骤 / 报告口径） | 本仓 `docs/verification/README.md` 与对应 `<slug>.md` |
 | CI / 按 app 独立构建与发布（触发方式 / tag / 跨仓装配 / 排障） | 本仓 `docs/CI.md`、`.github/workflows/`、`scripts/ci/` |
 | 桌面挂载契约（宿主侧真源） | `../wasmnest/wasmnest-desktop/src/shell/mount/useAppMount.ts`（`mountApp` + 可选 `mountPreview`）、`src/shell/mount/{AppMountSlot,AppPreviewTile}.vue`、`src/shell/composables/useShellApps.ts`；预览机制票 `../wasmnest/.scratch/2026-10-20-app-preview-contract/spec.md` |
 | 移动运行面契约 | `../wasmnest/wasmnest-mobile/packages/plugin-sdk-mobile/src/types.ts`、`../wasmnest/wasmnest-mobile/src/shell/registry.ts` |

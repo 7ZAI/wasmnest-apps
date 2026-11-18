@@ -53,8 +53,6 @@ export interface RealtimeHandler {
   writeParsed?: (data: Uint8Array) => Promise<void>
   /** 历史拼接完成（兼容保留；新协议回放随流，立即触发） */
   onReplayDone?: () => void
-  /** 清屏（ring_resync / 重订阅重锚：在屏内容将被重播取代） */
-  onClear?: () => void
   /** 历史头部被淘汰通知（仅后台日志，不提示用户） */
   onTruncated?: (offset: number) => void
 }
@@ -108,8 +106,22 @@ export interface SessionBuffer {
    * 显示秒数恒定不递减（2026-10-04 OCR M-02——原实现每秒重读同一毫秒数）。
    */
   reconnectReceivedAt: number | null
-  /** 本次页面生命周期内是否渲染过内容（resync 清屏/提示门控） */
+  /**
+   * 本代屏幕是否已有**解析完成**的内容（重放去重 / 截断提示门控）
+   *
+   * 推进点 = `noteParsedBytes`（xterm 解析完成），不是「收到字节」：收到与
+   * 上屏之间有 rAF/WriteBuffer 窗口，用收到判定会把「重放还没上屏」当成
+   * 「屏幕已有内容」，导致后续清屏吞掉重放头（P0-3）。
+   */
   hasRenderedContent: boolean
+  /**
+   * 本次 subscribe 的重放首字节尚未上屏（P1-1）
+   *
+   * `subscribed` 已到、但重放字节还在路上时，`subscribed && hasRenderedContent`
+   * 为假 → 第二次 subscribe 会放行 → 两段重放叠加（真机首屏重复）。此窗口由
+   * 本标志封住：收到本代第一块**解析完成**字节或超时后清除。
+   */
+  replayInFlight: boolean
   /**
    * 本次页面生命周期内已见过的重放世代数（每个 `subscribed` 一代）
    *
@@ -235,6 +247,17 @@ export const useTerminalBufferStore = defineStore('terminalBuffer', () => {
   /** sessionId → 控制面停止宽限定时器（markSessionStopped 写入，收口即删；非响应式） */
   const stopGraceTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
+  /** sessionId → 重放首字节看门狗（页面长时间无输出时不能让 replayInFlight 永久置真） */
+  const replayInFlightTimers = new Map<string, ReturnType<typeof setTimeout>>()
+
+  /**
+   * 重放首字节看门狗窗口（ms）
+   *
+   * 置位后到「第一块解析完成」之间同会话不允许再次 subscribe。空会话（无回放
+   * 字节）不能因此永久锁死，给一个与订阅确认同量级的窗口兜底。
+   */
+  const REPLAY_FIRST_BYTES_TIMEOUT_MS = 3000
+
   // ==================== 链路调试统计（终端字节对账，5s 节流） ====================
 
   /** 会话级帧统计（非响应式，纯日志对账用，不进渲染路径） */
@@ -320,22 +343,22 @@ export const useTerminalBufferStore = defineStore('terminalBuffer', () => {
 
   /**
    * 重锚事件（`ring_resync` / 重订阅回包，Rust 侧已重置计数与门控）：
-   * 清屏 + 本地计数基准重置 + 一次性提示。重锚后到达的重播帧从新基准续。
+   * 本地计数基准重置 + 一次性提示。重锚后到达的重播帧从新基准续。
    *
-   * 无在屏内容（首次挂载空屏 / 空终端）时跳过清屏与提示（清屏无意义；
-   * 有内容时**必须**清屏——重播与已在屏内容重叠即画面错乱）
+   * **不再调 `terminal.clear()`**（P0-3）：清屏已改成**带内**字节（桌面插件在
+   * 重放/重锚字节前发 `ESC[2J ESC[H ESC[3J`），顺序由 WS 帧序保证。带外事件
+   * 与字节是两条投递通道，事件晚到会把已上屏的重放头清掉（丢头），事件早到
+   * 又拦不住 xterm 已入 WriteBuffer 的旧分块（旧字节回刷）。
    */
   function onResyncEvent(payload: { session_id: string; offset: number; reason?: string }) {
     const buffer = buffers.get(payload.session_id)
     if (!buffer || buffer.sessionStopped) return
     const hadContent = buffer.hasRenderedContent
-    if (hadContent) {
-      clearForNewStream(payload.session_id)
-    } else {
-      // 无在屏内容：不清屏（无意义），但基准重置是协议语义，与清屏无关
-      buffer.lastRenderedOffset = null
-      buffer.receivedBytes = 0
-    }
+    // 基准重置是协议语义（桌面端 base 也跟着重锚），与清屏无关
+    buffer.lastRenderedOffset = null
+    buffer.receivedBytes = 0
+    // 本代屏幕即将被带内清屏取代：在下一块解析完成前不算「有内容」
+    buffer.hasRenderedContent = false
     knownPhases.set(payload.session_id, 'live')
     if (PHASE_RANK[buffer.phase] < PHASE_RANK.live) buffer.phase = 'live'
     buffer.subscribed = true
@@ -344,27 +367,12 @@ export const useTerminalBufferStore = defineStore('terminalBuffer', () => {
     // （重订阅/重连/会话重启，无丢失）。旧插件不带该字段 → 按 truncated 处理
     const reason = payload.reason ?? 'truncated'
     logger.warn(
-      `[terminalBuffer] resync (${payload.session_id}): reason=${reason} offset=${payload.offset}, clear + anchored replay`,
+      `[terminalBuffer] resync (${payload.session_id}): reason=${reason} offset=${payload.offset}, in-band clear + anchored replay`,
     )
     if (reason === 'truncated' && !buffer.truncatedNotified) {
       buffer.truncatedNotified = true
       realtimeHandlers.get(payload.session_id)?.onTruncated?.(payload.offset)
     }
-  }
-
-  /**
-   * 清屏 + 本地计数基准归零（重放世代切换 / 重锚共用）。
-   *
-   * **调用方先行判「在屏有内容」**：无内容时清屏无意义，而且 `onClear` 会连带
-   * 丢弃 writeCoalescer 中尚未 flush 的合法在途字节（丢头脏屏）。
-   */
-  function clearForNewStream(sessionId: string) {
-    const buffer = buffers.get(sessionId)
-    if (!buffer) return
-    buffer.hasRenderedContent = false
-    buffer.lastRenderedOffset = null
-    buffer.receivedBytes = 0
-    realtimeHandlers.get(sessionId)?.onClear?.()
   }
 
   // ==================== 段2 Channel 帧入口（裸字节） ====================
@@ -401,7 +409,9 @@ export const useTerminalBufferStore = defineStore('terminalBuffer', () => {
       return
     }
     buffer.receivedBytes += data.byteLength
-    buffer.hasRenderedContent = true
+    // 注意：不在此置 hasRenderedContent（P0-3）。收到 ≠ 上屏：rAF 合并与 xterm
+    // WriteBuffer 会让字节在“已收到但还没解析”的窗口里停留；用收到判定会把
+    // 这个窗口当成“屏幕已有内容”，后续事件清屏就会吞掉重放头。
     stats.bytesRendered += data.byteLength
     maybeLogFrameStats(sessionId)
 
@@ -419,7 +429,40 @@ export const useTerminalBufferStore = defineStore('terminalBuffer', () => {
     const buffer = buffers.get(sessionId)
     if (!buffer || buffer.sessionStopped || bytes <= 0) return
     buffer.lastRenderedOffset = (buffer.lastRenderedOffset ?? 0) + bytes
+    // 本代屏幕第一块重放字节已上屏：重放窗口结束，后续 subscribe 重新进入去重
+    buffer.hasRenderedContent = true
+    clearReplayInFlight(sessionId)
     ackRendered(sessionId)
+  }
+
+  /**
+   * 重放首字节看门狗：`replayInFlight` 置真后到首块解析完成之间阻止再次 subscribe；
+   * 空会话（无回放字节）不能因此永久锁死，到期自动解除。
+   */
+  function armReplayInFlight(sessionId: string) {
+    const existing = replayInFlightTimers.get(sessionId)
+    if (existing) clearTimeout(existing)
+    const buffer = buffers.get(sessionId)
+    if (buffer) buffer.replayInFlight = true
+    replayInFlightTimers.set(
+      sessionId,
+      setTimeout(() => {
+        replayInFlightTimers.delete(sessionId)
+        const current = buffers.get(sessionId)
+        if (current) current.replayInFlight = false
+      }, REPLAY_FIRST_BYTES_TIMEOUT_MS),
+    )
+  }
+
+  /** 解除重放窗口（首块上屏 / 会话收尾 / 页面离开 / 订阅失败） */
+  function clearReplayInFlight(sessionId: string) {
+    const timer = replayInFlightTimers.get(sessionId)
+    if (timer) {
+      clearTimeout(timer)
+      replayInFlightTimers.delete(sessionId)
+    }
+    const buffer = buffers.get(sessionId)
+    if (buffer) buffer.replayInFlight = false
   }
 
 /** Rust 链路状态事件：同步 phase/subscribed/停止等 */
@@ -431,22 +474,15 @@ export const useTerminalBufferStore = defineStore('terminalBuffer', () => {
     if (statePhase) knownPhases.set(payload.session_id, statePhase)
     const buffer = buffers.get(payload.session_id)
     if (!buffer) return
-    // 重放世代切换：每个 `subscribed` 之后都跟着一段「从环窗口起点」的重放
-    // （桌面插件 fresh subscribe 语义）。屏幕已有上一代内容时必须先清屏，
-    // 否则整段重放叠加渲染 = 重复显示——会话启动竞态（前端 onMounted 与
-    // isSessionActive watcher 双订阅）、断线重连、会话重启三条路径都会重放。
-    //
-    // 首个 subscribed 是本代屏幕的建立点：即便状态事件晚于重放字节到达
-    // （事件与页面 Channel 是两条投递通道），也**绝不清屏**——否则吞掉重放
-    // 头部（缺头脏屏）；判断依据就是本页面生命周期内的世代计数。
+    // 重放世代计数（仅诊断）：每个 `subscribed` 之后都跟着一段从环起点/尾窗的
+    // 重放（桌面插件 fresh subscribe 语义）。**清屏不在这里做**（P0-3）：桌面
+    // 插件把清屏编进了重放字节流（带内），事件与 Channel 两条投递通道无序，
+    // 任何一侧按事件清屏都可能吞掉已上屏的重放头或纵容旧字节回刷。
     if (payload.detail === 'subscribed') {
       buffer.replayGenerations += 1
-      if (buffer.replayGenerations > 1 && buffer.hasRenderedContent) {
-        logger.debug(
-          `[terminalBuffer] replay generation #${buffer.replayGenerations} (${payload.session_id}): clear stale screen before anchored replay`,
-        )
-        clearForNewStream(payload.session_id)
-      }
+      logger.debug(
+        `[terminalBuffer] replay generation #${buffer.replayGenerations} (${payload.session_id}): in-band clear + anchored replay`,
+      )
     }
     const phase = PHASE_MAP[payload.phase ?? ''] ?? buffer.phase
     if (phase !== buffer.phase) {
@@ -493,6 +529,7 @@ export const useTerminalBufferStore = defineStore('terminalBuffer', () => {
       buffer.sessionStopped = true
       buffer.lastRenderedOffset = null
       buffer.receivedBytes = 0
+      clearReplayInFlight(payload.session_id)
       // 链路已放弃（strikes 耗尽 / 会话停止）：Rust 不再发事件，不清除会让
       // 横幅永久卡「正在重连/30s 后重连」（2026-10-04 OCR M-03）
       buffer.reconnecting = false
@@ -505,6 +542,7 @@ export const useTerminalBufferStore = defineStore('terminalBuffer', () => {
       buffer.subscribed = false
       if (buffer.phase !== 'idle') buffer.phase = 'idle'
       buffer.subscribing = false
+      clearReplayInFlight(payload.session_id)
       // 主动取消订阅同样终止重连：横幅一并撤除（M-03 同款）
       buffer.reconnecting = false
       buffer.reconnectInMs = null
@@ -517,6 +555,7 @@ export const useTerminalBufferStore = defineStore('terminalBuffer', () => {
       // subscribing 与基准，让 3s 重试链真的能再发 fresh subscribe。
       buffer.subscribing = false
       subscribeRequestedAt.delete(payload.session_id)
+      clearReplayInFlight(payload.session_id)
     }
   }
 
@@ -542,6 +581,7 @@ export const useTerminalBufferStore = defineStore('terminalBuffer', () => {
         reconnectInMs: null,
         reconnectReceivedAt: null,
         hasRenderedContent: false,
+        replayInFlight: false,
         replayGenerations: 0,
         truncatedNotified: false,
       }
@@ -669,23 +709,28 @@ export const useTerminalBufferStore = defineStore('terminalBuffer', () => {
       }
     }
 
-    // 订阅意图去重（一页一代只回放一次）。桌面插件每次 subscribe 都从环窗口
-    // 起点**整段重放**（fresh subscribe 语义），所以重复调用不是幂等：
-    // 重复传输 + 触发一次清屏重绘（闪烁）。三条跳过依据：
+    // 订阅意图去重（一页一代只回放一次）。桌面插件每次 subscribe 都从环起点/
+    // 尾窗**整段重放**（fresh subscribe 语义），所以重复调用不是幂等：
+    // 重复传输 + 多一轮带内清屏重绘。四条跳过依据：
     // ① `subscribing`——本端已发出 subscribe 且链路未落定（插件自带退避重试）；
     // ② `reconnecting`——断线重连中，插件在 ws:open 后自行重订阅（含清屏重放）；
-    // ③ `subscribed && hasRenderedContent`——本代屏幕已拿到该会话输出。
-    // 页面挂载路径**不会**被 ③ 误跳：`registerRealtimeHandler` 已把
+    // ③ `replayInFlight`——`subscribed` 已到、本代重放首字节还没上屏（P1-1）；
+    //    没有这条时 `subscribed && !hasRenderedContent` 会放行第二次 subscribe，
+    //    两段重放叠加正是真机首屏整屏重复的成因；
+    // ④ `subscribed && hasRenderedContent`——本代屏幕已有输出。
+    // 页面挂载路径**不会**被 ④ 误跳：`registerRealtimeHandler` 已把
     // hasRenderedContent 复位；会话重启/停止后重新订阅时 subscribed 也为假。
     if (
       !opts?.force &&
       (buffer.subscribing ||
         buffer.reconnecting ||
+        buffer.replayInFlight ||
         (buffer.subscribed && buffer.hasRenderedContent))
     ) {
       logger.debug(
         `[terminalBuffer] subscribe skipped (${sessionId}): subscribing=${buffer.subscribing} ` +
-          `reconnecting=${buffer.reconnecting} hasContent=${buffer.hasRenderedContent}`,
+          `reconnecting=${buffer.reconnecting} replayInFlight=${buffer.replayInFlight} ` +
+          `hasContent=${buffer.hasRenderedContent}`,
       )
       return null
     }
@@ -693,6 +738,9 @@ export const useTerminalBufferStore = defineStore('terminalBuffer', () => {
     buffer.subscribing = true
     subscribeRequestedAt.set(sessionId, Date.now())
     buffer.phase = 'connecting'
+    // 重放窗口提前置位（P1-1）：订阅发出到首块解析完成之间不允许再次 subscribe。
+    // 失败路径（通道登记失败 / invoke 失败）会立即解除。
+    armReplayInFlight(sessionId)
     // 登记→订阅的确定序：见 `pageChannelReady` 注释（通道未登记时的整段重放会被
     // 宿主窄转发层丢弃且当前无自愈路径）
     await waitForPageChannel(sessionId)
@@ -709,6 +757,7 @@ export const useTerminalBufferStore = defineStore('terminalBuffer', () => {
       if (pageChannelFailed.has(sessionId)) {
         buffer.subscribing = false
         subscribeRequestedAt.delete(sessionId)
+        clearReplayInFlight(sessionId)
         return null
       }
     }
@@ -724,6 +773,7 @@ export const useTerminalBufferStore = defineStore('terminalBuffer', () => {
     if (!invoked && !buffer.subscribed) {
       buffer.subscribing = false
       subscribeRequestedAt.delete(sessionId)
+      clearReplayInFlight(sessionId)
     }
     return null
   }
@@ -776,6 +826,7 @@ export const useTerminalBufferStore = defineStore('terminalBuffer', () => {
     pageTokens.delete(sessionId)
     subscribeRequestedAt.delete(sessionId)
     reconnectSince.delete(sessionId)
+    clearReplayInFlight(sessionId)
     const stream = pageStreams.get(sessionId)
     if (stream) {
       pageStreams.delete(sessionId)
@@ -853,6 +904,7 @@ export const useTerminalBufferStore = defineStore('terminalBuffer', () => {
     subscribeRequestedAt.delete(sessionId)
     reconnectSince.delete(sessionId)
     invokeTerminal('bedcode.unsubscribe', { sessionId }).catch(() => {})
+    clearReplayInFlight(sessionId)
     const buffer = buffers.get(sessionId)
     if (buffer) {
       buffer.subscribed = false
@@ -866,7 +918,8 @@ export const useTerminalBufferStore = defineStore('terminalBuffer', () => {
     invokeTerminal('bedcode.unsubscribe-all', {}).catch(() => {})
     for (const sessionId of [...stopGraceTimers.keys()]) cancelStopGrace(sessionId)
     knownPhases.clear()
-    for (const buffer of buffers.values()) {
+    for (const [sessionId, buffer] of buffers) {
+      clearReplayInFlight(sessionId)
       buffer.subscribed = false
       buffer.subscribing = false
     }
@@ -913,6 +966,7 @@ export const useTerminalBufferStore = defineStore('terminalBuffer', () => {
       buffer.lastRenderedOffset = null
       buffer.receivedBytes = 0
     }
+    clearReplayInFlight(sessionId)
     invokeTerminal('bedcode.unsubscribe', { sessionId }).catch(() => {})
   }
 
@@ -930,6 +984,7 @@ export const useTerminalBufferStore = defineStore('terminalBuffer', () => {
   /** 清理单个会话（会话删除时）：Rust 链路一并清 */
   function clearBuffer(sessionId: string) {
     cancelStopGrace(sessionId)
+    clearReplayInFlight(sessionId)
     knownPhases.delete(sessionId)
     subscribeRequestedAt.delete(sessionId)
     reconnectSince.delete(sessionId)
@@ -945,6 +1000,8 @@ export const useTerminalBufferStore = defineStore('terminalBuffer', () => {
     subscribeRequestedAt.clear()
     reconnectSince.clear()
     invokeTerminal('bedcode.unsubscribe-all', {}).catch(() => {})
+    for (const timer of replayInFlightTimers.values()) clearTimeout(timer)
+    replayInFlightTimers.clear()
     buffers.clear()
     realtimeHandlers.clear()
     frameStats.clear()
@@ -974,6 +1031,7 @@ export const useTerminalBufferStore = defineStore('terminalBuffer', () => {
     // 新页面生命周期：无在屏内容（重锚提示/清屏门控复位）+ 重放世代计数归零
     // （首个 subscribed = 本代屏幕建立点，不得清屏）
     buffer.hasRenderedContent = false
+    clearReplayInFlight(sessionId)
     buffer.replayGenerations = 0
     markPageEntered(sessionId)
     try {

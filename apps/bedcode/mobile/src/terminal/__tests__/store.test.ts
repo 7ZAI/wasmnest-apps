@@ -146,6 +146,12 @@ async function flushAsync(n = 3) {
 describe('terminalBuffer store（票 05：新协议 + 本地字节计数）', () => {
   let store: ReturnType<typeof useTerminalBufferStore>
 
+  /** 投递一段字节并模拟 xterm 解析完成（hasRenderedContent / 重放窗口的推进点） */
+  function emitParsed(sessionId: string, data: string) {
+    emitRaw(sessionId, data)
+    store.noteParsedBytes(sessionId, new TextEncoder().encode(data).byteLength)
+  }
+
   beforeEach(async () => {
     setActivePinia(createPinia())
     store = useTerminalBufferStore()
@@ -167,9 +173,12 @@ describe('terminalBuffer store（票 05：新协议 + 本地字节计数）', ()
       // 页面通道登记（terminal_page_subscribe）与订阅（bedcode.subscribe）
       // 是两条独立异步调用：订阅先落地时桌面端立即整段重放，而宿主窄转发表还没有
       // 通道 → 全部重放字节被 dropped_no_channel 丢弃且无自愈路径（历史缺失）。
-      // 先让 beforeEach 那条在途订阅落定（否则重复意图去重会拦下本次调用）
+      // 开一个新页面生命周期：复位重放窗口与在屏内容（否则一条一代去重会拦下本次调用）
+      store.registerRealtimeHandler('s1', { onOutput: () => {} })
+      await flushAsync()
       emitState('s1', 'live', 'subscribed')
       cmd.terminalSubscribe.mockClear()
+      mocks.streamCalls.length = 0
       mocks.deferStreamRegistration = true
       store.markPageEntered('s1')
       const pending = store.subscribeSession('s1')
@@ -185,8 +194,9 @@ describe('terminalBuffer store（票 05：新协议 + 本地字节计数）', ()
     })
 
     it('subscribeSession 触发 terminalSubscribe；terminal-state 事件同步 subscribed', async () => {
-      // beforeEach 的第一条订阅已在途：先让链路落定（subscribed）再清账，
-      // 否则新的一页一代去重会把本次调用当成重复意图跳过
+      // 页面挂载（复位重放窗口/在屏内容）后，即使链路已 live 也要再订阅拿回放；
+      // 否则一页一代去重会把本次调用当成重复意图跳过
+      store.registerRealtimeHandler('s1', { onOutput: () => {} })
       emitState('s1', 'live', 'subscribed')
       cmd.terminalSubscribe.mockClear()
 
@@ -201,15 +211,31 @@ describe('terminalBuffer store（票 05：新协议 + 本地字节计数）', ()
       expect(buffer.subscribing).toBe(false)
     })
 
-    it('已订阅但本代屏幕无内容：再次 subscribeSession 仍触发（页面挂载必须拿到重放）', async () => {
+    it('页面挂载后（重放窗口复位）即便已 live 也再订阅一次拿回放', async () => {
+      // 页面挂载语义：新 xterm 实例需要拿到本代会话输出。registerRealtimeHandler
+      // 会复位 hasRenderedContent / replayInFlight（新页面生命周期）。
+      store.registerRealtimeHandler('s1', { onOutput: () => {} })
       emitState('s1', 'live', 'subscribed')
       cmd.terminalSubscribe.mockClear()
       await store.subscribeSession('s1')
       expect(cmd.terminalSubscribe).toHaveBeenCalledTimes(1)
+    })
 
-      // 页面已渲染内容后的重复订阅会被跳过——见「订阅意图去重（一页一代只回放
-      // 一次）」用例：桌面端每次 subscribe 都整段重放，重复意图只带来重复传输
-      // 与一次多余清屏重绘
+    it('已 subscribed、重放首字节未上屏：第二次 subscribe 被 replayInFlight 挡下（P1-1）', async () => {
+      // 真机首屏整屏重复的窗口：subscribed 已到（subscribing=false），但重放
+      // 字节还在路上（hasRenderedContent=false）——旧判据会放行第二次订阅，
+      // 两段重放搭叠。
+      emitState('s1', 'live', 'subscribed')
+      cmd.terminalSubscribe.mockClear()
+      await store.subscribeSession('s1')
+      expect(cmd.terminalSubscribe).not.toHaveBeenCalled()
+      expect(store.getBuffer('s1')!.replayInFlight).toBe(true)
+
+      // 首块解析完成 → 窗口关闭（屏幕已有内容，仍被 ④ 挡下）
+      store.noteParsedBytes('s1', 1)
+      expect(store.getBuffer('s1')!.replayInFlight).toBe(false)
+      await store.subscribeSession('s1')
+      expect(cmd.terminalSubscribe).not.toHaveBeenCalled()
     })
 
     it('会话已停止：subscribeSession 早退（null），不触发建连', async () => {
@@ -230,7 +256,7 @@ describe('terminalBuffer store（票 05：新协议 + 本地字节计数）', ()
     it('本代屏幕已有内容后重复订阅被跳过（一页一代只回放一次，无重复传输）', async () => {
       store.registerRealtimeHandler('s1', { onOutput: () => {} })
       emitState('s1', 'live', 'subscribed')
-      emitRaw('s1', 'A')
+      emitParsed('s1', 'A')
       cmd.terminalSubscribe.mockClear()
 
       await store.subscribeSession('s1')
@@ -312,7 +338,7 @@ describe('terminalBuffer store（票 05：新协议 + 本地字节计数）', ()
       store.registerRealtimeHandler('s1', { onOutput })
     }
 
-    it('裸字节按到达序渲染：接收计数推进 + hasRenderedContent', () => {
+    it('裸字节按到达序渲染：接收计数推进，hasRenderedContent 只在解析完成后置真', () => {
       const onOutput = vi.fn()
       mountHandler(onOutput)
       emitState('s1', 'live', 'subscribed')
@@ -320,11 +346,18 @@ describe('terminalBuffer store（票 05：新协议 + 本地字节计数）', ()
       emitRaw('s1', ' world')
       const buffer = store.getBuffer('s1')!
       expect(buffer.receivedBytes).toBe(11) // 5 + 6，已接收字节
-      expect(buffer.hasRenderedContent).toBe(true)
+      // P0-3：收到 ≠ 上屏。rAF/WriteBuffer 窗口内不得置真（否则后续清屏
+      // 会吞掉还没上屏的重放头）
+      expect(buffer.hasRenderedContent).toBe(false)
       expect(onOutput.mock.calls.map((c) => new TextDecoder().decode(c[0] as Uint8Array))).toEqual([
         'hello',
         ' world',
       ])
+
+      // 解析完成：屏幕才算有内容，重放窗口关闭
+      store.noteParsedBytes('s1', 11)
+      expect(buffer.hasRenderedContent).toBe(true)
+      expect(buffer.replayInFlight).toBe(false)
     })
 
     it('接收不等于解析：帧到达不推进 ack 水位（背压不得被收妥量绕过）', () => {
@@ -364,19 +397,19 @@ describe('terminalBuffer store（票 05：新协议 + 本地字节计数）', ()
   })
 
   describe('resync 清屏重锚（唯一重锚信号）', () => {
-    it('有在屏内容：清屏 + 本地计数归零 + 一次性提示', () => {
-      const onClear = vi.fn()
+    it('有在屏内容：本地计数归零 + 一次性提示；清屏走带内字节（不再 terminal.clear）', () => {
       const onTruncated = vi.fn()
-      store.registerRealtimeHandler('s1', { onOutput: () => {}, onClear, onTruncated })
+      store.registerRealtimeHandler('s1', { onOutput: () => {}, onTruncated })
       emitState('s1', 'live', 'subscribed')
-      emitRaw('s1', 'old content')
+      emitParsed('s1', 'old content')
       expect(store.getBuffer('s1')!.hasRenderedContent).toBe(true)
 
       emitResync('s1', 4096)
       const buffer = store.getBuffer('s1')!
       expect(buffer.lastRenderedOffset).toBeNull() // 基准重置
-      expect(onClear).toHaveBeenCalledTimes(1) // 重锚必清屏
       expect(onTruncated).toHaveBeenCalledWith(4096)
+      // 带内清屏由桌面插件在重锚字节前发出（ESC[2J...）：事件路径不再碰 xterm，
+      // 否则事件晚到会清掉已上屏的重放头（P0-3）
       expect(buffer.hasRenderedContent).toBe(false)
 
       // 重锚后新流从 0 续计（解析完成回调推进）
@@ -396,26 +429,23 @@ describe('terminalBuffer store（票 05：新协议 + 本地字节计数）', ()
     })
 
     it('一次性提示：同会话二次 resync 不重复上报', () => {
-      const onClear = vi.fn()
       const onTruncated = vi.fn()
-      store.registerRealtimeHandler('s1', { onOutput: () => {}, onClear, onTruncated })
+      store.registerRealtimeHandler('s1', { onOutput: () => {}, onTruncated })
       emitState('s1', 'live', 'subscribed')
-      emitRaw('s1', 'x')
+      emitParsed('s1', 'x')
       emitResync('s1', 100)
-      emitRaw('s1', 'y')
+      emitParsed('s1', 'y')
       emitResync('s1', 200)
       expect(onTruncated).toHaveBeenCalledTimes(1)
     })
 
     it('reason=replay 的重锚不上报历史截断（重放世代切换无数据丢失）', () => {
-      const onClear = vi.fn()
       const onTruncated = vi.fn()
-      store.registerRealtimeHandler('s1', { onOutput: () => {}, onClear, onTruncated })
+      store.registerRealtimeHandler('s1', { onOutput: () => {}, onTruncated })
       emitState('s1', 'live', 'subscribed')
-      emitRaw('s1', 'A')
+      emitParsed('s1', 'A')
 
       emitResync('s1', 0, 'replay')
-      expect(onClear).toHaveBeenCalledTimes(1)
       expect(onTruncated).not.toHaveBeenCalled()
     })
 
@@ -423,41 +453,35 @@ describe('terminalBuffer store（票 05：新协议 + 本地字节计数）', ()
       const onTruncated = vi.fn()
       store.registerRealtimeHandler('s1', { onOutput: () => {}, onTruncated })
       emitState('s1', 'live', 'subscribed')
-      emitRaw('s1', 'A')
+      emitParsed('s1', 'A')
 
       emitResync('s1', 4096)
       expect(onTruncated).toHaveBeenCalledWith(4096)
     })
   })
 
-  describe('重放世代切换（重复订阅 / 重连：重放前必须先清屏）', () => {
-    it('页面已渲染内容后第二个 subscribed：先清屏再渲染新重放（顺序 = A → clear → B）', () => {
-      // 真机症状（2026-10-15）：启动会话时 agent TUI 首屏整屏重复。链路事实：
-      // 桌面插件每次 subscribe 都从环窗口起点**整段重放**；页面进入时前端可能发
-      // 两次 subscribe（onMounted + isSessionActive watcher），且两次都赶在首个
-      // subscribed 之前；两段逐字节相同的重放叠加渲染 = 重复显示。
+  describe('重放世代切换（清屏改由桌面插件带内下发）', () => {
+    it('第二个 subscribed 不再触发前端清屏：字节按到达序上屏，清屏由桌面带内完成', () => {
+      // 真机症状（2026-10-15）：启动会话时 agent TUI 首屏整屏重复。旧实现靠
+      // 第二个 subscribed 事件调 terminal.clear()，但事件与字节走两条通道：
+      // 事件晚到会清掉已上屏的重放头，事件早到又拦不住已在 WriteBuffer 的旧
+      // 分块（P0-3）。现在清屏编进重放字节流（桌面 ws_terminal 的
+      // REPLAY_CLEAR_SEQUENCE），前端只按序写。
       const beats: string[] = []
       store.registerRealtimeHandler('s1', {
         onOutput: (d) => beats.push(`bytes:${new TextDecoder().decode(d)}`),
-        onClear: () => beats.push('clear'),
       })
-      // 第一代：本页面生命周期首个 subscribed + 重放 A
       emitState('s1', 'live', 'subscribed')
-      emitRaw('s1', 'A')
-      // 第二代：第二次 subscribe / 断线重连后的重放 B —— 与 A 逐字节相同
+      emitParsed('s1', 'A')
       emitState('s1', 'live', 'subscribed')
-      emitRaw('s1', 'B')
-      expect(beats).toEqual(['bytes:A', 'clear', 'bytes:B'])
+      emitParsed('s1', 'B')
+      expect(beats).toEqual(['bytes:A', 'bytes:B'])
     })
 
-    it('首个 subscribed 不清屏：首次进入页面即便字节先于状态事件到达，内容也不得被吞', () => {
-      // 事件（Tauri event 通道）与字节（页面 Channel）是两条投递通道，理论上可能
-      // 乱序。首个 subscribed 是页面这代屏幕的建立点，绝不能触发清屏——否则重放
-      // 头部会被吞掉（缺头脏屏）
+    it('首个 subscribed 不清屏：字节先于状态事件到达也不得被吞', () => {
       const beats: string[] = []
       store.registerRealtimeHandler('s1', {
         onOutput: (d) => beats.push(`bytes:${new TextDecoder().decode(d)}`),
-        onClear: () => beats.push('clear'),
       })
       emitRaw('s1', 'A')
       emitState('s1', 'live', 'subscribed')
@@ -465,16 +489,16 @@ describe('terminalBuffer store（票 05：新协议 + 本地字节计数）', ()
       expect(beats).toEqual(['bytes:A', 'bytes:B'])
     })
 
-    it('世代切换但页面无内容：不清屏（清屏无意义）', () => {
-      const onClear = vi.fn()
-      store.registerRealtimeHandler('s1', { onOutput: () => {}, onClear })
+    it('世代切换但页面无内容：不会产生任何额外清屏字节（由桌面带内负责）', () => {
+      const onOutput = vi.fn()
+      store.registerRealtimeHandler('s1', { onOutput })
       emitState('s1', 'live', 'subscribed')
       emitRaw('s1', 'A')
       store.unregisterRealtimeHandler('s1')
-      store.registerRealtimeHandler('s1', { onOutput: () => {}, onClear })
+      store.registerRealtimeHandler('s1', { onOutput })
       emitState('s1', 'live', 'subscribed')
       emitState('s1', 'live', 'subscribed')
-      expect(onClear).not.toHaveBeenCalled()
+      expect(onOutput).toHaveBeenCalledTimes(1)
     })
   })
 
@@ -512,7 +536,7 @@ describe('terminalBuffer store（票 05：新协议 + 本地字节计数）', ()
     it('subscribeSession force：已订阅且有内容仍重播（无 force 被一页一代去重跳过）', async () => {
       store.registerRealtimeHandler('s1', { onOutput: () => {} })
       emitState('s1', 'live', 'subscribed')
-      emitRaw('s1', 'A')
+      emitParsed('s1', 'A')
       cmd.terminalSubscribe.mockClear()
 
       // 无 force：被「一页一代只回放一次」去重跳过（③ subscribed && hasContent）

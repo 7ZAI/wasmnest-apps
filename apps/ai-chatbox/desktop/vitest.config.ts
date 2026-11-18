@@ -2,7 +2,7 @@ import { defineConfig } from 'vitest/config'
 import vue from '@vitejs/plugin-vue'
 import { resolve } from 'path'
 
-/** Agent Hub app 独立测试（桌面 UI 宿主修正 2026-10-17；依赖经 pnpm workspace hoisting） */
+/** AI Chatbox app 独立测试（桌面 UI 宿主修正 2026-10-17；依赖经 pnpm workspace hoisting） */
 export default defineConfig({
   plugins: [vue()],
   test: {
