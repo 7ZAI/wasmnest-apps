@@ -27,29 +27,27 @@ AI 大模型对话应用：接入任意 OpenAI 兼容供应商与 Anthropic / Ge
 
 ## 实现结构
 
-```text
-apps/ai-chatbox/
-├─ desktop/
-│  ├─ src/entry.ts              挂载契约 + 预览契约（与宿主 useAppMount 同形）
-│  ├─ src/appContext.ts         AppMountEnv → PluginContext 适配（不碰令牌）
-│  ├─ src/index.ts              仅 dev-shell 兼容出口（导出 devMock）
-│  ├─ src/components/           ChatView / ChatInput / ChatMessage / ConversationList
-│  │                            ProviderConfigPage / ProviderForm / AppSettingsSection
-│  ├─ src/composables/          useAiChat（会话编排 + 流式 + 重试）/ useAiConfig / usePluginConfig
-│  ├─ src/adapters/             协议方言层：openai / anthropic / gemini / custom / registry
-│  │                            sse（前端缓冲切包）/ usage（用量合并）
-│  ├─ src/utils/                markdown（流式补偿）/ highlight / providerIcons / settingSlider
-│  ├─ src/preview/              多任务卡片只读预览面
-│  └─ rust/src/                 lib.rs（激活 + 命令分派）/ client.rs / commands.rs / store.rs
-└─ mobile/
-   ├─ src/index.ts              activate：注册 i18n → dev-shell mock（仅浏览器）→ registerSurface
-   ├─ src/…                     与桌面同构的 adapters / composables / components（无预览面，多 appBack）
-   └─ rust/src/                 同职责后端，数据目录取 AppDownloadsDir
-```
+### 工程布局
+
+| 路径 | 职责 |
+| --- | --- |
+| `desktop/src/entry.ts` / `appContext.ts` | 挂载契约 + 预览契约（与宿主 `useAppMount` 同形）；`AppMountEnv → PluginContext` 适配（不碰令牌） |
+| `desktop/src/components/` | ChatView / ChatInput / ChatMessage / ConversationList / ProviderConfigPage / ProviderForm / AppSettingsSection |
+| `desktop/src/composables/` | `useAiChat`（会话编排 + 流式 + 重试）/ `useAiConfig` / `usePluginConfig` |
+| `desktop/src/adapters/` | 协议方言层：openai / anthropic / gemini / custom / registry；`sse`（前端缓冲切包）/ `usage`（用量合并） |
+| `desktop/src/utils/` | markdown（流式补偿）/ highlight / providerIcons / settingSlider |
+| `desktop/src/preview/` | 多任务卡片只读预览面 |
+| `desktop/rust/src/` | `lib.rs`（激活 + 命令分派）/ client.rs / commands.rs / store.rs |
+| `mobile/src/` | 与桌面同构的 adapters / composables / components（无预览面，多 `appBack`） |
+| `mobile/rust/src/` | 同职责后端，数据目录取 `AppDownloadsDir` |
+
+### 关键约定
 
 **方言差异全部收敛在 `src/adapters/`**：请求构建与流式解析按供应商切换，Rust 只透传 `http_fetch` 载荷。流式统一走宿主 raw 模式（`sseFormat: ''` 字面量锁定），SSE 切包在前端 `SseBuffer`，JSON 语义解析在各 adapter——宿主与 SDK 零改动。
 
-**命令面**（`plugin.json.contributes.commands`，八条，双端同名）：
+### 命令面
+
+`plugin.json.contributes.commands`，八条，双端同名：
 
 | 命令 | 作用 |
 | --- | --- |
@@ -61,14 +59,13 @@ apps/ai-chatbox/
 
 ## 数据与存储
 
-对话真源是文件系统，供应商配置真源是插件 storage（两者不混）：
+对话真源是文件系统，供应商配置真源是插件 storage（两者不混）。数据目录：桌面 `{HomeDir}/.wasmnest/ai-chatbox/`，移动 `{AppDownloadsDir}/ai-chatbox/`。
 
-```text
-# 桌面：{HomeDir}/.wasmnest/ai-chatbox/     移动：{AppDownloadsDir}/ai-chatbox/
-├─ index.jsonl              # 会话索引：每行一条 meta，按 updatedAt 降序
-├─ conversations/<id>.jsonl # 首行 meta + 逐行消息（append-only）
-└─ providers.json           # 默认结构占位（{"providers":[],…}），不是配置真源
-```
+| 文件 | 职责 |
+| --- | --- |
+| `index.jsonl` | 会话索引：每行一条 meta，按 updatedAt 降序 |
+| `conversations/<id>.jsonl` | 首行 meta + 逐行消息（append-only） |
+| `providers.json` | 默认结构占位（`{"providers":[],…}`），**不是配置真源** |
 
 插件 storage 键：`apiProviders`（供应商数组）、`activeProvider`、`activeModel`、`config`（`PluginConfig`：思考模式 / 代码渲染 / 重试参数）。
 

@@ -7,7 +7,7 @@
 - 结构参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 - 发布时把 `[Unreleased]` 收为 `## [<version>] - <YYYY-MM-DD>`，与版本号、tag 同一批提交。
 
-## [Unreleased]
+## [0.0.2] - 2026-11-18
 
 ### 新增
 

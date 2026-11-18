@@ -11,6 +11,14 @@ WasmNest 的桌面与 Android 宿主只提供机制与安全闸门；会话、�
 
 简体中文 | [English](README_en.md)
 
+## 特性亮点
+
+- **wasm 应用模型**：业务语义全部住进 wasm 应用，宿主只提供机制与权限闸门，按权限按需装载，应用与宿主之间**零源码 import**。
+- **桌面 + 移动双端同构**：产品应用与服务型 wasm 共用一套工程结构，一套构建编排覆盖 `apps/` 与 `servers/`。
+- **逐工程独立版本与发布**：推 tag `<slug>-v<X.Y.Z>` 即触发该工程的 CI 构建与发布；每个工程是独立 pnpm workspace，互不阻塞。
+- **真实宿主 E2E**：三档运行器（桌面 / 双端 / 真机单端）一条命令拉起「宿主 + 被测工程 + 驱动链」，跑完收干净。
+- **跨仓边界清晰**：WIT / ABI 真源在能力仓与平台仓，本仓只依赖平台 SDK 生成物，契约改动不在本仓进行。
+
 ## 应用一览（apps/）
 
 | 应用（目录） | 插件 id | 端 | 能力 |
@@ -32,7 +40,13 @@ WasmNest 的桌面与 Android 宿主只提供机制与安全闸门；会话、�
 | [Monitor](servers/monitor/CHANGELOG.md)（`monitor`） | `com.wasmnest.monitor` | 桌面 + 移动 | 运行监控：只读查看全部已加载 wasm 应用的运行时指标（内存 / 调用 / 燃料 / Trap / 授权 / 背压）+ 平台总览与阈值预警 |
 | [Net Config](servers/net-config/CHANGELOG.md)（`net-config`） | `com.wasmnest.net-config` | 桌面 | 网络配置中心：穿透配置的跨应用唯一真源，中继地址导入 / 外网注册表 / 部署文本生成与地址校验 |
 
-## 双端应用形态
+## 工作原理
+
+### wasm 应用模型
+
+宿主（桌面 / Android）只承载机制与安全闸门：会话、终端、文件传输、AI、Agent 管理等**产品能力全部在应用仓**，以 wasm 应用形式独立构建，由宿主按权限装载。应用只依赖平台仓 SDK 包，**零宿主源码 import**；宿主前端同样不 import 应用源码，只在运行时装载产物。
+
+### 双端应用形态
 
 双端前端形态不同，不能互相套用（`servers/` 工程同样遵循）：
 
@@ -49,47 +63,19 @@ WasmNest 的桌面与 Android 宿主只提供机制与安全闸门；会话、�
 - `rust/core/`：共享业务核（端口 trait + 纯逻辑，零 SDK 依赖，可 native 单测）。
 - `rust/plugin/`：双端同构 crate，不属任何一端；桌面与移动构建都指向它。
 
-## 仓库结构
+### 仓库布局
 
-```text
-wasmnest-apps/
-├─ apps/<slug>/desktop/            # 桌面端应用工程（挂载包）
-│  ├─ plugin.json                  # 应用清单：id / 权限 / 扩展点 / rustLibrary
-│  ├─ src/entry.ts                 # mountApp + 可选 mountPreview
-│  ├─ src/appContext.ts            # AppMountEnv → PluginContext 适配
-│  ├─ src/preview/                 # 多任务卡片只读预览面（可选）
-│  ├─ rust/                        # WASM 后端（file-transfer 例外）
-│  └─ scripts/build.js             # vite → cargo → 写宿主 resources → 注入 wasmHash
-├─ apps/<slug>/mobile/             # 移动端应用工程（宿主壳运行面）
-│  ├─ plugin.json
-│  ├─ src/index.ts                 # activate / deactivate
-│  └─ rust/（或 sharedRustManifest）
-├─ servers/<slug>/{desktop,mobile}/  # 服务型 wasm 工程（L1 / L2，结构同上）
-├─ apps/file-transfer/rust/{core,plugin}/
-├─ e2e/                            # wdio E2E：harness / pages / specs / dual / mobile
-├─ scripts/
-│  ├─ run-apps.mjs                 # 逐工程串行执行同一条脚本（apps + servers）
-│  ├─ package-plugins.mjs          # 构建 + 按插件打 zip
-│  ├─ e2e.mjs / e2e-dual.mjs / e2e-mobile.mjs   # 桌面 / 双端 / 真机单端 E2E 运行器
-│  ├─ host-runtime.mjs             # 桌面宿主运行时 resolver（显式 → host:pack → 下载缓存）
-│  ├─ fetch-host.mjs               # 宿主资产下载 / sha256 校验 / 解包
-│  ├─ install-runtime.mjs          # L2 通用 runtime crate 构建 / 取用
-│  ├─ link-platform-sdk.mjs / unlink-platform-sdk.mjs  # SDK 依赖切本地平台源码（一对）
-│  ├─ platform-paths.mjs           # 工程 → 平台 resolver（WASMNEST_PLATFORM_ROOT）
-│  ├─ plugin-wasm-config.mjs       # wasip3 target / pinned nightly / 共享 target
-│  ├─ qr-decode-bench.mjs          # 扫码解码基准
-│  ├─ replace-console.mjs          # console.* → 统一 logger
-│  ├─ ci/                          # CI 装配：discover / build-app / app-info / set-app-version
-│  └─ lib/projects.mjs             # 工程枚举唯一真源（apps + servers 两个分组）
-├─ docs/                           # CODE-MAP / FRONTEND / BACKEND / CI / E2E / wasm-app-dev / adr / agents / design / verification
-├─ .github/workflows/              # CI：ci.yml + app-build / app-release / app-build-reusable
-├─ eslint.config.js                # 双端前端资源访问红线
-├─ GLOSSARY.md                     # 领域词汇
-├─ host-runtime.lock.json          # 宿主运行时版本锁
-└─ .cargo/config.toml              # 共享 target/wasm-apps + jobs=4 + sccache
-```
+| 目录 / 文件 | 职责 |
+| --- | --- |
+| `apps/<slug>/{desktop,mobile}` | 产品应用工程：桌面为独立挂载包，移动为宿主壳运行面；各含 `plugin.json`、前端 `src/` 与 WASM 后端 `rust/` |
+| `servers/<slug>/{desktop,mobile}` | 服务型 wasm 工程（L1 基础服务 / L2 内部业务），结构与应用同构 |
+| `apps/file-transfer/rust/{core,plugin}` | File Transfer 共享业务核与双端同构 crate（双端单产物的例外） |
+| `e2e/` | wdio E2E：harness / pages / specs / dual / mobile |
+| `scripts/` | 构建编排、发布、E2E 运行器与 CI 装配；工程枚举唯一真源为 `scripts/lib/projects.mjs` |
+| `docs/` | CODE-MAP / FRONTEND / BACKEND / CI / E2E / wasm-app-dev / ADR / agents / design / verification 等文档 |
+| `.github/workflows/` | CI：`ci.yml` + app-build / app-release / app-build-reusable |
 
-每个工程（`apps/` 与 `servers/`）保留独立 pnpm workspace（各有 `pnpm-lock.yaml` 与 `pnpm-workspace.yaml`），不合并；根 `package.json` 只做编排。工程枚举的唯一真源是 `scripts/lib/projects.mjs`——新增应用或服务无需改任何脚本。
+每个工程（`apps/` 与 `servers/`）保留独立 pnpm workspace（各有 `pnpm-lock.yaml` 与 `pnpm-workspace.yaml`），不合并；根 `package.json` 只做编排。工程枚举的唯一真源是 `scripts/lib/projects.mjs`——**新增应用或服务无需改任何脚本**。
 
 ## 快速开始
 
@@ -220,6 +206,7 @@ pnpm run dev:host
 | 决策记录（ADR） | [`docs/adr/`](docs/adr/) |
 | Agent 协作约定（领域 / issue / triage） | [`docs/agents/`](docs/agents/) |
 | 设计文档（NAT 穿透等） | [`docs/design/`](docs/design/) |
+| 中继服务器构建教程（内网穿透） | [`docs/design/nat-traversal/build-relay-server.md`](docs/design/nat-traversal/build-relay-server.md) |
 | 领域词汇 | [`GLOSSARY.md`](GLOSSARY.md) |
 | 平台仓（宿主 / SDK / release-manifest） | [github.com/7ZAI/wasmnest](https://github.com/7ZAI/wasmnest) |
 | 能力仓（引擎 / WIT 真源） | [github.com/7ZAI/wasmnest-lib](https://github.com/7ZAI/wasmnest-lib) |

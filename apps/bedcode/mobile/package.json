@@ -1,6 +1,6 @@
 {
   "name": "@wasmnest/plugin-bedcode-mobile",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "license": "MIT",
   "private": true,
   "type": "module",
@@ -23,6 +23,7 @@
     "@xterm/xterm": "^6.0.0",
     "html5-qrcode": "^2.3.8",
     "marked": "^18.0.5",
+    "qrcode": "^1.5.4",
     "shiki": "^4.2.0"
   },
   "devDependencies": {

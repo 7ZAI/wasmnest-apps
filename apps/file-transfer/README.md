@@ -45,39 +45,18 @@
 
 ## 实现结构
 
-```text
-apps/file-transfer/
-├─ rust/
-│  ├─ core/                     双端共享业务核（零 SDK 依赖，可 native 单测）
-│  │  ├─ domain.rs              领域类型（任务 / 批次 / 对端 / 设置）
-│  │  ├─ ports.rs               端口 trait：双端差异全部经此处注入
-│  │  ├─ transfer.rs            台账归约（事件 → 行）、终态归档、重试 / 闸门判据
-│  │  ├─ roots.rs settings.rs   共享根与设置语义
-│  │  ├─ sessions.rs identity.rs
-│  │  └─ boundary_lock.rs       结构锁
-│  └─ plugin/                   双端同构 wasm 产物源（不属于任何一端）
-│     ├─ platform.rs            端探测（未知值 = 激活失败）
-│     ├─ adapters.rs / adapters_mobile.rs   端口 trait 的双端实现
-│     ├─ peer.rs                peer 生命周期、发送闸门、持久化编排
-│     ├─ device_bridge.rs       mdns 透传 + 快照
-│     ├─ roots_registry.rs      共享根注册表（桌面表 / 移动 storage 键）
-│     ├─ settings_store.rs      设置真源 + 推送宿主闸门
-│     ├─ auth_center.rs         认证中心互调
-│     ├─ transfer_store.rs      台账（实现已迁 core，此文件只转出）
-│     └─ lib.rs                 命令面 / 事件面
-├─ desktop/src/                 entry / AppRoot / FileTransferView
-│                               PeerDevicesPanel / RemoteFileTable / TaskPanel
-│                               SettingsPanel / TrustedPeersSection
-│                               ConsentDialog / BatchRequestDialog / notifications.ts
-│                               composables：usePeerDevices / useRemoteFs / useTasks
-│                                            useReceiving / useBatchPrompt / useConsent / useSettings
-└─ mobile/src/                  index / FileTransferView / AppHeader / BottomNav / ScanRadar
-                                DevicesTab / BrowseTab / TransfersTab / TaskCard / SummaryBar
-                                SettingsPage / SettingsSection / TrustedPeersSection
-                                composables：同构 + useAllFilesAccess / useBatchDialog
-```
+`apps/file-transfer/{desktop,mobile}` 只有前端，Rust 全在应用级 `apps/file-transfer/rust/`——双端加载同一份 wasm 产物（ADR 0050）。
 
-**关键约定**（改 Rust 层前必读）：
+### 工程布局
+
+| 路径 | 职责 |
+| --- | --- |
+| `rust/core/` | 双端共享业务核（零 SDK 依赖，可 native 单测）：`domain.rs`（领域类型）/ `ports.rs`（端口 trait，双端差异全部经此处注入）/ `transfer.rs`（台账归约、终态归档、重试 / 闸门判据）/ `roots.rs` `settings.rs`（共享根与设置语义）/ `sessions.rs` `identity.rs` / `boundary_lock.rs`（结构锁） |
+| `rust/plugin/` | 双端同构 wasm 产物源（不属于任何一端）：`platform.rs`（端探测）/ `adapters.rs` `adapters_mobile.rs`（端口 trait 双端实现）/ `peer.rs`（peer 生命周期、发送闸门、持久化编排）/ `device_bridge.rs`（mDNS 透传 + 快照）/ `roots_registry.rs`（共享根注册表）/ `settings_store.rs`（设置真源 + 推送宿主闸门）/ `auth_center.rs`（认证中心互调）/ `transfer_store.rs`（台账，实现已迁 core）/ `lib.rs`（命令面 / 事件面） |
+| `desktop/src/` | entry / AppRoot / FileTransferView / PeerDevicesPanel / RemoteFileTable / TaskPanel / SettingsPanel / TrustedPeersSection / ConsentDialog / BatchRequestDialog / notifications.ts；composables：usePeerDevices / useRemoteFs / useTasks / useReceiving / useBatchPrompt / useConsent / useSettings |
+| `mobile/src/` | index / FileTransferView / AppHeader / BottomNav / ScanRadar / DevicesTab / BrowseTab / TransfersTab / TaskCard / SummaryBar / SettingsPage / SettingsSection / TrustedPeersSection；composables：同构 + useAllFilesAccess / useBatchDialog |
+
+### 关键约定
 
 - crate 内引用端侧文件以**本文件所在目录**（`apps/file-transfer/rust/plugin/src/`）为基准上溯：`include_str!("../../../desktop/plugin.json")`（三级 → `apps/file-transfer/desktop/`）、`#[plugin_api(manifest = "../../../../servers/auth-center/desktop/plugin.json")]`（四级 → `apps/servers/auth-center/`，认证中心互调的真源）。**移动 rust 目录层级时这几处必须同改**，且必须跑一次 wasm 目标构建才算验证（native `cargo test` 不展开 `#[plugin_api]` 宏）。
 - 发送并发由插件自控（`PENDING_SENDS` + 设置 `concurrency`），宿主 `send-files` 收窄为「一次调用即发一个会话」。

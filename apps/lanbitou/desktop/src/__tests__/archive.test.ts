@@ -12,8 +12,10 @@ describe('localDateString', () => {
   it('不因 UTC 换算把跨日算错（本地 00:30 仍是当天）', () => {
     const local = new Date(2026, 10, 4, 0, 30)
     expect(localDateString(local)).toBe('2026-11-04')
-    // toISOString 在东八区会回退到前一天，这正是不能直接用它做归档名的原因
-    expect(local.toISOString().slice(0, 10)).toBe('2026-11-03')
+    // toISOString 输出 UTC：东偏移时区（如东八区）会回退到前一天，UTC/西偏移保持当天，
+    // 这正是不能直接用它做归档名的原因。断言按本机时区偏移推导，不写死具体日期，避免依赖测试机时区
+    const offsetMin = -local.getTimezoneOffset()
+    expect(local.toISOString().slice(0, 10)).toBe(offsetMin > 0 ? '2026-11-03' : '2026-11-04')
   })
 })
 
