@@ -1,7 +1,7 @@
 {
   "id": "com.wasmnest.lanbitou",
   "name": "烂笔头",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "platform": "desktop",
   "update": {
     "provider": "github-release"
