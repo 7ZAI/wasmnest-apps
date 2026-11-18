@@ -9,6 +9,21 @@ function mountEnv(overrides: Partial<AppMountEnv> = {}): AppMountEnv {
     appInvoke: vi.fn(async (command: string) => {
       if (command === 'news.list-feed') return { items: [], windowHours: 24, generatedAt: 0 }
       if (command === 'news.list-circles') return { circles: [] }
+      if (command === 'news.list-sources') return { sources: [] }
+      if (command === 'news.refresh-stale') {
+        return { results: [], failed: 0, newItems: 0, skipped: 0 }
+      }
+      if (command === 'news.list-credentials') return { credentials: [] }
+      if (command === 'news.list-fetch-log') return { entries: [] }
+      if (command === 'news.get-settings') {
+        return {
+          aiEnabled: false,
+          aiBaseUrl: '',
+          aiModel: '',
+          aiApiKeyTail: '',
+          aiApiKeyLen: 0,
+        }
+      }
       return {}
     }) as unknown as AppMountEnv['appInvoke'],
     appStorageGet: vi.fn(async () => undefined),
@@ -56,17 +71,30 @@ describe('mountApp 契约', () => {
     root.remove()
   })
 
-  it('滚动窗口为空时请求 list-feed，而不是伪造条目', async () => {
+  it('空态给出「去添加源」入口，而不是只显示一句空话', async () => {
+    const root = document.createElement('div')
+    document.body.appendChild(root)
+
+    const handle = await mountApp(root, mountEnv())
+    await vi.waitFor(() => {
+      expect(root.querySelector('[data-news-empty-add]')).not.toBeNull()
+    })
+
+    await handle.unmount()
+    root.remove()
+  })
+
+  it('首屏按今日口径请求 list-feed（带显式 nowMs）', async () => {
     const root = document.createElement('div')
     document.body.appendChild(root)
     const env = mountEnv()
 
     const handle = await mountApp(root, env)
     await vi.waitFor(() => {
-      expect(env.appInvoke).toHaveBeenCalledWith('news.list-feed', {
-        view: 'today',
-        circleId: null,
-      })
+      expect(env.appInvoke).toHaveBeenCalledWith(
+        'news.list-feed',
+        expect.objectContaining({ view: 'today', circleId: null }),
+      )
     })
 
     await handle.unmount()
@@ -87,11 +115,57 @@ describe('mountApp 契约', () => {
     realtime.click()
 
     await vi.waitFor(() => {
-      expect(env.appInvoke).toHaveBeenCalledWith('news.list-feed', {
-        view: 'realtime',
-        circleId: null,
-      })
+      expect(env.appInvoke).toHaveBeenCalledWith(
+        'news.list-feed',
+        expect.objectContaining({ view: 'realtime' }),
+      )
     })
+
+    await handle.unmount()
+    root.remove()
+  })
+
+  it('设置入口可达，且页面可关闭', async () => {
+    const root = document.createElement('div')
+    document.body.appendChild(root)
+
+    const env = mountEnv()
+    const handle = await mountApp(root, env)
+    await vi.waitFor(() => {
+      expect(root.querySelector('[data-news-open-settings]')).not.toBeNull()
+    })
+    root.querySelector<HTMLButtonElement>('[data-news-open-settings]')!.click()
+
+    await vi.waitFor(() => {
+      expect(root.querySelector('[data-news-settings]')).not.toBeNull()
+    })
+    // 设置页挂载后立即拉清单：等这批异步落地再关闭，避免半途卸载触发无效实例渲染
+    await vi.waitFor(() => {
+      expect(env.appInvoke).toHaveBeenCalledWith('news.list-sources')
+    })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    root.querySelector<HTMLButtonElement>('[data-news-settings-close]')!.click()
+    await vi.waitFor(() => {
+      expect(root.querySelector('[data-news-settings]')).toBeNull()
+    })
+
+    await handle.unmount()
+    root.remove()
+  })
+
+  it('英文 locale 下四段与空态走英文，无中文残留', async () => {
+    const root = document.createElement('div')
+    document.body.appendChild(root)
+
+    const handle = await mountApp(root, mountEnv({ locale: 'en' }))
+    await vi.waitFor(() => {
+      expect(root.querySelectorAll('[data-news-view]')).toHaveLength(4)
+    })
+    const text = root.textContent ?? ''
+    expect(text).toContain('Today')
+    expect(text).toContain('Saved')
+    expect(text).not.toContain('收藏')
 
     await handle.unmount()
     root.remove()

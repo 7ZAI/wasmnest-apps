@@ -1,28 +1,33 @@
 <template>
   <button
     type="button"
-    class="news-m-card"
+    class="news-mobile-card"
     :class="{ 'is-read': item.read }"
-    :data-news-mobile-item="item.id"
+    :data-mobile-news-item="item.id"
+    :data-testid="`mobile-news-item-${item.id}`"
     @click="emit('open', item)"
   >
-    <span class="news-m-card-meta">
-      <span class="news-m-card-source">{{ item.sourceName }}</span>
+    <span class="news-mobile-card-meta">
+      <span class="news-mobile-card-source">{{ item.sourceName }}</span>
       <span aria-hidden="true">·</span>
-      <span>{{ item.circleName }}</span>
-      <span aria-hidden="true">·</span>
-      <span class="news-m-time">{{ relative }}</span>
-      <span v-if="item.originCount > 1" class="news-m-source-count">
+      <span class="news-mobile-time">{{ relative }}</span>
+      <span
+        v-if="item.originCount > 1"
+        class="news-mobile-origin"
+        data-mobile-news-origin-count
+        data-testid="mobile-news-origin-count"
+      >
         · {{ t('news.card.sources', { count: item.originCount }) }}
       </span>
+      <span v-if="item.favorite" class="news-mobile-flag" aria-hidden="true">★</span>
     </span>
-    <span class="news-m-card-title">{{ item.title }}</span>
-    <span v-if="item.summary" class="news-m-card-summary">{{ item.summary }}</span>
+    <span class="news-mobile-card-title">{{ item.title }}</span>
+    <span v-if="item.summary" class="news-mobile-card-summary">{{ item.summary }}</span>
   </button>
 </template>
 
 <script setup lang="ts">
-/** 移动端信息条（编辑列表）：来源 / 圈子 / 时间一行，标题主导，两行摘要。 */
+/** 移动端信息条：来源 / 时间一行，标题主导，两行摘要。整条是一个 button。 */
 import { computed, inject } from 'vue'
 import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-mobile'
 import type { NewsItem } from '../types'
@@ -34,71 +39,68 @@ const context = inject<PluginContext>('pluginContext')!
 const t = (key: string, params?: Record<string, unknown>) => context.i18n.t(key, params)
 
 const relative = computed(() => {
-  const label = relativeLabel(props.item.seenAt, props.now ?? Date.now())
+  const label = relativeLabel(props.item.publishedAt, props.now ?? Date.now())
   return label.count == null ? t(label.key) : t(label.key, { count: label.count })
 })
 </script>
 
 <style scoped>
-.news-m-card {
+.news-mobile-card {
   display: block;
   width: 100%;
-  padding: 12px 14px 13px;
+  padding: 12px 0 13px;
   text-align: start;
   border: 0;
-  border-bottom: 1px solid var(--news-border-strong);
+  border-bottom: 1px solid var(--news-border);
   background: none;
   color: inherit;
   cursor: pointer;
-  transition: background-color 0.12s;
 }
-.news-m-card:active {
+.news-mobile-card:active {
   background: var(--news-bg-hover);
 }
-.news-m-card:focus-visible {
+.news-mobile-card:focus-visible {
   outline: 2px solid var(--news-accent);
   outline-offset: -2px;
 }
-.news-m-card-meta {
+.news-mobile-card-meta {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   flex-wrap: wrap;
-  font-size: 10.5px;
+  font-size: 11px;
   color: var(--news-text-tertiary);
 }
-.news-m-card-source {
+.news-mobile-card-source {
   color: var(--news-text-secondary);
   font-weight: 500;
 }
-.news-m-time {
+.news-mobile-time {
   font-variant-numeric: tabular-nums;
 }
-.news-m-source-count {
-  color: var(--news-text-tertiary);
+.news-mobile-flag {
+  color: var(--news-accent-ink);
 }
-.news-m-card-title {
+.news-mobile-card-title {
   display: -webkit-box;
   margin: 5px 0 3px;
-  font-size: 15px;
+  font-size: 15.5px;
   line-height: 1.4;
   font-weight: 600;
-  text-wrap: balance;
   overflow: hidden;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
 }
-.news-m-card.is-read .news-m-card-title {
+.news-mobile-card.is-read .news-mobile-card-title {
   color: var(--news-text-secondary);
   font-weight: 400;
 }
-.news-m-card-summary {
+.news-mobile-card-summary {
   display: -webkit-box;
   margin: 0;
-  font-size: 12px;
+  font-size: 12.5px;
   line-height: 1.6;
   color: var(--news-text-secondary);
-  text-wrap: pretty;
   overflow: hidden;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;

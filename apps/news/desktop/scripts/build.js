@@ -11,7 +11,7 @@
  */
 
 import { execSync } from 'child_process'
-import { cpSync, copyFileSync, mkdirSync, existsSync, mkdtempSync, rmSync } from 'fs'
+import { cpSync, copyFileSync, mkdirSync, existsSync, mkdtempSync, rmSync, readFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { resolve, dirname, basename, join, sep } from 'path'
 import { fileURLToPath } from 'url'
@@ -145,6 +145,34 @@ function copyArtifacts(opts = {}) {
   console.log(`[build]   - icon.svg`)
   console.log(`[build]   - ${RUST_LIB_NAME}.wasm`)
 }
+
+/**
+ * 助手工具声明的构建期校验：每个 tool 的 argsSchema 必须是 object，且 command 必须
+ * 已在同份清单的 contributes.commands 声明。双端清单都要过——助手消费方按端取清单，
+ * 任一端漏声明都会让工具在该端不可调用。
+ */
+function validateAssistantTools() {
+  for (const manifestPath of [
+    resolve(ROOT, 'plugin.json'),
+    resolve(ROOT, '..', 'mobile', 'plugin.json'),
+  ]) {
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
+    const declared = new Set((manifest.contributes?.commands ?? []).map((c) => c.id))
+    for (const tool of manifest.contributes?.assistantTools ?? []) {
+      if (tool.argsSchema?.type !== 'object') {
+        throw new Error(`[build] ${manifestPath}: assistantTools.${tool.id} argsSchema 必须是 object`)
+      }
+      if (!declared.has(tool.command)) {
+        throw new Error(
+          `[build] ${manifestPath}: assistantTools.${tool.id} 引用了未声明的命令 ${tool.command}`,
+        )
+      }
+    }
+  }
+  console.log('[build] assistantTools declarations validated (desktop + mobile)')
+}
+
+validateAssistantTools()
 
 const watchMode = argv.includes('--watch')
 const frontendOnly = argv.includes('--frontend-only')

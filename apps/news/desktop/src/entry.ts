@@ -86,6 +86,8 @@ export async function mountApp(root: HTMLElement, env: AppMountEnv): Promise<App
   app.use(i18n)
   const appCtx = createAppContext(env)
   app.provide('pluginContext', appCtx)
+  // 设置页要读宿主面只读清单（自启状态）——挂载环境本身也提供给组件树
+  app.provide('appMountEnv', env)
   app.mount(root)
   vueApp = app
 

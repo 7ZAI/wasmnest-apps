@@ -1,53 +1,13 @@
 /**
- * News 移动端 i18n 消息类型（唯一 key 来源）
+ * 文案表类型真源。
  *
- * zh-CN 与 en 两个语言文件都必须实现该类型：新增 / 遗漏 key 在编译期即报错。
+ * key 集合由简体中文表推导：英文表缺项 = 编译错误，因此不存在「切到英文还剩
+ * 中文硬编码」的静默缺口。
  */
-export type MessageSchema = {
-  'news.view.today': string
-  'news.view.circles': string
-  'news.view.realtime': string
-  'news.view.saved': string
+import zhCN from './zh-CN'
 
-  'news.toolbar.settings': string
-  'news.toolbar.close': string
-  'news.toolbar.back': string
+/** 本 app 的全部文案 key（不含命名空间前缀）。 */
+export type MessageKey = keyof typeof zhCN
 
-  'news.feed.todayHint': string
-  'news.feed.circlesHint': string
-  'news.feed.realtimeHint': string
-  'news.feed.savedHint': string
-
-  'news.feed.emptyToday.title': string
-  'news.feed.emptyToday.body': string
-  'news.feed.emptyCircles.title': string
-  'news.feed.emptyCircles.body': string
-  'news.feed.emptyRealtime.title': string
-  'news.feed.emptyRealtime.body': string
-  'news.feed.emptySaved.title': string
-  'news.feed.emptySaved.body': string
-
-  'news.card.unread': string
-  'news.card.read': string
-  'news.card.sources': string
-
-  'news.detail.title': string
-  'news.detail.copyLink': string
-  'news.detail.sourceHealthy': string
-
-  'news.settings.title': string
-  'news.settings.sources': string
-  'news.settings.circles': string
-  'news.settings.general': string
-  'news.settings.notWired': string
-
-  'news.error.loadFeed': string
-  'news.toast.copied': string
-  'news.toast.copyFailed': string
-  'news.toast.refreshUnavailable': string
-
-  'news.relative.justNow': string
-  'news.relative.minutes': string
-  'news.relative.hours': string
-  'news.relative.days': string
-}
+/** 某个 locale 的完整文案表。 */
+export type MessageTable = Record<MessageKey, string>

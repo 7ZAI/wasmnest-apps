@@ -31,15 +31,9 @@ describe('移动端 activate 契约', () => {
     )
   })
 
-  it('样式注入幂等：重复激活只保留一个 style 标签', async () => {
-    await activate(fakeContext())
-    await activate(fakeContext())
-
-    expect(document.querySelectorAll('#news-plugin-style')).toHaveLength(1)
-  })
-
-  it('deactivate 不抛错（资源由宿主注册表统一摘除）', async () => {
-    await activate(fakeContext())
+  it('deactivate 不抛错（样式与注册表由宿主统一摘除）', async () => {
+    const context = fakeContext()
+    await activate(context)
     await expect(deactivate()).resolves.toBeUndefined()
   })
 })

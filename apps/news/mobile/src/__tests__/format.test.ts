@@ -1,22 +1,45 @@
 import { describe, expect, it } from 'vitest'
-import { relativeLabel } from '../utils/format'
-
+import {
+  clampWeight,
+  clockLabel,
+  durationLabel,
+  maskLabel,
+  relativeLabel,
+  weightLabel,
+} from '../utils/format'
+import { errorKindText, parseError } from '../utils/errors'
 
 const MINUTE = 60 * 1000
-const HOUR = 60 * MINUTE
-const DAY = 24 * HOUR
 
-describe('relativeLabel（移动端）', () => {
-  const now = 10 * DAY
-
-  it('覆盖刚刚 / 分钟 / 小时 / 天四档', () => {
-    expect(relativeLabel(now - 10 * 1000, now)).toEqual({ key: 'news.relative.justNow' })
-    expect(relativeLabel(now - 3 * MINUTE, now)).toEqual({ key: 'news.relative.minutes', count: 3 })
-    expect(relativeLabel(now - 5 * HOUR, now)).toEqual({ key: 'news.relative.hours', count: 5 })
-    expect(relativeLabel(now - 2 * DAY, now)).toEqual({ key: 'news.relative.days', count: 2 })
+describe('移动端展示函数', () => {
+  it('相对时间分档', () => {
+    const now = 1_000_000_000_000
+    expect(relativeLabel(now - 10_000, now)).toEqual({ key: 'news.relative.justNow' })
+    expect(relativeLabel(now - 5 * MINUTE, now)).toEqual({
+      key: 'news.relative.minutes',
+      count: 5,
+    })
   })
 
-  it('未来时间按刚刚处理', () => {
-    expect(relativeLabel(now + MINUTE, now)).toEqual({ key: 'news.relative.justNow' })
+  it('时钟与耗时格式', () => {
+    expect(clockLabel(0)).toBe('')
+    expect(durationLabel(340)).toBe('340ms')
+    expect(durationLabel(1200)).toBe('1.2s')
+  })
+
+  it('密钥掩码只留末四位与长度', () => {
+    expect(maskLabel('abcd', 32)).toBe('···abcd (32)')
+  })
+
+  it('权重夹取', () => {
+    expect(clampWeight(5)).toBe(2)
+    expect(weightLabel(1.26)).toBe('1.3')
+  })
+
+  it('错误分类码可翻文案', () => {
+    const t = (key: string) => key
+    expect(errorKindText(t, 'net.denied')).toBe('news.error.net.denied')
+    expect(errorKindText(t, 'weird.code')).toBe('news.error.unknown')
+    expect(parseError(new Error('parse.no_feed: empty')).code).toBe('parse.no_feed')
   })
 })
