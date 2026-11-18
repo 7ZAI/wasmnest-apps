@@ -1,6 +1,7 @@
 # News 端到端功能验证模板
 
-> **模板版本**：v1（2026-11-18；应用骨架已实现挂载与四段浏览，抓取 / 持久化 / AI 摘要尚未实现）
+> **模板版本**：v2（2026-11-18；v1 骨架 → 功能实现完成：抓取 / 去重 / 排序 / 调度 / AI 摘要 /
+> 授权源 / 助手工具面 / 双端运行面均已落地，桌面 E2E 与真机 E2E 已建）
 > **适用对象**：`com.wasmnest.news`（`apps/news/desktop` + `apps/news/mobile`）
 > **报告用法**：复制到 `docs/verification/reports/<YYYY-MM-DD>-news-v<版本>.md`，按 §3 执行；
 > 标记口径见 [README.md](README.md) §3.3。
@@ -18,8 +19,8 @@
 | 后端 | 双端同构 crate `apps/news/rust/plugin` + 共享核 `rust/core`（ADR 0050 形态） |
 | 桌面入口 | 侧边栏「新闻」→ 四分段（今日 / 圈子 / 实时 / 收藏）→ 设置 |
 | 移动入口 | 应用列表 → News → 底部分段四段 → 设置二级页 |
-| 自动化基线 | 待建：`e2e/specs/news.spec.ts`（桌面）、`e2e/mobile/news-shell.spec.ts`（真机） |
-| 自动化覆盖边界 | 待定；真实抓取、授权源、失败标红、AI 摘要必然需要人工步骤 |
+| 自动化基线 | `e2e/specs/news.spec.ts`（桌面 12 例）、`e2e/mobile/news-shell.spec.ts`（真机 6 例） |
+| 自动化覆盖边界 | 桌面：挂载 / 四段切换 / 设置六页签 / 源与圈子本地 CRUD / 凭据掩码 / 失败可见性（拒绝授权 + 不可达源）/ AI 默认关 / 导出 JSON / 条目详情两分支。真机：底部分段 / 设置二级页与系统返回 / 详情返回 / 下拉手势 / 横向溢出。**真实抓取条目、跨源合并、AI 真实摘要、授权源有效与过期、自启联动仍需人工** |
 
 ### 前置记录（报告头填写）
 
@@ -62,8 +63,20 @@
 ## 2. 验证准备
 
 - [ ] **P-01** 桌面：`apps/news/desktop` 执行 `pnpm install` + `pnpm run test:run` + `pnpm run build`；期望全绿且产物写出。
-- [ ] **P-02** 桌面：跑 `node scripts/e2e.mjs --app news`；记录用例数与退出码。
-- [ ] **P-03** 移动：按 `docs/E2E.md` 准备 debug APK 与真机；若只验桌面，F-08 移动段 / F-15 标 `⏭`。
+- [ ] **P-02** 桌面 E2E：跑
+  `WASMNEST_PLATFORM_ROOT=<含 news 路由的平台树> node scripts/e2e.mjs --app news --isolate --host-mode cargo`；
+  记录用例数与退出码（2026-11-18 实跑：12/12 绿）。
+  - `--isolate` 让插件数据落在临时 `XDG_DATA_HOME`：用例会新增 E2E 源 / 圈子 / 凭据，跑完即弃。
+  - **宿主必须来自已注册 news 路由的平台树**（`useShellApps` 的 `/news` 与路由表）。别的
+    平台工作树的宿主里没有该路由，点应用卡不会离开主屏。
+  - `cargo` 模式会自己起 / 收该树的 `wasmnest-desktop` 前端 dev server（debug 宿主走 `devUrl`）；
+    手工跑 wdio 时需自行 `pnpm run dev`，否则页面空白。
+  - packed 模式也可用，但需要一份含该路由的宿主产物（`--host <目录>`）；下载缓存里的发布宿主
+    尚未包含 news。
+- [ ] **P-03** 移动：按 `docs/E2E.md` §11 准备 debug APK 与真机，跑
+  `node scripts/e2e-mobile.mjs --app news`；若只验桌面，F-08 移动段 / F-15 标 `⏭`。
+  - 移动构建走平台链：`WASMNEST_APPS_ROOT=<应用仓> node <平台仓>/wasmnest-mobile/scripts/plugin-build.js --plugin com.wasmnest.news`
+    （应用工程自己的 `build` 脚本指向主平台仓，特性分支 worktree 里跑不通是预期）。
 - [ ] **P-04** 准备三类测试源：一个可稳定访问的 RSS、一个 JSON 接口（HN 或 Reddit）、一个榜单页（GitHub Trending）。
 - [ ] **P-05** 准备一个必然失败的源（404 或非 feed HTML），用于 F-09。
 - [ ] **P-06** 准备授权源测试凭据（仅测试账号），确认导出的 cookie / bearer 未过期。
@@ -208,12 +221,20 @@
 | 正文阅读 | v1 不做 | 不验证全文或图片 |
 | 断言性网络依赖 | X / Instagram 私有接口会变 | 失败记 `实验性源`，不记应用缺陷 |
 
+### 4.1 实现口径差异（已落地，验收时按此判）
+
+| 项 | 设计稿 | 实现 | 原因 |
+| --- | --- | --- | --- |
+| 激活补抓 | `activate` 时立即补抓一轮 | 不在激活期出网；由界面挂载 / 回前台的 `news.refresh-stale` 驱动，无界面自启场景由首个 15 分钟节拍补上 | 宿主对未授权 origin 会弹询问窗并最长等 30s；激活完成前界面尚未挂载，用户无法作答，多源串行会把激活拖成数分钟（桌面 E2E 实测） |
+| HTML 榜单页 | 设计允许引入 `scraper` | 手写 `<article>` 块切分，不引入 `scraper` | 依赖策略降级（设计稿允许）；解析失败仍返回 `parse.unexpected_shape`，不空返回 |
+| 条目/抓取日志列 | DDL 未含收藏时间与耗时 | `items.favorited_at`、`fetch_log.duration_ms` | 收藏视图排序与抓取耗时是 F-06 / F-09 的硬要求 |
+
 ---
 
 ## 5. 模板维护
 
 - 触发：新增 / 删除源种类、改变去重或排序口径、调整调度与退避、权限或 `preauthUrls` 变化、
-  新增 `data-testid` / `mobile-news-*` 锚点、AI 能力范围变化。
+  新增 `data-testid` / `mobile-news-*` 锚点、AI 能力范围变化、激活补抓口径变化。
 - 同批更新：本文件 §1 / §3、`e2e/specs/news.spec.ts`、`e2e/mobile/news-shell.spec.ts`、
-  `e2e/pages/news.ts`（若新增）、`docs/E2E.md` 锚点约定。
-- 应用实现完成后，把「自动化基线」从「待建」改为真实用例数与覆盖边界。
+  `e2e/pages/news.ts`、`docs/E2E.md` 锚点约定。
+- 自动化基线随用例增减同批更新（当前桌面 12 / 真机 6）。

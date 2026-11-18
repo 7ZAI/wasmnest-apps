@@ -185,6 +185,16 @@ E2E 只认 `data-testid`。命名 = `<域>-<元素>`，kebab-case，**不带 app
 **宿主壳元素没有 testid**（宿主仓未加）：`harness/shell.ts` 只依赖 **ARIA 语义**
 （`role="list"` / `role="listitem"` / `aria-label`）+ 可见文本，不依赖内部 class 名。
 
+**宿主弹窗同样没有 testid**：网络出站授权（`NetworkAuthDialog.vue`）靠结构 + 语言无关的
+origin 文本（必含 `://`）定位，页脚按钮固定顺序（以后都拒绝 / 拒绝 / 允许）。套件里用
+`denyNetworkAuthPrompt()` / `denyNetworkAuthIfPresent()`（`harness/driver.ts`）：拒绝不落
+授权记录、请求立即失败，既能推进用例又不依赖外网。**应用激活期不要发出网请求**——弹窗
+等待上限 30s，而激活完成前应用界面还没挂载，用户无法作答（news 曾因此在首屏卡住）。
+
+**应用路由必须由宿主前端注册**：宿主的应用卡只对 `useShellApps` 里有路由的插件导航
+（news = `/news`）。用别的平台工作树构建的宿主里没有该路由 → 点卡不离开主屏；E2E 要显式
+`--host <含该路由的宿主产物>`，`cargo build` 的 debug 宿主还需要该树的 `pnpm run dev`。
+
 ### 断言状态而非样式
 
 优先断言 `aria-selected` / `aria-expanded` / `aria-pressed` / `data-*` 这类**语义状态**，
@@ -257,6 +267,8 @@ export function labelSet(key: keyof typeof zhCN): string[] {
 | `宿主 debug 二进制不存在` | 构建：`<平台仓>/wasmnest-desktop && cargo build --manifest-path src-tauri/Cargo.toml`（release 产物**不能**跑 E2E） |
 | `未找到 tauri-driver / WebKitWebDriver` | `cargo install tauri-driver` / `apt install webkit2gtk-driver` |
 | `主屏找不到应用卡「X」` | app 产物没落进隔离目录（看运行器日志「产物已就位」）；或应用显示名 ≠ `plugin.json` 的 `name` |
+| 点应用卡后壳路由不动 | 宿主前端没注册该 app 的路由（`useShellApps` 映射 + 路由表）：用的是别的平台工作树构建的宿主。换含该路由的宿主（`--host`）或用 `--host-mode cargo` + `WASMNEST_PLATFORM_ROOT` |
+| 卡在激活 / 首屏空白后弹授权窗 | 应用在 `activate` 里发起了出网请求：宿主网络授权窗最长等 30s，而激活完成前界面还没挂载，用户无法作答。应用侧应把首轮抓取推迟到界面挂载后的 `refresh-stale`，激活期只做建表 / 播种 |
 | `app 构建失败：WASM file not found` | 共享 wasm target（`<appsRoot>/target/wasm-apps`）被 `cargo clean` 清掉了。**仅前端构建**（E2E 默认）会复用上一份产物（`--frontend-only` 的语义 =「只改前端，wasm 保持现状」）；要重建 wasm 用 `--build-full` |
 | 用例全红但功能是好的 | 宿主没加载到最新前端：确认 dev server 指向平台仓 `src/`；或 app 产物没刷新（去掉 `--skip-build`） |
 | 宿主启动即退出 / 端口占用 | 宿主是**单实例**资源（端口 + 应用数据目录）：关掉正在跑的 WasmNest |
