@@ -84,17 +84,31 @@ pub(crate) fn detect(h: &impl HostPlatform) -> anyhow::Result<Platform> {
     Ok(platform)
 }
 
-/// 当前平台（未探测即用 = 编程错误：activate 之前不得消费分支）
+/// 当前平台（未探测 = activate 前置条件未满足，返回可读错误）
 ///
-/// 取值与判定分离：`expect` 不在持锁状态下执行——持锁 panic 会污染
-/// `DETECTED`，把一次编程错误放大成整个测试进程的级联失败。
-pub(crate) fn current() -> Platform {
+/// 导出的命令面 / 停用面用这条失败，不用 `current()` 的断言：wasm 里 panic
+/// 会污染实例 Store，把「宿主跳过 guest activate」的一次调用错误放大成整个
+/// 插件不可用（同实例后续调用全部 `cannot enter component instance`）。
+pub(crate) fn try_current() -> anyhow::Result<Platform> {
     let value = DETECTED
         .lock()
         .expect("platform slot lock")
         .as_ref()
         .copied();
-    value.expect("platform::current() before platform::detect() — activate must probe first")
+    value.ok_or_else(|| {
+        anyhow::anyhow!(
+            "platform not detected; activate incomplete (host did not run guest activate)"
+        )
+    })
+}
+
+/// 当前平台（内部已探测路径用：activate 之后才可消费分支）
+///
+/// 取值与判定分离：`expect` 不在持锁状态下执行——持锁 panic 会污染
+/// `DETECTED`，把一次编程错误放大成整个测试进程的级联失败。
+pub(crate) fn current() -> Platform {
+    try_current()
+        .expect("platform::current() before platform::detect() — activate must probe first")
 }
 
 /// 测试 seam：预置平台（仅 native 单测；绕开宿主探测直接验证分支代码）。
@@ -192,6 +206,24 @@ mod tests {
         assert_eq!(first, second);
         assert_eq!(host.calls.get(), 1, "驻留后重复 detect 不得再调宿主");
         assert_eq!(current(), Platform::Mobile, "current 与 detect 一致");
+    }
+
+    #[test]
+    fn try_current_reports_incomplete_activate_instead_of_panicking() {
+        let _g = test_lock().lock().unwrap();
+        *DETECTED.lock().unwrap() = None;
+        let err = try_current().expect_err("未探测必须返回 Err 而不是 panic");
+        assert!(
+            err.to_string().contains("activate incomplete"),
+            "错误必须点名 activate 前置条件：{err}"
+        );
+
+        let host = ProbeHost {
+            value: "desktop",
+            calls: Cell::new(0),
+        };
+        detect(&host).unwrap();
+        assert_eq!(try_current().unwrap(), Platform::Desktop, "探测后恢复正常");
     }
 
     #[test]

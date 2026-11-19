@@ -259,7 +259,15 @@ impl WasmPlugin for FileTransferPlugin {
 
     fn deactivate() -> anyhow::Result<()> {
         let h = host();
-        let platform = platform::current();
+        // 宿主跳过 guest activate 时平台未探测：此时激活期资源一个都没建，
+        // 可读日志后正常收尾，不用 panic 污染 wasm 实例。
+        let platform = match platform::try_current() {
+            Ok(platform) => platform,
+            Err(e) => {
+                h.log_warn(&format!("deactivate without platform probe: {e}"));
+                return Ok(());
+            }
+        };
         // 关闭插件 = 服务下线：先自建 browse 回收句柄（宿主 purge 兜底不泄漏）
         if let Some(id) = mdns_browser()
             .lock()
@@ -341,7 +349,9 @@ impl WasmPlugin for FileTransferPlugin {
 
     fn invoke_command(name: &str, args: serde_json::Value) -> anyhow::Result<serde_json::Value> {
         let h = host();
-        let platform = platform::current();
+        // 前置条件不满足时单条命令失败（返回 Err），不 panic：wasm 里 panic 会
+        // poison 实例 Store，把一次调用错误放大成整个插件不可用。
+        let platform = platform::try_current()?;
         match name {
             // ==================== 设备（自建缓存的宿主侧出口） ====================
             // 「探索发现」直达后端：确保自建 browse 存活（激活时引擎未就绪则在此
@@ -581,7 +591,9 @@ fn dispatch_bus_message(
     // （`MobilePorts::evaluate_consent` 恒 false = 交前端弹窗），同样走端口，
     // 此处不再按平台分支
     if topic == "peer:consent" {
-        let platform = platform::current();
+        // 未探测即收到 consent = 宿主在 activate 之外投递；单条消息失败即可，
+        // 不 panic（正常生命周期里订阅只在 activate 后存在）。
+        let platform = platform::try_current()?;
         if consent_gate(platform, h)
             .evaluate_consent(payload)
             .map_err(anyhow::Error::msg)?

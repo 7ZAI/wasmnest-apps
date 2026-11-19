@@ -7,6 +7,15 @@
 - 结构参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 - 发布时把 `[Unreleased]` 收为 `## [<version>] - <YYYY-MM-DD>`，与版本号、tag 同一批提交。
 
+## [Unreleased]
+
+### 修复
+
+- 命令面韧性：宿主跳过 guest `activate`（平台未探测）时，命令返回可读错误而不是
+  panic——wasm 内 panic 会污染实例 Store，把一次调用失败放大成整个插件不可用
+  （后续并发调用全部 `cannot enter component instance`）。停用面同口径：无探测时
+  记录日志后正常收尾。
+
 ## [0.0.2] - 2026-11-18
 
 ### 新增
