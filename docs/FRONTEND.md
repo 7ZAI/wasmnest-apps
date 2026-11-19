@@ -67,11 +67,11 @@ Baseline 提示只作参考；Origin Trial 与 volatile 特性默认关闭，`re
 
 依赖口径：`package.json` 的桌面 SDK 是**已发布版本精确依赖**（`0.0.1`，不用 `file:` / `^`），`rust/Cargo.toml` 里 `wasmnest-plugin-api = { version = "=0.0.1" }`；要拿本地平台仓源码调试必须显式 `pnpm run link:platform`（`unlink:platform` 还原，`link:platform --status` 看状态），link 产生的 `file:` / lock 变更 / `.cargo/config.toml` 的 `[patch]` 一律不提交（AGENTS §2）。
 
-三个产品应用（`ai-chatbox` / `bedcode` / `file-transfer`；agent-hub 已并入 bedcode 的 Agent 管理域）与 `servers/` 下的服务型 wasm（`auth-center` / `monitor`）都有 `entry.ts` 与 `appContext.ts`；`src/index.ts` 在 ai-chatbox / file-transfer 存在，**bedcode/desktop、monitor/desktop、auth-center/desktop 没有**。
+四个产品应用（`ai-chatbox` / `bedcode` / `file-transfer` / `lanbitou`；agent-hub 已并入 bedcode 的 Agent 管理域）与 `servers/` 下的服务型 wasm（`auth-center` / `monitor` / `net-config` / `speech`）都有 `entry.ts`；`appContext.ts` 在除 `speech` 外的桌面工程存在（speech 直接在 `entry.ts` 里 `provide` 挂载 env），`src/index.ts` 只在 ai-chatbox / file-transfer 存在。
 
 ### 1.2 挂载契约字段
 
-与宿主 `../wasmnest/wasmnest-desktop/src/shell/mount/useAppMount.ts` 逐字同形（平台仓 `hostAppBoundaryLock.test.ts` 逐字校验六个 `entry.ts`，改字段必须两端同改）。
+与宿主 `../wasmnest/wasmnest-desktop/src/shell/mount/useAppMount.ts` 逐字同形（平台仓 `hostAppBoundaryLock.test.ts` 逐字校验八个 `entry.ts`，改字段必须两端同改）。
 
 `AppMountEnv`：
 
@@ -284,6 +284,7 @@ node scripts/replace-console.mjs <desktop|mobile> [appDirName]
 | file-transfer | desktop | `entry.ts` | 组件内 | 无 | ✅ | ✅ |
 | news | desktop | `entry.ts` | 组件内 | 无（四段为内存视图） | ✅ | ✅ |
 | monitor | servers/desktop | `entry.ts` | 组件内 | 无 | ✅ | ✅ |
+| speech | servers/desktop | `entry.ts` | 组件内（composable） | 无 | ✅ | ✅ |
 | ai-chatbox | mobile | `index.ts` | 组件内 | 宿主路由 | ✅ | ✅ dev-shell |
 | bedcode | mobile | `index.ts` | pinia | 宿主路由 | ✅ | ✅ dev-shell |
 | file-transfer | mobile | `index.ts` | 组件内 | 宿主路由 + `registerRoute` | ✅ | ✅ dev-shell |

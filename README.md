@@ -39,6 +39,7 @@ WasmNest 的桌面与 Android 宿主只提供机制与安全闸门；会话、�
 | [Auth Center](servers/auth-center/CHANGELOG.md)（`auth-center`） | `com.wasmnest.auth-center` | 桌面 | 认证中心：本机入站连接的唯一裁决者（fail-closed），配对码 / QR / 信任 / 首连确认 / 认证策略 / 生物凭证 + 认证记录库 + 互调 api 面，供 BedCode、file-transfer 等消费方经互调取用 |
 | [Monitor](servers/monitor/CHANGELOG.md)（`monitor`） | `com.wasmnest.monitor` | 桌面 + 移动 | 运行监控：只读查看全部已加载 wasm 应用的运行时指标（内存 / 调用 / 燃料 / Trap / 授权 / 背压）+ 平台总览与阈值预警 |
 | [Net Config](servers/net-config/CHANGELOG.md)（`net-config`） | `com.wasmnest.net-config` | 桌面 | 网络配置中心：穿透配置的跨应用唯一真源，中继地址导入 / 外网注册表 / 部署文本生成与地址校验 |
+| [Speech](docs/design/speech-service.md)（`speech`） | `com.wasmnest.speech` | 桌面 | 语音识别服务：互调 API 只接收音频字节；本地走宿主 host-stt（whisper.cpp，16 kHz 单声道 PCM），远端走 OpenAI 兼容 multipart（经 host-http `bodyBase64`）；模型下载与记录元数据自持，诊断录音仅限服务页 |
 
 ## 工作原理
 
@@ -189,7 +190,7 @@ pnpm run dev:host
 - 应用自己的业务真源（私有库 / KV / 登记表）由应用自持，不推给宿主内核。
 - 前端不得直连网络 / 文件 / 导航原语；资源访问一律经 SDK 与宿主权限闸门。
 - 新增 / 改名 / 停用应用或服务时，除本仓提交外还必须同步平台仓的注册表、路由表、锁清单与 `release-manifest.json`（`servers/` 工程的条目带 `group: 'servers'`；完整清单见 [`AGENTS.md`](AGENTS.md) §6）。
-- 平台仓有锁读取本仓源码：`hostAppBoundaryLock`（逐字校验六个桌面 `entry.ts`，含 `servers/auth-center`）、`tailwindContentCoverage`（原 i18n drift 锁已于 2026-10-27 退役）。改对应面之前先读锁。
+- 平台仓有锁读取本仓源码：`hostAppBoundaryLock`（逐字校验八个桌面 `entry.ts`，含 `servers/{auth-center,net-config,monitor,speech}`）、`tailwindContentCoverage`（原 i18n drift 锁已于 2026-10-27 退役）。改对应面之前先读锁。
 
 ## 文档
 

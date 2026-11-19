@@ -1,6 +1,8 @@
 # 音频以 base64-in-JSON 传输，不用 multipart
 
-**状态**：accepted（2026-11-07）
+**状态**：accepted（2026-11-07）；**已修订（2026-11-17）**——远端请求改为 multipart 经 `bodyBase64` 发出，本地通道不再走 HTTP。见文末「修订」。
+
+> 以下为 2026-11-07 原始决策，保留作历史背景。
 
 ## 背景与问题
 
@@ -52,3 +54,15 @@ let body = request.get("body").and_then(|v| v.as_str());
 - **让宿主支持二进制 body**：正确但属跨仓改动（能力仓 WIT + 双端宿主 + SDK）。**应当做**，登记为跨仓申请；本 ADR 是「在它落地前的做法」，落地后可平滑切换（响应形状不变，只换传输）。
 - **用 `ws:client` 发二进制帧**：能绕开字符串约束，但引入第二条传输能力、失去 HTTP 的通用性，且要求端点支持 WS。否决。
 - **让调用方上传到公网再传 URL**：把「服务只接字节」这条边界打掉，且对隐私不利。否决（但 DashScope 的异步 API 正是这个约束，见设计文档 U1）。
+
+---
+
+## 修订（2026-11-17）
+
+`host-http` 的请求体已支持二进制：请求 JSON 可带 **`bodyBase64`** 字段（与文本 `body` 二选一，同时出现显性报错），宿主解码为字节后发送；WIT 面不变。据此：
+
+1. **远端通道**改为在 wasm 内组装标准 `multipart/form-data`（`model` / `language` / `prompt` / `file`），整体 base64 放入 `bodyBase64`。OpenAI 兼容端点现在按原生 multipart 接收，不再需要 `X-Speech-Transfer: json-base64` 或变体重试。
+2. **本地通道不再走 HTTP**：本地识别已改为宿主 `host-stt` 直接推理（ADR 0010），原「变体 A / 变体 B」只保留历史意义。
+3. 8 MiB 原始音频上限仍成立（base64 膨胀 + wasm 内存余量）；响应体上限与错误分流不变。
+
+本 ADR 的原始决定（base64-in-JSON 而非 multipart）在其时效内是「宿主不支持二进制 body」的务实取舍；该前置条件已消失，故修订。

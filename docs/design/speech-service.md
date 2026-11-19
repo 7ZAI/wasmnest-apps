@@ -1,421 +1,263 @@
-# 语音识别公共服务（speech）——设计定稿
+# 语音识别公共服务（speech）——设计与实现口径
 
-> **状态**：design-locked（2026-11-07，经 12 轮设计评审逐条裁定）
-> **定位**：`servers/speech`——服务型 wasm（L1 基础服务），给平台内任何应用提供「音频字节 → 文本」的识别服务。
-> **本文档的效力**：实现以本文档为准；与代码 / 跨仓真源冲突时先修本文档再改代码。
-
----
-
-## 0. 先说清楚三条边界（它们解释了后面所有取舍）
-
-1. **这个服务不采集音频**。它接收字节（容器格式 + 采样率 + 声道 + 数据），不碰麦克风。宿主当前无任何音频能力（权限词汇 38 条无音频项、`core.wit` 与全部 cap 分片无采集接口、`wasmnest-apps` 全仓无 `getUserMedia`）。
-2. **「本地识别」= 用户自建的本地 HTTP 端点，不是离线识别**。桌面 `127.0.0.1` 指用户自己的机器，可以在上面跑 faster-whisper-server / whisper.cpp server / sherpa-onnx 的 OpenAI 兼容层。移动端 `127.0.0.1` 指手机自己，默认不可用（见 §6.3）。真正的离线识别（模型进宿主）是独立的跨仓工程，不在本服务 v1 范围。
-3. **重型操作在宿主端、wasm 只做调度**——这句在这次设计里**只部分成立**：v1 里 wasm 确实只做调度（编排、回退判定、请求构造、结果归一），但宿主端的「录音 + 重采样」能力**还不存在**，所以 v1 的音频必须由调用方提供（§8）。宿主音频能力是独立的跨仓申请。
+> **状态**：v1 已实现（2026-11-17），**仅桌面端**。已通过 core 单测、前端单测与完整构建；真实模型推理、真实麦克风与平台 E2E 尚未验证（见 §11）。
+> **定位**：`servers/speech`——服务型 wasm（L2 内部业务），给平台内任何应用提供「音频字节 → 文本」的识别服务。
+> **真源**：接口/权限以 `desktop/plugin.json` 与代码为准；本文档记录设计取舍与行为约定。旧版「本地 = 本地 HTTP 端点」的取舍已被 ADR 0010 取代。
 
 ---
 
-## 1. 已裁定的决策一览
+## 0. 三条边界
+
+1. **服务不提供「远程开麦」**。互调 API 只接收调用方给的音频字节；诊断录音（host-audio → host-stt）只能由服务自己的页面触发，不通过互调暴露。
+2. **本地识别 = 宿主 `host-stt` 直接推理**（whisper.cpp / GGML 模型，宿主进程内），**不是**本地 HTTP 端点。只有外部供应商才走 HTTP（`host-http`）。wasm 只做调度：字节校验、通道路由、请求组装、结果归一、任务与记录。
+3. **本地失败绝不自动上云**。`auto` 只在请求开始前选一次通道；选中本地后，任何失败都原样上报。静默上传音频是安全红线。
+
+---
+
+## 1. 决策一览
 
 | # | 决策 | 理由摘要 |
 | --- | --- | --- |
-| D1 | 双端**单 wasm 产物**，沿用 file-transfer 模式（`rust/core` + `rust/plugin` + `wasmnest.sharedRustManifest`） | 识别逻辑（base64、字节校验、回退判定、结果归一）是纯函数，双端各写必漂移 |
-| D2 | `local` 通道 = 自建 HTTP 端点（`127.0.0.1` / 局域网），非 wasm 内推理 | wasm 有 64MiB 线性内存 + 32G 燃料硬顶（`wasmnest-host-kit/src/limits.rs`），跑不动 ASR 模型；且组件无法链接 native 库（`cdylib` 限制） |
-| D3 | API Key **归服务持有**，调用方不接触 Key | 否则「公共服务」退化成「公共 HTTP 代理」，权限面更大 |
-| D4 | 桌面 Key 存 **secret-store**（`auth_secret_*`，`auth` 权限）；移动端无此能力，存 `storage` + UI 明确警告 | 移动端 `host/auth` 是设备入场认证引擎面、凭据零过境，全仓无 `set_secret`（§6.4） |
-| D5 | v1 **Final-only**，接口按流式预留（Segment 带 `isFinal`） | 所有 Segment 都是 `isFinal=true`；`http_fetch` 本身不是长连接，流式靠宿主事件通道透传，v1 没有采集链路驱动它 |
-| D6 | 优先级 = `mode`（`local-only` / `remote-only` / `auto`）+ `order`（仅 `auto` 生效） | 见 §5 |
-| D7 | `auto` 下**只有连接类错误才回退**；本地「接了但识别失败」不回退 | 回退会掩盖真实问题，并让同一段音频被发两次 |
-| D8 | 不缓存「本地可用性」 | 回退判定合并进本请求，零额外开销；缓存会造成「刚启动本地服务却仍走云端」 |
-| D9 | 协议族：`openai-compatible`（本地 + 自定义）与 `dashscope`（国内厂商） | 国内 ASR 请求形态差异大（DashScope 私有 JSON + 异步轮询；腾讯 TC3 签名；讯飞 WS），不能一套通吃 |
-| D10 | 音频传输用 **base64-in-JSON**，不用 multipart | `http_fetch` 的 `body` 必须是字符串（`egress.rs:316-317`），无 multipart 承载 |
-| D11 | 语种默认 `auto`，可显式 `zh` / `en`；不承诺中英混说 | 多数 provider 对 code-switching 支持不一致 |
-| D12 | 识别结果**不持久化**；只留 `transcription_records` 元数据（无音频、无文本） | 服务不是转写历史库；元数据用于排查「这次为什么走云端」 |
-| D13 | `auto` 判据 = 连接被拒 / 解析失败 / 连接超时 / `502,503,504` | 结构化错误集，见 §7 |
-| D14 | 单次识别音频**原始字节 ≤ 8 MiB**，超出报 `audio-too-large` | base64 膨胀 1.33×，加上 JSON 与 JS 字符串副本，须留出 64MiB 线性内存硬顶余量 |
-| D15 | 异步形态：`transcribe-submit` → `jobId` → 事件 `speech.transcription.done` + `transcribe-result` 补拉 | 云端 ASR 2-20s，长音频更久；同步 RPC 超时给不足 |
-| D16 | `preference.mode` 可由调用方覆盖，`order` 不可覆盖 | 防止调用方悄悄改优先级顺序 |
-| D17 | 不分发 sidecar / 模型；只给默认端点建议 + 启动说明 | 模型分发（校验/多平台矩阵）是独立工程 |
-| D18 | v1 面向调用方的音频由调用方提供；宿主音频能力走独立跨仓申请 | §8 |
+| D1 | **v1 仅桌面**；保留 `rust/core`（纯逻辑）+ `rust/plugin`（wasm）分层 | 本地推理依赖宿主的 host-stt/host-audio（当前仅桌面接线）；核层纯函数便于跨端复用与单测 |
+| D2 | `local` = `host-stt`（whisper.cpp） | wasm 有 64 MiB 线性内存 + 32G 燃料硬顶，跑不动 ASR 模型；宿主进程内推理是产品终态的第一版 |
+| D3 | API Key 归服务持有，存宿主 secret-store（`auth` 权限） | 否则「公共服务」退化成公共 HTTP 代理，权限面更大 |
+| D4 | 远端 v1 只做 **OpenAI 兼容**（`openai-compatible` / `custom`） | 该形态接受 multipart 上传；DashScope 异步 URL 形态与「只接字节」冲突，挂起（§11） |
+| D5 | 输出 **final-only**；分段带 `isFinal=true` | v1 无流式事件面；字段为将来预留 |
+| D6 | 优先级 = `mode`（`local-only` / `remote-only` / `auto`），无 `order` | 两条通道的排序在 v1 没有可配置价值；调用方只能覆盖 `mode` |
+| D7 | `auto`：本地可用则本地，否则远端已配置则远端，否则显性失败 | 「可用」= 本地启用且模型已安装 / 远端启用且端点与 Key 就绪 |
+| D8 | 不缓存可用性；每次请求开始时判定一次 | 避免「刚下载完模型仍走云端」的陈旧状态 |
+| D9 | 远端请求在 **调用线程内同步完成**，任务表直接落终态 | v1 无 wasm 侧后台任务通道；调用方需给足互调超时（§7.3） |
+| D10 | 音频传输：WIT 不变；远端 multipart 由 wasm 组装后经 `host-http` 的 **`bodyBase64`** 发出 | `body` 只接受字符串；`bodyBase64` 是宿主支持的二进制 JSON 字段，无需改 WIT |
+| D11 | 语种 `auto` / 2-3 字母 ISO 码；默认 `auto` | 与 host-stt 的入参一致 |
+| D12 | 单次原始音频 ≤ **8 MiB**，超出报 `audio-too-large` | base64 膨胀 + wasm 内存余量 |
+| D13 | 识别结果不持久化；只留元数据记录（无音频、无文本），上限 200 条 | 服务不是转写历史库；记录用于排障 |
+| D14 | 模型由宿主共享目录管理：固定 catalog（base/small/turbo）、SHA-256 校验、HF 主源 + 可配镜像、首用不自动下载，默认 `small` | 模型是宿主资产；插件只拿模型 id |
+| D15 | 诊断录音只允许服务页触发（host-audio，16 kHz 单声道归一） | 不开放「远程触发麦克风」的互调面 |
+| D16 | 不做全局快捷键 / 自动粘贴（Handy 式听写产品） | 本服务是「被其他应用调用的识别能力」，不是终端听写产品 |
 
 ---
 
-## 2. 目录结构
+## 2. 目录结构（v1 实际）
 
 ```
 servers/speech/
 ├── desktop/
-│   ├── plugin.json              id=com.wasmnest.speech, platform=desktop, rustLibrary=wasmnest_plugin_speech
-│   ├── package.json             独立 workspace；build → scripts/build.js
-│   ├── scripts/build.js        （从 file-transfer/desktop/scripts/build.js 派生：
-│   │                            manifest-path ../rust/plugin/Cargo.toml，
-│   │                            target wasm32-unknown-unknown + componentize）
+│   ├── plugin.json            id=com.wasmnest.speech, platform=desktop, rustLibrary=wasmnest_plugin_speech
+│   ├── package.json           build → scripts/build.js（wasm32-wasip3 + Vite 单文件）
+│   ├── scripts/{build.js,dev-host.js}
 │   ├── vite.config.ts / vitest.config.ts / tailwind.config.js / postcss.config.js
 │   ├── icon.svg
 │   └── src/
-│       ├── entry.ts            mountApp(root, env) + mountPreview(root, env)
-│       ├── appContext.ts
-│       ├── views/SpeechSettingsView.vue    设置面（通道、优先级、Key、自定义厂商）
-│       ├── views/SpeechTestView.vue        导入音频做真实识别（v1 的唯一端到端入口）
-│       ├── composables/useSpeechSettings.ts
-│       ├── composables/useSpeechTest.ts
-│       ├── i18n/{zh-CN,en}.ts
-│       └── __tests__/
-├── mobile/
-│   ├── plugin.json              id 同上, platform=mobile, rustLibrary 同名
-│   ├── package.json            wasmnest.sharedRustManifest: "../rust/plugin/Cargo.toml"
-│   ├── vite.config.ts
-│   └── src/
-│       ├── index.ts            activate(context) / deactivate()
-│       ├── views/SpeechSettingsView.vue
-│       ├── i18n/
-│       └── __tests__/
-├── rust/
-│   ├── core/                   零 SDK 依赖（仅 serde/serde_json；dev: base64）
-│   │   ├── Cargo.toml          name = "wasmnest-speech-core"
-│   │   └── src/
-│   │       ├── lib.rs
-│   │       ├── audio.rs        AudioClip 校验（容器/采样率/声道/体积上限）
-│   │       ├── base64.rs       RFC 4648 编解码（无第三方运行时依赖）
-│   │       ├── settings.rs     SpeechSettings 默认值与校验（mode/order/通道配置）
-│   │       ├── route.rs        通道选择与回退判定（纯函数，最核心）
-│   │       ├── error.rs        结构化错误分类（是否可回退 / 是否可重试）
-│   │       ├── segment.rs      Segment 归一与拼接
-│   │       └── boundary_lock.rs 静态锁：核里不得出现 wasmnest_plugin_api
-│   └── plugin/                 双端同构 wasm 源（不属任何一端）
-│       ├── Cargo.toml          name = "wasmnest-plugin-speech"
-│       └── src/
-│           ├── lib.rs          activate / deactivate / invoke_command / on_message
-│           ├── api.rs          #[plugin_api(manifest = "../plugin.json")] SpeechApi
-│           ├── dispatch.rs     job 表：submit / poll / result / cancel
-│           ├── channel_local.rs
-│           ├── channel_remote_openai.rs
-│           ├── channel_remote_dashscope.rs
-│           ├── secrets.rs      Key 读写（桌面 secret-store / 移动 storage 双实现）
-│           └── records.rs      transcription_records（私有库）
-└── CHANGELOG.md
+│       ├── entry.ts           mountApp / mountPreview；mountContract = '1'
+│       ├── views/SpeechView.vue        设置 / 模型 / 记录 / 诊断录音
+│       ├── preview/PreviewCard.vue
+│       ├── composables/useSpeechService.ts
+│       ├── composables/settingsForm.ts 设置表单校验（纯函数）
+│       ├── i18n/{zh-CN,en,index}.ts
+│       └── __tests__/{entry,settingsForm}.test.ts
+└── rust/
+    ├── core/                  纯逻辑核（serde / serde_json / base64 / thiserror）
+    │   └── src/{lib,audio,error,request,route,settings}.rs
+    └── plugin/                wasm 插件（SDK wasm feature）
+        └── src/{lib,api,commands,host,jobs,records,remote,capture,settings}.rs
 ```
 
-**crate 内的相对路径**（照 file-transfer 的上溯约定，`rust/plugin/src/` 起算上溯三级到应用根）：
-`include_str!("../../../desktop/plugin.json")`、`#[plugin_api(manifest = "../../../desktop/plugin.json")]`。
+`rust/core` 的 `audio.rs` 负责：容器白名单（wav/mp3/m4a/webm/ogg/pcm）、8 MiB 上限、base64 编解码、WAV(PCM 16-bit) 解析与裸 PCM 包装、本地 PCM 形状校验（16 kHz / 单声道 / 偶数长度）。
+`rust/plugin/src/host.rs` 是 SDK 生成的 `wasmnest::stt::host-stt` / `wasmnest::audio::host-audio` 的窄包装，JSON 形状集中在一处。
 
 ---
 
-## 3. `plugin.json` 骨架（desktop）
+## 3. `plugin.json` 摘要（desktop）
 
-```json
-{
-  "id": "com.wasmnest.speech",
-  "name": "Speech",
-  "version": "0.0.1",
-  "platform": "desktop",
-  "type": "internal-business",
-  "pluginType": "full",
-  "rustLibrary": "wasmnest_plugin_speech",
-  "icon": "icon.svg",
-  "main": "index.js",
-  "description": "语音识别公共服务：为平台内应用提供「音频字节 → 文本」的识别能力。支持本地自建端点与国内云厂商两条通道，可配置优先级与自动回退。",
-  "author": "WasmNest",
-  "permissions": ["network:http", "storage", "auth", "broadcast", "bus"],
-  "api": [
-    "com.wasmnest.speech.transcribe-submit",
-    "com.wasmnest.speech.transcribe-result",
-    "com.wasmnest.speech.transcribe-cancel",
-    "com.wasmnest.speech.settings-get",
-    "com.wasmnest.speech.settings-set",
-    "com.wasmnest.speech.channels-probe",
-    "com.wasmnest.speech.records-list"
-  ],
-  "contributes": {
-    "commands": [
-      { "id": "speech.transcribe", "title": "Speech: Transcribe Audio" },
-      { "id": "speech.test", "title": "Speech: Test Local Endpoint" }
-    ],
-    "provides": [{ "event": "speech.transcription.done" }]
-  }
-}
-```
-
-`mobile/plugin.json` 差异：`"platform": "mobile"`、`permissions` 去掉 `auth`（移动端无 secret-store，见 §6.4）、`contributes.commands` 只留命令、无 `preauthUrls`（端点由用户填，无法预知；移动端首次出站会走宿主 preauthorize 弹窗）。
-
-> **权限复核**：`network:http`（必需，出站与回退探测）、`storage`（设置 + 移动端 Key）、`auth`（桌面 secret-store）、`bus`（互调 api 面，`api_call` 走 `wasmnest.api.*` topic）、`broadcast`（发 `speech.transcription.done`）。都在桌面 38 条词汇内；移动端 18 条里 `network:http`/`storage`/`bus` 都有。
+- 权限：`audio:capture` / `audio:io` / `auth` / `network:http` / `storage` / `stt:infer` / `stt:model`。
+- 互调 API（10 条）：`transcribe-submit` / `transcribe-result` / `transcribe-cancel` / `settings-get` / `settings-set` / `models-list` / `models-download` / `models-remove` / `channels-probe` / `records-list`。
+- 页面命令（15 条）：上述 10 条的服务内对应命令 + `model-status` / `job-result` / `job-cancel` / `test-submit` / `capture-start|pull|stop|abort` 等（真源 = `plugin.json.contributes.commands`）。
+- `type: internal-business`；产物随宿主分发，平台主屏「服务」区可见（路由 `/speech`）。
 
 ---
 
-## 4. 互调 API 面
+## 4. 互调 API 与页面命令
 
-### 4.1 签名
-
-```rust
-#[plugin_api(manifest = "../plugin.json")]
-pub trait SpeechApi {
-    /// 提交识别任务，立即返回 jobId（不阻塞）。
-    #[api("transcribe-submit")]
-    fn transcribe_submit(request: TranscribeRequest) -> Result<SubmitOutcome, String>;
-
-    /// 取结果：Completed 后调用；Running 时返回当前进度；未知 jobId → NotFound。
-    #[api("transcribe-result")]
-    fn transcribe_result(job_id: String) -> Result<JobState, String>;
-
-    /// 取消：未完成的 job 置 Cancelled；已完成的返回 Ok(false)。
-    #[api("transcribe-cancel")]
-    fn transcribe_cancel(job_id: String) -> Result<bool, String>;
-
-    /// 读全局设置（Key 字段以 `hasKey: bool` 替代明文，永不回传明文）。
-    #[api("settings-get")]
-    fn settings_get() -> Result<SpeechSettingsView, String>;
-
-    /// 写全局设置（Key 经独立字段写入，与设置分开）。
-    #[api("settings-set")]
-    fn settings_set(patch: SettingsPatch) -> Result<SpeechSettingsView, String>;
-
-    /// 探测通道可用性（真实发起一次最短请求），结果分类返回。
-    #[api("channels-probe")]
-    fn channels_probe() -> Result<Vec<ChannelProbe>, String>;
-
-    /// 最近 N 条识别元数据（无音频、无文本）。
-    #[api("records-list")]
-    fn records_list(limit: Option<u32>) -> Result<Vec<TranscriptionRecord>, String>;
-}
-```
-
-### 4.2 请求 / 响应形状
+### 4.1 提交（`transcribe-submit`）
 
 ```jsonc
-// TranscribeRequest
 {
   "audio": {
     "container": "wav",        // wav | mp3 | m4a | webm | ogg | pcm
-    "sampleRate": 16000,       // 单声道 PCM 必须给；其余容器可省
-    "channels": 1,
-    "dataBase64": "UklGR..."   // 原始字节的 base64
+    "sampleRate": 16000,       // 裸 PCM 必填；WAV 由头部提供
+    "channels": 1,             // 同上
+    "dataBase64": "UklGR..."   // 原始字节
   },
-  "language": "auto",          // auto | zh | en
-  "preference": { "mode": "auto" },   // 可选；只允许覆盖 mode
-  "contextPrompt": null,       // 可选，透传给支持的 provider（DashScope 支持热词，openai 支持 prompt）
-  "callerTag": "bedcode"       // 可选，写入记录便于排查；不参与路由
-}
-
-// SubmitOutcome
-{ "jobId": "sp-<uuid>", "channel": "local", "state": "running" }
-
-// JobState
-{
-  "jobId": "sp-...",
-  "state": "running",              // running | completed | failed | cancelled
-  "channel": "local",              // 实际执行通道
-  "fallback": { "from": "local", "to": "remote", "reason": "connect-refused" },  // 无回退则为 null
-  "text": null,                     // completed 时给全文
-  "segments": [                     // v1 恒为单元素且 isFinal=true
-    { "text": "...", "startMs": 0, "endMs": 4200, "isFinal": true }
-  ],
-  "language": "zh",                 // 实际识别语种（provider 返回或按请求）
-  "error": null,                     // failed 时给 { kind, message, retryable }
-  "elapsedMs": 1234
+  "language": "auto",          // auto | zh | en（可省）
+  "preference": { "mode": "auto" },   // 可选；只能覆盖 mode
+  "contextPrompt": null,       // 可选；本地作为 whisper initial prompt，远端作为 prompt
+  "callerTag": "bedcode"       // 可选；写入记录便于排障，不参与路由
 }
 ```
 
-**为什么 `transcribe-result` 而不是把结果塞事件**：事件会丢（订阅者激活晚于完成）；补拉是幂等兜底。事件 `speech.transcription.done` 的 payload 与 `JobState` 相同，订阅者可只用事件，不可用则退化为轮询。
+返回：
+
+- 本地：`{ "jobId": "sp-<n>", "channel": "local", "state": "running", "modelId": "...", "language": "zh"|null }`——宿主 host-stt 任务已提交，用 `transcribe-result` 轮询。
+- 远端：同步完成后直接返回 `state` 为 `completed` / `failed` 的任务视图（见 §4.2）。
+
+### 4.2 查询 / 取消
+
+```jsonc
+// transcribe-result
+{
+  "jobId": "sp-1",
+  "state": "running" | "completed" | "failed" | "cancelled",
+  "channel": "local" | "remote",
+  "modelId": "small",                 // 本地 = catalog id；远端 = 供应商模型名
+  "language": "zh" | null,
+  "text": "..." | null,               // completed 时给全文
+  "segments": [ { "text": "...", "startMs": 0, "endMs": 4200, "isFinal": true } ],
+  "error": { "kind": "...", "message": "..." } | null,
+  "elapsedMs": 1234,
+  "audioBytes": 32000
+}
+```
+
+- 本地任务的 `transcribe-result` 会同步宿主 `job-status` / `job-result` 后再返回；任务表住 wasm 内存，插件停用即丢（记录另存）。
+- `transcribe-cancel` 只对本地在途任务生效（调用 host-stt `job-cancel`）；远端任务提交时已终态，返回 `cancelled: false`。
+- 未知 job：`Err("job not found: ...")`。
+
+### 4.3 设置 / 模型 / 记录 / 探测
+
+- `settings-get` 返回 `{ settings, hasKey }`——**永不回传 Key 明文**。
+- `settings-set` 接收补丁；`apiKey` 字段缺省 = 不改、空串 = 删除、非空 = 覆盖（只写 secret-store，不进 settings blob）。
+- `models-list` 返回 `{ models: [...] }`（宿主 catalog 投影：id / 名称 / 说明 / 语种 / 体积 / installed / downloading / recommended）。
+- `models-download` 触发宿主下载并返回当前状态；`models-remove` 删除本地模型（宿主会拒绝在途任务使用的模型）。
+- `channels-probe` 只做**就绪判定**（本地：启用且模型已安装；远端：启用、端点非空且 Key 已写），不发真实请求，避免打开页面就触网。
+- `records-list` 返回最近记录（默认 50，上限 200）。
 
 ---
 
-## 5. 通道与优先级
-
-### 5.1 设置模型
+## 5. 设置模型与通道路由
 
 ```jsonc
 {
-  "mode": "auto",                 // local-only | remote-only | auto（默认 auto）
-  "order": ["local", "remote"],   // 仅 auto 生效
+  "mode": "auto",                       // local-only | remote-only | auto
   "local": {
     "enabled": true,
-    "endpoint": "http://127.0.0.1:8000/v1/audio/transcriptions",
-    "adapter": "openai-compatible",
-    "model": "whisper-1",
-    "connectTimeoutMs": 1500      // 「本地不可用」的判定窗口
+    "modelId": "small",
+    "language": "auto"
   },
   "remote": {
-    "vendor": "dashscope",        // dashscope | custom
-    "endpoint": null,             // custom 必填；dashscope 用默认
-    "adapter": "dashscope",       // dashscope | openai-compatible
-    "model": "paraformer-v2",
-    "hasKey": true                // 只读，不存明文
+    "enabled": false,
+    "endpoint": "",                     // 必填：OpenAI 兼容 /v1/audio/transcriptions
+    "adapter": "openai-compatible",     // openai-compatible | custom
+    "model": "whisper-1"
   }
 }
 ```
 
-### 5.2 通道选择（`core/route.rs`）
+路由（`rust/core/src/route.rs`，纯函数）：
 
 ```
-mode=local-only  → [local]
-mode=remote-only → [remote]
-mode=auto        → order（默认 [local, remote]）
+mode=local-only  → local（即使不可用也选本地：失败在推理入口显性上报）
+mode=remote-only → remote
+mode=auto        → 本地启用且模型已安装 → local
+                   否则远端启用且端点/Key 就绪 → remote
+                   否则 no-channel
 ```
 
-按序列逐个尝试；**每次尝试只允许「连接类失败」触发下一个**（见 §7 分类）。序列耗尽时返回最后一个错误（不是第一个），因为最后一个通常是用户真正关心的。
-
-### 5.3 为什么 `auto` 下本地失败不回退到“重试本地”
-
-连接被拒视为「本地服务没起来」，直接进下一通道；连接超时同样。**不做同通道重试**——`auto` 的语义是「哪条能走」，不是「重试到成功」。
+**没有回退链**：`auto` 只在开始时选一次；本地失败（模型缺失、会话失败、推理失败）直接回报给调用方。
 
 ---
 
-## 6. 各通道实现
+## 6. 本地通道（host-stt）
 
-### 6.1 `channel_local`（adapter: `openai-compatible`）
+- 入口：`host-stt.open-session({modelId, language, prompt})` → `append`（每段 256 KiB）→ `finalize` → 返回宿主 `stt-job-<uuid>`。
+- 输入：**16 kHz 单声道 S16LE**；服务页/调用方需先把音频归一。本地只接受 `wav`（16-bit PCM）与裸 `pcm`；mp3/m4a/webm/ogg 报 `audio-unsupported-local`。
+- 模型：宿主共享目录中的 catalog 模型（base/small/turbo）；未安装报 `model-not-installed`。
+- 任务：宿主后台线程推理；服务任务表保存宿主 job id，`transcribe-result` 时同步状态。取消尽力而为（后端不支持中断时结果丢弃）。
+- 身份：host-stt 按插件（`com.wasmnest.speech`）隔离会话/任务；插件停用时宿主回收。
 
-- 请求：`POST {endpoint}`，`Content-Type: application/json`，body 为
-  `{"model": <model>, "language": <auto→省略/zh/en>, "file": {"name": "audio.<container>", "content_base64": "<b64>"}}`
-  并在 headers 带 `X-Speech-Transfer: json-base64`（自描述，方便本地服务端识别）。
-- **兼容性兜底**：若响应 `400` 且 body 含 `multipart` 相关提示，可再试一次 `file.encoding: "raw-base64-field"` 变体。**只重试一次**，仍失败即报 `protocol-mismatch`。
-- 期望响应：`{"text": "..."}`（OpenAI 形状）或 `{"segments": [...]}`。
-- 无 Key（本地端点默认不鉴权）；若用户填了 Key，则以 `Authorization: Bearer` 带上。
+---
 
-### 6.2 `channel_remote_dashscope`
+## 7. 远端通道（OpenAI 兼容）
 
-因 DashScope 的 `paraformer` 是**异步任务**形态（提交 → 轮询 → 取结果），而我们的 job 表本身就是异步的，所以**直接映射**：
+### 7.1 请求
 
-1. `POST https://dashscope.aliyuncs.com/api/v1/services/audio/asr/transcription`
-   headers：`Authorization: Bearer <key>`、`X-DashScope-Async: enable`、`Content-Type: application/json`
-   body：`{"model":"paraformer-v2","input":{"file_urls":[...]},...}`
-2. 响应给 `task_id` + `task_status`。
-3. 轮询 `GET .../tasks/{task_id}`，间隔 500ms → 1s → 2s（指数退避，上限 5s，总预算 ≤ 90s）。
-4. 终态取 `results[].transcription_url`，再 `http_fetch` 该 URL 拿 JSON，归一成 Segment。
+- 端点：`settings.remote.endpoint`（http/https，必填）。
+- 传输：wasm 内组装 `multipart/form-data`（字段 `model` / 可选 `language` / 可选 `prompt` / 文件 `file`），整体编码为 base64 放入 `host-http` 请求 JSON 的 **`bodyBase64`**；宿主解码为字节后发出。WIT 面不变（ADR 0009 修订）。
+- 鉴权：`Authorization: Bearer <secret-store 中的 Key>`。
+- 音频：WAV/MP3/M4A/WEBM/OGG 原样上传；裸 PCM 自动包一层 WAV 头再上传。
 
-> ⚠ **关键约束**：DashScope 异步 API 要的是**可公网访问的 `file_urls`，不接受 base64 内联**。这是与「服务只接字节」的直接冲突。v1 的处理：
-> - 若调用方只给字节，DashScope 通道**不可用**，报 `provider-requires-url`（fail-visible，点名原因 + 给出路）。
-> - 若调用方额外给 `publicUrl`，则 use it。
-> - **同时登记一个独立能力申请：宿主侧「临时对象上传」能力**（把字节 POST 到一个临时可达地址）。在此之前，DashScope 通道对纯字节输入不可用。
->
-> 这一条必须在实现前与用户确认（见 §11 未决项 U1）——它可能把「国内厂商」这条腿的可用性打掉。
+### 7.2 响应与错误
 
-### 6.3 `channel_remote_openai`（custom，adapter: `openai-compatible`）
+- 成功（2xx）：JSON 需含 `text` 或 `segments`（兼容 `startMs`/`endMs` 与秒制 `start`/`end`），归一为统一分段。
+- `401/403` → `auth-failed`；`429` → `rate-limited`；`408`/`5xx` → `provider-error`；其他非 2xx → `provider-error`；非 JSON 或缺少文本 → `protocol-mismatch`。
+- 错误消息只含状态码与响应体前 200 字符（用于排障），不回显音频或 Key。
 
-与 §6.1 同形状，只是带 `Authorization: Bearer`、无 `X-Speech-Transfer` 头、endpoint 必填。用于接 vLLM / 自建网关 / 任何 OpenAI 兼容云服务。
+### 7.3 同步执行的约束
 
-### 6.4 移动端的 local 语义
+远端任务在调用线程内完成，调用方经互调（`host-api-call`）等待时需自行给足 `timeout_ms`；v1 不提供远端异步任务/事件。长音频（接近 8 MiB）在慢供应商上可能超出调用方超时——这是已知限制，**不要**把它伪装成异步（见 §11）。
 
-- `local.enabled` 默认 `false`，UI 显示「本地识别仅在桌面可用」。
-- 高级设置允许把 endpoint 改成局域网 IP；改完后 `enabled` 可打开。
-- **移动端没有「桌面式的 127.0.0.1」**，这一点在 UI 文案里必须写清，不做任何隐式假设。
+---
 
-### 6.5 Key 存储的双端差异
+## 8. 音频来源
 
-| 端 | 存法 | 行为 |
+1. **调用方字节**（互调 API 的唯一入口）：容器 + 采样率 + 声道 + base64 数据。
+2. **诊断录音**（仅服务页）：`host-audio` 打开默认输入设备 → 宿主归一为 16 kHz 单声道 S16LE → 环形缓冲按游标拉取 → 追加到 host-stt 会话 → `capture-stop` 时排空并提交本地任务。录音状态住 wasm 内存，服务页关闭/插件停用即回收。
+3. 音频采集不进互调 API：其他应用不能远程触发本服务开麦。
+
+---
+
+## 9. 错误分类
+
+| kind | 触发 | 来源 |
 | --- | --- | --- |
-| 桌面 | `auth_secret_set("speech.remote.key", v)` | 明文不入插件 KV；`auth_secret_keys` 可枚举 |
-| 移动 | `storage.set("speech.remote.key", v)` | **明文落插件私有存储**；UI 必须显示一次性警告弹窗（「移动端无系统级密钥存储，Key 以明文存于应用私有目录，仅本机使用」），用户确认后才写入 |
+| `audio-too-large` | 原始字节 > 8 MiB | core |
+| `audio-invalid` | 容器非法 / base64 非法 / WAV 非 16-bit PCM / PCM 形状不合法 | core |
+| `audio-unsupported-local` | 本地通道收到 mp3/m4a/webm/ogg | core |
+| `no-channel` | `auto` 下两条通道都未就绪 | core |
+| `invalid-settings` | 语种非法 / 远端启用但端点/模型/适配器缺失 | core |
+| `provider-not-configured` | 远端禁用 / 端点空 / Key 未设置 | plugin |
+| `auth-failed` / `rate-limited` / `provider-error` / `protocol-mismatch` / `network` | 远端 HTTP 与响应归一 | plugin |
+| `model-not-installed` | 本地模型未下载 | plugin（转发 host-stt） |
+| `local-session` / `local-append` / `local-finalize` | host-stt 会话原语失败（原样带宿主原因） | plugin |
+| `capture-already-running` / `capture-not-running` | 诊断录音状态错配 | plugin |
+| `internal` | 其他 | core / plugin |
 
-`settings_get` / `settings_set` 永不回传明文；只回 `hasKey`。
-
----
-
-## 7. 错误分类（`core/error.rs`）
-
-| kind | 触发 | 是否回退 | 是否可重试 | 用户可见文案要点 |
-| --- | --- | --- | --- | --- |
-| `connect-refused` | 连接被拒 | ✅ | ✅ | 本地识别服务未启动 |
-| `connect-timeout` | 连接超时（≤ `connectTimeoutMs`） | ✅ | ✅ | 本地端点无响应 |
-| `dns-failed` | 解析失败 | ✅ | ❌ | 端点地址无效 |
-| `gateway-down` | `502/503/504` | ✅ | ✅ | 端点暂不可用 |
-| `audio-too-large` | 原始字节 > 8 MiB | ❌ | ❌ | 音频过大，请切片 |
-| `audio-invalid` | 容器/采样率/声道不合法 | ❌ | ❌ | 音频格式不支持 |
-| `auth-failed` | `401/403` | ❌ | ❌ | Key 无效或无权限 |
-| `bad-request` | `400`（非 multipart 提示） | ❌ | ❌ | 请求不被端点接受 |
-| `rate-limited` | `429` | ❌ | ✅ | 触发限流 |
-| `provider-error` | 其他 `5xx` | ❌ | ✅ | 端点内部错误 |
-| `protocol-mismatch` | 响应不是可解析的识别结果 | ❌ | ❌ | 端点协议不兼容 |
-| `provider-requires-url` | DashScope 只给字节 | ❌ | ❌ | 该厂商要求可访问 URL |
-| `cancelled` | 调用方取消 | ❌ | ❌ | — |
-| `internal` | 其他 | ❌ | ❌ | — |
-
-**「是否回退」只有前 4 行是 `true`**——这就是 D7/D13 的全部内容。
+前端把 `kind` 映射到 `speech.errors.<kind>` 的 i18n 文案；宿主日志只落结构化摘要，不落音频/文本。
 
 ---
 
-## 8. 与宿主的边界：音频从哪来
+## 10. 持久化
 
-v1 的音频**只能由调用方提供**（`dataBase64`）。现有可用的端到端入口只有设置页的「导入音频文件测试」（走 `fs:pick` + `fs:read` 或前端 `<input type=file>` → 读成字节）。
-
-**宿主音频能力申请（独立、跨仓、不在本服务 v1 内）**：
-
-```wit
-// 建议落点为能力仓新增分片，命名待定（host-audio）
-interface host-audio {
-  list-devices: func() -> result<list<device-info>, string>;
-  start-capture: func(config-json: string) -> result<string, string>;   // handle
-  stop-capture: func(handle: string) -> result<capture-result, string>; // 16k mono s16le
-  cancel-capture: func(handle: string) -> result<bool, string>;
-}
-```
-
-配套新权限位 `audio:capture`（双端词汇表真源 `wasmnest-wasm-core/src/permission.rs` + `plugin-sdk-mobile/rust/src/permission.rs` 都要加）。宿主侧实现照业界共识：`cpal` 录音 + `rubato` 重采样到 16k mono；**推理不放进宿主进程**（Handy 与 Vibe 都为此做了进程隔离：ggml/C++ 崩溃会带走 App，超时只能 kill 进程）。
-
-本服务的契约不受这条能力影响——因为音频**始终是字节**，来源对服务不透明。
+- **设置**：`storage` 键 `speech.settings`（JSON）。
+- **Key**：桌面 secret-store（`speech.remote.key`），不进 settings blob、不进日志。
+- **记录**：`storage` 键 `speech.records`（JSON 数组），上限 200 条，FIFO 裁剪；字段 = 任务 id / 时间 / 通道 / 模型 / 语种 / 音频字节 / 文本字符数 / 耗时 / 错误 kind / callerTag。**不存音频、不存文本**。
+- 任务表住 wasm 内存，不持久化。
 
 ---
 
-## 9. 持久化
+## 11. 状态与未完成项
 
-**私有库**（`storage` 权限，`host-plugin-database`）：
+已完成：
 
-```sql
-CREATE TABLE IF NOT EXISTS transcription_records (
-  id            TEXT PRIMARY KEY,
-  created_at    INTEGER NOT NULL,   -- epoch ms
-  job_id        TEXT NOT NULL,
-  channel       TEXT NOT NULL,      -- local | remote
-  adapter       TEXT NOT NULL,
-  vendor        TEXT,               -- dashscope | custom | null(本地)
-  fallback_from TEXT,               -- null = 未回退
-  fallback_reason TEXT,
-  language      TEXT,
-  audio_bytes   INTEGER NOT NULL,
-  text_chars    INTEGER,            -- 长度，不存文本
-  elapsed_ms    INTEGER,
-  error_kind    TEXT                -- null = 成功
-);
-CREATE INDEX IF NOT EXISTS idx_speech_records_created ON transcription_records(created_at DESC);
-```
+- lib：`wasmnest-stt-engine`（host-stt 14 原语、模型目录 / 会话 / 异步任务 / whisper 后端 / 下载导入）、`host-http` 的 `bodyBase64`、权限词汇 `stt:infer` / `stt:model`。
+- platform：SDK WIT 组合（audio/stt）、宿主 `host-audio`（cpal）与 `host-stt`（whisper.cpp）适配器、应用登记（路由 / 构建 / 清单）、权限词汇生成（45 条）。
+- apps：服务实现（core 22 测试 + 前端 6 测试）、完整构建产物、发布 zip 打包。
 
-**不存音频、不存文本。** 保留策略：插入时裁掉超过 200 条的旧行（软上限，避免无限增长）。
+未完成 / 待验证：
 
-**设置存储**：`storage` 的 `speech.settings`（JSON）。Key 走 §6.4 的差异路径，**不进这个 blob**。
-
----
-
-## 10. 实现顺序与验证口径
-
-| 阶段 | 内容 | 验证 |
-| --- | --- | --- |
-| P1 | `rust/core`：`audio` / `base64` / `error` / `route` / `settings` / `segment` | `cargo test -p wasmnest-speech-core`（native，纯函数全覆盖）；`boundary_lock` 静态锁 |
-| P2 | `rust/plugin`：api 面 + dispatch/job 表 + 三通道 | `cargo test --manifest-path servers/speech/rust/plugin/Cargo.toml`；**必须补跑 wasm 目标构建**（native 不展开 `#[plugin_api]` 宏） |
-| P3 | 双端 `plugin.json` + 构建链（desktop `build.js` / mobile `sharedRustManifest`） | `node scripts/build.js` 出 `.build/plugins/com.wasmnest.speech/`；移动端 `plugin-build.js` 出同名 wasm；**两端 wasm 字节一致**（`sha256` 比对，这是 D1 的机器判据） |
-| P4 | 桌面设置面 + 测试面（导入音频） | vitest；E2E 走 `node scripts/e2e.mjs --app speech` |
-| P5 | 移动设置面 | vitest |
-| P6 | 平台仓五处登记（`release-manifest.json` + `useShellApps.ts` SURFACE_ROUTES + `router/index.ts` + `plugin-build.js` PLUGINS + `hostAppBoundaryLock.test.ts`） | 平台 `pnpm run check:manifest` |
-
-**验证底线**：`cargo test` 通过不算完成，P2 的 wasm 目标构建必须跑过。
-
----
-
-## 11. 未决项（实现前必须先定的）
-
-**U1（阻塞性）**：DashScope 异步 ASR 只接受公网可达 `file_urls`，不接受 base64 内联。若坚持「服务只接字节」，「国内厂商」这条腿在 v1 就不可用。三个出路：
-- (a) 接受 `publicUrl` 参数，字节路径下该通道报 `provider-requires-url`（**当前文档的写法**）
-- (b) 改用 DashScope 的**实时 WebSocket**接口（`paraformer-realtime-v2`），它接受 base64 音频帧——但 `host-http` 只有一个 `fetch`，WS 要另走 `ws:client`（桌面 38 条里有 `ws:client`，移动 18 条里也有）。这条路能救回字节输入，代价是引入第二个传输能力。
-- (c) 换一家接受 base64 同步上传的国内厂商。
-
-**U2**：移动端 `bus` 权限存在，但跨插件互调在移动宿主上是否与桌面同样可用（`api_call` 的 topic 广播机制）——需在 P2 前实测。若移动端不支持互调，则移动端只能以「自己的设置页 + 命令」形态存在。
-
-**U3**：`mountPreview` 是否必需。平台 `hostAppBoundaryLock.test.ts`（L5）要求六个桌面 entry 导出 `mountPreview`；新 servers 应用是否纳入该锁，需与平台侧确认。
+1. **真实推理**：whisper 后端只编译通过；没有下载 small 模型跑过真实音频。MockBackend 单测覆盖的是引擎编排，不是识别质量。
+2. **真实麦克风 / 宿主目验 / E2E**：cpal 与 host-audio 只在编译面通过；服务页、权限提示、录音指示、模型下载进度需在真实宿主目验。
+3. **远端异步**：`transcribe-submit` 远端正向同步执行；长音频/慢供应商需调用方加大互调超时（§7.3）。异步 job 未实现。
+4. **模型本地导入 UI**：引擎与宿主端口（`stt:model` + `fs` 授权链）已就绪，但页面没有二进制选择/读取面（宿主 `host-fs` 只有文本 `read`，没有 `read-bytes`）；不要假装可导入。
+5. **移动端**：v1 不交付；lib 引擎保留后端抽象，移动宿主未接 audio/stt。
+6. **DashScope**：异步 ASR 只接受公网可达 URL，与「只接字节」冲突，v1 挂起；远端只支持 OpenAI 兼容。
+7. **发布**：lib 新 crate 未打 tag；平台宿主 `Cargo.toml` 当前依赖 git tag `lib-v0.0.1`，需合并 lib 后打新 tag 并更新 `release-manifest.json` 的 `repos.lib.tag` / `repos.apps.tag`（发布动作）。
 
 ---
 
 ## 12. 引用
 
-- 双端单产物先例：`apps/file-transfer/rust/{core,plugin}`、`apps/file-transfer/mobile/package.json`（`wasmnest.sharedRustManifest`）
-- 互调 api 面先例：`servers/auth-center/desktop/rust/src/lib.rs:473` + `apps/file-transfer/rust/plugin/src/auth_center.rs:121`
-- HTTP 出站真源：`wasmnest-lib/wasmnest-server-http/wit/http.wit`、`src/plugin_binding/egress.rs:316-317`（body 必须是字符串）、`:387`（响应体上限）
-- 资源硬顶：`wasmnest-lib/wasmnest-host-kit/src/limits.rs:41,63`
-- 密钥存储：桌面 `plugin-sdk-desktop/rust/src/host/auth.rs:31-40`；移动 `plugin-sdk-mobile/rust/src/host/auth.rs:1-14`（非 secret-store）
-- 业界分层参照：Handy（cpal + rubato + VAD + worker 子进程 + enigo）、Vibe（Tauri 宿主录音 + `vibe-server` sidecar 暴露 OpenAI 兼容 HTTP）
+- host-stt 契约：`wasmnest-lib/wasmnest-stt-engine/wit/stt.wit`；宿主适配器：`wasmnest-desktop/src-tauri/src/plugin/stt.rs`。
+- host-audio 契约与适配器：`wasmnest-audio-engine/wit/audio.wit`、`wasmnest-desktop/src-tauri/src/plugin/audio.rs`。
+- `host-http` 二进制体：`wasmnest-server-http/src/plugin_binding/egress.rs`（`bodyBase64`）。
+- 平台应用登记：`useShellApps.ts` / `router/index.ts` / `plugin-build.js` / `plugin-precheck.mjs` / `release-manifest.json`。
+- 相关 ADR：0007（旧本地通道，已被取代）、0008（移动端 Key，v1 不适用）、0009（base64 传输，已修订）、0010（host-stt 本地通道）。

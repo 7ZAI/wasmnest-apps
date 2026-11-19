@@ -111,6 +111,7 @@ wasmnest-apps/
 | monitor（**`servers/` 分组**） | `com.wasmnest.monitor` | desktop + mobile | `entry.ts` / `index.ts` | 双端 `full` | `wasmnest_plugin_monitor`（两端同名） | `wasmnest-plugin-monitor` @ `servers/monitor/desktop/rust`；`wasmnest_plugin_monitor` @ `servers/monitor/mobile/rust` |
 | auth-center（**`servers/` 分组**） | `com.wasmnest.auth-center` | desktop | `servers/auth-center/desktop/src/entry.ts` | `full` | `wasmnest_plugin_auth_center` | `wasmnest-plugin-auth-center` @ `servers/auth-center/desktop/rust` |
 | net-config（**`servers/` 分组**，T18） | `com.wasmnest.net-config` | desktop | `servers/net-config/desktop/src/entry.ts` | `full` | `wasmnest_plugin_net_config` | `wasmnest-plugin-net-config` @ `servers/net-config/desktop/rust` |
+| speech（**`servers/` 分组**） | `com.wasmnest.speech` | desktop | `servers/speech/desktop/src/entry.ts` | `full` | `wasmnest_plugin_speech` | `wasmnest-plugin-speech` @ `servers/speech/rust/plugin`；共享核 `wasmnest-speech-core` @ `servers/speech/rust/core` |
 
 > **auth-center 现状（issue #6，已注册接管）**：六域全部就位——
 > `rust/src/{pairing,policy,trust,consent,auth_records,auth_http}`（用例自 bedcode 逐字
@@ -236,7 +237,7 @@ apps/<slug>/<end>/ 源码
 
 | 锁 | 钉住什么 |
 | --- | --- |
-| `wasmnest-desktop/src/__tests__/hostAppBoundaryLock.test.ts` | 宿主零 app 源码 import、零 `__WASMNEST_SHARED__`、零旧贡献面；逐字校验**七个**桌面 `entry.ts`（4 个 `apps/` + `servers/{auth-center,net-config,monitor}`）的 `mountApp` 契约；**L5** 预览契约锁（七个 entry 必须导出 `mountPreview` + 关键字段；预览路径禁 `refreshChannelToken` / 写存储） |
+| `wasmnest-desktop/src/__tests__/hostAppBoundaryLock.test.ts` | 宿主零 app 源码 import、零 `__WASMNEST_SHARED__`、零旧贡献面；逐字校验**八个**桌面 `entry.ts`（4 个 `apps/` + `servers/{auth-center,net-config,monitor,speech}`）的 `mountApp` 契约；**L5** 预览契约退役锁（宿主源码不得再声明 / 装载 `mountPreview`，多任务卡改用保活实例） |
 | `wasmnest-desktop/src/__tests__/shell/appPreviewTile.test.ts` | 多任务预览面行为（缺失 / 成功 / 抛错 / 超时 / 卸载 / 晚到结果 / 不换发令牌 / 装饰层属性） |
 | `wasmnest-desktop/src/__tests__/shell/recentsWiring.test.ts` | 多任务接线：app 卡用 `AppPreviewTile`、system 卡保留 glyph、预览不在动作按钮内 |
 | `wasmnest-desktop/src/__tests__/i18nDriftLock.test.ts` | 宿主 `src/i18n/host-{zh-CN,en}.ts` ↔ `apps/bedcode/desktop/src/i18n/host-{zh-CN,en}.ts` **逐字一致** |
