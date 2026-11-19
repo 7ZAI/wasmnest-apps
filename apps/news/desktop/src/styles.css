@@ -1,0 +1,364 @@
+/**
+ * News 插件样式（桌面挂载包，随 index.js 内联）
+ *
+ * 颜色 / 圆角 / 字号全部取宿主 CSS token，跟随宿主明暗主题与 UI 缩放，不写死 hex。
+ * 类名统一 `news-` 前缀，避免与宿主和相邻应用冲突。
+ *
+ * 字号口径：走宿主 `--font-size-*` 档位（宿主按 `--ui-scale` 等比缩放），
+ * 不再出现裸 px 字号——否则宿主放大字体 / Linux 平台 115% 缩放时本应用纹丝不动。
+ */
+
+/* 宿主共享组件（Select 等）用 Tailwind 工具类拼装，这里必须开 utilities，
+   否则那些类没人生成，组件会退化成「没有样式的原生外观」。
+   只开 utilities、不开 base/components：不注入 preflight 全局重置，
+   免得影响宿主自己的样式。 */
+@tailwind utilities;
+
+/* Select 的选项面板 Teleport 到宿主文档（不在本应用 DOM 内），它的列表依赖
+   宿主 preflight 对 ul 的重置；本应用只引 utilities（不引 base，免全局重置
+   宿主样式），故按面板自身结构补齐：去掉浏览器默认的项目符号与缩进。
+   宿主 preflight 本身已是这个值，对宿主无副作用。 */
+div.fixed > ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .news-app *,
+  .news-app *::before,
+  .news-app *::after {
+    transition-duration: 0.01ms;
+    animation-duration: 0.01ms;
+    animation-iteration-count: 1;
+  }
+}
+
+.news-app {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--bg-page);
+  color: var(--text-primary);
+  font-size: var(--font-size-body, 13px);
+  line-height: 1.55;
+  overflow: hidden;
+  /* 详情抽屉宽度（列表让位与抽屉本身共用一个值） */
+  --news-drawer-width: min(480px, 46%);
+}
+
+/* ==================== 顶栏（文字分段 + 下划线） ==================== */
+.news-top {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex: none;
+  height: 52px;
+  padding: 0 24px;
+  /* 与宿主 chrome 分层用底色差，不再叠一条 1px 分隔线（双层横线看着像两个应用） */
+  background: var(--bg-sidebar);
+  border-bottom: 0;
+}
+.news-seg {
+  display: flex;
+  gap: 18px;
+  align-self: stretch;
+}
+.news-seg button {
+  position: relative;
+  border: 0;
+  background: none;
+  padding: 0 1px;
+  color: var(--text-secondary);
+  font-size: var(--font-size-lg, 14px);
+  font-weight: 500;
+  cursor: pointer;
+}
+.news-seg button:hover {
+  color: var(--text-primary);
+}
+.news-seg button.on {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+/* 选中态用 --color-info：暗色主题下 --color-primary 与正文同色，
+   真正能起强调作用的是信息色（浅色 #2563eb / 暗色 #60a5fa） */
+.news-seg button.on::after {
+  content: '';
+  position: absolute;
+  inset-inline: 0;
+  bottom: -1px;
+  height: 2px;
+  background: var(--color-info);
+}
+.news-seg button:focus-visible,
+.news-chip:focus-visible,
+.news-icon-btn:focus-visible {
+  outline: 2px solid var(--color-info);
+  outline-offset: 2px;
+}
+.news-tools {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-inline-start: auto;
+}
+.news-icon-btn {
+  width: 32px;
+  height: 32px;
+  display: inline-grid;
+  place-items: center;
+  border: 0;
+  border-radius: var(--radius-button, 8px);
+  background: none;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+}
+.news-icon-btn:hover {
+  color: var(--text-primary);
+}
+.news-ic {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+
+/* ==================== 条目列表 ==================== */
+.news-feed,
+.news-page {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+.news-feed {
+  padding: 0 24px 56px;
+}
+/* 详情抽屉打开时列表让位：内容不被抽屉盖住、也不被裁成半句 */
+.news-app.has-drawer .news-feed {
+  padding-inline-end: calc(var(--news-drawer-width) + 24px);
+}
+.news-feed-inner {
+  max-width: 680px;
+  margin: 0 auto;
+}
+.news-feed-note {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 14px 0 8px;
+  margin-bottom: 2px;
+  font-size: var(--font-size-label, 12px);
+  color: var(--text-tertiary);
+}
+.news-feed-note b {
+  font-size: var(--font-size-lg, 14px);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--text-primary);
+}
+.news-chips {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin: 4px 0 0;
+}
+.news-chip {
+  height: auto;
+  padding: 3px 0;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: none;
+  color: var(--text-tertiary);
+  font-size: var(--font-size-label, 12px);
+  cursor: pointer;
+}
+.news-chip:hover {
+  color: var(--text-primary);
+}
+.news-chip.on {
+  color: var(--text-primary);
+  font-weight: 600;
+  border-bottom-color: var(--color-info);
+}
+/* 条目之间用「块面 + 间距」分层，不靠 1px 横线 */
+.news-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* ==================== 空态 / 错误 / 加载 ==================== */
+/* 空态也要有版面重量：标题够大、说明完整、给两个动作，并把已添加的源列出来；
+   内容在首屏内居中，避免整页只剩顶上几行、下半屏全空 */
+.news-empty {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: min(420px, 62vh);
+  margin: 0;
+  padding: 28px 0 40px;
+  text-align: start;
+  color: var(--text-secondary);
+}
+.news-empty-kinds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 18px;
+}
+.news-empty-kind {
+  padding: 2px 8px;
+  border-radius: var(--radius-tag, 6px);
+  background: var(--bg-hover);
+  font-size: var(--font-size-tag, 11px);
+  color: var(--text-secondary);
+}
+.news-empty b {
+  display: block;
+  margin-bottom: 6px;
+  font-size: var(--font-size-h1, 19px);
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
+}
+.news-empty > span {
+  display: block;
+  font-size: var(--font-size-body, 13px);
+  color: var(--text-secondary);
+}
+.news-empty-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 16px;
+}
+.news-empty-sources {
+  margin-top: 26px;
+  padding: 14px 16px;
+  border-radius: var(--radius-card, 10px);
+  background: var(--bg-card);
+}
+.news-empty-sources h4 {
+  margin: 0 0 4px;
+  font-size: var(--font-size-body, 13px);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.news-empty-sources p {
+  margin: 0 0 10px;
+  font-size: var(--font-size-label, 12px);
+  color: var(--text-tertiary);
+}
+.news-empty-sources ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.news-empty-sources li {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+.news-empty-source-name {
+  font-size: var(--font-size-body, 13px);
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+.news-empty-source-url {
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--font-size-label, 12px);
+  color: var(--text-tertiary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.news-error {
+  margin: 14px 0;
+  padding: 12px 14px;
+  border: 0;
+  border-radius: var(--radius-card, 10px);
+  background: var(--color-danger-light);
+  color: var(--color-danger-ink);
+  font-size: var(--font-size-label, 12px);
+}
+.news-loading {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+/* 骨架与条目同形：块面 + 圆角 + 同间距 */
+.news-skeleton {
+  display: block;
+  height: 88px;
+  border-radius: var(--radius-card, 10px);
+  background: var(--bg-card);
+}
+
+/* ==================== 详情抽屉 ==================== */
+.news-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  border: 0;
+  padding: 0;
+  background: rgb(0 0 0 / 0.14);
+  cursor: pointer;
+}
+.news-drawer {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-end: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  width: var(--news-drawer-width);
+}
+
+/* ==================== toast ==================== */
+.news-toast {
+  position: absolute;
+  bottom: 20px;
+  left: 50%;
+  z-index: 20;
+  transform: translateX(-50%);
+  padding: 7px 14px;
+  border-radius: var(--radius-button, 8px);
+  background: var(--text-primary);
+  color: var(--bg-page);
+  font-size: var(--font-size-label, 12px);
+  max-width: min(560px, calc(100% - 32px));
+  text-align: center;
+}
+/* 抽屉打开时 toast 归到抽屉内（否则提示浮在列表上方，像与抽屉无关） */
+.news-app.has-drawer .news-toast {
+  left: calc(100% - var(--news-drawer-width) / 2);
+  max-width: min(420px, calc(var(--news-drawer-width) - 32px));
+}
+
+@media (max-width: 720px) {
+  .news-top {
+    padding: 0 12px;
+  }
+  .news-feed {
+    padding: 14px 12px 36px;
+  }
+  /* 窄屏抽屉占满宽，列表不再让位（否则整列被推到屏外） */
+  .news-app.has-drawer .news-feed {
+    padding-inline-end: 12px;
+  }
+  .news-drawer {
+    width: 100%;
+    min-width: 0;
+  }
+}

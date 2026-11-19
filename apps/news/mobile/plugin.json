@@ -1,0 +1,129 @@
+{
+  "id": "com.wasmnest.news",
+  "name": "News",
+  "version": "0.0.1",
+  "platform": "both",
+  "update": { "provider": "github-release" },
+  "description": "个人新闻聚合：底部分段浏览今日 / 圈子 / 实时 / 收藏。\n使用：应用列表打开 News → 底部分段切换 → 点卡片看摘要与来源。",
+  "author": "WasmNest",
+  "icon": "icon.svg",
+  "main": "index.js",
+  "pluginType": "full",
+  "rustLibrary": "wasmnest_plugin_news",
+  "permissions": ["network:http", "storage", "ui:back", "ui:route"],
+  "preauthUrls": [
+    "https://hacker-news.firebaseio.com/*",
+    "https://www.reddit.com/*",
+    "https://github.com/*",
+    "https://feeds.bbci.co.uk/*",
+    "https://www.theverge.com/*",
+    "https://www.theguardian.com/*",
+    "https://www.youtube.com/*",
+    "https://api.openai.com/*"
+  ],
+  "contributes": {
+    "commands": [
+      { "id": "news.list-feed", "title": "List feed" },
+      { "id": "news.get-item", "title": "Get item detail" },
+      { "id": "news.list-circles", "title": "List circles" },
+      { "id": "news.list-sources", "title": "List sources" },
+      { "id": "news.get-settings", "title": "Get settings" },
+      { "id": "news.set-settings", "title": "Update settings" },
+      { "id": "news.list-fetch-log", "title": "List fetch log" },
+      { "id": "news.list-credentials", "title": "List credentials" },
+      { "id": "news.refresh-all", "title": "Refresh all sources" },
+      { "id": "news.refresh-stale", "title": "Refresh stale sources" },
+      { "id": "news.refresh-source", "title": "Refresh one source" },
+      { "id": "news.mark-read", "title": "Mark item read" },
+      { "id": "news.mark-all-read", "title": "Mark all read" },
+      { "id": "news.set-favorite", "title": "Favorite item" },
+      { "id": "news.copy-link", "title": "Copy item link" },
+      { "id": "news.add-source", "title": "Add source" },
+      { "id": "news.update-source", "title": "Update source" },
+      { "id": "news.delete-source", "title": "Delete source" },
+      { "id": "news.add-circle", "title": "Add circle" },
+      { "id": "news.update-circle", "title": "Update circle" },
+      { "id": "news.delete-circle", "title": "Delete circle" },
+      { "id": "news.save-credential", "title": "Save credential" },
+      { "id": "news.delete-credential", "title": "Delete credential" },
+      { "id": "news.export-json", "title": "Export data as JSON" },
+      { "id": "news.ai-summarize", "title": "Summarize with AI" },
+      { "id": "news.today-summary", "title": "Today summary" },
+      { "id": "news.search-items", "title": "Search items" },
+      { "id": "news.assistant-fetch", "title": "Fetch via assistant (unavailable)" }
+    ],
+    "assistantTools": [
+      {
+        "id": "news.today-summary",
+        "command": "news.today-summary",
+        "title": "Read today's headlines",
+        "description": "Returns the top items of the last 24 hours (title, source, link).",
+        "risk": "read",
+        "output": "json",
+        "argsSchema": {
+          "type": "object",
+          "properties": {
+            "limit": { "type": "integer", "minimum": 1, "maximum": 20 }
+          }
+        }
+      },
+      {
+        "id": "news.search-items",
+        "command": "news.search-items",
+        "title": "Search saved items",
+        "description": "Search local items by keyword in title or summary.",
+        "risk": "read",
+        "output": "json",
+        "argsSchema": {
+          "type": "object",
+          "required": ["keyword"],
+          "properties": {
+            "keyword": { "type": "string", "minLength": 1 },
+            "limit": { "type": "integer", "minimum": 1, "maximum": 50 }
+          }
+        }
+      },
+      {
+        "id": "news.refresh-source",
+        "command": "news.refresh-source",
+        "title": "Refresh one source",
+        "description": "Fetches a single source now and returns how many new items arrived.",
+        "risk": "write",
+        "output": "json",
+        "argsSchema": {
+          "type": "object",
+          "required": ["sourceId"],
+          "properties": {
+            "sourceId": { "type": "string", "minLength": 1 }
+          }
+        }
+      },
+      {
+        "id": "news.add-source",
+        "command": "news.add-source",
+        "title": "Add a source",
+        "description": "Adds a feed source (kind + url + optional circle).",
+        "risk": "write",
+        "output": "json",
+        "argsSchema": {
+          "type": "object",
+          "required": ["name", "kind", "url"],
+          "properties": {
+            "name": { "type": "string", "minLength": 1 },
+            "kind": { "type": "string", "enum": ["rss", "hn", "reddit", "github-trending", "youtube-rss"] },
+            "url": { "type": "string", "minLength": 1 },
+            "circleId": { "type": "string" }
+          }
+        }
+      }
+    ],
+    "routes": [
+      {
+        "id": "settings",
+        "title": "新闻设置",
+        "component": "SettingsPage",
+        "header": true
+      }
+    ]
+  }
+}

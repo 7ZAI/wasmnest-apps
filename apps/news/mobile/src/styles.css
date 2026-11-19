@@ -1,0 +1,252 @@
+/**
+ * News 插件样式（移动端，经 index.ts 以 `?inline` 注入）
+ *
+ * 应用外观自持：`--news-*` token 在 .news-mobile-app 作用域内声明，深 / 浅两档
+ * 各一套，不写回宿主 `--mobile-*` 平台 token，也不透出壳的壁纸 / 环境光。
+ * 仍跟随宿主深浅色（html:not(.dark) 分支）。类名统一 `news-mobile-` / `news-`
+ * 前缀。
+ */
+
+.news-mobile-app {
+  --news-bg-page: #15130f;
+  --news-bg-card: #1d1a15;
+  --news-bg-hover: #2a261e;
+  --news-bg-input: #1d1a15;
+  --news-text-primary: #ece8dc;
+  --news-text-secondary: #aaa393;
+  --news-text-tertiary: #948c79;
+  --news-border: #2e2a22;
+  --news-border-strong: #3c372b;
+  --news-accent: #60a5fa;
+  --news-accent-ink: #93c5fd;
+  --news-accent-soft: rgb(96 165 250 / 16%);
+  --news-success: #4ade80;
+  --news-warning: #fbbf24;
+  --news-danger: #f87171;
+
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--news-bg-page);
+  color: var(--news-text-primary);
+  font-size: 14px;
+  line-height: 1.55;
+  overflow: hidden;
+}
+
+html:not(.dark) .news-mobile-app {
+  --news-bg-page: #f5f4f0;
+  --news-bg-card: #fdfcfa;
+  --news-bg-hover: #e7e4dc;
+  --news-bg-input: #fdfcfa;
+  --news-text-primary: #26231b;
+  --news-text-secondary: #5e584c;
+  --news-text-tertiary: #736b58;
+  --news-border: #e4e1d8;
+  --news-border-strong: #d6d2c4;
+  --news-accent: #2563eb;
+  --news-accent-ink: #1d4ed8;
+  --news-accent-soft: rgb(37 99 235 / 12%);
+  --news-success: #22c55e;
+  --news-warning: #f59e0b;
+  --news-danger: #ef4444;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .news-mobile-app *,
+  .news-mobile-app *::before,
+  .news-mobile-app *::after {
+    transition-duration: 0.01ms;
+    animation-duration: 0.01ms;
+    animation-iteration-count: 1;
+  }
+}
+
+/* ==================== 顶栏 ==================== */
+.news-mobile-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  height: 48px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--news-border);
+}
+.news-mobile-header b {
+  font-size: 15px;
+  font-weight: 650;
+}
+.news-mobile-spacer {
+  margin-inline-start: auto;
+}
+.news-mobile-icon-btn {
+  width: 34px;
+  height: 34px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: none;
+  color: var(--news-text-secondary);
+  font-size: 17px;
+  line-height: 1;
+  cursor: pointer;
+}
+.news-mobile-icon-btn:active {
+  background: var(--news-bg-hover);
+  color: var(--news-text-primary);
+}
+.news-mobile-icon-btn:focus-visible {
+  outline: 2px solid var(--news-accent);
+  outline-offset: 2px;
+}
+.news-ic {
+  width: 18px;
+  height: 18px;
+  flex: none;
+}
+
+/* ==================== 列表 ==================== */
+.news-mobile-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 0 14px 24px;
+}
+.news-mobile-note {
+  margin: 0;
+  padding: 10px 2px 8px;
+  font-size: 11px;
+  color: var(--news-text-tertiary);
+}
+.news-mobile-chips {
+  display: flex;
+  gap: 16px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  padding: 2px 2px 8px;
+}
+.news-mobile-chip {
+  flex: none;
+  height: auto;
+  padding: 3px 0;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: none;
+  color: var(--news-text-tertiary);
+  font-size: 12px;
+  cursor: pointer;
+}
+.news-mobile-chip.on {
+  color: var(--news-text-primary);
+  font-weight: 600;
+  border-bottom-color: var(--news-text-primary);
+}
+
+/* ==================== 空态 / 错误 ==================== */
+.news-mobile-empty {
+  margin: 0;
+  padding: 30px 2px;
+  text-align: start;
+  color: var(--news-text-secondary);
+}
+.news-mobile-empty b {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--news-text-primary);
+  font-size: 14px;
+  font-weight: 600;
+}
+.news-mobile-empty span {
+  display: block;
+  font-size: 12.5px;
+  color: var(--news-text-tertiary);
+}
+.news-mobile-error {
+  margin: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--news-danger);
+  border-radius: 10px;
+  background: rgb(248 113 113 / 12%);
+  color: var(--news-danger);
+  font-size: 12.5px;
+}
+
+/* ==================== 底栏 ==================== */
+.news-mobile-tabbar {
+  display: flex;
+  flex: none;
+  height: 56px;
+  border-top: 1px solid var(--news-border);
+  background: var(--news-bg-card);
+}
+.news-mobile-tab {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  gap: 2px;
+  border: 0;
+  padding: 6px 0;
+  background: none;
+  color: var(--news-text-tertiary);
+  font-size: 11px;
+  cursor: pointer;
+}
+.news-mobile-tab.on {
+  color: var(--news-text-primary);
+  font-weight: 600;
+}
+.news-mobile-tab:focus-visible {
+  outline: 2px solid var(--news-accent);
+  outline-offset: -2px;
+}
+
+/* ==================== 详情全屏 ==================== */
+.news-mobile-detail {
+  position: absolute;
+  inset: 0;
+  z-index: 12;
+  display: flex;
+  flex-direction: column;
+  background: var(--news-bg-page);
+}
+.news-mobile-detail-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  height: 48px;
+  padding: 0 8px 0 4px;
+  border-bottom: 1px solid var(--news-border);
+}
+.news-mobile-detail-head b {
+  font-size: 13px;
+  font-weight: 600;
+}
+.news-mobile-detail-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 18px 16px 32px;
+}
+
+/* ==================== toast ==================== */
+.news-mobile-toast {
+  position: absolute;
+  bottom: 74px;
+  left: 50%;
+  z-index: 20;
+  transform: translateX(-50%);
+  max-width: calc(100% - 32px);
+  padding: 7px 14px;
+  border-radius: 999px;
+  background: var(--news-text-primary);
+  color: var(--news-bg-page);
+  font-size: 12px;
+  text-align: center;
+}

@@ -391,6 +391,38 @@ export async function allowFsAuthIfPresent(): Promise<boolean> {
   })
 }
 
+/**
+ * 宿主网络出站授权弹窗的「拒绝」按钮（本轮放行，不落记录）
+ *
+ * 宿主弹窗（平台仓 `NetworkAuthDialog.vue`）没有 `data-testid`，且三条决定带本地化
+ * 文案。定位靠**结构 + 语言无关的 origin 文本**（弹窗主体展示归一化 origin，必含
+ * `://`），再点页脚中间那个按钮（固定顺序：以后都拒绝 / 拒绝 / 允许）。
+ *
+ * @returns 是否真的点到了（没有弹窗返回 false，调用方据此走无授权分支）
+ */
+export async function denyNetworkAuthIfPresent(): Promise<boolean> {
+  return browser.execute(() => {
+    const dialogs = Array.from(document.querySelectorAll('div[class*="z-[9999]"]'))
+    const hit = dialogs.find((el) => (el.textContent || '').includes('://'))
+    if (!hit) return false
+    const buttons = Array.from(hit.querySelectorAll('button'))
+    const deny = buttons[1] as HTMLButtonElement | undefined
+    if (!deny) return false
+    deny.click()
+    return true
+  })
+}
+
+/** 等网络授权弹窗出现并拒绝（最多等 timeout；超时返回 false，不 sleep 赌时序） */
+export async function denyNetworkAuthPrompt(timeout = 5_000): Promise<boolean> {
+  const deadline = Date.now() + timeout
+  while (Date.now() < deadline) {
+    if (await denyNetworkAuthIfPresent()) return true
+    await new Promise((resolve) => setTimeout(resolve, 120))
+  }
+  return false
+}
+
 /** 同 testid 全部元素某属性的值（列表；不存在元素返回 null） */
 export function attrs(testid: string, name: string): Promise<(string | null)[]> {
   return browser.execute(

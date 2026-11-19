@@ -282,8 +282,10 @@ node scripts/replace-console.mjs <desktop|mobile> [appDirName]
 | ai-chatbox | desktop | `entry.ts` | 组件内 | 无 | ✅ | ✅ |
 | bedcode | desktop | `entry.ts` | pinia | vue-router（内存路由 + `onEvent('route')` 自报） | ✅ | ❌ 无 dev 脚本 |
 | file-transfer | desktop | `entry.ts` | 组件内 | 无 | ✅ | ✅ |
+| news | desktop | `entry.ts` | 组件内 | 无（四段为内存视图） | ✅ | ✅ |
 | monitor | servers/desktop | `entry.ts` | 组件内 | 无 | ✅ | ✅ |
 | ai-chatbox | mobile | `index.ts` | 组件内 | 宿主路由 | ✅ | ✅ dev-shell |
 | bedcode | mobile | `index.ts` | pinia | 宿主路由 | ✅ | ✅ dev-shell |
 | file-transfer | mobile | `index.ts` | 组件内 | 宿主路由 + `registerRoute` | ✅ | ✅ dev-shell |
+| news | mobile | `index.ts` | 组件内 | 宿主路由 + `registerRoute`（设置二级页） | ✅ | ✅ dev-shell |
 | monitor | servers/mobile | `index.ts` | 组件内（composable） | 宿主运行面 | ✅ | ✅ dev-shell |

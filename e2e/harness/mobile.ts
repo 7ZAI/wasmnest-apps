@@ -97,7 +97,15 @@ export class MobileApp {
   private cdp: CdpSession | null = null
   private forwarded = false
 
-  private constructor(adb: AdbClient, options: Required<Pick<MobileLaunchOptions, 'packageName' | 'activity' | 'cdpPort' | 'artifactsDir' | 'stopOnClose'>>) {
+  private constructor(
+    adb: AdbClient,
+    options: Required<
+      Pick<
+        MobileLaunchOptions,
+        'packageName' | 'activity' | 'cdpPort' | 'artifactsDir' | 'stopOnClose'
+      >
+    >,
+  ) {
     this.adb = adb
     this.pkg = options.packageName
     this.activity = options.activity
@@ -177,7 +185,10 @@ export class MobileApp {
     })
 
     if (response.exceptionDetails) {
-      const detail = response.exceptionDetails.exception?.description ?? response.exceptionDetails.text ?? 'unknown'
+      const detail =
+        response.exceptionDetails.exception?.description ??
+        response.exceptionDetails.text ??
+        'unknown'
       throw new Error(`移动端 JS 执行失败：${detail}\n  表达式：${expression.slice(0, 500)}`)
     }
     return response.result?.value as T
@@ -241,11 +252,18 @@ export class MobileApp {
       await sleep(150)
     }
     const current = await this.text(selector)
-    throw new Error(`移动端等待文本超时（${timeout}ms）：${selector} 应包含「${needle}」，实际=${JSON.stringify(current)}`)
+    throw new Error(
+      `移动端等待文本超时（${timeout}ms）：${selector} 应包含「${needle}」，实际=${JSON.stringify(current)}`,
+    )
   }
 
   /** 等待元素属性等于给定值（状态位断言用 `data-*` 而不是文案） */
-  async waitForAttr(selector: string, name: string, expected: string, timeout = MOBILE_TIMEOUT): Promise<void> {
+  async waitForAttr(
+    selector: string,
+    name: string,
+    expected: string,
+    timeout = MOBILE_TIMEOUT,
+  ): Promise<void> {
     const deadline = Date.now() + timeout
     let last: string | null = null
     while (Date.now() < deadline) {
@@ -253,7 +271,9 @@ export class MobileApp {
       if (last === expected) return
       await sleep(120)
     }
-    throw new Error(`移动端等待属性超时（${timeout}ms）：${selector}[${name}] 期望「${expected}」，实际=${JSON.stringify(last)}`)
+    throw new Error(
+      `移动端等待属性超时（${timeout}ms）：${selector}[${name}] 期望「${expected}」，实际=${JSON.stringify(last)}`,
+    )
   }
 
   /**
@@ -278,6 +298,54 @@ export class MobileApp {
     })()`)
     if (!rect) throw new Error(`移动端找不到文本为「${needle}」的元素（${selector}）`)
     await this.touch(rect.x + rect.width / 2, rect.y + rect.height / 2)
+  }
+
+  /**
+   * 按系统返回键（Android KEYCODE_BACK）
+   *
+   * 返回键是原生输入，CDP 的 DOM 通道发不出来，只能走 adb；应用侧由
+   * `ui.onBackPressed` 消费（详情浮层 → 设置页 → 宿主路由逐级返回）。
+   */
+  async pressBack(): Promise<void> {
+    await adbShell(this.adb, 'input keyevent 4')
+  }
+
+  /**
+   * 在元素上向下拖动（下拉刷新手势）
+   *
+   * 用 `Input.dispatchTouchEvent` 发完整的 touchStart → 多个 touchMove → touchEnd，
+   * 让应用真实的 `@touchstart/@touchmove/@touchend` 链路被触发（与用户手指同路径）。
+   * 只发 tap 不会产生位移，`pullDistance` 永远是 0，测不出下拉刷新。
+   */
+  async swipeDown(selector: string, distance = 120): Promise<void> {
+    const rect = await this.rect(selector)
+    const cdp = this.requireCdp()
+    const x = rect.x + rect.width / 2
+    const startY = rect.y + Math.min(48, Math.max(12, rect.height / 4))
+    const point = (
+      y: number,
+    ): { x: number; y: number; radiusX: number; radiusY: number; force: number } => ({
+      x,
+      y,
+      radiusX: 2,
+      radiusY: 2,
+      force: 1,
+    })
+
+    await cdp.request('Input.dispatchTouchEvent', {
+      type: 'touchStart',
+      touchPoints: [point(startY)],
+    })
+    const steps = 6
+    for (let i = 1; i <= steps; i++) {
+      await sleep(30)
+      await cdp.request('Input.dispatchTouchEvent', {
+        type: 'touchMove',
+        touchPoints: [point(startY + (distance * i) / steps)],
+      })
+    }
+    await sleep(30)
+    await cdp.request('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
   }
 
   /** 等待带有指定 aria-label 前缀的元素出现（壳层应用卡） */
@@ -316,7 +384,9 @@ export class MobileApp {
       const labels = await this.eval<string[]>(
         `Array.from(document.querySelectorAll('[aria-label]')).map((el) => el.getAttribute('aria-label') || '').slice(0, 40)`,
       )
-      throw new Error(`移动端找不到 aria-label 以「${prefix}」开头的元素；现有标签=${JSON.stringify(labels)}`)
+      throw new Error(
+        `移动端找不到 aria-label 以「${prefix}」开头的元素；现有标签=${JSON.stringify(labels)}`,
+      )
     }
     await this.touch(rect.x + rect.width / 2, rect.y + rect.height / 2)
   }
@@ -376,7 +446,10 @@ export class MobileApp {
    * WebView 边界是屏幕物理像素，CSS 坐标乘以缩放后加上边界原点即可。校准失败会抛错
    * 并打印 dump 片段，不静默退回 CDP 触摸（否则用例名义走 adb、实际没走）。
    */
-  async tapViaAdb(selector: string, options: { verify?: () => Promise<boolean> } = {}): Promise<void> {
+  async tapViaAdb(
+    selector: string,
+    options: { verify?: () => Promise<boolean> } = {},
+  ): Promise<void> {
     const rect = await this.rect(selector)
     const bounds = await this.webviewBounds()
     const viewport = await this.eval<{ width: number; height: number }>(
