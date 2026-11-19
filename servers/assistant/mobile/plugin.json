@@ -1,0 +1,166 @@
+{
+  "id": "com.wasmnest.assistant",
+  "name": "Nest",
+  "version": "0.0.1",
+  "platform": "mobile",
+  "update": {
+    "provider": "github-release"
+  },
+  "description": "系统级个人助手：情感陪伴对话 + 应用调度执行。独立于 BedCode；本地记忆与密钥保险库；工具按风险分级确认。",
+  "author": "WasmNest",
+  "icon": "icon.svg",
+  "main": "index.js",
+  "pluginType": "full",
+  "type": "internal-business",
+  "rustLibrary": "wasmnest_plugin_assistant",
+  "permissions": [
+    "apps:control",
+    "network:http",
+    "storage",
+    "ui:globalEntry"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "id": "assistant.chat-stream",
+        "title": "Assistant: Chat Stream"
+      },
+      {
+        "id": "assistant.ping",
+        "title": "Assistant: Ping"
+      },
+      {
+        "id": "assistant.vault-status",
+        "title": "Assistant: Vault Status"
+      },
+      {
+        "id": "assistant.vault-init",
+        "title": "Assistant: Vault Init"
+      },
+      {
+        "id": "assistant.vault-unlock",
+        "title": "Assistant: Vault Unlock"
+      },
+      {
+        "id": "assistant.vault-lock",
+        "title": "Assistant: Vault Lock"
+      },
+      {
+        "id": "assistant.vault-delete-secret",
+        "title": "Assistant: Vault Delete Secret"
+      },
+      {
+        "id": "assistant.vault-get-secret",
+        "title": "Assistant: Vault Get Secret"
+      },
+      {
+        "id": "assistant.vault-set-secret",
+        "title": "Assistant: Vault Set Secret"
+      },
+      {
+        "id": "assistant.vault-change-password",
+        "title": "Assistant: Vault Change Password"
+      },
+      {
+        "id": "assistant.memory-list",
+        "title": "Assistant: Memory List"
+      },
+      {
+        "id": "assistant.memory-upsert",
+        "title": "Assistant: Memory Upsert"
+      },
+      {
+        "id": "assistant.memory-delete",
+        "title": "Assistant: Memory Delete"
+      },
+      {
+        "id": "assistant.memory-set-status",
+        "title": "Assistant: Memory Set Status"
+      },
+      {
+        "id": "assistant.audit-list",
+        "title": "Assistant: Audit List"
+      },
+      {
+        "id": "assistant.providers-list",
+        "title": "Assistant: Providers List"
+      },
+      {
+        "id": "assistant.providers-upsert",
+        "title": "Assistant: Providers Upsert"
+      },
+      {
+        "id": "assistant.providers-set-default",
+        "title": "Assistant: Providers Set Default"
+      },
+      {
+        "id": "assistant.providers-delete",
+        "title": "Assistant: Providers Delete"
+      },
+      {
+        "id": "assistant.settings-get",
+        "title": "Assistant: Settings Get"
+      },
+      {
+        "id": "assistant.settings-set",
+        "title": "Assistant: Settings Set"
+      },
+      {
+        "id": "assistant.conversations-list",
+        "title": "Assistant: Conversations List"
+      },
+      {
+        "id": "assistant.conversations-create",
+        "title": "Assistant: Conversations Create"
+      },
+      {
+        "id": "assistant.conversations-rename",
+        "title": "Assistant: Conversations Rename"
+      },
+      {
+        "id": "assistant.conversations-archive",
+        "title": "Assistant: Conversations Archive"
+      },
+      {
+        "id": "assistant.messages-append",
+        "title": "Assistant: Messages Append"
+      },
+      {
+        "id": "assistant.messages-list",
+        "title": "Assistant: Messages List"
+      },
+      {
+        "id": "assistant.messages-count",
+        "title": "Assistant: Messages Count"
+      },
+      {
+        "id": "assistant.export",
+        "title": "Assistant: Export"
+      },
+      {
+        "id": "assistant.clear-data",
+        "title": "Assistant: Clear Data"
+      },
+      {
+        "id": "assistant.memory-clear",
+        "title": "Assistant: Memory Clear"
+      },
+      {
+        "id": "assistant.audit-record",
+        "title": "Assistant: Audit Record"
+      },
+      {
+        "id": "assistant.audit-clear",
+        "title": "Assistant: Audit Clear"
+      }
+    ],
+    "globalEntries": [
+      {
+        "id": "nest",
+        "title": "Nest",
+        "icon": "icon.svg",
+        "order": 10
+      }
+    ]
+  }
+}

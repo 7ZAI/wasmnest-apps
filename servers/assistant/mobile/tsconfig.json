@@ -1,0 +1,41 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "jsx": "preserve",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "esModuleInterop": true,
+    "lib": [
+      "ES2020",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "skipLibCheck": true,
+    "noEmit": true,
+    "paths": {
+      "@earendil-works/pi-ai/utils/*": [
+        "./node_modules/@earendil-works/pi-ai/dist/utils/*"
+      ],
+      "@nest-shared/*": [
+        "../shared/*"
+      ],
+      "vue": [
+        "./node_modules/vue"
+      ],
+      "@earendil-works/*": [
+        "./node_modules/@earendil-works/*"
+      ]
+    }
+  },
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.vue"
+  ],
+  "exclude": [
+    "node_modules",
+    "rust"
+  ]
+}

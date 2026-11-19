@@ -1,0 +1,17 @@
+[package]
+name = "getrandom"
+version = "0.2.17"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Minimal getrandom 0.2 API stub for Nest assistant wasm builds"
+
+[lib]
+name = "getrandom"
+path = "src/lib.rs"
+
+[features]
+default = []
+# 与真实 getrandom 的特性名对齐，让下游 `getrandom/std` 等特性引用不报错。
+std = []
+js = []
+custom = []

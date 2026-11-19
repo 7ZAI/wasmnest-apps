@@ -1,0 +1,50 @@
+# 双端同构 wasm 产物源（ADR 0050 单产物）：本 crate **不属于 desktop / mobile 任何一端**，
+# 沿用 file-transfer 的 sharedRustManifest 模式（票 05 验收口径）——桌面构建链
+# `desktop/scripts/build.js` 与移动端 `package.json` 的 `wasmnest.sharedRustManifest`
+# 都指向本文件，双端 Rust 产物出自同一份共享 crate 源码。
+#
+# 骨架阶段（票 05）只导出 `assistant.ping` 一条命令，用于证明双端「前端调用 →
+# 共享 crate 命令 → 宿主返回」链路连通。真实命令面（chat-stream / chat-cancel /
+# vault-* / memory-* / audit-list，见 spec §5.1 与附录 A）随票 07–14 落地，
+# 模块拆分按 spec §5.1（chat / vault / store / audit / export）。
+[package]
+name = "wasmnest-plugin-assistant"
+version = "0.0.1"
+license = "MIT"
+description = "Nest Assistant Plugin — 系统级个人助手（双端同构共享 crate，骨架阶段）"
+authors = ["WasmNest"]
+edition = "2021"
+
+[features]
+default = ["native"]
+native = []
+wasm = []
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+wasmnest-plugin-api = { path = "../../../../../wasmnest/wasmnest-desktop/packages/plugin-sdk-desktop/rust", features = ["wasm"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+# 保险库密码学（票 07 / spec §5.8）：Argon2id 派生 + XChaCha20-Poly1305 AEAD。
+# 纯 Rust 实现，双端 wasm 目标（wasm32-wasip3 / wasm32-unknown-unknown）均可编译；
+# 随机数（salt / nonce）一律由前端 crypto.getRandomValues 生成后传入，
+# wasm guest 不为随机源新增宿主能力（spec §5.8）。
+# default-features = false + 显式 alloc / password-hash：**不用 argon2 的 rand
+# 特性**——Rust 侧从不生成随机数，rand 特性会经 rand_core → getrandom 拉入
+# 传递依赖，而 getrandom 0.2 在 wasm32-unknown-unknown 需 js 特性（wasm-bindgen），
+# 会破坏移动端 componentize 的 world 解码。hash_password_into 只需 password-hash。
+argon2 = { version = "0.5", default-features = false, features = ["alloc", "password-hash"] }
+chacha20poly1305 = "0.10"
+hex = "0.4"
+# 审计摘要（只记摘要不记原文，spec §5.6 / §6 日志红线）
+sha2 = "0.10"
+
+# getrandom 0.2 在 wasm32-unknown-unknown 需 js 特性（wasm-bindgen），会破坏移动端
+# componentize 的 world 解码。Nest 助手 Rust 侧从不调用 getrandom（salt/nonce 由前端
+# crypto.getRandomValues 传入），故用本地 stub 替换，仅提供 rand_core 编译所需的
+# 最小 API 面。见 rust/getrandom-stub/。
+[patch.crates-io]
+getrandom = { path = "../getrandom-stub" }

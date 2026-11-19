@@ -285,8 +285,10 @@ node scripts/replace-console.mjs <desktop|mobile> [appDirName]
 | news | desktop | `entry.ts` | 组件内 | 无（四段为内存视图） | ✅ | ✅ |
 | monitor | servers/desktop | `entry.ts` | 组件内 | 无 | ✅ | ✅ |
 | speech | servers/desktop | `entry.ts` | 组件内（composable） | 无 | ✅ | ✅ |
+| assistant | servers/desktop | `entry.ts` | 组件内 | 无 | ✅ | ✅ |
 | ai-chatbox | mobile | `index.ts` | 组件内 | 宿主路由 | ✅ | ✅ dev-shell |
 | bedcode | mobile | `index.ts` | pinia | 宿主路由 | ✅ | ✅ dev-shell |
 | file-transfer | mobile | `index.ts` | 组件内 | 宿主路由 + `registerRoute` | ✅ | ✅ dev-shell |
 | news | mobile | `index.ts` | 组件内 | 宿主路由 + `registerRoute`（设置二级页） | ✅ | ✅ dev-shell |
 | monitor | servers/mobile | `index.ts` | 组件内（composable） | 宿主运行面 | ✅ | ✅ dev-shell |
+| assistant | servers/mobile | `index.ts` | 组件内（`AssistantSurface` 包装） | 宿主运行面 | ✅ | ✅ dev-shell |

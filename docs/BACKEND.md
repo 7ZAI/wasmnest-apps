@@ -15,6 +15,7 @@
 | `wasmnest_plugin_ai_chatbox` | `apps/ai-chatbox/mobile/rust` | mobile | `wasmnest_plugin_ai_chatbox` | `default=[]`, `wasm` |
 | `wasmnest-plugin-monitor` | `servers/monitor/desktop/rust` | desktop | `wasmnest_plugin_monitor` | `default=["wasm"]`, `wasm`（无 native） |
 | `wasmnest_plugin_monitor` | `servers/monitor/mobile/rust` | mobile | `wasmnest_plugin_monitor` | `default=[]`, `wasm` |
+| `wasmnest-plugin-assistant` | `servers/assistant/rust/plugin` | **双端单产物** | `wasmnest_plugin_assistant` | `default=["wasm"]`, `wasm`（无 native）；`getrandom-stub` 本地 patch 见 `rust/getrandom-stub/` |
 | `bedcode-plugin-terminal-session` | `apps/bedcode/desktop/rust` | desktop | `bedcode_plugin_terminal_session` | `default=["native"]`, `native`, `wasm` |
 | `bedcode_plugin_terminal_session` | `apps/bedcode/mobile/rust` | mobile | `bedcode_plugin_terminal_session` | `default=[]`, `wasm` |
 | `wasmnest-plugin-file-transfer` | `apps/file-transfer/rust/plugin` | **双端单产物** | `wasmnest_plugin_file_transfer` | `default=["native"]`, `native`, `wasm` |
