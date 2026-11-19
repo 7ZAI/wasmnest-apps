@@ -11,6 +11,8 @@ struct TestHost {
     clock: Cell<u64>,
     /// 模拟 `fs_read_dir` 失败（权限 / IO）；`fs_stat` 仍按真实文件系统返回
     fail_read_dir: Cell<bool>,
+    /// 模拟 Windows 宿主：`fs_canonicalize` 返回 `\\?\C:\...` 反斜杠形态
+    windows_canonical: Cell<bool>,
 }
 
 impl TestHost {
@@ -18,6 +20,7 @@ impl TestHost {
         Self {
             clock: Cell::new(1_700_000_000_000),
             fail_read_dir: Cell::new(false),
+            windows_canonical: Cell::new(false),
         }
     }
 
@@ -121,6 +124,9 @@ impl HostFs for TestHost {
     }
 
     fn fs_canonicalize(&self, path: &str) -> Result<Option<String>, HostError> {
+        if self.windows_canonical.get() {
+            return Ok(Some(format!("\\\\?\\C:{}", path.replace('/', "\\"))));
+        }
         match std::fs::canonicalize(path) {
             Ok(p) => Ok(Some(p.to_string_lossy().to_string())),
             Err(_) => Ok(None),
@@ -193,6 +199,53 @@ fn containment_rejects_sibling_dir_with_shared_prefix() {
     // 正常的 notes/<id>.md 仍然通过
     std::fs::write(format!("{}/notes/ok.md", dir), "ok").unwrap();
     assert!(ensure_contained(&host, &dir, &format!("{}/notes/ok.md", dir)).is_ok());
+}
+
+/// Windows 宿主 canonicalize 返回反斜杠（`\\?\C:\...`）路径：containment 不得误杀
+#[test]
+fn containment_accepts_windows_canonical_paths_through_host_stub() {
+    let (host, dir) = setup();
+    host.windows_canonical.set(true);
+    std::fs::create_dir_all(format!("{}/notes", dir)).unwrap();
+    std::fs::create_dir_all(format!("{}/notes-evil", dir)).unwrap();
+
+    assert!(
+        ensure_contained(&host, &dir, &format!("{}/notes/abc.md", dir)).is_ok(),
+        "反斜杠 canonical 路径仍在 notes/ 内，必须放行"
+    );
+    assert!(
+        ensure_contained(&host, &dir, &format!("{}/notes-evil/abc.md", dir)).is_err(),
+        "Windows 形态下共享前缀的兄弟目录仍必须拒绝"
+    );
+    host.windows_canonical.set(false);
+}
+
+/// 分隔符归一的逐段比较：Windows / POSIX 两种 canonical 形态同一判据
+#[test]
+fn path_within_dir_compares_components_across_separators() {
+    let win_dir = r"\\?\C:\Users\me\.wasmnest\lanbitou\notes";
+    assert!(path_is_within(
+        win_dir,
+        r"\\?\C:\Users\me\.wasmnest\lanbitou\notes\abc.md"
+    ));
+    assert!(path_is_within(win_dir, win_dir), "目录自身也算在目录内");
+    assert!(
+        !path_is_within(
+            win_dir,
+            r"\\?\C:\Users\me\.wasmnest\lanbitou\notes-evil\abc.md"
+        ),
+        "共享前缀的兄弟目录必须拒绝"
+    );
+    assert!(!path_is_within(
+        win_dir,
+        r"\\?\C:\Users\me\.wasmnest\lanbitou\index.json"
+    ));
+
+    // POSIX 口径不回归（含末尾分隔符与空目录）
+    assert!(path_is_within("/x/notes", "/x/notes/a.md"));
+    assert!(path_is_within("/x/notes/", "/x/notes/a.md"));
+    assert!(!path_is_within("/x/notes", "/x/notes-evil/a.md"));
+    assert!(!path_is_within("", "/x/a.md"));
 }
 
 // ==================== CRUD ====================

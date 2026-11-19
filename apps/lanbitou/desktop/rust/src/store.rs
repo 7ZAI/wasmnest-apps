@@ -129,7 +129,7 @@ fn ensure_archive_contained<H: HostFs>(
 
 /// 路径必须落在 dir 目录内（存在时用 canonicalize 判定，防 symlink 逃逸）
 fn ensure_under_dir<H: HostFs>(host: &H, dir: &str, path: &str, label: &str) -> anyhow::Result<()> {
-    let Some(canonical_notes) = host
+    let Some(canonical_dir) = host
         .fs_canonicalize(dir)
         .map_err(|e| anyhow::anyhow!("failed to canonicalize {}: {}", dir, e))?
     else {
@@ -140,15 +140,31 @@ fn ensure_under_dir<H: HostFs>(host: &H, dir: &str, path: &str, label: &str) -> 
         .fs_canonicalize(path)
         .map_err(|e| anyhow::anyhow!("failed to canonicalize {}: {}", path, e))?
     {
-        // 按路径组件比较（`Path::starts_with`），不能用字符串前缀：
-        // `/x/notes-evil/a.md` 的字符串前缀也是 `/x/notes`，会被误判为在目录内。
-        let notes_path = std::path::Path::new(&canonical_notes);
-        let candidate = std::path::Path::new(&canonical_path);
-        if !candidate.starts_with(notes_path) {
+        if !path_is_within(&canonical_dir, &canonical_path) {
             anyhow::bail!("{} path escapes its directory: {}", label, path);
         }
     }
     Ok(())
+}
+
+/// 判定 canonical 路径是否位于目录内（按段比较，不用字符串前缀）
+///
+/// 不能用 `std::path::Path::starts_with`：本 crate 编译到 wasm，`std::path`
+/// 按 Unix 语义只认 `/`，而 Windows 宿主 `fs_canonicalize` 返回反斜杠路径
+/// （`\\?\C:\...`）——整串会被当成单个组件，判定把所有合法路径都误杀。
+/// 故先归一两种分隔符，再按 `dir` 边界比较：等于 dir，或以 `dir + /` 开头。
+fn path_is_within(dir: &str, candidate: &str) -> bool {
+    let dir = dir.replace('\\', "/");
+    let candidate = candidate.replace('\\', "/");
+    let dir = dir.trim_end_matches('/');
+    if dir.is_empty() {
+        return false;
+    }
+    // 字符串前缀不够：`/x/notes-evil` 的前缀也是 `/x/notes`，必须落在分隔符边界
+    match candidate.strip_prefix(dir) {
+        Some(rest) => rest.is_empty() || rest.starts_with('/'),
+        None => false,
+    }
 }
 
 // ==================== 初始化与元数据 ====================

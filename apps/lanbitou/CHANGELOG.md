@@ -8,6 +8,15 @@
 - 结构参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 - 发布时把 `[Unreleased]` 收为 `## [<version>] - <YYYY-MM-DD>`，与版本号、tag 同一批提交。
 
+## [Unreleased]
+
+### 修复
+
+- Windows 下应用打不开 / 笔记操作全部报路径逃逸：宿主 `fs_canonicalize` 返回反斜杠
+  路径（`\\?\C:\...`），而插件编译到 wasm、`std::path` 按 Unix 语义把整串当成单个
+  组件，目录包含判定把合法笔记路径误判为逃逸（第二次激活起 `ensure_scratch` 即失败）。
+  改为分隔符归一的逐段比较，Windows / POSIX 两种 canonical 形态同一判据。
+
 ## [0.0.1] - 2026-11-18
 
 ### 新增
