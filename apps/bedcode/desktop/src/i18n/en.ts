@@ -1417,6 +1417,11 @@ const en: MessageSchema = {
   'project.workbench.back': 'Back to projects',
   'project.workbench.activeRuns': '{n} running',
 
+  // Main view switch (terminal / project files)
+  'project.mainView.switch': 'Switch main view',
+  'project.mainView.terminal': 'Terminal',
+  'project.mainView.files': 'Project files',
+
   // 分栏拖拽（三栏宽度调整）
   'project.split.resizeRuns': 'Drag to resize the run list',
   'project.split.resizeInspector': 'Drag to resize the inspector',
@@ -1521,6 +1526,10 @@ const en: MessageSchema = {
   'project.files.empty': 'This directory has no files',
   'project.files.loadFailed': 'Could not load the file tree',
   'project.files.retry': 'Retry',
+  'project.files.tabs': 'Open files',
+  'project.files.openHint': 'Select a file from the tree on the left',
+  'project.files.openHintDetail': 'Opened files appear as tabs so you can switch between them',
+  'project.files.closeTab': 'Close {name}',
   'project.fileViewer.loading': 'Loading file…',
   'project.fileViewer.loadFailed': 'Could not load the file',
   'project.fileViewer.empty': 'This file is empty',

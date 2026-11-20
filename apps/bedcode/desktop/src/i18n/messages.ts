@@ -1332,6 +1332,11 @@ export type MessageSchema = {
   'project.workbench.back': string
   'project.workbench.activeRuns': string
 
+  // 主视图切换（终端 / 工程文件）
+  'project.mainView.switch': string
+  'project.mainView.terminal': string
+  'project.mainView.files': string
+
   // 分栏拖拽（三栏宽度调整）
   'project.split.resizeRuns': string
   'project.split.resizeInspector': string
@@ -1426,6 +1431,10 @@ export type MessageSchema = {
   'project.files.empty': string
   'project.files.loadFailed': string
   'project.files.retry': string
+  'project.files.tabs': string
+  'project.files.openHint': string
+  'project.files.openHintDetail': string
+  'project.files.closeTab': string
   'project.fileViewer.loading': string
   'project.fileViewer.loadFailed': string
   'project.fileViewer.empty': string

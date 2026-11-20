@@ -321,23 +321,51 @@
         @keydown="onRunsHandleKeydown"
       ></div>
 
-      <!-- ==================== 中：终端主面（CLI 为核心：同一条 PTY 的真实字节） ==================== -->
+      <!-- ==================== 中：终端 / 工程文件主面 ==================== -->
       <section class="flex-1 min-w-0 flex flex-col relative" data-testid="pane-terminal">
         <div class="h-10 px-3 shrink-0 flex items-center gap-2 border-b border-[var(--border)]">
-          <span
-            class="shrink-0 whitespace-nowrap text-[calc(11px*var(--ui-scale))] text-[var(--text-tertiary)]"
+          <div
+            class="shrink-0 inline-flex items-stretch self-stretch"
+            role="tablist"
+            :aria-label="t('project.mainView.switch')"
+            data-testid="main-view-switch"
           >
-            {{ t('project.terminal.title') }}
-          </span>
+            <button
+              id="wb-main-tab-terminal"
+              type="button"
+              class="wb-main-tab"
+              role="tab"
+              :aria-selected="mainView === 'terminal'"
+              :tabindex="mainView === 'terminal' ? 0 : -1"
+              data-testid="main-view-terminal"
+              @click="setMainView('terminal')"
+              @keydown="onMainViewKeydown"
+            >
+              {{ t('project.mainView.terminal') }}
+            </button>
+            <button
+              id="wb-main-tab-files"
+              type="button"
+              class="wb-main-tab"
+              role="tab"
+              :aria-selected="mainView === 'files'"
+              :tabindex="mainView === 'files' ? 0 : -1"
+              data-testid="main-view-files"
+              @click="setMainView('files')"
+              @keydown="onMainViewKeydown"
+            >
+              {{ t('project.mainView.files') }}
+            </button>
+          </div>
           <!-- 拼屏：主 header 只留全局信息；每条运行的标题 / 状态 / 控制都在各自格子上 -->
           <span
-            v-if="tileMode"
+            v-if="mainView === 'terminal' && tileMode"
             class="shrink-0 whitespace-nowrap wb-mono text-[calc(11px*var(--ui-scale))] text-[var(--text-secondary)]"
             data-testid="terminal-tile-summary"
           >
             {{ t('project.terminal.tileMode') }} · {{ tiledRuns.length }}
           </span>
-          <template v-if="selectedRun && !tileMode">
+          <template v-if="mainView === 'terminal' && selectedRun && !tileMode">
             <span
               class="min-w-0 wb-mono text-[calc(11px*var(--ui-scale))] text-[var(--text-secondary)] truncate"
             >
@@ -405,7 +433,7 @@
           <!-- 任务队列：判据取后端 is_supported，不在前端 hardcode agent 白名单。
                拼屏时每格自带任务入口（RunTileControls），主 header 不再代替焦点行。 -->
           <button
-            v-if="!tileMode && selectedRun && chromeTaskSupported"
+            v-if="mainView === 'terminal' && !tileMode && selectedRun && chromeTaskSupported"
             class="w-6 h-6 shrink-0 rounded-[6px] flex items-center justify-center text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] transition-colors"
             :title="t('task.title')"
             data-testid="terminal-task-queue"
@@ -423,7 +451,7 @@
           <!-- 停止运行：破坏性动作，danger ghost（与独立窗口同族语义）。
                拼屏后停止属于每一条运行，放在各自格子 header 上。 -->
           <button
-            v-if="!tileMode && selectedRun && isRunLive"
+            v-if="mainView === 'terminal' && !tileMode && selectedRun && isRunLive"
             class="h-6 shrink-0 rounded-[6px] border px-2 flex items-center justify-center text-[calc(11px*var(--ui-scale))] border-[color-mix(in_srgb,var(--color-danger)_35%,transparent)] text-[var(--color-danger)] hover:bg-[var(--color-danger)] hover:text-[var(--color-primary-contrast)] transition-colors"
             :title="t('project.run.stop')"
             data-testid="terminal-stop"
@@ -433,6 +461,7 @@
           </button>
           <!-- 设置面板：主题 / 字号 / 字间距 / 背景图 / 不透明度 -->
           <button
+            v-if="mainView === 'terminal'"
             class="w-6 h-6 shrink-0 rounded-[6px] flex items-center justify-center text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] transition-colors"
             :class="{ 'bg-[var(--bg-hover)]': settingsOpen }"
             :title="t('session.terminal.settings')"
@@ -456,6 +485,7 @@
           </button>
           <!-- 清屏 / 刷新格式：作用于当前焦点终端（拼屏时 = 选中格） -->
           <button
+            v-if="mainView === 'terminal'"
             class="w-6 h-6 shrink-0 rounded-[6px] flex items-center justify-center text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             :disabled="!activeTerminal()"
             :title="t('session.terminal.clearScreen')"
@@ -472,6 +502,7 @@
             </svg>
           </button>
           <button
+            v-if="mainView === 'terminal'"
             class="w-6 h-6 shrink-0 rounded-[6px] flex items-center justify-center text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             :disabled="!activeTerminal()"
             :title="t('session.terminal.refreshFormat')"
@@ -490,6 +521,7 @@
 
           <!-- 拼屏开关：把存活运行的终端一起铺开（最多 4 格，点击格子换焦点） -->
           <button
+            v-if="mainView === 'terminal'"
             class="shrink-0 whitespace-nowrap inline-flex items-center gap-1.5 rounded-[6px] border h-6 px-2 text-[calc(11px*var(--ui-scale))] transition-colors"
             :class="
               tileMode
@@ -513,7 +545,7 @@
           </button>
           <!-- 拼屏范围：单屏恒为本项目，不做控件；拼屏时可把各项目的存活运行并在一张网格 -->
           <div
-            v-if="tileMode"
+            v-if="mainView === 'terminal' && tileMode"
             class="shrink-0 inline-flex items-center overflow-hidden rounded-[6px] border border-[var(--border)]"
             role="group"
             :aria-label="t('project.terminal.scope')"
@@ -549,7 +581,7 @@
           <!-- 打开独立终端窗口：跟终端主面走（原在检查器头部，终端迁中栏后随迁）。
                拼屏时每格有自己的开窗按钮。 -->
           <button
-            v-if="!tileMode && selectedRun"
+            v-if="mainView === 'terminal' && !tileMode && selectedRun"
             class="w-6 h-6 shrink-0 rounded-[6px] flex items-center justify-center text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             :disabled="!isRunLive"
             :title="t('project.run.openWindow')"
@@ -567,162 +599,190 @@
           </button>
         </div>
 
-        <!-- 设置抽屉：与独立终端窗口同一实现（纯受控，值绑当前焦点终端） -->
-        <TerminalSettingsPanel
-          v-model:open="settingsOpen"
-          v-model:theme="settingsTheme"
-          v-model:font-size="settingsFontSize"
-          v-model:letter-spacing="settingsLetterSpacing"
-          v-model:bg-opacity="settingsBgOpacity"
-          :has-bg-image="hasBgImage"
-          :bg-image-name="bgImageName"
-          :theme-options="themeSelectOptions"
-          :font-size-options="fontSizeSelectOptions"
-          :letter-spacing-options="letterSpacingSelectOptions"
-          @pick-bg="pickBgImage"
-          @remove-bg="removeBgImage"
-        />
+        <div
+          v-if="mainView === 'terminal'"
+          class="flex-1 min-h-0 flex flex-col"
+          role="tabpanel"
+          aria-labelledby="wb-main-tab-terminal"
+          data-testid="main-panel-terminal"
+        >
+          <!-- 设置抽屉：与独立终端窗口同一实现（纯受控，值绑当前焦点终端） -->
+          <TerminalSettingsPanel
+            v-model:open="settingsOpen"
+            v-model:theme="settingsTheme"
+            v-model:font-size="settingsFontSize"
+            v-model:letter-spacing="settingsLetterSpacing"
+            v-model:bg-opacity="settingsBgOpacity"
+            :has-bg-image="hasBgImage"
+            :bg-image-name="bgImageName"
+            :theme-options="themeSelectOptions"
+            :font-size-options="fontSizeSelectOptions"
+            :letter-spacing-options="letterSpacingSelectOptions"
+            @pick-bg="pickBgImage"
+            @remove-bg="removeBgImage"
+          />
 
-        <!-- 拼屏：多条存活运行的终端同屏（每格复用同一渲染管线，各自一条真实 PTY） -->
-        <div v-if="tileMode" class="flex-1 min-h-0 flex flex-col" data-testid="run-tiles">
+          <!-- 拼屏：多条存活运行的终端同屏（每格复用同一渲染管线，各自一条真实 PTY） -->
           <div
-            v-if="tiledRuns.length === 0"
-            class="flex-1 flex flex-col items-center justify-center px-6 text-center"
-            data-testid="run-tiles-empty"
-          >
-            <p class="text-[calc(12px*var(--ui-scale))] text-[var(--text-primary)]">
-              {{ t('project.terminal.tileEmpty') }}
-            </p>
-            <p
-              class="mt-1 text-[calc(11px*var(--ui-scale))] text-[var(--text-secondary)] leading-relaxed"
-            >
-              {{ t('project.terminal.tileEmptyHint') }}
-            </p>
-          </div>
-
-          <div
-            v-else
-            class="flex-1 min-h-0 grid gap-2 p-2"
-            :class="tileGridClass"
-            data-testid="run-tile-grid"
+            v-if="mainView === 'terminal' && tileMode"
+            class="flex-1 min-h-0 flex flex-col"
+            data-testid="run-tiles"
           >
             <div
-              v-for="(run, index) in tiledRuns"
-              :key="run.id"
-              class="min-w-0 min-h-0 flex flex-col rounded-[8px] border overflow-hidden bg-[var(--bg-page)] transition-colors"
-              :class="[
-                isActiveRun(run) ? 'border-[var(--color-primary)]' : 'border-[var(--border)]',
-                index === 0 && tileLayout.firstSpansRows && 'row-span-2',
-              ]"
-              data-testid="run-tile"
-              :data-run-id="run.id"
-              :data-active="isActiveRun(run) ? 'true' : 'false'"
-              @mousedown="onTilePointerDown(run)"
-              @click="focusTile(run)"
-              @focusin="focusTile(run)"
+              v-if="tiledRuns.length === 0"
+              class="flex-1 flex flex-col items-center justify-center px-6 text-center"
+              data-testid="run-tiles-empty"
+            >
+              <p class="text-[calc(12px*var(--ui-scale))] text-[var(--text-primary)]">
+                {{ t('project.terminal.tileEmpty') }}
+              </p>
+              <p
+                class="mt-1 text-[calc(11px*var(--ui-scale))] text-[var(--text-secondary)] leading-relaxed"
+              >
+                {{ t('project.terminal.tileEmptyHint') }}
+              </p>
+            </div>
+
+            <div
+              v-else
+              class="flex-1 min-h-0 grid gap-2 p-2"
+              :class="tileGridClass"
+              data-testid="run-tile-grid"
             >
               <div
-                class="h-8 shrink-0 flex items-center gap-1.5 px-2 border-b border-[var(--border)] bg-[var(--bg-card)]"
-                data-testid="run-tile-header"
+                v-for="(run, index) in tiledRuns"
+                :key="run.id"
+                class="min-w-0 min-h-0 flex flex-col rounded-[8px] border overflow-hidden bg-[var(--bg-page)] transition-colors"
+                :class="[
+                  isActiveRun(run) ? 'border-[var(--color-primary)]' : 'border-[var(--border)]',
+                  index === 0 && tileLayout.firstSpansRows && 'row-span-2',
+                ]"
+                data-testid="run-tile"
+                :data-run-id="run.id"
+                :data-active="isActiveRun(run) ? 'true' : 'false'"
+                @mousedown="onTilePointerDown(run)"
+                @click="focusTile(run)"
+                @focusin="focusTile(run)"
               >
-                <span :class="['w-1.5 h-1.5 rounded-full shrink-0', statusDot(run.status)]"></span>
-                <span
-                  class="min-w-0 flex-1 truncate text-[calc(11.5px*var(--ui-scale))] text-[var(--text-primary)]"
-                  :title="run.title || run.name"
+                <div
+                  class="h-8 shrink-0 flex items-center gap-1.5 px-2 border-b border-[var(--border)] bg-[var(--bg-card)]"
+                  data-testid="run-tile-header"
                 >
-                  {{ run.title || run.name }}
-                </span>
-                <!-- 跨项目拼屏：格子标题标归属项目（同 title 的运行只能靠它区分） -->
-                <span
-                  v-if="crossProject"
-                  class="wb-mono shrink-0 max-w-[7rem] truncate text-[calc(10px*var(--ui-scale))] text-[var(--text-tertiary)]"
-                  data-testid="run-tile-project"
-                  :title="projectLabel(run)"
-                >
-                  {{ projectLabel(run) }}
-                </span>
-                <span
-                  class="wb-mono shrink-0 text-[calc(10px*var(--ui-scale))] text-[var(--text-tertiary)]"
-                >
-                  {{ statusText(run.status) }}
-                </span>
-                <!-- 每格自己的模型 / 思考等级 / 任务 / 停止 / 开窗（非全局功能不挂在主 header） -->
-                <RunTileControls
-                  :run="run"
-                  @stop="stop(run)"
-                  @open="openWindow(run)"
-                  @task="openTaskQueue(run)"
-                  @changed="refreshRuns"
-                />
-              </div>
-              <div class="flex-1 min-h-0 relative">
-                <TerminalPreview
-                  :ref="(el) => setTileTerminalRef(run.id, el)"
-                  :session="runAsSession(run)"
-                  :show-header="false"
-                  :auto-focus="isActiveRun(run)"
-                />
+                  <span
+                    :class="['w-1.5 h-1.5 rounded-full shrink-0', statusDot(run.status)]"
+                  ></span>
+                  <span
+                    class="min-w-0 flex-1 truncate text-[calc(11.5px*var(--ui-scale))] text-[var(--text-primary)]"
+                    :title="run.title || run.name"
+                  >
+                    {{ run.title || run.name }}
+                  </span>
+                  <!-- 跨项目拼屏：格子标题标归属项目（同 title 的运行只能靠它区分） -->
+                  <span
+                    v-if="crossProject"
+                    class="wb-mono shrink-0 max-w-[7rem] truncate text-[calc(10px*var(--ui-scale))] text-[var(--text-tertiary)]"
+                    data-testid="run-tile-project"
+                    :title="projectLabel(run)"
+                  >
+                    {{ projectLabel(run) }}
+                  </span>
+                  <span
+                    class="wb-mono shrink-0 text-[calc(10px*var(--ui-scale))] text-[var(--text-tertiary)]"
+                  >
+                    {{ statusText(run.status) }}
+                  </span>
+                  <!-- 每格自己的模型 / 思考等级 / 任务 / 停止 / 开窗（非全局功能不挂在主 header） -->
+                  <RunTileControls
+                    :run="run"
+                    @stop="stop(run)"
+                    @open="openWindow(run)"
+                    @task="openTaskQueue(run)"
+                    @changed="refreshRuns"
+                  />
+                </div>
+                <div class="flex-1 min-h-0 relative">
+                  <TerminalPreview
+                    :ref="(el) => setTileTerminalRef(run.id, el)"
+                    :session="runAsSession(run)"
+                    :show-header="false"
+                    :auto-focus="isActiveRun(run)"
+                  />
+                </div>
               </div>
             </div>
-          </div>
 
-          <!-- 超过 4 条不静默丢弃：点左栏运行把它换进网格 -->
-          <p
-            v-if="hiddenTileCount > 0"
-            class="shrink-0 px-2 pb-1.5 text-[calc(11px*var(--ui-scale))] text-[var(--text-tertiary)]"
-            data-testid="run-tiles-hint"
-          >
-            {{ t('project.terminal.tileHidden', { n: hiddenTileCount }) }}
-          </p>
-        </div>
-
-        <!-- 单屏：一条运行的终端（既有行为不变） -->
-        <template v-else>
-          <!-- 未选中运行：显性空态，不白屏 -->
-          <div
-            v-if="!selectedRun"
-            class="flex-1 flex flex-col items-center justify-center px-6 text-center"
-            data-testid="workbench-empty"
-          >
-            <p class="text-[calc(12px*var(--ui-scale))] text-[var(--text-primary)]">
-              {{ t('project.terminal.empty') }}
-            </p>
+            <!-- 超过 4 条不静默丢弃：点左栏运行把它换进网格 -->
             <p
-              class="mt-1 text-[calc(11px*var(--ui-scale))] text-[var(--text-secondary)] leading-relaxed"
+              v-if="hiddenTileCount > 0"
+              class="shrink-0 px-2 pb-1.5 text-[calc(11px*var(--ui-scale))] text-[var(--text-tertiary)]"
+              data-testid="run-tiles-hint"
             >
-              {{ t('project.terminal.emptyHint') }}
+              {{ t('project.terminal.tileHidden', { n: hiddenTileCount }) }}
             </p>
           </div>
 
-          <!-- 终端：复用现有终端渲染管线（同一条 PTY 的真实字节）。
+          <!-- 单屏：一条运行的终端（既有行为不变） -->
+          <template v-else-if="mainView === 'terminal'">
+            <!-- 未选中运行：显性空态，不白屏 -->
+            <div
+              v-if="!selectedRun"
+              class="flex-1 flex flex-col items-center justify-center px-6 text-center"
+              data-testid="workbench-empty"
+            >
+              <p class="text-[calc(12px*var(--ui-scale))] text-[var(--text-primary)]">
+                {{ t('project.terminal.empty') }}
+              </p>
+              <p
+                class="mt-1 text-[calc(11px*var(--ui-scale))] text-[var(--text-secondary)] leading-relaxed"
+              >
+                {{ t('project.terminal.emptyHint') }}
+              </p>
+            </div>
+
+            <!-- 终端：复用现有终端渲染管线（同一条 PTY 的真实字节）。
                只有存活运行才挂终端：终态运行的 PTY 已回收，挂上去只会得到一块
                永远空白的 xterm，且 fit/resize 会向不存在的 PTY 反复发命令
                （宿主「会话缺少 PTY 句柄」错误日志）。 -->
-          <div v-else-if="isRunLive" class="flex-1 min-h-0 relative" data-testid="run-terminal">
-            <TerminalPreview
-              ref="singleTerminalRef"
-              :session="selectedRunSession"
-              :show-input="true"
-              :show-header="false"
-            />
-          </div>
+            <div v-else-if="isRunLive" class="flex-1 min-h-0 relative" data-testid="run-terminal">
+              <TerminalPreview
+                ref="singleTerminalRef"
+                :session="selectedRunSession"
+                :show-input="true"
+                :show-header="false"
+              />
+            </div>
 
-          <!-- 选中终态运行：显性说明「运行已结束」，不打开空终端 -->
-          <div
-            v-else
-            class="flex-1 flex flex-col items-center justify-center px-6 text-center"
-            data-testid="run-terminal-ended"
-          >
-            <p class="text-[calc(12px*var(--ui-scale))] text-[var(--text-primary)]">
-              {{ t('project.terminal.runEnded') }}
-            </p>
-            <p
-              class="mt-1 text-[calc(11px*var(--ui-scale))] text-[var(--text-secondary)] leading-relaxed"
+            <!-- 选中终态运行：显性说明「运行已结束」，不打开空终端 -->
+            <div
+              v-else
+              class="flex-1 flex flex-col items-center justify-center px-6 text-center"
+              data-testid="run-terminal-ended"
             >
-              {{ t('project.terminal.runEndedHint') }}
-            </p>
-          </div>
-        </template>
+              <p class="text-[calc(12px*var(--ui-scale))] text-[var(--text-primary)]">
+                {{ t('project.terminal.runEnded') }}
+              </p>
+              <p
+                class="mt-1 text-[calc(11px*var(--ui-scale))] text-[var(--text-secondary)] leading-relaxed"
+              >
+                {{ t('project.terminal.runEndedHint') }}
+              </p>
+            </div>
+          </template>
+        </div>
+
+        <div
+          v-show="mainView === 'files'"
+          class="flex-1 min-h-0"
+          role="tabpanel"
+          aria-labelledby="wb-main-tab-files"
+          data-testid="main-panel-files"
+        >
+          <ProjectFilesWorkspace
+            :project-id="projectId"
+            :working-dir="project?.workingDir ?? ''"
+            :active="mainView === 'files'"
+          />
+        </div>
       </section>
 
       <!-- 拖拽手柄：终端主面 ↔ 右栏检查器（收起时不渲染） -->
@@ -1044,6 +1104,7 @@ import { toast } from 'vue-sonner'
 import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-desktop'
 import PluginModal from '@/components/PluginModal.vue'
 import ProjectFileTree from '@/components/projects/ProjectFileTree.vue'
+import ProjectFilesWorkspace from '@/components/projects/ProjectFilesWorkspace.vue'
 import RunAgentSelects from '@/components/projects/RunAgentSelects.vue'
 import RunTileControls from '@/components/projects/RunTileControls.vue'
 import ProjectFileViewer from '@/components/projects/ProjectFileViewer.vue'
@@ -1320,6 +1381,62 @@ function setTileScope(scope: 'project' | 'all'): void {
   tileScopeUserSet = true
   persistTileScope()
   void refreshRuns()
+}
+
+// ==================== 主视图（终端 / 工程文件） ====================
+
+type MainView = 'terminal' | 'files'
+
+const MAIN_VIEW_KEY_PREFIX = 'project.workbench.mainView.'
+const mainView = ref<MainView>('terminal')
+let mainViewLoadSeq = 0
+let mainViewUserSet = false
+
+async function loadMainView(pid: string): Promise<void> {
+  const seq = ++mainViewLoadSeq
+  mainViewUserSet = false
+  mainView.value = 'terminal'
+  if (!pid) return
+  try {
+    const raw = await context.storage.get(`${MAIN_VIEW_KEY_PREFIX}${pid}`)
+    if (seq !== mainViewLoadSeq || mainViewUserSet) return
+    mainView.value = raw === 'files' ? 'files' : 'terminal'
+  } catch (e) {
+    console.warn('[Project Workbench] read main view failed:', e)
+  }
+}
+
+function persistMainView(): void {
+  const pid = projectId.value
+  if (!pid) return
+  void context.storage.set(`${MAIN_VIEW_KEY_PREFIX}${pid}`, mainView.value).catch((e) => {
+    console.warn('[Project Workbench] persist main view failed:', e)
+  })
+}
+
+function setMainView(view: MainView): void {
+  if (mainView.value === view) return
+  mainView.value = view
+  mainViewUserSet = true
+  persistMainView()
+}
+
+function onMainViewKeydown(event: KeyboardEvent): void {
+  const keys = ['ArrowLeft', 'ArrowRight', 'Home', 'End']
+  if (!keys.includes(event.key)) return
+  event.preventDefault()
+  let next = mainView.value
+  if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+    next = mainView.value === 'terminal' ? 'files' : 'terminal'
+  } else if (event.key === 'Home') {
+    next = 'terminal'
+  } else if (event.key === 'End') {
+    next = 'files'
+  }
+  setMainView(next)
+  const tablist = (event.currentTarget as HTMLElement | null)?.parentElement
+  const tabs = tablist?.querySelectorAll<HTMLElement>('[role="tab"]')
+  tabs?.[next === 'terminal' ? 0 : 1]?.focus()
 }
 
 // ==================== 右栏页签（文件 / Git / 变更） ====================
@@ -1674,6 +1791,10 @@ const caps = useTerminalHostCapabilities() ?? createFallbackHostCapabilities()
 
 const settingsOpen = ref(false)
 const settingsTheme = ref('dracula')
+
+watch(mainView, (view) => {
+  if (view === 'files') settingsOpen.value = false
+})
 const settingsFontSize = ref(12)
 const settingsLetterSpacing = ref(0)
 const settingsBgOpacity = ref<number>(caps.settings.getBgOpacity() ?? 30)
@@ -2010,6 +2131,7 @@ onMounted(async () => {
   void loadRunsWidth()
   void loadInspectorWidth()
   void loadInspectorTab()
+  void loadMainView(projectId.value)
   void loadCollapsed(RUNS_COLLAPSED_KEY, runsCollapsed)
   void loadCollapsed(INSPECTOR_COLLAPSED_KEY, inspectorCollapsed)
   await load()
@@ -2052,6 +2174,38 @@ onUnmounted(() => {
  * 命中区比视觉线宽得多是刻意的：1px 的线鼠标根本抓不住，而视觉上 6px 的粗线又会
  * 把三栏切得很碎。`touch-action: none` 让触屏拖拽不被滚动/缩放手势抢走。
  */
+.wb-main-tab {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 0.625rem;
+  color: var(--text-secondary);
+  font-size: calc(11.5px * var(--ui-scale));
+  transition:
+    background-color 120ms ease,
+    color 120ms ease;
+}
+
+.wb-main-tab:hover {
+  background: var(--bg-hover);
+}
+
+.wb-main-tab[aria-selected='true'] {
+  color: var(--text-primary);
+}
+
+.wb-main-tab[aria-selected='true']::after {
+  content: '';
+  position: absolute;
+  inset: auto 0 0;
+  border-bottom: 2px solid var(--color-primary);
+}
+
+.wb-main-tab:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -2px;
+}
+
 .wb-split-handle {
   position: relative;
   flex: 0 0 6px;

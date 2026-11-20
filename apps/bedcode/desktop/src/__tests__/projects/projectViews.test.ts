@@ -583,6 +583,136 @@ describe('ProjectWorkbenchView（项目工作台）', () => {
     expect((wrapper.findComponent(TerminalStub).props('session') as { id: string }).id).toBe('r-1')
   })
 
+  it('主视图：默认终端，可切到工程文件；选择按项目记在 KV 并卸载终端', async () => {
+    const wrapper = mountView(ProjectWorkbenchView)
+    await flushPromises()
+
+    const switchGroup = wrapper.get('[data-testid="main-view-switch"]')
+    expect(switchGroup.attributes('role')).toBe('tablist')
+    expect(wrapper.get('[data-testid="main-view-terminal"]').attributes('aria-selected')).toBe(
+      'true',
+    )
+    expect(wrapper.get('[data-testid="main-view-terminal"]').attributes('tabindex')).toBe('0')
+    expect(wrapper.get('[data-testid="main-view-files"]').attributes('aria-selected')).toBe('false')
+    expect(wrapper.find('[data-testid="main-panel-terminal"]').exists()).toBe(true)
+    expect(wrapper.get('[data-testid="main-panel-files"]').attributes('style') ?? '').toContain(
+      'display: none',
+    )
+    expect(wrapper.findComponent(TerminalStub).exists()).toBe(true)
+
+    await wrapper.get('[data-testid="main-view-files"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="main-view-files"]').attributes('aria-selected')).toBe('true')
+    expect(wrapper.get('[data-testid="main-panel-files"]').isVisible()).toBe(true)
+    expect(wrapper.find('[data-testid="main-panel-terminal"]').exists()).toBe(false)
+    expect(wrapper.findComponent(TerminalStub).exists()).toBe(false)
+    expect(storageSet).toHaveBeenCalledWith('project.workbench.mainView.p-1', 'files')
+
+    await wrapper.get('[data-testid="main-view-files"]').trigger('keydown', { key: 'ArrowLeft' })
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="main-view-terminal"]').attributes('aria-selected')).toBe(
+      'true',
+    )
+    expect(wrapper.get('[data-testid="main-panel-files"]').attributes('style') ?? '').toContain(
+      'display: none',
+    )
+    expect(wrapper.findComponent(TerminalStub).exists()).toBe(true)
+  })
+
+  it('工程文件：左树打开多个只读标签，重复打开复用，关闭后切到相邻标签', async () => {
+    routes['project.file-tree'] = (args: any) =>
+      args.dirPath === 'src'
+        ? { children: [{ name: 'main.ts', nodeType: 'file', path: 'src/main.ts' }] }
+        : {
+            children: [
+              { name: 'src', nodeType: 'folder', path: 'src' },
+              { name: 'README.md', nodeType: 'file', path: 'README.md' },
+            ],
+          }
+    routes['project.file-content'] = (args: any) => ({
+      content: `// ${args.filePath}`,
+      fileName: args.filePath.split('/').pop(),
+    })
+
+    const wrapper = mountView(ProjectWorkbenchView)
+    await flushPromises()
+    await wrapper.get('[data-testid="main-view-files"]').trigger('click')
+    await flushPromises()
+
+    const workspace = wrapper.get('[data-testid="project-files-workspace"]')
+    expect(workspace.isVisible()).toBe(true)
+    expect(workspace.find('[data-testid="project-files-empty"]').exists()).toBe(true)
+
+    const treeNode = (path: string) =>
+      workspace
+        .findAll('[data-testid="file-tree-item"]')
+        .find((node) => node.attributes('data-path') === path)!
+
+    await treeNode('src').trigger('click')
+    await flushPromises()
+    await treeNode('src/main.ts').trigger('click')
+    await flushPromises()
+    await treeNode('README.md').trigger('click')
+    await flushPromises()
+
+    expect(commandsTo('project.file-content').map((call) => call[1].filePath)).toEqual([
+      'src/main.ts',
+      'README.md',
+    ])
+    let tabs = wrapper.findAll('[data-testid="file-tab"]')
+    expect(tabs.map((tab) => tab.attributes('data-path'))).toEqual(['src/main.ts', 'README.md'])
+    expect(tabs[1].attributes('aria-selected')).toBe('true')
+
+    const panels = wrapper.findAll('[data-testid="file-tab-panel"]')
+    expect(panels[0].attributes('hidden')).toBe('')
+    expect(panels[1].attributes('hidden')).toBeUndefined()
+    expect(panels[1].get('[data-testid="project-file-tab-content"]').text()).toContain(
+      '// README.md',
+    )
+
+    await treeNode('README.md').trigger('click')
+    await flushPromises()
+    expect(wrapper.findAll('[data-testid="file-tab"]')).toHaveLength(2)
+    expect(commandsTo('project.file-content')).toHaveLength(2)
+
+    await wrapper.findAll('[data-testid="file-tab"]')[1].trigger('keydown', { key: 'ArrowLeft' })
+    await flushPromises()
+    tabs = wrapper.findAll('[data-testid="file-tab"]')
+    expect(tabs[0].attributes('aria-selected')).toBe('true')
+
+    await tabs[0].get('[data-testid="file-tab-close"]').trigger('click')
+    await flushPromises()
+    tabs = wrapper.findAll('[data-testid="file-tab"]')
+    expect(tabs.map((tab) => tab.attributes('data-path'))).toEqual(['README.md'])
+    expect(tabs[0].attributes('aria-selected')).toBe('true')
+  })
+
+  it('主视图偏好从 KV 读回 files：首屏直接进工程文件；读取失败显性给重试', async () => {
+    storageGet.mockImplementation(async (key: string) =>
+      key === 'project.workbench.mainView.p-1' ? 'files' : undefined,
+    )
+    routes['project.file-content'] = () => {
+      throw new Error('read failed')
+    }
+
+    const wrapper = mountView(ProjectWorkbenchView)
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="main-view-files"]').attributes('aria-selected')).toBe('true')
+    expect(wrapper.get('[data-testid="main-panel-files"]').isVisible()).toBe(true)
+    expect(wrapper.findComponent(TerminalStub).exists()).toBe(false)
+
+    const workspace = wrapper.get('[data-testid="project-files-workspace"]')
+    await workspace.findAll('[data-testid="file-tree-item"]')[1].trigger('click')
+    await flushPromises()
+
+    expect(commandsTo('project.file-content')).toHaveLength(1)
+    expect(wrapper.find('[data-testid="project-file-tab-error"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="project-file-tab-retry"]').exists()).toBe(true)
+  })
+
   it('Git 页签：打开才读提交图（项目 id + 上限），渲染分支 / 提交行 / 引用徽标', async () => {
     const wrapper = mountView(ProjectWorkbenchView)
     await flushPromises()

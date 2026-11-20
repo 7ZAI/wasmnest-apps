@@ -1361,6 +1361,11 @@ const zhCN: MessageSchema = {
   'project.workbench.back': '返回项目列表',
   'project.workbench.activeRuns': '{n} 条运行中',
 
+  // 主视图切换（终端 / 工程文件）
+  'project.mainView.switch': '切换主视图',
+  'project.mainView.terminal': '终端',
+  'project.mainView.files': '工程文件',
+
   // 分栏拖拽（三栏宽度调整）
   'project.split.resizeRuns': '拖拽调整运行列表宽度',
   'project.split.resizeInspector': '拖拽调整检查器宽度',
@@ -1458,6 +1463,10 @@ const zhCN: MessageSchema = {
   'project.files.empty': '这个目录没有文件',
   'project.files.loadFailed': '读取文件树失败',
   'project.files.retry': '重试',
+  'project.files.tabs': '已打开的文件',
+  'project.files.openHint': '从左侧文件树选择一个文件',
+  'project.files.openHintDetail': '打开的文件会以标签页显示，可同时查看多个文件',
+  'project.files.closeTab': '关闭 {name}',
   'project.fileViewer.loading': '正在读取文件…',
   'project.fileViewer.loadFailed': '读取文件失败',
   'project.fileViewer.empty': '这是一个空文件',
