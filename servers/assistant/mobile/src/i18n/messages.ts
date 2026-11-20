@@ -42,6 +42,9 @@ export type MessageSchema = {
   'assistant.vault.newPassword': string
   'assistant.vault.passwordTooShort': string
   'assistant.vault.passwordMismatch': string
+  'assistant.vault.errorRuntime': string
+  'assistant.vault.errorNotRunning': string
+  'assistant.vault.errorUnknown': string
 
   // ==================== 对话主链路（票 08） ====================
   'assistant.chat.empty': string

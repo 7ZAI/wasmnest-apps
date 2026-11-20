@@ -15,6 +15,7 @@
  */
 import { computed, onMounted, ref } from 'vue'
 import {
+  formatVaultError,
   vaultChangePassword,
   vaultInit,
   vaultLock,
@@ -63,7 +64,7 @@ async function refresh() {
   try {
     status.value = await vaultStatus(props.invoke)
   } catch (e) {
-    error.value = e instanceof Error ? e.message : String(e)
+    error.value = formatVaultError(e, props.t)
   } finally {
     loading.value = false
   }
@@ -90,7 +91,7 @@ async function doInit() {
     await refresh()
     emit('changed')
   } catch (e) {
-    error.value = e instanceof Error ? e.message : String(e)
+    error.value = formatVaultError(e, props.t)
   } finally {
     loading.value = false
   }
@@ -105,7 +106,7 @@ async function doUnlock() {
     await refresh()
     emit('changed')
   } catch (e) {
-    error.value = e instanceof Error ? e.message : String(e)
+    error.value = formatVaultError(e, props.t)
   } finally {
     loading.value = false
   }
@@ -119,7 +120,7 @@ async function doLock() {
     await refresh()
     emit('changed')
   } catch (e) {
-    error.value = e instanceof Error ? e.message : String(e)
+    error.value = formatVaultError(e, props.t)
   } finally {
     loading.value = false
   }
@@ -147,7 +148,7 @@ async function doChangePassword() {
     await refresh()
     emit('changed')
   } catch (e) {
-    error.value = e instanceof Error ? e.message : String(e)
+    error.value = formatVaultError(e, props.t)
   } finally {
     loading.value = false
   }
@@ -190,7 +191,14 @@ onMounted(refresh)
 
       <!-- 加载 / 错误 -->
       <p v-if="loading" class="nest-vault__hint">{{ t('assistant.vault.loading') }}</p>
-      <p v-if="error" class="nest-vault__error" data-testid="nest-vault-error">{{ error }}</p>
+      <p
+        v-if="error"
+        class="nest-vault__error"
+        role="alert"
+        data-testid="nest-vault-error"
+      >
+        {{ error }}
+      </p>
 
       <!-- 首次设置 -->
       <form v-if="phase === 'setup'" class="nest-vault__form" @submit.prevent="doInit">

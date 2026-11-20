@@ -33,6 +33,9 @@ const zhCN: MessageSchema = {
   'assistant.vault.newPassword': '新口令',
   'assistant.vault.passwordTooShort': '口令至少 4 位',
   'assistant.vault.passwordMismatch': '两次输入的口令不一致',
+  'assistant.vault.errorRuntime': '插件运行时错误，口令未保存。请重试；若持续失败，请重新打开 Nest。',
+  'assistant.vault.errorNotRunning': 'Nest 插件未运行，请重新进入后再试。',
+  'assistant.vault.errorUnknown': '操作失败',
 
   // ==================== 对话主链路（票 08） ====================
   'assistant.chat.empty': 'Nest 是系统助手，不是人。说点什么开始，或先去设置配置供应商。',

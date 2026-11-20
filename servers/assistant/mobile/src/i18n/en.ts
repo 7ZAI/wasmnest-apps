@@ -33,6 +33,9 @@ const en: MessageSchema = {
   'assistant.vault.newPassword': 'New passphrase',
   'assistant.vault.passwordTooShort': 'Passphrase must be at least 4 characters',
   'assistant.vault.passwordMismatch': 'The two passphrase entries do not match',
+  'assistant.vault.errorRuntime': 'Plugin runtime error — the passphrase was not saved. Retry, or reopen Nest if it keeps failing.',
+  'assistant.vault.errorNotRunning': 'The Nest plugin is not running. Reopen Nest and try again.',
+  'assistant.vault.errorUnknown': 'Operation failed',
 
   // ==================== Conversation (ticket 08) ====================
   'assistant.chat.empty': 'Nest is a system assistant, not a person. Say something to start, or configure a provider in settings first.',

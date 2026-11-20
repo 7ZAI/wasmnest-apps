@@ -1,11 +1,11 @@
 /**
- * Nest 助手共享核 —— 保险库操作（票 07 / spec §5.8）
+ * Nest 助手共享核 —— 保险库操作
  *
  * 双端同构：桌面经 `env.appInvoke`、移动经 `context.commands.execute`，两者
  * 都收敛到 [`AssistantInvoke`] 同形抽象。salt / nonce 由前端
  * `crypto.getRandomValues` 生成后传入 Rust（wasm guest 不为随机源新增宿主能力）。
  *
- * 失败语义（spec §2.4）：Rust 侧点名缺什么（未解锁 / 口令错误 / 保险库不存在），
+ * 失败语义：Rust 侧点名缺什么（未解锁 / 口令错误 / 保险库不存在），
  * 前端原样上交，不静默吞错。
  */
 import {
@@ -80,4 +80,29 @@ export async function vaultChangePassword(
     newSalt: randomHex(SALT_BYTES),
     newVerifierNonce: randomHex(NONCE_BYTES),
   })
+}
+
+/**
+ * 把命令失败转成可读文案。
+ *
+ * 桌面宿主的 rejection 是 `{ code, request_id }` 错误信封，不是 Error 实例；
+ * `String(envelope)` 只会得到 `[object Object]`，用户看不到失败原因。业务错误
+ * 若带 `message` / `params.message` 优先原样展示，否则按宿主错误码给保险库文案。
+ */
+export function formatVaultError(error: unknown, t: (key: string) => string): string {
+  if (error instanceof Error) return error.message
+  if (typeof error === 'string') return error
+  if (error && typeof error === 'object') {
+    const envelope = error as { code?: unknown; message?: unknown; params?: unknown }
+    if (typeof envelope.message === 'string' && envelope.message) return envelope.message
+    if (envelope.params && typeof envelope.params === 'object') {
+      const message = (envelope.params as { message?: unknown }).message
+      if (typeof message === 'string' && message) return message
+    }
+    const code = typeof envelope.code === 'string' ? envelope.code : ''
+    if (code === 'host.internal') return t('assistant.vault.errorRuntime')
+    if (code === 'host.plugin.not-activated') return t('assistant.vault.errorNotRunning')
+    if (code) return `${t('assistant.vault.errorUnknown')}: ${code}`
+  }
+  return t('assistant.vault.errorUnknown')
 }

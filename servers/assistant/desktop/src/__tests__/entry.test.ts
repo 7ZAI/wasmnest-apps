@@ -99,6 +99,28 @@ describe('mountApp 挂载契约（桌面机制 B · 票 08 对话主链路）', 
     root.remove()
   })
 
+  it('状态查询失败（宿主错误信封）：保险库门显示可读文案而非 [object Object]', async () => {
+    const root = document.createElement('div')
+    document.body.appendChild(root)
+    const env = mountEnv({
+      appInvoke: vi.fn(async () => {
+        throw { code: 'host.internal', request_id: 'req-1' }
+      }) as AppMountEnv['appInvoke'],
+    })
+
+    const handle = await mountApp(root, env)
+    await flushPromises()
+
+    const errorEl = root.querySelector('[data-testid="nest-vault-error"]')
+    expect(errorEl?.getAttribute('role')).toBe('alert')
+    expect(errorEl?.textContent).toContain('插件运行时错误')
+    expect(errorEl?.textContent).not.toContain('[object Object]')
+    expect(root.querySelector('[data-testid="nest-chat"]')).toBeNull()
+
+    await handle.unmount()
+    root.remove()
+  })
+
   it('setLocale 切换 i18n 语言（zh-CN / en 白名单）', async () => {
     const root = document.createElement('div')
     document.body.appendChild(root)
