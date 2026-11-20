@@ -289,8 +289,12 @@ pub(crate) trait OrchStore {
         after_seq: i64,
         limit: usize,
     ) -> Result<Vec<EventRecord>, String>;
+    /// 证据按 id upsert：同 id 重采覆盖旧行（半套写后重采补齐，不产生重复行）
     fn append_evidence(&self, evidence: &EvidenceRecord) -> Result<(), String>;
     fn evidence(&self, orchestration_id: &str) -> Result<Vec<EvidenceRecord>, String>;
+    /// 重规划时清空执行面：删全部证据 + 派发占位事件；其余事件（审批 / 状态
+    /// 迁移等审计轨迹）保留。旧 attempt 的证据与占位不得污染新计划。
+    fn reset_execution_plane(&self, orchestration_id: &str) -> Result<(), String>;
     fn last_event_seq(&self, orchestration_id: &str) -> Result<i64, String>;
 }
 
@@ -478,7 +482,14 @@ impl OrchStore for MemoryStore {
 
     fn append_evidence(&self, evidence: &EvidenceRecord) -> Result<(), String> {
         self.with_state(|state| {
-            state.evidence.push(evidence.clone());
+            match state
+                .evidence
+                .iter_mut()
+                .find(|existing| existing.id == evidence.id)
+            {
+                Some(existing) => *existing = evidence.clone(),
+                None => state.evidence.push(evidence.clone()),
+            }
             Ok(())
         })
     }
@@ -491,6 +502,18 @@ impl OrchStore for MemoryStore {
                 .filter(|evidence| evidence.orchestration_id == orchestration_id)
                 .cloned()
                 .collect())
+        })
+    }
+
+    fn reset_execution_plane(&self, orchestration_id: &str) -> Result<(), String> {
+        self.with_state(|state| {
+            state
+                .evidence
+                .retain(|evidence| evidence.orchestration_id != orchestration_id);
+            if let Some(events) = state.events.get_mut(orchestration_id) {
+                events.retain(|event| event.kind != EventKind::Dispatched);
+            }
+            Ok(())
         })
     }
 
@@ -1201,7 +1224,7 @@ mod wasm_impl {
 
         fn append_evidence(&self, evidence: &EvidenceRecord) -> Result<(), String> {
             self.plugin_db_execute_params(
-                "INSERT INTO orchestration_evidence \
+                "INSERT OR REPLACE INTO orchestration_evidence \
                  (id, orchestration_id, node_key, attempt, kind, payload_json, at) \
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
                 &sql_params![
@@ -1227,6 +1250,21 @@ mod wasm_impl {
                 )
                 .map_err(|e| format!("query orchestration evidence failed: {}", e.message))?;
             parse_rows(rows)?.iter().map(row_to_evidence).collect()
+        }
+
+        fn reset_execution_plane(&self, orchestration_id: &str) -> Result<(), String> {
+            self.plugin_db_execute_params(
+                "DELETE FROM orchestration_evidence WHERE orchestration_id = ?1",
+                &sql_params![orchestration_id],
+            )
+            .map_err(|e| format!("reset orchestration evidence failed: {}", e.message))?;
+            self.plugin_db_execute_params(
+                "DELETE FROM orchestration_events \
+                 WHERE orchestration_id = ?1 AND kind = 'dispatched'",
+                &sql_params![orchestration_id],
+            )
+            .map_err(|e| format!("reset orchestration dispatch markers failed: {}", e.message))?;
+            Ok(())
         }
 
         fn last_event_seq(&self, orchestration_id: &str) -> Result<i64, String> {

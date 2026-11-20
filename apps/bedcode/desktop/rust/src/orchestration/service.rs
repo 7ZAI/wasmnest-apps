@@ -195,6 +195,9 @@ fn apply_plan(
         Err(bind_errors)
     };
     record.plan = Some(plan.clone());
+    // 节点投影整组重建：旧 attempt 的证据与派发占位一并清除，否则复用节点键
+    // 的新计划会撞上旧幂等占位、读到旧证据。
+    store.reset_execution_plane(&record.id)?;
     match &validation {
         Ok(()) => {
             record.plan_error = None;
@@ -802,16 +805,28 @@ pub(crate) fn retry_node(
     if let Some(run_id) = node.run_id.clone() {
         if ports.run_active(&run_id)? {
             // 正常路径下 fail_node 已收敛旧 run；这里兜底，避免「旧进程还在写、
-            // 新 attempt 又派发」的并发窗口（H4）。
+            // 新 attempt 又派发」的并发窗口。
             let _ = ports.converge_task(&run_id, "node-retry");
             let _ = ports.interrupt(&run_id);
-            let _ = ports.close(&run_id);
-        } else {
-            node.run_id = None;
+            if let Err(detail) = ports.close(&run_id) {
+                // close 失败不挡重试，但必须可见：旧进程可能仍在写。
+                append_event(
+                    store,
+                    &record.id,
+                    EventKind::Note,
+                    Some(&node.key),
+                    None,
+                    json!({ "reason": "retry-close-degraded", "runId": run_id, "detail": detail }),
+                    now,
+                )?;
+            }
         }
+        // 旧 run 已收敛（或已执行收敛兜底）：重试必须换新 run。保留 run_id
+        // 会让新 attempt 复用已关闭的 run，prompt 发进死进程。
+        node.run_id = None;
     }
     // 每次重试都重新入队 profile 命令：保留上一次已 Failed 的 control id
-    // 会让重试反复命中同一条失败命令（M3）。
+    // 会让重试反复命中同一条失败命令。
     node.control_command_id = None;
     node.status = NodeStatus::Ready;
     node.failure_reason = None;
@@ -836,26 +851,43 @@ pub(crate) fn retry_node(
         now,
     )?;
 
-    // 上游失败时被 Blocked 的下游要恢复可派发：否则 retry 成功也救不活它们，
-    // 编排只剩「Succeeded + Blocked」永远不收敛（H1）。
-    for mut blocked in store.nodes(id)?.into_iter().filter(|candidate| {
-        candidate.status == NodeStatus::Blocked
-            && candidate.failure_reason == Some(ReasonCode::DependencyFailed)
-            && candidate.depends_on.iter().any(|dep| dep == node_key)
-    }) {
-        blocked.status = NodeStatus::Pending;
-        blocked.failure_reason = None;
-        blocked.ended_at = None;
-        store.put_node(&blocked)?;
-        append_event(
-            store,
-            &record.id,
-            EventKind::NodeReady,
-            Some(&blocked.key),
-            Some(blocked.attempt),
-            json!({ "reason": "dependency-retried", "upstream": node_key }),
-            now,
-        )?;
+    // 上游失败时被 Blocked 的整条下游链都要恢复可派发：只放直接子节点，
+    // 孙节点仍停在 Blocked（吸收态），retry 成功后编排依旧不收敛。
+    let mut released: Vec<String> = vec![node_key.to_string()];
+    loop {
+        let before = released.len();
+        let candidates: Vec<NodeRecord> = store
+            .nodes(id)?
+            .into_iter()
+            .filter(|candidate| {
+                candidate.status == NodeStatus::Blocked
+                    && candidate.failure_reason == Some(ReasonCode::DependencyFailed)
+                    && !released.contains(&candidate.key)
+                    && candidate
+                        .depends_on
+                        .iter()
+                        .any(|dep| released.contains(dep))
+            })
+            .collect();
+        for mut blocked in candidates {
+            blocked.status = NodeStatus::Pending;
+            blocked.failure_reason = None;
+            blocked.ended_at = None;
+            store.put_node(&blocked)?;
+            append_event(
+                store,
+                &record.id,
+                EventKind::NodeReady,
+                Some(&blocked.key),
+                Some(blocked.attempt),
+                json!({ "reason": "dependency-retried", "upstream": node_key }),
+                now,
+            )?;
+            released.push(blocked.key);
+        }
+        if released.len() == before {
+            break;
+        }
     }
     Ok(receipt(&record))
 }
@@ -1158,7 +1190,23 @@ pub(crate) fn tick(
                 | OrchestrationStatus::Running
                 | OrchestrationStatus::Pausing
                 | OrchestrationStatus::Cancelling
+                | OrchestrationStatus::BudgetExhausted
         ) {
+            continue;
+        }
+        // 预算耗尽后仍要收敛活跃 run（interrupt→宽限→close）；全部节点已
+        // 落定就不再进 tick，避免终态编排 1Hz 空转。
+        if record.status == OrchestrationStatus::BudgetExhausted
+            && !store.nodes(&record.id)?.iter().any(|node| {
+                matches!(
+                    node.status,
+                    NodeStatus::Dispatching
+                        | NodeStatus::Running
+                        | NodeStatus::AwaitingInput
+                        | NodeStatus::Verifying
+                )
+            })
+        {
             continue;
         }
         report.ticked += 1;
@@ -1169,8 +1217,8 @@ pub(crate) fn tick(
         let pty_slots = match ports.pty_slots() {
             Ok(slots) => slots,
             Err(error) => {
-                report.errors.push((id, error));
-                continue;
+                report.errors.push((id.clone(), error));
+                0
             }
         };
         if let Err(error) = tick_one(store, ports, record, now, pty_slots) {
@@ -1194,8 +1242,11 @@ fn tick_one(
     let mut nodes = store.nodes(&record.id)?;
 
     // 1. 断线恢复：已建 run/task 行但还没发出的派发，本轮继续尝试 send。
-    //    取消中的编排不再发送（让它走取消收敛），避免取消与派发互相打架。
-    if record.status != OrchestrationStatus::Cancelling {
+    //    取消中 / 预算耗尽的编排不再发送（让它走取消收敛），避免取消与派发互相打架。
+    if matches!(
+        record.status,
+        OrchestrationStatus::Running | OrchestrationStatus::Pausing
+    ) {
         for node in nodes.iter_mut() {
             if node.status == NodeStatus::Dispatching && node.command_id.is_none() {
                 resume_dispatch(store, ports, &record, node, now)?;
@@ -1204,8 +1255,11 @@ fn tick_one(
     }
 
     // 2. verifying：证据收集一次并落库，之后从证据重建裁决。
-    //    取消中不跑验收命令（节点即将被取消，跑命令只会拖慢收敛）。
-    if record.status != OrchestrationStatus::Cancelling {
+    //    取消中 / 预算耗尽不跑验收命令（节点即将被取消，跑命令只会拖慢收敛）。
+    if matches!(
+        record.status,
+        OrchestrationStatus::Running | OrchestrationStatus::Pausing
+    ) {
         // 差集是「本节点 pre 快照 vs 全树 post 快照」：并行节点写入的路径必然
         // 落进这个差集。把同编排其他节点的写集一并交给证据平面，否则写集
         // 不相交的并行节点、只读 reviewer 会被永久判 ScopeViolation（C1）。
@@ -1221,7 +1275,20 @@ fn tick_one(
                     .filter(|(key, _)| key != &node.key)
                     .flat_map(|(_, scopes)| scopes.iter().cloned())
                     .collect();
-                ensure_evidence(store, ports, &record, node, &concurrent, now)?;
+                // 证据端口瞬时失败只降级本节点：落可见 note，下一 tick 重采；
+                // 持续失败由 Verifying 超时判证据缺失（可重试），不冻结整轮 tick。
+                if let Err(detail) = ensure_evidence(store, ports, &record, node, &concurrent, now)
+                {
+                    append_event(
+                        store,
+                        &record.id,
+                        EventKind::Note,
+                        Some(&node.key),
+                        None,
+                        json!({ "reason": ReasonCode::EvidenceMissing.as_str(), "detail": detail }),
+                        now,
+                    )?;
+                }
             }
         }
     }
@@ -1399,6 +1466,7 @@ fn build_snapshot(
             // send 回执（command_id 落库）才允许离开 Dispatching。
             send_acknowledged: node.command_id.is_some(),
             timeout_secs: NODE_TIMEOUT_SECS,
+            verifying_started_at_ms: ms(node.verifying_started_at.as_deref()),
             evidence,
         });
     }
@@ -1443,15 +1511,36 @@ fn payload_string_array(payload: &Value, key: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// 本 attempt 的证据是否成套：Note 是终局说明（缺 pre 快照，不再重采）；
+/// 否则必须有 Diff，且按验收类型有对应验收证据。半套写（diff 已落库、
+/// 验收写入失败）不算成套，必须重采补齐，否则会被按 NotRun 误判证据缺失。
+fn evidence_complete(acceptance: &Acceptance, evidence: &[EvidenceRecord]) -> bool {
+    if evidence.iter().any(|row| row.kind == EvidenceKind::Note) {
+        return true;
+    }
+    if !evidence.iter().any(|row| row.kind == EvidenceKind::Diff) {
+        return false;
+    }
+    match acceptance {
+        Acceptance::None => true,
+        Acceptance::Command { .. } => evidence.iter().any(|row| row.kind == EvidenceKind::Command),
+        Acceptance::Verdict { .. } => evidence.iter().any(|row| row.kind == EvidenceKind::Verdict),
+    }
+}
+
 /// 从已落库的证据重建裁决（live tick 与重启 replay 共用同一解释）。
+/// 证据不成套时返回 None：继续等重采 / 验证超时，不能按 NotRun 提前判死。
 fn verdict_from_evidence(node: &NodeRecord, evidence: &[EvidenceRecord]) -> Option<Verdict> {
+    if !evidence_complete(&node.acceptance, evidence) {
+        return None;
+    }
     let diff = evidence
         .iter()
         .find(|evidence| evidence.kind == EvidenceKind::Diff);
     let report = evidence::EvidenceReport {
         task_completed: true,
         post_snapshot_available: diff.is_some(),
-        // 端口错误从不落库（M9），所以从证据重建的 report 里该集合恒为空。
+        // 端口错误从不落库，所以从证据重建的 report 里该集合恒为空。
         port_errors: vec![],
         changed_files: diff
             .map(|diff| payload_string_array(&diff.payload, "files"))
@@ -1537,7 +1626,10 @@ fn ensure_evidence(
     concurrent_write_scopes: &[String],
     now: &str,
 ) -> Result<(), String> {
-    if !evidence_for_attempt(store, record, node)?.is_empty() {
+    if evidence_complete(
+        &node.acceptance,
+        &evidence_for_attempt(store, record, node)?,
+    ) {
         return Ok(());
     }
     let Some(pre) = node.pre_snapshot.as_ref() else {
@@ -1567,8 +1659,8 @@ fn ensure_evidence(
             task_completed: true,
         },
     );
-    // 端口故障不落任何证据：哪怕一条 Note 也会被「已有证据即不重采」判据
-    // 固化成永久失败。本轮显性报错，下一 tick 重采（M9）。
+    // 端口故障不落任何证据：哪怕一条 Note 也会被「证据成套即不重采」判据
+    // 固化成永久失败。本轮显性报错，下一 tick 重采。
     if !report.port_errors.is_empty() {
         return Err(fail(
             ReasonCode::EvidenceMissing,
@@ -2279,9 +2371,10 @@ fn recover_one(
     });
     let mut failed = 0;
     let mut pause_reason = None;
+    let mut any_keep_running = false;
     for decision in decisions {
         match decision {
-            RecoveryDecision::KeepRunning => {}
+            RecoveryDecision::KeepRunning => any_keep_running = true,
             RecoveryDecision::MarkFailed {
                 node_key,
                 reason,
@@ -2299,14 +2392,21 @@ fn recover_one(
     }
 
     if let Some(reason) = pause_reason {
-        record.status = OrchestrationStatus::Paused;
+        // 还有存活 run 时经 Pausing 让 tick 继续收敛（等任务收尾 / 取消宽限），
+        // 直接落 Paused 会把活跃 run 撒手不管：进程与 PTY 槽泄漏。
+        let (status, event_kind) = if any_keep_running {
+            (OrchestrationStatus::Pausing, EventKind::Pausing)
+        } else {
+            (OrchestrationStatus::Paused, EventKind::Paused)
+        };
+        record.status = status;
         record.failure_reason = Some(reason);
         record.updated_at = now.to_string();
         store.put(&record)?;
         append_event(
             store,
             &record.id,
-            EventKind::Paused,
+            event_kind,
             None,
             None,
             json!({ "reason": reason.as_str(), "source": "recovery" }),
@@ -2435,8 +2535,8 @@ fn finish_planner_output(
     now: &str,
 ) -> Result<(), String> {
     let Some(mut plan) = extract_plan(text) else {
-        record.plan = None;
-        store.replace_nodes(&record.id, &[])?;
+        // 非法输出只记错误退回 Draft：上一版可用计划与节点投影保留，
+        // 用户仍可从旧计划批准执行或手动编辑。
         record.plan_error = Some(vec![PlanError {
             code: PlanErrorCode::PlannerInvalidJson.as_str().to_string(),
             node_key: None,
@@ -2463,6 +2563,8 @@ fn finish_planner_output(
     match validation {
         Ok(()) => {
             record.plan = Some(plan.clone());
+            // 重规划可能复用节点键：旧 attempt 的证据与派发占位必须清除。
+            store.reset_execution_plane(&record.id)?;
             store.replace_nodes(&record.id, &nodes_from_plan(&record.id, &plan))?;
             record.status = OrchestrationStatus::AwaitingApproval;
             record.plan_error = None;
@@ -2532,6 +2634,7 @@ fn finish_planner_output(
         }
         Err(errors) => {
             record.plan = Some(plan);
+            store.reset_execution_plane(&record.id)?;
             store.replace_nodes(&record.id, &[])?;
             record.status = OrchestrationStatus::Draft;
             record.plan_error = Some(errors);

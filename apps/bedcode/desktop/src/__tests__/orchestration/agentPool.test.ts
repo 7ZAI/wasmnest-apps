@@ -29,11 +29,19 @@ const CLI_OPTIONS: AgentOption[] = [
   { id: 'opencode', displayName: 'OpenCode', ready: false, orchestratable: true },
 ]
 
+const POOL_ERROR_PREFIX = 'com.wasmnest.bedcode.orchestration.pool.error.'
+/** mock 的「已注册」池错误码白名单；白名单外的 key 原样返回（= 未注册） */
+const REGISTERED_POOL_ERRORS = new Set(['profile-name-taken', 'profile-not-found'])
+
 function makeContext(): PluginContext {
   const translate = (key: string, params?: Record<string, unknown>) => {
-    // 池错误码必须返回「已注册」的文案，才能走到业务码映射分支
-    if (key.startsWith('orchestration.pool.error.')) return `T:${key}`
-    if (!params) return key
+    // 信封 code 是注册后的完整 key：只有白名单内的码才算「已注册」；
+    // 未注册 key 原样返回（与 vue-i18n 一致，不受 params 影响）
+    if (key.startsWith(POOL_ERROR_PREFIX)) {
+      return REGISTERED_POOL_ERRORS.has(key.slice(POOL_ERROR_PREFIX.length)) ? `T:${key}` : key
+    }
+    if (key === 'com.wasmnest.bedcode.orchestration.pool.saveFailed') return 'T:save-failed'
+    if (!params || Object.keys(params).length === 0) return key
     return `${key}(${Object.entries(params)
       .map(([name, value]) => `${name}=${value}`)
       .join(',')})`
@@ -170,7 +178,7 @@ describe('AgentPoolArea', () => {
         return { cli: 'pi', installed: true, bridgeCapable: true, models: [], thinkingLevels: [] }
       }
       if (command === 'agent.profile.create') {
-        throw { code: 'profile-name-taken: 前端实现' }
+        throw { code: 'com.wasmnest.bedcode.orchestration.pool.error.profile-name-taken' }
       }
       throw new Error(`unexpected command: ${command}`)
     })
@@ -184,6 +192,32 @@ describe('AgentPoolArea', () => {
     const error = wrapper.find('[data-testid="orchestration-pool-form-error"]')
     expect(error.text()).toContain('orchestration.pool.error.profile-name-taken')
     expect(error.text()).not.toContain('profile-name-taken:')
+    wrapper.unmount()
+  })
+
+  it('未注册信封码不输出 key 原文，落 fallback 文案', async () => {
+    const wrapper = mountPool([])
+    await flushPromises()
+    execute.mockImplementation(async (command: string) => {
+      if (command === 'agent.profile.list') return { profiles: [] }
+      if (command === 'agent.profile.options') {
+        return { cli: 'pi', installed: true, bridgeCapable: true, models: [], thinkingLevels: [] }
+      }
+      if (command === 'agent.profile.create') {
+        throw { code: 'com.wasmnest.bedcode.orchestration.pool.error.profile-unregistered' }
+      }
+      throw new Error(`unexpected command: ${command}`)
+    })
+    await wrapper.find('[data-testid="orchestration-pool-create"]').trigger('click')
+    await flushPromises()
+    await wrapper.find('[data-testid="orchestration-pool-name"]').setValue('前端实现')
+    await wrapper.find('[data-testid="orchestration-pool-description"]').setValue('职责')
+    await wrapper.find('[data-testid="orchestration-pool-save"]').trigger('click')
+    await flushPromises()
+
+    const error = wrapper.find('[data-testid="orchestration-pool-form-error"]')
+    expect(error.exists()).toBe(true)
+    expect(error.text()).toBe('T:save-failed')
     wrapper.unmount()
   })
 
@@ -379,12 +413,14 @@ describe('AgentPoolArea', () => {
     wrapper.unmount()
   })
 
-  it('删除失败提示落在确认弹窗内（M27）', async () => {
+  it('删除失败提示落在确认弹窗内', async () => {
     const wrapper = mountPool([PROFILE])
     await flushPromises()
     execute.mockImplementation(async (command: string) => {
       if (command === 'agent.profile.list') return { profiles: [PROFILE] }
-      if (command === 'agent.profile.delete') throw { code: 'profile-in-use: 已被计划引用' }
+      if (command === 'agent.profile.delete') {
+        throw { code: 'com.wasmnest.bedcode.orchestration.pool.error.profile-not-found' }
+      }
       throw new Error(`unexpected command: ${command}`)
     })
 

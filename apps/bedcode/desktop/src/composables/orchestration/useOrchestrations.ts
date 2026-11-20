@@ -1,5 +1,5 @@
 /**
- * 编排取数 / 命令调用（DESIGN §7.10 / §7.13）
+ * 编排取数 / 命令调用
  *
  * 红线与其余域一致：只经 `context.commands.execute`，不直连网络 / 文件 / 导航。
  * 本模块不做文案映射——错误上抛，由视图经 `resolvePluginErrorText` 转提示。
@@ -102,10 +102,4 @@ export function statusKey(status: string): string {
 /** 节点状态 → app 域 i18n 相对 key */
 export function nodeStatusKey(status: string): string {
   return `orchestration.nodeStatus.${status}`
-}
-
-/** 错误文本里提取 reason code（后端约定 `<code>: <detail>`） */
-export function parseReasonCode(message: string): string | null {
-  const match = /^([a-z][a-z0-9-]*):/.exec(message.trim())
-  return match ? match[1] : null
 }

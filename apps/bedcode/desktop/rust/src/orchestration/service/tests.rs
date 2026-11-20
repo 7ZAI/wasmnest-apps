@@ -14,10 +14,15 @@ use crate::orchestration::model::{
     Acceptance, EventKind, NodeStatus, OrchestrationStatus, Plan, PlanMode, ReasonCode, TaskStatus,
 };
 use crate::orchestration::recover::RunState;
-use crate::orchestration::store::{MemoryStore, OrchStore};
+use crate::orchestration::store::{EvidenceKind, EvidenceRecord, MemoryStore, OrchStore};
 
 fn t(second: u32) -> String {
     format!("2026-11-05T00:00:{second:02}Z")
+}
+
+/// 分钟级时间戳：验证超时 / 长墙钟用例用
+fn tm(minute: u32, second: u32) -> String {
+    format!("2026-11-05T00:{minute:02}:{second:02}Z")
 }
 
 fn golden_plan() -> Plan {
@@ -125,6 +130,10 @@ struct FakeRuntime {
     control_state_error: RefCell<Option<String>>,
     /// 单节点 task_status 探测失败（M6 回归）
     task_status_error: RefCell<Option<String>>,
+    /// git 快照端口持续失败（证据采集降级回归）
+    git_status_error: RefCell<Option<String>>,
+    /// PTY 余量探测失败（不得跳过整编排的收敛）
+    pty_slots_error: RefCell<Option<String>>,
 }
 
 impl FakeRuntime {
@@ -165,6 +174,8 @@ impl DispatchPort for FakeRuntime {
         _source: &str,
     ) -> Result<(), String> {
         *self.task_rows.borrow_mut() += 1;
+        // 真实宿主里 task 行建成即 InProgress（prompt 是否发出由 send 回执区分）
+        *self.task_status.borrow_mut() = Some(TaskStatus::InProgress);
         Ok(())
     }
 
@@ -223,6 +234,9 @@ impl DispatchPort for FakeRuntime {
 
 impl EvidencePort for FakeRuntime {
     fn git_status(&self, _working_dir: &str, _timeout_secs: u64) -> Result<GitSnapshot, String> {
+        if let Some(error) = self.git_status_error.borrow().clone() {
+            return Err(error);
+        }
         Ok(self.snapshot.borrow().clone())
     }
 
@@ -275,6 +289,9 @@ impl RuntimePort for FakeRuntime {
     }
 
     fn pty_slots(&self) -> Result<u8, String> {
+        if let Some(error) = self.pty_slots_error.borrow().clone() {
+            return Err(error);
+        }
         Ok(self.slots)
     }
 }
@@ -1255,4 +1272,394 @@ fn auto_plan_without_approval_falls_back_to_awaiting_approval_on_start_checks() 
     assert_eq!(record.failure_reason, Some(ReasonCode::WorkingTreeDirty));
     assert!(record.plan.is_some());
     assert!(record.started_at.is_none());
+}
+
+/// 走到 Verifying 的前置拍：create→approve→start→派发→Running→Completed。
+fn drive_to_verifying(store: &MemoryStore, ports: &FakeRuntime, plan: Plan) {
+    create(
+        store,
+        ports,
+        create_input("o1", plan, PlanMode::Manual),
+        &t(0),
+    )
+    .unwrap();
+    approve(store, "o1", &t(1)).unwrap();
+    start(store, ports, "o1", &t(2)).unwrap();
+    tick_all(store, ports, &t(3));
+    tick_all(store, ports, &t(4));
+    *ports.task_status.borrow_mut() = Some(TaskStatus::InProgress);
+    tick_all(store, ports, &t(5));
+    *ports.task_status.borrow_mut() = Some(TaskStatus::Completed);
+    tick_all(store, ports, &t(6));
+    assert_eq!(node_status(store, "o1", "n1"), NodeStatus::Verifying);
+}
+
+fn command_acceptance_plan() -> Plan {
+    let mut plan = single_node_plan(&["src"], 2);
+    plan.nodes[0].acceptance = Acceptance::Command {
+        command: vec!["pnpm".into(), "run".into(), "test:run".into()],
+        cwd: None,
+        timeout_sec: None,
+    };
+    plan
+}
+
+#[test]
+fn retry_clears_a_still_active_run_before_redispatch() {
+    let store = MemoryStore::default();
+    let mut ports = FakeRuntime::ready();
+    drive_to_verifying(&store, &ports, command_acceptance_plan());
+
+    // 验收失败 → Failed（run 收敛可能失败，旧 run 仍视为存活）
+    ports.command_result.exit_code = Some(1);
+    tick_all(&store, &ports, &t(7));
+    tick_all(&store, &ports, &t(8));
+    assert_eq!(node_status(&store, "o1", "n1"), NodeStatus::Failed);
+    assert_eq!(
+        store.get("o1").unwrap().unwrap().status,
+        OrchestrationStatus::Paused
+    );
+
+    retry_node(&store, &ports, "o1", "n1", &t(9)).unwrap();
+    assert!(
+        store
+            .get_node("o1", "n1")
+            .unwrap()
+            .unwrap()
+            .run_id
+            .is_none(),
+        "旧 run 已收敛，重试必须换新 run，不能复用已关闭的 run"
+    );
+
+    ports.command_result.exit_code = Some(0);
+    resume(&store, "o1", &t(10)).unwrap();
+    tick_all(&store, &ports, &t(11));
+    assert_eq!(node_status(&store, "o1", "n1"), NodeStatus::Dispatching);
+    assert_eq!(ports.runs.borrow().len(), 2, "重试必须启动新 run");
+}
+
+#[test]
+fn retry_releases_the_whole_blocked_downstream_chain() {
+    let store = MemoryStore::default();
+    let ports = FakeRuntime::ready();
+    let mut plan = single_node_plan(&["src"], 2);
+    let mut n2 = plan.nodes[0].clone();
+    n2.key = "n2".to_string();
+    n2.depends_on = vec!["n1".to_string()];
+    n2.write_scope = vec!["src2".to_string()];
+    let mut n3 = plan.nodes[0].clone();
+    n3.key = "n3".to_string();
+    n3.depends_on = vec!["n2".to_string()];
+    n3.write_scope = vec!["src3".to_string()];
+    plan.nodes.push(n2);
+    plan.nodes.push(n3);
+
+    create(
+        &store,
+        &ports,
+        create_input("o1", plan, PlanMode::Manual),
+        &t(0),
+    )
+    .unwrap();
+    approve(&store, "o1", &t(1)).unwrap();
+    start(&store, &ports, "o1", &t(2)).unwrap();
+
+    for (key, status) in [
+        ("n1", NodeStatus::Failed),
+        ("n2", NodeStatus::Blocked),
+        ("n3", NodeStatus::Blocked),
+    ] {
+        let mut node = store.get_node("o1", key).unwrap().unwrap();
+        node.status = status;
+        node.retryable = true;
+        node.failure_reason = Some(if key == "n1" {
+            ReasonCode::NodeFailed
+        } else {
+            ReasonCode::DependencyFailed
+        });
+        store.put_node(&node).unwrap();
+    }
+    let mut record = store.get("o1").unwrap().unwrap();
+    record.status = OrchestrationStatus::Paused;
+    store.put(&record).unwrap();
+
+    retry_node(&store, &ports, "o1", "n1", &t(3)).unwrap();
+    assert_eq!(node_status(&store, "o1", "n2"), NodeStatus::Pending);
+    assert_eq!(
+        node_status(&store, "o1", "n3"),
+        NodeStatus::Pending,
+        "孙节点也要解除 Blocked，否则 retry 成功后编排仍不收敛"
+    );
+}
+
+#[test]
+fn evidence_port_failure_degrades_per_node_without_freezing_the_tick() {
+    let store = MemoryStore::default();
+    let ports = FakeRuntime::ready();
+    drive_to_verifying(&store, &ports, command_acceptance_plan());
+
+    *ports.git_status_error.borrow_mut() = Some("working dir vanished".to_string());
+    tick_all(&store, &ports, &t(7));
+    assert_eq!(
+        node_status(&store, "o1", "n1"),
+        NodeStatus::Verifying,
+        "瞬时端口失败不判死节点，下一 tick 重采"
+    );
+    let events = store.events("o1", 0, 1000).unwrap();
+    assert!(
+        events.iter().any(|event| event.kind == EventKind::Note
+            && event.node_key.as_deref() == Some("n1")
+            && event.payload["reason"] == "evidence-missing"),
+        "证据采集失败必须落可见 note"
+    );
+}
+
+#[test]
+fn verifying_times_out_when_evidence_ports_stay_down() {
+    let store = MemoryStore::default();
+    let ports = FakeRuntime::ready();
+    drive_to_verifying(&store, &ports, command_acceptance_plan());
+
+    *ports.git_status_error.borrow_mut() = Some("working dir vanished".to_string());
+    tick_all(&store, &ports, &t(7));
+    tick_all(&store, &ports, &tm(12, 0));
+    let node = store.get_node("o1", "n1").unwrap().unwrap();
+    assert_eq!(node.status, NodeStatus::Failed);
+    assert_eq!(node.failure_reason, Some(ReasonCode::EvidenceMissing));
+    assert!(node.retryable, "端口故障判可重试，不能永久判死");
+}
+
+#[test]
+fn budget_exhaustion_converges_live_runs_to_cancelled() {
+    let store = MemoryStore::default();
+    let ports = FakeRuntime::ready();
+    create(
+        &store,
+        &ports,
+        create_input("o1", single_node_plan(&["src"], 1), PlanMode::Manual),
+        &t(0),
+    )
+    .unwrap();
+    approve(&store, "o1", &t(1)).unwrap();
+    start(&store, &ports, "o1", &t(2)).unwrap();
+    tick_all(&store, &ports, &t(3));
+    tick_all(&store, &ports, &t(4));
+    *ports.task_status.borrow_mut() = Some(TaskStatus::InProgress);
+    tick_all(&store, &ports, &t(5));
+    assert_eq!(node_status(&store, "o1", "n1"), NodeStatus::Running);
+
+    let mut record = store.get("o1").unwrap().unwrap();
+    record.budget.max_wall_seconds = 1;
+    store.put(&record).unwrap();
+
+    tick_all(&store, &ports, &t(6));
+    assert_eq!(
+        store.get("o1").unwrap().unwrap().status,
+        OrchestrationStatus::BudgetExhausted
+    );
+    assert!(ports.interrupted.borrow().contains(&"run-1".to_string()));
+
+    tick_all(&store, &ports, &t(17));
+    assert_eq!(
+        node_status(&store, "o1", "n1"),
+        NodeStatus::Cancelled,
+        "预算耗尽后活跃 run 仍须走完 interrupt→宽限→close"
+    );
+    assert!(ports.closed.borrow().contains(&"run-1".to_string()));
+    assert_eq!(
+        store.get("o1").unwrap().unwrap().status,
+        OrchestrationStatus::BudgetExhausted
+    );
+}
+
+#[test]
+fn pty_probe_failure_does_not_skip_cancelling_convergence() {
+    let store = MemoryStore::default();
+    let ports = FakeRuntime::ready();
+    drive_to_verifying(&store, &ports, single_node_plan(&["src"], 1));
+
+    *ports.pty_slots_error.borrow_mut() = Some("pty probe down".to_string());
+    cancel(&store, &ports, "o1", &t(7)).unwrap();
+    let report = tick(&store, &ports, &t(8)).unwrap();
+    assert!(!report.errors.is_empty(), "探测失败要显性记录");
+    let report = tick(&store, &ports, &t(19)).unwrap();
+    assert!(!report.errors.is_empty());
+    assert_eq!(node_status(&store, "o1", "n1"), NodeStatus::Cancelled);
+    // 节点落定后的下一拍编排才收敛终态（探测仍失败，错误继续显性记录）
+    let report = tick(&store, &ports, &t(20)).unwrap();
+    assert!(!report.errors.is_empty());
+    assert_eq!(
+        store.get("o1").unwrap().unwrap().status,
+        OrchestrationStatus::Cancelled
+    );
+}
+
+#[test]
+fn recovery_with_live_runs_lands_in_pausing_not_paused() {
+    let store = MemoryStore::default();
+    let ports = FakeRuntime::ready();
+    drive_to_verifying(&store, &ports, single_node_plan(&["src"], 1));
+    // 回到 Running：run 存活但桥接离线
+    let mut node = store.get_node("o1", "n1").unwrap().unwrap();
+    node.status = NodeStatus::Running;
+    store.put_node(&node).unwrap();
+    *ports.task_status.borrow_mut() = Some(TaskStatus::InProgress);
+    *ports.bridge_ready.borrow_mut() = false;
+
+    recover_all(&store, &ports, &t(7)).unwrap();
+    assert_eq!(
+        store.get("o1").unwrap().unwrap().status,
+        OrchestrationStatus::Pausing,
+        "还有活跃 run 时必须经 Pausing 让 tick 收敛，不能直接 Paused 撒手"
+    );
+
+    *ports.bridge_ready.borrow_mut() = true;
+    *ports.task_status.borrow_mut() = Some(TaskStatus::Completed);
+    tick_all(&store, &ports, &t(8));
+    tick_all(&store, &ports, &t(9));
+    tick_all(&store, &ports, &t(10));
+    assert_eq!(node_status(&store, "o1", "n1"), NodeStatus::Succeeded);
+    assert_eq!(
+        store.get("o1").unwrap().unwrap().status,
+        OrchestrationStatus::Paused
+    );
+}
+
+#[test]
+fn invalid_planner_json_keeps_the_previous_plan_and_nodes() {
+    let store = MemoryStore::default();
+    let ports = FakeRuntime::ready();
+    create(
+        &store,
+        &ports,
+        CreateInput {
+            id: "o1".to_string(),
+            project_id: "p1".to_string(),
+            title: "自动编排".to_string(),
+            goal: "目标".to_string(),
+            mode: PlanMode::Auto,
+            orchestrator_agent_id: Some("ap-orchestrator".to_string()),
+            require_approval: true,
+            plan: Some(single_node_plan(&["src"], 1)),
+        },
+        &t(0),
+    )
+    .unwrap();
+    start_planning(&store, &ports, "o1", None, &t(1)).unwrap();
+    tick_all(&store, &ports, &t(2));
+
+    *ports.assistant_text.borrow_mut() = Some("totally not a plan".to_string());
+    *ports.task_status.borrow_mut() = Some(TaskStatus::Completed);
+    tick_all(&store, &ports, &t(3));
+
+    let record = store.get("o1").unwrap().unwrap();
+    assert_eq!(record.status, OrchestrationStatus::Draft);
+    assert!(
+        record.plan.is_some(),
+        "重规划输出非法 JSON 不得摧毁上一版可用计划"
+    );
+    assert_eq!(store.nodes("o1").unwrap().len(), 1);
+}
+
+#[test]
+fn replan_resets_evidence_and_dispatch_markers_for_reused_keys() {
+    let store = MemoryStore::default();
+    let mut ports = FakeRuntime::ready();
+    create(
+        &store,
+        &ports,
+        create_input("o1", command_acceptance_plan(), PlanMode::Auto),
+        &t(0),
+    )
+    .unwrap();
+    approve(&store, "o1", &t(1)).unwrap();
+    start(&store, &ports, "o1", &t(2)).unwrap();
+    tick_all(&store, &ports, &t(3));
+    tick_all(&store, &ports, &t(4));
+    *ports.task_status.borrow_mut() = Some(TaskStatus::InProgress);
+    tick_all(&store, &ports, &t(5));
+    *ports.task_status.borrow_mut() = Some(TaskStatus::Completed);
+    tick_all(&store, &ports, &t(6));
+    ports.command_result.exit_code = Some(1);
+    tick_all(&store, &ports, &t(7));
+    tick_all(&store, &ports, &t(8));
+    assert_eq!(
+        store.get("o1").unwrap().unwrap().status,
+        OrchestrationStatus::Paused
+    );
+    assert!(!store.evidence("o1").unwrap().is_empty());
+
+    // Paused 重规划：新计划复用节点键 n1
+    start_planning(&store, &ports, "o1", None, &t(9)).unwrap();
+    tick_all(&store, &ports, &t(10));
+    *ports.assistant_text.borrow_mut() =
+        Some(serde_json::to_string(&command_acceptance_plan()).unwrap());
+    *ports.task_status.borrow_mut() = Some(TaskStatus::Completed);
+    tick_all(&store, &ports, &t(11));
+    assert_eq!(
+        store.get("o1").unwrap().unwrap().status,
+        OrchestrationStatus::AwaitingApproval
+    );
+    assert!(
+        store.evidence("o1").unwrap().is_empty(),
+        "旧 attempt 证据不得污染新计划"
+    );
+    assert!(
+        !store
+            .events("o1", 0, 1000)
+            .unwrap()
+            .iter()
+            .any(|event| event.kind == EventKind::Dispatched),
+        "旧派发占位必须清除，否则新 attempt 撞幂等闸"
+    );
+
+    // 新计划执行：派发占位可重新认领，证据按新 attempt 重采
+    ports.command_result.exit_code = Some(0);
+    approve(&store, "o1", &t(12)).unwrap();
+    start(&store, &ports, "o1", &t(13)).unwrap();
+    tick_all(&store, &ports, &t(14));
+    assert_eq!(node_status(&store, "o1", "n1"), NodeStatus::Dispatching);
+    assert_eq!(
+        ports.runs.borrow().len(),
+        3,
+        "节点 run + planner run + 重试新 run"
+    );
+    tick_all(&store, &ports, &t(15));
+    *ports.task_status.borrow_mut() = Some(TaskStatus::InProgress);
+    tick_all(&store, &ports, &t(16));
+    *ports.task_status.borrow_mut() = Some(TaskStatus::Completed);
+    tick_all(&store, &ports, &t(17));
+    tick_all(&store, &ports, &t(18));
+    assert_eq!(node_status(&store, "o1", "n1"), NodeStatus::Succeeded);
+    assert!(!ports.commands.borrow().is_empty(), "验收命令必须真实重跑");
+}
+
+#[test]
+fn partial_evidence_is_recollected_instead_of_judged_as_missing() {
+    let store = MemoryStore::default();
+    let ports = FakeRuntime::ready();
+    drive_to_verifying(&store, &ports, command_acceptance_plan());
+
+    // 模拟半套写：diff 已落库、acceptance 写入失败
+    store
+        .append_evidence(&EvidenceRecord {
+            id: "o1:n1:1:diff".to_string(),
+            orchestration_id: "o1".to_string(),
+            node_key: "n1".to_string(),
+            attempt: 1,
+            kind: EvidenceKind::Diff,
+            payload: serde_json::json!({
+                "files": [], "scopeViolations": [], "concurrentWriters": false
+            }),
+            at: t(6),
+        })
+        .unwrap();
+
+    tick_all(&store, &ports, &t(7));
+    assert_eq!(
+        node_status(&store, "o1", "n1"),
+        NodeStatus::Succeeded,
+        "半套证据必须重采补齐，不能按 NotRun 判证据缺失"
+    );
+    assert_eq!(ports.commands.borrow().len(), 1);
 }

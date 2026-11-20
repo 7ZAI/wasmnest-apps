@@ -1,5 +1,14 @@
 <script setup lang="ts">
-import { computed, inject, onActivated, onMounted, onUnmounted, reactive, ref } from 'vue'
+import {
+  computed,
+  inject,
+  onActivated,
+  onDeactivated,
+  onMounted,
+  onUnmounted,
+  reactive,
+  ref,
+} from 'vue'
 import { useRouter } from 'vue-router'
 import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-desktop'
 import AgentIcon from '@/agents/components/AgentIcon.vue'
@@ -104,9 +113,13 @@ async function load(options: { quiet?: boolean } = {}) {
 
 let poolPollSeq = 0
 let poolPollInFlight = false
+/** 卸载 / 失活代次：await 期间组件可能已离开，回来后不得再留下定时器 */
+let lifecycleSeq = 0
+/** 失活时轮询仍在跑 → 重新激活时恢复（不重新触发探测） */
+let poolPollResume = false
 
 function stopPoolPoll() {
-  // 代次作废：stop 之后仍在飞的请求不得再写 meta（M34）。
+  // 代次作废：stop 之后仍在飞的请求不得再写 meta。
   poolPollSeq += 1
   poolPollInFlight = false
   if (poolPollTimer) {
@@ -115,17 +128,7 @@ function stopPoolPoll() {
   }
 }
 
-/**
- * Agent 池的 CLI 事实来自 hub 探测（`orchestration.meta.agents.ready`）。
- * 探测是异步进程：进入池区域且尚无就绪 CLI 时显式触发一次，并轮询 meta
- * 直到探测收敛（45s 上限）；不把「未探测」误呈现成「没安装」。
- */
-async function refreshPoolAgents() {
-  try {
-    await context.commands.execute('agent.detect', {})
-  } catch (error) {
-    console.error('[orchestration] agent detect failed', error)
-  }
+function startPoolPoll() {
   stopPoolPoll()
   const seq = poolPollSeq
   const startedAt = Date.now()
@@ -148,6 +151,23 @@ async function refreshPoolAgents() {
   }, 2000)
 }
 
+/**
+ * Agent 池的 CLI 事实来自 hub 探测（`orchestration.meta.agents.ready`）。
+ * 探测是异步进程：进入池区域且尚无就绪 CLI 时显式触发一次，并轮询 meta
+ * 直到探测收敛（45s 上限）；不把「未探测」误呈现成「没安装」。
+ */
+async function refreshPoolAgents() {
+  const lifecycle = lifecycleSeq
+  try {
+    await context.commands.execute('agent.detect', {})
+  } catch (error) {
+    console.error('[orchestration] agent detect failed', error)
+  }
+  // 探测期间组件已卸载 / 被 KeepAlive 缓存：不再起轮询，避免后台空转
+  if (lifecycle !== lifecycleSeq) return
+  startPoolPoll()
+}
+
 function openPoolTab() {
   activeTab.value = 'pool'
   stopPoolPoll()
@@ -159,7 +179,16 @@ function openListTab() {
   stopPoolPoll()
 }
 
-onUnmounted(stopPoolPoll)
+onUnmounted(() => {
+  lifecycleSeq += 1
+  poolPollResume = false
+  stopPoolPoll()
+})
+onDeactivated(() => {
+  lifecycleSeq += 1
+  poolPollResume = poolPollTimer !== null
+  stopPoolPoll()
+})
 
 function openCreate() {
   createForm.projectId = projects.value[0]?.id ?? ''
@@ -266,6 +295,10 @@ onActivated(() => {
   }
   // 静默刷新：保留列表内容，刷新完成后再替换，避免返回时闪一屏骨架
   void load({ quiet: true })
+  if (poolPollResume && activeTab.value === 'pool') {
+    poolPollResume = false
+    startPoolPoll()
+  }
 })
 </script>
 

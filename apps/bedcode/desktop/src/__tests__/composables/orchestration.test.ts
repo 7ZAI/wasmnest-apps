@@ -6,7 +6,6 @@ import {
   reasonKey,
   statusKey,
   nodeStatusKey,
-  parseReasonCode,
 } from '@/composables/orchestration/useOrchestrations'
 import { useOrchestrationPolling } from '@/composables/orchestration/useOrchestrationPolling'
 
@@ -74,12 +73,10 @@ describe('useOrchestrations（命令映射）', () => {
     expect(execute.mock.calls[13][1]).toEqual({ id: 'o1', afterSeq: 3 })
   })
 
-  it('词表 key 与 reason 解析遵守 `<code>: <detail>` 约定', () => {
+  it('词表 key 遵守 app 域命名约定', () => {
     expect(statusKey('awaiting-approval')).toBe('orchestration.status.awaiting-approval')
     expect(nodeStatusKey('awaiting-input')).toBe('orchestration.nodeStatus.awaiting-input')
     expect(reasonKey('scope-violation')).toBe('orchestration.reason.scope-violation')
-    expect(parseReasonCode('scope-violation: secret.txt')).toBe('scope-violation')
-    expect(parseReasonCode('something else')).toBeNull()
   })
 })
 

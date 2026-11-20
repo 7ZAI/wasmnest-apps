@@ -1,5 +1,5 @@
 /**
- * 编排 Plan 的 TS wire 类型与轻量解析（§7.1 / §7.13）
+ * 编排 Plan 的 TS wire 类型与轻量解析
  *
  * 完整校验真源在 Rust `plan::validate`：前端只做形状解析，保证编辑器 / 工作流图
  * 拿到的是可渲染的结构；校验错误由 `orchestration.update-plan` 返回并逐条展示。
@@ -188,4 +188,74 @@ function stringArray(value: unknown, key: string): string[] {
     throw new Error(`${key} must be a string array`)
   }
   return value as string[]
+}
+
+/**
+ * 命令行文本 → argv：按空白切分，单引号 / 双引号内的空白保留为参数的一部分。
+ * 双引号内支持 `\"` 与 `\\` 转义；引号外反斜杠转义空白 / 引号。
+ * 未闭合引号不抛错：剩余文本整体作为一个参数（编辑器提交期不做硬校验，
+ * 后端 `plan::validate` 仍是最终裁决），重新格式化时会补上引号使问题可见。
+ */
+export function splitCommandArgv(value: string): string[] {
+  const tokens: string[] = []
+  let current = ''
+  let started = false
+  let quote: '"' | "'" | null = null
+  const push = () => {
+    if (started) tokens.push(current)
+    current = ''
+    started = false
+  }
+  for (let index = 0; index < value.length; index += 1) {
+    const char = value[index]
+    const next = value[index + 1]
+    if (quote === "'") {
+      if (char === "'") quote = null
+      else current += char
+      continue
+    }
+    if (quote === '"') {
+      if (char === '\\' && (next === '"' || next === '\\')) {
+        current += next
+        index += 1
+      } else if (char === '"') {
+        quote = null
+      } else {
+        current += char
+      }
+      continue
+    }
+    if (char === "'" || char === '"') {
+      quote = char
+      started = true
+      continue
+    }
+    if (char === '\\' && next !== undefined && /[\s"']/.test(next)) {
+      current += next
+      started = true
+      index += 1
+      continue
+    }
+    if (/\s/.test(char)) {
+      push()
+      continue
+    }
+    current += char
+    started = true
+  }
+  push()
+  return tokens
+}
+
+/** argv → 命令行文本：含空白 / 引号 / 反斜杠的参数用双引号包裹并转义，保证与 splitCommandArgv 往返一致。 */
+export function formatCommandArgv(argv: string[]): string {
+  return argv
+    .map((token) => {
+      if (token === '') return '""'
+      if (/[\s"'\\]/.test(token)) {
+        return `"${token.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
+      }
+      return token
+    })
+    .join(' ')
 }

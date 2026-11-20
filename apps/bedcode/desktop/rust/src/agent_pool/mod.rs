@@ -23,6 +23,19 @@ pub(crate) const UPDATE_COMMAND: &str = "agent.profile.update";
 pub(crate) const DELETE_COMMAND: &str = "agent.profile.delete";
 pub(crate) const OPTIONS_COMMAND: &str = "agent.profile.options";
 
+/// 池命令错误 → 信封：`profile-*` 业务码前缀映射到已注册 i18n key；
+/// 其余（参数缺失 / 未知命令等）保持原文，由宿主包成通用内部错误。
+/// 技术详情只进日志，不进信封。
+pub(crate) fn profile_command_error(error: String) -> String {
+    let prefix = error.split(':').next().unwrap_or("").trim();
+    if prefix.starts_with("profile-") {
+        return crate::orchestration::business_error_string(&format!(
+            "com.wasmnest.bedcode.orchestration.pool.error.{prefix}"
+        ));
+    }
+    error
+}
+
 #[cfg(target_arch = "wasm32")]
 mod wasm_commands {
     use serde_json::{json, Value};
@@ -89,6 +102,13 @@ mod wasm_commands {
     }
 
     pub(crate) fn invoke_command(name: &str, args: Value) -> Result<Value, String> {
+        dispatch_command(name, args).map_err(|error| {
+            WasmHost.log_warn(&format!("agent profile command `{name}` failed: {error}"));
+            super::profile_command_error(error)
+        })
+    }
+
+    fn dispatch_command(name: &str, args: Value) -> Result<Value, String> {
         let now = crate::config::model::now_rfc3339();
         match name {
             LIST_COMMAND => Ok(json!({
@@ -156,4 +176,29 @@ pub(crate) fn invoke_command(
     _args: serde_json::Value,
 ) -> Result<serde_json::Value, String> {
     Err("agent pool commands are only available in the wasm host".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn profile_command_error_maps_business_codes_to_registered_i18n_keys() {
+        let mapped = super::profile_command_error("profile-name-taken: duplicate name".to_string());
+        assert_eq!(
+            mapped,
+            crate::orchestration::business_error_string(
+                "com.wasmnest.bedcode.orchestration.pool.error.profile-name-taken"
+            ),
+        );
+        assert!(!mapped.contains("duplicate"), "{mapped}");
+    }
+
+    #[test]
+    fn profile_command_error_leaves_argument_errors_plain() {
+        for error in [
+            "agent.profile.update: id required",
+            "unknown agent profile command: bogus",
+        ] {
+            assert_eq!(super::profile_command_error(error.to_string()), error);
+        }
+    }
 }

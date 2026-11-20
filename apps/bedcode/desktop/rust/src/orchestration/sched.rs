@@ -6,6 +6,10 @@ use super::evidence::Verdict;
 use super::model::{NodeStatus, OrchestrationStatus, ReasonCode, TaskStatus};
 use super::plan::scopes_overlap;
 
+/// Verifying 阶段等待证据的窗口：端口持续失败超过它即判证据缺失（可重试），
+/// 不再只能等编排级墙钟兜底。
+const VERIFY_TIMEOUT_MS: i64 = 600_000;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct NodeFacts {
     pub key: String,
@@ -21,6 +25,9 @@ pub(crate) struct NodeFacts {
     /// 只有拿到回执才允许离开 Dispatching。
     pub send_acknowledged: bool,
     pub timeout_secs: u64,
+    /// Verifying 阶段起点：证据端口持续失败超过验证窗口即判证据缺失（可重试），
+    /// 不再只能等编排级墙钟兜底。
+    pub verifying_started_at_ms: Option<i64>,
     pub evidence: Option<Verdict>,
 }
 
@@ -118,6 +125,19 @@ pub(crate) fn plan_tick(snapshot: &TickSnapshot) -> Vec<Decision> {
         return decisions;
     }
 
+    // 预算耗尽不是「撒手不管」：活跃 run 仍需 interrupt→宽限→close 收敛，
+    // 否则 CLI 进程泄漏、PTY 槽被永久占用。
+    if snapshot.status == OrchestrationStatus::BudgetExhausted {
+        for node in &snapshot.nodes {
+            if is_active(node.status) {
+                decisions.push(Decision::CancelNode {
+                    node_key: node.key.clone(),
+                });
+            }
+        }
+        return decisions;
+    }
+
     for node in &snapshot.nodes {
         use NodeStatus as N;
         use TaskStatus as T;
@@ -140,7 +160,18 @@ pub(crate) fn plan_tick(snapshot: &TickSnapshot) -> Vec<Decision> {
                     });
                     continue;
                 }
-                None => {}
+                None => {
+                    if let Some(started) = node.verifying_started_at_ms {
+                        if snapshot.now_ms - started > VERIFY_TIMEOUT_MS {
+                            decisions.push(Decision::Fail {
+                                node_key: node.key.clone(),
+                                reason: ReasonCode::EvidenceMissing,
+                                retryable: true,
+                            });
+                            continue;
+                        }
+                    }
+                }
             }
         }
 
@@ -164,6 +195,21 @@ pub(crate) fn plan_tick(snapshot: &TickSnapshot) -> Vec<Decision> {
                 });
                 continue;
             }
+        }
+
+        // send 已回执说明 task 行建成过；桥接在线而行消失是异常事实，
+        // 不能卡在 Dispatching 只等编排墙钟。
+        if node.status == N::Dispatching
+            && node.send_acknowledged
+            && node.bridge_ready
+            && node.task_status.is_none()
+        {
+            decisions.push(Decision::Fail {
+                node_key: node.key.clone(),
+                reason: ReasonCode::StatusUnknown,
+                retryable: true,
+            });
+            continue;
         }
 
         // task 行在 run 启动、桥接探测之前就建成 `InProgress`；若此时让

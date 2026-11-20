@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { defineComponent } from 'vue'
 import { mount, flushPromises } from '@vue/test-utils'
 import { nextTick } from 'vue'
@@ -30,6 +30,8 @@ import OrchestrationDetailView from '@/views/orchestration/OrchestrationDetailVi
 import OrchestrationTimeline from '@/components/orchestration/OrchestrationTimeline.vue'
 import PlanEditor from '@/components/orchestration/PlanEditor.vue'
 import AppSelectField from '@/components/ui/AppSelectField.vue'
+import AppTextField from '@/components/ui/AppTextField.vue'
+import type { Plan } from '@/utils/orchestrationPlan'
 
 const meta = {
   statuses: ['draft', 'awaiting-approval', 'running', 'paused', 'completed', 'failed'],
@@ -332,6 +334,102 @@ describe('OrchestrationListView', () => {
   })
 })
 
+describe('OrchestrationListView（池轮询生命周期）', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  const noReadyMeta = {
+    ...meta,
+    agents: meta.agents.map((agent) => ({ ...agent, ready: false })),
+  }
+
+  function mountCachedList() {
+    const Host = defineComponent({
+      components: { OrchestrationListView },
+      data: () => ({ show: true }),
+      template: '<KeepAlive><OrchestrationListView v-if="show" /></KeepAlive>',
+    })
+    return mount(Host, {
+      global: {
+        plugins: [i18n],
+        provide: { pluginContext: makeContext() },
+        stubs: { teleport: true },
+      },
+    })
+  }
+
+  function mockCommands(detect: () => Promise<unknown>) {
+    execute.mockImplementation(async (command: string) => {
+      if (command === 'orchestration.meta') return noReadyMeta
+      if (command === 'orchestration.list') return { orchestrations: [] }
+      if (command === 'project.list') return { projects: [{ id: 'p1', name: '项目' }] }
+      if (command === 'agent.profile.list') return { profiles: [] }
+      if (command === 'agent.detect') return detect()
+      throw new Error(`unexpected command: ${command}`)
+    })
+  }
+
+  const metaCount = () =>
+    execute.mock.calls.filter(([command]) => command === 'orchestration.meta').length
+
+  async function openPoolAndRefresh(wrapper: ReturnType<typeof mountCachedList>) {
+    await wrapper.find('[data-testid="orchestration-tab-pool"]').trigger('click')
+    await vi.advanceTimersByTimeAsync(0)
+    await wrapper.find('[data-testid="orchestration-pool-refresh-cli"]').trigger('click')
+    await vi.advanceTimersByTimeAsync(0)
+  }
+
+  it('探测期间被 KeepAlive 切走：回来后不再起轮询', async () => {
+    let resolveDetect: (() => void) | null = null
+    mockCommands(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveDetect = () => resolve()
+        }),
+    )
+    const wrapper = mountCachedList()
+    await vi.advanceTimersByTimeAsync(0)
+    await openPoolAndRefresh(wrapper)
+    expect(resolveDetect).toBeTruthy()
+
+    const before = metaCount()
+    await wrapper.setData({ show: false })
+    resolveDetect!()
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(metaCount()).toBe(before, 'deactivated view must not start pool polling')
+    wrapper.unmount()
+  })
+
+  it('失活停表、激活恢复：池轮询不在后台空转', async () => {
+    mockCommands(async () => ({}))
+    const wrapper = mountCachedList()
+    await vi.advanceTimersByTimeAsync(0)
+    await openPoolAndRefresh(wrapper)
+
+    const before = metaCount()
+    await vi.advanceTimersByTimeAsync(2100)
+    expect(metaCount()).toBeGreaterThan(before, 'pool polling must run while active')
+
+    const mid = metaCount()
+    await wrapper.setData({ show: false })
+    await vi.advanceTimersByTimeAsync(6000)
+    expect(metaCount()).toBe(mid, 'deactivated view must stop pool polling')
+
+    await wrapper.setData({ show: true })
+    await vi.advanceTimersByTimeAsync(0)
+    const afterActivate = metaCount()
+    expect(afterActivate).toBeGreaterThan(mid, 'reactivated view must reload')
+    await vi.advanceTimersByTimeAsync(2100)
+    expect(metaCount()).toBeGreaterThan(afterActivate, 'pool polling must resume on activate')
+    wrapper.unmount()
+  })
+})
+
 describe('OrchestrationDetailView', () => {
   it('渲染状态 / 动作 / 工作流 / 节点；批准按钮发命令', async () => {
     const wrapper = mountView(OrchestrationDetailView)
@@ -500,6 +598,62 @@ describe('PlanEditor（轮询不覆盖用户输入）', () => {
     expect(claude?.disabled).toBe(true)
     expect(claude?.label).toContain('无桥接')
     expect(options.find((option) => option.value === 'ap-frontend')?.disabled).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('命令 argv 保留引号参数：回显重新加引号，提交按引号切分', async () => {
+    const commandPlan = JSON.parse(JSON.stringify(plan)) as Plan
+    commandPlan.nodes[0].acceptance = {
+      type: 'command',
+      command: ['echo', 'hello world'],
+      cwd: null,
+      timeoutSec: null,
+    }
+    const wrapper = mount(PlanEditor, {
+      props: { plan: commandPlan, agentProfiles: meta.agentProfiles, errors: [] },
+      global: { plugins: [i18n] },
+    })
+
+    const field = wrapper
+      .findAllComponents(AppTextField)
+      .find((entry) => entry.props('modelValue') === 'echo "hello world"')
+    expect(field).toBeTruthy()
+
+    await field!.vm.$emit('update:modelValue', 'pnpm exec vitest run --grep "two words"')
+    await wrapper.find('[data-testid="orchestration-plan-save"]').trigger('click')
+    const saved = wrapper.emitted('save')?.[0]?.[0] as Plan
+    expect(saved.nodes[0].acceptance).toMatchObject({
+      type: 'command',
+      command: ['pnpm', 'exec', 'vitest', 'run', '--grep', 'two words'],
+    })
+    wrapper.unmount()
+  })
+
+  it('改名被拒后输入框回滚到原 key；成功改名同步依赖', async () => {
+    const wrapper = mount(PlanEditor, {
+      props: { plan, agentProfiles: meta.agentProfiles, errors: [] },
+      global: { plugins: [i18n] },
+    })
+    const keyField = () => wrapper.findAll('[data-testid="orchestration-plan-node-key"]')[0]
+
+    // 重名被拒：DOM 不得停留在被拒文本上
+    await keyField().setValue('n2')
+    await keyField().trigger('change')
+    expect(wrapper.find('[data-testid="orchestration-plan-key-error"]').exists()).toBe(true)
+    expect((keyField().element as HTMLInputElement).value).toBe('n1')
+
+    // 非法字符同样被拒并回滚
+    await keyField().setValue('Bad Key')
+    await keyField().trigger('change')
+    expect((keyField().element as HTMLInputElement).value).toBe('n1')
+
+    // 成功改名：依赖 chip 跟随重写
+    await keyField().setValue('impl')
+    await keyField().trigger('change')
+    await wrapper.find('[data-testid="orchestration-plan-save"]').trigger('click')
+    const saved = wrapper.emitted('save')?.[0]?.[0] as Plan
+    expect(saved.nodes[0].key).toBe('impl')
+    expect(saved.nodes[1].dependsOn).toEqual(['impl'])
     wrapper.unmount()
   })
 })

@@ -14,6 +14,7 @@ fn node(key: &str, status: NodeStatus, depends_on: &[&str]) -> NodeFacts {
         bridge_ready: false,
         send_acknowledged: true,
         timeout_secs: 1800,
+        verifying_started_at_ms: None,
         evidence: None,
     }
 }
@@ -458,5 +459,82 @@ fn resume_with_only_failed_nodes_settles_back_to_paused() {
             to: OrchestrationStatus::Paused,
             reason: Some(ReasonCode::NodeFailed),
         }]
+    );
+}
+
+#[test]
+fn verifying_without_evidence_times_out_as_retryable() {
+    let mut verifying = node("n1", NodeStatus::Verifying, &[]);
+    verifying.verifying_started_at_ms = Some(0);
+
+    // 窗口内：继续等证据，不判死
+    let mut within = running(vec![verifying.clone()]);
+    within.now_ms = 599_000;
+    assert!(plan_tick(&within).is_empty());
+
+    // 端口持续失败超过验证窗口：判证据缺失（可重试），不等编排墙钟
+    let mut beyond = running(vec![verifying]);
+    beyond.now_ms = 601_000;
+    assert_eq!(
+        plan_tick(&beyond),
+        vec![
+            Decision::Fail {
+                node_key: "n1".into(),
+                reason: ReasonCode::EvidenceMissing,
+                retryable: true,
+            },
+            Decision::Orchestration {
+                to: OrchestrationStatus::Pausing,
+                reason: Some(ReasonCode::NodeFailed),
+            },
+        ]
+    );
+}
+
+#[test]
+fn budget_exhausted_orchestration_still_cancels_active_nodes() {
+    // 终态不是「撒手不管」：活跃 run 仍需 interrupt→宽限→close 收敛，
+    // 否则 CLI 进程泄漏、PTY 槽被永久占用。
+    let mut exhausted = running(vec![
+        node("n1", NodeStatus::Running, &[]),
+        node("n2", NodeStatus::Pending, &["n1"]),
+    ]);
+    exhausted.status = OrchestrationStatus::BudgetExhausted;
+    assert_eq!(
+        plan_tick(&exhausted),
+        vec![Decision::CancelNode {
+            node_key: "n1".into(),
+        }]
+    );
+
+    let mut settled = running(vec![node("n1", NodeStatus::Cancelled, &[])]);
+    settled.status = OrchestrationStatus::BudgetExhausted;
+    assert!(plan_tick(&settled).is_empty());
+}
+
+#[test]
+fn dispatching_with_ack_but_missing_task_row_fails_visibly() {
+    // send 已回执说明 task 行建成过；桥接在线而行消失是异常事实，
+    // 不能卡在 Dispatching 只等编排墙钟。
+    let mut orphan = node("n1", NodeStatus::Dispatching, &[]);
+    orphan.send_acknowledged = true;
+    orphan.bridge_ready = true;
+    orphan.task_status = None;
+    orphan.dispatched_at_ms = Some(0);
+    let mut snapshot = running(vec![orphan]);
+    snapshot.now_ms = 1_000;
+    assert_eq!(
+        plan_tick(&snapshot),
+        vec![
+            Decision::Fail {
+                node_key: "n1".into(),
+                reason: ReasonCode::StatusUnknown,
+                retryable: true,
+            },
+            Decision::Orchestration {
+                to: OrchestrationStatus::Pausing,
+                reason: Some(ReasonCode::NodeFailed),
+            },
+        ]
     );
 }

@@ -23,6 +23,31 @@ const PTY_QUOTA: u8 = 8;
 /// 给用户手动运行保留的 PTY 余量
 const RESERVED_PTY_SLOTS: u8 = 2;
 
+/// 业务错误信封串：宿主桥对带信封标记的字符串原样透传，前端按 i18n 完整 key
+/// 解析友好文案。code 必须是已注册的完整 key；技术详情只进日志，不进信封。
+/// 形状与 SDK `user_facing_string` 一致（动态 code 无法走 `PluginError` 的
+/// `&'static str` 签名，故按同一形状拼装）。
+pub(crate) fn business_error_string(code: &str) -> String {
+    format!(
+        "{{\"{}\":true,\"code\":{},\"params\":null}}",
+        wasmnest_plugin_api::ENVELOPE_MARKER,
+        serde_json::to_string(code).expect("error code serializes"),
+    )
+}
+
+/// 命令面错误 → 信封：前缀是已知 ReasonCode 时映射到已注册 i18n key；
+/// 其余（参数缺失 / 未知命令等）保持原文，由宿主包成通用内部错误。
+pub(crate) fn command_error(error: String) -> String {
+    let prefix = error.split(':').next().unwrap_or("").trim();
+    match model::ReasonCode::from_wire(prefix) {
+        Some(reason) => business_error_string(&format!(
+            "com.wasmnest.bedcode.orchestration.reason.{}",
+            reason.as_str()
+        )),
+        None => error,
+    }
+}
+
 #[cfg(target_arch = "wasm32")]
 mod wasm_commands {
     use serde_json::{json, Value};
@@ -88,6 +113,14 @@ mod wasm_commands {
     }
 
     pub(crate) fn invoke_command(name: &str, args: Value) -> Result<Value, String> {
+        dispatch_command(name, args).map_err(|error| {
+            // 技术详情只进日志；前端拿到的是业务码信封或宿主通用兜底。
+            WasmHost.log_warn(&format!("orchestration command `{name}` failed: {error}"));
+            super::command_error(error)
+        })
+    }
+
+    fn dispatch_command(name: &str, args: Value) -> Result<Value, String> {
         let now = crate::config::model::now_rfc3339();
         match name {
             "orchestration.meta" => meta(),

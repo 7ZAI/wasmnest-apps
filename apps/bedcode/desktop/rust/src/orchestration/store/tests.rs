@@ -248,3 +248,75 @@ fn evidence_roundtrips_per_attempt() {
     assert_eq!(evidence[0].kind, EvidenceKind::Command);
     assert_eq!(evidence[0].attempt, 1);
 }
+
+#[test]
+fn append_evidence_replaces_the_same_id() {
+    let store = MemoryStore::default();
+    let mut row = EvidenceRecord {
+        id: "o1:n1:1:acceptance".to_string(),
+        orchestration_id: "o1".to_string(),
+        node_key: "n1".to_string(),
+        attempt: 1,
+        kind: EvidenceKind::Command,
+        payload: serde_json::json!({"exitCode": 1}),
+        at: "2026-11-05T00:00:00Z".to_string(),
+    };
+    store.append_evidence(&row).unwrap();
+    row.payload = serde_json::json!({"exitCode": 0});
+    row.at = "2026-11-05T00:00:01Z".to_string();
+    store.append_evidence(&row).unwrap();
+
+    let evidence = store.evidence("o1").unwrap();
+    assert_eq!(evidence.len(), 1, "重采覆盖同 id 旧行，不产生重复证据");
+    assert_eq!(evidence[0].payload["exitCode"], 0);
+}
+
+#[test]
+fn reset_execution_plane_clears_evidence_and_dispatch_markers_only() {
+    let store = MemoryStore::default();
+    store.put(&orchestration("o1")).unwrap();
+    store.put(&orchestration("o2")).unwrap();
+    store
+        .append_event(
+            "o1",
+            EventDraft {
+                kind: EventKind::Created,
+                node_key: None,
+                attempt: None,
+                payload: serde_json::json!({}),
+                at: "2026-11-05T00:00:00Z".to_string(),
+            },
+        )
+        .unwrap();
+    store
+        .claim_dispatch("o1", "n1", 1, serde_json::json!({}), "2026-11-05T00:00:01Z")
+        .unwrap();
+    for id in ["o1", "o2"] {
+        store
+            .append_evidence(&EvidenceRecord {
+                id: format!("{id}:n1:1:diff"),
+                orchestration_id: id.to_string(),
+                node_key: "n1".to_string(),
+                attempt: 1,
+                kind: EvidenceKind::Diff,
+                payload: serde_json::json!({"files": []}),
+                at: "2026-11-05T00:00:02Z".to_string(),
+            })
+            .unwrap();
+    }
+
+    store.reset_execution_plane("o1").unwrap();
+
+    assert!(store.evidence("o1").unwrap().is_empty());
+    assert_eq!(store.evidence("o2").unwrap().len(), 1, "别的编排不受影响");
+    let events = store.events("o1", 0, 100).unwrap();
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].kind, EventKind::Created, "审计事件保留");
+    assert!(
+        store
+            .claim_dispatch("o1", "n1", 1, serde_json::json!({}), "2026-11-05T00:00:03Z")
+            .unwrap()
+            .is_some(),
+        "派发占位已清除，新计划可重新认领"
+    );
+}

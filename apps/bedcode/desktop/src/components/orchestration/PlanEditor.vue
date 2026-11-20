@@ -5,7 +5,13 @@ import AppSelectField from '@/components/ui/AppSelectField.vue'
 import AppTextField from '@/components/ui/AppTextField.vue'
 import { useAppI18n } from '@/composables/useAppI18n'
 import type { AgentProfileView } from '@/composables/orchestration/types'
-import type { Plan, PlanError, PlanNode } from '@/utils/orchestrationPlan'
+import {
+  formatCommandArgv,
+  splitCommandArgv,
+  type Plan,
+  type PlanError,
+  type PlanNode,
+} from '@/utils/orchestrationPlan'
 
 const props = defineProps<{
   plan: Plan
@@ -58,7 +64,7 @@ watch(
     if (!resetting) dirty.value = true
   },
   // sync：程序回填必须在 `resetting` 仍为 true 时被消费，pre flush 会把
-  // watcher 排到下一拍，那时标志已复位 → dirty 永真（M28）。
+  // watcher 排到下一拍，那时标志已复位 → dirty 永真。
   { deep: true, flush: 'sync' },
 )
 watch(
@@ -89,6 +95,11 @@ function clone(plan: Plan): Plan {
 const MAX_PLAN_NODES = 20
 const NODE_KEY_RE = /^[a-z0-9-]{1,32}$/
 const keyError = ref<string | null>(null)
+/**
+ * key 输入框的重置代次：改名被拒时模型值不变，Vue 不会回写 DOM，
+ * 输入框会停留在被拒文本上；递增代次强制重挂载该字段，把 DOM 拉回真实 key。
+ */
+const keyFieldSeq = ref(0)
 
 function nextKey(): string {
   const used = new Set(draft.value.nodes.map((node) => node.key))
@@ -130,13 +141,15 @@ function removeNode(index: number) {
 function renameNode(index: number, nextKey: string) {
   const previous = draft.value.nodes[index]?.key
   if (!previous || !nextKey || nextKey === previous) return
-  // 本地重复 key 会破坏依赖 chip 与 workflowLayout，等后端报错太晚（M30）。
+  // 本地重复 key 会破坏依赖 chip 与 workflowLayout，等后端报错太晚。
   if (!NODE_KEY_RE.test(nextKey)) {
     keyError.value = errorLabel('invalid-node-key')
+    keyFieldSeq.value += 1
     return
   }
   if (draft.value.nodes.some((node, i) => i !== index && node.key === nextKey)) {
     keyError.value = errorLabel('duplicate-node-key')
+    keyFieldSeq.value += 1
     return
   }
   keyError.value = null
@@ -167,12 +180,12 @@ function setScope(node: PlanNode, value: string) {
 }
 
 function commandText(node: PlanNode): string {
-  return node.acceptance.type === 'command' ? node.acceptance.command.join(' ') : ''
+  return node.acceptance.type === 'command' ? formatCommandArgv(node.acceptance.command) : ''
 }
 
 function setCommand(node: PlanNode, value: string) {
   if (node.acceptance.type !== 'command') return
-  node.acceptance.command = value.split(/\s+/).filter(Boolean)
+  node.acceptance.command = splitCommandArgv(value)
 }
 
 function setAcceptanceType(node: PlanNode, type: string) {
@@ -256,7 +269,7 @@ function errorLabel(code: string): string {
     <div class="mt-4 space-y-3">
       <div
         v-for="(node, index) in draft.nodes"
-        :key="index"
+        :key="node.key"
         class="rounded-btn border border-[var(--border)] bg-[var(--bg-page)] p-3"
       >
         <div class="flex items-center gap-2">
@@ -287,6 +300,7 @@ function errorLabel(code: string): string {
 
         <div class="mt-2 flex flex-wrap gap-2">
           <AppTextField
+            :key="keyFieldSeq"
             class="w-28 shrink-0"
             :model-value="node.key"
             :label="t('orchestration.planEditor.nodeKey')"
