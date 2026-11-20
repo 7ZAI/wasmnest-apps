@@ -699,6 +699,10 @@ export type MessageSchema = {
   'hub.speed.recommendOfficial': string
   'hub.speed.current': string
   'hub.speed.fail': string
+  'hub.speed.denied': string
+  'hub.speed.consentAlwaysAsk': string
+  'hub.speed.consentFailed': string
+  'hub.speed.consentDroppedRecords': string
   'hub.speed.goto': string
   'hub.speed.recommended': string
   'hub.speed.currentTag': string
