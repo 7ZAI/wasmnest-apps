@@ -15,9 +15,9 @@
   "icon": "icon.svg",
   "permissions": [
     "apps:control",
+    "network:http",
     "storage",
-    "ui:globalEntry",
-    "network:http"
+    "ui:globalEntry"
   ],
   "contributes": {
     "commands": [

@@ -11,6 +11,7 @@ path = "src/lib.rs"
 
 [features]
 default = []
+
 # 与真实 getrandom 的特性名对齐，让下游 `getrandom/std` 等特性引用不报错。
 std = []
 js = []

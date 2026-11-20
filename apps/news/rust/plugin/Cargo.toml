@@ -1,4 +1,4 @@
-# 双端同构 wasm 产物源（ADR 0050 单产物）：本 crate 不属于 desktop / mobile
+# 双端同构 wasm 产物源（单产物）：本 crate 不属于 desktop / mobile
 # 任何一端，与共享核 `../core` 同住应用级 rust 层。桌面构建链
 # `desktop/scripts/build.js` 与移动端 `package.json` 的 `wasmnest.sharedRustManifest`
 # 都指向本文件。
