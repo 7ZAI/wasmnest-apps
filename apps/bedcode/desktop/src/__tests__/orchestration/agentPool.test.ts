@@ -104,6 +104,12 @@ describe('AgentPoolArea', () => {
     const empty = mountPool([])
     await flushPromises()
     expect(empty.find('[data-testid="orchestration-pool-empty"]').exists()).toBe(true)
+    // 空态给可点的创建入口（有就绪 CLI 时可用），点击直接进创建表单
+    const emptyCreate = empty.find('[data-testid="orchestration-pool-empty-create"]')
+    expect(emptyCreate.exists()).toBe(true)
+    expect(emptyCreate.attributes('disabled')).toBeUndefined()
+    await emptyCreate.trigger('click')
+    expect(empty.find('[data-testid="orchestration-pool-form"]').exists()).toBe(true)
     empty.unmount()
 
     const noCli = mountPool(
@@ -114,6 +120,9 @@ describe('AgentPoolArea', () => {
     expect(noCli.text()).toContain('orchestration.pool.noCli')
     expect(
       noCli.find('[data-testid="orchestration-pool-create"]').attributes('disabled'),
+    ).toBeDefined()
+    expect(
+      noCli.find('[data-testid="orchestration-pool-empty-create"]').attributes('disabled'),
     ).toBeDefined()
     await noCli.find('[data-testid="orchestration-pool-refresh-cli"]').trigger('click')
     expect(noCli.emitted('refresh')).toHaveLength(1)

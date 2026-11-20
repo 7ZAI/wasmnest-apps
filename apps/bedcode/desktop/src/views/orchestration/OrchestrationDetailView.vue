@@ -360,7 +360,12 @@ onDeactivated(() => {
         <h2 class="truncate text-[calc(13px*var(--ui-scale))] font-semibold">
           {{ detail?.title ?? '' }}
         </h2>
-        <StatusBadge v-if="detail" :status="detail.status" testid="orchestration-detail-status" />
+        <StatusBadge
+          v-if="detail"
+          :status="detail.status"
+          :approved="detail.approved"
+          testid="orchestration-detail-status"
+        />
       </div>
       <div class="flex shrink-0 items-center gap-2">
         <button class="wb-btn-ghost" data-testid="orchestration-detail-refresh" @click="refresh()">
@@ -435,15 +440,19 @@ onDeactivated(() => {
         >
           <div class="flex flex-wrap items-start justify-between gap-3">
             <div class="min-w-0 space-y-2">
+              <!-- 元信息用带标签的 chip 组：点号串没有字段名，窄窗口换行后语义丢失 -->
               <div
-                class="flex flex-wrap items-center gap-x-3 gap-y-1 text-[calc(11px*var(--ui-scale))] text-[var(--text-secondary)]"
+                class="flex flex-wrap items-center gap-1.5 text-[calc(11px*var(--ui-scale))]"
               >
-                <span class="wb-mono inline-flex items-center gap-1">
+                <span
+                  class="inline-flex min-w-0 items-center gap-1 rounded-tag border border-[var(--border)] bg-[var(--bg-hover)] px-2 py-0.5"
+                >
                   <svg
                     class="h-3 w-3 shrink-0 text-[var(--text-tertiary)]"
                     fill="none"
                     stroke="currentColor"
                     viewBox="0 0 24 24"
+                    aria-hidden="true"
                   >
                     <path
                       stroke-linecap="round"
@@ -452,48 +461,73 @@ onDeactivated(() => {
                       d="M3 7a2 2 0 012-2h4l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"
                     />
                   </svg>
-                  {{ detail.projectName }}
+                  <span class="shrink-0 text-[var(--text-tertiary)]">{{
+                    t('orchestration.create.project')
+                  }}</span>
+                  <span class="wb-mono truncate text-[var(--text-primary)]">{{
+                    detail.projectName
+                  }}</span>
                 </span>
-                <span class="text-[var(--text-tertiary)]" aria-hidden="true">·</span>
-                <span class="wb-mono">{{ modeLabel(detail.mode) }}</span>
-                <span class="text-[var(--text-tertiary)]" aria-hidden="true">·</span>
                 <span
-                  class="wb-mono inline-flex min-w-0 items-center gap-1"
-                  :title="t('orchestration.detail.orchestrator')"
+                  class="inline-flex items-center gap-1 rounded-tag border border-[var(--border)] bg-[var(--bg-hover)] px-2 py-0.5"
+                >
+                  <span class="text-[var(--text-tertiary)]">{{
+                    t('orchestration.create.mode')
+                  }}</span>
+                  <span class="wb-mono text-[var(--text-primary)]">{{
+                    modeLabel(detail.mode)
+                  }}</span>
+                </span>
+                <span
+                  class="inline-flex min-w-0 items-center gap-1 rounded-tag border border-[var(--border)] bg-[var(--bg-hover)] px-2 py-0.5"
                   data-testid="orchestration-orchestrator"
                 >
-                  <span class="truncate">{{ orchestratorName }}</span>
+                  <span class="shrink-0 text-[var(--text-tertiary)]">{{
+                    t('orchestration.detail.orchestrator')
+                  }}</span>
+                  <span class="wb-mono truncate text-[var(--text-primary)]">{{
+                    orchestratorName
+                  }}</span>
                 </span>
-                <span class="text-[var(--text-tertiary)]" aria-hidden="true">·</span>
-                <span class="wb-mono" data-testid="orchestration-approval-policy">{{
-                  detail.requireApproval
-                    ? t('orchestration.detail.approvalOn')
-                    : t('orchestration.detail.approvalOff')
-                }}</span>
-                <span class="text-[var(--text-tertiary)]" aria-hidden="true">·</span>
-                <span class="wb-mono">{{
-                  t('orchestration.detail.planRev', { rev: detail.planRev })
-                }}</span>
-                <span class="text-[var(--text-tertiary)]" aria-hidden="true">·</span>
                 <span
-                  class="wb-mono"
-                  :class="detail.approved ? 'text-[var(--color-success-ink)]' : ''"
+                  class="inline-flex items-center gap-1 rounded-tag border border-[var(--border)] bg-[var(--bg-hover)] px-2 py-0.5"
+                  data-testid="orchestration-approval-policy"
+                >
+                  <span class="text-[var(--text-tertiary)]">{{
+                    t('orchestration.detail.requireApproval')
+                  }}</span>
+                  <span class="wb-mono text-[var(--text-primary)]">{{
+                    detail.requireApproval
+                      ? t('orchestration.detail.approvalOn')
+                      : t('orchestration.detail.approvalOff')
+                  }}</span>
+                </span>
+                <span
+                  class="wb-mono inline-flex items-center rounded-tag border border-[var(--border)] bg-[var(--bg-hover)] px-2 py-0.5 text-[var(--text-primary)]"
+                  >{{ t('orchestration.detail.planRev', { rev: detail.planRev }) }}</span
+                >
+                <span
+                  class="wb-mono inline-flex items-center rounded-tag border px-2 py-0.5"
+                  :class="
+                    detail.approved
+                      ? 'border-[color-mix(in_srgb,var(--color-success)_35%,transparent)] bg-[var(--color-success-light)] text-[var(--color-success-ink)]'
+                      : 'border-[var(--border)] bg-[var(--bg-hover)] text-[var(--text-secondary)]'
+                  "
                   >{{
                     detail.approved
                       ? t('orchestration.detail.approved')
                       : t('orchestration.detail.notApproved')
                   }}</span
                 >
-                <span class="text-[var(--text-tertiary)]" aria-hidden="true">·</span>
                 <span
-                  class="wb-mono inline-flex items-center gap-1"
-                  :title="t('orchestration.detail.budget')"
+                  class="inline-flex items-center gap-1 rounded-tag border border-[var(--border)] bg-[var(--bg-hover)] px-2 py-0.5"
                 >
                   <svg
                     class="h-3 w-3 shrink-0 text-[var(--text-tertiary)]"
                     fill="none"
                     stroke="currentColor"
                     viewBox="0 0 24 24"
+                    aria-hidden="true"
                   >
                     <path
                       stroke-linecap="round"
@@ -502,7 +536,10 @@ onDeactivated(() => {
                       d="M12 8v4l3 2m6-2a9 9 0 11-18 0 9 9 0 0118 0z"
                     />
                   </svg>
-                  {{ budgetText }}
+                  <span class="text-[var(--text-tertiary)]">{{
+                    t('orchestration.detail.budget')
+                  }}</span>
+                  <span class="wb-mono text-[var(--text-primary)]">{{ budgetText }}</span>
                 </span>
               </div>
               <div v-if="goalText">

@@ -383,8 +383,41 @@ onMounted(load)
       class="orch-pool-empty"
       data-testid="orchestration-pool-empty"
     >
-      <p>{{ t('orchestration.pool.emptyTitle') }}</p>
-      <p class="orch-pool-empty-hint">{{ t('orchestration.pool.emptyHint') }}</p>
+      <div
+        class="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-[var(--bg-hover)] text-[var(--text-tertiary)]"
+      >
+        <svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="1.5"
+            d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"
+          />
+        </svg>
+      </div>
+      <p class="text-sm font-medium text-[var(--text-primary)]">
+        {{ t('orchestration.pool.emptyTitle') }}
+      </p>
+      <p class="orch-pool-empty-hint mx-auto max-w-md">
+        {{ t('orchestration.pool.emptyHint') }}
+      </p>
+      <button
+        type="button"
+        class="wb-btn-primary mt-5"
+        :disabled="installedAgents.length === 0"
+        data-testid="orchestration-pool-empty-create"
+        @click="openCreate"
+      >
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="1.75"
+            d="M12 4v16m8-8H4"
+          />
+        </svg>
+        {{ t('orchestration.pool.create') }}
+      </button>
     </div>
 
     <div v-else class="orch-pool-grid">
@@ -479,10 +512,11 @@ onMounted(load)
       </article>
     </div>
 
+    <!-- lg：成对网格需要内容宽 ≥ 2×220px + gap，md 扣内边距后只够单列 -->
     <PluginModal
       v-model="editorOpen"
       :title="editing ? t('orchestration.pool.editTitle') : t('orchestration.pool.createTitle')"
-      size="md"
+      size="lg"
     >
       <div class="orch-pool-form" data-testid="orchestration-pool-form">
         <AppTextField
@@ -491,13 +525,24 @@ onMounted(load)
           required
           testid="orchestration-pool-name"
         />
-        <AppSelectField
-          v-model="form.cli"
-          :label="t('orchestration.pool.cli')"
-          :options="cliOptions"
-          required
-          testid="orchestration-pool-cli"
-        />
+        <div class="orch-pool-form-row">
+          <AppSelectField
+            v-model="form.cli"
+            :label="t('orchestration.pool.cli')"
+            :options="cliOptions"
+            required
+            testid="orchestration-pool-cli"
+          />
+          <AppSelectField
+            v-model="form.thinkingLevel"
+            :label="t('orchestration.pool.thinking')"
+            :options="thinkingOptions"
+            :placeholder="t('orchestration.pool.thinkingDefault')"
+            :help="thinkingHint"
+            :disabled="thinkingOptions.length === 0"
+            testid="orchestration-pool-thinking"
+          />
+        </div>
         <p
           v-if="bridgeHint"
           class="orch-pool-form-hint"
@@ -526,27 +571,20 @@ onMounted(load)
           />
           <p v-if="optionsError" class="orch-pool-form-hint">{{ optionsError }}</p>
         </div>
-        <AppSelectField
-          v-model="form.thinkingLevel"
-          :label="t('orchestration.pool.thinking')"
-          :options="thinkingOptions"
-          :placeholder="t('orchestration.pool.thinkingDefault')"
-          :help="thinkingHint"
-          :disabled="thinkingOptions.length === 0"
-          testid="orchestration-pool-thinking"
-        />
-        <AppTextField
-          v-model="form.tagsText"
-          :label="t('orchestration.pool.tags')"
-          :help="t('orchestration.pool.listHelp')"
-          testid="orchestration-pool-tags"
-        />
-        <AppTextField
-          v-model="form.specialtiesText"
-          :label="t('orchestration.pool.specialties')"
-          :help="t('orchestration.pool.specialtiesHelp')"
-          testid="orchestration-pool-specialties"
-        />
+        <div class="orch-pool-form-row">
+          <AppTextField
+            v-model="form.tagsText"
+            :label="t('orchestration.pool.tags')"
+            :help="t('orchestration.pool.listHelp')"
+            testid="orchestration-pool-tags"
+          />
+          <AppTextField
+            v-model="form.specialtiesText"
+            :label="t('orchestration.pool.specialties')"
+            :help="t('orchestration.pool.specialtiesHelp')"
+            testid="orchestration-pool-specialties"
+          />
+        </div>
         <AppTextField
           v-model="form.description"
           :label="t('orchestration.pool.description')"
@@ -644,7 +682,7 @@ onMounted(load)
   margin-top: 6px;
   font-size: var(--font-size-tag);
   color: var(--text-tertiary);
-  max-width: 62ch;
+  max-width: 78ch;
 }
 
 .orch-pool-grid {
@@ -785,6 +823,13 @@ onMounted(load)
 .orch-pool-form {
   display: flex;
   flex-direction: column;
+  gap: 14px;
+}
+
+/* 短字段成对排布：auto-fit 按弹窗实际宽度回退单列，不依赖视口断点 */
+.orch-pool-form-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
   gap: 14px;
 }
 

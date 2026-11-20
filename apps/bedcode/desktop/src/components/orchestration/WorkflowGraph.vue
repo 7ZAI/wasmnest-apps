@@ -133,7 +133,7 @@ function edgeActive(from: string, to: string): boolean {
               width: position.width + 'px',
               height: position.height + 'px',
             }"
-            :title="`${nodesByKey.get(position.key)?.title ?? position.key} · ${statusLabel(
+            :title="`${nodesByKey.get(position.key)?.title || position.key} · ${statusLabel(
               statusOf(position.key),
             )}`"
             :aria-pressed="selectedKey === position.key"
@@ -145,22 +145,23 @@ function edgeActive(from: string, to: string): boolean {
             <span class="flex min-w-0 items-center gap-1.5">
               <AgentIcon :adapter="displayOf(position.key).cli" :size="14" />
               <span class="truncate text-[calc(12px*var(--ui-scale))] font-medium">{{
-                nodesByKey.get(position.key)?.title ?? position.key
+                nodesByKey.get(position.key)?.title || position.key
               }}</span>
             </span>
+            <!-- 状态由圆点 + 图例 + tooltip 表达；第二行不再挤状态文字，避免截断成省略号 -->
             <span
               class="wb-mono flex min-w-0 items-center gap-1.5 text-[calc(10px*var(--ui-scale))] text-[var(--text-tertiary)]"
             >
-              <span class="truncate">
-                {{ displayOf(position.key).name }} ·
-                {{ roleLabel(nodesByKey.get(position.key)?.role ?? '') }} ·
-                {{ statusLabel(statusOf(position.key)) }}
-              </span>
+              <!-- 圆点领起第二行，与图例「点 → 文字」同序；放行尾会被误读成标点 -->
               <span
                 class="h-1.5 w-1.5 shrink-0 rounded-full"
                 :class="toneDotClass[statusTone(statusOf(position.key))]"
                 aria-hidden="true"
               ></span>
+              <span class="truncate">
+                {{ displayOf(position.key).name }} ·
+                {{ roleLabel(nodesByKey.get(position.key)?.role ?? '') }}
+              </span>
             </span>
           </button>
         </div>

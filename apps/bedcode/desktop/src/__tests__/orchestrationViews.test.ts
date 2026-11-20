@@ -29,6 +29,8 @@ import OrchestrationListView from '@/views/orchestration/OrchestrationListView.v
 import OrchestrationDetailView from '@/views/orchestration/OrchestrationDetailView.vue'
 import OrchestrationTimeline from '@/components/orchestration/OrchestrationTimeline.vue'
 import PlanEditor from '@/components/orchestration/PlanEditor.vue'
+import StatusBadge from '@/components/orchestration/StatusBadge.vue'
+import WorkflowGraph from '@/components/orchestration/WorkflowGraph.vue'
 import AppSelectField from '@/components/ui/AppSelectField.vue'
 import AppTextField from '@/components/ui/AppTextField.vue'
 import type { Plan } from '@/utils/orchestrationPlan'
@@ -241,6 +243,7 @@ beforeEach(() => {
               title: '编排',
               mode: 'manual',
               status: 'awaiting-approval',
+              approved: false,
               nodeCount: 2,
               succeededCount: 0,
               failedCount: 0,
@@ -654,6 +657,114 @@ describe('PlanEditor（轮询不覆盖用户输入）', () => {
     const saved = wrapper.emitted('save')?.[0]?.[0] as Plan
     expect(saved.nodes[0].key).toBe('impl')
     expect(saved.nodes[1].dependsOn).toEqual(['impl'])
+    wrapper.unmount()
+  })
+})
+
+describe('StatusBadge（批准换档）', () => {
+  function mountBadge(props: { status: string; approved?: boolean }) {
+    return mount(StatusBadge, { props, global: { plugins: [i18n] } })
+  }
+
+  it('awaiting-approval 未批准仍示待批准；已批准换「已批准」档', () => {
+    const pending = mountBadge({ status: 'awaiting-approval' })
+    expect(pending.text()).toContain('待批准')
+    pending.unmount()
+
+    const approved = mountBadge({ status: 'awaiting-approval', approved: true })
+    expect(approved.text()).toContain('已批准')
+    expect(approved.text()).not.toContain('待批准')
+    // data-status 保留原始状态：E2E / 样式锚点不随文案档漂移
+    expect(approved.attributes('data-status')).toBe('awaiting-approval')
+    approved.unmount()
+  })
+
+  it('批准标志只影响 awaiting-approval，其余状态照常', () => {
+    const running = mountBadge({ status: 'running', approved: true })
+    expect(running.text()).toContain('执行中')
+    running.unmount()
+  })
+})
+
+describe('批准后的徽章同步（列表 + 详情）', () => {
+  it('列表行徽章随 approved 换「已批准」', async () => {
+    execute.mockImplementation(async (command: string) => {
+      if (command === 'orchestration.meta') return meta
+      if (command === 'project.list') return { projects: [{ id: 'p1', name: '项目' }] }
+      if (command === 'orchestration.list') {
+        return {
+          orchestrations: [
+            {
+              id: 'o-1',
+              projectId: 'p1',
+              projectName: '项目',
+              title: '编排',
+              mode: 'manual',
+              status: 'awaiting-approval',
+              approved: true,
+              nodeCount: 2,
+              succeededCount: 0,
+              failedCount: 0,
+              runningCount: 0,
+              agents: ['pi'],
+              updatedAt: '2026-11-05T00:00:00Z',
+              startedAt: null,
+              endedAt: null,
+            },
+          ],
+        }
+      }
+      throw new Error(`unexpected command: ${command}`)
+    })
+    const wrapper = mountView(OrchestrationListView)
+    await flushPromises()
+    const row = wrapper.find('[data-testid="orchestration-row"]')
+    expect(row.text()).toContain('已批准')
+    expect(row.text()).not.toContain('待批准')
+    wrapper.unmount()
+  })
+
+  it('详情头部徽章随 approved 换「已批准」', async () => {
+    const approvedView = view('awaiting-approval')
+    approvedView.orchestration.approved = true
+    execute.mockImplementation(async (command: string) => {
+      if (command === 'orchestration.meta') return meta
+      if (command === 'orchestration.get') return approvedView
+      if (command === 'orchestration.events') return { events: [], nextSeq: 0 }
+      throw new Error(`unexpected command: ${command}`)
+    })
+    const wrapper = mountView(OrchestrationDetailView)
+    await flushPromises()
+    const badge = wrapper.find('[data-testid="orchestration-detail-status"]')
+    expect(badge.text()).toContain('已批准')
+    expect(badge.attributes('data-status')).toBe('awaiting-approval')
+    wrapper.unmount()
+  })
+})
+
+describe('列表筛选与图节点可读性', () => {
+  it('筛选下拉带可见标签（项目 / 状态），不只靠占位符', async () => {
+    const wrapper = mountView(OrchestrationListView)
+    await flushPromises()
+    const labels = wrapper
+      .findAllComponents(AppSelectField)
+      .map((field) => field.props('label'))
+    expect(labels).toContain('项目')
+    expect(labels).toContain('状态')
+    wrapper.unmount()
+  })
+
+  it('节点标题为空时图节点回退显示 key，不出现空白标题', () => {
+    const graphPlan = JSON.parse(JSON.stringify(plan)) as Plan
+    graphPlan.nodes[0].title = ''
+    const nodes = view('draft').nodes
+    nodes[0].title = ''
+    const wrapper = mount(WorkflowGraph, {
+      props: { plan: graphPlan, nodes, agentProfiles: meta.agentProfiles },
+      global: { plugins: [i18n] },
+    })
+    const first = wrapper.findAll('[data-testid="orchestration-workflow-node"]')[0]
+    expect(first.text()).toContain('n1')
     wrapper.unmount()
   })
 })

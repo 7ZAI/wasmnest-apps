@@ -640,6 +640,11 @@ fn list_returns_progress_and_participants() {
     assert_eq!(item["projectName"], "项目");
     assert_eq!(item["nodeCount"], 2);
     assert_eq!(item["agents"], serde_json::json!(["pi", "opencode"]));
+    // 列表徽章与详情同源：批准标志必须随列表下发，否则批准后行徽章仍「待批准」
+    assert_eq!(item["approved"], false);
+    approve(&store, "o1", &t(1)).unwrap();
+    let listed = list(&store, &ports, Some("p1")).unwrap();
+    assert_eq!(listed["orchestrations"][0]["approved"], true);
 }
 
 #[test]

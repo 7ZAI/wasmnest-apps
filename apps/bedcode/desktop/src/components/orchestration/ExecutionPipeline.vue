@@ -102,6 +102,14 @@ const durationText = computed(() => {
   const seconds = layout.value.durationMs / 1000
   return seconds >= 10 ? seconds.toFixed(0) : seconds.toFixed(1)
 })
+
+/** 页脚左侧给进度而不是重复板块标题：标题在卡片外已有，这里补「成功 n/m」 */
+const progressText = computed(() =>
+  t('orchestration.list.progress', {
+    done: props.nodes.filter((node) => node.status === 'succeeded').length,
+    total: props.nodes.length,
+  }),
+)
 </script>
 
 <template>
@@ -162,7 +170,9 @@ const durationText = computed(() => {
       <div
         class="flex flex-wrap items-center justify-between gap-2 border-t border-[var(--border)] px-3 py-2 text-[calc(10px*var(--ui-scale))] text-[var(--text-tertiary)]"
       >
-        <span class="wb-mono">{{ t('orchestration.detail.pipeline') }}</span>
+        <span class="wb-mono" data-testid="orchestration-pipeline-progress">{{
+          progressText
+        }}</span>
         <span class="wb-mono" data-testid="orchestration-pipeline-duration">
           {{ t('orchestration.pipeline.duration', { seconds: durationText }) }}
         </span>

@@ -8,19 +8,26 @@ const props = withDefaults(
   defineProps<{
     status: string
     kind?: 'orchestration' | 'node'
+    /** 计划已获批准：awaiting-approval 期间徽章换「已批准」档，不再误示待办 */
+    approved?: boolean
     testid?: string
   }>(),
-  { kind: 'orchestration', testid: '' },
+  { kind: 'orchestration', approved: false, testid: '' },
 )
 
 const t = useAppI18n()
-const tone = computed(() => statusTone(props.status))
+const approvedWaiting = computed(
+  () => props.kind === 'orchestration' && props.status === 'awaiting-approval' && props.approved,
+)
+const tone = computed(() => (approvedWaiting.value ? 'success' : statusTone(props.status)))
 const label = computed(() =>
-  t(
-    props.kind === 'node'
-      ? `orchestration.nodeStatus.${props.status}`
-      : `orchestration.status.${props.status}`,
-  ),
+  approvedWaiting.value
+    ? t('orchestration.detail.approved')
+    : t(
+        props.kind === 'node'
+          ? `orchestration.nodeStatus.${props.status}`
+          : `orchestration.status.${props.status}`,
+      ),
 )
 </script>
 

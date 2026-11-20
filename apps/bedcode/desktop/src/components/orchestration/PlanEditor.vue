@@ -277,7 +277,10 @@ function errorLabel(code: string): string {
             class="wb-mono rounded-tag border border-[var(--border)] bg-[var(--bg-card)] px-1.5 py-0.5 text-[calc(10px*var(--ui-scale))] text-[var(--text-tertiary)]"
             >#{{ index + 1 }}</span
           >
-          <span class="flex-1"></span>
+          <span
+            class="min-w-0 flex-1 truncate text-[calc(11.5px*var(--ui-scale))] text-[var(--text-secondary)]"
+            >{{ node.title || node.key }}</span
+          >
           <button
             type="button"
             class="flex h-6 w-6 items-center justify-center rounded-btn text-[var(--text-tertiary)] transition-colors hover:bg-[var(--color-danger-light)] hover:text-[var(--color-danger-ink)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary)]"
@@ -298,10 +301,11 @@ function errorLabel(code: string): string {
           </button>
         </div>
 
-        <div class="mt-2 flex flex-wrap gap-2">
+        <!-- 单张响应式网格：宽屏 6 列把节点卡压到四行，窄屏回退两列 / 单列 -->
+        <div class="mt-2 grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-6">
           <AppTextField
             :key="keyFieldSeq"
-            class="w-28 shrink-0"
+            class="min-w-0"
             :model-value="node.key"
             :label="t('orchestration.planEditor.nodeKey')"
             testid="orchestration-plan-node-key"
@@ -310,14 +314,11 @@ function errorLabel(code: string): string {
           />
           <AppTextField
             v-model="node.title"
-            class="min-w-48 flex-1"
+            class="min-w-0 xl:col-span-2"
             :label="t('orchestration.planEditor.nodeTitle')"
             :placeholder="t('orchestration.planEditor.nodeTitle')"
             testid="orchestration-plan-node-title"
           />
-        </div>
-
-        <div class="mt-2 grid gap-2 md:grid-cols-2">
           <AppSelectField
             :model-value="node.role"
             :label="t('orchestration.planEditor.nodeRole')"
@@ -326,33 +327,33 @@ function errorLabel(code: string): string {
           />
           <AppSelectField
             :model-value="node.agentRef"
+            class="xl:col-span-2"
             :label="t('orchestration.planEditor.nodeAgent')"
             :options="agentOptions"
             testid="orchestration-plan-node-agent"
             @update:model-value="(value) => (node.agentRef = String(value))"
           />
-        </div>
-
-        <AppTextField
-          v-model="node.matchReason"
-          class="mt-2"
-          :label="t('orchestration.planEditor.nodeMatchReason')"
-          :placeholder="t('orchestration.planEditor.matchReasonPlaceholder')"
-          testid="orchestration-plan-node-match-reason"
-        />
-
-        <AppTextField
-          v-model="node.prompt"
-          class="mt-2"
-          :label="t('orchestration.planEditor.nodePrompt')"
-          :placeholder="t('orchestration.planEditor.nodePrompt')"
-          testid="orchestration-plan-node-prompt"
-          multiline
-          :rows="2"
-        />
-
-        <div class="mt-2 grid gap-2 md:grid-cols-2">
-          <div class="min-w-0">
+          <AppTextField
+            v-model="node.prompt"
+            class="md:col-span-2 xl:col-span-3"
+            :label="t('orchestration.planEditor.nodePrompt')"
+            :placeholder="t('orchestration.planEditor.nodePrompt')"
+            testid="orchestration-plan-node-prompt"
+            multiline
+            :rows="2"
+          />
+          <AppTextField
+            class="md:col-span-2 xl:col-span-3"
+            :model-value="scopeText(node)"
+            :label="t('orchestration.planEditor.nodeScope')"
+            :placeholder="t('orchestration.planEditor.scopeHint')"
+            testid="orchestration-plan-node-scope"
+            commit-on-change
+            multiline
+            :rows="2"
+            @update:model-value="setScope(node, $event)"
+          />
+          <div class="min-w-0 md:col-span-2 xl:col-span-2">
             <span
               class="text-[calc(11.5px*var(--ui-scale))] font-medium tracking-[0.01em] text-[var(--text-secondary)]"
               >{{ t('orchestration.planEditor.nodeDeps') }}</span
@@ -382,18 +383,12 @@ function errorLabel(code: string): string {
             </div>
           </div>
           <AppTextField
-            :model-value="scopeText(node)"
-            :label="t('orchestration.planEditor.nodeScope')"
-            :placeholder="t('orchestration.planEditor.scopeHint')"
-            testid="orchestration-plan-node-scope"
-            commit-on-change
-            multiline
-            :rows="2"
-            @update:model-value="setScope(node, $event)"
+            v-model="node.matchReason"
+            class="md:col-span-2 xl:col-span-2"
+            :label="t('orchestration.planEditor.nodeMatchReason')"
+            :placeholder="t('orchestration.planEditor.matchReasonPlaceholder')"
+            testid="orchestration-plan-node-match-reason"
           />
-        </div>
-
-        <div class="mt-2 grid gap-2 md:grid-cols-2">
           <AppSelectField
             :model-value="node.acceptance.type"
             :label="t('orchestration.planEditor.nodeAcceptance')"
@@ -410,30 +405,32 @@ function errorLabel(code: string): string {
             :increase-label="t('orchestration.planEditor.increase')"
             @update:model-value="setAttempts(node, $event)"
           />
-        </div>
-
-        <div v-if="node.acceptance.type === 'command'" class="mt-2 grid gap-2 md:grid-cols-3">
-          <AppTextField
-            :model-value="commandText(node)"
-            :label="t('orchestration.planEditor.command')"
-            commit-on-change
-            @update:model-value="setCommand(node, $event)"
-          />
-          <AppTextField
-            :model-value="node.acceptance.cwd ?? ''"
-            :label="t('orchestration.planEditor.cwd')"
-            commit-on-change
-            @update:model-value="setCwd(node, $event)"
-          />
-          <AppNumberField
-            :model-value="node.acceptance.timeoutSec ?? null"
-            :label="t('orchestration.planEditor.timeout')"
-            :min="1"
-            allow-empty
-            :decrease-label="t('orchestration.planEditor.decrease')"
-            :increase-label="t('orchestration.planEditor.increase')"
-            @update:model-value="setOptionalNumber(node, $event)"
-          />
+          <template v-if="node.acceptance.type === 'command'">
+            <AppTextField
+              class="md:col-span-2 xl:col-span-2"
+              :model-value="commandText(node)"
+              :label="t('orchestration.planEditor.command')"
+              commit-on-change
+              @update:model-value="setCommand(node, $event)"
+            />
+            <AppTextField
+              class="xl:col-span-2"
+              :model-value="node.acceptance.cwd ?? ''"
+              :label="t('orchestration.planEditor.cwd')"
+              commit-on-change
+              @update:model-value="setCwd(node, $event)"
+            />
+            <AppNumberField
+              class="xl:col-span-2"
+              :model-value="node.acceptance.timeoutSec ?? null"
+              :label="t('orchestration.planEditor.timeout')"
+              :min="1"
+              allow-empty
+              :decrease-label="t('orchestration.planEditor.decrease')"
+              :increase-label="t('orchestration.planEditor.increase')"
+              @update:model-value="setOptionalNumber(node, $event)"
+            />
+          </template>
         </div>
       </div>
     </div>

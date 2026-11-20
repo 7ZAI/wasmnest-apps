@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import { useAppI18n } from '@/composables/useAppI18n'
 import type { EventView } from '@/composables/orchestration/types'
-import { eventTone, toneDotClass, toneTextClass } from '@/utils/orchestrationTone'
+import { eventTone, toneDotClass } from '@/utils/orchestrationTone'
 
 const props = defineProps<{ events: EventView[] }>()
 const t = useAppI18n()
@@ -70,7 +70,8 @@ function fullTime(at: string): string {
         <span
           class="min-w-0 flex-1 text-[calc(11px*var(--ui-scale))] leading-relaxed text-[var(--text-primary)]"
         >
-          <span :class="toneTextClass[eventTone(event.kind)]">{{ label(event.kind) }}</span>
+          <!-- 正文一律主文本色：事件语义由圆点颜色承担，蓝色正文会被误读成链接 -->
+          <span>{{ label(event.kind) }}</span>
           <span v-if="event.nodeKey" class="wb-mono text-[var(--text-secondary)]">
             · {{ event.nodeKey }}<template v-if="event.attempt"> #{{ event.attempt }}</template>
           </span>

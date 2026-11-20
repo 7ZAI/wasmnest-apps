@@ -1,5 +1,5 @@
 /**
- * 执行流水线布局（纯函数，DESIGN §9.3）
+ * 执行流水线布局（纯函数）
  *
  * 每个节点一条泳道；段 = 相邻状态事件的区间。无事件的节点回退到节点自身的
  * 时间戳（dispatchedAt / startedAt → endedAt/now），保证「刚派发还没事件」也能画。
@@ -65,14 +65,17 @@ export function pipelineLanes(
   startedAt: string | null | undefined,
   now: number = Date.now(),
 ): PipelineLayout {
-  const started = parseTime(startedAt) ?? earliestEvent(events) ?? now
+  const startedMs = parseTime(startedAt)
+  // 泳道几何兜底可以用最早事件 / now，但「总耗时」只在编排真正开始后计：
+  // 未开始时拿创建时刻兜底会让时长从创建起空转，误导成已在执行。
+  const started = startedMs ?? earliestEvent(events) ?? now
   const lanes = nodes.map((node) => laneFor(node, events, started, now))
   const endMs = Math.max(now, ...lanes.map((lane) => lane.endMs), started)
   return {
     lanes,
     startMs: started,
     endMs,
-    durationMs: Math.max(0, endMs - started),
+    durationMs: startedMs === null ? 0 : Math.max(0, endMs - started),
   }
 }
 

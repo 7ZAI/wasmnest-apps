@@ -1037,6 +1037,7 @@ pub(crate) fn list(
             "title": record.title,
             "mode": record.mode.as_str(),
             "status": record.status.as_str(),
+            "approved": record.approved(),
             "nodeCount": nodes.len(),
             "succeededCount": count(NodeStatus::Succeeded),
             "failedCount": count(NodeStatus::Failed),

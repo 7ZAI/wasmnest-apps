@@ -176,13 +176,15 @@ function onChange(event: Event): void {
   color: var(--text-tertiary);
 }
 
-/* 多行：高度交给 rows，垂直内边距与行高单独给；允许用户纵向拉伸 */
+/* 多行：高度交给 rows，垂直内边距与行高单独给；允许用户纵向拉伸。
+   软换行文本不需要横向滚动，禁掉横向滚动条避免空框出现多余滚动槽。 */
 .app-textarea {
   height: auto;
   min-height: var(--input-height);
   padding: calc(8px * var(--ui-scale)) calc(11px * var(--ui-scale));
   line-height: 1.5;
   resize: vertical;
+  overflow-x: hidden;
 }
 
 .app-control:hover:not(:disabled) {

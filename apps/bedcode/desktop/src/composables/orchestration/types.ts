@@ -1,5 +1,5 @@
 /**
- * 编排命令面 wire 形状（DESIGN §7.13）
+ * 编排命令面 wire 形状
  *
  * 与 Rust `orchestration::service` 的 JSON 输出逐字段对齐；前端不推导状态迁移，
  * 按钮可用性只读 `actions`。
@@ -87,6 +87,8 @@ export interface ListItemView {
   title: string
   mode: PlanMode
   status: OrchestrationStatus
+  /** 当前计划版本已获人工批准（批准后 status 仍停在 awaiting-approval，徽章需据此换档） */
+  approved: boolean
   nodeCount: number
   succeededCount: number
   failedCount: number

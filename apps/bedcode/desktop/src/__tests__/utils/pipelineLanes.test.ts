@@ -81,4 +81,16 @@ describe('pipelineLanes（执行流水线）', () => {
     expect(empty.lanes).toEqual([])
     expect(empty.startMs).toBe(Date.parse(at(1)))
   })
+
+  it('编排未开始（startedAt 为空）总耗时为 0，不拿创建事件空转计时', () => {
+    const layout = pipelineLanes(
+      [{ key: 'n1', title: '实现', status: 'pending', attempt: 0 }],
+      [{ seq: 1, kind: 'plan_saved', nodeKey: null, attempt: null, at: at(1) }],
+      null,
+      Date.parse(at(9)),
+    )
+    expect(layout.durationMs).toBe(0)
+    // 泳道几何仍可用最早事件兜底，只是时长不再增长
+    expect(layout.startMs).toBe(Date.parse(at(1)))
+  })
 })

@@ -409,7 +409,7 @@ onActivated(() => {
             v-model="filterProject"
             compact
             class="w-44"
-            :aria-label="t('orchestration.list.filterProject')"
+            :label="t('orchestration.list.filterProject')"
             :placeholder="t('orchestration.list.allProjects')"
             :options="projectOptions"
             :disabled="loading"
@@ -418,7 +418,7 @@ onActivated(() => {
             v-model="filterStatus"
             compact
             class="w-40"
-            :aria-label="t('orchestration.list.filterStatus')"
+            :label="t('orchestration.list.filterStatus')"
             :placeholder="t('orchestration.list.allStatuses')"
             :options="statusOptions"
             :disabled="loading"
@@ -550,7 +550,7 @@ onActivated(() => {
                     class="wb-mono rounded-tag border border-[var(--border)] px-1.5 py-0.5 text-[calc(10px*var(--ui-scale))] text-[var(--text-tertiary)]"
                     >{{ modeLabel(item.mode) }}</span
                   >
-                  <StatusBadge :status="item.status" />
+                  <StatusBadge :status="item.status" :approved="item.approved" />
                 </div>
                 <div
                   class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[calc(11px*var(--ui-scale))] text-[var(--text-secondary)]"

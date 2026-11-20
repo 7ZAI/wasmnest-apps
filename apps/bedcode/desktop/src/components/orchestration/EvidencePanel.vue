@@ -46,12 +46,28 @@ function violations(item: EvidenceView): string[] {
 
 <template>
   <div
-    :class="
-      groups.length ? 'rounded-card border border-[var(--border)] bg-[var(--bg-card)] p-2' : ''
-    "
+    class="rounded-card border border-[var(--border)] bg-[var(--bg-card)] p-3"
     data-testid="orchestration-evidence"
   >
-    <div v-if="groups.length === 0" class="py-1.5 text-xs text-[var(--text-tertiary)]">
+    <!-- 空态与相邻时间线同构：图标 + 居中提示，而不是一行孤立的灰字 -->
+    <div
+      v-if="groups.length === 0"
+      class="flex min-h-40 flex-col items-center justify-center gap-2 text-xs text-[var(--text-tertiary)]"
+    >
+      <svg
+        class="h-5 w-5"
+        fill="none"
+        stroke="currentColor"
+        viewBox="0 0 24 24"
+        aria-hidden="true"
+      >
+        <path
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="1.5"
+          d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+        />
+      </svg>
       {{ t('orchestration.evidence.empty') }}
     </div>
     <div v-else class="max-h-72 space-y-2 overflow-auto pr-0.5">
