@@ -5,24 +5,52 @@
  * 各一套，不写回宿主 `--mobile-*` 平台 token，也不透出壳的壁纸 / 环境光。
  * 仍跟随宿主深浅色（html:not(.dark) 分支）。类名统一 `news-mobile-` / `news-`
  * 前缀。
+ *
+ * 视觉方向：编辑部 / 墨与纸。中性底是暖纸与墨，强调色是墨蓝而非默认蓝；
+ * 头条用系统衬线栈，元信息用等宽 + tabular 数字。字体全部取系统栈，离线可用，
+ * 不依赖网络加载。签名细节是来源 / 时间 kicker 前那枚 4px 的电线 tick。
  */
 
 .news-mobile-app {
-  --news-bg-page: #15130f;
-  --news-bg-card: #1d1a15;
-  --news-bg-hover: #2a261e;
-  --news-bg-input: #1d1a15;
-  --news-text-primary: #ece8dc;
-  --news-text-secondary: #aaa393;
-  --news-text-tertiary: #948c79;
-  --news-border: #2e2a22;
-  --news-border-strong: #3c372b;
-  --news-accent: #60a5fa;
-  --news-accent-ink: #93c5fd;
-  --news-accent-soft: rgb(96 165 250 / 16%);
-  --news-success: #4ade80;
-  --news-warning: #fbbf24;
-  --news-danger: #f87171;
+  /* 中性阶：暖墨（深）/ 暖纸（浅），背景、卡片、描边、文字同出一阶 */
+  --news-bg-page: #141310;
+  --news-bg-card: #1c1a16;
+  --news-bg-hover: #26231d;
+  --news-bg-input: #1c1a16;
+  --news-text-primary: #efece3;
+  --news-text-secondary: #b8b1a1;
+  --news-text-tertiary: #918a79;
+  --news-border: #302c24;
+  --news-border-strong: #736c5d;
+  --news-accent: #9dc4ea;
+  --news-accent-ink: #adcff0;
+  --news-accent-soft: rgb(157 196 234 / 14%);
+  --news-on-accent: #141310;
+  --news-success: #79b98f;
+  --news-warning: #d0a049;
+  --news-danger: #e0857b;
+  --news-danger-soft: rgb(224 133 123 / 12%);
+
+  /* 排版：衬线头条 + 无衬线正文 + 等宽元信息 */
+  --news-font-body: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB',
+    'Microsoft YaHei', 'Noto Sans CJK SC', system-ui, sans-serif;
+  --news-font-display: Georgia, 'Iowan Old Style', 'Songti SC', 'Noto Serif CJK SC',
+    'Source Han Serif SC', 'SimSun', serif;
+  --news-font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono',
+    monospace;
+  --news-text-meta: 11.5px;
+  --news-text-body: 13px;
+  --news-text-title: 15px;
+  --news-text-headline: 21px;
+
+  /* 半径与间距：控件 8 / 卡片 12，间距一律 4px 栅格 */
+  --news-radius-control: 8px;
+  --news-radius-card: 12px;
+  --news-space-1: 4px;
+  --news-space-2: 8px;
+  --news-space-3: 12px;
+  --news-space-4: 16px;
+  --news-space-6: 24px;
 
   position: relative;
   display: flex;
@@ -31,27 +59,31 @@
   min-height: 0;
   background: var(--news-bg-page);
   color: var(--news-text-primary);
-  font-size: 14px;
-  line-height: 1.55;
+  font-family: var(--news-font-body);
+  font-size: var(--news-text-body);
+  line-height: 1.6;
   overflow: hidden;
+  -webkit-font-smoothing: antialiased;
 }
 
 html:not(.dark) .news-mobile-app {
-  --news-bg-page: #f5f4f0;
-  --news-bg-card: #fdfcfa;
-  --news-bg-hover: #e7e4dc;
-  --news-bg-input: #fdfcfa;
-  --news-text-primary: #26231b;
-  --news-text-secondary: #5e584c;
-  --news-text-tertiary: #736b58;
-  --news-border: #e4e1d8;
-  --news-border-strong: #d6d2c4;
-  --news-accent: #2563eb;
-  --news-accent-ink: #1d4ed8;
-  --news-accent-soft: rgb(37 99 235 / 12%);
-  --news-success: #22c55e;
-  --news-warning: #f59e0b;
-  --news-danger: #ef4444;
+  --news-bg-page: #f3f1ea;
+  --news-bg-card: #fbfaf6;
+  --news-bg-hover: #e9e5db;
+  --news-bg-input: #fbfaf6;
+  --news-text-primary: #201e19;
+  --news-text-secondary: #575148;
+  --news-text-tertiary: #7e7769;
+  --news-border: #ded9cd;
+  --news-border-strong: #8d8575;
+  --news-accent: #1f4e79;
+  --news-accent-ink: #1a466e;
+  --news-accent-soft: rgb(31 78 121 / 10%);
+  --news-on-accent: #ffffff;
+  --news-success: #2f7d52;
+  --news-warning: #966617;
+  --news-danger: #ac3d33;
+  --news-danger-soft: rgb(172 61 51 / 9%);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -68,26 +100,29 @@ html:not(.dark) .news-mobile-app {
 .news-mobile-header {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--news-space-2);
   flex: none;
-  height: 48px;
-  padding: 0 12px;
+  height: 52px;
+  padding: 0 var(--news-space-3);
   border-bottom: 1px solid var(--news-border);
+  background: var(--news-bg-card);
 }
 .news-mobile-header b {
-  font-size: 15px;
-  font-weight: 650;
+  font-family: var(--news-font-display);
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
 }
 .news-mobile-spacer {
   margin-inline-start: auto;
 }
 .news-mobile-icon-btn {
-  width: 34px;
-  height: 34px;
+  width: 40px;
+  height: 40px;
   display: inline-grid;
   place-items: center;
   border: 1px solid transparent;
-  border-radius: 8px;
+  border-radius: var(--news-radius-control);
   background: none;
   color: var(--news-text-secondary);
   font-size: 17px;
@@ -114,73 +149,79 @@ html:not(.dark) .news-mobile-app {
   min-height: 0;
   overflow: auto;
   overscroll-behavior: contain;
-  padding: 0 14px 24px;
+  padding: 0 var(--news-space-4) var(--news-space-6);
 }
 .news-mobile-note {
   margin: 0;
-  padding: 10px 2px 8px;
-  font-size: 11px;
+  padding: 12px 0 var(--news-space-2);
+  font-size: 12px;
+  line-height: 1.6;
+  font-variant-numeric: tabular-nums;
   color: var(--news-text-tertiary);
 }
 .news-mobile-chips {
   display: flex;
-  gap: 16px;
+  gap: 20px;
   overflow-x: auto;
   overscroll-behavior-x: contain;
-  padding: 2px 2px 8px;
+  padding: 0 0 var(--news-space-2);
 }
 .news-mobile-chip {
   flex: none;
   height: auto;
-  padding: 3px 0;
+  padding: 8px 0;
   border: 0;
   border-bottom: 2px solid transparent;
   border-radius: 0;
   background: none;
   color: var(--news-text-tertiary);
-  font-size: 12px;
+  font-size: var(--news-text-body);
   cursor: pointer;
 }
 .news-mobile-chip.on {
   color: var(--news-text-primary);
   font-weight: 600;
-  border-bottom-color: var(--news-text-primary);
+  border-bottom-color: var(--news-accent);
 }
 
 /* ==================== 空态 / 错误 ==================== */
 .news-mobile-empty {
   margin: 0;
-  padding: 30px 2px;
+  padding: 44px 0 48px;
   text-align: start;
   color: var(--news-text-secondary);
 }
 .news-mobile-empty b {
   display: block;
-  margin-bottom: 4px;
-  color: var(--news-text-primary);
-  font-size: 14px;
+  margin-bottom: var(--news-space-2);
+  font-family: var(--news-font-display);
+  font-size: 18px;
   font-weight: 600;
+  line-height: 1.4;
+  color: var(--news-text-primary);
 }
 .news-mobile-empty span {
   display: block;
-  font-size: 12.5px;
-  color: var(--news-text-tertiary);
+  font-size: var(--news-text-body);
+  line-height: 1.7;
+  color: var(--news-text-secondary);
 }
 .news-mobile-error {
-  margin: 14px;
-  padding: 12px 14px;
-  border: 1px solid var(--news-danger);
-  border-radius: 10px;
-  background: rgb(248 113 113 / 12%);
+  margin: var(--news-space-3) 0;
+  padding: 12px 16px;
+  border-inline-start: 3px solid var(--news-danger);
+  border-radius: var(--news-radius-control);
+  background: var(--news-danger-soft);
   color: var(--news-danger);
-  font-size: 12.5px;
+  font-size: 12px;
+  line-height: 1.6;
 }
 
 /* ==================== 底栏 ==================== */
 .news-mobile-tabbar {
   display: flex;
   flex: none;
-  height: 56px;
+  height: 60px;
   border-top: 1px solid var(--news-border);
   background: var(--news-bg-card);
 }
@@ -188,15 +229,18 @@ html:not(.dark) .news-mobile-app {
   flex: 1;
   display: grid;
   place-items: center;
-  gap: 2px;
+  align-content: center;
+  gap: var(--news-space-1);
   border: 0;
-  padding: 6px 0;
+  border-top: 2px solid transparent;
+  padding: var(--news-space-2) 0;
   background: none;
   color: var(--news-text-tertiary);
-  font-size: 11px;
+  font-size: 12px;
   cursor: pointer;
 }
 .news-mobile-tab.on {
+  border-top-color: var(--news-accent);
   color: var(--news-text-primary);
   font-weight: 600;
 }
@@ -217,14 +261,16 @@ html:not(.dark) .news-mobile-app {
 .news-mobile-detail-head {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--news-space-2);
   flex: none;
-  height: 48px;
-  padding: 0 8px 0 4px;
+  height: 52px;
+  padding: 0 var(--news-space-2) 0 var(--news-space-1);
   border-bottom: 1px solid var(--news-border);
+  background: var(--news-bg-card);
 }
 .news-mobile-detail-head b {
-  font-size: 13px;
+  font-family: var(--news-font-display);
+  font-size: var(--news-text-title);
   font-weight: 600;
 }
 .news-mobile-detail-body {
@@ -232,21 +278,22 @@ html:not(.dark) .news-mobile-app {
   min-height: 0;
   overflow: auto;
   overscroll-behavior: contain;
-  padding: 18px 16px 32px;
+  padding: 20px var(--news-space-4) 40px;
 }
 
 /* ==================== toast ==================== */
 .news-mobile-toast {
   position: absolute;
-  bottom: 74px;
+  bottom: 76px;
   left: 50%;
   z-index: 20;
   transform: translateX(-50%);
   max-width: calc(100% - 32px);
-  padding: 7px 14px;
-  border-radius: 999px;
+  padding: 8px 16px;
+  border-radius: var(--news-radius-control);
   background: var(--news-text-primary);
   color: var(--news-bg-page);
   font-size: 12px;
+  line-height: 1.5;
   text-align: center;
 }

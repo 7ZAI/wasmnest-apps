@@ -588,46 +588,53 @@ onBeforeUnmount(() => {
   justify-content: center;
   height: 0;
   overflow: hidden;
-  font-size: 11px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
   color: var(--news-text-tertiary);
   transition: height 0.12s ease-out;
 }
 .news-mobile-cutoff {
-  margin-inline-start: 8px;
+  margin-inline-start: var(--news-space-2);
+  font-family: var(--news-font-mono);
   color: var(--news-text-tertiary);
 }
 .news-mobile-banner {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--news-space-2);
   flex-wrap: wrap;
-  margin: 8px 0 10px;
-  padding: 8px 10px;
-  border-radius: 10px;
+  margin: var(--news-space-2) 0 var(--news-space-3);
+  padding: 12px;
+  border-inline-start: 2px solid var(--news-accent);
+  border-radius: var(--news-radius-control);
   background: var(--news-accent-soft);
   color: var(--news-accent-ink);
   font-size: 12px;
+  line-height: 1.5;
 }
 .news-mobile-link-btn {
+  min-height: 24px;
   border: 0;
   background: none;
-  padding: 0;
+  padding: 2px 0;
   color: var(--news-accent-ink);
   font-size: 12px;
   text-decoration: underline;
+  text-underline-offset: 3px;
 }
 .news-mobile-status {
-  margin: 4px 0 10px;
-  padding: 10px 12px;
+  margin: var(--news-space-1) 0 var(--news-space-3);
+  padding: var(--news-space-4);
   border: 1px solid var(--news-border);
-  border-radius: 10px;
+  border-radius: var(--news-radius-card);
   background: var(--news-bg-card);
 }
 .news-mobile-status h3 {
-  margin: 0 0 6px;
-  font-size: 11.5px;
+  margin: 0 0 var(--news-space-3);
+  font-family: var(--news-font-display);
+  font-size: var(--news-text-title);
   font-weight: 600;
-  color: var(--news-text-secondary);
+  color: var(--news-text-primary);
 }
 .news-mobile-status ul {
   margin: 0;
@@ -635,106 +642,158 @@ onBeforeUnmount(() => {
   list-style: none;
   display: flex;
   flex-direction: column;
-  gap: 4px;
 }
 .news-mobile-status li {
   display: flex;
-  gap: 6px;
+  align-items: baseline;
+  gap: var(--news-space-2);
   flex-wrap: wrap;
-  font-size: 11.5px;
+  padding: var(--news-space-2) 0;
+  border-bottom: 1px solid var(--news-border);
+  font-size: 12px;
+  line-height: 1.5;
   color: var(--news-text-tertiary);
+}
+.news-mobile-status li:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+.news-mobile-status li::before {
+  content: '';
+  flex: none;
+  width: 4px;
+  height: 4px;
+  border-radius: 1px;
+  background: var(--news-accent);
 }
 .news-mobile-status li.failing .news-mobile-status-name {
   color: var(--news-danger);
 }
 .news-mobile-status-name {
-  color: var(--news-text-secondary);
+  font-size: var(--news-text-body);
   font-weight: 500;
+  color: var(--news-text-secondary);
+}
+.news-mobile-status-when,
+.news-mobile-status-reason {
+  font-family: var(--news-font-mono);
+  font-size: var(--news-text-meta);
+  font-variant-numeric: tabular-nums;
 }
 .news-mobile-status-reason {
   color: var(--news-danger);
 }
 .news-mobile-empty .news-mobile-primary {
-  margin-top: 12px;
+  margin-top: var(--news-space-4);
 }
 .news-mobile-primary {
-  height: 32px;
-  padding: 0 14px;
+  height: 44px;
+  padding: 0 var(--news-space-4);
   border: 0;
-  border-radius: 999px;
+  border-radius: var(--news-radius-control);
   background: var(--news-accent);
-  color: #fff;
-  font-size: 12.5px;
+  color: var(--news-on-accent);
+  font-size: var(--news-text-body);
   font-weight: 600;
+  cursor: pointer;
+  transition:
+    transform 100ms ease-out,
+    opacity 100ms ease-out;
+}
+.news-mobile-primary:active {
+  transform: scale(0.98);
 }
 .news-d-kicker {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: var(--news-space-2);
   flex-wrap: wrap;
   margin: 0;
-  font-size: 11.5px;
+  font-family: var(--news-font-mono);
+  font-size: var(--news-text-meta);
+  font-variant-numeric: tabular-nums;
   color: var(--news-text-tertiary);
 }
+.news-d-kicker::before {
+  content: '';
+  flex: none;
+  width: 4px;
+  height: 4px;
+  border-radius: 1px;
+  background: var(--news-accent);
+}
 .news-d-title {
-  margin: 10px 0 10px;
-  font-size: 22px;
-  line-height: 1.32;
-  font-weight: 650;
+  margin: var(--news-space-3) 0;
+  font-family: var(--news-font-display);
+  font-size: var(--news-text-headline);
+  line-height: 1.38;
+  font-weight: 600;
   text-wrap: balance;
 }
 .news-d-summary {
-  margin: 0 0 18px;
-  font-size: 13.5px;
-  line-height: 1.75;
+  margin: 0 0 20px;
+  font-size: 14px;
+  line-height: 1.8;
   color: var(--news-text-primary);
   text-wrap: pretty;
 }
 .news-d-placeholder {
-  margin: 0 0 18px;
-  font-size: 13px;
+  margin: 0 0 20px;
+  font-size: var(--news-text-body);
   line-height: 1.7;
   color: var(--news-text-tertiary);
 }
 .news-d-actions {
   display: flex;
-  gap: 14px;
+  gap: var(--news-space-2);
   flex-wrap: wrap;
-  margin-bottom: 14px;
+  margin-bottom: var(--news-space-4);
 }
 .news-d-btn {
-  min-height: 32px;
-  padding: 4px 0 2px;
-  border: 0;
-  border-bottom: 1px solid var(--news-border-strong);
+  min-height: 36px;
+  padding: 8px 12px;
+  border: 1px solid var(--news-border-strong);
+  border-radius: var(--news-radius-control);
   background: none;
   color: var(--news-text-secondary);
   font-size: 12px;
+  cursor: pointer;
+}
+.news-d-btn:active {
+  background: var(--news-bg-hover);
 }
 .news-d-btn.on {
+  border-color: var(--news-accent);
+  background: var(--news-accent-soft);
   color: var(--news-accent-ink);
-  border-bottom-color: var(--news-accent-ink);
 }
 .news-d-hint {
-  margin: 0 0 6px;
-  font-size: 11.5px;
+  margin: 0 0 var(--news-space-2);
+  font-size: 12px;
   color: var(--news-text-tertiary);
 }
 .news-d-link {
-  margin: 0 0 18px;
-  font-size: 11px;
-  line-height: 1.5;
+  margin: 0 0 20px;
+  padding: 12px;
+  border: 1px solid var(--news-border);
+  border-radius: var(--news-radius-control);
+  background: var(--news-bg-card);
+  font-family: var(--news-font-mono);
+  font-size: var(--news-text-meta);
+  line-height: 1.6;
   color: var(--news-text-tertiary);
   word-break: break-all;
   user-select: all;
 }
 .news-d-origins {
-  padding-top: 12px;
+  padding-top: var(--news-space-3);
   border-top: 1px solid var(--news-border);
 }
 .news-d-origins h3 {
-  margin: 0 0 8px;
-  font-size: 12px;
+  margin: 0 0 var(--news-space-2);
+  font-family: var(--news-font-display);
+  font-size: var(--news-text-body);
+  font-weight: 600;
   color: var(--news-text-secondary);
 }
 .news-d-origins ul {
@@ -743,50 +802,56 @@ onBeforeUnmount(() => {
   list-style: none;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--news-space-2);
 }
 .news-d-origins li {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--news-space-1);
+  padding: var(--news-space-2) 0;
+  border-bottom: 1px solid var(--news-border);
+}
+.news-d-origins li:last-child {
+  border-bottom: 0;
 }
 .news-d-origin-source {
-  font-size: 11.5px;
-  font-weight: 600;
-  color: var(--news-text-secondary);
+  font-family: var(--news-font-mono);
+  font-size: var(--news-text-meta);
+  font-weight: 500;
+  color: var(--news-text-tertiary);
 }
 .news-d-origin-title {
-  font-size: 12.5px;
+  font-size: var(--news-text-body);
   color: var(--news-text-primary);
 }
 .news-mobile-fallback {
   position: absolute;
-  inset-inline: 14px;
-  bottom: 70px;
+  inset-inline: var(--news-space-3);
+  bottom: 76px;
   z-index: 20;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 14px;
-  border: 1px solid var(--news-border-strong);
-  border-radius: 12px;
+  gap: var(--news-space-3);
+  padding: var(--news-space-4);
+  border: 1px solid var(--news-border);
+  border-radius: var(--news-radius-card);
   background: var(--news-bg-card);
-  box-shadow: 0 10px 30px rgb(0 0 0 / 0.32);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.18);
 }
 .news-mobile-fallback p {
   margin: 0;
-  font-size: 12.5px;
+  font-size: var(--news-text-body);
   color: var(--news-text-secondary);
 }
 .news-mobile-fallback textarea {
   width: 100%;
   min-height: 62px;
-  padding: 8px;
+  padding: var(--news-space-2);
   border: 1px solid var(--news-border-strong);
-  border-radius: 8px;
+  border-radius: var(--news-radius-control);
   background: var(--news-bg-input);
   color: var(--news-text-primary);
-  font-size: 11.5px;
+  font-size: 12px;
   user-select: all;
 }
 </style>

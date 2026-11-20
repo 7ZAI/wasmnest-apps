@@ -142,25 +142,37 @@ function submit(): void {
 .news-ms-form {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 12px 0 16px;
+  gap: var(--news-space-3);
+  padding: var(--news-space-4) 0;
 }
 .news-ms-field {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  font-size: 11.5px;
+  gap: var(--news-space-2);
+  font-size: var(--news-text-body);
+  line-height: 1.5;
   color: var(--news-text-secondary);
 }
 .news-ms-field input {
+  box-sizing: border-box;
   width: 100%;
-  height: 34px;
-  padding: 0 8px;
+  min-height: 44px;
+  padding: 0 12px;
   border: 1px solid var(--news-border-strong);
-  border-radius: 8px;
+  border-radius: var(--news-radius-control);
   background: var(--news-bg-input);
   color: var(--news-text-primary);
-  font-size: 13px;
+  font-family: inherit;
+  font-size: 16px;
+}
+.news-ms-field input::placeholder {
+  color: var(--news-text-tertiary);
+  opacity: 1;
+}
+.news-ms-field input:focus-visible {
+  border-color: var(--news-accent);
+  outline: 2px solid var(--news-accent);
+  outline-offset: 1px;
 }
 .news-ms-error {
   margin: 0;
@@ -169,30 +181,37 @@ function submit(): void {
 }
 .news-ms-note {
   margin: 0;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.6;
   color: var(--news-text-tertiary);
 }
 .news-ms-actions {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--news-space-2);
 }
 .news-ms-primary {
-  height: 32px;
-  padding: 0 14px;
+  height: 44px;
+  padding: 0 var(--news-space-4);
   border: 0;
-  border-radius: 999px;
+  border-radius: var(--news-radius-control);
   background: var(--news-accent);
-  color: #fff;
-  font-size: 12.5px;
+  color: var(--news-on-accent);
+  font-size: var(--news-text-body);
   font-weight: 600;
+  cursor: pointer;
+}
+.news-ms-primary:disabled {
+  opacity: 0.5;
 }
 .news-ms-link {
+  min-height: 24px;
+  padding: 2px 0;
   border: 0;
   background: none;
-  padding: 0;
-  color: var(--news-text-tertiary);
+  color: var(--news-accent-ink);
   font-size: 12px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 </style>

@@ -135,12 +135,17 @@ function stepBy(direction: number): void {
   display: flex;
   box-sizing: border-box;
   width: 100%;
-  height: 34px;
+  min-height: 44px;
   align-items: stretch;
   overflow: hidden;
   border: 1px solid var(--news-border-strong);
-  border-radius: 8px;
+  border-radius: var(--news-radius-control);
   background: var(--news-bg-input);
+}
+.news-ms-weight:focus-within {
+  border-color: var(--news-accent);
+  outline: 2px solid var(--news-accent);
+  outline-offset: 1px;
 }
 .news-ms-weight.is-disabled {
   opacity: 0.5;
@@ -148,19 +153,20 @@ function stepBy(direction: number): void {
 .news-ms-weight-input {
   flex: 1 1 auto;
   min-width: 0;
-  padding: 0 10px;
+  padding: 0 12px;
   border: 0;
   outline: none;
   background: transparent;
   color: var(--news-text-primary);
-  font-size: 13px;
+  font-family: inherit;
+  font-size: 16px;
   font-variant-numeric: tabular-nums;
 }
 .news-ms-weight-steppers {
   display: flex;
   flex: 0 0 auto;
   flex-direction: column;
-  width: 26px;
+  width: 32px;
   border-left: 1px solid var(--news-border-strong);
 }
 .news-ms-weight-step {

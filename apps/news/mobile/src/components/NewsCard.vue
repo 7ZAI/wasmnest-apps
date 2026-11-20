@@ -19,7 +19,19 @@
       >
         · {{ t('news.card.sources', { count: item.originCount }) }}
       </span>
-      <span v-if="item.favorite" class="news-mobile-flag" aria-hidden="true">★</span>
+      <svg
+        v-if="item.favorite"
+        class="news-mobile-flag"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="1.8"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        aria-hidden="true"
+      >
+        <path d="M6 4h12v17l-6-4-6 4z" />
+      </svg>
     </span>
     <span class="news-mobile-card-title">{{ item.title }}</span>
     <span v-if="item.summary" class="news-mobile-card-summary">{{ item.summary }}</span>
@@ -48,7 +60,7 @@ const relative = computed(() => {
 .news-mobile-card {
   display: block;
   width: 100%;
-  padding: 12px 0 13px;
+  padding: 16px 0;
   text-align: start;
   border: 0;
   border-bottom: 1px solid var(--news-border);
@@ -63,30 +75,50 @@ const relative = computed(() => {
   outline: 2px solid var(--news-accent);
   outline-offset: -2px;
 }
+/* 签名细节：来源行前的 4px 墨蓝 tick，列表 / 状态 / 详情三处一致 */
 .news-mobile-card-meta {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: var(--news-space-2);
   flex-wrap: wrap;
-  font-size: 11px;
+  font-family: var(--news-font-mono);
+  font-size: var(--news-text-meta);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
   color: var(--news-text-tertiary);
 }
+.news-mobile-card-meta::before {
+  content: '';
+  flex: none;
+  width: 4px;
+  height: 4px;
+  border-radius: 1px;
+  background: var(--news-accent);
+}
 .news-mobile-card-source {
+  font-family: var(--news-font-body);
+  font-size: 12px;
   color: var(--news-text-secondary);
   font-weight: 500;
 }
-.news-mobile-time {
-  font-variant-numeric: tabular-nums;
+.news-mobile-time,
+.news-mobile-origin {
+  white-space: nowrap;
 }
 .news-mobile-flag {
+  width: 13px;
+  height: 13px;
+  flex: none;
   color: var(--news-accent-ink);
 }
 .news-mobile-card-title {
   display: -webkit-box;
-  margin: 5px 0 3px;
-  font-size: 15.5px;
-  line-height: 1.4;
+  margin: var(--news-space-2) 0;
+  font-family: var(--news-font-display);
+  font-size: 16px;
+  line-height: 1.45;
   font-weight: 600;
+  letter-spacing: 0.005em;
   overflow: hidden;
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
@@ -98,8 +130,8 @@ const relative = computed(() => {
 .news-mobile-card-summary {
   display: -webkit-box;
   margin: 0;
-  font-size: 12.5px;
-  line-height: 1.6;
+  font-size: var(--news-text-body);
+  line-height: 1.65;
   color: var(--news-text-secondary);
   overflow: hidden;
   -webkit-line-clamp: 2;

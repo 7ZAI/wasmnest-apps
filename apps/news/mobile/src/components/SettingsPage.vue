@@ -729,52 +729,61 @@ onMounted(async () => {
 
 <style scoped>
 .news-ms-page {
-  padding: 12px 14px 28px;
+  padding: var(--news-space-4) var(--news-space-3) 40px;
 }
 .news-ms-toast {
   position: sticky;
   top: 0;
   z-index: 5;
-  margin: 0 0 8px;
-  padding: 6px 10px;
-  border-radius: 999px;
+  margin: 0 0 var(--news-space-2);
+  padding: 8px 12px;
+  border-radius: var(--news-radius-control);
   background: var(--news-text-primary);
   color: var(--news-bg-page);
-  font-size: 11.5px;
+  font-size: 12px;
+  line-height: 1.5;
   text-align: center;
 }
 .news-ms-tabs {
   display: flex;
-  gap: 14px;
+  gap: 20px;
   overflow-x: auto;
-  padding-bottom: 8px;
-  margin-bottom: 10px;
+  overscroll-behavior-x: contain;
+  margin-bottom: 20px;
   border-bottom: 1px solid var(--news-border);
 }
 .news-ms-tabs button {
+  position: relative;
   flex: none;
   border: 0;
   background: none;
-  padding: 4px 0;
+  padding: var(--news-space-2) 0 12px;
   color: var(--news-text-tertiary);
-  font-size: 12.5px;
-  font-weight: 500;
+  font-size: var(--news-text-body);
 }
-.news-ms-tabs button.on {
+.news-ms-tabs button[aria-selected='true'] {
   color: var(--news-text-primary);
   font-weight: 600;
-  border-bottom: 2px solid var(--news-accent);
+}
+/* 选中下划线走伪元素，不占布局高度；forced-colors 下也能保住形状 */
+.news-ms-tabs button[aria-selected='true']::after {
+  content: '';
+  position: absolute;
+  inset-inline: 0;
+  bottom: -1px;
+  border-block-end: 2px solid var(--news-accent);
 }
 .news-ms-head {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin: 14px 0 8px;
+  gap: var(--news-space-3);
+  margin: 24px 0 var(--news-space-3);
 }
 .news-ms-head h3,
 .news-ms-page h3 {
   margin: 0;
-  font-size: 12.5px;
+  font-family: var(--news-font-display);
+  font-size: var(--news-text-title);
   font-weight: 600;
   color: var(--news-text-primary);
 }
@@ -787,13 +796,19 @@ onMounted(async () => {
   list-style: none;
   display: flex;
   flex-direction: column;
+  gap: var(--news-space-2);
 }
 .news-ms-list li {
   display: flex;
   flex-direction: column;
-  gap: 3px;
-  padding: 10px 0;
-  border-bottom: 1px solid var(--news-border);
+  gap: var(--news-space-1);
+  padding: var(--news-space-3);
+  border: 1px solid var(--news-border);
+  border-radius: var(--news-radius-card);
+  background: var(--news-bg-card);
+}
+.news-ms-list li.failing {
+  border-inline-start: 3px solid var(--news-danger);
 }
 .news-ms-list li.failing .news-ms-item-title {
   color: var(--news-danger);
@@ -804,118 +819,172 @@ onMounted(async () => {
 .news-ms-item-title {
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 13px;
+  gap: var(--news-space-2);
+  font-size: 14px;
   font-weight: 600;
+  line-height: 1.45;
 }
 .news-ms-item-sub {
-  font-size: 11.5px;
+  font-size: 12px;
+  line-height: 1.55;
+  font-variant-numeric: tabular-nums;
   color: var(--news-text-tertiary);
 }
 .news-ms-item-error {
-  font-size: 11.5px;
+  font-size: 12px;
+  line-height: 1.55;
   color: var(--news-danger);
 }
 .news-ms-item-actions {
   display: flex;
-  gap: 14px;
+  gap: var(--news-space-2);
   flex-wrap: wrap;
-  margin-top: 4px;
+  margin-top: var(--news-space-2);
+  padding-top: var(--news-space-2);
+  border-top: 1px solid var(--news-border);
+}
+/* 行内操作是真正的按钮：有边框、有点击区，不再是一串裸文字 */
+.news-ms-item-actions .news-ms-link {
+  min-height: 32px;
+  padding: 4px 8px;
+  border: 1px solid var(--news-border-strong);
+  border-radius: var(--news-radius-control);
+  background: none;
+  color: var(--news-text-secondary);
+  font-size: 12px;
+  line-height: 1.4;
+  text-decoration: none;
+}
+.news-ms-item-actions .news-ms-link:active {
+  background: var(--news-bg-hover);
+}
+.news-ms-item-actions .news-ms-link.danger {
+  color: var(--news-danger);
 }
 .news-ms-tag {
-  padding: 0 5px;
-  border: 1px solid var(--news-border-strong);
-  border-radius: 999px;
-  font-size: 10px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: var(--news-bg-hover);
+  font-size: 11px;
   font-weight: 500;
   color: var(--news-text-tertiary);
 }
 .news-ms-field {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  margin-bottom: 10px;
-  font-size: 11.5px;
+  gap: var(--news-space-2);
+  margin-bottom: var(--news-space-4);
+  font-size: var(--news-text-body);
+  line-height: 1.5;
   color: var(--news-text-secondary);
 }
 .news-ms-field.checkbox {
   flex-direction: row;
   align-items: center;
-  gap: 8px;
+  gap: var(--news-space-3);
 }
 .news-ms-field input {
+  box-sizing: border-box;
   width: 100%;
-  height: 34px;
-  padding: 0 8px;
+  min-height: 44px;
+  padding: 0 12px;
   border: 1px solid var(--news-border-strong);
-  border-radius: 8px;
+  border-radius: var(--news-radius-control);
   background: var(--news-bg-input);
   color: var(--news-text-primary);
-  font-size: 13px;
+  font-family: inherit;
+  /* 16px 起，避免移动端 WebView 聚焦时自动放大页面 */
+  font-size: 16px;
+}
+.news-ms-field input::placeholder {
+  color: var(--news-text-tertiary);
+  opacity: 1;
+}
+.news-ms-field input:focus-visible {
+  border-color: var(--news-accent);
+  outline: 2px solid var(--news-accent);
+  outline-offset: 1px;
 }
 .news-ms-field input[type='checkbox'] {
-  width: 18px;
-  height: 18px;
+  width: 20px;
+  height: 20px;
+  min-height: 0;
   padding: 0;
+  accent-color: var(--news-accent);
 }
 .news-ms-field small {
-  font-size: 10.5px;
+  font-size: var(--news-text-meta);
+  line-height: 1.5;
   color: var(--news-text-tertiary);
 }
 .news-ms-note {
-  margin: 6px 0;
-  font-size: 11.5px;
-  line-height: 1.65;
+  margin: var(--news-space-2) 0;
+  font-size: 12px;
+  line-height: 1.7;
   color: var(--news-text-tertiary);
 }
 .news-ms-error {
-  margin: 0 0 10px;
-  padding: 8px 10px;
-  border-radius: 8px;
-  background: var(--news-accent-soft);
+  margin: 0 0 var(--news-space-3);
+  padding: 12px;
+  border-inline-start: 3px solid var(--news-danger);
+  border-radius: var(--news-radius-control);
+  background: var(--news-danger-soft);
   color: var(--news-danger);
   font-size: 12px;
+  line-height: 1.6;
 }
 .news-ms-actions {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: var(--news-space-2);
   flex-wrap: wrap;
-  margin: 8px 0;
+  margin: var(--news-space-4) 0;
 }
 .news-ms-primary {
-  height: 32px;
-  padding: 0 14px;
+  height: 44px;
+  padding: 0 var(--news-space-4);
   border: 0;
-  border-radius: 999px;
+  border-radius: var(--news-radius-control);
   background: var(--news-accent);
-  color: #fff;
-  font-size: 12.5px;
+  color: var(--news-on-accent);
+  font-size: var(--news-text-body);
   font-weight: 600;
+  cursor: pointer;
+  transition:
+    transform 100ms ease-out,
+    opacity 100ms ease-out;
+}
+.news-ms-primary:active {
+  transform: scale(0.98);
 }
 .news-ms-primary:disabled {
-  opacity: 0.6;
+  opacity: 0.5;
 }
 .news-ms-link {
+  min-height: 24px;
+  padding: 2px 0;
   border: 0;
   background: none;
-  padding: 0;
-  color: var(--news-text-secondary);
-  font-size: 12px;
+  color: var(--news-accent-ink);
+  font-size: 12.5px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 .news-ms-link.danger {
   color: var(--news-danger);
 }
 .news-ms-export {
+  box-sizing: border-box;
   width: 100%;
-  min-height: 150px;
-  margin-top: 8px;
-  padding: 8px;
+  min-height: 140px;
+  margin-top: var(--news-space-2);
+  padding: 12px;
   border: 1px solid var(--news-border-strong);
-  border-radius: 8px;
+  border-radius: var(--news-radius-control);
   background: var(--news-bg-input);
   color: var(--news-text-secondary);
-  font-family: ui-monospace, monospace;
-  font-size: 11px;
+  font-family: var(--news-font-mono);
+  font-size: 12px;
+  line-height: 1.6;
 }
 </style>

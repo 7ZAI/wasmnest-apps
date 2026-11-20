@@ -127,18 +127,24 @@ watch(
   box-sizing: border-box;
   width: 100%;
   min-width: 0;
-  height: 34px;
+  min-height: 44px;
   align-items: center;
   justify-content: space-between;
-  gap: 6px;
-  padding: 0 8px;
+  gap: var(--news-space-2);
+  padding: 0 12px;
   border: 1px solid var(--news-border-strong);
-  border-radius: 8px;
+  border-radius: var(--news-radius-control);
   background: var(--news-bg-input);
   color: var(--news-text-primary);
-  font-size: 13px;
+  font-family: inherit;
+  font-size: var(--news-text-body);
   text-align: start;
   cursor: pointer;
+}
+.news-ms-select-trigger:focus-visible {
+  border-color: var(--news-accent);
+  outline: 2px solid var(--news-accent);
+  outline-offset: 1px;
 }
 .news-ms-select-value {
   overflow: hidden;
@@ -154,20 +160,21 @@ watch(
 .news-ms-select-menu {
   display: flex;
   flex-direction: column;
-  margin-top: 2px;
-  padding: 2px;
+  margin-top: var(--news-space-1);
+  padding: var(--news-space-1);
   border: 1px solid var(--news-border-strong);
-  border-radius: 8px;
-  background: var(--news-bg-input);
-  box-shadow: 0 6px 18px rgb(0 0 0 / 18%);
+  border-radius: var(--news-radius-control);
+  background: var(--news-bg-card);
+  box-shadow: 0 6px 18px rgb(0 0 0 / 14%);
 }
 .news-ms-select-option {
-  padding: 7px 8px;
+  min-height: 40px;
+  padding: var(--news-space-2) var(--news-space-3);
   border: 0;
   border-radius: 6px;
   background: transparent;
   color: var(--news-text-primary);
-  font-size: 13px;
+  font-size: var(--news-text-body);
   text-align: start;
   cursor: pointer;
 }
