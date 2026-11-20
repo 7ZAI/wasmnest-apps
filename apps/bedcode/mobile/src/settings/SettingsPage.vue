@@ -19,7 +19,10 @@
         >
           <!-- 标签列：选项多到一行放不下时（主色色板 5 档）纵向堆叠，说明文字才不会被挤没 -->
           <div class="flex-1 min-w-0">
-            <div class="text-[var(--font-size-base)]" :style="{ color: 'var(--mobile-text-primary)' }">
+            <div
+              class="text-[var(--font-size-base)]"
+              :style="{ color: 'var(--mobile-text-primary)' }"
+            >
               {{ t(item.labelKey) }}
             </div>
             <div
@@ -93,7 +96,12 @@
                 </span>
                 <span
                   class="text-[var(--font-size-sm)] leading-none whitespace-nowrap"
-                  :style="{ color: ctrl.values[item.key] === opt.value ? 'var(--mobile-text-primary)' : 'var(--mobile-text-secondary)' }"
+                  :style="{
+                    color:
+                      ctrl.values[item.key] === opt.value
+                        ? 'var(--mobile-text-primary)'
+                        : 'var(--mobile-text-secondary)',
+                  }"
                 >
                   {{ t(opt.labelKey) }}
                 </span>
@@ -115,6 +123,64 @@
             </template>
           </div>
         </div>
+
+        <!-- 生物认证绑定行（仅认证分组）：补齐「绑定生物认证信息」闭环。
+             绑定/解绑经宿主生物凭证引擎面，需已认证连接；设备不支持时只读状态不给动作。 -->
+        <div
+          v-if="group.id === 'auth'"
+          class="flex items-center justify-between gap-3 px-4 min-h-[52px] py-2.5"
+          :style="{ borderTop: '1px solid var(--mobile-group-border)' }"
+          data-testid="mobile-settings-biometric-row"
+        >
+          <div class="flex-1 min-w-0">
+            <div
+              class="text-[var(--font-size-base)]"
+              :style="{ color: 'var(--mobile-text-primary)' }"
+            >
+              {{ t('settings.biometric.title') }}
+            </div>
+            <div
+              v-if="biometricHintKey"
+              class="settings-hint mt-1"
+              :style="{
+                color: biometricHintWarn ? 'var(--mobile-error)' : 'var(--mobile-text-muted)',
+              }"
+              data-testid="mobile-settings-biometric-status"
+            >
+              {{ t(biometricHintKey) }}
+            </div>
+          </div>
+
+          <!-- 已绑定 → 解绑；支持但未绑定 → 绑定；不支持 → 无动作 -->
+          <button
+            v-if="bio.hasKey.value"
+            type="button"
+            class="min-h-[36px] px-4 rounded-[var(--bc-radius-control)] text-[var(--font-size-sm)] font-medium transition-colors flex-shrink-0 active:opacity-80"
+            :style="{
+              background: 'var(--mobile-bg-primary)',
+              color: 'var(--mobile-error)',
+              border: '1px solid var(--mobile-border)',
+            }"
+            :disabled="!bio.canUnbind.value"
+            data-testid="mobile-settings-biometric-unbind"
+            @click="onUnbindBiometric"
+          >
+            {{
+              bio.busy.value ? t('settings.biometric.unbinding') : t('settings.biometric.unbind')
+            }}
+          </button>
+          <button
+            v-else-if="bio.deviceSupported.value"
+            type="button"
+            class="min-h-[36px] px-4 rounded-[var(--bc-radius-control)] text-[var(--font-size-sm)] font-medium transition-colors flex-shrink-0 active:opacity-80"
+            :style="{ background: 'var(--mobile-accent)', color: 'var(--mobile-text-on-accent)' }"
+            :disabled="!bio.canBind.value"
+            data-testid="mobile-settings-biometric-bind"
+            @click="onBindBiometric"
+          >
+            {{ bio.busy.value ? t('settings.biometric.binding') : t('settings.biometric.bind') }}
+          </button>
+        </div>
       </div>
     </section>
 
@@ -122,7 +188,11 @@
     <button
       type="button"
       class="min-h-[52px] rounded-[var(--bc-radius-card)] text-[var(--font-size-base)] font-medium transition-colors active:opacity-80"
-      :style="{ background: 'var(--mobile-bg-card)', border: '1px solid var(--mobile-border)', color: 'var(--mobile-error)' }"
+      :style="{
+        background: 'var(--mobile-bg-card)',
+        border: '1px solid var(--mobile-border)',
+        color: 'var(--mobile-error)',
+      }"
       :disabled="ctrl.saving.value"
       @click="onReset"
     >
@@ -145,16 +215,71 @@
  *
  * 数据面：useAppSettings（宿主通用 KV 桥）；本组件不直连任何 Tauri 命令。
  */
-import { onMounted } from 'vue'
+import { computed, onMounted } from 'vue'
 import AppUpdateSection from '@binblink/wasmnest-plugin-sdk-mobile/ui/app-update'
 import manifest from '../../plugin.json'
 import Toggle from '../terminal/components/Toggle.vue'
 import StepperControl from '../terminal/components/StepperControl.vue'
 import { SETTING_GROUPS, SETTINGS_BY_KEY } from './settingsModel'
 import { useAppSettings } from './useAppSettings'
+import { useBiometricBinding } from './useBiometricBinding'
 
 const ctrl = useAppSettings()
 const t = ctrl.t
+const bio = useBiometricBinding()
+
+/**
+ * 生物绑定行的状态提示文案 key（null = 不显示）。
+ * 优先级：探测失败/未读 → 设备不支持（按原因细分）→ 已绑定 → 未认证 → 未绑定。
+ */
+const biometricHintKey = computed<string | null>(() => {
+  const s = bio.status.value
+  if (!s) return null
+  if (!s.deviceSupported) {
+    if (s.deviceReason === 12) return 'settings.biometric.noHardware'
+    if (s.deviceReason === 11) return 'settings.biometric.noneEnrolled'
+    return 'settings.biometric.unsupported'
+  }
+  if (s.hasKey) return 'settings.biometric.bound'
+  if (!bio.isPaired.value) return 'settings.biometric.needPaired'
+  return 'settings.biometric.notBound'
+})
+
+/** 提示是否用警示色（设备不支持 / 未认证闸门 → 提醒；其余为中性说明） */
+const biometricHintWarn = computed(() => {
+  const s = bio.status.value
+  if (!s) return false
+  return !s.deviceSupported || (!s.hasKey && !bio.isPaired.value)
+})
+
+async function onBindBiometric(): Promise<void> {
+  try {
+    const ok = await bio.bind()
+    ctrl.dialogs.showToast(
+      ok ? t('settings.biometric.bindDone') : t('settings.biometric.failed'),
+      ok ? 'success' : 'error',
+    )
+  } catch {
+    ctrl.dialogs.showToast(t('settings.biometric.failed'), 'error')
+  }
+}
+
+async function onUnbindBiometric(): Promise<void> {
+  const confirmed = await ctrl.dialogs.showConfirm({
+    message: t('settings.biometric.unbindConfirm'),
+    confirmText: t('settings.biometric.unbind'),
+  })
+  if (!confirmed) return
+  try {
+    const ok = await bio.unbind()
+    ctrl.dialogs.showToast(
+      ok ? t('settings.biometric.unbindDone') : t('settings.biometric.failed'),
+      ok ? 'success' : 'error',
+    )
+  } catch {
+    ctrl.dialogs.showToast(t('settings.biometric.failed'), 'error')
+  }
+}
 
 const warnStyle = {
   background: 'var(--mobile-bg-card)',
@@ -229,6 +354,7 @@ async function onReset(): Promise<void> {
 
 onMounted(() => {
   void ctrl.load()
+  void bio.refresh()
 })
 
 // 防御：定义表里的键必须都能在运行时查到（改表漏改归一会静默写空）

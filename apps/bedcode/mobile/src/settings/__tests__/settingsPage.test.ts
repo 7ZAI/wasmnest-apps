@@ -18,23 +18,42 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount } from '@vue/test-utils'
-import { nextTick } from 'vue'
+import { nextTick, ref } from 'vue'
 import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-mobile'
 
 const readAllSettings = vi.fn()
 const writeSetting = vi.fn()
+// 生物凭证引擎面替身（设置页认证分组含绑定行，setup 即取 isPaired / 状态）
+const getBiometricKeyStatus = vi.fn(async () => ({
+  deviceSupported: false,
+  deviceReason: 12,
+  hasKey: false,
+}))
+const bindBiometricCredential = vi.fn(async () => false)
+const unbindBiometricCredential = vi.fn(async () => false)
+const isPaired = ref(false)
 
 vi.mock('@binblink/wasmnest-plugin-sdk-mobile', async () => {
   const actual = await vi.importActual<typeof import('@binblink/wasmnest-plugin-sdk-mobile')>(
     '@binblink/wasmnest-plugin-sdk-mobile',
   )
-  return { ...actual, getMobileApi: () => ({ readAllSettings, writeSetting }) }
+  return {
+    ...actual,
+    getMobileApi: () => ({
+      readAllSettings,
+      writeSetting,
+      getBiometricKeyStatus,
+      bindBiometricCredential,
+      unbindBiometricCredential,
+      isPaired,
+    }),
+  }
 })
 
-let SettingsPage: typeof import('../SettingsPage.vue')['default']
+let SettingsPage: (typeof import('../SettingsPage.vue'))['default']
 let useAppSettings: (
   provided?: PluginContext,
-) => ReturnType<typeof import('../useAppSettings')['useAppSettings']>
+) => ReturnType<(typeof import('../useAppSettings'))['useAppSettings']>
 
 /** 最小插件上下文替身（i18n 回显 key；toast/confirm 记录调用） */
 function makePluginContext() {
@@ -59,7 +78,9 @@ function authSegments(wrapper: any) {
     ['settings.authMethod.pairingCode', 'settings.authMethod.biometric'].includes(b.text()),
   )
   if (picked.length !== 2) {
-    throw new Error(`认证方式段应为 2 个，实际 ${picked.length} 个：${all.map((b) => b.text()).join(' | ')}`)
+    throw new Error(
+      `认证方式段应为 2 个，实际 ${picked.length} 个：${all.map((b) => b.text()).join(' | ')}`,
+    )
   }
   return picked
 }
@@ -88,6 +109,10 @@ beforeEach(async () => {
   writeSetting.mockReset()
   readAllSettings.mockResolvedValue({})
   writeSetting.mockResolvedValue(undefined)
+  getBiometricKeyStatus.mockClear()
+  bindBiometricCredential.mockClear()
+  unbindBiometricCredential.mockClear()
+  isPaired.value = false
 })
 
 describe('SettingsPage 首选认证方式回显（C-SP1/C-SP2/C-SP3）', () => {
