@@ -45,14 +45,18 @@ import { goHome, openApp } from '../harness/shell'
 /** 应用显示名（= bedcode 的 plugin.json `name`） */
 const APP_NAME = 'BedCode'
 
-/** 侧边栏七个目录（= `useSidebarMenu` 的菜单项 id，顺序即视觉顺序） */
+/**
+ * 侧边栏六个目录（= `useSidebarMenu` 的菜单项 id，顺序即视觉顺序）
+ *
+ * 终端会话面 2026-11-06 停用后已不在菜单里，本表随之移除；首项 = Agent Hub
+ * （默认落地页），设备配对下移至设置之前。
+ */
 const NAV_ITEMS = [
-  { id: 'pairing', view: 'pairing-view' },
-  { id: 'projects', view: 'projects-view' },
-  { id: 'sessions', view: 'sessions-view' },
   { id: 'agents', view: 'hub-view' },
+  { id: 'projects', view: 'projects-view' },
   { id: 'orchestrations', view: 'orchestration-list' },
   { id: 'tasks', view: 'tasks-view' },
+  { id: 'pairing', view: 'pairing-view' },
   { id: 'settings', view: 'settings-view' },
 ] as const
 

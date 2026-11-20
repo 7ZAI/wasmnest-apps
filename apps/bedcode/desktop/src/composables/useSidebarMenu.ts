@@ -2,10 +2,12 @@
  * 侧边栏菜单（静态表，D3：wasm-app 页面路由直写侧边栏）
  *
  * 桌面宿主前端整体下沉后，菜单表是 app 内的单一事实源：贡献面注册与激活态
- * 仲裁随前端插件运行时退役，侧边栏直接渲染本表。order 沿用下沉前各页面的
- * 槽位值，保证视觉顺序不变：
- * 设备配对 100 / 项目 190 / Agent管理（原 agent-hub）205 /
- * Agent编排 207（已停用）/ Agent任务 210 / 设置 9999。
+ * 仲裁随前端插件运行时退役，侧边栏直接渲染本表。
+ *
+ * 顺序（用户 2026-11-20 裁定，order 即视觉顺序）：
+ * Agent Hub（原 agent-hub）100 —— 首项，也是默认落地页（打开即「概览」分区）；
+ * 项目 190 / Agent 编排 207 / Agent 任务 210；设备配对 9000 —— 下移至设置之上，
+ * 成为倒数第二项；设置 9999。
  *
  * 「项目」排在「终端会话」之前（ADR 0003）：项目是桌面一级容器，会话降级为
  * 运行——但两者**并存**（用户 2026-10-29 裁定：新增项目入口，不替换终端会话；
@@ -13,11 +15,6 @@
  *
  * **2026-11-06 更新**：终端会话入口已停用（用户裁定，M3 提前落地）——项目运行
  * 成为唯一一级容器，`/sessions` 菜单项与路由整条注释保留以便回滚。
- *
- * **2026-11-09 更新**：Agent 编排入口已停用（用户裁定，先注释不删除）——`/orchestrations`
- * 菜单项与 `router/index.ts` 两条路由整条注释保留；后端激活期建表 / 恢复对账 / tick
- * 定时器 / `orchestration.*` 命令分派同步注释（`lib.rs`），编排模块本体与页面组件均未
- * 删除，取消这几处注释即可回滚。
  *
  * 文案 key 全部为 app 域相对键（渲染处经 `useAppI18n()` 补
  * `com.wasmnest.bedcode.` 命名空间）；宿主文案不随 app 打包。
@@ -39,15 +36,19 @@ export interface SidebarMenuItem {
   order: number
 }
 
-/** 菜单排序槽位（下沉前槽位值，锁住视觉顺序） */
+/**
+ * 菜单排序槽位（升序即视觉顺序）
+ *
+ * 首项与默认落地页同为 Agent Hub；设备配对从首项下移到设置之前（倒数第二）。
+ * sessions 槽位保留但表中无项：2026-11-06 终端会话面停用，回滚时按原位复用。
+ */
 export const MENU_ORDERS = {
-  pairing: 100,
+  agents: 100,
   projects: 190,
   sessions: 200,
-  agents: 205,
-  /** 2026-11-09 编排入口停用：槽位保留（与 sessions 200 同口径），回滚时菜单项直接引用 */
   orchestrations: 207,
   tasks: 210,
+  pairing: 9000,
   settings: 9999,
 } as const
 
@@ -60,9 +61,8 @@ const PROJECTS_ICON =
 //   'M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z'
 const AGENTS_ICON =
   'M8.25 3v1.5M4.5 8.25H3m18 0h-1.5M4.5 12H3m18 0h-1.5m-15 3.75H3m18 0h-1.5M8.25 19.5V21M12 3v1.5m0 15V21m3.75-18v1.5m0 15V21m-9-1.5h10.5a2.25 2.25 0 002.25-2.25V6.75a2.25 2.25 0 00-2.25-2.25H6.75A2.25 2.25 0 004.5 6.75v10.5a2.25 2.25 0 002.25 2.25zm.75-12h9v9h-9v-9z'
-// 编排图标：随 /orchestrations 菜单项一并停用（2026-11-09），回滚时取消注释
-// const ORCHESTRATIONS_ICON =
-//   'M7.217 10.907a2.25 2.25 0 1 0 0 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186 9.566-5.314m-9.566 7.5 9.566 5.314m0 0a2.25 2.25 0 1 0 3.935 2.186 2.25 2.25 0 0 0-3.935-2.186Zm0-12.814a2.25 2.25 0 1 0 3.933-2.185 2.25 2.25 0 0 0-3.933 2.185Z'
+const ORCHESTRATIONS_ICON =
+  'M7.217 10.907a2.25 2.25 0 1 0 0 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186 9.566-5.314m-9.566 7.5 9.566 5.314m0 0a2.25 2.25 0 1 0 3.935 2.186 2.25 2.25 0 0 0-3.935-2.186Zm0-12.814a2.25 2.25 0 1 0 3.933-2.185 2.25 2.25 0 0 0-3.933 2.185Z'
 const TASKS_ICON =
   'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01'
 const SETTINGS_ICON =
@@ -76,11 +76,11 @@ const SETTINGS_ICON =
  */
 export const sidebarMenuItems: SidebarMenuItem[] = [
   {
-    id: 'pairing',
-    path: '/pairing',
-    labelKey: 'pairing.sidebar.title',
-    icon: PAIRING_ICON,
-    order: MENU_ORDERS.pairing,
+    id: 'agents',
+    path: '/agents',
+    labelKey: 'hub.sidebar.title',
+    icon: AGENTS_ICON,
+    order: MENU_ORDERS.agents,
   },
   {
     id: 'projects',
@@ -100,28 +100,25 @@ export const sidebarMenuItems: SidebarMenuItem[] = [
   //   order: MENU_ORDERS.sessions,
   // },
   {
-    id: 'agents',
-    path: '/agents',
-    labelKey: 'hub.sidebar.title',
-    icon: AGENTS_ICON,
-    order: MENU_ORDERS.agents,
+    id: 'orchestrations',
+    path: '/orchestrations',
+    labelKey: 'orchestration.sidebar.title',
+    icon: ORCHESTRATIONS_ICON,
+    order: MENU_ORDERS.orchestrations,
   },
-  // Agent 编排（/orchestrations）：2026-11-09 停用（用户裁定，先注释不删除）。
-  // 菜单项、路由（router/index.ts）与后端接线（lib.rs 的建表 / 恢复 / tick / 命令分派）
-  // 整块注释保留以便回滚；页面组件、composable 与 Rust 模块本体均未删除。
-  // {
-  //   id: 'orchestrations',
-  //   path: '/orchestrations',
-  //   labelKey: 'orchestration.sidebar.title',
-  //   icon: ORCHESTRATIONS_ICON,
-  //   order: MENU_ORDERS.orchestrations,
-  // },
   {
     id: 'tasks',
     path: '/tasks',
     labelKey: 'task.historyTitle',
     icon: TASKS_ICON,
     order: MENU_ORDERS.tasks,
+  },
+  {
+    id: 'pairing',
+    path: '/pairing',
+    labelKey: 'pairing.sidebar.title',
+    icon: PAIRING_ICON,
+    order: MENU_ORDERS.pairing,
   },
   {
     id: 'settings',

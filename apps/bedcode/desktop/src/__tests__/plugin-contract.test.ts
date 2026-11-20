@@ -433,8 +433,8 @@ function makeEnv(overrides: Partial<Parameters<typeof createAppContext>[0]> = {}
     appStorageDelete: vi.fn(async () => {}),
     locale: 'zh-CN',
     theme: 'dark',
-    // 宿主传入的应用内路由（默认落地面；用户裁定：初始进入落地「设备配对」）
-    initialRoute: '/pairing',
+    // 宿主传入的应用内路由（默认落地面；用户裁定：首页即 Agent Hub 概览）
+    initialRoute: '/agents',
     ...overrides,
   }
 }
@@ -472,15 +472,14 @@ describe('C3 入口契约（挂载包形态：mountApp + 直连上下文 + 内�
     expect(byName.get('projects')?.path).toBe('/projects')
     expect(byName.get('project-workbench')?.path).toBe('/projects/:id')
     // 终端会话面已于 2026-11-06 停用（路由整条注释保留以便回滚）；宿主落地目录
-    // 仍登记 `/sessions`，app 侧显式重定向到落地页（初始进入显示「设备配对」）
+    // 仍登记 `/sessions`，app 侧显式重定向到落地页（首页 = Agent Hub 概览）
     expect(byName.get('sessions')).toBeUndefined()
-    expect(byName.get('sessions-legacy')?.redirect).toBe('/pairing')
+    expect(byName.get('sessions-legacy')?.redirect).toBe('/agents')
     // Agent 管理域（原 agent-hub 并入）
     expect(byName.get('agents')?.path).toBe('/agents')
-    // Agent 编排（v1）已于 2026-11-09 停用（用户裁定，先注释不删除）：菜单、路由与
-    // 后端接线同时注释，深链落 not-found（fail-visible）
-    expect(byName.get('orchestrations')).toBeUndefined()
-    expect(byName.get('orchestration-detail')).toBeUndefined()
+    // Agent 编排（v1）：列表 + 详情
+    expect(byName.get('orchestrations')?.path).toBe('/orchestrations')
+    expect(byName.get('orchestration-detail')?.path).toBe('/orchestrations/:id')
     expect(byName.get('tasks')?.path).toBe('/tasks')
     expect(byName.get('settings')?.path).toBe('/settings')
     // 诊断页（URL 直达不进导航）
@@ -489,11 +488,11 @@ describe('C3 入口契约（挂载包形态：mountApp + 直连上下文 + 内�
     expect(byName.get('history')?.path).toBe('/history')
     expect(byName.get('terminal-window')?.path).toBe('/terminal-window/:id')
     expect(byName.get('terminal-window')?.meta.bareWindow).toBe(true)
-    // 默认落地 = 设备配对（用户裁定：初始点击进入的首页显示「设备配对」；
+    // 默认落地 = Agent Hub（用户裁定：首页即 Agent Hub 的「概览」分区；
     // 宿主 '/' 壳主屏由宿主路由表承载）
     const root = routes.find((r) => r.path === '/')
-    expect(root?.redirect).toBe('/pairing')
-    expect(DEFAULT_ROUTE).toBe('/pairing')
+    expect(root?.redirect).toBe('/agents')
+    expect(DEFAULT_ROUTE).toBe('/agents')
     // 遗留深链：/settings/authorization 显性重定向到 /settings（授权管理归宿主 /sys/perms）
     expect(byName.get('settings-authorization-legacy')?.redirect).toBe('/settings')
     // not-found 兜底在位（D3 fail-visible）
@@ -567,32 +566,33 @@ describe('C4 退役锁（D8 fail-visible：插件运行时回接零命中）', (
 })
 
 describe('C5 静态侧边栏菜单表与设置分组表（D3/D4）', () => {
-  it('侧边栏 = 静态表：五项（终端会话 / Agent 编排已停用）、顺序槽位、路由与路由表一一对应', () => {
+  it('侧边栏 = 静态表：六项（终端会话已停用）、顺序槽位、路由与路由表一一对应', () => {
     expect(sidebarMenuItems.map((i) => i.id)).toEqual([
-      'pairing',
-      'projects',
       'agents',
+      'projects',
+      'orchestrations',
       'tasks',
+      'pairing',
       'settings',
     ])
-    // sessions（200）/ orchestrations（207）槽位保留在常量里但表中无项：
-    // 2026-11-06 停用终端会话面，2026-11-09 停用 Agent 编排面
-    expect(sidebarMenuItems.map((i) => i.order)).toEqual([100, 190, 205, 210, 9999])
+    // sessions 槽位（200）保留在常量里但表中无项：2026-11-06 停用终端会话面
+    expect(sidebarMenuItems.map((i) => i.order)).toEqual([100, 190, 207, 210, 9000, 9999])
     expect(sidebarMenuItems.map((i) => i.path)).toEqual([
-      '/pairing',
-      '/projects',
       '/agents',
+      '/projects',
+      '/orchestrations',
       '/tasks',
+      '/pairing',
       '/settings',
     ])
     // 槽位常量即表内 order（改常量不改表 = 漂移，锁同值）
     expect(MENU_ORDERS).toEqual({
-      pairing: 100,
+      agents: 100,
       projects: 190,
       sessions: 200,
-      agents: 205,
       orchestrations: 207,
       tasks: 210,
+      pairing: 9000,
       settings: 9999,
     })
     // 菜单路径全部命中路由表（静态表与静态路由互为真源）
@@ -601,12 +601,15 @@ describe('C5 静态侧边栏菜单表与设置分组表（D3/D4）', () => {
       expect(paths.has(item.path), `菜单 ${item.id} 的路由 ${item.path} 不在路由表`).toBe(true)
     }
     // 菜单 key 一律为 app 域相对键（渲染处经 useAppI18n 补命名空间）
-    expect(sidebarMenuItems[0].labelKey).toBe('pairing.sidebar.title')
-    // 项目是一级容器（ADR 0003），排在原本的终端会话槽位之前
+    // 首项 = Agent Hub（hub.* 键随 i18n 三件套并入）
+    expect(sidebarMenuItems[0].labelKey).toBe('hub.sidebar.title')
+    // 项目是一级容器（ADR 0003）
     expect(sidebarMenuItems[1].labelKey).toBe('project.sidebar.title')
-    // Agent 管理域（原 agent-hub 并入）：hub.* 键随 i18n 三件套并入
-    expect(sidebarMenuItems[2].labelKey).toBe('hub.sidebar.title')
-    expect(sidebarMenuItems[4].labelKey).toBe('sidebar.settings')
+    expect(sidebarMenuItems[2].labelKey).toBe('orchestration.sidebar.title')
+    expect(sidebarMenuItems[3].labelKey).toBe('task.historyTitle')
+    // 设备配对下移至设置之上（倒数第二项）
+    expect(sidebarMenuItems[4].labelKey).toBe('pairing.sidebar.title')
+    expect(sidebarMenuItems[5].labelKey).toBe('sidebar.settings')
   })
 
   it('设置分组 = 静态表：业务六分组、order 升序、带标题 key（平台分组归宿主系统页）', () => {

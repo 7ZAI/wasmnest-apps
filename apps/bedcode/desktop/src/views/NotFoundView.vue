@@ -4,7 +4,7 @@
       {{ t('notFound.title') }}
     </p>
     <p class="text-xs text-[var(--text-tertiary)]">{{ t('notFound.body') }}</p>
-    <!-- 返回应用主面：/sessions 停用后主面是项目列表（默认落地页） -->
+    <!-- 返回应用主面：默认落地页 = Agent 管理（其「概览」分区） -->
     <button class="wb-btn-ghost" @click="router.push(DEFAULT_ROUTE)">
       {{ t('notFound.back') }}
     </button>

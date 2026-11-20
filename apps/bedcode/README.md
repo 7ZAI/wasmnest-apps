@@ -14,7 +14,7 @@
 
 ### 桌面（服务端 / 工作台）
 
-侧边栏六项：**设备配对 100 / 项目 190 / 终端会话 200 / Agent 管理 205 / Agent 任务 210 / 设置 9999**（排序槽位锁在 `useSidebarMenu.ts`）。项目与终端会话**并存**（用户 2026-10-29 裁定：新增项目入口，不替换旧入口；退役时机待 M3 对话面成形后评估）。另有三个不进菜单的页面：连接历史（设备列表「历史」按钮深链 `/history`）、独立终端窗口（`/terminal-window/:id`，`bareWindow` 不套外壳）、服务器诊断页（`/server`，URL 直达）。
+侧边栏六项：**Agent 管理 100 / 项目 190 / Agent 编排 207 / Agent 任务 210 / 设备配对 9000 / 设置 9999**（排序槽位锁在 `useSidebarMenu.ts`；首项 Agent 管理同时是默认落地页，打开即其「概览」分区）。另有三个不进菜单的页面：连接历史（设备列表「历史」按钮深链 `/history`）、独立终端窗口（`/terminal-window/:id`，`bareWindow` 不套外壳）、服务器诊断页（`/server`，URL 直达）。
 
 - **设备配对**：6 位数字配对码（默认 TTL 60s，可配）与 QR token 的生命周期（生成 / 状态 / 校验 / 清除）、首连确认、可信设备视图与撤销、设备在线态与会话数合并视图
 - **连接历史**：连接建立 / 关闭记录，随会话事件驱动落库
@@ -185,7 +185,7 @@ node scripts/e2e-dual.mjs --app bedcode   # 双端：真桌面宿主 ↔ USB 真
 - **项目壳已落地（issue #23 M2）**：侧边栏「项目」+ `/projects` 列表 + `/projects/:id` 工作台（左运行列表 / 中终端主面 / 右检查器：文件 + 变更）。右栏默认「文件」页签展示当前项目 `workingDir` 的目录树（懒加载；点文件只读查看，命令面 `project.file-tree` / `project.file-content`），「变更」页签仍是 M3 占位。终端主面复用 `TerminalPreview`（同一条 PTY 的真实字节），CLI 为核心——对话经 CLI（终端）直接进行，前端不渲染对话流（M3 引入的对话面 / 事件页签已于 2026-10-31 撤销，rust 桥接与事件账本作为运行基础设施保留）。旧「终端会话」页与项目入口**并存**（用户 2026-10-29 裁定；并存期间不要在旧会话页上加项目字段——两套入口会互相打架）。
 - 「新建运行」不新建会话配置：`run.start` 按 `(项目执行环境, 项目目录, agent 二进制)` 取或建一条 `session_configs`（配置已降级为「项目 × agent 的启动参数」），再走唯一启动链 `launch::create_via_host`。agent → 二进制由后端注册表给出（`hub::binary_for`），前端不维护第二份映射。
 - `runs` 行不再随宿主重启清空：启动对账只把非终态运行收敛成 `Error` 并清空 `pty_id`，历史保留。因此「设备卡的 `sessionCount`」「移动端运行列表」现在都是**跨进程累计**的；改成只计活跃运行需要产品裁定（当前沿用既有「含 Stopped 历史」口径）。
-- `plugin.json` 的 `description` 已随 M2 改为「设备配对 / 项目 / 终端会话 / Agent 管理 / Agent 任务」的实际入口清单（不再写死「四目录」）。改 `description` 属跨仓可见变更，按 `AGENTS.md` §3 与平台仓 `release-manifest.json` 一起核对。
+- `plugin.json` 的 `description` 已随 M2 改为实际入口清单（当前：Agent Hub / 项目 / Agent 编排 / Agent 任务 / 设备配对；不再写死「四目录」）。改 `description` 属跨仓可见变更，按 `AGENTS.md` §3 与平台仓 `release-manifest.json` 一起核对。
 - **移动端切到项目视角（2026-11-01）**：底栏「会话」→「项目」，移动端从「会话配置列表」改为「项目 → 运行 → 终端」；读面 `GET /api/projects`、`GET /api/runs`、`GET /api/agents`，写面只有 `POST /api/runs/start`（项目建 / 改名 / 删除 / 选目录仍在桌面）。插件命令为 `bedcode.list-projects` / `bedcode.list-runs` / `bedcode.start-run` / `bedcode.list-agents`；旧移动端会话配置 UI（SessionsSection / SessionCard / SessionConfigCard）已退役，`session.*` 命令作为运行投影保留给终端与任务域。
 - 桌面认证角色已迁出，本地 `auth_http` 只剩旧互调 api 仍引用的状态机副本，待「删除 bedcode 侧六域副本」后续票整体移除——新增认证逻辑不要再落在这里。
 
