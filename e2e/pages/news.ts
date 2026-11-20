@@ -169,6 +169,17 @@ export async function setReaderEnabled(enabled: boolean): Promise<void> {
   await waitForReaderEnabled(enabled)
 }
 
+/** 授权类阅读失败后点「去设置」，等设置页可见 */
+export async function openReaderSettingsFromFailure(): Promise<void> {
+  await click('news-reader-open-settings')
+  await waitFor('news-page-settings')
+}
+
+/** 阅读设置读取失败提示是否可见 */
+export function readerSettingsWarningVisible(): Promise<boolean> {
+  return visible('news-reader-settings-warning')
+}
+
 /**
  * 源行按名称定位，返回后端分配的源 id（= 行的 `data-news-source`）
  *

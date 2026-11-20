@@ -49,11 +49,13 @@ import {
   labelSet,
   openNews,
   openReaderSettings,
+  openReaderSettingsFromFailure,
   openSelect,
   openSettings,
   openSettingsTab,
   pickSelectOption,
   readerEnabledState,
+  readerSettingsWarningVisible,
   selectCircleChip,
   setReaderEnabled,
   SETTINGS_TABS,
@@ -81,6 +83,21 @@ async function resetToFeed(): Promise<void> {
     await click('news-banner-dismiss')
     await waitGone('news-banner')
   }
+}
+
+/**
+ * 等阅读失败态：有授权询问就拒绝，没有则等失败记录或请求返回
+ *
+ * 失败记录会保留 10 分钟，后续用例可能直接命中失败态而不弹窗；这里两种都收。
+ */
+async function settleReaderFailure(): Promise<void> {
+  await browser.waitUntil(
+    async () => {
+      if (await denyNetworkAuthIfPresent()) return false
+      return exists('news-reader-error')
+    },
+    { timeout: 60_000, interval: 200, timeoutMsg: '阅读失败态未出现' },
+  )
 }
 
 describe('News（桌面端 · 宿主内挂载）', () => {
@@ -305,49 +322,150 @@ describe('News（桌面端 · 宿主内挂载）', () => {
     expectEqual(json.includes('secret'), false, '导出不含 secret 字段')
   })
 
-  it('阅读 v2：默认关闭无入口；开启后失败可见；清除缓存有显性反馈', async function () {
+  it('news-reader-01 默认开启：设置开关为开，详情入口可见且仍从摘要态开始', async function () {
     this.timeout(120_000)
     await openReaderSettings()
     expectEqual(await visible('news-reader-settings'), true, '数据页有阅读区')
-    expectEqual(await readerEnabledState(), false, '阅读默认关闭')
+    expectEqual(await readerEnabledState(), true, '隔离环境下阅读默认开启')
+    expectEqual(await readerSettingsWarningVisible(), false, '设置读取成功时无失败提示')
     expectEqual(await hasText('news-reader-usage'), true, '用量是显性状态')
-
-    // 空缓存也必须有显性反馈：先清一次，确认按钮展开后执行
-    await click('news-reader-clear-cache')
-    await waitFor('news-reader-clear-confirm')
-    await click('news-reader-clear-confirm-yes')
-    await waitFor('news-toast')
-    expectEqual(await hasText('news-toast'), true, '清除缓存有结果提示')
-    await waitGone('news-toast', 8_000)
-
-    await setReaderEnabled(true)
     await closeSettings()
 
     const state = await waitForFeedState()
     if (state === 'empty') {
-      expectEqual(await visible('news-empty'), true, '无条目时详情链路走显性空态')
+      expectEqual(await visible('news-empty'), true, '无条目时给出显式空态（入口链路未验）')
+      return
+    }
+    await waitForItems(1)
+    const itemTestId = await firstItemTestId()
+    await click(itemTestId as string)
+    await waitFor('news-detail')
+    expectEqual(await exists('news-reader-open'), true, '默认开启后详情出现阅读入口')
+    expectEqual(await exists('news-reader'), false, '入口可见但详情仍从摘要态开始')
+    await click('news-detail-close')
+    await waitGone('news-detail')
+  })
+
+  it('news-reader-02 显式关闭：入口消失，v1 操作保留，结束归位开启', async function () {
+    this.timeout(120_000)
+    await openReaderSettings()
+    await setReaderEnabled(false)
+    await closeSettings()
+
+    const state = await waitForFeedState()
+    if (state === 'empty') {
+      expectEqual(await visible('news-empty'), true, '无条目时给出显式空态（关闭态入口未验）')
     } else {
       await waitForItems(1)
       const itemTestId = await firstItemTestId()
       await click(itemTestId as string)
       await waitFor('news-detail')
-      expectEqual(await exists('news-reader-open'), true, '开启后详情出现阅读入口')
-      await click('news-reader-open')
-      await waitFor('news-reader')
-      await denyNetworkAuthPrompt(10_000)
-      await waitFor('news-reader-error', 60_000)
-      expectEqual(await hasText('news-reader-error'), true, '阅读失败有分类文案')
-      expectEqual(await exists('news-reader-retry'), true, '失败态有重试')
-      expectEqual(await exists('news-reader-copy'), true, '失败态有复制链接')
-      await click('news-reader-back')
-      await waitGone('news-reader')
-      expectEqual(await visible('news-detail'), true, '返回摘要仍在详情抽屉')
+      expectEqual(await exists('news-reader-open'), false, '关闭后详情无阅读入口')
+      expectEqual(await exists('news-copy'), true, '复制链接保留')
+      expectEqual(await exists('news-favorite'), true, '收藏保留')
+      expectEqual(await exists('news-toggle-read'), true, '已读保留')
       await click('news-detail-close')
       await waitGone('news-detail')
     }
 
     await openReaderSettings()
-    await setReaderEnabled(false)
+    await setReaderEnabled(true)
+    await closeSettings()
+  })
+
+  it('news-reader-03 重新开启：入口出现，点击后同一抽屉出现阅读态容器', async function () {
+    this.timeout(120_000)
+    await openReaderSettings()
+    await setReaderEnabled(true)
+    await closeSettings()
+
+    const state = await waitForFeedState()
+    if (state === 'empty') {
+      expectEqual(await visible('news-empty'), true, '无条目时给出显式空态（阅读态未验）')
+      return
+    }
+    await waitForItems(1)
+    const itemTestId = await firstItemTestId()
+    await click(itemTestId as string)
+    await waitFor('news-detail')
+    expectEqual(await exists('news-reader-open'), true, '重新开启后入口出现')
+    expectEqual(await exists('news-reader'), false, '点击前不自动进入阅读态')
+    await click('news-reader-open')
+    await waitFor('news-reader')
+    await settleReaderFailure()
+    await click('news-reader-back')
+    await waitGone('news-reader')
+    await click('news-detail-close')
+    await waitGone('news-detail')
+  })
+
+  it('news-reader-04 拒绝授权：失败分类、重试、复制与去设置可见', async function () {
+    this.timeout(150_000)
+    await openReaderSettings()
+    await setReaderEnabled(true)
+    await closeSettings()
+
+    const state = await waitForFeedState()
+    if (state === 'empty') {
+      expectEqual(await visible('news-empty'), true, '无条目时给出显式空态（授权失败态未验）')
+      return
+    }
+    await waitForItems(1)
+    const itemTestId = await firstItemTestId()
+    await click(itemTestId as string)
+    await waitFor('news-detail')
+    await click('news-reader-open')
+    await settleReaderFailure()
+    // 失败记录会保留 10 分钟；重试强制绕过缓存，重新构造一次授权拒绝
+    await click('news-reader-retry')
+    await settleReaderFailure()
+    expectEqual(await hasText('news-reader-error'), true, '失败态有分类文案')
+    expectEqual(await exists('news-reader-retry'), true, '失败态有重试')
+    expectEqual(await exists('news-reader-copy'), true, '失败态有复制链接')
+    expectEqual(await exists('news-reader-open-settings'), true, '授权类失败有去设置')
+
+    await openReaderSettingsFromFailure()
+    expectEqual(await visible('news-page-settings'), true, '去设置打开同一壳层设置页')
+    await closeSettings()
+  })
+
+  it('news-reader-05 返回摘要：阅读态退场，详情与选中条目不变', async function () {
+    this.timeout(120_000)
+    await openReaderSettings()
+    await setReaderEnabled(true)
+    await closeSettings()
+
+    const state = await waitForFeedState()
+    if (state === 'empty') {
+      expectEqual(await visible('news-empty'), true, '无条目时给出显式空态（返回摘要未验）')
+      return
+    }
+    await waitForItems(1)
+    const itemTestId = await firstItemTestId()
+    await click(itemTestId as string)
+    await waitFor('news-detail')
+    await click('news-reader-open')
+    await waitFor('news-reader')
+    await settleReaderFailure()
+    await click('news-reader-back')
+    await waitGone('news-reader')
+    expectEqual(await visible('news-detail'), true, '返回后详情抽屉仍在')
+    expectEqual(await visible('news-copy'), true, '返回后摘要态操作可用')
+    await click('news-detail-close')
+    await waitGone('news-detail')
+  })
+
+  it('news-reader-06 清除阅读缓存：空缓存也有显性反馈且用量仍显示', async function () {
+    this.timeout(120_000)
+    await openReaderSettings()
+    expectEqual(await hasText('news-reader-usage'), true, '用量是显性状态')
+    await click('news-reader-clear-cache')
+    await waitFor('news-reader-clear-confirm')
+    await click('news-reader-clear-confirm-yes')
+    await waitFor('news-toast')
+    expectEqual(await hasText('news-toast'), true, '清除缓存有结果提示')
+    expectEqual(await hasText('news-reader-usage'), true, '清理后用量仍显示')
+    await waitGone('news-toast', 8_000)
     await closeSettings()
   })
 

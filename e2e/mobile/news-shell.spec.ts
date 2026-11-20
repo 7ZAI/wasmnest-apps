@@ -169,6 +169,11 @@ describe('News（真机 · 移动宿主运行面）', () => {
     expectEqual(typeof first, 'string', '找到首个条目卡片')
     await phone().tap(`[data-testid="${first}"]`)
     await phone().waitFor('[data-testid="mobile-news-detail"]', 30_000)
+    expectEqual(
+      await phone().exists('[data-testid="news-reader-open"]'),
+      false,
+      '移动端 v2.0 详情不出现阅读入口',
+    )
 
     const before = await phone().attr('[data-testid="mobile-news-favorite"]', 'aria-pressed')
     await phone().tap('[data-testid="mobile-news-favorite"]')
