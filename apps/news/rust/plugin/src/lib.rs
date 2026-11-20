@@ -192,6 +192,12 @@ fn normalize_settings(
     }
 }
 
+fn normalize_settings_patch(patch: &mut SettingsPatch, platform: Option<Platform>) {
+    if platform == Some(Platform::Mobile) {
+        patch.reader_enabled = None;
+    }
+}
+
 fn is_reader_command(name: &str) -> bool {
     matches!(
         name,
@@ -247,9 +253,7 @@ fn dispatch(
         }
         "news.set-settings" => {
             let mut patch: SettingsPatch = parse_args(args, "news.set-settings")?;
-            if platform == Some(Platform::Mobile) {
-                patch.reader_enabled = Some(false);
-            }
+            normalize_settings_patch(&mut patch, platform);
             json(
                 engine::save_settings(p, &patch).map_err(to_anyhow)?,
                 "set-settings",
@@ -603,6 +607,23 @@ mod tests {
         settings.reader_enabled = true;
         normalize_settings(&mut settings, Some(Platform::Mobile));
         assert!(!settings.reader_enabled);
+    }
+
+    #[test]
+    fn mobile_settings_patch_drops_reader_field() {
+        let mut patch = SettingsPatch {
+            reader_enabled: Some(true),
+            ..Default::default()
+        };
+        normalize_settings_patch(&mut patch, Some(Platform::Mobile));
+        assert_eq!(patch.reader_enabled, None);
+
+        let mut desktop_patch = SettingsPatch {
+            reader_enabled: Some(false),
+            ..Default::default()
+        };
+        normalize_settings_patch(&mut desktop_patch, Some(Platform::Desktop));
+        assert_eq!(desktop_patch.reader_enabled, Some(false));
     }
 
     #[test]

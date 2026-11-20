@@ -197,25 +197,42 @@ pub fn load_settings(p: &Ports<'_>) -> Result<Settings, PortError> {
             .map(|key| key.chars().count() as u32)
             .unwrap_or(0),
         ai_api_key_tail: api_key.as_deref().map(tail_of).unwrap_or_default(),
-        reader_enabled: setting_get(p, "reader.enabled")?
-            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-            .unwrap_or(false),
+        reader_enabled: parse_reader_enabled(setting_get(p, "reader.enabled")?)?,
     })
 }
 
-/// 保存设置；`api_key = None` 表示不改动已保存密钥。
+/// 解析正文阅读开关：键缺失（首装 / 旧版本升级）按开启，非法值显性失败。
+fn parse_reader_enabled(raw: Option<String>) -> Result<bool, PortError> {
+    let Some(value) = raw else {
+        return Ok(true);
+    };
+    let value = value.trim();
+    if value == "1" || value.eq_ignore_ascii_case("true") {
+        return Ok(true);
+    }
+    if value == "0" || value.eq_ignore_ascii_case("false") {
+        return Ok(false);
+    }
+    Err(storage_failed(
+        "reader.enabled must be one of 1/0/true/false",
+    ))
+}
+
+/// 保存设置；`api_key = None` 表示不改动已保存密钥，`reader_enabled = None` 表示不动阅读开关。
 pub fn save_settings(
     p: &Ports<'_>,
     enabled: bool,
     base_url: &str,
     model: &str,
-    reader_enabled: bool,
+    reader_enabled: Option<bool>,
     api_key: Option<&str>,
 ) -> Result<Settings, PortError> {
     setting_set(p, "ai.enabled", if enabled { "1" } else { "0" })?;
     setting_set(p, "ai.baseUrl", base_url.trim())?;
     setting_set(p, "ai.model", model.trim())?;
-    setting_set(p, "reader.enabled", if reader_enabled { "1" } else { "0" })?;
+    if let Some(reader_enabled) = reader_enabled {
+        setting_set(p, "reader.enabled", if reader_enabled { "1" } else { "0" })?;
+    }
     if let Some(key) = api_key {
         setting_set(p, "ai.apiKey", key.trim())?;
     }
@@ -1829,27 +1846,104 @@ mod tests {
         }
 
         #[test]
-        fn reader_setting_round_trips_without_touching_ai_fields() {
+        fn reader_setting_defaults_on_and_round_trips_without_touching_ai_fields() {
             let test = ports(1_000);
             let p = test.ports();
-            assert!(!load_settings(&p).expect("settings load").reader_enabled);
+            assert!(load_settings(&p).expect("settings load").reader_enabled);
 
             let patch = SettingsPatch {
                 ai_model: Some("gpt-test".into()),
-                reader_enabled: Some(true),
-                ..Default::default()
-            };
-            let saved = engine::save_settings(&p, &patch).expect("settings save");
-            assert!(saved.reader_enabled);
-            assert_eq!(saved.ai_model, "gpt-test");
-
-            let patch = SettingsPatch {
                 reader_enabled: Some(false),
                 ..Default::default()
             };
             let saved = engine::save_settings(&p, &patch).expect("settings save");
             assert!(!saved.reader_enabled);
             assert_eq!(saved.ai_model, "gpt-test");
+
+            let patch = SettingsPatch {
+                reader_enabled: Some(true),
+                ..Default::default()
+            };
+            let saved = engine::save_settings(&p, &patch).expect("settings save");
+            assert!(saved.reader_enabled);
+            assert_eq!(saved.ai_model, "gpt-test");
+        }
+
+        #[test]
+        fn reader_setting_parses_boolean_spellings() {
+            let test = ports(1_000);
+            let p = test.ports();
+            for value in ["1", "true", "TRUE"] {
+                setting_set(&p, "reader.enabled", value).expect("setting writes");
+                assert!(
+                    load_settings(&p).expect("settings load").reader_enabled,
+                    "value {value:?} must read as true"
+                );
+            }
+            for value in ["0", "false", "False"] {
+                setting_set(&p, "reader.enabled", value).expect("setting writes");
+                assert!(
+                    !load_settings(&p).expect("settings load").reader_enabled,
+                    "value {value:?} must read as false"
+                );
+            }
+        }
+
+        #[test]
+        fn invalid_reader_setting_is_a_storage_failure() {
+            let test = ports(1_000);
+            let p = test.ports();
+            for value in ["yes", "", "  "] {
+                setting_set(&p, "reader.enabled", value).expect("setting writes");
+                let err = load_settings(&p).expect_err("invalid value must fail");
+                assert_eq!(err.code(), error_kind::STORAGE_FAILED, "value {value:?}");
+            }
+
+            setting_set(&p, "reader.enabled", "1").expect("setting writes");
+            test.db.fail_on("SELECT value FROM settings");
+            let err = load_settings(&p).expect_err("query failure must fail");
+            assert_eq!(err.code(), error_kind::STORAGE_FAILED);
+        }
+
+        #[test]
+        fn saving_settings_without_reader_field_keeps_key_absent() {
+            let test = ports(1_000);
+            let p = test.ports();
+            let patch = SettingsPatch {
+                ai_model: Some("gpt-test".into()),
+                ..Default::default()
+            };
+            engine::save_settings(&p, &patch).expect("settings save");
+            let rows = test
+                .db
+                .query_params(
+                    "SELECT value FROM settings WHERE key = ?1",
+                    &[json!("reader.enabled")],
+                )
+                .expect("query runs");
+            assert!(rows.is_empty(), "未显式携带 readerEnabled 时不得固化键");
+        }
+
+        #[test]
+        fn explicit_reader_field_is_persisted() {
+            let test = ports(1_000);
+            let p = test.ports();
+            let patch = SettingsPatch {
+                reader_enabled: Some(false),
+                ..Default::default()
+            };
+            engine::save_settings(&p, &patch).expect("settings save");
+            let rows = test
+                .db
+                .query_params(
+                    "SELECT value FROM settings WHERE key = ?1",
+                    &[json!("reader.enabled")],
+                )
+                .expect("query runs");
+            assert_eq!(
+                rows.first().and_then(|row| text(row, "value")),
+                Some("0".to_string())
+            );
         }
     }
 }

@@ -129,6 +129,12 @@ impl DbPort for TestDb {
     }
 
     fn query(&self, sql: &str) -> Result<Vec<Value>, PortError> {
+        if self.should_fail(sql) {
+            return Err(PortError::with_detail(
+                error_kind::STORAGE_FAILED,
+                format!("injected failure for: {sql}"),
+            ));
+        }
         let connection = self.connection.borrow();
         let mut statement = connection.prepare(sql).map_err(storage_error)?;
         let mut rows = statement.query([]).map_err(storage_error)?;
@@ -140,6 +146,12 @@ impl DbPort for TestDb {
     }
 
     fn query_params(&self, sql: &str, params: &[Value]) -> Result<Vec<Value>, PortError> {
+        if self.should_fail(sql) {
+            return Err(PortError::with_detail(
+                error_kind::STORAGE_FAILED,
+                format!("injected failure for: {sql}"),
+            ));
+        }
         let connection = self.connection.borrow();
         let mut statement = connection.prepare(sql).map_err(storage_error)?;
         let values: Vec<SqlValue> = params.iter().map(to_sql_value).collect();
