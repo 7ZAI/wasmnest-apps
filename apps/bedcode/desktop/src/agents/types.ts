@@ -399,6 +399,11 @@ export interface SkillSearchHit {
   skillId: string
   /** 安装量（可信度原始依据） */
   installs: number
+  /**
+   * 是否为 GitHub `owner/repo` 来源：skills.sh 还索引自定义域名来源
+   *（如 `uizze.sh`），无法拼成合法 `github.com/owner/repo`，只展示不可一键安装
+   */
+  installable: boolean
   /** `source@skillId`（= `npx skills add` 的包选择子） */
   install: string
   /** skills.sh 详情页 */

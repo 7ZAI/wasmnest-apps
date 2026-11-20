@@ -854,6 +854,7 @@ export type MessageSchema = {
   'hub.skill.github.hint': string
   'hub.skill.github.install': string
   'hub.skill.github.installing': string
+  'hub.skill.github.installingHint': string
   'hub.skill.github.done': string
   'hub.skill.github.skipped': string
   'hub.skill.github.exists': string
@@ -890,6 +891,10 @@ export type MessageSchema = {
   'hub.skill.search.trustLow': string
   'hub.skill.search.official': string
   'hub.skill.search.install': string
+  'hub.skill.search.installingHint': string
+  'hub.skill.search.notInstallable': string
+  'hub.skill.search.notGitHub': string
+  'hub.skill.search.notGitHubSource': string
 
   // ==================== Skills · 本地导入（票据 04） ====================
   'hub.skill.import.action': string

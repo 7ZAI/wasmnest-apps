@@ -2757,6 +2757,7 @@ describe('A7 SkillsTab：本地过滤与 skills.sh 联网搜索', () => {
       source: 'vercel-labs/agent-skills',
       skillId: 'vercel-react-best-practices',
       installs: 893_012,
+      installable: true,
       install: 'vercel-labs/agent-skills@vercel-react-best-practices',
       url: 'https://skills.sh/vercel-labs/agent-skills/vercel-react-best-practices',
       ...over,
@@ -2897,6 +2898,96 @@ describe('A7 SkillsTab：本地过滤与 skills.sh 联网搜索', () => {
       'vercel-react-best-practices',
     )
     expect(w.find('[data-testid="registry-confirm"]').exists()).toBe(false)
+    w.unmount()
+  })
+
+  it('联网安装进行中：行级「正在安装」横幅 + 按钮转态，命令返回后自动消失', async () => {
+    const searchRemote = vi.fn().mockResolvedValue({
+      query: 'react',
+      results: [searchHit()],
+      exactCount: 1,
+      fallback: false,
+      error: null,
+    })
+    let resolveInstall!: (v: { installed: string[]; skippedFiles: number }) => void
+    const installGithub = vi
+      .fn()
+      .mockImplementation(
+        () =>
+          new Promise<{ installed: string[]; skippedFiles: number }>((resolve) => {
+            resolveInstall = resolve
+          }),
+      )
+    const w = mountComponent(SkillsTab, {
+      detection: { authGranted: true },
+      skills: skillsStub(library, { searchRemote, installGithub }),
+    })
+    await flushPromises()
+    await w.get('[data-testid="search-mode-remote"]').trigger('click')
+    await w.get('[data-testid="skill-search-input"]').setValue('react')
+    await w.get('[data-testid="search-remote-go"]').trigger('click')
+    await flushPromises()
+
+    const installBtn = w.get(
+      '[data-testid="search-install-vercel-labs/agent-skills/vercel-react-best-practices"]',
+    )
+    await installBtn.trigger('click')
+    await flushPromises()
+
+    // 命令未返回期间：横幅提示 + 按钮转「安装中」+ 置灰（同步命令多次往返，
+    // 必须有可见反馈，否则页面看似卡死）
+    expect(w.find('[data-testid="registry-installing"]').exists()).toBe(true)
+    expect(w.text()).toContain(
+      'hub.skill.search.installingHint(name=vercel-react-best-practices)',
+    )
+    expect(installBtn.text()).toContain('hub.skill.github.installing')
+    expect(installBtn.attributes('disabled')).toBeDefined()
+
+    resolveInstall({ installed: ['react-best-practices'], skippedFiles: 0 })
+    await flushPromises()
+    expect(w.find('[data-testid="registry-installing"]').exists()).toBe(false)
+    w.unmount()
+  })
+
+  it('非 GitHub 来源（自定义域名）：安装按钮置灰并说明原因，不发安装命令', async () => {
+    const searchRemote = vi.fn().mockResolvedValue({
+      query: 'uizze',
+      results: [
+        searchHit({
+          id: 'uizze.sh/ui-taste',
+          name: 'ui-taste',
+          source: 'uizze.sh',
+          skillId: 'ui-taste',
+          installs: 1097_093,
+          installable: false,
+          install: 'uizze.sh@ui-taste',
+          url: 'https://skills.sh/uizze.sh/ui-taste',
+        }),
+      ],
+      exactCount: 1,
+      fallback: false,
+      error: null,
+    })
+    const installGithub = vi.fn()
+    const w = mountComponent(SkillsTab, {
+      detection: { authGranted: true },
+      skills: skillsStub(library, { searchRemote, installGithub }),
+    })
+    await flushPromises()
+    await w.get('[data-testid="search-mode-remote"]').trigger('click')
+    await w.get('[data-testid="skill-search-input"]').setValue('uizze')
+    await w.get('[data-testid="search-remote-go"]').trigger('click')
+    await flushPromises()
+
+    // skills.sh 混有自定义域名来源：不能拼 https://github.com/uizze.sh
+    const btn = w.get('[data-testid="search-install-uizze.sh/ui-taste"]')
+    expect(btn.attributes('disabled')).toBeDefined()
+    expect(btn.text()).toContain('hub.skill.search.notInstallable')
+    expect(w.text()).toContain('hub.skill.search.notGitHub')
+
+    await btn.trigger('click')
+    await flushPromises()
+    expect(installGithub).not.toHaveBeenCalled()
     w.unmount()
   })
 

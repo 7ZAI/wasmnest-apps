@@ -47,6 +47,9 @@ pub(crate) struct SearchHit {
     pub skill_id: String,
     /// 安装量（可信度原始依据）
     pub installs: u64,
+    /// 是否为 GitHub `owner/repo` 来源：skills.sh 还索引自定义域名来源
+    ///（如 `uizze.sh`），其无法拼成 `github.com/owner/repo`，只展示不可一键安装
+    pub installable: bool,
 }
 
 impl SearchHit {
@@ -57,10 +60,31 @@ impl SearchHit {
             "source": self.source,
             "skillId": self.skill_id,
             "installs": self.installs,
+            "installable": self.installable,
             "install": format!("{}@{}", self.source, self.skill_id),
             "url": format!("https://skills.sh/{}", self.id),
         })
     }
+}
+
+/// `source` 是否为 GitHub `owner/repo` 简写（唯一可走 GitHub 安装通道的来源形态）
+///
+/// skills.sh 的搜索结果里混有自定义域名来源（`uizze.sh` / `uizze.com` /
+/// `skills.uizze.com` 等，前端若照 `https://github.com/{source}` 拼接会得到
+/// 非法 URL，guest 报 `URL must point to owner/repo`）。此类结果保留展示，
+/// 但标记为不可安装，由前端禁用按钮并说明原因。
+pub(crate) fn is_github_repo_source(source: &str) -> bool {
+    let mut segments = source.split('/');
+    let (Some(owner), Some(repo), None) = (segments.next(), segments.next(), segments.next())
+    else {
+        return false;
+    };
+    let valid_segment = |s: &str| {
+        !s.is_empty()
+            && s.chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+    };
+    valid_segment(owner) && valid_segment(repo)
 }
 
 // ==================== 纯函数 ====================
@@ -168,12 +192,14 @@ pub(crate) fn parse_hits(body: &str) -> Result<Vec<SearchHit>, String> {
         if !seen.insert(id.clone()) {
             continue;
         }
+        let installable = is_github_repo_source(&source);
         hits.push(SearchHit {
             id,
             name,
             source,
             skill_id,
             installs,
+            installable,
         });
     }
     Ok(hits)
@@ -304,6 +330,7 @@ mod tests {
             source: format!("{owner}/{repo}"),
             skill_id: id.rsplit('/').next().unwrap_or("skill").to_string(),
             installs,
+            installable: is_github_repo_source(&format!("{owner}/{repo}")),
         }
     }
 
@@ -380,6 +407,42 @@ mod tests {
             merged.iter().map(|h| h.id.as_str()).collect::<Vec<_>>(),
             vec!["o/r/exact", "o/r/b", "o/r/a", "o/r/c"]
         );
+    }
+
+    /// 来源可安装门控：只有 GitHub `owner/repo` 能走一键安装；
+    /// 自定义域名（skills.sh 亦索引）与畸形分段一律拒绝
+    #[test]
+    fn source_installable_gate() {
+        assert!(is_github_repo_source("vercel-labs/agent-skills"));
+        assert!(is_github_repo_source("anthropics/skills"));
+
+        // 自定义域名来源（真实 skills.sh 数据中存在）
+        assert!(!is_github_repo_source("uizze.sh"));
+        assert!(!is_github_repo_source("uizze.com"));
+        assert!(!is_github_repo_source("skills.uizze.com"));
+        assert!(!is_github_repo_source("proseify.xyz"));
+
+        // 畸形 owner/repo
+        assert!(!is_github_repo_source("owner/"));
+        assert!(!is_github_repo_source("/repo"));
+        assert!(!is_github_repo_source("a/b/c"));
+        assert!(!is_github_repo_source(""));
+        assert!(!is_github_repo_source("a b/c"));
+    }
+
+    /// parse_hits：非 GitHub 来源保留展示但标 installable=false（前端据此禁用安装）
+    #[test]
+    fn parse_marks_non_github_source() {
+        let body = r#"{"skills":[
+            {"id":"uizze.sh/ui-taste","source":"uizze.sh","skillId":"ui-taste","name":"ui-taste","installs":1097093},
+            {"id":"vercel-labs/agent-skills/vercel-react-best-practices","source":"vercel-labs/agent-skills","skillId":"vercel-react-best-practices","name":"x","installs":1}
+        ]}"#;
+        let hits = parse_hits(body).unwrap();
+        assert_eq!(hits.len(), 2);
+        assert!(!hits[0].installable);
+        assert!(hits[1].installable);
+        let json = hits[0].to_json();
+        assert_eq!(json["installable"], json!(false));
     }
 
     /// 合并上限：不超过 MAX_RESULTS

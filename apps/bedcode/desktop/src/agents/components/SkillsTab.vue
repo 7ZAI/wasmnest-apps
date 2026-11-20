@@ -93,8 +93,14 @@ const searching = ref(false)
 const remoteResult = ref<SkillSearchResponse | null>(null)
 const remoteError = ref<string | null>(null)
 /** 联网结果安装的同名覆盖确认（与 GitHub 表单的确认条互不干扰） */
-const registryPending = ref<{ source: string; skillId: string; names: string[] } | null>(null)
+const registryPending = ref<{ hitId: string; source: string; skillId: string; names: string[] } | null>(null)
 const registryError = ref<string | null>(null)
+/** 正在安装的搜索结果行 id（同步命令多次 HTTP 往返，行级「正在安装」反馈） */
+const installingHitId = ref<string | null>(null)
+/** 正在安装的 skill 展示名（横幅提示用） */
+const installingHitName = computed(
+  () => remoteResult.value?.results.find((r) => r.id === installingHitId.value)?.name ?? '',
+)
 
 const localQuery = computed(() => query.value.trim())
 
@@ -156,16 +162,26 @@ function tierText(installs: number): string {
 /**
  * 联网结果安装：skills.sh 结果是 `owner/repo@skill`，仓库里可能有多个 skill，
  * 故携 `skill` 让 guest 只装命中的那一个（按目录名 / frontmatter name 定位）。
+ *
+ * 防御：source 必须是 GitHub `owner/repo` 简写。skills.sh 混有自定义域名来源
+ *（`uizze.sh` 等），照 `https://github.com/{source}` 拼接会得到非法 URL，
+ * guest 只能报 `URL must point to owner/repo`——非 GitHub 来源在此直接拒绝，
+ * 按钮侧也已禁用（`hit.installable === false`），这里是双保险。
  */
-async function installRegistry(source: string, skillId: string, force = false) {
+async function installRegistry(hit: SkillSearchHit, force = false) {
   registryError.value = null
+  const { source, skillId } = hit
+  if (!source.includes('/')) {
+    registryError.value = t('hub.skill.search.notGitHubSource')
+    return
+  }
   const r = await props.skills.installGithub(`https://github.com/${source}`, force, skillId)
   if (r === null) {
     registryError.value = t('hub.skill.search.installFailed')
     return
   }
   if (r.exists && r.exists.length > 0) {
-    registryPending.value = { source, skillId, names: r.exists }
+    registryPending.value = { hitId: hit.id, source, skillId, names: r.exists }
     return
   }
   registryPending.value = null
@@ -173,15 +189,34 @@ async function installRegistry(source: string, skillId: string, force = false) {
 }
 
 async function installHit(hit: SkillSearchHit) {
-  if (props.skills.githubBusy.value) return
-  await installRegistry(hit.source, hit.skillId)
+  if (props.skills.githubBusy.value || installingHitId.value) return
+  // 非 GitHub 来源（自定义域名等）不可经 GitHub 通道安装
+  if (hit.installable === false) {
+    registryError.value = t('hub.skill.search.notGitHubSource')
+    return
+  }
+  // 同步命令（repo API → trees → 探测 → 逐文件下载）多次往返可能较久，
+  // 行级「正在安装」状态在 await 前后挂上/摘掉，给用户可见反馈
+  installingHitId.value = hit.id
+  try {
+    await installRegistry(hit)
+  } finally {
+    installingHitId.value = null
+  }
 }
 
 async function confirmRegistryOverwrite() {
   const pending = registryPending.value
   if (!pending) return
   registryPending.value = null
-  await installRegistry(pending.source, pending.skillId, true)
+  const hit = remoteResult.value?.results.find((r) => r.id === pending.hitId)
+  if (!hit) return
+  installingHitId.value = hit.id
+  try {
+    await installRegistry(hit, true)
+  } finally {
+    installingHitId.value = null
+  }
 }
 
 /** 汇总：某目标全部 distributed → 已同步；有 stale/missing → N 落后 */
@@ -477,6 +512,9 @@ function closeEditor() {
           {{ t('hub.skill.github.unreachable') }}
           <div class="ah-sk-raw-error">{{ githubError }}</div>
         </div>
+        <div v-if="skills.githubBusy.value" class="ah-inst-hint ah-sk-github-hint" data-testid="github-installing-hint">
+          {{ t('hub.skill.github.installingHint') }}
+        </div>
       </div>
 
       <!-- 导入覆盖确认 / 授权拒绝 -->
@@ -590,10 +628,15 @@ function closeEditor() {
               {{ t('hub.skill.search.fallback') }}
             </span>
           </div>
+          <div v-if="installingHitId" class="ah-banner ah-banner-info" data-testid="registry-installing">
+            <span class="ah-banner-ic ah-sk-spin"></span>
+            <span class="ah-banner-text">{{ t('hub.skill.search.installingHint', { name: installingHitName }) }}</span>
+          </div>
           <div
             v-for="hit in remoteResult.results"
             :key="hit.id"
             class="ah-sk-row"
+            :class="{ 'ah-sk-row--installing': installingHitId === hit.id }"
             :data-testid="`search-result-${hit.id}`"
           >
             <div class="ah-sk-row-main">
@@ -612,18 +655,32 @@ function closeEditor() {
               <span v-if="isOfficialSource(hit.source)" class="ah-cli-tag ok">
                 {{ t('hub.skill.search.official') }}
               </span>
+              <span v-if="hit.installable === false" class="ah-cli-tag warn">
+                {{ t('hub.skill.search.notGitHub') }}
+              </span>
             </div>
             <div class="ah-sk-row-actions">
               <button
+                v-if="hit.installable !== false"
                 type="button"
                 class="ah-btn ah-btn-primary ah-btn-sm"
-                :disabled="authGranted === false || props.skills.githubBusy.value"
+                :disabled="authGranted === false || props.skills.githubBusy.value || installingHitId === hit.id"
                 :data-testid="`search-install-${hit.id}`"
                 @click="installHit(hit)"
               >
-                {{ props.skills.githubBusy.value
+                {{ installingHitId === hit.id
                   ? t('hub.skill.github.installing')
                   : t('hub.skill.search.install') }}
+              </button>
+              <button
+                v-else
+                type="button"
+                class="ah-btn ah-btn-sm"
+                disabled
+                :title="t('hub.skill.search.notGitHub')"
+                :data-testid="`search-install-${hit.id}`"
+              >
+                {{ t('hub.skill.search.notInstallable') }}
               </button>
             </div>
           </div>

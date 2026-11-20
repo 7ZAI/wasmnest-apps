@@ -39,6 +39,7 @@ function hit(over: Partial<SkillSearchHit> = {}): SkillSearchHit {
     source: 'vercel-labs/agent-skills',
     skillId: 'vercel-react-best-practices',
     installs: 893_012,
+    installable: true,
     install: 'vercel-labs/agent-skills@vercel-react-best-practices',
     url: 'https://skills.sh/vercel-labs/agent-skills/vercel-react-best-practices',
     ...over,

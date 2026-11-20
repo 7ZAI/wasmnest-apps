@@ -929,6 +929,8 @@ const en: MessageSchema = {
     'Supports a repo root (with SKILL.md, or a multi-skill repo whose top-level dirs each contain SKILL.md) and tree subdir links; text files only — binary files are skipped.',
   'hub.skill.github.install': 'Install',
   'hub.skill.github.installing': 'Installing…',
+  'hub.skill.github.installingHint':
+    'Installing… fetching files from GitHub may take a while, please keep this page open.',
   'hub.skill.github.done': 'Installed {n} skill(s)',
   'hub.skill.github.skipped': '{n} file(s) skipped (binary or fetch failed)',
   'hub.skill.github.exists': '{names} already exist. Overwrite?',
@@ -965,6 +967,10 @@ const en: MessageSchema = {
   'hub.skill.search.trustLow': 'low adoption',
   'hub.skill.search.official': 'official source',
   'hub.skill.search.install': 'Install',
+  'hub.skill.search.installingHint': 'Installing {name}… fetching files from GitHub may take a while, please wait.',
+  'hub.skill.search.notInstallable': 'Not installable',
+  'hub.skill.search.notGitHub': 'non-GitHub source',
+  'hub.skill.search.notGitHubSource': 'Cannot install: source is not a GitHub repository (owner/repo).',
 
   // ==================== Skills · local import (ticket 04) ====================
   'hub.skill.import.action': 'Import local directory',

@@ -1204,6 +1204,29 @@
   flex-shrink: 0;
 }
 
+/* Skill 安装进行中：旋转图标 + 行高亮。安装为同步命令（repo API → trees →
+   逐文件下载，多次 host-http 往返），无可见反馈时页面看似卡死（2026-11-20
+   实机反馈：点安装后 UI 无任何变化） */
+.ah-sk-spin {
+  display: inline-block;
+  width: 13px;
+  height: 13px;
+  border: 2px solid var(--border);
+  border-top-color: var(--ah-text-data);
+  border-radius: 50%;
+  animation: ah-sk-spin 0.9s linear infinite;
+}
+
+@keyframes ah-sk-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.ah-sk-row--installing {
+  background: var(--bg-hover);
+}
+
 /* ==================== Skill 编辑器（票据 04） ==================== */
 
 .ah-sk-editor {

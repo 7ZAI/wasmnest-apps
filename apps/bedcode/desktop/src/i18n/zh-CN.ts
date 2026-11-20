@@ -890,6 +890,8 @@ const zhCN: MessageSchema = {
     '支持仓库根（含 SKILL.md，或顶层各自含 SKILL.md 的多 skill 仓库）与 tree 子目录链接；仅拉取文本文件，二进制文件跳过。',
   'hub.skill.github.install': '安装',
   'hub.skill.github.installing': '安装中…',
+  'hub.skill.github.installingHint':
+    '正在安装…需从 GitHub 拉取文件，可能较慢，请保持当前页面打开。',
   'hub.skill.github.done': '已安装 {n} 个 skill',
   'hub.skill.github.skipped': '跳过 {n} 个文件（二进制或下载失败）',
   'hub.skill.github.exists': '{names} 已存在，确认覆盖？',
@@ -923,6 +925,10 @@ const zhCN: MessageSchema = {
   'hub.skill.search.trustLow': '低采用',
   'hub.skill.search.official': '官方来源',
   'hub.skill.search.install': '安装',
+  'hub.skill.search.installingHint': '正在安装 {name}…需从 GitHub 拉取文件，可能较慢，请耐心等待。',
+  'hub.skill.search.notInstallable': '暂不可安装',
+  'hub.skill.search.notGitHub': '非 GitHub 来源',
+  'hub.skill.search.notGitHubSource': '无法安装：该来源不是 GitHub 仓库（owner/repo）。',
 
   // ==================== Skills · 本地导入（票据 04） ====================
   'hub.skill.import.action': '导入本地目录',
