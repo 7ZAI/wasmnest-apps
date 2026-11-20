@@ -61,7 +61,7 @@ const INSTALL_TIMEOUT_MS: u64 = 900_000;
 fn exec_script(script: String, windows: bool) -> String {
     // 引导出来的 node / npm 走脚本 env 前缀（PATH 前置 + npm_config_prefix）：
     // 装完 node 立刻能装 CLI，不需要重启应用把新 PATH 灌进宿主进程。
-    // unix 的 PATH 引导会重写 PATH，故 env 前缀必须排在它之后。
+    // unix 的 PATH 引导会合并交互 shell 的 PATH，故 env 前缀必须排在它之后。
     if windows {
         crate::hub::env::prepend_env(script, true)
     } else {

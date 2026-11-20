@@ -140,6 +140,16 @@ const speed = computed(() => props.installState?.mirror?.speed ?? null)
 const speedDone = computed(() => speed.value?.status === 'ok')
 const speedFailed = computed(() => speed.value?.status === 'error')
 
+/** 测速失败文案：批量授权错误按稳定码给可操作提示，其余保持通用失败 */
+const speedErrorText = computed(() => {
+  const code = speed.value?.error
+  if (code === 'consent.always-ask') return t('hub.speed.consentAlwaysAsk')
+  if (typeof code === 'string' && code.startsWith('consent.')) {
+    return t('hub.speed.consentFailed', { code })
+  }
+  return t('hub.speed.fail')
+})
+
 /** 内置源展示名（i18n；自定义源统一 "hub.speed.source.custom"） */
 const SOURCE_LABELS: Record<string, string> = {
   npmmirror: 'hub.speed.source.npmmirror',
@@ -273,7 +283,7 @@ const recommendMirror = computed(() => speed.value?.recommend === 'npmmirror')
             <span class="ah-cli-dot"></span>{{ recommendMirror ? t('hub.speed.recommendMirror') : t('hub.speed.recommendOfficial') }}
           </span>
         </span>
-        <span v-else-if="speedFailed" class="ah-speed-text ah-cli-error">{{ t('hub.speed.fail') }}</span>
+        <span v-else-if="speedFailed" class="ah-speed-text ah-cli-error">{{ speedErrorText }}</span>
         <span v-else class="ah-speed-text"></span>
         <span class="ah-speed-line-btns">
           <button

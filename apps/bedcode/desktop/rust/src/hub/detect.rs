@@ -3,7 +3,7 @@
 //! 经 host-process 平台分派采集（Windows / Linux 双兼容）：
 //! - unix：登录 shell `bash -lc` + PATH 引导（登录 shell 不读 `~/.bashrc`，
 //!   nvm 等 PATH 注入由交互子 shell 提取，见 `path_bootstrap_unix`），
-//!   `which -a` 全命中
+//!   `which -a` 全命中（`which` 缺失时回退 bash 内建 `type -a -p`）
 //! - Windows：`cmd /C` 链式命令（GUI 进程 PATH 来自注册表用户环境，npm shim
 //!   经 PATHEXT 解析），`where` 全命中
 //! - 每个 CLI：全部 PATH 命中（→ 双安装检测）+ `--version`
@@ -16,6 +16,10 @@
 //! 流程：spawn_all 将各项标记 detecting 并持久化推送 → 宿主进程结束回灌
 //! `on_process_done` → 读输出文件解析 → 更新 storage → emit 事件推前端。
 //! 状态 JSON 为唯一真源（host-storage `detection` 键），每次读-改-写。
+//!
+//! **结论由输出里的分段标记判定**（[`segments_complete`]），不看进程退出码：
+//! 未安装工具会让脚本非零退出（shell 报错），但那仍是有结论的「未安装」；
+//! 只有分段缺失或超时才落「无结论」（`unavailable`，只给重试）。
 //!
 //! **平台分派必须运行期**：脚本内容按 `is_windows()`（activate 时缓存的宿主
 //! `os.platform`）选择，经 `windows: bool` 参数逐层下传。编译期 `cfg!(windows)`
@@ -308,22 +312,26 @@ pub(crate) fn handle_process_done(event: &ProcessDoneEvent) -> anyhow::Result<()
     ));
 
     let mut state = read_state(&h);
-    if event.timed_out || event.exit_code != Some(0) {
-        set_cli_error(
+    // 退出码只说明脚本最后一条命令的结局，不说明「探测有没有给出结论」：
+    // 未安装工具的 shell 报错、用户 rc 脚本报错都会让脚本非零退出，而分段与
+    // 数据仍然完整。判据取输出里的分段标记，否则干净机器上「确认未安装」会被
+    // 误报成「探测失败」。超时被强杀时输出可能缺尾，仍按无结论处理。
+    match h.fs_read(&output_path) {
+        Ok(Some(output)) if !event.timed_out && segments_complete(&kind, &output) => {
+            apply_output(&mut state, &kind, &output);
+            // 采集完成即清理输出文件，防 runs 目录堆积（尽力而为）
+            let _ = h.fs_delete(&output_path);
+        }
+        Ok(Some(_)) => set_cli_error(
             &mut state,
             &kind,
-            &format!("exit={:?} timed_out={}", event.exit_code, event.timed_out),
-        );
-    } else {
-        match h.fs_read(&output_path) {
-            Ok(Some(output)) => {
-                apply_output(&mut state, &kind, &output);
-                // 采集完成即清理输出文件，防 runs 目录堆积（尽力而为）
-                let _ = h.fs_delete(&output_path);
-            }
-            Ok(None) => set_cli_error(&mut state, &kind, "output file missing"),
-            Err(e) => set_cli_error(&mut state, &kind, &format!("read output failed: {e}")),
-        }
+            &format!(
+                "exit={:?} timed_out={} (segments missing)",
+                event.exit_code, event.timed_out
+            ),
+        ),
+        Ok(None) => set_cli_error(&mut state, &kind, "output file missing"),
+        Err(e) => set_cli_error(&mut state, &kind, &format!("read output failed: {e}")),
     }
     write_state(&h, &state);
     push_state(&h);
@@ -335,6 +343,20 @@ pub(crate) fn handle_process_done(event: &ProcessDoneEvent) -> anyhow::Result<()
         crate::hub::env::on_env_probe(&h, &state);
     }
     Ok(())
+}
+
+/// 输出是否含该探测项的完整分段标记（判定「探测有没有给出结论」的唯一依据）。
+///
+/// 脚本以平台一致的分段标记输出（unix 与 Windows 逐段相同），标记齐全说明
+/// 采集脚本真的跑到了尾段；此时各段内容即使为空（工具未安装）也是**有结论**
+/// 的：CLI 落 `not-installed`、环境落 `ok` + 字段 `null`。反之一个标记都读不到
+/// （执行壳不对 / 脚本首行即失败）才是「无结论」，只能给重试。
+fn segments_complete(kind: &str, output: &str) -> bool {
+    if kind == ENV_KIND {
+        output.contains("== node ==") && output.contains("== shell ==")
+    } else {
+        output.contains("== paths ==") && output.contains("== version ==")
+    }
 }
 
 fn apply_output(state: &mut Value, kind: &str, output: &str) {
@@ -471,18 +493,22 @@ fn cli_detection_script(agent: &dyn Agent, windows: bool) -> String {
 /// 单条失败中断后续分段）。段标记与 unix 形态逐段一致，解析层不分平台。
 /// 脚本头前置引导出来的 node 目录（[`crate::hub::env::shell_env_prefix`]）：
 /// 刚装完 node 的机器无需重启应用即可被探测到。
+/// 末尾 `exit 0`：退出码是最后一条命令的结局（未装工具必然非零），不能
+/// 让它代表「探测有没有结论」——结论由分段标记判定。
 fn env_script_windows() -> String {
     format!(
         "{}{}",
         crate::hub::env::shell_env_prefix(true),
-        "echo == node == & node --version 2>&1 & echo == npm == & npm --version 2>&1 & echo == pnpm == & pnpm --version 2>&1 & echo == registry == & npm config get registry 2>&1 & echo == python == & py --version 2>&1 || python --version 2>&1 & echo == arch == & echo %PROCESSOR_ARCHITECTURE% & echo == os_version == & ver 2>&1 & echo == shell == & echo %COMSPEC%"
+        "echo == node == & node --version 2>&1 & echo == npm == & npm --version 2>&1 & echo == pnpm == & pnpm --version 2>&1 & echo == registry == & npm config get registry 2>&1 & echo == python == & py --version 2>&1 || python --version 2>&1 & echo == arch == & echo %PROCESSOR_ARCHITECTURE% & echo == os_version == & ver 2>&1 & echo == shell == & echo %COMSPEC% & exit 0"
     )
 }
 
-/// Windows 单 CLI 采集：`where` 全命中（PATHEXT 解析 npm shim）+ 版本行
+/// Windows 单 CLI 采集：`where` 全命中（PATHEXT 解析 npm shim）+ 版本行。
+/// 末尾 `exit 0`：未安装时 `where` / `--version` 均非零，不能让它把
+/// 「确认未安装」拖成「探测失败」。
 fn cli_script_windows(bin: &str) -> String {
     format!(
-        "{}echo == paths == & where {bin} 2>nul & echo == version == & {bin} --version 2>&1",
+        "{}echo == paths == & where {bin} 2>nul & echo == version == & {bin} --version 2>&1 & exit 0",
         crate::hub::env::shell_env_prefix(true)
     )
 }
@@ -491,17 +517,29 @@ fn cli_script_windows(bin: &str) -> String {
 /// `case $- in *i*)` 在非交互 shell 下直接 return，`~/.profile` 的 source
 /// 同样被拦截），nvm 等 PATH 注入因而失效，node/npm/pnpm 探测全部
 /// not found。改为从交互子 shell 提取 PATH（`2>/dev/null` 吞无 tty 的
-/// ioctl 警告；`tail -n 1` 取末行，防 rc 启动输出污染），再在当前非交互
-/// shell 继续采集——两侧段标记契约不受影响。
+/// ioctl 警告），再在当前非交互 shell 继续采集。
+///
+/// 提取结果取末行（rc 启动输出可能污染前面几行），且只有形态像绝对路径列表
+/// （以 `/` 开头、不含空格）时才**前置**到当前 PATH；提取失败（无 bash /
+/// rc 报错 / 无输出）时保留原始 PATH——用空值替换会让 `which` / `head` /
+/// `uname` 等基础工具连带失效，整轮探测全部落「无结论」。
 pub(crate) fn path_bootstrap_unix() -> &'static str {
-    "export PATH=\"$(bash -ic 'printf \"%s\\n\" \"$PATH\"' 2>/dev/null | tail -n 1)\"\n"
+    concat!(
+        "__wasmnest_path=\"$(bash -ic 'printf \"%s\\n\" \"$PATH\"' 2>/dev/null)\"\n",
+        "__wasmnest_path=\"${__wasmnest_path##*$'\\n'}\"\n",
+        "if [ \"${__wasmnest_path#/}\" != \"$__wasmnest_path\" ] && [ \"${__wasmnest_path#* }\" = \"$__wasmnest_path\" ]; then\n",
+        "  export PATH=\"$__wasmnest_path:$PATH\"\n",
+        "fi\n",
+    )
 }
 
-/// unix 单 CLI 采集：`which -a` 全部 PATH 命中 + 版本行；未安装时 paths 为空、
-/// version 段只有 shell 报错行 → not-installed
+/// unix 单 CLI 采集：全部 PATH 命中 + 版本行；未安装时 paths 为空、
+/// version 段只有 shell 报错行 → not-installed（由分段标记判定，不靠退出码）。
+/// `which` 不是 POSIX 必需工具（精简发行版可能没有），`||` 兜底到 bash 内建
+/// `type -a -p`（同样逐条输出绝对路径）。
 fn cli_script_unix(bin: &str) -> String {
     format!(
-        "{}{}echo '== paths =='\nwhich -a {bin} 2>/dev/null\necho '== version =='\n{bin} --version 2>&1 | head -n 2\n",
+        "{}{}echo '== paths =='\nwhich -a {bin} 2>/dev/null || type -a -p {bin} 2>/dev/null\necho '== version =='\n{bin} --version 2>&1 | head -n 2\nexit 0\n",
         path_bootstrap_unix(),
         crate::hub::env::shell_env_prefix(false)
     )
@@ -509,9 +547,10 @@ fn cli_script_unix(bin: &str) -> String {
 
 /// unix 环境采集：node / npm / pnpm 版本 + 当前 npm registry。
 /// PATH 引导之后紧接引导出来的 node 目录（覆盖 nvm 之外的干净机器场景）。
+/// 末尾 `exit 0`：未装 node 时各条命令非零，结论由分段标记判定。
 fn env_script_unix() -> String {
     format!(
-        "{}{}echo '== node =='\nnode --version 2>&1\necho '== npm =='\nnpm --version 2>&1\necho '== pnpm =='\npnpm --version 2>&1\necho '== registry =='\nnpm config get registry 2>&1\necho '== python =='\npython3 --version 2>&1 || python --version 2>&1\necho '== arch =='\nuname -m\necho '== os_version =='\nuname -sr\necho '== shell =='\necho $SHELL\n",
+        "{}{}echo '== node =='\nnode --version 2>&1\necho '== npm =='\nnpm --version 2>&1\necho '== pnpm =='\npnpm --version 2>&1\necho '== registry =='\nnpm config get registry 2>&1\necho '== python =='\npython3 --version 2>&1 || python --version 2>&1\necho '== arch =='\nuname -m\necho '== os_version =='\nuname -sr\necho '== shell =='\necho $SHELL\nexit 0\n",
         path_bootstrap_unix(),
         crate::hub::env::shell_env_prefix(false)
     )
@@ -1290,6 +1329,59 @@ mod tests {
         assert_eq!(info["status"], json!("ok"));
         assert_eq!(info["installed"], json!(true));
         assert_eq!(info["error"], json!(null));
+    }
+
+    // ==================== 结论判定（退出码 ≠ 有无结论） ====================
+
+    /// 干净机器主路径：四家 CLI 全未安装时脚本退出码可能非零（未装工具的
+    /// shell 报错），但分段标记齐全 —— 必须落 `not-installed` 而不是「探测失败」
+    #[test]
+    fn not_installed_output_is_a_conclusion_even_with_nonzero_exit() {
+        let out = "== paths ==\n== version ==\nbash: codex: command not found\n";
+        assert!(segments_complete("codex", out));
+        let mut state = json!({ "clis": {} });
+        apply_output(&mut state, "codex", out);
+        assert_eq!(state["clis"]["codex"]["status"], json!("not-installed"));
+    }
+
+    /// 环境探测同口径：没装 node/npm/pnpm 时分段齐全 = 有结论（ok + 字段 null）
+    #[test]
+    fn env_missing_tools_output_is_a_conclusion() {
+        let out = "== node ==\nbash: node: command not found\n== npm ==\nbash: npm: command not found\n== pnpm ==\nbash: pnpm: command not found\n== registry ==\nbash: npm: command not found\n== python ==\nbash: python3: command not found\nbash: python: command not found\n== arch ==\nx86_64\n== os_version ==\nLinux 6.1.0\n== shell ==\n/bin/bash\n";
+        assert!(segments_complete(ENV_KIND, out));
+        let mut state = json!({});
+        apply_output(&mut state, ENV_KIND, out);
+        assert_eq!(state["envStatus"], json!("ok"));
+        assert_eq!(state["env"]["node"], json!(null));
+        assert_eq!(state["env"]["arch"], json!("x86_64"));
+    }
+
+    /// 无结论判定：执行壳不对（首行即失败）时一个分段都读不到 → unavailable；
+    /// 只到 paths 段（version 段缺失）也不得当结论——会误报「未安装」
+    #[test]
+    fn missing_segments_means_no_conclusion() {
+        let out = "'export' 不是内部或外部命令，也不是可运行的程序\r\n";
+        assert!(!segments_complete(ENV_KIND, out));
+        assert!(!segments_complete("codex", out));
+        assert!(!segments_complete("codex", "== paths ==\n"));
+    }
+
+    /// PATH 引导不替换原 PATH、不依赖外部 tail：提取失败时基础工具仍可用
+    #[test]
+    fn path_bootstrap_preserves_original_path() {
+        let s = path_bootstrap_unix();
+        assert!(s.contains(":$PATH"), "必须前置而非替换: {s}");
+        assert!(!s.contains("tail"), "不得依赖外部 tail: {s}");
+        assert!(s.contains("bash -ic"));
+    }
+
+    /// 采集脚本恒以 0 退出：未安装工具不得把「确认未安装」变成「探测失败」
+    #[test]
+    fn detection_scripts_exit_zero() {
+        assert!(env_script_unix().ends_with("exit 0\n"));
+        assert!(cli_script_unix("codex").ends_with("exit 0\n"));
+        assert!(env_script_windows().ends_with("exit 0"));
+        assert!(cli_script_windows("codex").ends_with("exit 0"));
     }
 
     /// 新增段（python / arch / os_version / shell）全量解析：python 和 pnpm

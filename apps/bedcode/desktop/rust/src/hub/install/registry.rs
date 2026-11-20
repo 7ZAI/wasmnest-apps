@@ -31,8 +31,154 @@ pub(crate) const MIRROR_SOURCES: [(&str, &str); 5] = [
 ];
 /// 测速样本包：元数据小、两端长期存在，`/<pkg>/latest` 形态稳定
 const PROBE_PKG: &str = "semver";
+
+/// 批量授权的逐项决定（只用于「探不探」这一件事，不放行任何实际请求）
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ConsentDecision {
+    Allow,
+    Deny,
+    Invalid,
+}
+
+/// 批量授权询问的整体结论
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum BatchConsent {
+    /// 当前端不支持批量询问：回退逐个 fetch（单 origin 授权窗照常出现）
+    Unsupported,
+    /// 逐项决定（按候选源索引对齐）+ 因容量上限未能落账的 allow 条数
+    Decisions {
+        decisions: Vec<ConsentDecision>,
+        dropped_records: usize,
+    },
+    /// 当前策略为「总是询问」：不批量、不静默改档
+    AlwaysAsk,
+    /// 其他稳定错误码（显性展示，不伪装成网络不可达）
+    Failed(String),
+}
+
 // ==================== 测速 ====================
 // ==================== 测速 ====================
+
+/// 探测前提交一次批量授权（只询问，不发请求；实际 fetch 仍走完整判定链）
+fn batch_egress_consent(h: &WasmHost, candidates: &[(String, String)]) -> BatchConsent {
+    let urls: Vec<String> = candidates
+        .iter()
+        .map(|(_, url)| format!("{url}/{PROBE_PKG}/latest"))
+        .collect();
+    let request = json!({ "urls": urls }).to_string();
+    let response = match h.request_egress_consent(&request) {
+        Ok(response) => response,
+        Err(error) => return classify_consent_failure(&error.to_string()),
+    };
+    match parse_consent_decisions(&response, urls.len()) {
+        Ok((decisions, dropped_records)) => BatchConsent::Decisions {
+            decisions,
+            dropped_records,
+        },
+        Err(code) => BatchConsent::Failed(code),
+    }
+}
+
+/// 宿主错误串 → 稳定分支（SDK 错误文本带能力域错误码）
+fn classify_consent_failure(message: &str) -> BatchConsent {
+    if message.contains("consent.unsupported") {
+        return BatchConsent::Unsupported;
+    }
+    if message.contains("consent.always-ask") {
+        return BatchConsent::AlwaysAsk;
+    }
+    let known = [
+        "consent.permission-denied",
+        "consent.unavailable",
+        "consent.store-failed",
+        "consent.internal",
+        "consent.invalid-request",
+        "consent.too-many",
+    ];
+    let code = known
+        .iter()
+        .find(|code| message.contains(*code))
+        .copied()
+        .unwrap_or("consent.internal");
+    BatchConsent::Failed(code.to_string())
+}
+
+/// 解析批量响应；缺少索引 / 形状异常 → `consent.internal`（不猜已授权）
+fn parse_consent_decisions(
+    response: &str,
+    expected: usize,
+) -> Result<(Vec<ConsentDecision>, usize), String> {
+    let value: Value =
+        serde_json::from_str(response).map_err(|_| "consent.internal".to_string())?;
+    let results = value
+        .get("results")
+        .and_then(Value::as_array)
+        .ok_or_else(|| "consent.internal".to_string())?;
+    let dropped_records = value
+        .get("droppedRecords")
+        .and_then(Value::as_u64)
+        .unwrap_or(0) as usize;
+    let mut decisions = vec![ConsentDecision::Invalid; expected];
+    for item in results {
+        let index = item
+            .get("index")
+            .and_then(Value::as_u64)
+            .map(|index| index as usize)
+            .ok_or_else(|| "consent.internal".to_string())?;
+        if index >= expected {
+            return Err("consent.internal".to_string());
+        }
+        decisions[index] = match item.get("decision").and_then(Value::as_str) {
+            Some("allow") => ConsentDecision::Allow,
+            Some("deny") => ConsentDecision::Deny,
+            _ => ConsentDecision::Invalid,
+        };
+    }
+    Ok((decisions, dropped_records))
+}
+
+/// 组装测速来源列表（纯函数：拒绝 / 无效项不触网，未决项才探测）
+fn build_speed_results(
+    candidates: &[(String, String)],
+    decisions: Option<&[ConsentDecision]>,
+    mut probe: impl FnMut(&str) -> Option<u64>,
+) -> Vec<Value> {
+    let mut results = Vec::with_capacity(candidates.len());
+    for (index, (id, url)) in candidates.iter().enumerate() {
+        let decision = decisions
+            .and_then(|decisions| decisions.get(index))
+            .copied();
+        if matches!(decision, Some(ConsentDecision::Deny)) {
+            results.push(json!({
+                "id": id,
+                "url": url,
+                "ms": null,
+                "reachable": false,
+                "reason": "denied",
+            }));
+            continue;
+        }
+        if matches!(decision, Some(ConsentDecision::Invalid)) {
+            results.push(json!({
+                "id": id,
+                "url": url,
+                "ms": null,
+                "reachable": false,
+                "reason": "invalid",
+            }));
+            continue;
+        }
+        let ms = probe(&format!("{url}/{PROBE_PKG}/latest"));
+        results.push(json!({
+            "id": id,
+            "url": url,
+            "ms": ms,
+            "reachable": ms.is_some(),
+            "reason": if ms.is_some() { Value::Null } else { json!("unreachable") },
+        }));
+    }
+    results
+}
 
 /// 两源小 GET 计时（一次探测一个源，host-http 非流式）
 fn probe_registry(h: &WasmHost, url: &str) -> Result<u64, String> {
@@ -65,18 +211,45 @@ pub(crate) fn speed_test(h: &WasmHost) -> anyhow::Result<Value> {
     emit(h, &state);
     h.log_info("registry speed test started");
 
-    // wasm 单线程阻塞式 http_fetch：顺序测速（候选源少，耗时叠加可接受）
+    // 先提交一次批量授权（只询问）；实际探测仍走 http_fetch 的完整判定链
     let candidates = all_sources(&state);
-    let mut results: Vec<Value> = Vec::new();
-    for (id, url) in &candidates {
-        let ms = probe_registry(h, &format!("{url}/{PROBE_PKG}/latest")).ok();
-        results.push(json!({
-            "id": id,
-            "url": url,
-            "ms": ms,
-            "reachable": ms.is_some(),
-        }));
-    }
+    let consent = batch_egress_consent(h, &candidates);
+    let (decisions, dropped_records) = match consent {
+        BatchConsent::Unsupported => (None, 0),
+        BatchConsent::Decisions {
+            decisions,
+            dropped_records,
+        } => (Some(decisions), dropped_records),
+        BatchConsent::AlwaysAsk => {
+            state["mirror"]["speed"] = json!({
+                "status": "error",
+                "sources": [],
+                "recommend": null,
+                "error": "consent.always-ask",
+                "testedAt": now_ms(h).unwrap_or(0),
+            });
+            write_state(h, &state);
+            h.log_warn("registry speed test blocked: authorization strategy is always_ask");
+            return emit_and_return(h, &state);
+        }
+        BatchConsent::Failed(code) => {
+            state["mirror"]["speed"] = json!({
+                "status": "error",
+                "sources": [],
+                "recommend": null,
+                "error": code,
+                "testedAt": now_ms(h).unwrap_or(0),
+            });
+            write_state(h, &state);
+            h.log_warn(&format!("registry speed test blocked: {code}"));
+            return emit_and_return(h, &state);
+        }
+    };
+
+    // wasm 单线程阻塞式 http_fetch：未决源顺序测速（候选源少，耗时叠加可接受）
+    let mut results = build_speed_results(&candidates, decisions.as_deref(), |url| {
+        probe_registry(h, url).ok()
+    });
     results.sort_by(compare_source);
     // 推荐：全部候选里最快可达者（排序后首位可达）
     let recommend = results
@@ -84,7 +257,11 @@ pub(crate) fn speed_test(h: &WasmHost) -> anyhow::Result<Value> {
         .find(|r| r["reachable"] == json!(true))
         .map(|r| r["id"].clone());
     let error = if recommend.is_none() {
-        Some("all registries unreachable".to_string())
+        if results.iter().any(|row| row["reason"] == "denied") {
+            Some("all registries denied".to_string())
+        } else {
+            Some("all registries unreachable".to_string())
+        }
     } else {
         None
     };
@@ -96,6 +273,12 @@ pub(crate) fn speed_test(h: &WasmHost) -> anyhow::Result<Value> {
         "sources": results.into_iter().take(10).collect::<Vec<_>>(),
         "recommend": recommend,
         "error": error,
+        // 批量落账触顶：放行方向不变，但应用必须提示「下次仍会询问」
+        "notice": if dropped_records > 0 {
+            json!("consent.dropped-records")
+        } else {
+            Value::Null
+        },
         "testedAt": tested_at,
     });
     write_state(h, &state);
@@ -246,6 +429,105 @@ fn outdated_flag(local: Option<&str>, latest: &str) -> Option<bool> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 宿主错误串按稳定码分类：unsupported 回退、always-ask 显性阻断、其余保持错误码
+    #[test]
+    fn consent_failure_classification_uses_stable_codes() {
+        assert_eq!(
+            classify_consent_failure("request_egress_consent: consent.unsupported"),
+            BatchConsent::Unsupported
+        );
+        assert_eq!(
+            classify_consent_failure("consent.always-ask"),
+            BatchConsent::AlwaysAsk
+        );
+        assert_eq!(
+            classify_consent_failure("consent.store-failed: db unavailable"),
+            BatchConsent::Failed("consent.store-failed".to_string())
+        );
+        assert_eq!(
+            classify_consent_failure("unexpected host failure"),
+            BatchConsent::Failed("consent.internal".to_string())
+        );
+    }
+
+    /// 逐项决定按入参索引回填；形状异常 / 越界一律 fail-closed 成 internal
+    #[test]
+    fn consent_decisions_are_backfilled_by_index() {
+        let response = json!({
+            "results": [
+                { "index": 0, "origin": "https://a.example:443", "decision": "allow", "source": "user" },
+                { "index": 1, "origin": "https://b.example:443", "decision": "deny", "source": "user-denied" },
+                { "index": 2, "decision": "invalid" }
+            ],
+            "droppedRecords": 2
+        })
+        .to_string();
+        let (decisions, dropped) =
+            parse_consent_decisions(&response, 3).expect("well-formed response");
+        assert_eq!(
+            decisions,
+            vec![
+                ConsentDecision::Allow,
+                ConsentDecision::Deny,
+                ConsentDecision::Invalid
+            ]
+        );
+        assert_eq!(dropped, 2, "droppedRecords 必须透传给应用");
+        assert!(parse_consent_decisions("not-json", 1).is_err());
+        assert!(
+            parse_consent_decisions(r#"{"results":[{"index":3,"decision":"allow"}]}"#, 1).is_err(),
+            "越界索引必须 fail-closed"
+        );
+    }
+
+    /// 被拒 / 无效源不触网；未决源逐个探测
+    #[test]
+    fn denied_and_invalid_sources_are_not_probed() {
+        let candidates = vec![
+            ("allow".to_string(), "https://allow.example".to_string()),
+            ("deny".to_string(), "https://deny.example".to_string()),
+            ("invalid".to_string(), "https://invalid.example".to_string()),
+            ("probe".to_string(), "https://probe.example".to_string()),
+        ];
+        let decisions = [
+            ConsentDecision::Allow,
+            ConsentDecision::Deny,
+            ConsentDecision::Invalid,
+            ConsentDecision::Allow,
+        ];
+        let probes = std::cell::Cell::new(0usize);
+        let results = build_speed_results(&candidates, Some(&decisions), |_url| {
+            probes.set(probes.get() + 1);
+            Some(12)
+        });
+
+        assert_eq!(probes.get(), 2, "只有 allow 项才会真正探测");
+        assert_eq!(results[0]["ms"], json!(12));
+        assert_eq!(results[1]["reachable"], json!(false));
+        assert_eq!(results[1]["reason"], json!("denied"));
+        assert_eq!(results[2]["reachable"], json!(false));
+        assert_eq!(results[2]["reason"], json!("invalid"));
+        assert_eq!(results[3]["ms"], json!(12));
+    }
+
+    /// 当前端不支持批量询问：回退逐个探测（单 origin 授权窗照常出现）
+    #[test]
+    fn unsupported_batch_consent_falls_back_to_probing_all_sources() {
+        let candidates = vec![
+            ("a".to_string(), "https://a.example".to_string()),
+            ("b".to_string(), "https://b.example".to_string()),
+        ];
+        let probes = std::cell::Cell::new(0usize);
+        let results = build_speed_results(&candidates, None, |_url| {
+            probes.set(probes.get() + 1);
+            Some(5)
+        });
+
+        assert_eq!(probes.get(), 2);
+        assert!(results.iter().all(|row| row["reachable"] == json!(true)));
+        assert!(results.iter().all(|row| row["reason"].is_null()));
+    }
 
     /// 候选源白名单：id/url 唯一、npmmirror 在列、URL 以 https:// 开头
     #[test]

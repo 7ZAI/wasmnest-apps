@@ -773,6 +773,12 @@ const en: MessageSchema = {
   'hub.speed.recommendOfficial': 'Official registry is faster; no switch needed',
   'hub.speed.current': 'Current registry',
   'hub.speed.fail': 'Speed test failed',
+  'hub.speed.denied': 'Authorization denied',
+  'hub.speed.consentAlwaysAsk':
+    'The app authorization strategy is "Always ask", so batch authorization is unavailable. Switch it to "Default" in Settings → App Authorization and retry.',
+  'hub.speed.consentFailed': 'Batch authorization failed ({code}); check app authorization and retry.',
+  'hub.speed.consentDroppedRecords':
+    'Some addresses could not be remembered (authorization record limit reached); they will be asked again next time.',
   'hub.speed.goto': 'Switch',
   'hub.speed.recommended': 'Recommended',
   'hub.speed.currentTag': 'Current',

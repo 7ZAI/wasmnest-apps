@@ -132,6 +132,28 @@ const currentRegistry = computed(() => props.detection?.env?.registry ?? npmrc.v
 const speedDone = computed(() => speed.value?.status === 'ok')
 const speedFailed = computed(() => speed.value?.status === 'error')
 
+/** 测速失败文案：批量授权错误按稳定码给可操作提示，其余保持通用失败 */
+const speedErrorText = computed(() => {
+  const code = speed.value?.error
+  if (code === 'consent.always-ask') return t('hub.speed.consentAlwaysAsk')
+  if (typeof code === 'string' && code.startsWith('consent.')) {
+    return t('hub.speed.consentFailed', { code })
+  }
+  return t('hub.speed.fail')
+})
+
+/** 批量落账触顶提示：放行方向不变，但用户必须知道下次仍会询问 */
+const speedNoticeText = computed(() =>
+  speed.value?.notice === 'consent.dropped-records'
+    ? t('hub.speed.consentDroppedRecords')
+    : null,
+)
+
+/** 单个源的不可达文案：授权被拒不得伪装成网络不可达 */
+function sourceFailureText(reason?: string | null): string {
+  return reason === 'denied' ? t('hub.speed.denied') : t('hub.speed.fail')
+}
+
 /** 内置源展示名（i18n；自定义源统一 "hub.speed.source.custom"） */
 const SOURCE_LABELS: Record<string, string> = {
   npmmirror: 'hub.speed.source.npmmirror',
@@ -338,7 +360,7 @@ watch(
               </span>
             </span>
             <span class="ah-speed-url ah-mono" :title="s.url">{{ s.url }}</span>
-            <span class="ah-speed-ms ah-mono">{{ s.reachable ? `${s.ms} ms` : t('hub.speed.fail') }}</span>
+            <span class="ah-speed-ms ah-mono">{{ s.reachable ? `${s.ms} ms` : sourceFailureText(s.reason) }}</span>
             <button
               type="button"
               class="ah-btn ah-btn-ghost ah-btn-sm"
@@ -350,7 +372,8 @@ watch(
             </button>
           </div>
         </div>
-        <div v-else-if="speedFailed" class="ah-cli-error">{{ t('hub.speed.fail') }}</div>
+        <div v-else-if="speedFailed" class="ah-cli-error">{{ speedErrorText }}</div>
+        <div v-if="speedNoticeText" class="ah-cli-error">{{ speedNoticeText }}</div>
 
         <!-- 用户自定义源：添加 / 管理 -->
         <div class="ah-speed-custom">

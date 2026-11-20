@@ -104,6 +104,8 @@ export interface MirrorSourceSpeed {
   url: string
   ms: number | null
   reachable: boolean
+  /** 不可达原因：`denied`（授权被拒）/ `invalid`（地址非法）/ `unreachable`（网络） */
+  reason?: string | null
 }
 
 /** npm 源测速状态（多源列表，推荐 = 最快可达源） */
@@ -112,6 +114,8 @@ export interface SpeedTestState {
   sources: MirrorSourceSpeed[]
   recommend: string | null
   error: string | null
+  /** 非阻断提示（如批量授权触顶导致部分记录未落账） */
+  notice?: string | null
   testedAt: number | null
 }
 

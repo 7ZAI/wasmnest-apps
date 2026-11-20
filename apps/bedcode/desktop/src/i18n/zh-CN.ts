@@ -740,6 +740,11 @@ const zhCN: MessageSchema = {
   'hub.speed.recommendOfficial': '官方源更快，无需切换',
   'hub.speed.current': '当前源',
   'hub.speed.fail': '测速失败',
+  'hub.speed.denied': '授权被拒',
+  'hub.speed.consentAlwaysAsk':
+    '当前授权策略为「总是询问」，无法批量授权；请在「设置 → 应用授权」切换为「默认」后重试',
+  'hub.speed.consentFailed': '批量授权失败（{code}），请检查应用授权后重试',
+  'hub.speed.consentDroppedRecords': '部分地址的授权未能记住（授权记录已达上限），下次仍会询问',
   'hub.speed.goto': '去切换',
   'hub.speed.recommended': '推荐',
   'hub.speed.currentTag': '当前',

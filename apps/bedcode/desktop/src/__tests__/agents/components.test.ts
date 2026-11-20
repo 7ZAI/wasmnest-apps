@@ -3171,6 +3171,105 @@ describe('A6 InstallTab：行状态机与两击换源', () => {
     w.unmount()
   })
 
+  it('授权被拒的源标记 denied，不伪装成网络不可达', async () => {
+    const w = mountInstall({
+      state: {
+        active: null,
+        last: null,
+        mirror: {
+          status: 'ok',
+          speed: {
+            status: 'ok',
+            recommend: 'npmmirror',
+            sources: [
+              {
+                id: 'npmmirror',
+                url: 'https://registry.npmmirror.com',
+                ms: null,
+                reachable: false,
+                reason: 'denied',
+              },
+              {
+                id: 'npmjs',
+                url: 'https://registry.npmjs.org',
+                ms: null,
+                reachable: false,
+                reason: 'unreachable',
+              },
+            ],
+          },
+          customSources: [],
+        },
+        updates: {},
+      },
+    })
+    await flushPromises()
+    const rows = w.findAll('.ah-speed-row')
+    expect(rows[0].text()).toContain('hub.speed.denied')
+    expect(rows[1].text()).toContain('hub.speed.fail')
+    expect(rows[1].text()).not.toContain('hub.speed.denied')
+    w.unmount()
+  })
+
+  it('批量授权被 always-ask 阻断时显示可操作提示，不伪装成普通网络失败', async () => {
+    const w = mountInstall({
+      state: {
+        active: null,
+        last: null,
+        mirror: {
+          status: 'ok',
+          speed: {
+            status: 'error',
+            sources: [],
+            recommend: null,
+            error: 'consent.always-ask',
+            testedAt: 1,
+          },
+          customSources: [],
+        },
+        updates: {},
+      },
+    })
+    await flushPromises()
+    const errorBox = w.find('.ah-cli-error')
+    expect(errorBox.text()).toContain('hub.speed.consentAlwaysAsk')
+    expect(errorBox.text()).not.toContain('hub.speed.fail')
+    w.unmount()
+  })
+
+  it('批量落账触顶：显示「下次仍会询问」提示（放行方向不变）', async () => {
+    const w = mountInstall({
+      state: {
+        active: null,
+        last: null,
+        mirror: {
+          status: 'ok',
+          speed: {
+            status: 'ok',
+            sources: [
+              {
+                id: 'npmmirror',
+                url: 'https://registry.npmmirror.com',
+                ms: 12,
+                reachable: true,
+                reason: null,
+              },
+            ],
+            recommend: 'npmmirror',
+            error: null,
+            notice: 'consent.dropped-records',
+            testedAt: 1,
+          },
+          customSources: [],
+        },
+        updates: {},
+      },
+    })
+    await flushPromises()
+    expect(w.text()).toContain('hub.speed.consentDroppedRecords')
+    w.unmount()
+  })
+
   it('自定义源添加失败：命令原文不进界面，只显示友好 i18n', async () => {
     execute.mockImplementation(async (cmd: string) => {
       if (cmd === 'agent.add-custom-source') throw new Error('npm exploded')
