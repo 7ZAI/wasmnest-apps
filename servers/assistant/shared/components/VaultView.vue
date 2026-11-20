@@ -1,13 +1,13 @@
 <script setup lang="ts">
 /**
- * Nest 保险库视图（共享组件，双端同构 · 票 07 / spec §5.8）
+ * Nest 保险库视图（共享组件，双端同构）
  *
  * 双端入口把宿主适配后的命令调用面（桌面 `env.appInvoke` / 移动
  * `context.commands.execute`）收敛为 [`AssistantInvoke`] 同形传入。组件本身
  * 不依赖端侧 API，只经 `useI18n` 取译文（双端 i18n 均以
  * `com.wasmnest.assistant.*` 命名空间注册，key 一致）。
  *
- * 状态机（fail-visible，spec §2.4）：
+ * 状态机（fail-visible）：
  * - 未建库 → 首次设置（设口令 → init）
  * - 已建库 + 锁定 → 解锁
  * - 已解锁 → 显示状态 + 锁定 / 改口令
@@ -29,8 +29,8 @@ const props = defineProps<{
   /** 翻译函数（各端 i18n 绑定；key 为域内 key，端侧加命名空间前缀） */
   t: (key: string) => string
   /**
-   * 建库时的 Argon2id 档位（spec §5.8）：缺省走 Rust 默认（桌面 m=64 MiB / t=3 / p=1），
-   * 移动入口显式降档（低端机 64 MiB 派生会明显卡顿）。
+   * 建库时的 Argon2id 档位：缺省走 Rust 默认（m=32 MiB / t=3 / p=1）。
+   * 宿主单插件线性内存硬顶 64 MiB，参数再高会在派生时 OOM。
    */
   kdfParams?: { m?: number; t?: number; p?: number }
 }>()

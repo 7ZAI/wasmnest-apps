@@ -74,7 +74,7 @@ export interface VaultOpResult {
 /** 保险库首次设置入参（salt / verifierNonce 由前端 crypto.getRandomValues 生成） */
 export interface VaultInitInput {
   password: string
-  /** Argon2id 内存档（KiB）；缺省桌面 64 MiB，移动可降档 */
+  /** Argon2id 内存档（KiB）；缺省 32 MiB（宿主 64 MiB 线性内存硬顶，参数再高会 OOM） */
   m?: number
   /** 时间档；缺省 3 */
   t?: number

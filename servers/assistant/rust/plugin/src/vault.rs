@@ -1,7 +1,8 @@
-//! 口令保险库（票 07 / spec §5.8）
+//! 口令保险库
 //!
-//! - **派生**：Argon2id（参数 m / t / p 随保险库元数据存储，init 时由前端给定，
-//!   桌面默认 m=64 MiB / t=3 / p=1，移动可降档，票内记录实测值）。
+//! - **派生**：Argon2id（参数 m / t / p 随保险库元数据存储，init 时由前端给定）。
+//!   默认 m=32 MiB / t=3 / p=1：宿主给单插件线性内存的硬顶是 64 MiB，而 Argon2
+//!   除 m 指定的工作区外还要分配少量缓冲；m=64 MiB 会顶到硬顶直接 OOM trap。
 //! - **加解密**：XChaCha20-Poly1305（AEAD）。密文落库形态 = `hex(nonce[24] ‖ 密文+tag)`，
 //!   AAD 绑定上下文（防密文串用）。
 //! - **随机数**：salt / nonce 一律由前端 `crypto.getRandomValues` 生成后传入，
@@ -26,6 +27,12 @@ const KEY_LEN: usize = 32;
 pub const NONCE_LEN: usize = 24;
 /// salt 长度
 const SALT_LEN: usize = 16;
+/// Argon2 内存档上限（KiB）。
+///
+/// 宿主对单插件线性内存的硬顶是 64 MiB；Argon2 在 m 指定的工作区外还要分配少量
+/// 缓冲，参数必须留出余量。超过上限时在派生入口返回错误，避免 Rust OOM abort
+/// 把可读失败变成 wasm trap。
+const MAX_KDF_M_KIB: u32 = 48 * 1024;
 /// 保险库校验值明文（常量；解锁时解密比对，证明口令正确）
 const VERIFIER_PLAINTEXT: &[u8] = b"assistant-vault-verifier-v1";
 /// 校验值 AAD（绑定用途，防把校验值密文挪作他用）
@@ -34,7 +41,8 @@ const VERIFIER_AAD: &[u8] = b"assistant:vault:verifier";
 /// Argon2id 派生参数（随保险库元数据存储；init 时前端给定）
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct KdfParams {
-    /// 内存档（KiB）。桌面默认 64 * 1024 = 64 MiB；移动可降档。
+    /// 内存档（KiB）。默认 32 * 1024 = 32 MiB：在宿主 64 MiB 线性内存硬顶下
+    /// 为 Argon2 工作区之外的缓冲留出余量；超过 `MAX_KDF_M_KIB` 会被显性拒绝。
     pub m: u32,
     /// 时间档
     pub t: u32,
@@ -44,9 +52,9 @@ pub struct KdfParams {
 
 impl Default for KdfParams {
     fn default() -> Self {
-        // 桌面默认档（spec §5.8）；移动前端 init 时显式降档传入
+        // 宿主单插件线性内存硬顶 64 MiB；m 再大就会在 Argon2 分配时 OOM trap
         Self {
-            m: 64 * 1024,
+            m: 32 * 1024,
             t: 3,
             p: 1,
         }
@@ -113,6 +121,12 @@ pub fn derive_key(
     salt_hex: &str,
     params: &KdfParams,
 ) -> Result<[u8; KEY_LEN], String> {
+    if params.m > MAX_KDF_M_KIB {
+        return Err(format!(
+            "Argon2 内存参数过大（{} KiB，上限 {} KiB）：继续派生会耗尽插件内存",
+            params.m, MAX_KDF_M_KIB
+        ));
+    }
     let salt = hex::decode(salt_hex).map_err(|e| format!("salt 非合法 hex: {e}"))?;
     if salt.len() != SALT_LEN {
         return Err(format!(
@@ -389,5 +403,23 @@ mod tests {
         let params = fast_params();
         assert!(derive_key("pw", "tooshort", &params).is_err());
         assert!(encrypt(&[0u8; KEY_LEN], "short", b"x", b"aad").is_err());
+    }
+
+    #[test]
+    fn default_kdf_params_fit_plugin_memory_budget() {
+        let params = KdfParams::default();
+        assert_eq!(params.m, 32 * 1024);
+        assert!(params.m <= MAX_KDF_M_KIB);
+    }
+
+    #[test]
+    fn derive_key_rejects_oversized_memory_params() {
+        let params = KdfParams {
+            m: MAX_KDF_M_KIB + 1,
+            t: 1,
+            p: 1,
+        };
+        let err = derive_key("pw", TEST_SALT, &params).unwrap_err();
+        assert!(err.contains("内存参数过大"), "unexpected error: {err}");
     }
 }

@@ -45,9 +45,9 @@ const props = defineProps<{
   subscribe: (event: string, handler: (payload: unknown) => void) => () => void
   t: (key: string) => string
   lang: 'zh-CN' | 'en'
-  /**
-   * 建库时的 Argon2id 档位（spec §5.8：桌面 m=64 MiB，移动 m=32 MiB 起步）。
-   * 缺省 = Rust 侧默认（桌面档）；移动入口显式降档。
+/**
+   * 建库时的 Argon2id 档位：缺省走 Rust 默认（m=32 MiB / t=3 / p=1）。
+   * 移动入口显式传同一档位，避免低端机在派生时长时间卡顿。
    */
   kdfParams?: { m?: number; t?: number; p?: number }
   /** 应用调用桥（宿主按 apps:control 注入；未注入 = 无应用工具能力） */
