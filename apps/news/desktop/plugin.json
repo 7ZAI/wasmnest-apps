@@ -46,6 +46,22 @@
         "title": "Update settings"
       },
       {
+        "id": "news.read-item",
+        "title": "Read item content"
+      },
+      {
+        "id": "news.archive-item-content",
+        "title": "Archive item content"
+      },
+      {
+        "id": "news.reader-stats",
+        "title": "Reader storage stats"
+      },
+      {
+        "id": "news.clear-reader-cache",
+        "title": "Clear reader cache"
+      },
+      {
         "id": "news.list-fetch-log",
         "title": "List fetch log"
       },

@@ -9,6 +9,7 @@ const DISABLED_SETTINGS: NewsSettings = {
   aiModel: '',
   aiApiKeyTail: '',
   aiApiKeyLen: 0,
+  readerEnabled: false,
 }
 
 const SAVED_SETTINGS: NewsSettings = {
@@ -17,6 +18,7 @@ const SAVED_SETTINGS: NewsSettings = {
   aiModel: 'gpt-4o-mini',
   aiApiKeyTail: 'abcd',
   aiApiKeyLen: 32,
+  readerEnabled: false,
 }
 
 function context(
@@ -55,6 +57,9 @@ function baseHandler(overrides: Record<string, unknown> = {}) {
     if (command === 'news.list-credentials') return { credentials: [] }
     if (command === 'news.list-fetch-log') return { entries: [] }
     if (command === 'news.get-settings') return DISABLED_SETTINGS
+    if (command === 'news.reader-stats') {
+      return { cachedCount: 0, cachedBytes: 0, archivedCount: 0, archivedBytes: 0 }
+    }
     return {}
   }
 }
@@ -147,6 +152,37 @@ describe('useSettings', () => {
       url: 'https://example.com/feed',
       weight: 2,
     })
+  })
+
+  it('阅读开关只发送 readerEnabled', async () => {
+    const { context: ctx, calls } = context(baseHandler())
+    const controller = useSettings(ctx)
+    await controller.saveReaderEnabled(true)
+    const call = calls.find((entry) => entry.command === 'news.set-settings')
+    expect(call?.args).toEqual({ readerEnabled: true })
+  })
+
+  it('清除阅读缓存按 mode 调用并刷新用量', async () => {
+    let statsCalls = 0
+    const { context: ctx, calls } = context(
+      baseHandler({
+        'news.reader-stats': () => {
+          statsCalls += 1
+          return { cachedCount: 0, cachedBytes: 0, archivedCount: 0, archivedBytes: 0 }
+        },
+        'news.clear-reader-cache': (args?: Record<string, unknown>) => ({
+          removed: args?.mode === 'all' ? 2 : 1,
+          bytes: 10,
+        }),
+      }),
+    )
+    const controller = useSettings(ctx)
+    const result = await controller.clearReaderCache('all')
+    expect(result).toEqual({ removed: 2, bytes: 10 })
+    expect(calls.find((entry) => entry.command === 'news.clear-reader-cache')?.args).toEqual({
+      mode: 'all',
+    })
+    expect(statsCalls).toBeGreaterThan(0)
   })
 
   it('自启状态不可读时显性标记，不猜开关', async () => {

@@ -30,6 +30,13 @@ const KNOWN_CODES = [
   'storage.failed',
   'clock.unavailable',
   'refresh.debounced',
+  'reader.disabled',
+  'extract.unsupported',
+  'extract.no_content',
+  'extract.encoding',
+  'extract.too_large',
+  'extract.failed',
+  'reader.storage_full',
 ]
 
 /** 解析后端错误消息。 */

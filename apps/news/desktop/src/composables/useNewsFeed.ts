@@ -13,6 +13,7 @@ import type {
   NewsFeed,
   NewsItem,
   NewsOrigin,
+  NewsSettings,
   NewsSource,
   RefreshOutcome,
   SourceFetchResult,
@@ -32,6 +33,7 @@ export interface NewsFeedController {
   windowHours: Ref<number | null>
   generatedAt: Ref<number>
   now: Ref<number>
+  readerEnabled: Ref<boolean>
   loading: Ref<boolean>
   refreshing: Ref<boolean>
   error: Ref<string | null>
@@ -45,6 +47,7 @@ export interface NewsFeedController {
   load: () => Promise<void>
   loadCircles: () => Promise<void>
   loadSources: () => Promise<void>
+  loadSettings: () => Promise<void>
   setView: (next: FeedView) => Promise<void>
   selectCircle: (id: string | null) => Promise<void>
   openSettings: () => void
@@ -79,6 +82,7 @@ export function useNewsFeed(context: PluginContext): NewsFeedController {
   const windowHours = ref<number | null>(24)
   const generatedAt = ref(0)
   const now = ref(nowMs())
+  const readerEnabled = ref(false)
   const loading = ref(false)
   const refreshing = ref(false)
   const error = ref<string | null>(null)
@@ -140,6 +144,15 @@ export function useNewsFeed(context: PluginContext): NewsFeedController {
       sources.value = result.sources ?? []
     } catch {
       sources.value = []
+    }
+  }
+
+  async function loadSettings(): Promise<void> {
+    try {
+      const settings = (await context.commands.execute('news.get-settings')) as NewsSettings
+      readerEnabled.value = !!settings.readerEnabled
+    } catch {
+      readerEnabled.value = false
     }
   }
 
@@ -323,6 +336,7 @@ export function useNewsFeed(context: PluginContext): NewsFeedController {
     windowHours,
     generatedAt,
     now,
+    readerEnabled,
     loading,
     refreshing,
     error,
@@ -336,6 +350,7 @@ export function useNewsFeed(context: PluginContext): NewsFeedController {
     load,
     loadCircles,
     loadSources,
+    loadSettings,
     setView,
     selectCircle,
     openSettings,
@@ -355,7 +370,12 @@ export function useNewsFeed(context: PluginContext): NewsFeedController {
 
 /** 供界面挂载时并行拉取首屏数据。 */
 export async function bootstrapNewsFeed(controller: NewsFeedController): Promise<void> {
-  await Promise.all([controller.load(), controller.loadCircles(), controller.loadSources()])
+  await Promise.all([
+    controller.load(),
+    controller.loadCircles(),
+    controller.loadSources(),
+    controller.loadSettings(),
+  ])
 }
 
 /** 供源 / 圈子变更后刷新全部派生数据。 */
@@ -364,5 +384,6 @@ export async function reloadAll(controller: NewsFeedController): Promise<void> {
     controller.loadCircles(),
     controller.loadSources(),
     controller.load(),
+    controller.loadSettings(),
   ])
 }

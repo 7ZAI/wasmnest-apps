@@ -62,6 +62,19 @@ const zhCN = {
   'news.detail.assistantUnavailable': '当前宿主助手未提供该能力',
   'news.detail.copyFallbackTitle': '无法自动复制，请手动选择下面的链接',
   'news.detail.copyFallbackClose': '知道了',
+  'news.detail.read': '阅读全文',
+  'news.detail.back': '返回摘要',
+  'news.detail.archive': '保存到本机',
+  'news.detail.archived': '已归档',
+  'news.detail.readerHint': '正文只存本机，图片不缓存；站点可能要求登录或付费。',
+
+  // ==================== 阅读态 ====================
+  'news.reader.loading': '正在抓取并解析正文，请稍候…',
+  'news.reader.retry': '重试',
+  'news.reader.copy': '复制链接',
+  'news.reader.source': '原文链接',
+  'news.reader.stale': '更新失败，显示上次抓取的正文',
+  'news.reader.truncated': '正文过长，已截断显示',
 
   // ==================== 设置 ====================
   'news.settings.title': '新闻设置',
@@ -184,6 +197,22 @@ const zhCN = {
   'news.settings.data.copy': '复制 JSON',
   'news.settings.data.summary': '{sources} 个源 · {circles} 个圈子',
 
+  // ==================== 阅读 ====================
+  'news.settings.reader.title': '阅读',
+  'news.settings.reader.enabled': '在应用内阅读全文',
+  'news.settings.reader.hint':
+    '开启后可抓取原文正文并在应用内阅读。正文只存本机，图片不缓存；站点可能要求登录或付费。',
+  'news.settings.reader.usage': '缓存 {cachedCount} 篇 · 归档 {archivedCount} 篇',
+  'news.settings.reader.bytes': '占用 {bytes}',
+  'news.settings.reader.clearCache': '清除阅读缓存',
+  'news.settings.reader.clearAll': '清空全部正文',
+  'news.settings.reader.clearCacheConfirm': '删除所有未归档正文？',
+  'news.settings.reader.clearAllConfirm':
+    '删除全部正文（含归档）？收藏状态不变，之后可重新抓取。',
+  'news.settings.reader.cleared': '已清除 {count} 篇（{bytes}）',
+  'news.settings.reader.confirm': '确定',
+  'news.settings.reader.cancel': '取消',
+
   // ==================== 自启 ====================
   'news.settings.autostart.title': '自动启动',
   'news.settings.autostart.on': '开',
@@ -232,6 +261,14 @@ const zhCN = {
   'news.error.storage.failed': '本地存储访问失败',
   'news.error.clock.unavailable': '无法获取当前时间',
   'news.error.refresh.debounced': '刷新太频繁，请稍后再试',
+  'news.error.reader.disabled': '阅读功能未开启',
+  'news.error.extract.unsupported': '这不是可阅读的网页（可能是 PDF / 视频 / JSON）',
+  'news.error.extract.no_content':
+    '没能提取到正文（站点可能需要登录、付费，或结构不受支持）',
+  'news.error.extract.encoding': '页面编码无法解析',
+  'news.error.extract.too_large': '页面过大，无法完整读取',
+  'news.error.extract.failed': '正文解析失败',
+  'news.error.reader.storage_full': '本机正文存储已达上限，请清理',
   'news.error.unknown': '未知错误',
 
   // ==================== 提示 ====================
@@ -243,6 +280,7 @@ const zhCN = {
   'news.toast.deleted': '已删除',
   'news.toast.aiDone': '摘要完成：成功 {ok} 条',
   'news.toast.sourceDisabled': '源已停用',
+  'news.toast.readerArchived': '正文已保存到本机',
 
   // ==================== 相对时间 ====================
   'news.relative.justNow': '刚刚',

@@ -20,6 +20,9 @@ use crate::domain::{error_kind, RawItem, SourceKind};
 use crate::ports::FetchRequest;
 use serde::{Deserialize, Serialize};
 
+/// 抓取请求的统一 UA；订阅流、Reddit、榜单页与正文阅读共用。
+pub const DEFAULT_USER_AGENT: &str = "WasmNestNews/0.1 (+https://github.com/7ZAI/wasmnest-apps)";
+
 /// 授权源的用户凭据（`credentials.secret_json` 的形状）。
 ///
 /// 只在适配器构造请求头时使用；**不得进日志、不得进错误消息、不得进导出文件**。

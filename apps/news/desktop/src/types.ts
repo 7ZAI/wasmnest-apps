@@ -82,7 +82,44 @@ export interface NewsSettings {
   aiModel: string
   aiApiKeyTail: string
   aiApiKeyLen: number
+  readerEnabled: boolean
 }
+
+export type ReaderBlockKind = 'heading' | 'paragraph' | 'listItem' | 'quote' | 'code'
+
+export interface ReaderBlock {
+  kind: ReaderBlockKind
+  level?: number
+  text: string
+}
+
+export interface ReaderView {
+  itemId: string
+  state: 'ready' | 'failed'
+  blocks: ReaderBlock[]
+  textLength: number
+  truncated: boolean
+  stale: boolean
+  archived: boolean
+  fetchedAt: number
+  lastAttemptAt: number
+  errorKind?: string | null
+  errorDetail?: string | null
+}
+
+export interface ReaderStats {
+  cachedCount: number
+  cachedBytes: number
+  archivedCount: number
+  archivedBytes: number
+}
+
+export interface ClearedStats {
+  removed: number
+  bytes: number
+}
+
+export type ClearMode = 'unarchived' | 'all'
 
 export interface SourceFetchResult {
   sourceId: string

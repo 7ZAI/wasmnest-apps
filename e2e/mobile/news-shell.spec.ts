@@ -135,6 +135,11 @@ describe('News（真机 · 移动宿主运行面）', () => {
     for (const key of ['sources', 'circles', 'ai', 'log', 'data']) {
       expectEqual(await phone().exists(settingsTab(key)), true, `设置页签 ${key} 在场`)
     }
+    expectEqual(
+      await phone().exists('[data-testid="mobile-news-reader-settings"]'),
+      false,
+      '移动端 v2.0 不出现阅读设置',
+    )
     // 切到「关于」页签不改变路由；返回键仍应回到运行面
     await phone().tap(settingsTab('about'))
     await phone().waitForAttr(settingsTab('about'), 'aria-selected', 'true', 15_000)

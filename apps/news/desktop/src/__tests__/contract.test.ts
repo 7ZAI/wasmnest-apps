@@ -22,7 +22,11 @@ function mountEnv(overrides: Partial<AppMountEnv> = {}): AppMountEnv {
           aiModel: '',
           aiApiKeyTail: '',
           aiApiKeyLen: 0,
+          readerEnabled: false,
         }
+      }
+      if (command === 'news.reader-stats') {
+        return { cachedCount: 0, cachedBytes: 0, archivedCount: 0, archivedBytes: 0 }
       }
       return {}
     }) as unknown as AppMountEnv['appInvoke'],

@@ -9,7 +9,7 @@ use crate::domain::{
     FetchLogEntry, Item, Origin, RawItem, RefreshOutcome, SearchHit, Settings, Source,
     SourceFetchResult, SourceKind, SourceState, TodaySummaryEntry, UNGROUPED_CIRCLE_ID,
 };
-use crate::ports::{Ports, PortError};
+use crate::ports::{PortError, Ports};
 use crate::schedule;
 use crate::store;
 use crate::summary;
@@ -77,7 +77,8 @@ pub fn init(p: &Ports<'_>, now_ms: i64) -> Result<u32, PortError> {
     store::seed_defaults(p, now_ms)?;
     let removed = store::cleanup(p, now_ms)?;
     if removed > 0 {
-        p.log.log_info(&format!("news cleanup removed {removed} stale items"));
+        p.log
+            .log_info(&format!("news cleanup removed {removed} stale items"));
     }
     Ok(removed)
 }
@@ -137,11 +138,7 @@ fn apply_weights(
     }
 }
 
-fn origin_belongs_to_circle(
-    origin: &Origin,
-    sources: &[Source],
-    target: &str,
-) -> bool {
+fn origin_belongs_to_circle(origin: &Origin, sources: &[Source], target: &str) -> bool {
     let Some(source) = sources.iter().find(|s| s.id == origin.source_id) else {
         return false;
     };
@@ -272,13 +269,13 @@ pub fn refresh_all(
         results.push(fetch_source(p, source, now_ms)?);
     }
 
-    let failed = results.iter().filter(|r| !r.ok && r.skipped.is_none()).count() as u32;
+    let failed = results
+        .iter()
+        .filter(|r| !r.ok && r.skipped.is_none())
+        .count() as u32;
     let new_items = results.iter().map(|r| r.new_items).sum();
     let skipped_count = results.iter().filter(|r| r.skipped.is_some()).count() as u32;
-    let blocked = if request.mode == RefreshMode::Manual
-        && manual_attempts == 0
-        && debounced > 0
-    {
+    let blocked = if request.mode == RefreshMode::Manual && manual_attempts == 0 && debounced > 0 {
         Some("refresh.debounced".to_string())
     } else {
         None
@@ -369,15 +366,7 @@ fn fetch_source(
     let step = match adapters::build_step(kind, &source.url, secret.as_ref()) {
         Ok(step) => step,
         Err(err) => {
-            return finish_failure(
-                p,
-                source,
-                now_ms,
-                begin,
-                err.kind(),
-                err.detail(),
-                None,
-            )
+            return finish_failure(p, source, now_ms, begin, err.kind(), err.detail(), None)
         }
     };
 
@@ -386,15 +375,7 @@ fn fetch_source(
             let response = match p.fetch.fetch(request) {
                 Ok(response) => response,
                 Err(err) => {
-                    return finish_failure(
-                        p,
-                        source,
-                        now_ms,
-                        begin,
-                        err.code(),
-                        err.detail(),
-                        None,
-                    )
+                    return finish_failure(p, source, now_ms, begin, err.code(), err.detail(), None)
                 }
             };
             let status = response.status;
@@ -410,9 +391,7 @@ fn fetch_source(
                 );
             }
             match adapters::parse(kind, &response.body, &source.url, now_ms) {
-                Ok(items) => {
-                    finish_success(p, source, now_ms, begin, items, Some(status))
-                }
+                Ok(items) => finish_success(p, source, now_ms, begin, items, Some(status)),
                 Err(err) => finish_failure(
                     p,
                     source,
@@ -431,15 +410,7 @@ fn fetch_source(
             let index_response = match p.fetch.fetch(request) {
                 Ok(response) => response,
                 Err(err) => {
-                    return finish_failure(
-                        p,
-                        source,
-                        now_ms,
-                        begin,
-                        err.code(),
-                        err.detail(),
-                        None,
-                    )
+                    return finish_failure(p, source, now_ms, begin, err.code(), err.detail(), None)
                 }
             };
             if !(200..300).contains(&index_response.status) {
@@ -662,11 +633,8 @@ fn store_items(
     now_ms: i64,
 ) -> Result<u32, PortError> {
     // 同源历史：指纹表 + (条目, 原始地址) 表（同一源同一地址只记一条归属）
-    let recent = store::load_source_recent(
-        p,
-        &source.id,
-        now_ms - store::RETENTION_DAYS * 86_400_000,
-    )?;
+    let recent =
+        store::load_source_recent(p, &source.id, now_ms - store::RETENTION_DAYS * 86_400_000)?;
     let mut same_source: Vec<ExistingItem> = Vec::with_capacity(recent.len());
     let mut known_ids: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
     let mut known_origins: std::collections::BTreeSet<(String, String)> =
@@ -693,8 +661,10 @@ fn store_items(
             continue;
         }
         let Some(canonical) = urlutil::normalize_url(&raw.url) else {
-            p.log
-                .log_warn(&format!("news: {} dropped an item with unusable url", source.id));
+            p.log.log_warn(&format!(
+                "news: {} dropped an item with unusable url",
+                source.id
+            ));
             continue;
         };
         candidates.push(Candidate {
@@ -710,7 +680,9 @@ fn store_items(
 
     let candidate_ids: Vec<String> = candidates.iter().map(|c| c.id.clone()).collect();
     let existing_ids: std::collections::BTreeSet<String> =
-        store::existing_item_ids(p, &candidate_ids)?.into_iter().collect();
+        store::existing_item_ids(p, &candidate_ids)?
+            .into_iter()
+            .collect();
 
     let mut inserted = 0u32;
     for candidate in candidates {
@@ -788,11 +760,7 @@ pub fn set_read(p: &Ports<'_>, item_id: &str, read: bool, now_ms: i64) -> Result
 }
 
 /// 把当前视图里的条目全部标为已读。
-pub fn mark_all_read(
-    p: &Ports<'_>,
-    query: &FeedQuery,
-    now_ms: i64,
-) -> Result<u32, PortError> {
+pub fn mark_all_read(p: &Ports<'_>, query: &FeedQuery, now_ms: i64) -> Result<u32, PortError> {
     let feed = feed(p, query, now_ms)?;
     let ids: Vec<String> = feed.items.iter().map(|i| i.id.clone()).collect();
     store::mark_all_read(p, &ids, now_ms)
@@ -838,6 +806,7 @@ pub fn save_settings(
         .ai_model
         .clone()
         .unwrap_or_else(|| current.ai_model.clone());
+    let reader_enabled = patch.reader_enabled.unwrap_or(current.reader_enabled);
     if enabled && !base_url.trim().is_empty() && !summary::endpoints_ok(&base_url) {
         return Err(store::invalid(
             "ai.baseUrl must be an OpenAI-compatible http(s) endpoint",
@@ -848,6 +817,7 @@ pub fn save_settings(
         enabled,
         &base_url,
         &model,
+        reader_enabled,
         patch.ai_api_key.as_deref(),
     )
 }
@@ -965,10 +935,7 @@ pub fn ai_summarize(
             failed_count += 1;
             continue;
         };
-        let body = item
-            .summary
-            .clone()
-            .unwrap_or_else(|| item.title.clone());
+        let body = item.summary.clone().unwrap_or_else(|| item.title.clone());
         let request = summary::build_request(
             &settings.ai_base_url,
             &key,

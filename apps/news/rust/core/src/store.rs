@@ -5,14 +5,14 @@
 //! NOT EXISTS`，重复执行幂等。写入一律走参数绑定（字符串拼接只用于 IN 列表）。
 
 use crate::domain::{
-    error_kind, Circle, CredentialSummary, FetchLogEntry, Item, Origin, Settings, Source,
-    SourceState, UNGROUPED_CIRCLE_ID,
+    error_kind, Circle, ClearMode, ClearedStats, ContentBlock, CredentialSummary, FetchLogEntry,
+    Item, Origin, ReaderState, ReaderStats, Settings, Source, SourceState, UNGROUPED_CIRCLE_ID,
 };
 use crate::ports::{PortError, Ports};
 use serde_json::{json, Value};
 
 /// 当前 schema 版本（写入 `meta.schema_version`）。
-pub const SCHEMA_VERSION: i64 = 1;
+pub const SCHEMA_VERSION: i64 = 2;
 /// 条目保留天数（非收藏）。
 pub const RETENTION_DAYS: i64 = 30;
 /// 每源抓取日志保留行数。
@@ -111,14 +111,28 @@ const SCHEMA: &[&str] = &[
     "CREATE INDEX IF NOT EXISTS idx_origins_source  ON item_origins(source_id)",
     "CREATE INDEX IF NOT EXISTS idx_sources_circle  ON sources(circle_id)",
     "CREATE INDEX IF NOT EXISTS idx_fetchlog_source ON fetch_log(source_id, started_at)",
+    "CREATE TABLE IF NOT EXISTS item_content (
+        item_id TEXT PRIMARY KEY,
+        state TEXT NOT NULL,
+        blocks_json TEXT,
+        text_length INTEGER NOT NULL DEFAULT 0,
+        bytes INTEGER NOT NULL DEFAULT 0,
+        fetched_at INTEGER NOT NULL,
+        last_attempt_at INTEGER NOT NULL,
+        last_attempt_kind TEXT,
+        error_kind TEXT,
+        error_detail TEXT,
+        truncated INTEGER NOT NULL DEFAULT 0,
+        archived INTEGER NOT NULL DEFAULT 0
+    )",
+    "CREATE INDEX IF NOT EXISTS idx_item_content_fetched  ON item_content(fetched_at)",
+    "CREATE INDEX IF NOT EXISTS idx_item_content_archived ON item_content(archived, fetched_at)",
 ];
 
 // ==================== 行映射 ====================
 
 fn text(row: &Value, key: &str) -> Option<String> {
-    row.get(key)
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string())
+    row.get(key).and_then(|v| v.as_str()).map(|s| s.to_string())
 }
 
 fn int(row: &Value, key: &str) -> Option<i64> {
@@ -137,9 +151,8 @@ fn flag(row: &Value, key: &str) -> bool {
 
 /// 读 `meta` 键。
 pub fn meta_get(p: &Ports<'_>, key: &str) -> Result<Option<String>, PortError> {
-    let rows = p
-        .db
-        .query_params("SELECT value FROM meta WHERE key = ?1", &[json!(key)])?;
+    let rows =
+        p.db.query_params("SELECT value FROM meta WHERE key = ?1", &[json!(key)])?;
     Ok(rows.first().and_then(|row| text(row, "value")))
 }
 
@@ -155,9 +168,8 @@ pub fn meta_set(p: &Ports<'_>, key: &str, value: &str) -> Result<(), PortError> 
 
 /// 读设置项（缺省 = 空）。
 pub fn setting_get(p: &Ports<'_>, key: &str) -> Result<Option<String>, PortError> {
-    let rows = p
-        .db
-        .query_params("SELECT value FROM settings WHERE key = ?1", &[json!(key)])?;
+    let rows =
+        p.db.query_params("SELECT value FROM settings WHERE key = ?1", &[json!(key)])?;
     Ok(rows.first().and_then(|row| text(row, "value")))
 }
 
@@ -173,17 +185,22 @@ pub fn setting_set(p: &Ports<'_>, key: &str, value: &str) -> Result<(), PortErro
 
 /// 装载设置（AI 密钥只回掩码）。
 pub fn load_settings(p: &Ports<'_>) -> Result<Settings, PortError> {
-    let mut settings = Settings::default();
-    settings.ai_enabled = setting_get(p, "ai.enabled")?
-        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-        .unwrap_or(false);
-    settings.ai_base_url = setting_get(p, "ai.baseUrl")?.unwrap_or_default();
-    settings.ai_model = setting_get(p, "ai.model")?.unwrap_or_default();
-    if let Some(key) = setting_get(p, "ai.apiKey")? {
-        settings.ai_api_key_len = key.chars().count() as u32;
-        settings.ai_api_key_tail = tail_of(&key);
-    }
-    Ok(settings)
+    let api_key = setting_get(p, "ai.apiKey")?;
+    Ok(Settings {
+        ai_enabled: setting_get(p, "ai.enabled")?
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false),
+        ai_base_url: setting_get(p, "ai.baseUrl")?.unwrap_or_default(),
+        ai_model: setting_get(p, "ai.model")?.unwrap_or_default(),
+        ai_api_key_len: api_key
+            .as_ref()
+            .map(|key| key.chars().count() as u32)
+            .unwrap_or(0),
+        ai_api_key_tail: api_key.as_deref().map(tail_of).unwrap_or_default(),
+        reader_enabled: setting_get(p, "reader.enabled")?
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false),
+    })
 }
 
 /// 保存设置；`api_key = None` 表示不改动已保存密钥。
@@ -192,11 +209,13 @@ pub fn save_settings(
     enabled: bool,
     base_url: &str,
     model: &str,
+    reader_enabled: bool,
     api_key: Option<&str>,
 ) -> Result<Settings, PortError> {
     setting_set(p, "ai.enabled", if enabled { "1" } else { "0" })?;
     setting_set(p, "ai.baseUrl", base_url.trim())?;
     setting_set(p, "ai.model", model.trim())?;
+    setting_set(p, "reader.enabled", if reader_enabled { "1" } else { "0" })?;
     if let Some(key) = api_key {
         setting_set(p, "ai.apiKey", key.trim())?;
     }
@@ -272,8 +291,7 @@ pub fn delete_circle(p: &Ports<'_>, id: &str) -> Result<(), PortError> {
         "UPDATE sources SET circle_id = NULL WHERE circle_id = ?1",
         &[json!(id)],
     )?;
-    p.db
-        .execute_params("DELETE FROM circles WHERE id = ?1", &[json!(id)])?;
+    p.db.execute_params("DELETE FROM circles WHERE id = ?1", &[json!(id)])?;
     Ok(())
 }
 
@@ -393,14 +411,16 @@ pub fn update_source(
 
 /// 删除源：其来源归属一并删除（条目本身保留，可能仍有其它来源）。
 pub fn delete_source(p: &Ports<'_>, id: &str) -> Result<(), PortError> {
-    p.db
-        .execute_params("DELETE FROM item_origins WHERE source_id = ?1", &[json!(id)])?;
-    p.db
-        .execute_params("DELETE FROM source_state WHERE source_id = ?1", &[json!(id)])?;
-    p.db
-        .execute_params("DELETE FROM fetch_log WHERE source_id = ?1", &[json!(id)])?;
-    p.db
-        .execute_params("DELETE FROM sources WHERE id = ?1", &[json!(id)])?;
+    p.db.execute_params(
+        "DELETE FROM item_origins WHERE source_id = ?1",
+        &[json!(id)],
+    )?;
+    p.db.execute_params(
+        "DELETE FROM source_state WHERE source_id = ?1",
+        &[json!(id)],
+    )?;
+    p.db.execute_params("DELETE FROM fetch_log WHERE source_id = ?1", &[json!(id)])?;
+    p.db.execute_params("DELETE FROM sources WHERE id = ?1", &[json!(id)])?;
     Ok(())
 }
 
@@ -529,7 +549,11 @@ pub struct ItemRow {
 }
 
 /// 读窗口内的条目（含已读 / 收藏态）。
-pub fn load_items(p: &Ports<'_>, since_ms: Option<i64>, favorite_only: bool) -> Result<Vec<ItemRow>, PortError> {
+pub fn load_items(
+    p: &Ports<'_>,
+    since_ms: Option<i64>,
+    favorite_only: bool,
+) -> Result<Vec<ItemRow>, PortError> {
     let sql = if favorite_only {
         "SELECT i.id, i.canonical_url, i.title, i.summary, i.published_at, i.first_seen_at,
                 i.lang, i.author, i.raw_url,
@@ -712,7 +736,11 @@ pub fn insert_origin(
 }
 
 /// 同源最近条目（标题指纹去重与来源归属存在性检查用）。
-pub fn load_source_recent(p: &Ports<'_>, source_id: &str, since_ms: i64) -> Result<Vec<(String, String, String)>, PortError> {
+pub fn load_source_recent(
+    p: &Ports<'_>,
+    source_id: &str,
+    since_ms: i64,
+) -> Result<Vec<(String, String, String)>, PortError> {
     let rows = p.db.query_params(
         &format!(
             "SELECT i.id, i.title, o.raw_url
@@ -739,14 +767,9 @@ pub fn existing_item_ids(p: &Ports<'_>, ids: &[String]) -> Result<Vec<String>, P
     if ids.is_empty() {
         return Ok(Vec::new());
     }
-    let list = ids
-        .iter()
-        .map(|id| lit(id))
-        .collect::<Vec<_>>()
-        .join(", ");
-    let rows = p
-        .db
-        .query(&format!("SELECT id FROM items WHERE id IN ({list})"))?;
+    let list = ids.iter().map(|id| lit(id)).collect::<Vec<_>>().join(", ");
+    let rows =
+        p.db.query(&format!("SELECT id FROM items WHERE id IN ({list})"))?;
     Ok(rows.iter().filter_map(|row| text(row, "id")).collect())
 }
 
@@ -798,6 +821,8 @@ pub fn set_favorite(
             &[json!(item_id)],
         )?;
     }
+    // 收藏状态是权威，归档是派生标记；派生写失败可被下次阅读校正。
+    mark_archived(p, item_id, favorite)?;
     Ok(())
 }
 
@@ -811,7 +836,11 @@ pub fn save_item_summary(p: &Ports<'_>, item_id: &str, summary: &str) -> Result<
 }
 
 /// 搜索（标题 / 摘要 LIKE，最近优先）。
-pub fn search_items(p: &Ports<'_>, keyword: &str, limit: usize) -> Result<Vec<(Item, Vec<Origin>)>, PortError> {
+pub fn search_items(
+    p: &Ports<'_>,
+    keyword: &str,
+    limit: usize,
+) -> Result<Vec<(Item, Vec<Origin>)>, PortError> {
     let pattern = format!("%{}%", keyword.replace('%', "").replace('\'', ""));
     let limit = limit.clamp(1, 50);
     let rows = p.db.query_params(
@@ -858,18 +887,289 @@ pub fn search_items(p: &Ports<'_>, keyword: &str, limit: usize) -> Result<Vec<(I
 
 /// 已读条目 id 清单（导出用）。
 pub fn load_read_flags(p: &Ports<'_>) -> Result<Vec<String>, PortError> {
-    let rows = p
-        .db
-        .query("SELECT item_id FROM item_state WHERE read_at IS NOT NULL ORDER BY item_id")?;
+    let rows =
+        p.db.query("SELECT item_id FROM item_state WHERE read_at IS NOT NULL ORDER BY item_id")?;
     Ok(rows.iter().filter_map(|row| text(row, "item_id")).collect())
 }
 
 /// 收藏条目 id 清单（导出用）。
 pub fn load_favorite_flags(p: &Ports<'_>) -> Result<Vec<String>, PortError> {
-    let rows = p.db.query(
-        "SELECT item_id FROM item_state WHERE favorited_at IS NOT NULL ORDER BY item_id",
-    )?;
+    let rows = p
+        .db
+        .query("SELECT item_id FROM item_state WHERE favorited_at IS NOT NULL ORDER BY item_id")?;
     Ok(rows.iter().filter_map(|row| text(row, "item_id")).collect())
+}
+
+// ==================== 正文副本 ====================
+
+/// `item_content` 的一行（`blocks` 已解析；失败行 blocks 为空）。
+#[derive(Debug, Clone, PartialEq)]
+pub struct ContentRow {
+    pub item_id: String,
+    pub state: ReaderState,
+    pub blocks: Vec<ContentBlock>,
+    pub text_length: u32,
+    pub bytes: u64,
+    pub fetched_at: i64,
+    pub last_attempt_at: i64,
+    pub last_attempt_kind: Option<String>,
+    pub error_kind: Option<String>,
+    pub error_detail: Option<String>,
+    pub truncated: bool,
+    pub archived: bool,
+}
+
+fn storage_failed(detail: impl Into<String>) -> PortError {
+    PortError::with_detail(error_kind::STORAGE_FAILED, detail)
+}
+
+/// 读一条正文副本。非法状态或损坏的 blocks JSON 一律显性失败，不回落为空正文。
+pub fn load_content(p: &Ports<'_>, item_id: &str) -> Result<Option<ContentRow>, PortError> {
+    let rows = p.db.query_params(
+        "SELECT item_id, state, blocks_json, text_length, bytes, fetched_at,
+                last_attempt_at, last_attempt_kind, error_kind, error_detail,
+                truncated, archived
+           FROM item_content WHERE item_id = ?1",
+        &[json!(item_id)],
+    )?;
+    let Some(row) = rows.first() else {
+        return Ok(None);
+    };
+    let state = match text(row, "state").as_deref() {
+        Some("ready") => ReaderState::Ready,
+        Some("failed") => ReaderState::Failed,
+        other => {
+            return Err(storage_failed(format!(
+                "item_content has invalid state: {other:?}"
+            )))
+        }
+    };
+    let blocks = if state == ReaderState::Ready {
+        let raw = text(row, "blocks_json")
+            .ok_or_else(|| storage_failed("ready content has no blocks_json"))?;
+        serde_json::from_str::<Vec<ContentBlock>>(&raw)
+            .map_err(|e| storage_failed(format!("invalid blocks_json: {e}")))?
+    } else {
+        Vec::new()
+    };
+    Ok(Some(ContentRow {
+        item_id: text(row, "item_id").unwrap_or_else(|| item_id.to_string()),
+        state,
+        blocks,
+        text_length: int(row, "text_length").unwrap_or(0).max(0) as u32,
+        bytes: int(row, "bytes").unwrap_or(0).max(0) as u64,
+        fetched_at: int(row, "fetched_at").unwrap_or(0),
+        last_attempt_at: int(row, "last_attempt_at").unwrap_or(0),
+        last_attempt_kind: text(row, "last_attempt_kind"),
+        error_kind: text(row, "error_kind"),
+        error_detail: text(row, "error_detail"),
+        truncated: flag(row, "truncated"),
+        archived: flag(row, "archived"),
+    }))
+}
+
+/// 写一条成功的正文副本；`bytes` 与 `text_length` 由块序列计算，返回写入字节数。
+pub fn save_ready_content(
+    p: &Ports<'_>,
+    item_id: &str,
+    blocks: &[ContentBlock],
+    fetched_at: i64,
+    truncated: bool,
+    archived: bool,
+) -> Result<u64, PortError> {
+    let blocks_json = serde_json::to_string(blocks)
+        .map_err(|e| storage_failed(format!("serialize content blocks: {e}")))?;
+    let bytes = blocks_json.len() as u64;
+    let text_length: u32 = blocks
+        .iter()
+        .map(|block| block.text.chars().count())
+        .sum::<usize>()
+        .min(u32::MAX as usize) as u32;
+    p.db.execute_params(
+        "INSERT INTO item_content
+            (item_id, state, blocks_json, text_length, bytes, fetched_at,
+             last_attempt_at, last_attempt_kind, error_kind, error_detail,
+             truncated, archived)
+         VALUES (?1, 'ready', ?2, ?3, ?4, ?5, ?5, NULL, NULL, NULL, ?6, ?7)
+         ON CONFLICT(item_id) DO UPDATE SET
+            state = 'ready',
+            blocks_json = excluded.blocks_json,
+            text_length = excluded.text_length,
+            bytes = excluded.bytes,
+            fetched_at = excluded.fetched_at,
+            last_attempt_at = excluded.last_attempt_at,
+            last_attempt_kind = NULL,
+            error_kind = NULL,
+            error_detail = NULL,
+            truncated = excluded.truncated,
+            archived = CASE
+                WHEN item_content.archived = 1 OR excluded.archived = 1 THEN 1
+                ELSE 0
+            END",
+        &[
+            json!(item_id),
+            json!(blocks_json),
+            json!(text_length),
+            json!(bytes),
+            json!(fetched_at),
+            json!(if truncated { 1 } else { 0 }),
+            json!(if archived { 1 } else { 0 }),
+        ],
+    )?;
+    Ok(bytes)
+}
+
+/// 记录一次失败尝试。已有 `ready` 正文时只更新尝试信息，保留旧正文与 `archived`。
+pub fn save_failed_content(
+    p: &Ports<'_>,
+    item_id: &str,
+    kind: &str,
+    detail: Option<&str>,
+    attempt_at: i64,
+) -> Result<(), PortError> {
+    p.db.execute_params(
+        "INSERT INTO item_content
+            (item_id, state, blocks_json, text_length, bytes, fetched_at,
+             last_attempt_at, last_attempt_kind, error_kind, error_detail,
+             truncated, archived)
+         VALUES (?1, 'failed', NULL, 0, 0, ?2, ?2, ?3, ?3, ?4, 0, 0)
+         ON CONFLICT(item_id) DO UPDATE SET
+            fetched_at = CASE
+                WHEN item_content.state = 'failed' THEN excluded.fetched_at
+                ELSE item_content.fetched_at
+            END,
+            last_attempt_at = excluded.last_attempt_at,
+            last_attempt_kind = excluded.last_attempt_kind,
+            error_kind = CASE
+                WHEN item_content.state = 'failed' THEN excluded.error_kind
+                ELSE item_content.error_kind
+            END,
+            error_detail = CASE
+                WHEN item_content.state = 'failed' THEN excluded.error_detail
+                ELSE item_content.error_detail
+            END",
+        &[
+            json!(item_id),
+            json!(attempt_at),
+            json!(kind),
+            arg_opt(detail),
+        ],
+    )?;
+    Ok(())
+}
+
+/// 设置归档标记；无正文行时是 no-op。
+pub fn mark_archived(p: &Ports<'_>, item_id: &str, archived: bool) -> Result<(), PortError> {
+    p.db.execute_params(
+        "UPDATE item_content SET archived = ?2 WHERE item_id = ?1",
+        &[json!(item_id), json!(if archived { 1 } else { 0 })],
+    )?;
+    Ok(())
+}
+
+/// 一次聚合返回四数：非归档条数 / 字节，归档条数 / 字节。
+pub fn reader_stats(p: &Ports<'_>) -> Result<ReaderStats, PortError> {
+    let rows = p.db.query(
+        "SELECT
+            COALESCE(SUM(CASE WHEN archived = 0 THEN 1 ELSE 0 END), 0) AS cached_count,
+            COALESCE(SUM(CASE WHEN archived = 0 THEN bytes ELSE 0 END), 0) AS cached_bytes,
+            COALESCE(SUM(CASE WHEN archived = 1 THEN 1 ELSE 0 END), 0) AS archived_count,
+            COALESCE(SUM(CASE WHEN archived = 1 THEN bytes ELSE 0 END), 0) AS archived_bytes
+           FROM item_content",
+    )?;
+    let row = rows.first();
+    Ok(ReaderStats {
+        cached_count: row
+            .and_then(|value| int(value, "cached_count"))
+            .unwrap_or(0)
+            .max(0) as u32,
+        cached_bytes: row
+            .and_then(|value| int(value, "cached_bytes"))
+            .unwrap_or(0)
+            .max(0) as u64,
+        archived_count: row
+            .and_then(|value| int(value, "archived_count"))
+            .unwrap_or(0)
+            .max(0) as u32,
+        archived_bytes: row
+            .and_then(|value| int(value, "archived_bytes"))
+            .unwrap_or(0)
+            .max(0) as u64,
+    })
+}
+
+/// 全部正文的字节总量。
+pub fn sum_content_bytes(p: &Ports<'_>) -> Result<u64, PortError> {
+    let rows =
+        p.db.query("SELECT COALESCE(SUM(bytes), 0) AS total FROM item_content")?;
+    Ok(rows
+        .first()
+        .and_then(|row| int(row, "total"))
+        .unwrap_or(0)
+        .max(0) as u64)
+}
+
+/// 清除正文；统计与删除使用同一过滤条件。
+pub fn clear_content(p: &Ports<'_>, mode: ClearMode) -> Result<ClearedStats, PortError> {
+    let filter = mode.where_clause();
+    let rows = p.db.query(&format!(
+        "SELECT COUNT(*) AS removed, COALESCE(SUM(bytes), 0) AS bytes
+           FROM item_content WHERE {filter}"
+    ))?;
+    let removed = rows
+        .first()
+        .and_then(|row| int(row, "removed"))
+        .unwrap_or(0)
+        .max(0) as u32;
+    let bytes = rows
+        .first()
+        .and_then(|row| int(row, "bytes"))
+        .unwrap_or(0)
+        .max(0) as u64;
+    p.db.execute(&format!("DELETE FROM item_content WHERE {filter}"))?;
+    Ok(ClearedStats { removed, bytes })
+}
+
+/// 按 `fetched_at` 从旧到新删除非归档正文，直到总量不超过软上限。
+///
+/// 归档正文永不自动删除；达到上限时返回剩余总量，由调用方决定拒绝新写入。
+pub fn evict_oldest_unarchived(p: &Ports<'_>, limit_bytes: u64) -> Result<u64, PortError> {
+    evict_oldest_unarchived_except(p, limit_bytes, None)
+}
+
+/// 同上，但保留指定条目的正文（用于「本次要覆盖的旧正文」）。
+pub fn evict_oldest_unarchived_except(
+    p: &Ports<'_>,
+    limit_bytes: u64,
+    keep_item_id: Option<&str>,
+) -> Result<u64, PortError> {
+    let mut total = sum_content_bytes(p)?;
+    if total <= limit_bytes {
+        return Ok(total);
+    }
+    let rows = p.db.query(
+        "SELECT item_id, bytes FROM item_content
+          WHERE archived = 0
+          ORDER BY fetched_at ASC, item_id ASC",
+    )?;
+    for row in rows {
+        if total <= limit_bytes {
+            break;
+        }
+        let Some(item_id) = text(&row, "item_id") else {
+            continue;
+        };
+        if keep_item_id == Some(item_id.as_str()) {
+            continue;
+        }
+        let bytes = int(&row, "bytes").unwrap_or(0).max(0) as u64;
+        p.db.execute_params(
+            "DELETE FROM item_content WHERE item_id = ?1 AND archived = 0",
+            &[json!(item_id)],
+        )?;
+        total = total.saturating_sub(bytes);
+    }
+    sum_content_bytes(p)
 }
 
 // ==================== 清理 ====================
@@ -877,15 +1177,24 @@ pub fn load_favorite_flags(p: &Ports<'_>) -> Result<Vec<String>, PortError> {
 /// 30 天清理：非收藏条目、孤儿来源归属、过期抓取日志、每源日志上限。
 pub fn cleanup(p: &Ports<'_>, now_ms: i64) -> Result<u32, PortError> {
     let cutoff = now_ms - RETENTION_DAYS * 86_400_000;
+
+    p.db.execute_params(
+        "DELETE FROM item_content
+          WHERE item_id IN (
+              SELECT id FROM items
+               WHERE first_seen_at < ?1
+                 AND id NOT IN (SELECT item_id FROM item_state WHERE favorited_at IS NOT NULL)
+          )",
+        &[json!(cutoff)],
+    )?;
     let removed = p.db.execute_params(
         "DELETE FROM items
           WHERE first_seen_at < ?1
             AND id NOT IN (SELECT item_id FROM item_state WHERE favorited_at IS NOT NULL)",
         &[json!(cutoff)],
     )?;
-    p.db.execute(
-        "DELETE FROM item_origins WHERE item_id NOT IN (SELECT id FROM items)",
-    )?;
+    p.db.execute("DELETE FROM item_origins WHERE item_id NOT IN (SELECT id FROM items)")?;
+    p.db.execute("DELETE FROM item_content WHERE item_id NOT IN (SELECT id FROM items)")?;
     p.db.execute_params(
         "DELETE FROM fetch_log WHERE started_at < ?1",
         &[json!(cutoff)],
@@ -951,9 +1260,10 @@ pub fn load_credential_secret(
     p: &Ports<'_>,
     id: &str,
 ) -> Result<Option<crate::adapters::AuthSecret>, PortError> {
-    let rows = p
-        .db
-        .query_params("SELECT secret_json FROM credentials WHERE id = ?1", &[json!(id)])?;
+    let rows = p.db.query_params(
+        "SELECT secret_json FROM credentials WHERE id = ?1",
+        &[json!(id)],
+    )?;
     let Some(row) = rows.first() else {
         return Ok(None);
     };
@@ -993,8 +1303,7 @@ pub fn delete_credential(p: &Ports<'_>, id: &str, now_ms: i64) -> Result<(), Por
         "UPDATE sources SET auth_id = NULL, updated_at = ?2 WHERE auth_id = ?1",
         &[json!(id), json!(now_ms)],
     )?;
-    p.db
-        .execute_params("DELETE FROM credentials WHERE id = ?1", &[json!(id)])?;
+    p.db.execute_params("DELETE FROM credentials WHERE id = ?1", &[json!(id)])?;
     Ok(())
 }
 
@@ -1021,15 +1330,7 @@ pub fn seed_defaults(p: &Ports<'_>, now_ms: i64) -> Result<bool, PortError> {
             _ => None,
         };
         insert_source(
-            p,
-            source.0,
-            source.1,
-            source.2,
-            source.4,
-            circle_id,
-            1.0,
-            None,
-            now_ms,
+            p, source.0, source.1, source.2, source.4, circle_id, 1.0, None, now_ms,
         )?;
     }
     meta_set(p, "seeded", "1")?;
@@ -1045,7 +1346,13 @@ pub fn default_circles() -> Vec<(&'static str, &'static str)> {
 ///
 /// Reuters 已停止公开 RSS，国际新闻改用 The Guardian World；YouTube 用三个
 /// 公开频道 id（频道页地址由适配器归一成 feeds 地址）。
-pub fn default_sources() -> Vec<(&'static str, &'static str, &'static str, &'static str, &'static str)> {
+pub fn default_sources() -> Vec<(
+    &'static str,
+    &'static str,
+    &'static str,
+    &'static str,
+    &'static str,
+)> {
     vec![
         (
             "src-hn-top",
@@ -1173,6 +1480,7 @@ mod tests {
             "credentials",
             "settings",
             "fetch_log",
+            "item_content",
         ] {
             assert!(
                 joined.contains(&format!("CREATE TABLE IF NOT EXISTS {table}")),
@@ -1181,6 +1489,8 @@ mod tests {
         }
         assert!(joined.contains("CREATE INDEX IF NOT EXISTS idx_items_published"));
         assert!(joined.contains("CREATE INDEX IF NOT EXISTS idx_fetchlog_source"));
+        assert!(joined.contains("CREATE INDEX IF NOT EXISTS idx_item_content_fetched"));
+        assert!(joined.contains("CREATE INDEX IF NOT EXISTS idx_item_content_archived"));
     }
 
     #[test]
@@ -1216,5 +1526,330 @@ mod tests {
         assert_eq!(tail_of("abcdefgh"), "efgh");
         assert_eq!(tail_of("abc"), "");
         assert_eq!(tail_of(""), "");
+    }
+
+    mod content_tests {
+        use super::*;
+        use crate::domain::{
+            error_kind, BlockKind, ClearMode, ContentBlock, ReaderState, SettingsPatch,
+        };
+        use crate::engine;
+        use crate::ports::DbPort;
+        use crate::test_support::TestPorts;
+        use serde_json::json;
+
+        fn ports(now_ms: i64) -> TestPorts {
+            let test = TestPorts::new(now_ms);
+            migrate(&test.ports()).expect("schema migrates");
+            test
+        }
+
+        fn paragraph(text: &str) -> ContentBlock {
+            ContentBlock {
+                kind: BlockKind::Paragraph,
+                level: None,
+                text: text.to_string(),
+            }
+        }
+
+        fn insert_item_row(test: &TestPorts, id: &str, first_seen_at: i64) {
+            test.db
+                .execute_params(
+                    "INSERT INTO items (id, canonical_url, title, published_at, first_seen_at, raw_url)
+                     VALUES (?1, ?2, ?3, ?4, ?4, ?2)",
+                    &[
+                        json!(id),
+                        json!(format!("https://example.com/{id}")),
+                        json!(format!("title {id}")),
+                        json!(first_seen_at),
+                    ],
+                )
+                .expect("item inserts");
+        }
+
+        fn favorite(test: &TestPorts, item_id: &str, at: i64) {
+            test.db
+                .execute_params(
+                    "INSERT INTO item_state (item_id, favorited_at) VALUES (?1, ?2)",
+                    &[json!(item_id), json!(at)],
+                )
+                .expect("favorite inserts");
+        }
+
+        #[test]
+        fn migration_runs_twice_and_records_version_two() {
+            let test = ports(0);
+            let p = test.ports();
+            migrate(&p).expect("second migrate is idempotent");
+            assert_eq!(
+                meta_get(&p, "schema_version")
+                    .expect("version reads")
+                    .as_deref(),
+                Some("2")
+            );
+        }
+
+        #[test]
+        fn ready_content_round_trips_bytes_and_text_length() {
+            let test = ports(1_000);
+            let p = test.ports();
+            let blocks = vec![
+                ContentBlock {
+                    kind: BlockKind::Heading,
+                    level: Some(2),
+                    text: "标题".into(),
+                },
+                paragraph("第一段中文内容"),
+            ];
+            let saved = save_ready_content(&p, "item-1", &blocks, 1_000, false, false)
+                .expect("content saves");
+            let expected = serde_json::to_string(&blocks).expect("blocks serialize");
+            assert_eq!(saved, expected.len() as u64);
+
+            let row = load_content(&p, "item-1")
+                .expect("content loads")
+                .expect("row exists");
+            assert_eq!(row.state, ReaderState::Ready);
+            assert_eq!(row.blocks, blocks);
+            assert_eq!(row.text_length, "标题第一段中文内容".chars().count() as u32);
+            assert_eq!(row.fetched_at, 1_000);
+            assert_eq!(row.last_attempt_at, 1_000);
+            assert!(!row.archived);
+            assert!(!row.truncated);
+        }
+
+        #[test]
+        fn failed_attempt_keeps_existing_ready_content() {
+            let test = ports(1_000);
+            let p = test.ports();
+            let blocks = vec![paragraph("可读正文")];
+            save_ready_content(&p, "item-1", &blocks, 1_000, false, true).expect("ready saves");
+            save_failed_content(&p, "item-1", error_kind::NET_FAILED, Some("timeout"), 2_000)
+                .expect("failure records");
+
+            let row = load_content(&p, "item-1")
+                .expect("content loads")
+                .expect("row exists");
+            assert_eq!(row.state, ReaderState::Ready);
+            assert_eq!(row.blocks, blocks);
+            assert_eq!(row.fetched_at, 1_000);
+            assert_eq!(row.last_attempt_at, 2_000);
+            assert_eq!(
+                row.last_attempt_kind.as_deref(),
+                Some(error_kind::NET_FAILED)
+            );
+            assert_eq!(row.error_kind, None);
+            assert!(row.archived);
+        }
+
+        #[test]
+        fn failed_without_ready_writes_failed_row() {
+            let test = ports(1_000);
+            let p = test.ports();
+            save_failed_content(
+                &p,
+                "item-1",
+                error_kind::EXTRACT_NO_CONTENT,
+                Some("no article"),
+                3_000,
+            )
+            .expect("failure saves");
+
+            let row = load_content(&p, "item-1")
+                .expect("content loads")
+                .expect("row exists");
+            assert_eq!(row.state, ReaderState::Failed);
+            assert!(row.blocks.is_empty());
+            assert_eq!(row.fetched_at, 3_000);
+            assert_eq!(row.last_attempt_at, 3_000);
+            assert_eq!(
+                row.error_kind.as_deref(),
+                Some(error_kind::EXTRACT_NO_CONTENT)
+            );
+            assert_eq!(row.error_detail.as_deref(), Some("no article"));
+        }
+
+        #[test]
+        fn invalid_blocks_json_is_a_storage_failure() {
+            let test = ports(1_000);
+            let p = test.ports();
+            save_ready_content(&p, "item-1", &[paragraph("正文")], 1_000, false, false)
+                .expect("ready saves");
+            test.db
+                .execute_params(
+                    "UPDATE item_content SET blocks_json = ?1 WHERE item_id = ?2",
+                    &[json!("not-json"), json!("item-1")],
+                )
+                .expect("corrupts row");
+
+            let error = load_content(&p, "item-1").expect_err("corruption must fail");
+            assert_eq!(error.code(), error_kind::STORAGE_FAILED);
+        }
+
+        #[test]
+        fn stats_and_clear_use_the_same_scope() {
+            let test = ports(1_000);
+            let p = test.ports();
+            save_ready_content(&p, "cached", &[paragraph("abc")], 1_000, false, false)
+                .expect("cached saves");
+            save_ready_content(&p, "archived", &[paragraph("de")], 1_000, false, true)
+                .expect("archived saves");
+
+            let stats = reader_stats(&p).expect("stats read");
+            assert_eq!(stats.cached_count, 1);
+            assert_eq!(stats.archived_count, 1);
+            assert!(stats.cached_bytes > 0);
+            assert!(stats.archived_bytes > 0);
+
+            let cleared = clear_content(&p, ClearMode::Unarchived).expect("cache clears");
+            assert_eq!(cleared.removed, stats.cached_count);
+            assert_eq!(cleared.bytes, stats.cached_bytes);
+            assert!(load_content(&p, "cached").expect("loads").is_none());
+            assert!(load_content(&p, "archived").expect("loads").is_some());
+
+            let stats = reader_stats(&p).expect("stats read");
+            assert_eq!(stats.cached_count, 0);
+            assert_eq!(stats.archived_count, 1);
+        }
+
+        #[test]
+        fn clearing_all_content_does_not_touch_favorites() {
+            let test = ports(1_000);
+            let p = test.ports();
+            insert_item_row(&test, "item-1", 1_000);
+            favorite(&test, "item-1", 1_000);
+            save_ready_content(&p, "item-1", &[paragraph("正文")], 1_000, false, true)
+                .expect("ready saves");
+
+            let cleared = clear_content(&p, ClearMode::All).expect("all clears");
+            assert_eq!(cleared.removed, 1);
+            assert!(load_content(&p, "item-1").expect("loads").is_none());
+            assert_eq!(
+                load_favorite_flags(&p).expect("favorites read"),
+                vec!["item-1".to_string()]
+            );
+        }
+
+        #[test]
+        fn favorite_links_archive_and_unfavorite_keeps_content() {
+            let test = ports(1_000);
+            let p = test.ports();
+            insert_item_row(&test, "item-1", 1_000);
+            save_ready_content(&p, "item-1", &[paragraph("正文")], 1_000, false, false)
+                .expect("ready saves");
+
+            set_favorite(&p, "item-1", true, 2_000).expect("favorite");
+            let row = load_content(&p, "item-1")
+                .expect("loads")
+                .expect("row exists");
+            assert!(row.archived);
+            assert_eq!(test.fetch.calls(), 0, "收藏不得触发抓取");
+
+            set_favorite(&p, "item-1", false, 3_000).expect("unfavorite");
+            let row = load_content(&p, "item-1")
+                .expect("loads")
+                .expect("row exists");
+            assert!(!row.archived);
+            assert_eq!(row.state, ReaderState::Ready);
+            assert_eq!(row.blocks, vec![paragraph("正文")]);
+        }
+
+        #[test]
+        fn cleanup_deletes_content_with_expired_items_and_keeps_favorites() {
+            let now = 1_000_000_000_000;
+            let old = now - (RETENTION_DAYS + 1) * 86_400_000;
+            let test = ports(now);
+            let p = test.ports();
+            insert_item_row(&test, "old-free", old);
+            insert_item_row(&test, "old-favorite", old);
+            insert_item_row(&test, "fresh", now);
+            favorite(&test, "old-favorite", old);
+            for id in ["old-free", "old-favorite", "fresh"] {
+                save_ready_content(
+                    &p,
+                    id,
+                    &[paragraph("正文")],
+                    old,
+                    false,
+                    id == "old-favorite",
+                )
+                .expect("content saves");
+            }
+
+            cleanup(&p, now).expect("cleanup runs");
+
+            assert!(load_content(&p, "old-free").expect("loads").is_none());
+            assert!(load_content(&p, "old-favorite").expect("loads").is_some());
+            assert!(load_content(&p, "fresh").expect("loads").is_some());
+            let orphans = test
+                .db
+                .query(
+                    "SELECT item_id FROM item_content
+                      WHERE item_id NOT IN (SELECT id FROM items)",
+                )
+                .expect("orphans query");
+            assert!(orphans.is_empty(), "不得残留孤儿正文: {orphans:?}");
+        }
+
+        #[test]
+        fn cleanup_deletes_content_before_items_even_if_item_delete_fails() {
+            let now = 1_000_000_000_000;
+            let old = now - (RETENTION_DAYS + 1) * 86_400_000;
+            let test = ports(now);
+            let p = test.ports();
+            insert_item_row(&test, "old-free", old);
+            save_ready_content(&p, "old-free", &[paragraph("正文")], old, false, false)
+                .expect("content saves");
+
+            test.db.fail_on("DELETE FROM items");
+            let error = cleanup(&p, now).expect_err("item deletion fails");
+            assert_eq!(error.code(), error_kind::STORAGE_FAILED);
+            assert!(
+                load_content(&p, "old-free").expect("loads").is_none(),
+                "正文必须先于条目删除"
+            );
+        }
+
+        #[test]
+        fn eviction_only_removes_unarchived_content() {
+            let test = ports(1_000);
+            let p = test.ports();
+            save_ready_content(&p, "cached", &[paragraph("aaa")], 1_000, false, false)
+                .expect("cached saves");
+            save_ready_content(&p, "archived", &[paragraph("bbb")], 1_000, false, true)
+                .expect("archived saves");
+
+            let remaining = evict_oldest_unarchived(&p, 0).expect("eviction runs");
+            assert!(load_content(&p, "cached").expect("loads").is_none());
+            let archived = load_content(&p, "archived")
+                .expect("loads")
+                .expect("row exists");
+            assert!(archived.archived);
+            assert_eq!(remaining, archived.bytes);
+        }
+
+        #[test]
+        fn reader_setting_round_trips_without_touching_ai_fields() {
+            let test = ports(1_000);
+            let p = test.ports();
+            assert!(!load_settings(&p).expect("settings load").reader_enabled);
+
+            let patch = SettingsPatch {
+                ai_model: Some("gpt-test".into()),
+                reader_enabled: Some(true),
+                ..Default::default()
+            };
+            let saved = engine::save_settings(&p, &patch).expect("settings save");
+            assert!(saved.reader_enabled);
+            assert_eq!(saved.ai_model, "gpt-test");
+
+            let patch = SettingsPatch {
+                reader_enabled: Some(false),
+                ..Default::default()
+            };
+            let saved = engine::save_settings(&p, &patch).expect("settings save");
+            assert!(!saved.reader_enabled);
+            assert_eq!(saved.ai_model, "gpt-test");
+        }
     }
 }

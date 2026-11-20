@@ -66,6 +66,19 @@ pub(crate) fn current() -> Platform {
     value.expect("platform::current() before platform::detect()")
 }
 
+/// 当前平台；未探测时返回 `None`，供 native 单测在无激活流程时安全分派。
+pub(crate) fn current_opt() -> Option<Platform> {
+    *DETECTED.lock().expect("platform slot lock")
+}
+
+#[cfg(test)]
+pub(crate) static TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+#[cfg(test)]
+pub(crate) fn set_for_test(platform: Option<Platform>) {
+    *DETECTED.lock().expect("platform slot lock") = platform;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -117,6 +130,7 @@ mod tests {
 
     #[test]
     fn unknown_probe_value_fails_visible() {
+        let _guard = TEST_LOCK.lock().expect("platform test lock");
         *DETECTED.lock().unwrap() = None;
         let host = ProbeHost {
             value: "tablet",

@@ -100,6 +100,114 @@ pub struct Item {
     pub origins: Vec<Origin>,
 }
 
+// ==================== 正文阅读 ====================
+
+/// 正文块的类型。
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
+#[serde(rename_all = "camelCase")]
+pub enum BlockKind {
+    Heading,
+    Paragraph,
+    ListItem,
+    Quote,
+    Code,
+}
+
+/// 一个结构化纯文本块。
+#[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ContentBlock {
+    pub kind: BlockKind,
+    /// 仅 `heading` 使用；1–3 级。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub level: Option<u8>,
+    pub text: String,
+}
+
+/// 正文副本状态。
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
+#[serde(rename_all = "lowercase")]
+pub enum ReaderState {
+    Ready,
+    Failed,
+}
+
+impl ReaderState {
+    /// 落库字符串。
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ReaderState::Ready => "ready",
+            ReaderState::Failed => "failed",
+        }
+    }
+}
+
+/// 详情抽屉阅读态的 wire 形状。
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ReaderView {
+    pub item_id: String,
+    pub state: ReaderState,
+    /// `state=ready` 且无错误时非空；`state=failed` 时为空。
+    pub blocks: Vec<ContentBlock>,
+    pub text_length: u32,
+    pub truncated: bool,
+    /// 本次刷新失败但沿用了旧正文。
+    pub stale: bool,
+    pub archived: bool,
+    /// 当前正文的成功抓取时间；失败记录时为失败时间。
+    pub fetched_at: i64,
+    /// 最近一次尝试（含失败），用于 stale 展示。
+    pub last_attempt_at: i64,
+    /// 失败必填；stale 时承载本次刷新失败分类。
+    #[serde(default)]
+    pub error_kind: Option<String>,
+    #[serde(default)]
+    pub error_detail: Option<String>,
+}
+
+/// 设置页用量。
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ReaderStats {
+    /// 非归档正文条数。
+    pub cached_count: u32,
+    /// 非归档正文占用字节数。
+    pub cached_bytes: u64,
+    /// 归档正文条数。
+    pub archived_count: u32,
+    /// 归档正文占用字节数。
+    pub archived_bytes: u64,
+}
+
+/// 清除正文的返回。
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ClearedStats {
+    pub removed: u32,
+    pub bytes: u64,
+}
+
+/// 清除正文的范围。
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
+#[serde(rename_all = "lowercase")]
+pub enum ClearMode {
+    /// 只删非归档正文（含失败记录）。
+    Unarchived,
+    /// 删除全部正文（含归档）。
+    All,
+}
+
+impl ClearMode {
+    /// 对应的 SQL 过滤条件（统计与删除共用保证对账一致）。
+    pub fn where_clause(self) -> &'static str {
+        match self {
+            ClearMode::Unarchived => "archived = 0",
+            ClearMode::All => "1 = 1",
+        }
+    }
+}
+
 // ==================== 源 ====================
 
 /// 源种类。用户只能选种类 + 填地址，不能注入脚本或正则。
@@ -275,7 +383,7 @@ pub const UNGROUPED_CIRCLE_ID: &str = "__ungrouped__";
 // ==================== 设置与凭据 ====================
 
 /// 应用设置（AI 密钥只回传掩码与长度，绝不回明文）。
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Settings {
     pub ai_enabled: bool,
@@ -285,19 +393,10 @@ pub struct Settings {
     pub ai_api_key_tail: String,
     /// 已保存密钥的长度（未保存 = 0）。
     pub ai_api_key_len: u32,
+    /// 正文阅读开关（默认关闭；移动端恒为 false）。
+    pub reader_enabled: bool,
 }
 
-impl Default for Settings {
-    fn default() -> Self {
-        Self {
-            ai_enabled: false,
-            ai_base_url: String::new(),
-            ai_model: String::new(),
-            ai_api_key_tail: String::new(),
-            ai_api_key_len: 0,
-        }
-    }
-}
 
 /// 设置更新入参。`ai_api_key` 缺省 = 不改动已保存密钥。
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -311,6 +410,8 @@ pub struct SettingsPatch {
     pub ai_model: Option<String>,
     #[serde(default)]
     pub ai_api_key: Option<String>,
+    #[serde(default)]
+    pub reader_enabled: Option<bool>,
 }
 
 /// 凭据清单条目（只有掩码，没有明文）。
@@ -446,9 +547,105 @@ pub mod error_kind {
     pub const SOURCE_UNAVAILABLE: &str = "source.unavailable";
     /// 本端不支持该能力。
     pub const PORT_UNSUPPORTED: &str = "port.unsupported";
+    /// 插件私有库读写失败。
+    pub const STORAGE_FAILED: &str = "storage.failed";
+    /// 阅读开关关闭。
+    pub const READER_DISABLED: &str = "reader.disabled";
+    /// 正文不是可阅读的 HTML / XHTML。
+    pub const EXTRACT_UNSUPPORTED: &str = "extract.unsupported";
+    /// 未提取到正文或正文过短。
+    pub const EXTRACT_NO_CONTENT: &str = "extract.no_content";
+    /// 页面编码无法解析。
+    pub const EXTRACT_ENCODING: &str = "extract.encoding";
+    /// 响应或正文超过上限。
+    pub const EXTRACT_TOO_LARGE: &str = "extract.too_large";
+    /// 解析器内部失败。
+    pub const EXTRACT_FAILED: &str = "extract.failed";
+    /// 本机正文存储已达容量上限且无法继续归档。
+    pub const READER_STORAGE_FULL: &str = "reader.storage_full";
 
     /// 分类是否属于「值得标红并提示重新授权」的授权类失败。
     pub fn is_auth_related(kind: &str) -> bool {
         matches!(kind, NET_DENIED | AUTH_EXPIRED)
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::{json, Value};
+
+    #[test]
+    fn settings_default_disables_reader() {
+        assert!(!Settings::default().reader_enabled);
+    }
+
+    #[test]
+    fn settings_patch_reader_is_optional() {
+        let patch: SettingsPatch = serde_json::from_value(json!({})).expect("empty patch parses");
+        assert_eq!(patch.reader_enabled, None);
+
+        let patch: SettingsPatch =
+            serde_json::from_value(json!({ "readerEnabled": true })).expect("reader patch parses");
+        assert_eq!(patch.reader_enabled, Some(true));
+    }
+
+    #[test]
+    fn reader_view_uses_camel_case_and_keeps_null_errors() {
+        let view = ReaderView {
+            item_id: "item-1".into(),
+            state: ReaderState::Ready,
+            blocks: vec![ContentBlock {
+                kind: BlockKind::ListItem,
+                level: None,
+                text: "hello".into(),
+            }],
+            text_length: 5,
+            truncated: false,
+            stale: true,
+            archived: true,
+            fetched_at: 1,
+            last_attempt_at: 2,
+            error_kind: Some(error_kind::EXTRACT_NO_CONTENT.into()),
+            error_detail: None,
+        };
+        let value: Value = serde_json::to_value(&view).expect("view serializes");
+        assert_eq!(value["itemId"], "item-1");
+        assert_eq!(value["state"], "ready");
+        assert_eq!(value["blocks"][0]["kind"], "listItem");
+        assert!(value["blocks"][0].get("level").is_none());
+        assert_eq!(value["lastAttemptAt"], 2);
+        assert_eq!(value["fetchedAt"], 1);
+        assert_eq!(value["errorKind"], error_kind::EXTRACT_NO_CONTENT);
+        assert!(value["errorDetail"].is_null());
+    }
+
+    #[test]
+    fn reader_state_and_clear_mode_use_lowercase() {
+        assert_eq!(
+            serde_json::to_value(ReaderState::Failed).expect("state serializes"),
+            json!("failed")
+        );
+        assert_eq!(
+            serde_json::to_value(ClearMode::Unarchived).expect("mode serializes"),
+            json!("unarchived")
+        );
+        assert_eq!(ClearMode::All.where_clause(), "1 = 1");
+    }
+
+    #[test]
+    fn reader_error_kinds_are_distinct_literals() {
+        let kinds = [
+            error_kind::READER_DISABLED,
+            error_kind::EXTRACT_UNSUPPORTED,
+            error_kind::EXTRACT_NO_CONTENT,
+            error_kind::EXTRACT_ENCODING,
+            error_kind::EXTRACT_TOO_LARGE,
+            error_kind::EXTRACT_FAILED,
+            error_kind::READER_STORAGE_FULL,
+        ];
+        let mut unique = kinds.to_vec();
+        unique.sort_unstable();
+        unique.dedup();
+        assert_eq!(unique.len(), kinds.len());
     }
 }
