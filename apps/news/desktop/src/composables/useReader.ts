@@ -3,7 +3,7 @@ import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-desktop'
 import type { ClearMode, ClearedStats, ReaderStats, ReaderView } from '../types'
 import { parseError, type NewsError } from '../utils/errors'
 
-export type ReaderStatus = 'idle' | 'loading' | 'ready' | 'failed'
+export type ReaderStatus = 'idle' | 'loading' | 'ready' | 'failed' | 'disabled'
 
 export interface ReaderController {
   status: Ref<ReaderStatus>
@@ -40,19 +40,34 @@ export function useReader(context: PluginContext): ReaderController {
       : null
   }
 
+  const inFlight = new Map<string, Promise<void>>()
+  let requestSeq = 0
+
   async function open(itemId: string, force = false): Promise<void> {
+    const pending = inFlight.get(itemId)
+    if (pending) return pending
+    const seq = ++requestSeq
     status.value = 'loading'
     view.value = null
     error.value = null
-    try {
-      const payload: Record<string, unknown> = { itemId, nowMs: Date.now() }
-      if (force) payload.force = true
-      const next = (await context.commands.execute('news.read-item', payload)) as ReaderView
-      applyView(next)
-    } catch (e) {
-      status.value = 'failed'
-      error.value = parseError(e)
-    }
+    const task = (async () => {
+      try {
+        const payload: Record<string, unknown> = { itemId, nowMs: Date.now() }
+        if (force) payload.force = true
+        const next = (await context.commands.execute('news.read-item', payload)) as ReaderView
+        if (seq !== requestSeq) return
+        applyView(next)
+      } catch (e) {
+        if (seq !== requestSeq) return
+        const parsed = parseError(e)
+        error.value = parsed
+        status.value = parsed.code === 'reader.disabled' ? 'disabled' : 'failed'
+      } finally {
+        inFlight.delete(itemId)
+      }
+    })()
+    inFlight.set(itemId, task)
+    return task
   }
 
   async function archive(itemId: string): Promise<void> {

@@ -40,6 +40,15 @@
         >
           {{ t('news.reader.copy') }}
         </button>
+        <button
+          v-if="failure.code === 'net.denied' || failure.code === 'reader.disabled'"
+          type="button"
+          class="news-reader-action"
+          data-testid="news-reader-open-settings"
+          @click="emit('open-settings')"
+        >
+          {{ t('news.reader.openSettings') }}
+        </button>
       </div>
       <p class="news-reader-source">
         <span>{{ t('news.reader.source') }}</span>
@@ -108,7 +117,7 @@ const props = defineProps<{
   error: NewsError | null
   itemUrl: string
 }>()
-const emit = defineEmits<{ retry: []; copy: [url: string] }>()
+const emit = defineEmits<{ retry: []; copy: [url: string]; 'open-settings': [] }>()
 const context = inject<PluginContext>('pluginContext')!
 const t = (key: string, params?: Record<string, unknown>) => context.i18n.t(key, params)
 const root = ref<HTMLElement | null>(null)

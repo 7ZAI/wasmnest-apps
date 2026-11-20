@@ -115,6 +115,32 @@ describe('NewsReader', () => {
     expect(failed.emitted('copy')?.[0]).toEqual(['https://example.com/a'])
   })
 
+  it('授权与禁用类失败显示去设置，其它失败不显示', async () => {
+    const denied = mount(NewsReader, {
+      props: {
+        view: null,
+        loading: false,
+        error: { code: 'net.denied', detail: 'denied' },
+        itemUrl: 'https://example.com/a',
+      },
+      global: { provide: { pluginContext: context } },
+    })
+    expect(denied.find('[data-testid="news-reader-open-settings"]').exists()).toBe(true)
+    await denied.get('[data-testid="news-reader-open-settings"]').trigger('click')
+    expect(denied.emitted('open-settings')).toHaveLength(1)
+
+    const contentFailure = mount(NewsReader, {
+      props: {
+        view: view({ state: 'failed', blocks: [], errorKind: 'extract.no_content' }),
+        loading: false,
+        error: null,
+        itemUrl: 'https://example.com/a',
+      },
+      global: { provide: { pluginContext: context } },
+    })
+    expect(contentFailure.find('[data-testid="news-reader-open-settings"]').exists()).toBe(false)
+  })
+
   it('模板不含 v-html，正文只走文本插值', () => {
     expect(readerSource).not.toContain('v-html')
   })

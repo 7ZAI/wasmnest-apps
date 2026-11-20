@@ -101,6 +101,8 @@
     >
       <SettingsPanel
         :version="props.version"
+        :reader-enabled="readerEnabled"
+        :reader-settings-warning="readerSettingsWarning?.code ?? null"
         :invoke-host="props.env?.invoke"
         @close="closeSettings"
         @changed="onSettingsChanged"
@@ -200,6 +202,16 @@
         </p>
 
         <template v-else>
+          <p
+            v-if="readerSettingsWarning"
+            class="news-note"
+            role="status"
+            data-news-reader-settings-warning
+            data-testid="news-reader-settings-warning"
+          >
+            {{ t('news.reader.settingsLoadFailed') }}
+          </p>
+
           <StatusBar v-if="view === 'realtime'" :sources="sources" :now="now" />
 
           <div v-if="loading && !items.length" class="news-loading" aria-busy="true">
@@ -278,12 +290,13 @@
           :item="selected"
           :origins="origins"
           :now="now"
-          :reader-enabled="readerEnabled"
+          :reader-enabled="readerEntryEnabled"
           @close="closeItem"
           @copy="copyLink"
           @toggle-favorite="toggleFavorite"
           @toggle-read="toggleRead"
           @assistant-fetch="onAssistantFetch"
+          @open-settings="openReaderSettings"
           @toast="showToast"
         />
       </div>
@@ -364,6 +377,8 @@ const {
   loadSources,
   loadSettings,
   readerEnabled,
+  readerSettingsReady,
+  readerSettingsWarning,
   setView,
   selectCircle,
   openSettings,
@@ -379,6 +394,8 @@ const {
   dismissBanner,
   tickNow,
 } = controller
+
+const readerEntryEnabled = computed(() => readerSettingsReady.value && readerEnabled.value)
 
 const HINT_KEYS: Record<FeedView, string> = {
   today: 'news.feed.todayHint',
@@ -459,6 +476,11 @@ async function copyLink(url: string): Promise<void> {
 async function onAssistantFetch(): Promise<void> {
   // 反向代抓：宿主未提供该能力，入口固定显性提示，不发请求
   showToast(t('news.detail.assistantUnavailable'))
+}
+
+function openReaderSettings(): void {
+  closeItem()
+  openSettings()
 }
 
 async function onSettingsChanged(): Promise<void> {

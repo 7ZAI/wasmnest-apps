@@ -9,7 +9,7 @@ const DISABLED_SETTINGS: NewsSettings = {
   aiModel: '',
   aiApiKeyTail: '',
   aiApiKeyLen: 0,
-  readerEnabled: false,
+  readerEnabled: true,
 }
 
 const SAVED_SETTINGS: NewsSettings = {
@@ -18,7 +18,7 @@ const SAVED_SETTINGS: NewsSettings = {
   aiModel: 'gpt-4o-mini',
   aiApiKeyTail: 'abcd',
   aiApiKeyLen: 32,
-  readerEnabled: false,
+  readerEnabled: true,
 }
 
 function context(
@@ -71,6 +71,23 @@ describe('useSettings', () => {
     await controller.loadAll()
     expect(controller.settings.value?.aiEnabled).toBe(false)
     expect(controller.settings.value?.aiApiKeyLen).toBe(0)
+  })
+
+  it('设置读取失败不拖垮其余数据，并暴露可见错误', async () => {
+    const { context: ctx } = context(
+      baseHandler({
+        'news.get-settings': () => {
+          throw new Error('storage.failed: db closed')
+        },
+        'news.list-circles': () => ({ circles: [{ id: 'c1', name: 'C', weight: 1 }] }),
+      }),
+    )
+    const controller = useSettings(ctx)
+    await controller.loadAll()
+    expect(controller.error.value).toContain('storage.failed')
+    expect(controller.settings.value).toBeNull()
+    expect(controller.circles.value).toHaveLength(1)
+    expect(controller.loading.value).toBe(false)
   })
 
   it('已保存的密钥只回掩码字段，不含明文', async () => {
