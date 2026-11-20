@@ -212,6 +212,12 @@ mod tests {
             unimplemented!()
         }
 
+        fn request_egress_consent(&self, _request_json: &str) -> Result<String, HostError> {
+            Err(HostError::custom(
+                -1,
+                "egress consent is not used in this test",
+            ))
+        }
     }
 
     #[test]
