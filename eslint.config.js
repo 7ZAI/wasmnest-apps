@@ -223,6 +223,12 @@ module.exports = (async () => {
     { ignores },
     ...vueTs,
     frontendResourceAccessLock,
+    {
+      files: ['apps/news/**/*.vue'],
+      rules: {
+        'vue/no-v-html': 'error',
+      },
+    },
     // 必须最后：关闭所有与 Prettier 冲突的格式规则
     prettier,
   ]
