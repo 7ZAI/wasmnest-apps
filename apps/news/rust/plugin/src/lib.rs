@@ -21,16 +21,19 @@ mod host_ports;
 mod platform;
 
 use wasmnest_news_core::commands::{CircleInput, CredentialInput, NewSource, UpdateSource};
-use wasmnest_news_core::domain::{FeedQuery, SettingsPatch};
+use wasmnest_news_core::domain::{ClearMode, FeedQuery, SettingsPatch};
 use wasmnest_news_core::engine::{self, RefreshRequest};
 use wasmnest_news_core::ports::{PortError, Ports};
+use wasmnest_news_core::reader;
 use wasmnest_news_core::schedule;
+use wasmnest_news_core::store;
 use wasmnest_plugin_api::host::HostLog;
 use wasmnest_plugin_api::types::PluginManifest;
 use wasmnest_plugin_api::wasm_host::WasmHost;
 use wasmnest_plugin_api::WasmPlugin;
 
 use host_ports::{HostPorts, NoAssistant};
+use platform::Platform;
 
 const PLUGIN_ID: &str = "com.wasmnest.news";
 
@@ -144,13 +147,11 @@ impl WasmPlugin for NewsPlugin {
                 }
             }
             // 定时器：移动端没有宿主定时器，端口显性 unsupported（属预期，不记错误）
-            match p.schedule.register_interval(
-                schedule::REFRESH_INTERVAL_SECS,
-                schedule::TICK_COMMAND,
-            ) {
-                Ok(()) => p
-                    .log
-                    .log_info("news: 15-minute refresh timer registered"),
+            match p
+                .schedule
+                .register_interval(schedule::REFRESH_INTERVAL_SECS, schedule::TICK_COMMAND)
+            {
+                Ok(()) => p.log.log_info("news: 15-minute refresh timer registered"),
                 Err(err) if err.code() == "port.unsupported" => p.log.log_info(
                     "news: host has no timer (mobile); refresh is driven by foreground events",
                 ),
@@ -163,9 +164,8 @@ impl WasmPlugin for NewsPlugin {
             // 补抓由界面挂载 / 回前台时的 `news.refresh-stale` 驱动（那时窗口可作答），
             // 无界面自启场景则由首个 15 分钟节拍补上。这里只记一条意图日志。
             if now > 0 {
-                p.log.log_info(
-                    "news: activation catch-up deferred to UI mount / first timer tick",
-                );
+                p.log
+                    .log_info("news: activation catch-up deferred to UI mount / first timer tick");
             }
             Ok(())
         })
@@ -178,28 +178,57 @@ impl WasmPlugin for NewsPlugin {
 
     fn invoke_command(name: &str, args: serde_json::Value) -> anyhow::Result<serde_json::Value> {
         let h = host();
-        with_ports(&h, |p| dispatch(p, name, args))
+        let platform = platform::current_opt();
+        with_ports(&h, |p| dispatch(p, name, args, platform))
     }
+}
+
+fn normalize_settings(
+    settings: &mut wasmnest_news_core::domain::Settings,
+    platform: Option<Platform>,
+) {
+    if platform == Some(Platform::Mobile) {
+        settings.reader_enabled = false;
+    }
+}
+
+fn is_reader_command(name: &str) -> bool {
+    matches!(
+        name,
+        "news.read-item"
+            | "news.archive-item-content"
+            | "news.reader-stats"
+            | "news.clear-reader-cache"
+    )
 }
 
 fn dispatch(
     p: &Ports<'_>,
     name: &str,
     args: serde_json::Value,
+    platform: Option<Platform>,
 ) -> anyhow::Result<serde_json::Value> {
+    if platform == Some(Platform::Mobile) && is_reader_command(name) {
+        return Err(anyhow::anyhow!("unknown command: {name}"));
+    }
     match name {
         // ==================== 读取 ====================
         "news.list-feed" => {
             let hint = explicit_now(&args);
             let query: FeedQuery = parse_args(args, "news.list-feed")?;
             let now = resolve_now_hint(hint, p)?;
-            json(engine::feed(p, &query, now).map_err(to_anyhow)?, "list-feed")
+            json(
+                engine::feed(p, &query, now).map_err(to_anyhow)?,
+                "list-feed",
+            )
         }
         "news.get-item" => {
             let item_id = arg_str(&args, "itemId")?;
             let now = resolve_now(&args, p)?;
             match engine::item_detail(p, &item_id, now).map_err(to_anyhow)? {
-                Some((item, origins)) => Ok(serde_json::json!({ "item": item, "origins": origins })),
+                Some((item, origins)) => {
+                    Ok(serde_json::json!({ "item": item, "origins": origins }))
+                }
                 None => Ok(serde_json::Value::Null),
             }
         }
@@ -211,12 +240,16 @@ fn dispatch(
             serde_json::json!({ "sources": wasmnest_news_core::store::load_sources(p).map_err(to_anyhow)? }),
             "list-sources",
         ),
-        "news.get-settings" => json(
-            engine::settings(p).map_err(to_anyhow)?,
-            "get-settings",
-        ),
+        "news.get-settings" => {
+            let mut settings = engine::settings(p).map_err(to_anyhow)?;
+            normalize_settings(&mut settings, platform);
+            json(settings, "get-settings")
+        }
         "news.set-settings" => {
-            let patch: SettingsPatch = parse_args(args, "news.set-settings")?;
+            let mut patch: SettingsPatch = parse_args(args, "news.set-settings")?;
+            if platform == Some(Platform::Mobile) {
+                patch.reader_enabled = Some(false);
+            }
             json(
                 engine::save_settings(p, &patch).map_err(to_anyhow)?,
                 "set-settings",
@@ -224,10 +257,7 @@ fn dispatch(
         }
         "news.list-fetch-log" => {
             let source_id = opt_str(&args, "sourceId");
-            let limit = args
-                .get("limit")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(200) as usize;
+            let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(200) as usize;
             json(
                 serde_json::json!({
                     "entries": engine::fetch_log(p, source_id.as_deref(), limit).map_err(to_anyhow)?
@@ -305,6 +335,42 @@ fn dispatch(
             engine::copy_link(p, &url).map_err(to_anyhow)?;
             Ok(serde_json::json!({ "ok": true }))
         }
+        "news.read-item" => {
+            let now = resolve_now(&args, p)?;
+            let item_id = arg_str(&args, "itemId")?;
+            let force = args
+                .get("force")
+                .and_then(|value| value.as_bool())
+                .unwrap_or(false);
+            json(
+                reader::read_item(p, &item_id, force, now).map_err(to_anyhow)?,
+                "read-item",
+            )
+        }
+        "news.archive-item-content" => {
+            let now = resolve_now(&args, p)?;
+            let item_id = arg_str(&args, "itemId")?;
+            json(
+                reader::archive_item_content(p, &item_id, now).map_err(to_anyhow)?,
+                "archive-item-content",
+            )
+        }
+        "news.reader-stats" => json(reader::reader_stats(p).map_err(to_anyhow)?, "reader-stats"),
+        "news.clear-reader-cache" => {
+            let mode = match arg_str(&args, "mode")?.as_str() {
+                "unarchived" => ClearMode::Unarchived,
+                "all" => ClearMode::All,
+                other => {
+                    return Err(to_anyhow(store::invalid(format!(
+                        "clear-reader-cache: unknown mode {other}"
+                    ))))
+                }
+            };
+            json(
+                reader::clear_content(p, mode).map_err(to_anyhow)?,
+                "clear-reader-cache",
+            )
+        }
 
         // ==================== 源 / 圈子 / 凭据 ====================
         "news.add-source" => {
@@ -356,8 +422,7 @@ fn dispatch(
             let input: CredentialInput = parse_args(args, "news.save-credential")?;
             let now = resolve_now_hint(hint, p)?;
             json(
-                wasmnest_news_core::commands::save_credential(p, &input, now)
-                    .map_err(to_anyhow)?,
+                wasmnest_news_core::commands::save_credential(p, &input, now).map_err(to_anyhow)?,
                 "save-credential",
             )
         }
@@ -369,8 +434,7 @@ fn dispatch(
         }
         "news.export-json" => {
             let now = resolve_now(&args, p)?;
-            let json_text =
-                wasmnest_news_core::commands::export_json(p, now).map_err(to_anyhow)?;
+            let json_text = wasmnest_news_core::commands::export_json(p, now).map_err(to_anyhow)?;
             Ok(serde_json::json!({ "json": json_text }))
         }
 
@@ -395,10 +459,7 @@ fn dispatch(
         // ==================== 助手工具 ====================
         "news.today-summary" => {
             let now = resolve_now(&args, p)?;
-            let limit = args
-                .get("limit")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(10) as usize;
+            let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(10) as usize;
             json(
                 serde_json::json!({
                     "items": engine::today_summary(p, now, limit).map_err(to_anyhow)?
@@ -408,10 +469,7 @@ fn dispatch(
         }
         "news.search-items" => {
             let keyword = arg_str(&args, "keyword")?;
-            let limit = args
-                .get("limit")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(20) as usize;
+            let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(20) as usize;
             json(
                 serde_json::json!({
                     "items": engine::search_items(p, &keyword, limit).map_err(to_anyhow)?
@@ -478,6 +536,10 @@ mod tests {
             "news.list-sources",
             "news.get-settings",
             "news.set-settings",
+            "news.read-item",
+            "news.archive-item-content",
+            "news.reader-stats",
+            "news.clear-reader-cache",
             "news.list-fetch-log",
             "news.list-credentials",
             "news.refresh-all",
@@ -513,5 +575,46 @@ mod tests {
     fn error_message_carries_the_classification_code() {
         let err = to_anyhow(PortError::with_detail(error_kind::NET_DENIED, "denied"));
         assert_eq!(err.to_string(), "net.denied: denied");
+    }
+
+    #[test]
+    fn reader_commands_are_rejected_before_argument_parsing_on_mobile() {
+        let _guard = platform::TEST_LOCK.lock().expect("platform test lock");
+        platform::set_for_test(Some(Platform::Mobile));
+        for command in [
+            "news.read-item",
+            "news.archive-item-content",
+            "news.reader-stats",
+            "news.clear-reader-cache",
+        ] {
+            let err = NewsPlugin::invoke_command(command, serde_json::json!({}))
+                .expect_err("移动端必须拒绝阅读命令");
+            assert!(
+                err.to_string().contains("unknown command"),
+                "command {command}: {err}"
+            );
+        }
+        platform::set_for_test(None);
+    }
+
+    #[test]
+    fn mobile_settings_force_reader_off() {
+        let mut settings = wasmnest_news_core::domain::Settings::default();
+        settings.reader_enabled = true;
+        normalize_settings(&mut settings, Some(Platform::Mobile));
+        assert!(!settings.reader_enabled);
+    }
+
+    #[test]
+    fn invalid_clear_mode_is_an_invalid_argument() {
+        let _guard = platform::TEST_LOCK.lock().expect("platform test lock");
+        platform::set_for_test(Some(Platform::Desktop));
+        let err = NewsPlugin::invoke_command(
+            "news.clear-reader-cache",
+            serde_json::json!({ "mode": "bogus" }),
+        )
+        .expect_err("unknown clear mode must fail");
+        assert!(err.to_string().contains("invalid.argument"), "got: {err}");
+        platform::set_for_test(None);
     }
 }

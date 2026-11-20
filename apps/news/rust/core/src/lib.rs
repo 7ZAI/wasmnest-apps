@@ -2,7 +2,8 @@
 //!
 //! ## 边界
 //!
-//! - 依赖只有 `serde` / `serde_json` / `quick-xml` / `sha2`；零 WIT、零宿主 SDK。
+//! - 依赖只有 `serde` / `serde_json` / `quick-xml` / `sha2` / `unicode-normalization` /
+//!   `htmlparser`；零 WIT、零宿主 SDK。
 //! - 与宿主交互一律经 [`ports`] 的 trait；核内不出现插件 id 等产品身份字面量。
 //! - 时间一律由调用方传入（Unix 毫秒）。核不读系统时钟：需要「现在」的地方
 //!   （窗口、退避、排序）都接显式参数，因此可以在 native 单测里直测。
@@ -20,6 +21,7 @@
 //! | [`schedule`] | 补抓阈值、手动防抖、失败退避 |
 //! | [`store`] | 表结构、迁移、读写语句 |
 //! | [`engine`] | 抓取编排与视图装配 |
+//! | [`reader`] | 正文策略、HTML 抽取与阅读编排 |
 //! | [`summary`] | AI 摘要的请求构造与长度约束 |
 
 pub mod adapters;
@@ -29,18 +31,22 @@ pub mod dedup;
 pub mod domain;
 pub mod engine;
 pub mod ports;
+pub mod reader;
 pub mod schedule;
 pub mod store;
 pub mod summary;
 pub mod urlutil;
 pub mod views;
 
+#[cfg(test)]
+pub mod test_support;
+
+pub use commands::{CircleInput, CredentialInput, NewSource, UpdateSource};
 pub use domain::{
     AiBatchSummaryResult, AiSummaryResult, Circle, CredentialSummary, Feed, FeedQuery, FeedView,
     FetchLogEntry, Item, Origin, RawItem, RefreshOutcome, SearchHit, Settings, SettingsPatch,
     Source, SourceFetchResult, SourceKind, SourceState, TodaySummaryEntry,
 };
-pub use commands::{CircleInput, CredentialInput, NewSource, UpdateSource};
 pub use engine::{RefreshMode, RefreshRequest};
 pub use ports::{
     AssistantBridge, ClipboardPort, ClockPort, DbPort, EventPort, FetchPort, FetchRequest,

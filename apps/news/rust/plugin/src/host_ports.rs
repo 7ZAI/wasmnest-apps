@@ -3,6 +3,8 @@
 //! 纪律：**1:1 委派、零判据**。这里只做类型转换与错误分类，不在这里决定
 //! 「该不该抓」「该不该退避」——那些判据在核里，且有 native 单测。
 
+use crate::platform;
+use wasmnest_news_core::domain::error_kind;
 use wasmnest_news_core::ports::{
     ClipboardPort, ClockPort, DbPort, EventPort, FetchPort, FetchRequest, FetchResponse, LogPort,
     PortError, SchedulePort,
@@ -11,7 +13,6 @@ use wasmnest_plugin_api::host::{
     ConfigKey, HostClipboard, HostConfig, HostError, HostEvents, HostHttp, HostLog,
     HostPluginDatabase, HostTimer,
 };
-use crate::platform;
 
 /// 端口包：持一个宿主句柄，按需挑用它的能力。
 ///
@@ -21,16 +22,16 @@ pub(crate) struct HostPorts<'a, H: ?Sized>(pub(crate) &'a H);
 
 /// 库错误：分类码统一 `storage.failed`，消息逐字保留。
 fn db_err(e: HostError) -> PortError {
-    PortError::with_detail("storage.failed", e.to_string())
+    PortError::with_detail(error_kind::STORAGE_FAILED, e.to_string())
 }
 
 /// 出网错误分类：授权拒绝必须是独立分类（界面要给「未授权访问该域名」+ 重试）。
 fn classify_http_error(e: HostError) -> PortError {
     let message = e.to_string();
     if message.contains("network authorization denied") || message.contains("permission denied") {
-        PortError::with_detail("net.denied", message)
+        PortError::with_detail(error_kind::NET_DENIED, message)
     } else {
-        PortError::with_detail("net.failed", message)
+        PortError::with_detail(error_kind::NET_FAILED, message)
     }
 }
 
@@ -87,11 +88,7 @@ impl<H: HostPluginDatabase + ?Sized> DbPort for HostPorts<'_, H> {
         self.0.plugin_db_execute(sql).map_err(db_err)
     }
 
-    fn execute_params(
-        &self,
-        sql: &str,
-        params: &[serde_json::Value],
-    ) -> Result<i32, PortError> {
+    fn execute_params(&self, sql: &str, params: &[serde_json::Value]) -> Result<i32, PortError> {
         self.0.plugin_db_execute_params(sql, params).map_err(db_err)
     }
 
@@ -213,6 +210,13 @@ mod tests {
 
         fn http_unregister_endpoint(&self, _endpoint_id: &str) -> Result<bool, HostError> {
             unimplemented!()
+        }
+
+        fn request_egress_consent(&self, _request_json: &str) -> Result<String, HostError> {
+            Err(HostError::custom(
+                -1,
+                "egress consent is not used in this test",
+            ))
         }
     }
 

@@ -12,8 +12,6 @@ use crate::domain::RawItem;
 use crate::ports::FetchRequest;
 use crate::urlutil::{clean_summary, strip_tags};
 
-const UA: &str = "WasmNestNews/0.1 (+https://github.com/7ZAI/wasmnest-apps)";
-
 /// 榜单页请求。
 pub fn build_request(url: &str, _auth: Option<&super::AuthSecret>) -> FetchRequest {
     let target = if url.trim().is_empty() {
@@ -26,7 +24,10 @@ pub fn build_request(url: &str, _auth: Option<&super::AuthSecret>) -> FetchReque
         url: target,
         headers: vec![
             ("Accept".to_string(), "text/html".to_string()),
-            ("User-Agent".to_string(), UA.to_string()),
+            (
+                "User-Agent".to_string(),
+                super::DEFAULT_USER_AGENT.to_string(),
+            ),
         ],
         body: None,
     }
@@ -157,8 +158,11 @@ mod tests {
 
     #[test]
     fn page_without_article_blocks_is_unexpected_shape() {
-        let err = parse("<html><body>Sign in</body></html>", "https://github.com/trending")
-            .unwrap_err();
+        let err = parse(
+            "<html><body>Sign in</body></html>",
+            "https://github.com/trending",
+        )
+        .unwrap_err();
         assert_eq!(err.kind(), "parse.unexpected_shape");
         assert!(err.detail().contains("article"));
     }
@@ -177,7 +181,8 @@ mod tests {
 
     #[test]
     fn built_by_line_is_never_used_as_summary() {
-        let body = "<article><a href=\"/a/b\">a/b</a><p>Built by people</p><p>Real summary</p></article>";
+        let body =
+            "<article><a href=\"/a/b\">a/b</a><p>Built by people</p><p>Real summary</p></article>";
         let items = parse(body, "").unwrap();
         assert_eq!(items[0].summary.as_deref(), Some("Real summary"));
     }

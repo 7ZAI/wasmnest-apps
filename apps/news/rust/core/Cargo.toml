@@ -16,3 +16,9 @@ quick-xml = "0.37"
 # 标题指纹与条目 id 的稳定摘要
 sha2 = "0.10"
 unicode-normalization = "0.1"
+
+# 正文抽取：拉取式 HTML token 流，自建轻量 DOM；纯 Rust、可进 wasm
+htmlparser = "0.2"
+[dev-dependencies]
+# native 测试用真实 SQLite 验证迁移 / 统计 / 联动删除；bundled 不依赖系统库，wasm 构建不引入
+rusqlite = { version = "0.43", default-features = false, features = ["bundled"] }

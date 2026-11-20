@@ -9,9 +9,6 @@ use crate::domain::RawItem;
 use crate::ports::FetchRequest;
 use crate::urlutil::{clean_summary, resolve_url};
 
-/// 常见桌面 UA：部分站点对未知 UA 返回 403，抓取就会变成 `auth.expired`。
-const UA: &str = "WasmNestNews/0.1 (+https://github.com/7ZAI/wasmnest-apps)";
-
 /// 订阅流请求。
 pub fn build_request(url: &str, auth: Option<&super::AuthSecret>) -> FetchRequest {
     let mut headers = vec![
@@ -20,7 +17,10 @@ pub fn build_request(url: &str, auth: Option<&super::AuthSecret>) -> FetchReques
             "application/rss+xml, application/atom+xml, application/xml;q=0.9, */*;q=0.8"
                 .to_string(),
         ),
-        ("User-Agent".to_string(), UA.to_string()),
+        (
+            "User-Agent".to_string(),
+            super::DEFAULT_USER_AGENT.to_string(),
+        ),
     ];
     if let Some(auth) = auth {
         if let Some(cookie) = &auth.cookie {

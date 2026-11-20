@@ -8,9 +8,6 @@ use crate::domain::RawItem;
 use crate::ports::FetchRequest;
 use crate::urlutil::clean_summary;
 
-/// Reddit 要求明确 UA，缺省 UA 会被直接 429。
-const UA: &str = "WasmNestNews/0.1 (+https://github.com/7ZAI/wasmnest-apps)";
-
 /// 把 `r/worldnews` 之类的简写补成 `https://www.reddit.com/r/worldnews/hot.json`。
 pub fn normalize_url(raw: &str) -> Option<String> {
     let url = raw.trim().trim_end_matches('/');
@@ -48,7 +45,10 @@ pub fn build_request(url: &str, auth: Option<&super::AuthSecret>) -> FetchReques
     let target = normalize_url(url).unwrap_or_else(|| url.trim().to_string());
     let mut headers = vec![
         ("Accept".to_string(), "application/json".to_string()),
-        ("User-Agent".to_string(), UA.to_string()),
+        (
+            "User-Agent".to_string(),
+            super::DEFAULT_USER_AGENT.to_string(),
+        ),
     ];
     if let Some(auth) = auth {
         if let Some(cookie) = &auth.cookie {
@@ -80,10 +80,14 @@ pub fn parse(body: &str, base_url: &str, _now_ms: i64) -> Result<Vec<RawItem>, A
         .pointer("/data/children")
         .and_then(|c| c.as_array())
         .ok_or_else(|| {
-            AdapterError::unexpected("reddit payload has no data.children array (structure changed)")
+            AdapterError::unexpected(
+                "reddit payload has no data.children array (structure changed)",
+            )
         })?;
     if children.is_empty() {
-        return Err(AdapterError::unexpected("reddit listing returned no children"));
+        return Err(AdapterError::unexpected(
+            "reddit listing returned no children",
+        ));
     }
 
     let origin = origin_of(base_url);
@@ -105,9 +109,13 @@ pub fn parse(body: &str, base_url: &str, _now_ms: i64) -> Result<Vec<RawItem>, A
             .map(|secs| (secs * 1000.0) as i64)
             .or_else(|| {
                 // 少数客户端返回毫秒
-                data.get("created_utc")
-                    .and_then(|v| v.as_i64())
-                    .map(|v| if v > 10_000_000_000 { v } else { v * 1000 })
+                data.get("created_utc").and_then(|v| v.as_i64()).map(|v| {
+                    if v > 10_000_000_000 {
+                        v
+                    } else {
+                        v * 1000
+                    }
+                })
             })
             // 0 / 负数一律视为「源没给时间」，由入库时以抓到时刻填充
             .filter(|ms| *ms > 0);
@@ -232,12 +240,7 @@ mod tests {
 
     #[test]
     fn empty_listing_is_unexpected_shape_not_silent_success() {
-        let err = parse(
-            "{\"data\":{\"children\":[]}}",
-            "https://www.reddit.com",
-            0,
-        )
-        .unwrap_err();
+        let err = parse("{\"data\":{\"children\":[]}}", "https://www.reddit.com", 0).unwrap_err();
         assert_eq!(err.kind(), "parse.unexpected_shape");
     }
 
