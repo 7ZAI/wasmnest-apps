@@ -460,9 +460,12 @@ mod tests {
     fn setup(enabled: bool) -> TestPorts {
         let test = TestPorts::new(NOW);
         store::migrate(&test.ports()).expect("schema migrates");
-        if enabled {
-            store::setting_set(&test.ports(), "reader.enabled", "1").expect("reader enables");
-        }
+        store::setting_set(
+            &test.ports(),
+            "reader.enabled",
+            if enabled { "1" } else { "0" },
+        )
+        .expect("reader setting writes");
         test
     }
 

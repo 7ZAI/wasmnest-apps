@@ -383,7 +383,7 @@ pub const UNGROUPED_CIRCLE_ID: &str = "__ungrouped__";
 // ==================== 设置与凭据 ====================
 
 /// 应用设置（AI 密钥只回传掩码与长度，绝不回明文）。
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Settings {
     pub ai_enabled: bool,
@@ -393,8 +393,21 @@ pub struct Settings {
     pub ai_api_key_tail: String,
     /// 已保存密钥的长度（未保存 = 0）。
     pub ai_api_key_len: u32,
-    /// 正文阅读开关（默认关闭；移动端恒为 false）。
+    /// 正文阅读开关（桌面缺省开启；移动端归一为 false）。
     pub reader_enabled: bool,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            ai_enabled: false,
+            ai_base_url: String::new(),
+            ai_model: String::new(),
+            ai_api_key_tail: String::new(),
+            ai_api_key_len: 0,
+            reader_enabled: true,
+        }
+    }
 }
 
 
@@ -575,8 +588,8 @@ mod tests {
     use serde_json::{json, Value};
 
     #[test]
-    fn settings_default_disables_reader() {
-        assert!(!Settings::default().reader_enabled);
+    fn settings_default_enables_reader() {
+        assert!(Settings::default().reader_enabled);
     }
 
     #[test]

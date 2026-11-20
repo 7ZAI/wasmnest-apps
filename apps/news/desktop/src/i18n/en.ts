@@ -69,6 +69,9 @@ const en: MessageTable = {
   'news.reader.source': 'Original link',
   'news.reader.stale': 'Refresh failed — showing the last extracted article',
   'news.reader.truncated': 'The article is long and has been truncated',
+  'news.reader.settingsLoadFailed':
+    'Could not read the reader settings; using the last known value or the default (enabled).',
+  'news.reader.openSettings': 'Open settings',
 
   'news.settings.title': 'News settings',
   'news.settings.tab.sources': 'Sources',

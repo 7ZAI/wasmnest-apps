@@ -461,14 +461,23 @@
           data-testid="news-reader-settings"
         >
           <h3>{{ t('news.settings.reader.title') }}</h3>
+          <p
+            v-if="props.readerSettingsWarning"
+            class="news-note"
+            role="status"
+            data-news-reader-settings-warning
+            data-testid="news-reader-settings-warning"
+          >
+            {{ t('news.reader.settingsLoadFailed') }}
+          </p>
           <label class="news-field news-field-wide checkbox">
             <input
-              v-model="readerEnabled"
+              :checked="props.readerEnabled"
               type="checkbox"
               data-news-reader-enabled
               data-testid="news-reader-enabled"
               :disabled="busy"
-              @change="toggleReader"
+              @change="toggleReader($event)"
             />
             <span>{{ t('news.settings.reader.enabled') }}</span>
           </label>
@@ -638,6 +647,8 @@ import CredentialForm from './CredentialForm.vue'
 
 const props = defineProps<{
   version: string
+  readerEnabled: boolean
+  readerSettingsWarning?: string | null
   invokeHost?: <T = unknown>(command: string, args?: Record<string, unknown>) => Promise<T>
 }>()
 const emit = defineEmits<{ close: []; changed: []; toast: [text: string] }>()
@@ -691,7 +702,7 @@ const aiModel = ref('')
 const aiApiKey = ref('')
 const aiResult = ref('')
 const exportedJson = ref('')
-const readerEnabled = ref(false)
+
 const pendingClear = ref<'unarchived' | 'all' | null>(null)
 
 function bytesLabel(bytes: number): string {
@@ -848,14 +859,15 @@ async function removeCredential(id: string, label: string): Promise<void> {
   }
 }
 
-async function toggleReader(): Promise<void> {
-  const next = readerEnabled.value
+async function toggleReader(event: Event): Promise<void> {
+  const target = event.target as HTMLInputElement
+  const next = target.checked
   try {
     await saveReaderEnabled(next)
     emit('changed')
     emit('toast', t('news.toast.saved'))
   } catch (e) {
-    readerEnabled.value = !next
+    target.checked = props.readerEnabled
     report(e)
   }
 }
@@ -958,7 +970,7 @@ onMounted(async () => {
     aiEnabled.value = current.aiEnabled
     aiBaseUrl.value = current.aiBaseUrl
     aiModel.value = current.aiModel
-    readerEnabled.value = current.readerEnabled
+
   }
   await loadAutostart()
 })

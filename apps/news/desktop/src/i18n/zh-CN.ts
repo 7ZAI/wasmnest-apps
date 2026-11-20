@@ -75,6 +75,8 @@ const zhCN = {
   'news.reader.source': '原文链接',
   'news.reader.stale': '更新失败，显示上次抓取的正文',
   'news.reader.truncated': '正文过长，已截断显示',
+  'news.reader.settingsLoadFailed': '读取阅读设置失败，已按上次状态或默认开启显示。',
+  'news.reader.openSettings': '去设置',
 
   // ==================== 设置 ====================
   'news.settings.title': '新闻设置',

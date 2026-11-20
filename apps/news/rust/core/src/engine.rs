@@ -806,7 +806,7 @@ pub fn save_settings(
         .ai_model
         .clone()
         .unwrap_or_else(|| current.ai_model.clone());
-    let reader_enabled = patch.reader_enabled.unwrap_or(current.reader_enabled);
+
     if enabled && !base_url.trim().is_empty() && !summary::endpoints_ok(&base_url) {
         return Err(store::invalid(
             "ai.baseUrl must be an OpenAI-compatible http(s) endpoint",
@@ -817,7 +817,7 @@ pub fn save_settings(
         enabled,
         &base_url,
         &model,
-        reader_enabled,
+        patch.reader_enabled,
         patch.ai_api_key.as_deref(),
     )
 }

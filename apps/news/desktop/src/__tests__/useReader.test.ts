@@ -19,6 +19,14 @@ const READY: ReaderView = {
 
 const STATS = { cachedCount: 1, cachedBytes: 10, archivedCount: 0, archivedBytes: 0 }
 
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((res) => {
+    resolve = res
+  })
+  return { promise, resolve }
+}
+
 function context(handler: (command: string, args?: Record<string, unknown>) => unknown): {
   context: PluginContext
   calls: Array<{ command: string; args?: Record<string, unknown> }>
@@ -114,5 +122,56 @@ describe('useReader', () => {
     expect(result).toEqual({ removed: 1, bytes: 10 })
     expect(reader.stats.value?.cachedCount).toBe(0)
     expect(calls.map((entry) => entry.command)).toContain('news.clear-reader-cache')
+  })
+
+  it('同一条目在返回前重复 open 只发一次命令', async () => {
+    const gate = deferred<ReaderView>()
+    const { context: ctx, calls } = context(() => gate.promise)
+    const reader = useReader(ctx)
+    const first = reader.open('i1')
+    const second = reader.open('i1')
+    expect(calls.filter((entry) => entry.command === 'news.read-item')).toHaveLength(1)
+    expect(reader.status.value).toBe('loading')
+    gate.resolve(READY)
+    await Promise.all([first, second])
+    expect(reader.status.value).toBe('ready')
+  })
+
+  it('跨条目迟到的响应不覆盖当前条目', async () => {
+    const gateA = deferred<ReaderView>()
+    const gateB = deferred<ReaderView>()
+    const { context: ctx } = context((_command, args) =>
+      args?.itemId === 'a' ? gateA.promise : gateB.promise,
+    )
+    const reader = useReader(ctx)
+    const pendingA = reader.open('a')
+    const pendingB = reader.open('b')
+    gateB.resolve({ ...READY, itemId: 'b' })
+    await pendingB
+    gateA.resolve({ ...READY, itemId: 'a' })
+    await pendingA
+    expect(reader.view.value?.itemId).toBe('b')
+  })
+
+  it('reader.disabled 进入禁用态而非普通失败', async () => {
+    const { context: ctx } = context(() => {
+      throw new Error('reader.disabled: reader is disabled')
+    })
+    const reader = useReader(ctx)
+    await reader.open('i1')
+    expect(reader.status.value).toBe('disabled')
+    expect(reader.error.value?.code).toBe('reader.disabled')
+  })
+
+  it('返回摘要保留在途请求，再次进入复用同一请求', async () => {
+    const gate = deferred<ReaderView>()
+    const { context: ctx, calls } = context(() => gate.promise)
+    const reader = useReader(ctx)
+    const first = reader.open('i1')
+    reader.reset()
+    const second = reader.open('i1')
+    expect(calls.filter((entry) => entry.command === 'news.read-item')).toHaveLength(1)
+    gate.resolve(READY)
+    await Promise.all([first, second])
   })
 })

@@ -208,4 +208,73 @@ describe('useNewsFeed', () => {
     expect(controller.failedSources.value).toHaveLength(1)
     expect(controller.failedSources.value[0].sourceId).toBe('s1')
   })
+
+  it('阅读设置初值为开启，但入口在读取完成前保持门控', () => {
+    const { context: ctx } = context(() => ({}))
+    const controller = useNewsFeed(ctx)
+    expect(controller.readerEnabled.value).toBe(true)
+    expect(controller.readerSettingsReady.value).toBe(false)
+    expect(controller.lastKnownReaderEnabled.value).toBeNull()
+  })
+
+  it('设置读取成功时同步开关并清除提示', async () => {
+    const { context: ctx } = context((command) => {
+      if (command === 'news.get-settings') return { readerEnabled: false }
+      return {}
+    })
+    const controller = useNewsFeed(ctx)
+    await controller.loadSettings()
+    expect(controller.readerEnabled.value).toBe(false)
+    expect(controller.readerSettingsReady.value).toBe(true)
+    expect(controller.lastKnownReaderEnabled.value).toBe(false)
+    expect(controller.readerSettingsWarning.value).toBeNull()
+  })
+
+  it('设置读取失败且无上次值时保持缺省开启并显示提示', async () => {
+    const { context: ctx } = context((command) => {
+      if (command === 'news.get-settings') {
+        throw new Error('storage.failed: db closed')
+      }
+      return {}
+    })
+    const controller = useNewsFeed(ctx)
+    await controller.loadSettings()
+    expect(controller.readerEnabled.value).toBe(true)
+    expect(controller.readerSettingsReady.value).toBe(true)
+    expect(controller.readerSettingsWarning.value?.code).toBe('storage.failed')
+  })
+
+  it('先读到关闭再读取失败时保持上次值并显示提示', async () => {
+    let fail = false
+    const { context: ctx } = context((command) => {
+      if (command === 'news.get-settings') {
+        if (fail) throw new Error('storage.failed: db closed')
+        return { readerEnabled: false }
+      }
+      return {}
+    })
+    const controller = useNewsFeed(ctx)
+    await controller.loadSettings()
+    fail = true
+    await controller.loadSettings()
+    expect(controller.readerEnabled.value).toBe(false)
+    expect(controller.readerSettingsWarning.value?.code).toBe('storage.failed')
+  })
+
+  it('读取恢复后清除失败提示', async () => {
+    let fail = true
+    const { context: ctx } = context((command) => {
+      if (command === 'news.get-settings') {
+        if (fail) throw new Error('storage.failed: db closed')
+        return { readerEnabled: true }
+      }
+      return {}
+    })
+    const controller = useNewsFeed(ctx)
+    await controller.loadSettings()
+    fail = false
+    await controller.loadSettings()
+    expect(controller.readerEnabled.value).toBe(true)
+    expect(controller.readerSettingsWarning.value).toBeNull()
+  })
 })

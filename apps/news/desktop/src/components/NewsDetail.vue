@@ -91,6 +91,7 @@
           :item-url="item.url"
           @retry="retryReader"
           @copy="emit('copy', item.url)"
+          @open-settings="emit('open-settings')"
         />
       </template>
 
@@ -204,6 +205,7 @@ const emit = defineEmits<{
   'toggle-favorite': []
   'toggle-read': []
   'assistant-fetch': []
+  'open-settings': []
   toast: [text: string]
 }>()
 const context = inject<PluginContext>('pluginContext')!

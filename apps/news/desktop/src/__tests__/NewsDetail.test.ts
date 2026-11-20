@@ -71,6 +71,7 @@ describe('NewsDetail reader entry', () => {
     )
     const wrapper = mountDetail(true, execute)
     const button = wrapper.get('[data-testid="news-reader-open"]')
+    expect(execute.mock.calls.some(([command]) => command === 'news.read-item')).toBe(false)
 
     await button.trigger('click')
     await flushPromises()
@@ -78,6 +79,26 @@ describe('NewsDetail reader entry', () => {
     expect(execute.mock.calls.some(([command]) => command === 'news.read-item')).toBe(true)
     expect(wrapper.find('[data-testid="news-reader"]').exists()).toBe(true)
     expect(wrapper.text()).toContain('Reader body')
+  })
+
+  it('授权失败时转发去设置事件', async () => {
+    const execute = vi.fn(async (command: string) => {
+      if (command === 'news.read-item') {
+        return {
+          ...READY,
+          state: 'failed',
+          blocks: [],
+          errorKind: 'net.denied',
+          errorDetail: 'denied',
+        }
+      }
+      return READY
+    })
+    const wrapper = mountDetail(true, execute)
+    await wrapper.get('[data-testid="news-reader-open"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="news-reader-open-settings"]').trigger('click')
+    expect(wrapper.emitted('open-settings')).toHaveLength(1)
   })
 
   it('返回摘要后恢复摘要视图并清除阅读态', async () => {
