@@ -3206,7 +3206,7 @@ dependencies = [
 
 [[package]]
 name = "wasmnest-plugin-api"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "anyhow",
  "inventory",
@@ -3218,7 +3218,7 @@ dependencies = [
 
 [[package]]
 name = "wasmnest-plugin-api-macros"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3273,6 +3273,7 @@ dependencies = [
  "actix-service",
  "actix-web",
  "anyhow",
+ "base64 0.22.1",
  "futures-util",
  "reqwest",
  "serde",
