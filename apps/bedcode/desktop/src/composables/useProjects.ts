@@ -271,6 +271,22 @@ export function useProjects(context: PluginContext) {
       }))
   }
 
+  /**
+   * 探测事件 → 已加载清单的就绪度
+   *
+   * 探测每完成一项就推送一次全量状态；事件可能连续到达，这里只就地刷新
+   * readiness，不重新取清单。清单尚未加载时无事可做：打开弹窗前的
+   * [`loadAgents`] 会补齐。
+   */
+  function applyDetectionState(state: { clis?: Record<string, { status?: string }> } | null): void {
+    if (agents.value.length === 0) return
+    const clis = state?.clis ?? {}
+    agents.value = agents.value.map((agent) => ({
+      ...agent,
+      readiness: readinessOf(clis[agent.id]?.status),
+    }))
+  }
+
   /** 工作台全量（项目 + 运行 + agent）：任一步失败上抛，由视图层提示 */
   async function loadWorkbench(projectId: string): Promise<void> {
     await Promise.all([loadProject(projectId), loadRuns(projectId), loadAgents()])
@@ -337,6 +353,8 @@ export function useProjects(context: PluginContext) {
   /**
    * 从项目启动一条运行：后端按（项目, agent）取/建启动参数并走唯一启动链
    *
+   * `agentId = null` 表示不运行任何 agent，只开系统默认终端（纯终端运行）。
+   *
    * 先预测终端网格再启动（PTY 以正确行列 openpty，避免开终端后重排）——与
    * 会话页的启动口径一致。
    *
@@ -345,21 +363,18 @@ export function useProjects(context: PluginContext) {
    */
   async function startRun(
     projectId: string,
-    agentId: string,
+    agentId: string | null,
     options: { allRuns?: boolean } = {},
   ): Promise<{ runId: string; name: string }> {
     const size = await context.session.predictTerminalSize()
     const raw = (await context.commands.execute('run.start', {
       projectId,
-      agentId,
+      agentId: agentId ?? '',
       cols: size?.cols,
       rows: size?.rows,
     })) as { runId?: string; name?: string } | null
     if (!raw?.runId) throw new Error('run.start returned no runId')
-    await Promise.all([
-      options.allRuns ? loadRuns() : loadRuns(projectId),
-      loadProject(projectId),
-    ])
+    await Promise.all([options.allRuns ? loadRuns() : loadRuns(projectId), loadProject(projectId)])
     return { runId: raw.runId, name: raw.name ?? '' }
   }
 
@@ -376,10 +391,7 @@ export function useProjects(context: PluginContext) {
   ): Promise<void> {
     await context.commands.execute('session.close', { sessionId: runId })
     await context.session.closeTerminal(runId)
-    await Promise.all([
-      options.allRuns ? loadRuns() : loadRuns(projectId),
-      loadProject(projectId),
-    ])
+    await Promise.all([options.allRuns ? loadRuns() : loadRuns(projectId), loadProject(projectId)])
   }
 
   /** 把运行拉到独立终端窗口（窗口本体归宿主，本域只发起） */
@@ -417,6 +429,7 @@ export function useProjects(context: PluginContext) {
     loadProject,
     loadRuns,
     loadAgents,
+    applyDetectionState,
     loadWorkbench,
     createProject,
     openProject,

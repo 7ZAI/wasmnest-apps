@@ -24,12 +24,35 @@ export function useDetection(context: PluginContext) {
   let lastSeq = 0
   let settleTimer: ReturnType<typeof setTimeout> | undefined
 
-  /** 拉取持久化状态；从未探测过则自动触发首轮探测 */
+  /**
+   * 拉取持久化状态；从未探测或探测从未跑过（全部 idle）时自动触发探测
+   *
+   * 打开的界面依赖安装结论（例如按已装 agent 过滤启动清单）时，只读到一个
+   * 全 idle 的空白态会把「没检测过」误呈现成「没安装」。这里把 idle 视为
+   * 尚未探测，与「无状态」同一处置。
+   */
   async function refresh() {
     try {
       const data = await context.commands.execute('agent.get-state', {})
       state.value = (data?.state ?? null) as AgentHubState | null
       if (!state.value) {
+        await detect()
+        return
+      }
+      const seq = state.value.seq ?? 0
+      if (seq > lastSeq) lastSeq = seq
+      const kinds = Object.values(state.value.clis ?? {})
+      if (
+        state.value.envStatus === 'detecting' ||
+        kinds.some((cli) => cli?.status === 'detecting')
+      ) {
+        detecting.value = true
+        armSettleTimeout()
+        return
+      }
+      detecting.value = false
+      clearSettleTimeout()
+      if (kinds.length === 0 || kinds.every((cli) => cli?.status === 'idle')) {
         await detect()
       }
     } catch (e) {

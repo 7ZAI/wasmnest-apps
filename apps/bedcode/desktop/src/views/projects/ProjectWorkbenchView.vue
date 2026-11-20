@@ -341,7 +341,7 @@
             <span
               class="min-w-0 wb-mono text-[calc(11px*var(--ui-scale))] text-[var(--text-secondary)] truncate"
             >
-              {{ selectedRun.agentId || '—' }}
+              {{ selectedRun.agentId || t('project.run.agentTerminal') }}
             </span>
 
             <!-- 状态与运行时长：与独立终端窗口同一实现（useTerminalChrome） -->
@@ -895,22 +895,34 @@
       :name="fileViewerName"
     />
 
-    <!-- ==================== 选 agent 启动（项目 → 运行） ==================== -->
+    <!-- ==================== 新建运行：已装 agent 或纯终端（项目 → 运行） ==================== -->
     <PluginModal v-model="showAgentPicker" :title="t('project.run.pickAgent')" size="lg">
-      <div v-if="agents.length === 0" class="py-6 text-center">
+      <div v-if="installedAgents.length === 0" class="pb-3 text-center">
         <p class="text-[calc(12px*var(--ui-scale))] text-[var(--text-secondary)]">
-          {{ t('project.run.emptyHint') }}
+          {{
+            detectingAgents ? t('project.run.detectingAgents') : t('project.run.noAgentInstalled')
+          }}
         </p>
+        <button
+          v-if="!detectingAgents"
+          type="button"
+          class="mt-1.5 text-[calc(11px*var(--ui-scale))] text-[var(--text-secondary)] underline underline-offset-2 hover:text-[var(--text-primary)]"
+          data-testid="run-agent-install"
+          @click="goInstall"
+        >
+          {{ t('project.run.installHint') }}
+        </button>
       </div>
-      <ul v-else class="space-y-1.5">
-        <li v-for="agent in agents" :key="agent.id">
-          <div
-            class="flex items-center gap-3 rounded-[8px] border border-[var(--border)] px-3 py-2.5 cursor-pointer hover:bg-[var(--bg-hover)] transition-colors"
+      <ul class="space-y-1.5">
+        <li v-for="agent in installedAgents" :key="agent.id">
+          <button
+            type="button"
+            class="w-full flex items-center gap-3 rounded-[8px] border border-[var(--border)] px-3 py-2.5 text-left hover:bg-[var(--bg-hover)] transition-colors focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--color-primary)] disabled:cursor-not-allowed disabled:opacity-60"
             :data-testid="`run-agent-${agent.id}`"
+            :disabled="isStarting"
             @click="pickAgent(agent)"
           >
-            <!-- 图标芯片：四个 agent 都有固定品牌色（claude 橙 / pi 三色 / codex 蓝 /
-                 opencode 橙金），中性浅底只做形状衬托，不承载品牌色 -->
+            <!-- 图标芯片：已装 agent 沿用品牌图标，中性浅底只做形状衬托 -->
             <span
               class="w-8 h-8 shrink-0 rounded-[9px] bg-[var(--bg-hover)] flex items-center justify-center"
             >
@@ -939,29 +951,46 @@
                 {{ agent.binary }}
               </div>
             </div>
-            <span
-              v-if="agent.readiness === 'missing'"
-              class="wb-mono text-[calc(10px*var(--ui-scale))] px-1.5 py-0.5 rounded border border-[var(--border-strong)] text-[var(--text-secondary)] shrink-0"
-            >
-              {{ t('project.run.agentMissing') }}
-            </span>
-            <span
-              v-else-if="agent.readiness === 'unknown'"
-              class="wb-mono text-[calc(10px*var(--ui-scale))] px-1.5 py-0.5 rounded border border-[var(--border-strong)] text-[var(--text-secondary)] shrink-0"
-            >
-              {{ t('project.run.agentUnknown') }}
-            </span>
-            <button
-              v-if="agent.readiness === 'missing'"
-              class="shrink-0 whitespace-nowrap leading-none py-1 text-[calc(11px*var(--ui-scale))] text-[var(--text-secondary)] underline underline-offset-2 hover:text-[var(--text-primary)]"
-              data-testid="run-agent-install"
-              @click.stop="goInstall"
-            >
-              {{ t('project.run.installHint') }}
-            </button>
-          </div>
+          </button>
         </li>
       </ul>
+
+      <div class="my-2 border-t border-[var(--border)]"></div>
+      <button
+        type="button"
+        class="w-full flex items-center gap-3 rounded-[8px] border border-[var(--border)] px-3 py-2.5 text-left hover:bg-[var(--bg-hover)] transition-colors focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--color-primary)] disabled:cursor-not-allowed disabled:opacity-60"
+        data-testid="run-terminal-option"
+        :disabled="isStarting"
+        @click="startTerminal"
+      >
+        <span
+          class="w-8 h-8 shrink-0 rounded-[9px] bg-[var(--bg-hover)] flex items-center justify-center text-[var(--text-secondary)]"
+        >
+          <svg
+            class="w-5 h-5"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.6"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+            focusable="false"
+          >
+            <rect x="3" y="4" width="18" height="16" rx="2" />
+            <path d="m7 9 3 3-3 3" />
+            <path d="M13 16h4" />
+          </svg>
+        </span>
+        <div class="min-w-0 flex-1">
+          <div class="text-[calc(12.5px*var(--ui-scale))] text-[var(--text-primary)]">
+            {{ t('project.run.agentTerminal') }}
+          </div>
+          <div class="text-[calc(11px*var(--ui-scale))] text-[var(--text-tertiary)]">
+            {{ t('project.run.terminalHint') }}
+          </div>
+        </div>
+      </button>
     </PluginModal>
   </div>
 </template>
@@ -1023,6 +1052,7 @@ import TerminalPreview from '@/components/terminal/TerminalPreview.vue'
 import TerminalSettingsPanel from '@/components/terminal/TerminalSettingsPanel.vue'
 import { resolvePluginErrorText } from '@/utils/pluginError'
 import { agentGlyph } from '@/agents/registry'
+import { useDetection } from '@/agents/composables/useDetection'
 import { usePaneResize } from '@/composables/usePaneResize'
 import { hiddenLiveRunCount, pickTiledRuns, tileGridLayout } from '@/utils/runTiles'
 import {
@@ -1076,6 +1106,7 @@ const {
   loadRuns,
   loadProject,
   loadAgents,
+  applyDetectionState,
   openProject,
   startRun,
   stopRun,
@@ -1088,6 +1119,25 @@ const selectedRunId = ref('')
 const notFound = ref(false)
 const isStarting = ref(false)
 const showAgentPicker = ref(false)
+
+/**
+ * 启动方式的安装探测
+ *
+ * 弹窗只列探测确认已安装的 agent；工作台与 Agent Hub 各自持有一个探测订阅
+ * （路由切换后旧实例可能仍在 KeepAlive 缓存里），事件到达时就地刷新内存里的
+ * 就绪度，不产生额外副作用。
+ */
+const {
+  state: agentDetectionState,
+  detecting: detectingAgents,
+  refresh: refreshAgentDetection,
+} = useDetection(context)
+
+watch(agentDetectionState, (state) => {
+  if (state) applyDetectionState(state)
+})
+
+const installedAgents = computed(() => agents.value.filter((agent) => agent.readiness === 'ready'))
 
 /**
  * 工具栏「运行中」= **本项目**统计（后端 `project.get` 的派生值）
@@ -1858,6 +1908,11 @@ function selectRun(runId: string): void {
 async function openAgentPicker(): Promise<void> {
   try {
     await loadAgents()
+    // 清单里没有任何已装项：补一次探测，避免「从未探测」被当成「一个都没装」。
+    // 已有已装项时不重复探测（探测有成本，且现有结论已足以支撑这次选择）。
+    if (!agents.value.some((agent) => agent.readiness === 'ready')) {
+      await refreshAgentDetection()
+    }
   } catch (e) {
     // 清单取不到不该把弹窗变成空白：注册表不可用是运行期异常，显性提示
     console.error('[Project Workbench] load agents failed:', e)
@@ -1865,22 +1920,17 @@ async function openAgentPicker(): Promise<void> {
   showAgentPicker.value = true
 }
 
-/**
- * 选中一个 agent 后的分流
- *
- * 探测确认「未安装」的 agent 不去撞启动失败：点了只会得到一条「启动运行失败」，
- * 用户还得自己找安装入口。这种行整行点下去就是去安装（与行内链接同一落点）；
- * `unknown`（探测没结论）仍允许尝试启动，不谎称未安装。
- */
+/** 选中一个已安装 agent：交给唯一启动链（弹窗只渲染探测确认已装的行） */
 function pickAgent(agent: AgentEntry): void {
-  if (agent.readiness === 'missing') {
-    goInstall()
-    return
-  }
   void start(agent.id)
 }
 
-async function start(agentId: string): Promise<void> {
+/** 什么都不运行：直接开系统默认终端（后端按项目环境兜底 shell） */
+function startTerminal(): void {
+  void start(null)
+}
+
+async function start(agentId: string | null): Promise<void> {
   if (isStarting.value) return
   isStarting.value = true
   try {

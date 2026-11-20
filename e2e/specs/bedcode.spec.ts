@@ -298,16 +298,13 @@ describe('BedCode（桌面端 · 宿主内挂载）', () => {
     await waitForRunsSettled()
     const runsBefore = await count('run-item')
 
-    // 第一条运行：弹窗列出注册表里的 agent（与是否已安装无关，未装也能起 PTY）
+    // 第一条运行：启动弹窗按安装探测列出 agent；这里走「纯终端」——不依赖机器上
+    // 装了哪个 agent，仍验证真实 PTY 与终端输出链路（纯终端不部署 agent 扩展）。
     await click('run-new')
-    await waitFor('run-agent-opencode')
-    await click('run-agent-opencode')
+    await waitFor('run-terminal-option')
+    await click('run-terminal-option')
 
-    // 首次启动会在项目目录部署 agent 扩展：宿主对未授权路径弹 fs 授权框，
-    // 真实用户点「允许」，这里也走 UI（不预置授权记录，不依赖机器状态）。
-    await allowFsAuthPrompts()
-
-    // 运行列表**新增**一条运行（历史运行不能替这次启动作证），终端面板随之在位
+    // 运行列表**新增**一条运行（历史运行不能替这次起动作证），终端面板随之在位
     await waitForCount('run-item', runsBefore + 1)
     expectEqual(await count('run-item'), runsBefore + 1, '运行列表新增一条运行')
     await waitFor('run-terminal')
@@ -319,9 +316,8 @@ describe('BedCode（桌面端 · 宿主内挂载）', () => {
 
     // 第二条运行：同一项目并发
     await click('run-new')
-    await waitFor('run-agent-opencode')
-    await click('run-agent-opencode')
-    await allowFsAuthPrompts()
+    await waitFor('run-terminal-option')
+    await click('run-terminal-option')
     await waitForCount('run-item', runsBefore + 2)
     const runsAfter = await count('run-item')
     expectEqual(runsAfter, runsBefore + 2, '同一项目可并发第二条运行')

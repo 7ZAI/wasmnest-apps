@@ -109,26 +109,20 @@ fn list_runs(host: &WasmHost, method: &str, query: &Value) -> Value {
     }
 }
 
-/// 启动运行（POST /api/runs/start，body `{projectId, agentId, cols?, rows?}`）
+/// 启动运行（POST /api/runs/start，body `{projectId, agentId?, cols?, rows?}`）
 /// → `{runId, name, configId}`
 ///
-/// 必填项在这里先显性校验：空 projectId / agentId 直接拒绝，不让错误落成
-/// `run.start: unknown agent: ` 这种半截文案（移动端会原样展示 message）。
+/// `projectId` 在这里先显性校验，不让错误落成半截文案（移动端会原样展示
+/// message）。`agentId` 缺省 / 空 = 纯终端：不运行 agent，直接开默认 shell；
+/// 未知的非空 agent 仍由 `run.start` 对照注册表显性拒绝。
 /// 调用方设备名从 JWT 注入（见 [`start_run_args`]），移动端自己启动的运行
 /// 因此归移动端为正统渲染端。
 fn start_run(host: &WasmHost, method: &str, body: &Value, device: &Value) -> Value {
     if method != "POST" {
         return http_response::error(405, &format!("Method not allowed: {method}"));
     }
-    for key in ["projectId", "agentId"] {
-        let present = body
-            .get(key)
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .is_some_and(|value| !value.is_empty());
-        if !present {
-            return projects_error(&format!("{key} required"));
-        }
+    if let Err(message) = require_start_project(body) {
+        return projects_error(&message);
     }
     match crate::run::start_via_host(&start_run_args(body, device)) {
         Ok(data) => http_response::ok_with_data(data),
@@ -136,6 +130,22 @@ fn start_run(host: &WasmHost, method: &str, body: &Value, device: &Value) -> Val
             host.log_warn(&format!("runs start http: {e}"));
             projects_error(&e)
         }
+    }
+}
+
+/// HTTP 启动入参的项目校验（纯函数，native 可测）
+///
+/// `agentId` 不参与必填：缺省 / 空是合法的纯终端启动。
+fn require_start_project(body: &Value) -> Result<(), String> {
+    let present = body
+        .get("projectId")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .is_some_and(|value| !value.is_empty());
+    if present {
+        Ok(())
+    } else {
+        Err("projectId required".to_string())
     }
 }
 
@@ -337,12 +347,13 @@ mod tests {
 
     /// 启动运行的必填校验：空串 / 缺键直接 200 + code 1002，不落 run.start
     #[test]
-    fn start_run_requires_project_and_agent() {
+    fn start_run_requires_project() {
         let host = WasmHost;
         for body in [
             serde_json::json!({}),
+            serde_json::json!({ "agentId": "pi" }),
             serde_json::json!({ "projectId": "", "agentId": "pi" }),
-            serde_json::json!({ "projectId": "p-1", "agentId": "  " }),
+            serde_json::json!({ "projectId": "  ", "agentId": "pi" }),
         ] {
             let value = handle_projects_http(
                 &host,
@@ -359,5 +370,25 @@ mod tests {
                 .unwrap()
                 .contains("required"));
         }
+    }
+
+    /// `agentId` 缺省 / 空是合法的纯终端启动，不得被拦成「agentId required」
+    #[test]
+    fn start_request_accepts_missing_or_empty_agent() {
+        for body in [
+            serde_json::json!({ "projectId": "p-1" }),
+            serde_json::json!({ "projectId": "p-1", "agentId": "" }),
+            serde_json::json!({ "projectId": "p-1", "agentId": "   " }),
+        ] {
+            assert_eq!(
+                require_start_project(&body),
+                Ok(()),
+                "agentId 不参与必填校验"
+            );
+        }
+        assert_eq!(
+            require_start_project(&serde_json::json!({})),
+            Err("projectId required".to_string())
+        );
     }
 }

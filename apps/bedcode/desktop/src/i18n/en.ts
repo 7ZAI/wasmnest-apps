@@ -941,15 +941,18 @@ const en: MessageSchema = {
     'Online search uses skills.sh (same source as `npx skills find`): prefer 1K+ installs, be cautious below 100, official sources are more trustworthy.',
   'hub.skill.search.action': 'Search online',
   'hub.skill.search.searching': 'Searching…',
-  'hub.skill.search.failed': 'Search failed: skills.sh unreachable or returned an invalid response.',
+  'hub.skill.search.failed':
+    'Search failed: skills.sh unreachable or returned an invalid response.',
   'hub.skill.search.installFailed': 'Install failed',
   'hub.skill.search.remoteIdle': 'Type keywords, then search online',
   'hub.skill.search.remoteEmpty': 'No skills found for "{q}"',
-  'hub.skill.search.remoteEmptyHint': 'Try different or shorter keywords; you can also install from a GitHub URL or import a local directory.',
+  'hub.skill.search.remoteEmptyHint':
+    'Try different or shorter keywords; you can also install from a GitHub URL or import a local directory.',
   'hub.skill.search.count': '{n} skills matched "{q}"',
   'hub.skill.search.fallback': 'includes per-term fallback matches',
   'hub.skill.search.noMatch': 'No skill in the library matches "{q}"',
-  'hub.skill.search.noMatchHint': 'Clear the query to see everything, or switch to online search on skills.sh.',
+  'hub.skill.search.noMatchHint':
+    'Clear the query to see everything, or switch to online search on skills.sh.',
   'hub.skill.search.installs': '{n} installs',
   'hub.skill.search.trustHigh': 'widely used',
   'hub.skill.search.trustMid': 'moderately used',
@@ -1418,9 +1421,8 @@ const en: MessageSchema = {
   'project.run.noProject': 'No project',
   'project.run.new': 'New Run',
   'project.run.empty': 'No runs yet',
-  'project.run.emptyHint':
-    'Pick an agent to start one: each start becomes a run, and a project can run several at once',
-  'project.run.pickAgent': 'Start with which agent?',
+  'project.run.emptyHint': 'Pick an installed agent, or open a terminal',
+  'project.run.pickAgent': 'How should this run start?',
   'project.run.starting': 'Starting…',
   'project.run.startFailed': 'Could not start the run',
   'project.run.stop': 'Stop',
@@ -1429,6 +1431,10 @@ const en: MessageSchema = {
   'project.run.agentMissing': 'not installed',
   'project.run.agentUnknown': 'not detected',
   'project.run.installHint': 'Install in Agent Management',
+  'project.run.agentTerminal': 'Terminal',
+  'project.run.terminalHint': 'No agent — open the default shell',
+  'project.run.detectingAgents': 'Detecting installed agents…',
+  'project.run.noAgentInstalled': 'No installed agents detected',
   'project.run.agentSessionId': 'Agent session',
   'project.run.copyId': 'Copy session id',
   'project.run.copied': 'Copied',
@@ -1437,7 +1443,7 @@ const en: MessageSchema = {
   'project.terminal.title': 'Terminal',
   'project.terminal.empty': 'Pick a run on the left — its terminal opens here',
   'project.terminal.emptyHint':
-    'Each run is one agent process launch; start one via "New run" on the left',
+    'Each run is one process launch; start one via "New run" on the left — pick an agent or a terminal',
   'project.terminal.runEnded': 'Run ended',
   'project.terminal.runEndedHint':
     'The terminal process has exited — select a live run or start a new one',

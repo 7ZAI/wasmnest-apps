@@ -906,7 +906,8 @@ const zhCN: MessageSchema = {
   'hub.skill.search.installFailed': '安装失败',
   'hub.skill.search.remoteIdle': '输入关键词后开始联网搜索',
   'hub.skill.search.remoteEmpty': '没有找到与「{q}」相关的 skill',
-  'hub.skill.search.remoteEmptyHint': '换个说法或缩短关键词再试；也可以直接用 GitHub 链接安装，或导入本地目录。',
+  'hub.skill.search.remoteEmptyHint':
+    '换个说法或缩短关键词再试；也可以直接用 GitHub 链接安装，或导入本地目录。',
   'hub.skill.search.count': '「{q}」命中 {n} 个 skill',
   'hub.skill.search.fallback': '含按词拆分的近似结果',
   'hub.skill.search.noMatch': '规范库内没有匹配「{q}」的 skill',
@@ -1326,7 +1327,8 @@ const zhCN: MessageSchema = {
 
   // 确认与提示
   'project.confirm.removeTitle': '移除项目',
-  'project.confirm.removeMsg': '移除「{name}」及其运行记录、该目录下的启动配置？磁盘上的文件不会被删除。',
+  'project.confirm.removeMsg':
+    '移除「{name}」及其运行记录、该目录下的启动配置？磁盘上的文件不会被删除。',
   'project.toast.created': '项目已创建',
   'project.toast.existed': '该目录已有项目，已带你过去',
   'project.toast.renamed': '项目已重命名',
@@ -1364,8 +1366,8 @@ const zhCN: MessageSchema = {
   'project.run.noProject': '未归属项目',
   'project.run.new': '新建运行',
   'project.run.empty': '还没有运行',
-  'project.run.emptyHint': '选一个 agent 启动：每次启动产生一条运行，可在同一项目里并发多条',
-  'project.run.pickAgent': '用哪个 agent 启动？',
+  'project.run.emptyHint': '选择一个已安装的 agent，或直接打开终端',
+  'project.run.pickAgent': '选择启动方式',
   'project.run.starting': '正在启动…',
   'project.run.startFailed': '启动运行失败',
   'project.run.stop': '停止',
@@ -1374,6 +1376,10 @@ const zhCN: MessageSchema = {
   'project.run.agentMissing': '未安装',
   'project.run.agentUnknown': '未探测',
   'project.run.installHint': '去 Agent 管理安装',
+  'project.run.agentTerminal': '终端',
+  'project.run.terminalHint': '不运行任何 agent，直接打开默认终端',
+  'project.run.detectingAgents': '正在检测已安装的 agent…',
+  'project.run.noAgentInstalled': '未检测到已安装的 agent',
   'project.run.agentSessionId': 'Agent 会话',
   'project.run.copyId': '复制会话 id',
   'project.run.copied': '已复制',
@@ -1381,7 +1387,8 @@ const zhCN: MessageSchema = {
   // 终端主面（CLI 为核心：对话经 CLI 直接进行，前端不渲染对话流）
   'project.terminal.title': '终端',
   'project.terminal.empty': '左侧选一条运行，它的终端在这里打开',
-  'project.terminal.emptyHint': '每条运行是一次 agent 进程启动；先在左栏「新建运行」里选一个 agent',
+  'project.terminal.emptyHint':
+    '每条运行是一次进程启动；先在左栏「新建运行」里选一个 agent 或打开终端',
   'project.terminal.runEnded': '运行已结束',
   'project.terminal.runEndedHint': '终端进程已退出；选中存活运行或新建运行继续',
 

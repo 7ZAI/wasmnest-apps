@@ -200,6 +200,7 @@ function defaultRoutes(): Record<string, Handler> {
       agents: [{ id: 'opencode', displayName: 'OpenCode', binary: 'opencode' }],
     }),
     'agent.get-state': () => ({ state: { clis: { opencode: { status: 'ok' } } } }),
+    'agent.detect': () => ({}),
     'session.close': () => ({ stopped: true }),
   }
 }
@@ -504,6 +505,21 @@ describe('ProjectWorkbenchView（项目工作台）', () => {
     expect(commandsTo('run.start')[0][1]).toMatchObject({ cols: 120, rows: 30 })
   })
 
+  it('纯终端：不运行任何 agent，run.start 的 agentId 为空', async () => {
+    routes['run.list'] = () => ({ runs: [runRecord('r-new', 'running', true)] })
+    const wrapper = mountView(ProjectWorkbenchView)
+    await flushPromises()
+
+    await wrapper.find('[data-testid="run-new"]').trigger('click')
+    await flushPromises()
+    await wrapper.find('[data-testid="run-terminal-option"]').trigger('click')
+    await flushPromises()
+
+    expect(commandsTo('run.start')[0][1]).toMatchObject({ projectId: 'p-1', agentId: '' })
+    expect(wrapper.find('[data-testid="run-terminal-option"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
   it('两条 running 运行来回切：终端组件每次收到的都是当前选中的运行', async () => {
     routes['run.list'] = () => ({
       runs: [runRecord('r-1', 'running', true), runRecord('r-2', 'running', true)],
@@ -726,15 +742,22 @@ describe('ProjectWorkbenchView（项目工作台）', () => {
     )
   })
 
-  it('未安装的 agent：点整行 = 去安装，不去撞注定失败的启动', async () => {
+  it('只列探测确认已安装的 agent：未安装 / 无结论不进入启动清单', async () => {
     routes['agent.list-agents'] = () => ({
       agents: [
         { id: 'opencode', displayName: 'OpenCode', binary: 'opencode' },
         { id: 'gemini', displayName: 'Gemini CLI', binary: 'gemini' },
+        { id: 'pi', displayName: 'Pi', binary: 'pi' },
       ],
     })
     routes['agent.get-state'] = () => ({
-      state: { clis: { opencode: { status: 'ok' }, gemini: { status: 'not-installed' } } },
+      state: {
+        clis: {
+          opencode: { status: 'ok' },
+          gemini: { status: 'not-installed' },
+          pi: { status: 'unknown' },
+        },
+      },
     })
 
     const wrapper = mountView(ProjectWorkbenchView)
@@ -742,11 +765,59 @@ describe('ProjectWorkbenchView（项目工作台）', () => {
     await wrapper.find('[data-testid="run-new"]').trigger('click')
     await flushPromises()
 
-    await wrapper.find('[data-testid="run-agent-gemini"]').trigger('click')
+    expect(wrapper.find('[data-testid="run-agent-opencode"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="run-agent-gemini"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="run-agent-pi"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="run-terminal-option"]').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('没有已安装 agent：空态给安装入口，终端仍可直接启动', async () => {
+    routes['agent.list-agents'] = () => ({
+      agents: [{ id: 'gemini', displayName: 'Gemini CLI', binary: 'gemini' }],
+    })
+    routes['agent.get-state'] = () => ({
+      state: { clis: { gemini: { status: 'not-installed' } } },
+    })
+
+    const wrapper = mountView(ProjectWorkbenchView)
+    await flushPromises()
+    await wrapper.find('[data-testid="run-new"]').trigger('click')
     await flushPromises()
 
-    expect(commandsTo('run.start')).toHaveLength(0)
+    expect(wrapper.find('[data-testid="run-agent-gemini"]').exists()).toBe(false)
+    const install = wrapper.find('[data-testid="run-agent-install"]')
+    expect(install.exists()).toBe(true)
+    expect(wrapper.find('[data-testid="run-terminal-option"]').exists()).toBe(true)
+
+    await install.trigger('click')
+    await flushPromises()
     expect(pushMock).toHaveBeenCalledWith('/agents')
+    wrapper.unmount()
+  })
+
+  it('探测从未跑过（全 idle）：自动发起探测，事件回流后就地补出已装项', async () => {
+    routes['agent.list-agents'] = () => ({
+      agents: [{ id: 'opencode', displayName: 'OpenCode', binary: 'opencode' }],
+    })
+    routes['agent.get-state'] = () => ({ state: { clis: { opencode: { status: 'idle' } } } })
+
+    const wrapper = mountView(ProjectWorkbenchView)
+    await flushPromises()
+    await wrapper.find('[data-testid="run-new"]').trigger('click')
+    await flushPromises()
+
+    // 不能把「没检测过」定格成「没安装」
+    expect(commandsTo('agent.detect')).toHaveLength(1)
+    expect(wrapper.find('[data-testid="run-agent-opencode"]').exists()).toBe(false)
+
+    for (const handler of eventHandlers.get('plugin:bedcode:detection') ?? []) {
+      handler({ clis: { opencode: { status: 'ok' } }, seq: 2 })
+    }
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="run-agent-opencode"]').exists()).toBe(true)
+    wrapper.unmount()
   })
 
   it('三栏宽度记在本 app 的 KV：进入时读回、调整后写回', async () => {
@@ -1253,16 +1324,17 @@ describe('ProjectWorkbenchView（项目工作台）', () => {
     // 左栏：两个项目的运行都在，且各标归属
     const items = wrapper.findAll('[data-testid="run-item"]')
     expect(items).toHaveLength(2)
-    expect(
-      wrapper.findAll('[data-testid="run-item-project"]').map((node) => node.text()),
-    ).toEqual(['另一个项目', '支付重构'])
+    expect(wrapper.findAll('[data-testid="run-item-project"]').map((node) => node.text())).toEqual([
+      '另一个项目',
+      '支付重构',
+    ])
 
     // 拼屏：两格并线（各自一条真实运行），格子标题也标归属
     const tiles = wrapper.findAll('[data-testid="run-tile"]')
     expect(tiles).toHaveLength(2)
-    expect(new Set(tiles.map((tile) => tile.get('[data-testid="run-tile-project"]').text()))).toEqual(
-      new Set(['支付重构', '另一个项目']),
-    )
+    expect(
+      new Set(tiles.map((tile) => tile.get('[data-testid="run-tile-project"]').text())),
+    ).toEqual(new Set(['支付重构', '另一个项目']))
   })
 
   it('跨项目拼屏：停止别的项目的运行后按全量范围刷新（列表不被打回本项目）', async () => {

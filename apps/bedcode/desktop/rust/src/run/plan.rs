@@ -12,7 +12,8 @@ use crate::project::ops::project_key;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StartRequest {
     pub project_id: String,
-    pub agent_id: String,
+    /// `None` = 不运行任何 agent，只开系统默认终端（纯终端运行）
+    pub agent_id: Option<String>,
     /// 启动端预算网格（缺省由宿主取默认网格）
     pub cols: Option<u16>,
     pub rows: Option<u16>,
@@ -24,7 +25,11 @@ pub struct StartRequest {
 }
 
 impl StartRequest {
-    /// 解析入参：`projectId` / `agentId` 必填，缺一显性报错（不猜项目、不猜 agent）
+    /// 解析入参：`projectId` 必填；`agentId` 缺省或空 = 纯终端
+    ///
+    /// 空 agent 不是「猜一个默认 agent」，而是明确的另一种启动方式：由启动编排
+    /// 按项目环境取默认 shell。未知的非空 agent id 仍由启动编排对照注册表显性
+    /// 拒绝（本层不持有注册表）。
     ///
     /// `cols` / `rows` 宽容处理：前端拿不到终端网格（宿主原语不可用）时留空，
     /// 宿主按默认网格 openpty——这不是错误路径，不必为此拒掉整次启动。
@@ -38,6 +43,14 @@ impl StartRequest {
                 .map(str::to_string)
                 .ok_or_else(|| format!("run.start: {key} required"))
         };
+        let optional_text = |key: &str| -> Option<String> {
+            value
+                .get(key)
+                .and_then(|v| v.as_str())
+                .map(str::trim)
+                .filter(|v| !v.is_empty())
+                .map(str::to_string)
+        };
         let size = |key: &str| -> Option<u16> {
             value
                 .get(key)
@@ -47,15 +60,10 @@ impl StartRequest {
         };
         Ok(Self {
             project_id: text("projectId")?,
-            agent_id: text("agentId")?,
+            agent_id: optional_text("agentId"),
             cols: size("cols"),
             rows: size("rows"),
-            source_device: value
-                .get("sourceDevice")
-                .and_then(|v| v.as_str())
-                .map(str::trim)
-                .filter(|v| !v.is_empty())
-                .map(str::to_string),
+            source_device: optional_text("sourceDevice"),
         })
     }
 }
@@ -143,34 +151,32 @@ mod tests {
     // ==================== 入参解析 ====================
 
     #[test]
-    fn parse_requires_project_and_agent() {
+    fn parse_requires_project_and_tolerates_missing_agent() {
         let ok = StartRequest::parse(&serde_json::json!({
             "projectId": " p-1 ", "agentId": "opencode", "cols": 120, "rows": 40
         }))
         .expect("合法入参");
         assert_eq!(ok.project_id, "p-1", "首尾空白折掉");
-        assert_eq!(ok.agent_id, "opencode");
+        assert_eq!(ok.agent_id.as_deref(), Some("opencode"));
         assert_eq!(ok.cols, Some(120));
         assert_eq!(ok.rows, Some(40));
         assert_eq!(ok.source_device, None, "缺省 = 桌面本地启动");
 
-        for (payload, needle) in [
-            (serde_json::json!({ "agentId": "pi" }), "projectId required"),
-            (
-                serde_json::json!({ "projectId": "p-1" }),
-                "agentId required",
-            ),
-            (
-                serde_json::json!({ "projectId": "  ", "agentId": "pi" }),
-                "projectId required",
-            ),
-            (
-                serde_json::json!({ "projectId": "p-1", "agentId": "" }),
-                "agentId required",
-            ),
+        for payload in [
+            serde_json::json!({ "agentId": "pi" }),
+            serde_json::json!({ "projectId": "  ", "agentId": "pi" }),
         ] {
             let err = StartRequest::parse(&payload).expect_err("必须拒绝");
-            assert!(err.contains(needle), "got: {err}");
+            assert!(err.contains("projectId required"), "got: {err}");
+        }
+
+        for payload in [
+            serde_json::json!({ "projectId": "p-1" }),
+            serde_json::json!({ "projectId": "p-1", "agentId": "" }),
+            serde_json::json!({ "projectId": "p-1", "agentId": "   " }),
+        ] {
+            let req = StartRequest::parse(&payload).expect("纯终端合法");
+            assert_eq!(req.agent_id, None, "缺省 / 空 agent = 纯终端");
         }
     }
 

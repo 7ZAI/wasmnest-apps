@@ -29,22 +29,29 @@ use plan::{find_config, new_config, StartRequest};
 #[cfg(target_arch = "wasm32")]
 use wasmnest_plugin_api::wasm_host::WasmHost;
 
-/// `run.start` 编排：`{projectId, agentId, cols?, rows?, sourceDevice?}` → `{runId, name, configId}`
+/// `run.start` 编排：`{projectId, agentId?, cols?, rows?, sourceDevice?}` → `{runId, name, configId}`
 ///
-/// `sourceDevice` 由 HTTP 面从 JWT claims 注入（客户端自报的同名字段被覆盖），
-/// 命令面直接调用时缺省 = 桌面本地启动。
+/// `agentId` 缺省 / 空 = 纯终端：不运行任何 agent，直接开项目环境对应的默认
+/// shell。`sourceDevice` 由 HTTP 面从 JWT claims 注入（客户端自报的同名字段被
+/// 覆盖），命令面直接调用时缺省 = 桌面本地启动。
 ///
 /// 失败一律显性（未知项目 / 未注册 agent / 配置写入失败 / PTY 启动失败），不返回
 /// 半成品 id——前端拿到 id 就会去开终端，幽灵 runId 等于一个永远空的终端页签。
 #[cfg(target_arch = "wasm32")]
 pub fn start_via_host(args: &serde_json::Value) -> Result<serde_json::Value, String> {
     let request = StartRequest::parse(args)?;
-    let binary = crate::hub::binary_for(&request.agent_id)
-        .ok_or_else(|| format!("run.start: unknown agent: {}", request.agent_id))?;
     let project = ProjectStore::get(&WasmHost, &request.project_id)?
         .ok_or_else(|| format!("run.start: project not found: {}", request.project_id))?;
+    // 纯终端没有 agent：命令取项目环境的默认 shell。`launch` 从配置命令反推
+    // agent 时会得到 `unknown`，运行记录的 agentId 因此为空。
+    let binary = match request.agent_id.as_deref() {
+        Some(agent_id) => crate::hub::binary_for(agent_id)
+            .ok_or_else(|| format!("run.start: unknown agent: {agent_id}"))?,
+        None => crate::config::model::ConfigDraft::default_command_for(&project.environment),
+    };
 
-    // 同一项目里同一 agent 反复启动复用同一条配置：配置是启动参数，不是导航对象
+    // 同一项目里同一 agent（纯终端则是同一默认 shell）反复启动复用同一条配置：
+    // 配置是启动参数，不是导航对象
     let config = match find_config(
         &ConfigStore::all(&WasmHost)?,
         &project.environment,

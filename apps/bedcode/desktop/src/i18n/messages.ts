@@ -1349,6 +1349,10 @@ export type MessageSchema = {
   'project.run.agentMissing': string
   'project.run.agentUnknown': string
   'project.run.installHint': string
+  'project.run.agentTerminal': string
+  'project.run.terminalHint': string
+  'project.run.detectingAgents': string
+  'project.run.noAgentInstalled': string
   'project.run.agentSessionId': string
   'project.run.copyId': string
   'project.run.copied': string

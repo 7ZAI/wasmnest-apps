@@ -284,6 +284,19 @@ describe('取数：项目 / 运行 / agent', () => {
     await d.loadAgents()
     expect(d.agents.value.map((a) => a.readiness)).toEqual(['unknown', 'unknown', 'unknown'])
   })
+
+  it('探测事件只就地刷新就绪度，不重新取清单', async () => {
+    const d = domain()
+    await d.loadAgents()
+    execute.mockClear()
+
+    d.applyDetectionState({
+      clis: { opencode: { status: 'not-installed' }, pi: { status: 'ok' } },
+    })
+
+    expect(d.agents.value.map((a) => a.readiness)).toEqual(['missing', 'ready', 'unknown'])
+    expect(execute).not.toHaveBeenCalled()
+  })
 })
 
 // ==================== 编排 ====================
@@ -303,6 +316,18 @@ describe('编排：启动 / 停止 / 目录选择 / 移除', () => {
     // 启动后必须重取运行列表（新运行要立刻出现在列表里）
     expect(commandsTo('run.list')).toHaveLength(1)
     expect(commandsTo('project.get')).toHaveLength(1)
+  })
+
+  it('纯终端：agentId = null 时 run.start 传空串（后端按无 agent 处理）', async () => {
+    const d = domain()
+    await d.startRun('p-1', null)
+
+    expect(commandsTo('run.start')[0][1]).toEqual({
+      projectId: 'p-1',
+      agentId: '',
+      cols: 140,
+      rows: 36,
+    })
   })
 
   it('网格预测不可用（null）时按缺省启动，不阻断', async () => {
