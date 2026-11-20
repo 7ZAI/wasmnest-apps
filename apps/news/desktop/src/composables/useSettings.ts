@@ -8,11 +8,14 @@ import { ref, type Ref } from 'vue'
 import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-desktop'
 import type {
   AiBatchSummaryResult,
+  ClearMode,
+  ClearedStats,
   CredentialSummary,
   FetchLogEntry,
   NewsCircle,
   NewsSettings,
   NewsSource,
+  ReaderStats,
   SourceFetchResult,
 } from '../types'
 import { parseError } from '../utils/errors'
@@ -52,6 +55,7 @@ export interface SettingsController {
   credentials: Ref<CredentialSummary[]>
   settings: Ref<NewsSettings | null>
   log: Ref<FetchLogEntry[]>
+  readerStats: Ref<ReaderStats | null>
   loading: Ref<boolean>
   busy: Ref<boolean>
   error: Ref<string | null>
@@ -74,6 +78,8 @@ export interface SettingsController {
     aiModel: string
     aiApiKey?: string
   }) => Promise<void>
+  saveReaderEnabled: (enabled: boolean) => Promise<void>
+  clearReaderCache: (mode: ClearMode) => Promise<ClearedStats>
   summarize: (itemIds: string[]) => Promise<AiBatchSummaryResult>
   exportJson: () => Promise<string>
   loadAutostart: () => Promise<void>
@@ -104,6 +110,7 @@ export function useSettings(
   const credentials = ref<CredentialSummary[]>([])
   const settings = ref<NewsSettings | null>(null)
   const log = ref<FetchLogEntry[]>([])
+  const readerStats = ref<ReaderStats | null>(null)
   const loading = ref(false)
   const busy = ref(false)
   const error = ref<string | null>(null)
@@ -114,7 +121,14 @@ export function useSettings(
     loading.value = true
     error.value = null
     try {
-      await Promise.all([loadSources(), loadCircles(), loadCredentials(), loadSettings(), loadLog()])
+      await Promise.all([
+        loadSources(),
+        loadCircles(),
+        loadCredentials(),
+        loadSettings(),
+        loadLog(),
+        loadReaderStats(),
+      ])
     } finally {
       loading.value = false
     }
@@ -143,6 +157,14 @@ export function useSettings(
 
   async function loadSettings(): Promise<void> {
     settings.value = (await context.commands.execute('news.get-settings')) as NewsSettings
+  }
+
+  async function loadReaderStats(): Promise<void> {
+    try {
+      readerStats.value = (await context.commands.execute('news.reader-stats')) as ReaderStats
+    } catch {
+      readerStats.value = null
+    }
   }
 
   async function loadLog(): Promise<void> {
@@ -288,6 +310,23 @@ export function useSettings(
     })
   }
 
+  async function saveReaderEnabled(enabled: boolean): Promise<void> {
+    await guard(async () => {
+      await context.commands.execute('news.set-settings', { readerEnabled: enabled })
+      await loadSettings()
+    })
+  }
+
+  async function clearReaderCache(mode: ClearMode): Promise<ClearedStats> {
+    return guard(async () => {
+      const result = (await context.commands.execute('news.clear-reader-cache', {
+        mode,
+      })) as ClearedStats
+      await loadReaderStats()
+      return result
+    })
+  }
+
   /** 分片批量摘要：每片结束更新进度，单片失败不影响后续片。 */
   async function summarize(itemIds: string[]): Promise<AiBatchSummaryResult> {
     const total = itemIds.length
@@ -356,6 +395,7 @@ export function useSettings(
     credentials,
     settings,
     log,
+    readerStats,
     loading,
     busy,
     error,
@@ -373,6 +413,8 @@ export function useSettings(
     saveCredential,
     deleteCredential,
     saveAi,
+    saveReaderEnabled,
+    clearReaderCache,
     summarize,
     exportJson,
     loadAutostart,

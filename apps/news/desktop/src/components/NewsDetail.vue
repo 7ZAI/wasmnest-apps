@@ -25,102 +25,251 @@
       </p>
       <h2 class="news-detail-heading">{{ item.title }}</h2>
 
-      <p v-if="item.summary" class="news-detail-summary" data-news-detail-summary>
-        {{ item.summary }}
-      </p>
-      <p v-else class="news-detail-placeholder" data-news-detail-placeholder>
-        {{ t('news.detail.noSummary') }}
-      </p>
+      <template v-if="mode === 'reader'">
+        <div class="news-reader-toolbar">
+          <button
+            ref="readButton"
+            type="button"
+            class="news-btn"
+            data-news-reader-back
+            data-testid="news-reader-back"
+            @click="backToSummary"
+          >
+            {{ t('news.detail.back') }}
+          </button>
+          <button
+            type="button"
+            class="news-btn"
+            data-news-reader-copy
+            data-testid="news-reader-detail-copy"
+            @click="emit('copy', item.url)"
+          >
+            {{ t('news.detail.copy') }}
+          </button>
+          <button
+            type="button"
+            class="news-btn"
+            :class="{ on: item.favorite }"
+            :aria-pressed="item.favorite"
+            data-testid="news-reader-favorite"
+            @click="emit('toggle-favorite')"
+          >
+            {{ item.favorite ? t('news.detail.unfavorite') : t('news.detail.favorite') }}
+          </button>
+          <button
+            type="button"
+            class="news-btn"
+            :aria-pressed="item.read"
+            data-testid="news-reader-toggle-read"
+            @click="emit('toggle-read')"
+          >
+            {{ item.read ? t('news.detail.markUnread') : t('news.detail.markRead') }}
+          </button>
+          <button
+            v-if="view?.state === 'ready' && !view.archived"
+            type="button"
+            class="news-btn"
+            data-news-reader-archive
+            data-testid="news-reader-archive"
+            @click="archiveContent"
+          >
+            {{ t('news.detail.archive') }}
+          </button>
+          <span
+            v-if="view?.archived"
+            class="news-reader-badge"
+            data-testid="news-reader-archived"
+          >
+            {{ t('news.detail.archived') }}
+          </span>
+        </div>
+        <NewsReader
+          ref="readerRef"
+          :view="view"
+          :loading="status === 'loading'"
+          :error="readerError"
+          :item-url="item.url"
+          @retry="retryReader"
+          @copy="emit('copy', item.url)"
+        />
+      </template>
 
-      <div class="news-detail-actions">
-        <button
-          type="button"
-          class="news-detail-primary"
-          data-news-copy
-          data-testid="news-copy"
-          @click="emit('copy', item.url)"
-        >
-          {{ t('news.detail.copy') }}
-        </button>
-        <button
-          type="button"
-          class="news-btn"
-          :class="{ on: item.favorite }"
-          :aria-pressed="item.favorite"
-          data-news-favorite
-          data-testid="news-favorite"
-          @click="emit('toggle-favorite')"
-        >
-          {{ item.favorite ? t('news.detail.unfavorite') : t('news.detail.favorite') }}
-        </button>
-        <button
-          type="button"
-          class="news-btn"
-          :aria-pressed="item.read"
-          data-news-toggle-read
-          data-testid="news-toggle-read"
-          @click="emit('toggle-read')"
-        >
-          {{ item.read ? t('news.detail.markUnread') : t('news.detail.markRead') }}
-        </button>
-        <button
-          type="button"
-          class="news-btn"
-          data-news-assistant-fetch
-          data-testid="news-assistant-fetch"
-          :title="t('news.detail.assistantUnavailable')"
-          @click="emit('assistant-fetch')"
-        >
-          {{ t('news.detail.assistantFetch') }}
-        </button>
-      </div>
+      <template v-else>
+        <p v-if="item.summary" class="news-detail-summary" data-news-detail-summary>
+          {{ item.summary }}
+        </p>
+        <p v-else class="news-detail-placeholder" data-news-detail-placeholder>
+          {{ t('news.detail.noSummary') }}
+        </p>
 
-      <p class="news-detail-hint">{{ t('news.detail.openHint') }}</p>
-      <p class="news-detail-link" data-news-detail-url data-testid="news-detail-url">
-        {{ item.url }}
-      </p>
+        <div class="news-detail-actions">
+          <button
+            v-if="readerEnabled"
+            ref="readButton"
+            type="button"
+            class="news-detail-primary"
+            data-news-reader-open
+            data-testid="news-reader-open"
+            @click="openReader"
+          >
+            {{ t('news.detail.read') }}
+          </button>
+          <button
+            type="button"
+            :class="readerEnabled ? 'news-btn' : 'news-detail-primary'"
+            data-news-copy
+            data-testid="news-copy"
+            @click="emit('copy', item.url)"
+          >
+            {{ t('news.detail.copy') }}
+          </button>
+          <button
+            type="button"
+            class="news-btn"
+            :class="{ on: item.favorite }"
+            :aria-pressed="item.favorite"
+            data-news-favorite
+            data-testid="news-favorite"
+            @click="emit('toggle-favorite')"
+          >
+            {{ item.favorite ? t('news.detail.unfavorite') : t('news.detail.favorite') }}
+          </button>
+          <button
+            type="button"
+            class="news-btn"
+            :aria-pressed="item.read"
+            data-news-toggle-read
+            data-testid="news-toggle-read"
+            @click="emit('toggle-read')"
+          >
+            {{ item.read ? t('news.detail.markUnread') : t('news.detail.markRead') }}
+          </button>
+          <button
+            type="button"
+            class="news-btn"
+            data-news-assistant-fetch
+            data-testid="news-assistant-fetch"
+            :title="t('news.detail.assistantUnavailable')"
+            @click="emit('assistant-fetch')"
+          >
+            {{ t('news.detail.assistantFetch') }}
+          </button>
+        </div>
 
-      <details
-        v-if="origins.length"
-        class="news-detail-origins"
-        data-news-origins
-        data-testid="news-origins"
-      >
-        <summary>{{ t('news.detail.origins', { count: origins.length }) }}</summary>
-        <ul>
-          <li v-for="origin in origins" :key="origin.sourceId + origin.rawUrl">
-            <span class="news-detail-origin-source">{{ origin.sourceName }}</span>
-            <span class="news-detail-origin-title">{{ origin.sourceTitle ?? origin.rawUrl }}</span>
-            <span class="news-detail-origin-url">{{ origin.rawUrl }}</span>
-          </li>
-        </ul>
-      </details>
+        <p class="news-detail-hint">
+          {{ readerEnabled ? t('news.detail.readerHint') : t('news.detail.openHint') }}
+        </p>
+        <p class="news-detail-link" data-news-detail-url data-testid="news-detail-url">
+          {{ item.url }}
+        </p>
+
+        <details
+          v-if="origins.length"
+          class="news-detail-origins"
+          data-news-origins
+          data-testid="news-origins"
+        >
+          <summary>{{ t('news.detail.origins', { count: origins.length }) }}</summary>
+          <ul>
+            <li v-for="origin in origins" :key="origin.sourceId + origin.rawUrl">
+              <span class="news-detail-origin-source">{{ origin.sourceName }}</span>
+              <span class="news-detail-origin-title">{{ origin.sourceTitle ?? origin.rawUrl }}</span>
+              <span class="news-detail-origin-url">{{ origin.rawUrl }}</span>
+            </li>
+          </ul>
+        </details>
+      </template>
     </div>
   </aside>
 </template>
 
 <script setup lang="ts">
-/** 信息条详情（桌面卡片流的右侧抽屉内容）：纯文本，不内嵌原文。 */
-import { computed, inject } from 'vue'
+/** 信息条详情（桌面卡片流的右侧抽屉内容）：摘要态与正文阅读态在同一抽屉内切换。 */
+import { computed, inject, nextTick, ref, watch } from 'vue'
 import type { PluginContext } from '@binblink/wasmnest-plugin-sdk-desktop'
 import type { NewsItem, NewsOrigin } from '../types'
 import { relativeLabel } from '../utils/format'
+import { useReader } from '../composables/useReader'
+import NewsReader from './NewsReader.vue'
 
-const props = defineProps<{ item: NewsItem; origins: NewsOrigin[]; now?: number }>()
+const props = defineProps<{
+  item: NewsItem
+  origins: NewsOrigin[]
+  now?: number
+  readerEnabled: boolean
+}>()
 const emit = defineEmits<{
   close: []
   copy: [url: string]
   'toggle-favorite': []
   'toggle-read': []
   'assistant-fetch': []
+  toast: [text: string]
 }>()
 const context = inject<PluginContext>('pluginContext')!
 const t = (key: string, params?: Record<string, unknown>) => context.i18n.t(key, params)
+
+const mode = ref<'summary' | 'reader'>('summary')
+const readButton = ref<HTMLButtonElement | null>(null)
+const readerRef = ref<{ focus: () => void } | null>(null)
+const reader = useReader(context)
+const {
+  status,
+  view,
+  error: readerError,
+  open: openReaderContent,
+  archive: archiveReaderContent,
+  retry: retryReaderContent,
+  reset: resetReader,
+} = reader
 
 const published = computed(() => {
   const label = relativeLabel(props.item.publishedAt, props.now ?? Date.now())
   return label.count == null ? t(label.key) : t(label.key, { count: label.count })
 })
+
+async function openReader(): Promise<void> {
+  mode.value = 'reader'
+  await nextTick()
+  await openReaderContent(props.item.id)
+  await nextTick()
+  readerRef.value?.focus()
+}
+
+function backToSummary(): void {
+  mode.value = 'summary'
+  resetReader()
+  void nextTick(() => readButton.value?.focus())
+}
+
+async function archiveContent(): Promise<void> {
+  await archiveReaderContent(props.item.id)
+  if (view.value?.archived) emit('toast', t('news.toast.readerArchived'))
+}
+
+async function retryReader(): Promise<void> {
+  await retryReaderContent(props.item.id)
+  await nextTick()
+  readerRef.value?.focus()
+}
+
+watch(
+  () => props.item.id,
+  () => {
+    mode.value = 'summary'
+    resetReader()
+  },
+)
+
+watch(
+  () => props.readerEnabled,
+  (enabled) => {
+    if (!enabled && mode.value === 'reader') {
+      mode.value = 'summary'
+      resetReader()
+    }
+  },
+)
 </script>
 
 <style scoped>
@@ -252,6 +401,19 @@ const published = computed(() => {
 .news-btn:focus-visible {
   outline: 2px solid var(--color-info);
   outline-offset: 2px;
+}
+.news-reader-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+.news-reader-badge {
+  font-size: var(--font-size-label, 12px);
+  color: var(--color-info);
 }
 .news-detail-hint {
   margin: 0 0 6px;

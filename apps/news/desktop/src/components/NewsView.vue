@@ -278,11 +278,13 @@
           :item="selected"
           :origins="origins"
           :now="now"
+          :reader-enabled="readerEnabled"
           @close="closeItem"
           @copy="copyLink"
           @toggle-favorite="toggleFavorite"
           @toggle-read="toggleRead"
           @assistant-fetch="onAssistantFetch"
+          @toast="showToast"
         />
       </div>
     </template>
@@ -360,6 +362,8 @@ const {
   load,
   loadCircles,
   loadSources,
+  loadSettings,
+  readerEnabled,
   setView,
   selectCircle,
   openSettings,
@@ -458,7 +462,7 @@ async function onAssistantFetch(): Promise<void> {
 }
 
 async function onSettingsChanged(): Promise<void> {
-  await Promise.all([loadCircles(), loadSources(), load()])
+  await Promise.all([loadCircles(), loadSources(), load(), loadSettings()])
 }
 
 function onKeydown(event: KeyboardEvent): void {

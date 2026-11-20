@@ -455,6 +455,96 @@
         data-news-pane="data"
         data-testid="news-settings-pane-data"
       >
+        <section
+          class="news-subsection"
+          data-news-reader-settings
+          data-testid="news-reader-settings"
+        >
+          <h3>{{ t('news.settings.reader.title') }}</h3>
+          <label class="news-field news-field-wide checkbox">
+            <input
+              v-model="readerEnabled"
+              type="checkbox"
+              data-news-reader-enabled
+              data-testid="news-reader-enabled"
+              :disabled="busy"
+              @change="toggleReader"
+            />
+            <span>{{ t('news.settings.reader.enabled') }}</span>
+          </label>
+          <p class="news-note">{{ t('news.settings.reader.hint') }}</p>
+          <p class="news-note" data-news-reader-usage data-testid="news-reader-usage">
+            {{
+              t('news.settings.reader.usage', {
+                cachedCount: readerStats?.cachedCount ?? 0,
+                archivedCount: readerStats?.archivedCount ?? 0,
+              })
+            }}
+            ·
+            {{
+              t('news.settings.reader.bytes', {
+                bytes: bytesLabel((readerStats?.cachedBytes ?? 0) + (readerStats?.archivedBytes ?? 0)),
+              })
+            }}
+          </p>
+          <div class="news-form-actions">
+            <button
+              type="button"
+              class="news-link-btn"
+              data-news-reader-clear-cache
+              data-testid="news-reader-clear-cache"
+              :disabled="busy"
+              @click="requestClear('unarchived')"
+            >
+              {{ t('news.settings.reader.clearCache') }}
+            </button>
+            <button
+              type="button"
+              class="news-link-btn"
+              data-news-reader-clear-all
+              data-testid="news-reader-clear-all"
+              :disabled="busy"
+              @click="requestClear('all')"
+            >
+              {{ t('news.settings.reader.clearAll') }}
+            </button>
+          </div>
+          <div
+            v-if="pendingClear"
+            class="news-form-actions"
+            data-news-reader-clear-confirm
+            data-testid="news-reader-clear-confirm"
+          >
+            <span class="news-note">
+              {{
+                t(
+                  pendingClear === 'all'
+                    ? 'news.settings.reader.clearAllConfirm'
+                    : 'news.settings.reader.clearCacheConfirm',
+                )
+              }}
+            </span>
+            <button
+              type="button"
+              class="news-primary"
+              data-testid="news-reader-clear-confirm-yes"
+              :disabled="busy"
+              @click="confirmClear"
+            >
+              {{ t('news.settings.reader.confirm') }}
+            </button>
+            <button
+              type="button"
+              class="news-link-btn"
+              data-testid="news-reader-clear-confirm-no"
+              :disabled="busy"
+              @click="pendingClear = null"
+            >
+              {{ t('news.settings.reader.cancel') }}
+            </button>
+          </div>
+        </section>
+
         <section class="news-subsection">
           <h3>{{ t('news.settings.autostart.title') }}</h3>
           <p class="news-autostart" data-news-autostart data-testid="news-autostart">
@@ -567,6 +657,7 @@ const {
   credentials: credentialList,
   settings: aiSettings,
   log: logEntries,
+  readerStats,
   busy,
   error,
   autostart: autostartState,
@@ -583,6 +674,8 @@ const {
   saveCredential,
   deleteCredential,
   saveAi,
+  saveReaderEnabled,
+  clearReaderCache,
   summarize,
   exportJson,
   loadAutostart,
@@ -598,6 +691,14 @@ const aiModel = ref('')
 const aiApiKey = ref('')
 const aiResult = ref('')
 const exportedJson = ref('')
+const readerEnabled = ref(false)
+const pendingClear = ref<'unarchived' | 'all' | null>(null)
+
+function bytesLabel(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`
+}
 
 const existingUrls = computed(() => sourceList.value.map((source) => source.url))
 const keyMask = computed(() => {
@@ -747,6 +848,40 @@ async function removeCredential(id: string, label: string): Promise<void> {
   }
 }
 
+async function toggleReader(): Promise<void> {
+  const next = readerEnabled.value
+  try {
+    await saveReaderEnabled(next)
+    emit('changed')
+    emit('toast', t('news.toast.saved'))
+  } catch (e) {
+    readerEnabled.value = !next
+    report(e)
+  }
+}
+
+function requestClear(mode: 'unarchived' | 'all'): void {
+  pendingClear.value = mode
+}
+
+async function confirmClear(): Promise<void> {
+  const mode = pendingClear.value
+  if (!mode) return
+  pendingClear.value = null
+  try {
+    const result = await clearReaderCache(mode)
+    emit(
+      'toast',
+      t('news.settings.reader.cleared', {
+        count: result.removed,
+        bytes: bytesLabel(result.bytes),
+      }),
+    )
+  } catch (e) {
+    report(e)
+  }
+}
+
 async function submitAi(): Promise<void> {
   try {
     await saveAi({
@@ -823,6 +958,7 @@ onMounted(async () => {
     aiEnabled.value = current.aiEnabled
     aiBaseUrl.value = current.aiBaseUrl
     aiModel.value = current.aiModel
+    readerEnabled.value = current.readerEnabled
   }
   await loadAutostart()
 })

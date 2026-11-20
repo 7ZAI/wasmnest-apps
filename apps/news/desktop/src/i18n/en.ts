@@ -56,6 +56,19 @@ const en: MessageTable = {
   'news.detail.assistantUnavailable': 'The host assistant does not offer this capability yet',
   'news.detail.copyFallbackTitle': 'Copy failed. Select the link below manually.',
   'news.detail.copyFallbackClose': 'Got it',
+  'news.detail.read': 'Read full article',
+  'news.detail.back': 'Back to summary',
+  'news.detail.archive': 'Save to this device',
+  'news.detail.archived': 'Archived',
+  'news.detail.readerHint':
+    'Article text is stored locally only; images are not cached. Some sites may require sign-in or payment.',
+
+  'news.reader.loading': 'Fetching and extracting the article, please wait…',
+  'news.reader.retry': 'Retry',
+  'news.reader.copy': 'Copy link',
+  'news.reader.source': 'Original link',
+  'news.reader.stale': 'Refresh failed — showing the last extracted article',
+  'news.reader.truncated': 'The article is long and has been truncated',
 
   'news.settings.title': 'News settings',
   'news.settings.tab.sources': 'Sources',
@@ -173,6 +186,21 @@ const en: MessageTable = {
   'news.settings.data.copy': 'Copy JSON',
   'news.settings.data.summary': '{sources} sources · {circles} circles',
 
+  'news.settings.reader.title': 'Reader',
+  'news.settings.reader.enabled': 'Read full articles in the app',
+  'news.settings.reader.hint':
+    'When enabled, the app can fetch and render an article in place. Text is stored locally only; images are not cached and some sites may require sign-in or payment.',
+  'news.settings.reader.usage': 'Cache {cachedCount} · Archive {archivedCount}',
+  'news.settings.reader.bytes': 'Using {bytes}',
+  'news.settings.reader.clearCache': 'Clear reader cache',
+  'news.settings.reader.clearAll': 'Clear all article text',
+  'news.settings.reader.clearCacheConfirm': 'Delete all non-archived article text?',
+  'news.settings.reader.clearAllConfirm':
+    'Delete all article text, including archived copies? Saved state is unchanged; articles can be fetched again.',
+  'news.settings.reader.cleared': 'Cleared {count} articles ({bytes})',
+  'news.settings.reader.confirm': 'Confirm',
+  'news.settings.reader.cancel': 'Cancel',
+
   'news.settings.autostart.title': 'Start with the host',
   'news.settings.autostart.on': 'On',
   'news.settings.autostart.off': 'Off',
@@ -217,6 +245,14 @@ const en: MessageTable = {
   'news.error.storage.failed': 'Local storage failed',
   'news.error.clock.unavailable': 'Current time is unavailable',
   'news.error.refresh.debounced': 'Refreshed too recently, try again shortly',
+  'news.error.reader.disabled': 'Reader is off',
+  'news.error.extract.unsupported': 'This is not a readable web page (maybe a PDF, video or JSON)',
+  'news.error.extract.no_content':
+    'No article text could be extracted (the site may require sign-in, payment, or use an unsupported layout)',
+  'news.error.extract.encoding': 'The page encoding could not be parsed',
+  'news.error.extract.too_large': 'The page is too large to read in full',
+  'news.error.extract.failed': 'Article extraction failed',
+  'news.error.reader.storage_full': 'Local article storage is full; clear some content',
   'news.error.unknown': 'Unknown error',
 
   'news.toast.copied': 'Link copied',
@@ -227,6 +263,7 @@ const en: MessageTable = {
   'news.toast.deleted': 'Deleted',
   'news.toast.aiDone': 'Summary done: {ok} succeeded',
   'news.toast.sourceDisabled': 'Source disabled',
+  'news.toast.readerArchived': 'Article saved to this device',
 
   'news.relative.justNow': 'just now',
   'news.relative.minutes': '{count} min ago',
