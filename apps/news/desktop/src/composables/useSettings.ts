@@ -121,7 +121,7 @@ export function useSettings(
     loading.value = true
     error.value = null
     try {
-      await Promise.all([
+      const results = await Promise.allSettled([
         loadSources(),
         loadCircles(),
         loadCredentials(),
@@ -129,6 +129,10 @@ export function useSettings(
         loadLog(),
         loadReaderStats(),
       ])
+      const failure = results.find((result) => result.status === 'rejected')
+      if (failure?.status === 'rejected') {
+        error.value = errorMessage(failure.reason)
+      }
     } finally {
       loading.value = false
     }

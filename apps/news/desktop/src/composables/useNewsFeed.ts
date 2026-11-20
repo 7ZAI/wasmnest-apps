@@ -18,7 +18,7 @@ import type {
   RefreshOutcome,
   SourceFetchResult,
 } from '../types'
-import { parseError } from '../utils/errors'
+import { parseError, type NewsError } from '../utils/errors'
 
 export const FEED_VIEWS: readonly FeedView[] = ['today', 'circles', 'realtime', 'saved']
 
@@ -34,6 +34,9 @@ export interface NewsFeedController {
   generatedAt: Ref<number>
   now: Ref<number>
   readerEnabled: Ref<boolean>
+  readerSettingsReady: Ref<boolean>
+  lastKnownReaderEnabled: Ref<boolean | null>
+  readerSettingsWarning: Ref<NewsError | null>
   loading: Ref<boolean>
   refreshing: Ref<boolean>
   error: Ref<string | null>
@@ -82,7 +85,10 @@ export function useNewsFeed(context: PluginContext): NewsFeedController {
   const windowHours = ref<number | null>(24)
   const generatedAt = ref(0)
   const now = ref(nowMs())
-  const readerEnabled = ref(false)
+  const readerEnabled = ref(true)
+  const readerSettingsReady = ref(false)
+  const lastKnownReaderEnabled = ref<boolean | null>(null)
+  const readerSettingsWarning = ref<NewsError | null>(null)
   const loading = ref(false)
   const refreshing = ref(false)
   const error = ref<string | null>(null)
@@ -150,9 +156,15 @@ export function useNewsFeed(context: PluginContext): NewsFeedController {
   async function loadSettings(): Promise<void> {
     try {
       const settings = (await context.commands.execute('news.get-settings')) as NewsSettings
-      readerEnabled.value = !!settings.readerEnabled
-    } catch {
-      readerEnabled.value = false
+      const enabled = !!settings.readerEnabled
+      readerEnabled.value = enabled
+      lastKnownReaderEnabled.value = enabled
+      readerSettingsWarning.value = null
+    } catch (e) {
+      readerEnabled.value = lastKnownReaderEnabled.value ?? true
+      readerSettingsWarning.value = parseError(e)
+    } finally {
+      readerSettingsReady.value = true
     }
   }
 
@@ -337,6 +349,9 @@ export function useNewsFeed(context: PluginContext): NewsFeedController {
     generatedAt,
     now,
     readerEnabled,
+    readerSettingsReady,
+    lastKnownReaderEnabled,
+    readerSettingsWarning,
     loading,
     refreshing,
     error,
