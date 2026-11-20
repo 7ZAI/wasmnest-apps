@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { computed, inject, onMounted, ref } from 'vue'
+import { computed, inject, nextTick, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { AppMountEnv } from '../entry'
-import type { ModelInfo } from '../composables/useSpeechService'
+import type { ChannelProbe, ModelInfo } from '../composables/useSpeechService'
 import { formatBytes, useSpeechService } from '../composables/useSpeechService'
 
 const env = inject<AppMountEnv>('speechEnv')
@@ -25,11 +25,30 @@ const languages = [
 
 const levelPct = computed(() => Math.min(100, Math.round((service.capture.level ?? 0) * 100)))
 
-const formMessage = computed(() => {
-  if (service.formError.value) return t(service.formError.value)
-  if (service.saved.value) return t('saved')
-  return null
+const localChannelState = computed(() => channelState(service.localChannel.value))
+const remoteChannelState = computed(() => channelState(service.remoteChannel.value))
+const formErrorText = computed(() => (service.formError.value ? t(service.formError.value) : null))
+const savedText = computed(() => (service.saved.value ? t('saved') : null))
+const endpointErrorText = computed(() => {
+  const code = service.formError.value
+  return code === 'endpointRequired' || code === 'endpointInvalid' ? t(code) : null
 })
+const apiKeyErrorText = computed(() =>
+  service.formError.value === 'apiKeyRequired' ? t('apiKeyRequired') : null,
+)
+
+watch(
+  () => [
+    service.form.remoteEnabled,
+    service.form.endpoint,
+    service.form.apiKey,
+    service.form.clearKey,
+  ],
+  () => {
+    if (service.formError.value) service.formError.value = null
+    if (service.saved.value) service.saved.value = false
+  },
+)
 
 function modelStatusText(model: ModelInfo): string | null {
   const status = service.modelStatuses[model.id]
@@ -71,6 +90,21 @@ function channelLabel(channel: string): string {
   return channel === 'local' ? t('channelLocal') : t('channelRemote')
 }
 
+function channelState(channel?: ChannelProbe): { label: string; className: string } {
+  if (!channel) return { label: t('channelUnknown'), className: '' }
+  return channel.available
+    ? { label: t('available'), className: 'speech-badge-ok' }
+    : { label: t('unavailable'), className: 'speech-badge-bad' }
+}
+
+async function onSubmit(): Promise<void> {
+  const ok = await service.save()
+  if (ok || !service.formError.value) return
+  await nextTick()
+  const id = service.formError.value === 'apiKeyRequired' ? 'speech-api-key' : 'speech-endpoint'
+  document.getElementById(id)?.focus()
+}
+
 function recordTime(ts: number): string {
   if (!ts) return '—'
   const date = new Date(ts)
@@ -105,39 +139,46 @@ onMounted(() => {
           </h1>
           <p class="speech-muted mt-1 max-w-3xl">{{ t('subtitle') }}</p>
         </div>
-        <div class="flex flex-wrap items-center gap-2">
+        <div class="flex flex-wrap items-center gap-2" aria-live="polite">
           <span
             class="speech-badge"
-            :class="service.localChannel.value?.available ? 'speech-badge-ok' : 'speech-badge-bad'"
+            :class="localChannelState.className"
             data-testid="speech-channel-local"
           >
-            {{ t('channelLocal') }} ·
-            {{ service.localChannel.value?.available ? t('available') : t('unavailable') }}
+            {{ t('channelLocal') }} · {{ localChannelState.label }}
           </span>
           <span
             class="speech-badge"
-            :class="service.remoteChannel.value?.available ? 'speech-badge-ok' : 'speech-badge-bad'"
+            :class="remoteChannelState.className"
             data-testid="speech-channel-remote"
           >
-            {{ t('channelRemote') }} ·
-            {{ service.remoteChannel.value?.available ? t('available') : t('unavailable') }}
+            {{ t('channelRemote') }} · {{ remoteChannelState.label }}
           </span>
-          <button type="button" class="speech-btn" data-testid="speech-refresh" @click="service.loadAll">
+          <button
+            type="button"
+            class="speech-btn"
+            :disabled="service.loading.value"
+            data-testid="speech-refresh"
+            @click="service.loadAll"
+          >
             {{ t('refresh') }}
           </button>
         </div>
       </header>
 
-      <p v-if="service.loading.value" class="speech-muted" role="status">{{ t('loading') }}</p>
-      <p v-if="service.error.value" class="speech-alert" role="alert">
+      <p v-if="service.loading.value" class="speech-muted speech-loading" role="status">
+        <progress class="speech-spinner" :aria-label="t('loading')"></progress>
+        <span>{{ t('loading') }}</span>
+      </p>
+      <p v-if="service.error.value" class="speech-alert" role="alert" data-testid="speech-error">
         {{ t('error') }}: {{ service.error.value }}
       </p>
 
-      <form class="flex flex-col gap-4" aria-labelledby="speech-title" @submit.prevent="service.save">
+      <form class="flex flex-col gap-4" aria-labelledby="speech-title" @submit.prevent="onSubmit">
         <section class="speech-card" data-testid="speech-settings">
           <h2>{{ t('mode') }}</h2>
           <fieldset class="mt-2 border-0 p-0">
-            <legend class="speech-muted mb-2">{{ t('mode') }}</legend>
+            <legend class="sr-only">{{ t('mode') }}</legend>
             <div class="speech-radio-row">
               <label v-for="mode in modes" :key="mode.value" class="speech-choice" :for="`mode-${mode.value}`">
                 <input
@@ -230,7 +271,10 @@ onMounted(() => {
                     </button>
                   </div>
                 </div>
-                <p v-if="!service.models.value.length" class="speech-muted">{{ t('loading') }}</p>
+                <p v-if="service.loading.value" class="speech-muted">{{ t('loading') }}</p>
+                <p v-else-if="!service.models.value.length" class="speech-muted">
+                  {{ t('noModels') }}
+                </p>
               </div>
               <template v-for="model in service.models.value" :key="`progress-${model.id}`">
                 <div v-if="model.downloading || service.modelStatuses[model.id]" class="mt-1">
@@ -286,14 +330,23 @@ onMounted(() => {
                 id="speech-endpoint"
                 v-model="service.form.endpoint"
                 class="speech-input"
+                :class="{ 'speech-invalid': !!endpointErrorText }"
                 type="url"
                 inputmode="url"
                 autocomplete="off"
                 spellcheck="false"
-                :aria-describedby="'speech-endpoint-hint'"
+                :aria-invalid="endpointErrorText ? 'true' : 'false'"
+                :aria-describedby="
+                  endpointErrorText
+                    ? 'speech-endpoint-hint speech-endpoint-error'
+                    : 'speech-endpoint-hint'
+                "
                 data-testid="speech-endpoint"
               />
               <span id="speech-endpoint-hint" class="speech-muted">{{ t('endpointHint') }}</span>
+              <span v-if="endpointErrorText" id="speech-endpoint-error" class="speech-field-error">
+                {{ endpointErrorText }}
+              </span>
             </div>
 
             <div class="speech-field">
@@ -315,16 +368,25 @@ onMounted(() => {
                 id="speech-api-key"
                 v-model="service.form.apiKey"
                 class="speech-input"
+                :class="{ 'speech-invalid': !!apiKeyErrorText }"
                 type="password"
                 autocomplete="off"
                 spellcheck="false"
                 autocapitalize="none"
                 autocorrect="off"
                 :placeholder="service.hasKey.value ? t('apiKeySet') : ''"
-                :aria-describedby="'speech-api-key-hint'"
+                :aria-invalid="apiKeyErrorText ? 'true' : 'false'"
+                :aria-describedby="
+                  apiKeyErrorText
+                    ? 'speech-api-key-hint speech-api-key-error'
+                    : 'speech-api-key-hint'
+                "
                 data-testid="speech-api-key"
               />
               <span id="speech-api-key-hint" class="speech-muted">{{ t('apiKeyHint') }}</span>
+              <span v-if="apiKeyErrorText" id="speech-api-key-error" class="speech-field-error">
+                {{ apiKeyErrorText }}
+              </span>
               <button
                 v-if="service.hasKey.value"
                 type="button"
@@ -341,10 +403,13 @@ onMounted(() => {
 
         <div class="flex flex-wrap items-center gap-3">
           <button type="submit" class="speech-btn speech-btn-primary" :disabled="service.busy.value" data-testid="speech-save">
-            {{ t('save') }}
+            {{ service.busy.value ? t('saving') : t('save') }}
           </button>
-          <span v-if="formMessage" class="speech-ok" role="status" data-testid="speech-save-status">
-            {{ formMessage }}
+          <p v-if="formErrorText" class="speech-field-error speech-form-error" role="alert" data-testid="speech-form-error">
+            {{ formErrorText }}
+          </p>
+          <span v-else-if="savedText" class="speech-ok" role="status" data-testid="speech-save-status">
+            {{ savedText }}
           </span>
         </div>
       </form>
@@ -418,21 +483,65 @@ onMounted(() => {
           </button>
         </div>
         <p class="speech-muted">{{ t('recordsHint') }}</p>
-        <div v-if="service.records.value.length" class="speech-records mt-2 overflow-x-auto">
-          <div class="speech-record speech-muted">
-            <span>time</span><span>channel</span><span>model</span><span>bytes</span><span>chars</span><span>elapsed</span>
-          </div>
-          <div v-for="record in service.records.value" :key="record.id" class="speech-record">
-            <span>{{ recordTime(record.createdAt) }}</span>
-            <span>{{ channelLabel(record.channel) }}</span>
-            <span class="truncate" :title="record.modelId">{{ record.modelId }}</span>
-            <span>{{ formatBytes(record.audioBytes) }}</span>
-            <span>{{ record.textChars }}</span>
-            <span :class="record.errorKind ? 'speech-record-error' : ''">
-              {{ (record.elapsedMs / 1000).toFixed(1) }} {{ t('seconds') }}
-              <template v-if="record.errorKind"> · {{ recordError(record) }}</template>
-            </span>
-          </div>
+        <div
+          v-if="service.records.value.length"
+          class="speech-records-wrap mt-2"
+          tabindex="0"
+          role="region"
+          :aria-label="t('records')"
+        >
+          <table class="speech-records">
+            <caption class="sr-only">{{ t('records') }}</caption>
+            <thead>
+              <tr>
+                <th scope="col">{{ t('recordTime') }}</th>
+                <th scope="col">{{ t('recordChannel') }}</th>
+                <th scope="col">{{ t('recordModel') }}</th>
+                <th scope="col">{{ t('recordBytes') }}</th>
+                <th scope="col">{{ t('recordChars') }}</th>
+                <th scope="col">{{ t('recordElapsed') }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="record in service.records.value" :key="record.id">
+                <td>
+                  <span class="speech-cell-label">{{ t('recordTime') }}</span>
+                  <span class="speech-cell-value">{{ recordTime(record.createdAt) }}</span>
+                </td>
+                <td>
+                  <span class="speech-cell-label">{{ t('recordChannel') }}</span>
+                  <span class="speech-cell-value">{{ channelLabel(record.channel) }}</span>
+                </td>
+                <td>
+                  <span class="speech-cell-label">{{ t('recordModel') }}</span>
+                  <span class="speech-cell-value speech-record-model" :title="record.modelId">
+                    {{ record.modelId }}
+                  </span>
+                </td>
+                <td>
+                  <span class="speech-cell-label">{{ t('recordBytes') }}</span>
+                  <span class="speech-cell-value">{{ formatBytes(record.audioBytes) }}</span>
+                </td>
+                <td>
+                  <span class="speech-cell-label">{{ t('recordChars') }}</span>
+                  <span class="speech-cell-value">{{ record.textChars }}</span>
+                </td>
+                <td :class="record.errorKind ? 'speech-record-error' : ''">
+                  <span class="speech-cell-label">{{ t('recordElapsed') }}</span>
+                  <span class="speech-cell-value">
+                    {{ (record.elapsedMs / 1000).toFixed(1) }} {{ t('seconds') }}
+                    <span
+                      v-if="record.errorKind"
+                      class="speech-record-error-kind"
+                      :title="recordError(record)"
+                    >
+                      {{ recordError(record) }}
+                    </span>
+                  </span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </div>
         <p v-else class="speech-muted mt-2">{{ t('emptyRecords') }}</p>
       </section>
