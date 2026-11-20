@@ -12,6 +12,13 @@ export type MessageSchema = {
   refresh: string
   'error.body': string
 
+  // ==================== 概览 ====================
+  'overview.relay': string
+  'overview.wan': string
+  'overview.probe': string
+  'overview.notTested': string
+  'overview.emptyHint': string
+
   // ==================== 当前配置 ====================
   'relay.state.configured': string
   'relay.state.empty': string

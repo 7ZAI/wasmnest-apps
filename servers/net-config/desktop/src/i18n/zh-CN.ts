@@ -7,6 +7,13 @@ const zhCN: MessageSchema = {
   refresh: '刷新',
   'error.body': '读取失败：{message}',
 
+  'overview.relay': '中继配置',
+  'overview.wan': '外网业务',
+  'overview.probe': '连通性',
+  'overview.notTested': '未检测',
+  'overview.emptyHint':
+    '还没有导入中继地址。先在「生成部署命令」里搭好中继，再把 print-addrs 的输出粘贴到「导入 relay 地址」。',
+
   'relay.state.configured': '已配置 {count} 个地址',
   'relay.state.empty': '尚未导入中转地址',
   'relay.current.title': '当前中转配置',

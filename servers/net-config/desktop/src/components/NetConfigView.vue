@@ -193,6 +193,13 @@ const configuredButWanOff = computed(
   () => relay.config.value !== null && allowedWanCount.value === 0,
 )
 
+/** 概览条的连通性摘要：探测结果优先，其次是失败原因，最后诚实显示未检测 */
+const overviewProbe = computed(() => {
+  if (probe.report.value) return probeRtt.value
+  if (probe.failure.value) return t(probe.failure.value.key)
+  return t('overview.notTested')
+})
+
 // ==================== 展示派生 ====================
 
 const accessLabel = computed(() => {
@@ -244,17 +251,54 @@ onMounted(async () => {
           <h1 class="nc-title">{{ t('title') }}</h1>
           <p class="nc-sub">{{ t('subtitle') }}</p>
         </div>
-        <button class="nc-btn nc-refresh" :disabled="relay.busy.value" data-testid="net-config-refresh" @click="relay.load(); loadWan()">
+        <button
+          class="nc-btn nc-refresh"
+          :disabled="relay.busy.value"
+          :aria-busy="relay.busy.value"
+          data-testid="net-config-refresh"
+          @click="relay.load(); loadWan()"
+        >
           {{ t('refresh') }}
         </button>
       </div>
     </header>
 
     <main class="nc-wrap nc-main">
+      <!-- 概览：一屏看清中继 / 外网业务 / 连通性 -->
+      <section class="nc-overview" :aria-label="t('title')" data-testid="net-config-overview">
+        <div class="nc-stat">
+          <span class="nc-stat-label">{{ t('overview.relay') }}</span>
+          <span class="nc-stat-value" :class="relay.config.value ? 'is-ok' : 'is-muted'">
+            {{
+              relay.config.value
+                ? t('relay.state.configured', { count: relay.config.value.relayAddrs.length })
+                : t('relay.state.empty')
+            }}
+          </span>
+        </div>
+        <div class="nc-stat">
+          <span class="nc-stat-label">{{ t('overview.wan') }}</span>
+          <span class="nc-stat-value nc-stat-num">
+            {{ allowedWanCount }} / {{ wan.rows.value.length }}
+          </span>
+        </div>
+        <div class="nc-stat">
+          <span class="nc-stat-label">{{ t('overview.probe') }}</span>
+          <span class="nc-stat-value" :class="probe.failure.value ? 'is-bad' : ''">
+            {{ overviewProbe }}
+          </span>
+        </div>
+      </section>
+
+      <div class="nc-columns">
+        <div class="nc-column">
       <!-- 当前配置 -->
       <section class="nc-card" data-testid="net-config-current-card">
         <div class="nc-card-head">
-          <h2 class="nc-h2">{{ t('relay.current.title') }}</h2>
+          <div class="nc-card-title">
+            <span class="nc-step" aria-hidden="true">01</span>
+            <h2 class="nc-h2">{{ t('relay.current.title') }}</h2>
+          </div>
           <span
             v-if="relay.config.value"
             data-testid="net-config-state-configured"
@@ -269,7 +313,7 @@ onMounted(async () => {
           >
             {{ t('relay.state.empty') }}
           </span>
-          <span v-if="clearOk" class="nc-ok" data-testid="net-config-relay-cleared">
+          <span v-if="clearOk" class="nc-ok" role="status" data-testid="net-config-relay-cleared">
             {{ t('relay.import.cleared') }}
           </span>
         </div>
@@ -278,6 +322,21 @@ onMounted(async () => {
           {{ t('relay.import.loadFailed') }}
           <code class="nc-mono nc-break">{{ relay.loadError.value }}</code>
         </p>
+
+        <div
+          v-if="relay.loaded.value && !relay.config.value && !relay.loadError.value"
+          class="nc-empty"
+          data-testid="net-config-current-empty"
+        >
+          <span class="nc-empty-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="3" />
+              <path d="M12 2v3m0 14v3M2 12h3m14 0h3M4.9 4.9l2.1 2.1m10 10 2.1 2.1M19.1 4.9 17 7M7 17l-2.1 2.1" />
+            </svg>
+          </span>
+          <p class="nc-empty-title">{{ t('relay.state.empty') }}</p>
+          <p class="nc-empty-hint">{{ t('overview.emptyHint') }}</p>
+        </div>
 
         <div v-if="relay.config.value" class="nc-meta" data-testid="net-config-current">
           <div>
@@ -348,17 +407,27 @@ onMounted(async () => {
         @toggle="toggleWan"
       />
 
-      <p
-        v-if="configuredButWanOff"
-        class="nc-note"
-        data-testid="net-config-wan-off-hint"
-      >
-        {{ t('wan.noneAllowed') }}
-      </p>
+        <p
+          v-if="configuredButWanOff"
+          class="nc-note"
+          data-testid="net-config-wan-off-hint"
+        >
+          {{ t('wan.noneAllowed') }}
+        </p>
+        </div>
 
+        <div class="nc-column">
       <!-- 部署文本 -->
       <section class="nc-card" data-testid="net-config-deploy">
-        <h2 class="nc-h2">{{ t('relay.deploy.title') }}</h2>
+        <details class="nc-disclosure" open>
+          <summary class="nc-disclosure-summary">
+            <span class="nc-step" aria-hidden="true">03</span>
+            <span class="nc-disclosure-title">{{ t('relay.deploy.title') }}</span>
+            <svg class="nc-chevron" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="m6 9 6 6 6-6" />
+            </svg>
+          </summary>
+          <div class="nc-disclosure-body">
         <p class="nc-hint">{{ t('relay.deploy.desc') }}</p>
 
         <div class="nc-grid">
@@ -430,7 +499,7 @@ onMounted(async () => {
             >
               {{ t('relay.deploy.download') }}
             </button>
-            <span v-if="copyState === 'ok'" class="nc-ok" data-testid="net-config-deploy-copied">
+            <span v-if="copyState === 'ok'" class="nc-ok" role="status" data-testid="net-config-deploy-copied">
               {{ t('relay.deploy.copied') }}
             </span>
             <span
@@ -452,11 +521,21 @@ onMounted(async () => {
 
         <p class="nc-hint">{{ t('relay.deploy.imageHint', { repo: RELAY_IMAGE_REPO }) }}</p>
         <p class="nc-hint">{{ t('relay.deploy.noCreds') }}</p>
+          </div>
+        </details>
       </section>
 
       <!-- 导入 -->
       <section class="nc-card" data-testid="net-config-import">
-        <h2 class="nc-h2">{{ t('relay.import.title') }}</h2>
+        <details class="nc-disclosure" open>
+          <summary class="nc-disclosure-summary">
+            <span class="nc-step" aria-hidden="true">04</span>
+            <span class="nc-disclosure-title">{{ t('relay.import.title') }}</span>
+            <svg class="nc-chevron" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="m6 9 6 6 6-6" />
+            </svg>
+          </summary>
+          <div class="nc-disclosure-body">
         <p class="nc-hint">{{ t('relay.import.desc') }}</p>
 
         <textarea
@@ -476,7 +555,7 @@ onMounted(async () => {
           >
             {{ t('relay.import.submit') }}
           </button>
-          <span v-if="importOk" class="nc-ok" data-testid="net-config-import-ok">
+          <span v-if="importOk" class="nc-ok" role="status" data-testid="net-config-import-ok">
             {{ t('relay.import.success') }}
           </span>
         </div>
@@ -485,11 +564,21 @@ onMounted(async () => {
           {{ t(importError.key) }}
           <code v-if="importError.detail" class="nc-mono nc-break nc-block">{{ importError.detail }}</code>
         </p>
+          </div>
+        </details>
       </section>
 
-      <!-- 连通性探测（T19：只读，只测已保存地址；宿主未装配时不伪造可用） -->
+      <!-- 连通性探测（只读，只测已保存地址；宿主未装配时不伪造可用） -->
       <section class="nc-card" data-testid="net-config-probe">
-        <h2 class="nc-h2">{{ t('relay.probe.title') }}</h2>
+        <details class="nc-disclosure" open>
+          <summary class="nc-disclosure-summary">
+            <span class="nc-step" aria-hidden="true">05</span>
+            <span class="nc-disclosure-title">{{ t('relay.probe.title') }}</span>
+            <svg class="nc-chevron" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="m6 9 6 6 6-6" />
+            </svg>
+          </summary>
+          <div class="nc-disclosure-body">
         <p class="nc-hint">{{ t('relay.probe.desc') }}</p>
 
         <div class="nc-actions">
@@ -501,7 +590,7 @@ onMounted(async () => {
           >
             {{ probe.running.value ? t('relay.probe.running') : t('relay.probe.action') }}
           </button>
-          <span v-if="probe.report.value" class="nc-ok" data-testid="net-config-probe-ok">
+          <span v-if="probe.report.value" class="nc-ok" role="status" data-testid="net-config-probe-ok">
             {{ t('relay.probe.ok') }}
           </span>
         </div>
@@ -550,7 +639,11 @@ onMounted(async () => {
         </p>
         <pre class="nc-pre" data-testid="net-config-probe-doctor">{{ doctorCommand }}</pre>
         <p class="nc-hint">{{ t('relay.probe.publicHint') }}</p>
+          </div>
+        </details>
       </section>
+        </div>
+      </div>
     </main>
   </div>
 </template>

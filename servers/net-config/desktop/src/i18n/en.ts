@@ -8,6 +8,13 @@ const en: MessageSchema = {
   refresh: 'Refresh',
   'error.body': 'Failed to read: {message}',
 
+  'overview.relay': 'Relay',
+  'overview.wan': 'WAN apps',
+  'overview.probe': 'Connectivity',
+  'overview.notTested': 'Not tested',
+  'overview.emptyHint':
+    'No relay address yet. Set one up under “Generate deploy command”, then paste the print-addrs output into “Import relay address”.',
+
   'relay.state.configured': '{count} address(es) configured',
   'relay.state.empty': 'No relay address imported yet',
   'relay.current.title': 'Current relay configuration',

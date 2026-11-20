@@ -34,7 +34,10 @@ function toggle(row: WanPolicyRow): void {
 <template>
   <section class="nc-card" data-testid="net-config-wan">
     <div class="nc-card-head">
-      <h2 class="nc-h2">{{ t('wan.title') }}</h2>
+      <div class="nc-card-title">
+        <span class="nc-step" aria-hidden="true">02</span>
+        <h2 class="nc-h2">{{ t('wan.title') }}</h2>
+      </div>
       <span class="nc-tag" data-testid="net-config-wan-count">
         {{ allowedCount }} / {{ rows.length }}
       </span>
@@ -66,11 +69,12 @@ function toggle(row: WanPolicyRow): void {
 
         <div class="nc-row-meta">
           <span
-            class="nc-tag"
+            class="nc-tag nc-tag-dot"
             :class="effectiveAllowWan(row.entry) ? 'is-ok' : 'is-muted'"
             :data-testid="`net-config-wan-state-${row.pluginId}`"
             :data-allowed="effectiveAllowWan(row.entry) ? 'true' : 'false'"
           >
+            <span class="nc-dot" aria-hidden="true"></span>
             {{ effectiveAllowWan(row.entry) ? t('wan.state.allowed') : t('wan.state.blocked') }}
           </span>
           <span
