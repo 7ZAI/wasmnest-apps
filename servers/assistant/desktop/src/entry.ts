@@ -15,6 +15,7 @@ import { listen } from '@tauri-apps/api/event'
 import ChatView from '@nest-shared/components/ChatView.vue'
 import type { AppInvokeBridge } from '@nest-shared/types'
 import i18n, { MESSAGE_NAMESPACE } from './i18n'
+import { createDesktopPrefs } from './prefs'
 import './style.css'
 
 // ==================== 挂载契约（宿主 useAppMount 同形声明） ====================
@@ -107,6 +108,8 @@ export async function mountApp(root: HTMLElement, env: AppMountEnv): Promise<App
     t: (key: string) => i18n.global.t(`${MESSAGE_NAMESPACE}.${key}`),
     lang: env.locale === 'en' ? 'en' : 'zh-CN',
     apps: env.apps ?? null,
+    interactiveFloat: true,
+    prefs: createDesktopPrefs(env),
   })
   app.use(i18n)
   app.mount(root)

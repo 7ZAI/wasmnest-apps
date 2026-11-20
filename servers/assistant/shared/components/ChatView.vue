@@ -22,7 +22,16 @@ import FirstRunNotice from './FirstRunNotice.vue'
 import MemoryView from './MemoryView.vue'
 import ToolCards from './ToolCards.vue'
 import AuditView from './AuditView.vue'
+import FloatBall from './FloatBall.vue'
+import QuickPanel from './QuickPanel.vue'
 import { ChatPreconditionError, NestChatSession } from '../chat/session'
+import { deriveMascotState } from '../ui/mascot-state'
+import {
+  clampFloatPosition,
+  resolveDefaultFloatPosition,
+  type FloatContainer,
+} from '../ui/float-position'
+import type { NestPrefsAdapter, NestViewMode } from '../ui/prefs'
 import { NONCE_BYTES, randomHex, vaultLock, vaultStatus } from '../vault'
 import {
   ASSISTANT_PROVIDERS_DELETE_COMMAND,
@@ -52,11 +61,105 @@ const props = defineProps<{
   kdfParams?: { m?: number; t?: number; p?: number }
   /** 应用调用桥（宿主按 apps:control 注入；未注入 = 无应用工具能力） */
   apps?: AppInvokeBridge | null
+  /**
+   * 是否启用浮球 / 小窗形态。桌面入口传 true，移动端不传（保持整页）。
+   */
+  interactiveFloat?: boolean
+  /** 界面偏好适配器；缺省时不持久化形态与浮球位置 */
+  prefs?: NestPrefsAdapter
 }>()
 
 const vaultReady = ref(false)
 const vaultChecking = ref(false)
 const showSettings = ref(false)
+/** 窄窗口下的侧栏抽屉开关；宽窗口由样式强制常驻 */
+const sidebarOpen = ref(false)
+
+const FLOAT_SIZE = 52
+const rootRef = ref<HTMLElement | null>(null)
+/** 整页 / 浮球小窗两种形态共用同一个会话实例 */
+const viewMode = ref<NestViewMode>('full')
+const panelOpen = ref(false)
+const floatPos = ref({ x: 0, y: 0 })
+const motionEnabled = ref(true)
+let prefsTimer: ReturnType<typeof setTimeout> | null = null
+
+function containerBox(): FloatContainer {
+  const element = rootRef.value
+  return { width: element?.clientWidth ?? 1024, height: element?.clientHeight ?? 700 }
+}
+
+function applyFloatPosition(next: { x: number; y: number }): void {
+  floatPos.value = clampFloatPosition(next, containerBox(), {
+    width: FLOAT_SIZE,
+    height: FLOAT_SIZE,
+  })
+}
+
+function persistPreferences(delay = 0): void {
+  const adapter = props.prefs
+  if (!adapter) return
+  if (prefsTimer) clearTimeout(prefsTimer)
+  prefsTimer = setTimeout(() => {
+    void adapter
+      .write({
+        viewMode: viewMode.value,
+        panelOpen: panelOpen.value,
+        float: floatPos.value,
+        motionEnabled: motionEnabled.value,
+      })
+      .catch((error) => console.warn('[nest] 界面偏好写入失败：', error))
+  }, delay)
+}
+
+async function loadPreferences(): Promise<void> {
+  applyFloatPosition(
+    resolveDefaultFloatPosition(containerBox(), { width: FLOAT_SIZE, height: FLOAT_SIZE }),
+  )
+  if (!props.interactiveFloat || !props.prefs) return
+  try {
+    const saved = await props.prefs.read()
+    if (!saved) return
+    viewMode.value = saved.viewMode === 'panel' ? 'panel' : 'full'
+    motionEnabled.value = saved.motionEnabled ?? true
+    panelOpen.value = saved.panelOpen ?? false
+    if (saved.float) applyFloatPosition(saved.float)
+  } catch (error) {
+    console.warn('[nest] 界面偏好读取失败，使用整页形态：', error)
+  }
+}
+
+function collapseToFloat(): void {
+  viewMode.value = 'panel'
+  panelOpen.value = false
+  persistPreferences()
+}
+
+function expandToFull(): void {
+  viewMode.value = 'full'
+  panelOpen.value = false
+  persistPreferences()
+}
+
+function toggleFloat(): void {
+  viewMode.value = 'panel'
+  panelOpen.value = !panelOpen.value
+  persistPreferences()
+}
+
+function closePanel(): void {
+  panelOpen.value = false
+  persistPreferences()
+}
+
+function moveFloat(x: number, y: number): void {
+  applyFloatPosition({ x, y })
+  persistPreferences(200)
+}
+
+function onViewportResize(): void {
+  applyFloatPosition(floatPos.value)
+}
 const composerError = ref('')
 const providers = ref<ProviderRecord[]>([])
 const keySet = ref<Record<string, boolean>>({})
@@ -88,6 +191,17 @@ const streaming = computed(() => {
 const messages = computed(() => {
   void sessionEpoch.value
   return session?.messages ?? []
+})
+
+/** 形象状态只从界面已有状态派生，不新增后端字段 */
+const mascotState = computed(() => {
+  void sessionEpoch.value
+  return deriveMascotState({
+    locked: !vaultReady.value,
+    error: composerError.value || undefined,
+    toolStates: (session?.toolCards ?? []).map((card) => card.state),
+    streaming: streaming.value,
+  })
 })
 
 /** 保险库门检查：已建库且已解锁才进对话 */
@@ -276,6 +390,7 @@ async function onOpenConversation(id: string): Promise<void> {
   try {
     await session.openConversation(id)
     syncConversations()
+    sidebarOpen.value = false
   } catch (e) {
     composerError.value = e instanceof Error ? e.message : String(e)
   }
@@ -288,6 +403,7 @@ async function onNewConversation(): Promise<void> {
     const id = await session.createConversation('task', props.t('assistant.chat.taskTitle'))
     await session.openConversation(id)
     syncConversations()
+    sidebarOpen.value = false
   } catch (e) {
     composerError.value = e instanceof Error ? e.message : String(e)
   }
@@ -453,23 +569,43 @@ function onUserActivity(): void {
 
 onMounted(() => {
   void checkVault()
+  void loadPreferences()
+  window.addEventListener('resize', onViewportResize)
   for (const evt of IDLE_EVENTS) window.addEventListener(evt, onUserActivity, { capture: true })
 })
 
 onBeforeUnmount(() => {
   clearIdleTimer()
+  if (prefsTimer) clearTimeout(prefsTimer)
+  window.removeEventListener('resize', onViewportResize)
   for (const evt of IDLE_EVENTS) window.removeEventListener(evt, onUserActivity, { capture: true })
   disposeSession()
 })
 </script>
 
 <template>
-  <div class="nest-chat">
+  <div ref="rootRef" class="nest-chat nest-app">
     <!-- 保险库门：未建库 / 未解锁先走 VaultView（票 07） -->
     <VaultView v-if="!vaultReady" :invoke="invoke" :t="t" :kdf-params="kdfParams" @changed="checkVault" />
 
-    <template v-else>
+    <template v-else-if="viewMode === 'full'">
       <div class="nest-chat__body" data-testid="nest-chat">
+        <button
+          type="button"
+          class="nest-chat__sidebar-toggle"
+          data-testid="nest-sidebar-toggle"
+          :aria-label="t('assistant.chat.toggleSidebar')"
+          :aria-expanded="sidebarOpen"
+          @click="sidebarOpen = !sidebarOpen"
+        >
+          ☰
+        </button>
+        <div
+          v-if="sidebarOpen"
+          class="nest-chat__scrim"
+          data-testid="nest-sidebar-scrim"
+          @click="sidebarOpen = false"
+        ></div>
         <!-- 记忆管理页（票 12）：覆盖式浮层，关闭回对话 -->
         <MemoryView
           v-if="showMemory"
@@ -484,7 +620,12 @@ onBeforeUnmount(() => {
           @close="showAudit = false"
         />
         <!-- 会话列表侧栏 -->
-        <aside v-if="!showSettings" class="nest-chat__sidebar" data-testid="nest-sidebar">
+        <aside
+          v-if="!showSettings"
+          class="nest-chat__sidebar"
+          :class="{ 'nest-chat__sidebar--open': sidebarOpen }"
+          data-testid="nest-sidebar"
+        >
           <button type="button" class="nest-chat__new" data-testid="nest-new-conversation" @click="onNewConversation">
             + {{ t('assistant.chat.newTask') }}
           </button>
@@ -583,6 +724,15 @@ onBeforeUnmount(() => {
           >
             📋 {{ t('assistant.audit.title') }}
           </button>
+          <button
+            v-if="interactiveFloat"
+            type="button"
+            class="nest-chat__settings-btn"
+            data-testid="nest-collapse-to-float"
+            @click="collapseToFloat"
+          >
+            ◱ {{ t('assistant.float.collapse') }}
+          </button>
         </aside>
 
         <!-- 主区：消息流 + 工具卡片 + 输入区 -->
@@ -594,7 +744,13 @@ onBeforeUnmount(() => {
             :dismiss-label="t('assistant.notice.dismiss')"
             @dismiss="dismissFirstRunNotice"
           />
-          <MessageList :messages="messages" :streaming="streaming" :t="t" @retry="onRetry" />
+          <MessageList
+            :messages="messages"
+            :streaming="streaming"
+            :mascot-state="mascotState"
+            :t="t"
+            @retry="onRetry"
+          />
           <!-- 票 14：提取失败提示（不静默） -->
           <div
             v-if="session?.memoryNotice"
@@ -648,6 +804,36 @@ onBeforeUnmount(() => {
         />
       </div>
     </template>
+
+    <QuickPanel
+      v-if="interactiveFloat && panelOpen && viewMode === 'panel'"
+      :messages="messages"
+      :streaming="streaming"
+      :mascot-state="mascotState"
+      :locked="!vaultReady"
+      :busy="vaultChecking"
+      :error-message="composerError"
+      :motion-enabled="motionEnabled"
+      :t="t"
+      @close="closePanel"
+      @expand="expandToFull"
+      @send="onSend"
+      @stop="onStop"
+      @stop-and-lock="onStopAndLock"
+      @retry="onRetry"
+    />
+    <FloatBall
+      v-if="interactiveFloat && (viewMode === 'panel' || !vaultReady)"
+      :state="mascotState"
+      :x="floatPos.x"
+      :y="floatPos.y"
+      :expanded="panelOpen"
+      :motion-enabled="motionEnabled"
+      :size="FLOAT_SIZE"
+      :label="t('assistant.float.open')"
+      @toggle="toggleFloat"
+      @move="moveFloat"
+    />
   </div>
 </template>
 
@@ -656,8 +842,8 @@ onBeforeUnmount(() => {
   height: 100%;
   display: flex;
   flex-direction: column;
-  background: var(--nest-surface, #232833);
-  color: var(--nest-text, #e8eaf0);
+  background: var(--nest-surface);
+  color: var(--nest-text);
 }
 
 .nest-chat__body {
@@ -670,7 +856,8 @@ onBeforeUnmount(() => {
 .nest-chat__sidebar {
   width: 220px;
   flex-shrink: 0;
-  border-right: 1px solid var(--nest-border, #3a4150);
+  border-right: 1px solid var(--nest-border);
+  background: var(--nest-sidebar);
   padding: 12px;
   display: flex;
   flex-direction: column;
@@ -678,14 +865,27 @@ onBeforeUnmount(() => {
   overflow-y: auto;
 }
 
+.nest-chat__sidebar-toggle {
+  display: none;
+}
+
+.nest-chat__scrim {
+  display: none;
+}
+
 .nest-chat__new {
-  border: 1px solid var(--nest-accent, #4f7cff);
-  background: transparent;
-  color: var(--nest-accent, #4f7cff);
-  border-radius: 10px;
-  padding: 8px 10px;
-  font-size: 13px;
+  border: none;
+  background: var(--nest-primary);
+  color: var(--nest-on-primary);
+  border-radius: var(--nest-radius-ctl);
+  padding: 9px 12px;
+  font-size: var(--nest-font-md);
+  font-weight: 600;
   cursor: pointer;
+}
+
+.nest-chat__new:hover {
+  filter: brightness(1.08);
 }
 
 .nest-chat__conversations {
@@ -703,7 +903,7 @@ onBeforeUnmount(() => {
   border-radius: 8px;
   font-size: 13px;
   cursor: pointer;
-  color: var(--nest-text, #e8eaf0);
+  color: var(--nest-text);
   display: flex;
   align-items: center;
   gap: 6px;
@@ -730,7 +930,7 @@ onBeforeUnmount(() => {
 .nest-chat__action {
   border: none;
   background: none;
-  color: var(--nest-muted, #8a8f98);
+  color: var(--nest-muted);
   font-size: 12px;
   cursor: pointer;
   padding: 2px 4px;
@@ -739,17 +939,17 @@ onBeforeUnmount(() => {
 }
 
 .nest-chat__action:hover {
-  background: var(--nest-surface-2, #2a2f3a);
-  color: var(--nest-text, #e8eaf0);
+  background: var(--nest-surface-2);
+  color: var(--nest-text);
 }
 
 .nest-chat__rename-input {
   flex: 1;
   min-width: 0;
-  background: var(--nest-surface-2, #2a2f3a);
-  border: 1px solid var(--nest-accent, #4f7cff);
+  background: var(--nest-surface-2);
+  border: 1px solid var(--nest-accent);
   border-radius: 6px;
-  color: var(--nest-text, #e8eaf0);
+  color: var(--nest-text);
   font-size: 13px;
   padding: 4px 6px;
 }
@@ -757,7 +957,7 @@ onBeforeUnmount(() => {
 .nest-chat__archived-toggle {
   border: none;
   background: none;
-  color: var(--nest-muted, #8a8f98);
+  color: var(--nest-muted);
   font-size: 12px;
   cursor: pointer;
   text-align: left;
@@ -780,25 +980,38 @@ onBeforeUnmount(() => {
   padding: 6px 8px;
   border-radius: 6px;
   font-size: 12px;
-  color: var(--nest-muted, #8a8f98);
+  color: var(--nest-muted);
 }
 
 .nest-chat__conversation:hover {
-  background: var(--nest-surface-2, #2a2f3a);
+  background: var(--nest-surface-2);
 }
 
 .nest-chat__conversation--active {
-  background: var(--nest-surface-2, #2a2f3a);
-  border: 1px solid var(--nest-accent, #4f7cff);
+  background: var(--nest-primary-soft);
+  box-shadow: inset 2px 0 0 var(--nest-accent);
+  color: var(--nest-text);
 }
 
 .nest-chat__settings-btn {
   border: none;
   background: none;
-  color: var(--nest-muted, #8a8f98);
-  font-size: 13px;
+  color: var(--nest-muted);
+  font-size: var(--nest-font-md);
   cursor: pointer;
   text-align: left;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: var(--nest-radius-ctl);
+}
+
+.nest-chat__settings-btn:hover,
+.nest-chat__settings-btn:focus-visible {
+  background: var(--nest-surface-2);
+  color: var(--nest-text);
 }
 
 .nest-chat__main {
@@ -820,16 +1033,16 @@ onBeforeUnmount(() => {
 
 .nest-inject {
   margin: 8px 16px 0;
-  border: 1px solid var(--nest-border, #3a4150);
+  border: 1px solid var(--nest-border);
   border-radius: 8px;
-  background: var(--nest-surface-2, #2a2f3a);
+  background: var(--nest-surface-2);
   font-size: 12px;
 }
 
 .nest-inject summary {
   cursor: pointer;
   padding: 8px 12px;
-  color: var(--nest-muted, #8a8f98);
+  color: var(--nest-muted);
 }
 
 .nest-inject__list {
@@ -842,12 +1055,54 @@ onBeforeUnmount(() => {
 }
 
 .nest-inject__item {
-  color: var(--nest-text, #e8eaf0);
+  color: var(--nest-text);
   word-break: break-word;
 }
 
 .nest-inject__hint {
   margin: 6px 12px 10px;
-  color: var(--nest-muted, #6b7280);
+  color: var(--nest-muted);
+}
+@media (max-width: 760px) {
+  .nest-chat__sidebar {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    z-index: 30;
+    width: 260px;
+    transform: translateX(-100%);
+    transition: transform var(--nest-motion-base) ease;
+  }
+
+  .nest-chat__sidebar--open {
+    transform: translateX(0);
+    box-shadow: var(--nest-shadow-1);
+  }
+
+  .nest-chat__sidebar-toggle {
+    display: inline-flex;
+    position: absolute;
+    left: 12px;
+    top: 12px;
+    z-index: 31;
+    width: 36px;
+    height: 36px;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--nest-border);
+    border-radius: var(--nest-radius-ctl);
+    background: var(--nest-surface);
+    color: var(--nest-text);
+    cursor: pointer;
+  }
+
+  .nest-chat__scrim {
+    display: block;
+    position: absolute;
+    inset: 0;
+    z-index: 20;
+    background: rgba(0, 0, 0, 0.28);
+  }
 }
 </style>

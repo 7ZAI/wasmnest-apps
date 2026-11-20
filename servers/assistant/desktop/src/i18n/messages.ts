@@ -57,6 +57,14 @@ export type MessageSchema = {
   'assistant.chat.stopped': string
   'assistant.chat.newConversation': string
   'assistant.chat.newTask': string,
+  'assistant.chat.toggleSidebar': string,
+  'assistant.float.title': string
+  'assistant.float.open': string
+  'assistant.float.close': string
+  'assistant.float.expand': string
+  'assistant.float.collapse': string
+  'assistant.float.locked': string
+  'assistant.float.unlock': string
   'assistant.chat.taskTitle': string,
   'assistant.chat.defaultCompanion': string,
   'assistant.chat.archived': string,

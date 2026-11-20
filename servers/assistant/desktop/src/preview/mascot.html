@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Nest 形象状态预览</title>
+    <style>
+      html,
+      body,
+      #app {
+        height: 100%;
+        margin: 0;
+      }
+      body {
+        background: var(--bg-page, #f5f4f0);
+        color: var(--text-primary, #26231b);
+        font-family: sans-serif;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 32px;
+        padding: 48px;
+        place-items: center;
+      }
+      .cell {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 12px;
+        padding: 24px;
+        border: 1px solid var(--border, #e4e1d8);
+        border-radius: var(--radius-card, 10px);
+        background: var(--bg-card, #fdfcfa);
+      }
+      .label {
+        font-size: 12px;
+        color: var(--text-secondary, #5e584c);
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="./mascot.ts"></script>
+  </body>
+</html>

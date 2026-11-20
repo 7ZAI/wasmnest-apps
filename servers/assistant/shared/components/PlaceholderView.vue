@@ -88,8 +88,8 @@ onMounted(async () => {
   height: 100%;
   min-height: 0;
   padding: 2rem 1.5rem;
-  background: var(--bg-page, #f6f7f9);
-  color: var(--text-primary, #1f2329);
+  background: var(--nest-bg);
+  color: var(--nest-text);
 }
 
 .nest-placeholder__card {
@@ -99,15 +99,15 @@ onMounted(async () => {
   gap: 0.75rem;
   max-width: 32rem;
   padding: 2.5rem 2rem;
-  border: 1px solid var(--border-secondary, #e5e6eb);
-  border-radius: var(--radius-card, 12px);
-  background: var(--bg-surface, #ffffff);
+  border: 1px solid var(--nest-border);
+  border-radius: var(--nest-radius-card);
+  background: var(--nest-surface);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.04);
   text-align: center;
 }
 
 .nest-placeholder__icon {
-  color: var(--accent-primary, #2f6fed);
+  color: var(--nest-accent);
 }
 
 .nest-placeholder__title {
@@ -128,28 +128,28 @@ onMounted(async () => {
   font-weight: 500;
   padding: 0.25rem 0.75rem;
   border-radius: 999px;
-  background: var(--bg-hover, #f2f3f5);
+  background: var(--nest-surface-2);
 }
 
 .nest-placeholder__state--ok {
-  color: var(--success, #1a7f37);
-  background: var(--success-bg, #e8f5ec);
+  color: var(--nest-ok);
+  background: var(--nest-ok-bg);
 }
 
 .nest-placeholder__state--error {
-  color: var(--danger, #d4380d);
-  background: var(--danger-bg, #fdecea);
+  color: var(--nest-danger-ink);
+  background: var(--nest-danger-bg);
 }
 
 .nest-placeholder__state--running {
-  color: var(--accent-primary, #2f6fed);
-  background: var(--accent-bg, #eaf1fe);
+  color: var(--nest-accent);
+  background: var(--nest-primary-soft);
 }
 
 .nest-placeholder__error {
   margin: 0;
   font-size: 0.8125rem;
-  color: var(--danger, #d4380d);
+  color: var(--nest-danger-ink);
   word-break: break-all;
 }
 

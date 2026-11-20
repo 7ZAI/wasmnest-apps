@@ -48,10 +48,10 @@ function onDismiss(): void {
 .nest-notice {
   margin: 12px 16px 0;
   padding: 12px 14px;
-  border: 1px solid var(--nest-border, #3a4150);
+  border: 1px solid var(--nest-border);
   border-radius: 10px;
-  background: var(--nest-surface-2, #2a2f3a);
-  color: var(--nest-text, #e8eaf0);
+  background: var(--nest-surface-2);
+  color: var(--nest-text);
 }
 
 .nest-notice__head {
@@ -72,7 +72,7 @@ function onDismiss(): void {
   margin: 8px 0 0;
   font-size: 13px;
   line-height: 1.6;
-  color: var(--nest-muted, #aab0bb);
+  color: var(--nest-muted);
 }
 
 .nest-notice__actions {
@@ -82,9 +82,9 @@ function onDismiss(): void {
 }
 
 .nest-notice__dismiss {
-  border: 1px solid var(--nest-accent, #4f7cff);
+  border: 1px solid var(--nest-accent);
   background: transparent;
-  color: var(--nest-accent, #4f7cff);
+  color: var(--nest-accent);
   border-radius: 8px;
   padding: 6px 14px;
   font-size: 13px;
@@ -92,7 +92,7 @@ function onDismiss(): void {
 }
 
 .nest-notice__dismiss:hover {
-  background: var(--nest-accent, #4f7cff);
-  color: var(--nest-surface, #232833);
+  background: var(--nest-accent);
+  color: var(--nest-surface);
 }
 </style>

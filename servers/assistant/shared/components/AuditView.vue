@@ -122,8 +122,8 @@ onMounted(() => {
   z-index: 10;
   overflow-y: auto;
   padding: 16px;
-  background: var(--nest-surface, #232833);
-  color: var(--nest-text, #e8eaf0);
+  background: var(--nest-surface);
+  color: var(--nest-text);
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -143,13 +143,13 @@ onMounted(() => {
 .nest-audit__subtitle {
   margin: 4px 0 0;
   font-size: 12px;
-  color: var(--nest-muted, #8a8f98);
+  color: var(--nest-muted);
 }
 
 .nest-audit__close {
-  border: 1px solid var(--nest-border, #3a4150);
+  border: 1px solid var(--nest-border);
   background: transparent;
-  color: var(--nest-text, #e8eaf0);
+  color: var(--nest-text);
   border-radius: 8px;
   padding: 6px 12px;
   cursor: pointer;
@@ -165,8 +165,8 @@ onMounted(() => {
 }
 
 .nest-audit__notice {
-  border: 1px solid var(--nest-accent, #4f7cff);
-  color: var(--nest-accent, #4f7cff);
+  border: 1px solid var(--nest-accent);
+  color: var(--nest-accent);
   border-radius: 8px;
   padding: 8px 10px;
   font-size: 12px;
@@ -182,10 +182,10 @@ onMounted(() => {
 }
 
 .nest-audit__item {
-  border: 1px solid var(--nest-border, #3a4150);
+  border: 1px solid var(--nest-border);
   border-radius: 8px;
   padding: 8px 10px;
-  background: var(--nest-surface-2, #2a2f3a);
+  background: var(--nest-surface-2);
   font-size: 12px;
 }
 
@@ -202,7 +202,7 @@ onMounted(() => {
 
 .nest-audit__app,
 .nest-audit__time {
-  color: var(--nest-muted, #8a8f98);
+  color: var(--nest-muted);
 }
 
 .nest-audit__decision {
@@ -212,8 +212,8 @@ onMounted(() => {
 }
 
 .nest-audit__decision[data-decision='allowed'] {
-  border-color: var(--nest-accent, #4f7cff);
-  color: var(--nest-accent, #4f7cff);
+  border-color: var(--nest-accent);
+  color: var(--nest-accent);
 }
 
 .nest-audit__decision[data-decision='denied'] {
@@ -225,21 +225,21 @@ onMounted(() => {
   display: flex;
   gap: 12px;
   margin-top: 4px;
-  color: var(--nest-muted, #8a8f98);
+  color: var(--nest-muted);
 }
 
 .nest-audit__digest {
   margin-top: 4px;
   font-family: ui-monospace, monospace;
   font-size: 10px;
-  color: var(--nest-muted, #6b7280);
+  color: var(--nest-muted);
   word-break: break-all;
 }
 
 .nest-audit__empty {
   margin: 8px 0;
   font-size: 13px;
-  color: var(--nest-muted, #8a8f98);
+  color: var(--nest-muted);
 }
 
 .nest-audit__clear {

@@ -265,8 +265,8 @@ onMounted(refresh)
   justify-content: center;
   min-height: 100%;
   padding: 2rem 1.5rem;
-  background: var(--bg-page, #f6f7f9);
-  color: var(--text-primary, #1f2329);
+  background: var(--nest-bg);
+  color: var(--nest-text);
 }
 
 .nest-vault__card {
@@ -276,9 +276,9 @@ onMounted(refresh)
   width: 100%;
   max-width: 26rem;
   padding: 1.75rem 1.5rem;
-  border: 1px solid var(--border-secondary, #e5e6eb);
-  border-radius: var(--radius-card, 12px);
-  background: var(--bg-surface, #ffffff);
+  border: 1px solid var(--nest-border);
+  border-radius: var(--nest-radius-card);
+  background: var(--nest-surface);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.04);
 }
 
@@ -289,7 +289,7 @@ onMounted(refresh)
 }
 
 .nest-vault__icon {
-  color: var(--accent-primary, #2f6fed);
+  color: var(--nest-accent);
   flex-shrink: 0;
 }
 
@@ -317,13 +317,13 @@ onMounted(refresh)
 }
 
 .nest-vault__badge--ok {
-  color: var(--success, #1a7f37);
-  background: var(--success-bg, #e8f5ec);
+  color: var(--nest-ok);
+  background: var(--nest-ok-bg);
 }
 
 .nest-vault__badge--locked {
-  color: var(--text-secondary, #646a73);
-  background: var(--bg-hover, #f2f3f5);
+  color: var(--nest-muted);
+  background: var(--nest-surface-2);
 }
 
 .nest-vault__hint {
@@ -335,7 +335,7 @@ onMounted(refresh)
 .nest-vault__error {
   margin: 0;
   font-size: 0.8125rem;
-  color: var(--danger, #d4380d);
+  color: var(--nest-danger-ink);
   word-break: break-all;
 }
 
@@ -361,31 +361,31 @@ onMounted(refresh)
 
 .nest-vault__field input {
   padding: 0.5rem 0.7rem;
-  border: 1px solid var(--border-secondary, #d0d3d9);
-  border-radius: var(--radius-input, 8px);
-  background: var(--bg-input, #ffffff);
-  color: var(--text-primary, #1f2329);
+  border: 1px solid var(--nest-border-input);
+  border-radius: var(--nest-radius-input);
+  background: var(--nest-input);
+  color: var(--nest-text);
   font-size: 0.875rem;
 }
 
 .nest-vault__field input:focus {
   outline: none;
-  border-color: var(--accent-primary, #2f6fed);
-  box-shadow: 0 0 0 3px var(--accent-bg, #eaf1fe);
+  border-color: var(--nest-accent);
+  box-shadow: 0 0 0 3px var(--nest-primary-soft);
 }
 
 .nest-vault__btn {
   padding: 0.5rem 1rem;
-  border: 1px solid var(--border-secondary, #d0d3d9);
-  border-radius: var(--radius-btn, 8px);
-  background: var(--bg-surface, #ffffff);
-  color: var(--text-primary, #1f2329);
+  border: 1px solid var(--nest-border-input);
+  border-radius: var(--nest-radius-ctl);
+  background: var(--nest-surface);
+  color: var(--nest-text);
   font-size: 0.875rem;
   cursor: pointer;
 }
 
 .nest-vault__btn:hover:not(:disabled) {
-  background: var(--bg-hover, #f2f3f5);
+  background: var(--nest-surface-2);
 }
 
 .nest-vault__btn:disabled {
@@ -394,13 +394,13 @@ onMounted(refresh)
 }
 
 .nest-vault__btn--primary {
-  background: var(--accent-primary, #2f6fed);
-  border-color: var(--accent-primary, #2f6fed);
+  background: var(--nest-accent);
+  border-color: var(--nest-accent);
   color: #ffffff;
 }
 
 .nest-vault__btn--primary:hover:not(:disabled) {
-  background: var(--accent-primary-hover, #2557d6);
+  background: var(--nest-accent);
 }
 
 .nest-vault__actions {

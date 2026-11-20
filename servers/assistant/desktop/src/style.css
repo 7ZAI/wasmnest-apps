@@ -9,6 +9,8 @@
  * 骨架阶段的占位页样式在共享组件 `shared/components/PlaceholderView.vue`
  * 内以 scoped 样式自持（双端同一份）；后续界面样式随共享核续接。
  */
+@import '../../shared/theme/nest-tokens.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -20,4 +22,11 @@
   flex-direction: column;
   height: 100%;
   min-height: 0;
+}
+
+.nest-app {
+  position: relative;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
 }

@@ -176,8 +176,8 @@ function remove(p: ProviderRecord): void {
 
 <style scoped>
 .nest-settings {
-  background: var(--nest-surface, #232833);
-  border-left: 1px solid var(--nest-border, #3a4150);
+  background: var(--nest-surface);
+  border-left: 1px solid var(--nest-border);
   padding: 16px;
   overflow-y: auto;
   max-height: 100%;
@@ -192,19 +192,19 @@ function remove(p: ProviderRecord): void {
 .nest-settings__header h3 {
   margin: 0;
   font-size: 16px;
-  color: var(--nest-text, #e8eaf0);
+  color: var(--nest-text);
 }
 
 .nest-settings__close {
   background: none;
   border: none;
-  color: var(--nest-muted, #8a8f98);
+  color: var(--nest-muted);
   cursor: pointer;
   font-size: 13px;
 }
 
 .nest-settings__error {
-  color: var(--nest-error-text, #f0b4ae);
+  color: var(--nest-danger-ink);
   font-size: 13px;
 }
 
@@ -218,7 +218,7 @@ function remove(p: ProviderRecord): void {
 }
 
 .nest-settings__item {
-  border: 1px solid var(--nest-border, #3a4150);
+  border: 1px solid var(--nest-border);
   border-radius: 10px;
   padding: 10px 12px;
 }
@@ -231,31 +231,31 @@ function remove(p: ProviderRecord): void {
 
 .nest-settings__name {
   font-size: 14px;
-  color: var(--nest-text, #e8eaf0);
+  color: var(--nest-text);
 }
 
 .nest-settings__badge {
   margin-left: 6px;
   font-size: 11px;
-  color: var(--nest-accent, #4f7cff);
-  border: 1px solid var(--nest-accent, #4f7cff);
+  color: var(--nest-accent);
+  border: 1px solid var(--nest-accent);
   border-radius: 6px;
   padding: 0 6px;
 }
 
 .nest-settings__meta {
   font-size: 12px;
-  color: var(--nest-muted, #8a8f98);
+  color: var(--nest-muted);
   word-break: break-all;
 }
 
 .nest-settings__key {
   font-size: 12px;
-  color: var(--nest-ok, #7ec699);
+  color: var(--nest-ok);
 }
 
 .nest-settings__key--off {
-  color: var(--nest-warn, #e0b341);
+  color: var(--nest-warn);
 }
 
 .nest-settings__item-actions {
@@ -265,9 +265,9 @@ function remove(p: ProviderRecord): void {
 }
 
 .nest-settings__btn {
-  border: 1px solid var(--nest-border, #3a4150);
+  border: 1px solid var(--nest-border);
   background: transparent;
-  color: var(--nest-text, #e8eaf0);
+  color: var(--nest-text);
   border-radius: 8px;
   padding: 4px 10px;
   font-size: 12px;
@@ -275,27 +275,27 @@ function remove(p: ProviderRecord): void {
 }
 
 .nest-settings__btn:hover {
-  border-color: var(--nest-accent, #4f7cff);
+  border-color: var(--nest-accent);
 }
 
 .nest-settings__btn--primary {
-  background: var(--nest-accent, #4f7cff);
-  border-color: var(--nest-accent, #4f7cff);
+  background: var(--nest-accent);
+  border-color: var(--nest-accent);
   color: #fff;
 }
 
 .nest-settings__btn--danger:hover {
-  border-color: var(--nest-error, #c0392b);
-  color: var(--nest-error-text, #f0b4ae);
+  border-color: var(--nest-danger);
+  color: var(--nest-danger-ink);
 }
 
 .nest-settings__empty {
   font-size: 13px;
-  color: var(--nest-muted, #8a8f98);
+  color: var(--nest-muted);
 }
 
 .nest-settings__form {
-  border-top: 1px solid var(--nest-border, #3a4150);
+  border-top: 1px solid var(--nest-border);
   padding-top: 12px;
   display: flex;
   flex-direction: column;
@@ -305,7 +305,7 @@ function remove(p: ProviderRecord): void {
 .nest-settings__form h4 {
   margin: 0;
   font-size: 14px;
-  color: var(--nest-text, #e8eaf0);
+  color: var(--nest-text);
 }
 
 .nest-settings__field {
@@ -313,14 +313,14 @@ function remove(p: ProviderRecord): void {
   flex-direction: column;
   gap: 4px;
   font-size: 12px;
-  color: var(--nest-muted, #8a8f98);
+  color: var(--nest-muted);
 }
 
 .nest-settings__field input {
   border-radius: 8px;
-  border: 1px solid var(--nest-border, #3a4150);
-  background: var(--nest-surface-2, #2a2f3a);
-  color: var(--nest-text, #e8eaf0);
+  border: 1px solid var(--nest-border);
+  background: var(--nest-surface-2);
+  color: var(--nest-text);
   padding: 8px 10px;
   font-size: 13px;
   font-family: inherit;
@@ -328,7 +328,7 @@ function remove(p: ProviderRecord): void {
 
 .nest-settings__field input:focus {
   outline: none;
-  border-color: var(--nest-accent, #4f7cff);
+  border-color: var(--nest-accent);
 }
 
 .nest-settings__form-actions {
@@ -339,7 +339,7 @@ function remove(p: ProviderRecord): void {
 .nest-settings__hint {
   margin: 0;
   font-size: 11px;
-  color: var(--nest-muted, #8a8f98);
+  color: var(--nest-muted);
   line-height: 1.5;
 }
 </style>

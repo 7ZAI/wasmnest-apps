@@ -102,16 +102,16 @@ function stateLabel(card: ToolCardState): string {
 }
 
 .nest-tool {
-  border: 1px solid var(--nest-border, #3a4150);
+  border: 1px solid var(--nest-border);
   border-radius: 10px;
-  background: var(--nest-surface-2, #2a2f3a);
+  background: var(--nest-surface-2);
   padding: 8px 12px;
   font-size: 12px;
-  color: var(--nest-text, #e8eaf0);
+  color: var(--nest-text);
 }
 
 .nest-tool--awaiting {
-  border-color: var(--nest-accent, #4f7cff);
+  border-color: var(--nest-accent);
 }
 
 .nest-tool--error,
@@ -135,14 +135,14 @@ function stateLabel(card: ToolCardState): string {
 }
 
 .nest-tool__app {
-  color: var(--nest-muted, #8a8f98);
+  color: var(--nest-muted);
 }
 
 .nest-tool__risk {
   padding: 1px 8px;
   border-radius: 999px;
-  border: 1px solid var(--nest-border, #3a4150);
-  color: var(--nest-muted, #8a8f98);
+  border: 1px solid var(--nest-border);
+  color: var(--nest-muted);
 }
 
 .nest-tool__risk[data-risk='write'] {
@@ -157,7 +157,7 @@ function stateLabel(card: ToolCardState): string {
 
 .nest-tool__state {
   margin-left: auto;
-  color: var(--nest-muted, #8a8f98);
+  color: var(--nest-muted);
 }
 
 .nest-tool__args,
@@ -169,7 +169,7 @@ function stateLabel(card: ToolCardState): string {
 }
 
 .nest-tool__label {
-  color: var(--nest-muted, #8a8f98);
+  color: var(--nest-muted);
   flex-shrink: 0;
 }
 
@@ -178,14 +178,14 @@ function stateLabel(card: ToolCardState): string {
   font-family: ui-monospace, monospace;
   font-size: 11px;
   word-break: break-all;
-  color: var(--nest-muted, #aab0bb);
+  color: var(--nest-muted);
 }
 
 .nest-tool__confirm {
   margin-top: 8px;
   padding: 8px;
   border-radius: 8px;
-  background: var(--nest-surface, #232833);
+  background: var(--nest-surface);
 }
 
 .nest-tool__confirm-text {
@@ -214,9 +214,9 @@ function stateLabel(card: ToolCardState): string {
 }
 
 .nest-tool__btn--approve {
-  border-color: var(--nest-accent, #4f7cff);
-  background: var(--nest-accent, #4f7cff);
-  color: var(--nest-surface, #232833);
+  border-color: var(--nest-accent);
+  background: var(--nest-accent);
+  color: var(--nest-surface);
 }
 
 .nest-tool__btn--reject {

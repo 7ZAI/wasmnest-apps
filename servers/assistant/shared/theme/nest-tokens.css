@@ -1,0 +1,91 @@
+/**
+ * Nest 界面主题别名
+ *
+ * 单一映射层：桌面优先取宿主 token，移动端回退到 `--mobile-*`，两端都缺时用
+ * 中性值。宿主 token 自己随深浅主题切换，所以主路径不需要两套颜色；只有第三级
+ * 兜底在 `html.dark` 下换成深色。
+ *
+ * 约束：只在 `.nest-app` 作用域声明，不写 `:root` / `html` / `body`，避免覆盖
+ * 宿主自己的主题变量。
+ */
+
+.nest-app {
+  --nest-bg: var(--bg-page, var(--mobile-bg-primary, #f5f4f0));
+  --nest-sidebar: var(--bg-sidebar, var(--mobile-bg-secondary, #efede7));
+  --nest-surface: var(--bg-card, var(--mobile-bg-card, #fdfcfa));
+  --nest-surface-2: var(--bg-hover, var(--mobile-bg-elevated, #e7e4dc));
+  --nest-elevated: var(--bg-card, var(--mobile-bg-elevated, #fdfcfa));
+  --nest-input: var(--bg-input, var(--mobile-bg-primary, #fdfcfa));
+
+  --nest-text: var(--text-primary, var(--mobile-text-primary, #26231b));
+  --nest-muted: var(--text-secondary, var(--mobile-text-secondary, #5e584c));
+  --nest-faint: var(--text-tertiary, var(--mobile-text-muted, #736b58));
+
+  --nest-border: var(--border, var(--mobile-border, #e4e1d8));
+  --nest-border-strong: var(--border-strong, var(--mobile-border-hover, #d6d2c4));
+  --nest-border-input: var(--border-input, var(--mobile-border, #d6d2c4));
+
+  --nest-accent: var(--color-info, var(--mobile-info, #2563eb));
+  --nest-on-accent: var(--color-primary-contrast, var(--mobile-text-on-accent, #fdfcfa));
+  --nest-primary: var(--color-primary, var(--mobile-accent, #1d1a14));
+  --nest-on-primary: var(--color-primary-contrast, var(--mobile-text-on-accent, #fdfcfa));
+  --nest-primary-soft: var(--color-primary-light, var(--mobile-accent-muted, #efede5));
+
+  --nest-danger: var(--color-danger, var(--mobile-error, #ef4444));
+  --nest-danger-ink: var(--color-danger-ink, var(--mobile-error, #b91c1c));
+  --nest-danger-bg: var(--color-danger-light, var(--mobile-error-muted, rgba(239, 68, 68, 0.12)));
+  --nest-ok: var(--color-success, var(--mobile-success, #22c55e));
+  --nest-ok-bg: var(--color-success-light, var(--mobile-success-muted, rgba(34, 197, 94, 0.14)));
+  --nest-warn: var(--color-warning, var(--mobile-warning, #f59e0b));
+
+  --nest-radius-card: var(--radius-card, 10px);
+  --nest-radius-ctl: var(--radius-button, 8px);
+  --nest-radius-input: var(--radius-input, 8px);
+  --nest-radius-pill: 22px;
+
+  --nest-shadow-1: var(--shadow-card, 0 1px 2px rgba(38, 35, 27, 0.06));
+  --nest-shadow-focus: var(--shadow-input-focus, 0 0 0 3px rgba(37, 99, 235, 0.16));
+  --nest-focus: var(--focus-ring-color, #2563eb);
+  --nest-focus-width: var(--focus-ring-width, 2px);
+  --nest-focus-offset: var(--focus-ring-offset, 2px);
+
+  --nest-motion-fast: var(--motion-duration-fast, 130ms);
+  --nest-motion-base: var(--motion-duration-base, 200ms);
+
+  --nest-font-xs: var(--font-size-xs, calc(10px * var(--ui-scale, 1)));
+  --nest-font-sm: var(--font-size-sm, calc(11px * var(--ui-scale, 1)));
+  --nest-font-md: var(--font-size-base, calc(12px * var(--ui-scale, 1)));
+  --nest-font-lg: var(--font-size-lg, calc(14px * var(--ui-scale, 1)));
+  --nest-font-xl: var(--font-size-xl, calc(16px * var(--ui-scale, 1)));
+  --nest-font-mono: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+
+  background: var(--nest-bg);
+  color: var(--nest-text);
+}
+
+html.dark .nest-app {
+  --nest-bg: var(--bg-page, var(--mobile-bg-primary, #15130f));
+  --nest-sidebar: var(--bg-sidebar, var(--mobile-bg-secondary, #191712));
+  --nest-surface: var(--bg-card, var(--mobile-bg-card, #1d1a15));
+  --nest-surface-2: var(--bg-hover, var(--mobile-bg-elevated, #2a261e));
+  --nest-elevated: var(--bg-card, var(--mobile-bg-elevated, #1d1a15));
+  --nest-input: var(--bg-input, var(--mobile-bg-primary, #1d1a15));
+
+  --nest-text: var(--text-primary, var(--mobile-text-primary, #ece8dc));
+  --nest-muted: var(--text-secondary, var(--mobile-text-secondary, #aaa393));
+  --nest-faint: var(--text-tertiary, var(--mobile-text-muted, #948c79));
+
+  --nest-border: var(--border, var(--mobile-border, #2e2a22));
+  --nest-border-strong: var(--border-strong, var(--mobile-border-hover, #3c372b));
+  --nest-border-input: var(--border-input, var(--mobile-border, #3c372b));
+
+  --nest-accent: var(--color-info, var(--mobile-info, #60a5fa));
+  --nest-on-accent: var(--color-primary-contrast, var(--mobile-text-on-accent, #15130f));
+  --nest-primary: var(--color-primary, var(--mobile-accent, #ece8dc));
+  --nest-on-primary: var(--color-primary-contrast, var(--mobile-text-on-accent, #15130f));
+  --nest-primary-soft: var(--color-primary-light, var(--mobile-accent-muted, rgba(236, 232, 220, 0.12)));
+
+  --nest-ok-bg: var(--color-success-light, var(--mobile-success-muted, rgba(34, 197, 94, 0.15)));
+  --nest-danger-ink: var(--color-danger-ink, var(--mobile-error, #f87171));
+  --nest-danger-bg: var(--color-danger-light, var(--mobile-error-muted, rgba(239, 68, 68, 0.15)));
+}

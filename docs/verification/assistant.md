@@ -87,3 +87,48 @@
 - 自动化：§0 表格命令重跑，结果更新到表格。
 - 手工：§2 脚本在真机 / 真宿主执行后逐条打勾，未跑项留在 §3 并写明阻塞原因。
 - 跨仓联动：平台 `release-manifest.json`、构建注册表、`hostAppBoundaryLock`、权限词汇锁随应用仓变更同步（锁红先查清单同步，再查代码）。
+---
+
+## 5. 2026-11-20 界面与浮窗重构（本地预览实测）
+
+### 5.1 变更范围
+
+- 主题：新增 `shared/theme/nest-tokens.css`，只在 `.nest-app` 内把宿主 token 映射为 `--nest-*`；组件内暗色兜底字面量全部移除。
+- 消息区：内容列限宽 800px 居中；助手消息改为文本流 + 轻量 Markdown（标题 / 列表 / 粗体 / 行内代码 / 代码块，自研解析、无 `v-html`）；用户消息保留右对齐气泡。
+- 侧栏 / 输入区：新建按钮实心、底部入口 32px 命中区、窄窗口抽屉；输入框胶囊化（22px 圆角）、聚焦描边、自适应高度、发送按钮图标化。
+- 形象：`NestMascot` 六态（空闲 / 思考 / 流式 / 工具 / 错误 / 锁定），纯内联 SVG；动效可关并尊重减少动态效果。
+- 浮球与小窗：桌面启用（`interactiveFloat`），应用内浮球可拖拽、夹紧、持久化；小窗只承载当前会话，管理页留整页；整页可收起为浮球。
+- 预览工具：`servers/assistant/desktop/src/preview/` + `preview.vite.config.ts` + `scripts/capture-preview.mjs`，不进入产品产物、不改平台仓。
+
+### 5.2 本地预览截图基线（1440×900，宿主 token）
+
+| 状态 | 截图 | 关键实测 |
+| --- | --- | --- |
+| 对话页 · 浅色 | `s3-sidebar-light.png` | 侧栏 220px / 背景 `#efede7`；消息列 800px 居中；新建按钮实心 `#1d1a14` |
+| 对话页 · 深色 | `s1-tokens-dark.png` | `.nest-app` 背景 `#15130f`、正文 `#ece8dc`；无浅色残留 |
+| 锁定页 · 浅 / 深 | `s1-locked-light.png` / `s1-locked-dark.png` | 锁定卡片使用同一 token 层，深色下不再恒浅 |
+| 窄窗口 720×600 | `s3-narrow-light.png` | 侧栏抽屉默认移出（x=-260），主区 720px |
+| 浮球 | `s5-floatball-light.png` | 浮球 52px，右下角默认位；无整页 DOM |
+| 小窗 | `s5-panel-light.png` | 380×520，Markdown 块 7 个，消息 4 条，输入区可聚焦 |
+| 形象六态 | `s4-mascot-light.png` | 六态并排；锁定态使用盖子 + 方形光点，与空闲态结构不同 |
+
+截图与探针 JSON 位于 `.scratch/2026-11-20-assistant-floating-ui/shots/`（本地未跟踪）。
+
+### 5.3 本轮已跑命令
+
+| 项 | 命令 | 结果 |
+| --- | --- | --- |
+| 桌面单测 | `pnpm run test:run`（`servers/assistant/desktop`） | **195 passed**（16 文件；新增 Markdown / 形象状态 / 浮球夹紧 / 形象组件） |
+| 前端构建 | `pnpm run build:frontend` | **绿**，`dist/index.js` 364.00 kB（gzip 106.50 kB） |
+| 应用仓 lint | `pnpm run lint`（worktree 根） | **0 error**（43 warning，均为既有或风格类） |
+| 预览截图 | `node scripts/capture-preview.mjs --state ...` | **绿**，见 §5.2 |
+
+### 5.4 未跑项与风险
+
+| 项 | 状态 | 说明 |
+| --- | --- | --- |
+| 真实宿主目验（`pnpm run dev:host`） | ⏭ 未跑 | 需要与 `host-runtime.lock.json` 匹配的宿主产物；本机 lock 与平台 SDK/WIT 版本存在既有漂移风险 |
+| 桌面 E2E（`node scripts/e2e.mjs --app assistant`） | ⏭ 未跑 | 仓库此前没有 `assistant.spec.ts`；真实宿主前置未满足。新增锚点已就绪（`nest-floatball`、`nest-quickpanel`、`nest-quickpanel-close`、`nest-quickpanel-expand`、`nest-collapse-to-float`、`nest-mascot`） |
+| 移动端真机 | ⏭ 未跑 | 移动端本期不启用浮球（`interactiveFloat` 缺省 false），共享组件改动需真机回归 |
+| 动效与真实流式 | ⏭ 未验 | 预览用 mock 流式与静态状态；真实 provider / 权限 / 加密链路需真实宿主 |
+| 图片 / 语音 / 附件 | ⏭ 不做 | 本期非目标，未引入 |

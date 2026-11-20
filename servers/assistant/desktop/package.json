@@ -9,6 +9,8 @@
     "build:rust": "node scripts/build.js --rust-only",
     "build": "node scripts/build.js",
     "dev": "node scripts/build.js --watch",
+    "preview": "vite --config preview.vite.config.ts",
+    "capture:preview": "node scripts/capture-preview.mjs",
     "dev:host": "node scripts/dev-host.js",
     "test:run": "vitest run",
     "test": "vitest"

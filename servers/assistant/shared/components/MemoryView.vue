@@ -362,8 +362,8 @@ onMounted(() => {
   z-index: 10;
   overflow-y: auto;
   padding: 16px;
-  background: var(--nest-surface, #232833);
-  color: var(--nest-text, #e8eaf0);
+  background: var(--nest-surface);
+  color: var(--nest-text);
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -383,13 +383,13 @@ onMounted(() => {
 .nest-memory__subtitle {
   margin: 4px 0 0;
   font-size: 12px;
-  color: var(--nest-muted, #8a8f98);
+  color: var(--nest-muted);
 }
 
 .nest-memory__close {
-  border: 1px solid var(--nest-border, #3a4150);
+  border: 1px solid var(--nest-border);
   background: transparent;
-  color: var(--nest-text, #e8eaf0);
+  color: var(--nest-text);
   border-radius: 8px;
   padding: 6px 12px;
   cursor: pointer;
@@ -411,7 +411,7 @@ onMounted(() => {
 .nest-memory__hint {
   margin: 0;
   font-size: 12px;
-  color: var(--nest-muted, #8a8f98);
+  color: var(--nest-muted);
 }
 
 .nest-memory__error {
@@ -423,8 +423,8 @@ onMounted(() => {
 }
 
 .nest-memory__notice {
-  border: 1px solid var(--nest-accent, #4f7cff);
-  color: var(--nest-accent, #4f7cff);
+  border: 1px solid var(--nest-accent);
+  color: var(--nest-accent);
   border-radius: 8px;
   padding: 8px 10px;
   font-size: 12px;
@@ -436,9 +436,9 @@ onMounted(() => {
 }
 
 .nest-memory__tab {
-  border: 1px solid var(--nest-border, #3a4150);
+  border: 1px solid var(--nest-border);
   background: transparent;
-  color: var(--nest-muted, #8a8f98);
+  color: var(--nest-muted);
   border-radius: 8px;
   padding: 6px 12px;
   cursor: pointer;
@@ -446,8 +446,8 @@ onMounted(() => {
 }
 
 .nest-memory__tab--active {
-  border-color: var(--nest-accent, #4f7cff);
-  color: var(--nest-accent, #4f7cff);
+  border-color: var(--nest-accent);
+  color: var(--nest-accent);
 }
 
 .nest-memory__tab-count {
@@ -463,10 +463,10 @@ onMounted(() => {
 
 .nest-memory__select,
 .nest-memory__input {
-  background: var(--nest-surface-2, #2a2f3a);
-  border: 1px solid var(--nest-border, #3a4150);
+  background: var(--nest-surface-2);
+  border: 1px solid var(--nest-border);
   border-radius: 8px;
-  color: var(--nest-text, #e8eaf0);
+  color: var(--nest-text);
   font-size: 12px;
   padding: 6px 8px;
 }
@@ -478,7 +478,7 @@ onMounted(() => {
 .nest-memory__inbox-hint {
   margin: 0;
   font-size: 12px;
-  color: var(--nest-muted, #8a8f98);
+  color: var(--nest-muted);
 }
 
 .nest-memory__list {
@@ -491,10 +491,10 @@ onMounted(() => {
 }
 
 .nest-memory__item {
-  border: 1px solid var(--nest-border, #3a4150);
+  border: 1px solid var(--nest-border);
   border-radius: 10px;
   padding: 10px 12px;
-  background: var(--nest-surface-2, #2a2f3a);
+  background: var(--nest-surface-2);
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -515,14 +515,14 @@ onMounted(() => {
   font-size: 11px;
   padding: 2px 8px;
   border-radius: 999px;
-  background: var(--nest-surface, #232833);
-  border: 1px solid var(--nest-border, #3a4150);
-  color: var(--nest-muted, #8a8f98);
+  background: var(--nest-surface);
+  border: 1px solid var(--nest-border);
+  color: var(--nest-muted);
 }
 
 .nest-memory__ref {
   font-size: 11px;
-  color: var(--nest-muted, #8a8f98);
+  color: var(--nest-muted);
 }
 
 .nest-memory__value {
@@ -536,14 +536,14 @@ onMounted(() => {
 .nest-memory__source {
   margin: 0;
   font-size: 11px;
-  color: var(--nest-muted, #8a8f98);
+  color: var(--nest-muted);
 }
 
 .nest-memory__textarea {
-  background: var(--nest-surface, #232833);
-  border: 1px solid var(--nest-accent, #4f7cff);
+  background: var(--nest-surface);
+  border: 1px solid var(--nest-accent);
   border-radius: 8px;
-  color: var(--nest-text, #e8eaf0);
+  color: var(--nest-text);
   font-size: 13px;
   padding: 6px 8px;
   resize: vertical;
@@ -555,9 +555,9 @@ onMounted(() => {
 }
 
 .nest-memory__btn {
-  border: 1px solid var(--nest-border, #3a4150);
+  border: 1px solid var(--nest-border);
   background: transparent;
-  color: var(--nest-text, #e8eaf0);
+  color: var(--nest-text);
   border-radius: 8px;
   padding: 5px 12px;
   cursor: pointer;
@@ -565,8 +565,8 @@ onMounted(() => {
 }
 
 .nest-memory__btn--primary {
-  border-color: var(--nest-accent, #4f7cff);
-  color: var(--nest-accent, #4f7cff);
+  border-color: var(--nest-accent);
+  color: var(--nest-accent);
 }
 
 .nest-memory__btn--danger {
@@ -577,7 +577,7 @@ onMounted(() => {
 .nest-memory__empty {
   margin: 8px 0;
   font-size: 13px;
-  color: var(--nest-muted, #8a8f98);
+  color: var(--nest-muted);
 }
 
 .nest-memory__clear {

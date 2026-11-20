@@ -1,38 +1,75 @@
 <script setup lang="ts">
 /**
- * Nest 输入区（共享组件，双端同构 · 票 08）
+ * Nest 输入区（共享组件，双端同构）
  *
- * 文本框 + 发送 / 停止。流式进行中显示「停止」；前置条件失败（无 provider /
+ * 胶囊输入框 + 自适应高度；流式进行中显示停止。前置条件失败（无 provider /
  * 保险库未解锁等）在框上方点名，不静默。
  */
-import { ref } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 
 const props = defineProps<{
   /** 流式进行中：发送禁用、显示停止 */
   streaming: boolean
+  /** 外部禁用（锁定 / 未就绪） */
+  busy?: boolean
   /** 前置条件错误（点名缺什么） */
   errorMessage?: string
+  /** 受控输入；不传时组件内部自持 */
+  modelValue?: string
   t: (key: string) => string
 }>()
 
-const emit = defineEmits<{ send: [text: string]; stop: []; stopAndLock: [] }>()
+const emit = defineEmits<{
+  send: [text: string]
+  stop: []
+  stopAndLock: []
+  'update:modelValue': [text: string]
+}>()
 
-const text = ref('')
+const inner = ref('')
+const inputRef = ref<HTMLTextAreaElement | null>(null)
+
+const text = computed({
+  get: () => props.modelValue ?? inner.value,
+  set: (value: string) => {
+    inner.value = value
+    emit('update:modelValue', value)
+  },
+})
+
+const disabled = computed(() => Boolean(props.busy) || props.streaming)
+const canSend = computed(() => text.value.trim().length > 0 && !disabled.value)
+
+function autosize(): void {
+  const element = inputRef.value
+  if (!element) return
+  element.style.height = 'auto'
+  element.style.height = `${Math.min(element.scrollHeight, 160)}px`
+}
+
+watch(text, () => void nextTick(autosize))
 
 function submit(): void {
   const content = text.value.trim()
-  if (!content || props.streaming) return
+  if (!content || disabled.value) return
   emit('send', content)
-  text.value = ''
+  if (props.modelValue === undefined) inner.value = ''
+  else emit('update:modelValue', '')
 }
 
-function onKeydown(e: KeyboardEvent): void {
-  // Enter 发送，Shift+Enter 换行
-  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
-    e.preventDefault()
+function onKeydown(event: KeyboardEvent): void {
+  // Enter 发送，Shift+Enter 换行；组字中不发送
+  if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
+    event.preventDefault()
     submit()
   }
 }
+
+function focus(): void {
+  inputRef.value?.focus()
+}
+
+defineExpose({ focus })
 </script>
 
 <template>
@@ -42,12 +79,14 @@ function onKeydown(e: KeyboardEvent): void {
     </p>
     <div class="nest-composer__row">
       <textarea
+        ref="inputRef"
         v-model="text"
         class="nest-composer__input"
         data-testid="nest-composer-input"
         :placeholder="t('assistant.chat.placeholder')"
         rows="1"
-        :disabled="streaming"
+        :disabled="disabled"
+        @input="autosize"
         @keydown="onKeydown"
       />
       <button
@@ -73,10 +112,21 @@ function onKeydown(e: KeyboardEvent): void {
         type="button"
         class="nest-composer__send"
         data-testid="nest-composer-send"
-        :disabled="!text.trim()"
+        :disabled="!canSend"
+        :aria-label="t('assistant.chat.send')"
+        :title="t('assistant.chat.send')"
         @click="submit"
       >
-        {{ t('assistant.chat.send') }}
+        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+          <path
+            d="M4.5 12h14M13 6.5 18.5 12 13 17.5"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </svg>
       </button>
     </div>
   </div>
@@ -84,55 +134,73 @@ function onKeydown(e: KeyboardEvent): void {
 
 <style scoped>
 .nest-composer {
-  border-top: 1px solid var(--nest-border, #3a4150);
-  padding: 12px 16px;
-  background: var(--nest-surface, #232833);
+  border-top: 1px solid var(--nest-border);
+  padding: 12px 16px 16px;
+  background: var(--nest-bg);
 }
 
 .nest-composer__error {
   margin: 0 0 8px;
-  font-size: 13px;
-  color: var(--nest-error-text, #f0b4ae);
+  font-size: var(--nest-font-sm);
+  color: var(--nest-danger-ink);
 }
 
 .nest-composer__row {
   display: flex;
   gap: 10px;
   align-items: flex-end;
+  max-width: 800px;
+  margin: 0 auto;
 }
 
 .nest-composer__input {
   flex: 1;
+  min-height: 44px;
+  max-height: 160px;
   resize: none;
-  border-radius: 12px;
-  border: 1px solid var(--nest-border, #3a4150);
-  background: var(--nest-surface-2, #2a2f3a);
-  color: var(--nest-text, #e8eaf0);
-  padding: 10px 12px;
-  font-size: 14px;
+  border-radius: var(--nest-radius-pill);
+  border: 1px solid var(--nest-border-input);
+  background: var(--nest-input);
+  color: var(--nest-text);
+  padding: 11px 16px;
+  font-size: var(--nest-font-lg);
   font-family: inherit;
   line-height: 1.5;
-  max-height: 160px;
+  transition:
+    border-color var(--nest-motion-fast) ease,
+    box-shadow var(--nest-motion-fast) ease;
+}
+
+.nest-composer__input::placeholder {
+  color: var(--nest-faint);
 }
 
 .nest-composer__input:focus {
   outline: none;
-  border-color: var(--nest-accent, #4f7cff);
+  border-color: var(--nest-accent);
+  box-shadow: var(--nest-shadow-focus);
 }
 
 .nest-composer__send,
 .nest-composer__stop {
+  flex-shrink: 0;
   border: none;
-  border-radius: 12px;
-  padding: 10px 18px;
-  font-size: 14px;
+  border-radius: var(--nest-radius-pill);
+  height: 44px;
+  padding: 0 16px;
+  font-size: var(--nest-font-lg);
   cursor: pointer;
   white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .nest-composer__send {
-  background: var(--nest-accent, #4f7cff);
-  color: #fff;
+  width: 44px;
+  padding: 0;
+  background: var(--nest-accent);
+  color: var(--nest-on-accent);
 }
 
 .nest-composer__send:disabled {
@@ -140,14 +208,31 @@ function onKeydown(e: KeyboardEvent): void {
   cursor: not-allowed;
 }
 
+.nest-composer__send:focus-visible {
+  outline: var(--nest-focus-width) solid var(--nest-focus);
+  outline-offset: var(--nest-focus-offset);
+}
+
 .nest-composer__stop {
-  background: var(--nest-error, #c0392b);
-  color: #fff;
+  background: var(--nest-danger);
+  color: var(--nest-on-accent);
 }
 
 .nest-composer__stop-lock {
+  height: 44px;
+  flex-shrink: 0;
   background: transparent;
-  border: 1px solid var(--nest-error, #c0392b);
-  color: var(--nest-error-text, #f0b4ae);
+  border: 1px solid var(--nest-danger);
+  border-radius: var(--nest-radius-pill);
+  color: var(--nest-danger-ink);
+  padding: 0 14px;
+  font-size: var(--nest-font-md);
+  cursor: pointer;
+}
+
+@media (max-width: 760px) {
+  .nest-composer {
+    padding: 10px 12px 14px;
+  }
 }
 </style>
