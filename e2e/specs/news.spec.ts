@@ -48,11 +48,14 @@ import {
   isViewSelected,
   labelSet,
   openNews,
+  openReaderSettings,
   openSelect,
   openSettings,
   openSettingsTab,
   pickSelectOption,
+  readerEnabledState,
   selectCircleChip,
+  setReaderEnabled,
   SETTINGS_TABS,
   settingsPane,
   settingsTab,
@@ -300,6 +303,52 @@ describe('News（桌面端 · 宿主内挂载）', () => {
       '导出不含凭据表',
     )
     expectEqual(json.includes('secret'), false, '导出不含 secret 字段')
+  })
+
+  it('阅读 v2：默认关闭无入口；开启后失败可见；清除缓存有显性反馈', async function () {
+    this.timeout(120_000)
+    await openReaderSettings()
+    expectEqual(await visible('news-reader-settings'), true, '数据页有阅读区')
+    expectEqual(await readerEnabledState(), false, '阅读默认关闭')
+    expectEqual(await hasText('news-reader-usage'), true, '用量是显性状态')
+
+    // 空缓存也必须有显性反馈：先清一次，确认按钮展开后执行
+    await click('news-reader-clear-cache')
+    await waitFor('news-reader-clear-confirm')
+    await click('news-reader-clear-confirm-yes')
+    await waitFor('news-toast')
+    expectEqual(await hasText('news-toast'), true, '清除缓存有结果提示')
+    await waitGone('news-toast', 8_000)
+
+    await setReaderEnabled(true)
+    await closeSettings()
+
+    const state = await waitForFeedState()
+    if (state === 'empty') {
+      expectEqual(await visible('news-empty'), true, '无条目时详情链路走显性空态')
+    } else {
+      await waitForItems(1)
+      const itemTestId = await firstItemTestId()
+      await click(itemTestId as string)
+      await waitFor('news-detail')
+      expectEqual(await exists('news-reader-open'), true, '开启后详情出现阅读入口')
+      await click('news-reader-open')
+      await waitFor('news-reader')
+      await denyNetworkAuthPrompt(10_000)
+      await waitFor('news-reader-error', 60_000)
+      expectEqual(await hasText('news-reader-error'), true, '阅读失败有分类文案')
+      expectEqual(await exists('news-reader-retry'), true, '失败态有重试')
+      expectEqual(await exists('news-reader-copy'), true, '失败态有复制链接')
+      await click('news-reader-back')
+      await waitGone('news-reader')
+      expectEqual(await visible('news-detail'), true, '返回摘要仍在详情抽屉')
+      await click('news-detail-close')
+      await waitGone('news-detail')
+    }
+
+    await openReaderSettings()
+    await setReaderEnabled(false)
+    await closeSettings()
   })
 
   it('圈子：新建后出现在列表，圈子视图出现同名筛选 chip 且可选中', async () => {

@@ -135,6 +135,40 @@ export async function openSettingsTab(key: SettingsTab): Promise<void> {
   await waitFor(settingsPane(key))
 }
 
+/** 阅读开关的 DOM 勾选态（`checked` 是 property，不是 attribute） */
+export function readerEnabledState(): Promise<boolean> {
+  return browser.execute(() => {
+    const el = document.querySelector('[data-testid="news-reader-enabled"]') as HTMLInputElement | null
+    return el ? el.checked : false
+  })
+}
+
+/** 等阅读开关到达指定勾选态 */
+export async function waitForReaderEnabled(
+  expected: boolean,
+  timeout = 10_000,
+): Promise<void> {
+  await browser.waitUntil(async () => (await readerEnabledState()) === expected, {
+    timeout,
+    interval: 120,
+    timeoutMsg: `等待阅读开关 = ${expected} 超时`,
+  })
+}
+
+/** 设置 → 数据 → 阅读区 */
+export async function openReaderSettings(): Promise<void> {
+  await openSettings()
+  await openSettingsTab('data')
+  await waitFor('news-reader-settings')
+}
+
+/** 点击阅读开关并等待状态翻转 */
+export async function setReaderEnabled(enabled: boolean): Promise<void> {
+  if ((await readerEnabledState()) === enabled) return
+  await click('news-reader-enabled')
+  await waitForReaderEnabled(enabled)
+}
+
 /**
  * 源行按名称定位，返回后端分配的源 id（= 行的 `data-news-source`）
  *
